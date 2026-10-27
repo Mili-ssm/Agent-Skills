@@ -17,7 +17,8 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 
 | Method | Command |
 |---|---|
-| Manual | `claude plugin update agent-skills@mili-ssm`, or `/plugin` → Installed → Update now; then `/reload-plugins` |
+| Manual (shell) | `claude plugin marketplace update mili-ssm && claude plugin update agent-skills@mili-ssm`, then `/reload-plugins` or a new session. `plugin update` alone does not refresh the marketplace copy |
+| Manual (session) | `/plugin` → Marketplaces → `mili-ssm` → Update marketplace (refreshes and updates) |
 | Automatic | `/plugin` → Marketplaces → `mili-ssm` → Enable auto-update (the cloud script enables it) |
 
 ## Catalog
