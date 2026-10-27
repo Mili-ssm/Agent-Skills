@@ -23,9 +23,9 @@ Specialist agents need large principle catalogs (SOLID, ISTQB, Nielsen…). Embe
 - One edit updates every consumer of a catalog.
 - Agents depend on skill names staying stable.
 
-## Verification
+## Review 2026-10-27
 
-2026-10-27, Claude Code 2.1.311: plugin installed from GitHub; `agent-skills:doc-curator` reported `docs-principles` and `decision-records` preloaded and quoted `docs-principles` verbatim. Bare names resolve inside the plugin.
+Claude Code 2.1.311: plugin installed from GitHub; `agent-skills:doc-curator` reported `docs-principles` and `decision-records` preloaded and quoted `docs-principles` verbatim. Bare names resolve inside the plugin.
 
 ## Revisit if
 

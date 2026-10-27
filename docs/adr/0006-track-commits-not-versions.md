@@ -9,7 +9,7 @@ Claude Code computes a plugin's version from `plugin.json` `version`, then the m
 ## Decision
 
 - No `version` in `plugin.json` or `marketplace.json`: each commit on the default branch is a new version (12-char SHA).
-- Updates reach installs via `claude plugin marketplace update mili-ssm` + `claude plugin update agent-skills@mili-ssm` (verified 2026-10-27: `plugin update` alone reported "already at latest" on a stale marketplace copy), `/plugin` → Marketplaces → Update marketplace, or auto-update (off by default for third-party marketplaces; enable per install).
+- Updates reach installs via `claude plugin update`, `/plugin` → Marketplaces → Update marketplace, or auto-update (off by default for third-party marketplaces; enable per install).
 - Cloud sessions install the plugin from the environment setup script (README).
 
 ## Alternatives
@@ -26,3 +26,7 @@ Claude Code computes a plugin's version from `plugin.json` `version`, then the m
 ## Revisit if
 
 Other people depend on the plugin, or breaking changes need controlled rollout → pin `version` and follow `release-hygiene`.
+
+## Review 2026-10-27
+
+Verified on Claude Code 2.1.311: removing `version` moved an install from `0.1.0` to `931a3034b9a3`. `claude plugin update` alone reported "already at latest" on a stale marketplace copy; run `claude plugin marketplace update mili-ssm` first.

@@ -17,3 +17,7 @@ Ratings are auditable and reproducible; no cross-project numeric comparison.
 ## Revisit if
 
 A calibrated data source (e.g. historical decision outcomes) becomes available.
+
+## Review 2026-10-27
+
+"Same pattern for risk" means ordinal levels with written criteria and the evidence for each rating; domain scales (Nielsen 0–4, security critical…info) are allowed when declared in the skill.

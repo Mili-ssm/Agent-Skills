@@ -1,6 +1,6 @@
 # 0005 Distribute as a Claude Code plugin
 
-Status: accepted · Date: 2026-10-27
+Status: superseded by 0008 · Date: 2026-10-27
 
 ## Context
 

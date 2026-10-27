@@ -1,6 +1,6 @@
 # agent-skills
 
-Generic specialist skills and agents for Claude Code. Complements [Superpowers](https://github.com/obra/superpowers) (process) and Playwright (browser): adds professional lenses — architecture, QA, UX/UI, docs, requirements, security, performance.
+Generic specialist skills and agents for Claude Code. Complements [Superpowers](https://github.com/obra/superpowers) (process) and Playwright (browser): adds professional lenses — architecture, QA, UX/UI, docs, requirements, security, performance. Personal plugin of its owner (ADR 0008).
 
 ## Install
 
@@ -25,16 +25,16 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 
 ### Agents (fresh context, return a report)
 
-| Agent | Use when | Preloads | Model |
-|---|---|---|---|
-| `architect` | Assess/review/propose architecture | architecture-principles, decision-records | opus |
-| `qa-engineer` | Test strategy, gaps, case design, flaky tests, mutation | qa-principles | sonnet |
-| `ux-reviewer` | Usability + accessibility audit with screenshots/axe | ux-principles | sonnet |
-| `doc-curator` | Verify and compress documentation | docs-principles, decision-records | sonnet |
-| `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | opus |
-| `security-reviewer` | Source→sink review, threat model | security-principles | opus |
-| `pre-mortem` | Attack a plan before execution | — | opus |
-| `performance-analyst` | Measure, profile, optimize | — | sonnet |
+| Agent | Use when | Preloads | Model | Writes? |
+|---|---|---|---|---|
+| `architect` | Assess/review/propose architecture | architecture-principles, decision-records | opus | no |
+| `qa-engineer` | Test strategy, gaps, case design, flaky tests, mutation | qa-principles | sonnet | when asked |
+| `ux-reviewer` | Usability + accessibility audit with screenshots/axe | ux-principles | sonnet | no |
+| `doc-curator` | Verify and compress docs and prompts | docs-principles, decision-records | sonnet | when asked |
+| `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | opus | no |
+| `security-reviewer` | Source→sink review, threat model | security-principles | opus | no |
+| `pre-mortem` | Attack a plan before execution | — | opus | no |
+| `performance-analyst` | Measure, profile, optimize | — | sonnet | when asked |
 
 ### Skills
 
@@ -44,8 +44,8 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `change-impact` | Workflow | Before a significant change: blast radius, migration, rollback |
 | `refactoring` | Workflow | Behavior-preserving restructuring |
 | `decision-records` | Knowledge | ADRs and staleness rubric |
-| `docs-principles` | Knowledge | Writing/reviewing docs, CLAUDE.md, skills |
-| `architecture-principles` | Knowledge | Principles, patterns, smells, evaluation |
+| `docs-principles` | Knowledge | Docs, CLAUDE.md, skills and prompts (incl. Anthropic authoring guidance) |
+| `architecture-principles` | Knowledge | Principles, software laws, patterns, smells, evaluation |
 | `qa-principles` | Knowledge | Test design, strategy, test quality |
 | `ux-principles` | Knowledge + script | Heuristics, laws, WCAG, visual system, `ux_audit.py` |
 | `security-principles` | Knowledge | STRIDE, OWASP/ASVS, language specifics |
@@ -67,5 +67,13 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 ## Design
 
 - Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/)
-- Knowledge in skills, roles in agents (ADR 0001); dense English, budgets enforced (ADR 0002); interactive work in skills (ADR 0003); rubrics, not percentages (ADR 0004).
-- Validate before committing: `python3 scripts/validate.py` (and `claude plugin validate .`).
+- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005).
+
+## Develop
+
+| Step | Command |
+|---|---|
+| Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
+| Measure triggering (before/after any description or prompt change) | `claude plugin eval . --ablation none --model sonnet -j 4` |
+
+`evals/trigger/*` expect the matching skill (or the agent that preloads it) to fire; `evals/no-trigger/*` expect no plugin skill or agent.
