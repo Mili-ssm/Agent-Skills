@@ -39,6 +39,7 @@ Current as of 2026-10-27. Source: owner conversation and `intent-elicitation` in
 | Superpowers owns | This repo adds |
 |---|---|
 | `brainstorming` (new designs) | `intent-elicitation` + `consistency-auditor` (existing code/docs) |
+| `brainstorming` + `writing-plans` (invoked) | `feature-briefing` orchestrates them with parallel evidence, decision and pre-mortem |
 | `writing-plans` / `executing-plans` | `change-impact` (before the plan), `pre-mortem` (attacks the plan) |
 | `test-driven-development` (when to test) | `qa-engineer` / `qa-principles` (what to test, test quality) |
 | `requesting-code-review` (general) | `architect`, `security-reviewer`, `ux-reviewer` (specialist lenses) |

@@ -34,6 +34,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | opus | no |
 | `security-reviewer` | Source→sink review, threat model | security-principles | opus | no |
 | `pre-mortem` | Attack a plan before execution | — | opus | no |
+| `researcher` | Offloaded web research, one question, cited | web-research | haiku | no |
 | `performance-analyst` | Measure, profile, optimize | — | sonnet | when asked |
 
 ### Skills
@@ -41,6 +42,8 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | Skill | Kind | Use when |
 |---|---|---|
 | `intent-elicitation` | Workflow (interactive) | Intent/requirements unclear; interviews owner, records answers |
+| `feature-briefing` | Workflow (orchestrator) | Plan a new feature: brainstorm → parallel evidence → decision → plan → pre-mortem |
+| `web-research` | Workflow | Fan out cheap researchers; get cited findings |
 | `change-impact` | Workflow | Before a significant change: blast radius, migration, rollback |
 | `refactoring` | Workflow | Behavior-preserving restructuring |
 | `decision-records` | Knowledge | ADRs and staleness rubric |
@@ -68,6 +71,8 @@ Every skill is also invocable as `/agent-skills:<skill>`. Agents get explicit co
 | `/agent-skills:consistency-audit [mode] [scope]` | `consistency-auditor` |
 | `/agent-skills:premortem [plan]` | `pre-mortem` |
 | `/agent-skills:perf-review <target>` | `performance-analyst` |
+| `/agent-skills:research <question>` | parallel `researcher` (Haiku) |
+| `/agent-skills:brief <feature>` | `feature-briefing` workflow |
 
 ## Workflow with Superpowers
 
@@ -83,7 +88,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 ## Design
 
 - Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/)
-- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005).
+- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009).
 
 ## Develop
 
