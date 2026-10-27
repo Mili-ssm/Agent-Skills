@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Validate skills and agents against the repo contract (docs/requirements.md, N1-N2).
 
-Checks:
-  - Every skills/<name>/SKILL.md has frontmatter with `name` == <name> and a `description`
-    that states its trigger ("Use when" / "Use to" / "Use before" / "Use after").
+Checks (Anthropic skill-authoring rules + repo contract):
+  - Every skills/<name>/SKILL.md has frontmatter with `name` == <name> (<= 64 chars, lowercase,
+    digits, hyphens) and a `description` that says what it does first, then its trigger
+    ("Use when" / "Use to" / "Use before" / "Use after"), in third person, <= 1024 chars.
+  - Reference files over 100 lines start with a `## Contents` section (partial reads see scope).
   - Every agents/<name>.md has `name` == <name>, `description`, `tools`.
   - Line budgets: SKILL.md <= 150, agent <= 120.
   - Relative links to references/ or scripts/ inside a skill point to existing files.
@@ -25,6 +27,12 @@ SKILL_MAX_LINES = 150
 AGENT_MAX_LINES = 120
 # Accepted trigger openings for descriptions (N2).
 TRIGGER = re.compile(r"\bUse (when|to|before|after)\b")
+# Skill/agent name format and description limits from Anthropic's skill-authoring guide.
+NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
+DESCRIPTION_MAX = 1024
+# First/second-person openings break discovery: descriptions are injected into the system prompt.
+NOT_THIRD_PERSON = re.compile(r"\b(I can|I will|You can|you can)\b")
+REFERENCE_TOC_THRESHOLD = 100
 # Markdown links whose target starts with references/ or scripts/ (relative to the skill dir).
 LOCAL_LINK = re.compile(r"\]\(((?:references|scripts)/[^)#\s]+)")
 
@@ -61,6 +69,22 @@ def parse_frontmatter(text: str) -> dict[str, str | list[str]]:
     return data
 
 
+def check_description(rel: Path, desc: object, errors: list[str]) -> None:
+    """Description = what it does + when to use it, third person, bounded length."""
+    if not isinstance(desc, str) or not desc:
+        errors.append(f"{rel}: missing 'description'")
+        return
+    trigger = TRIGGER.search(desc)
+    if not trigger:
+        errors.append(f"{rel}: description must state its trigger ('Use when…')")
+    elif trigger.start() == 0:
+        errors.append(f"{rel}: description must say what it does before 'Use when…'")
+    if len(desc) > DESCRIPTION_MAX:
+        errors.append(f"{rel}: description {len(desc)} chars > {DESCRIPTION_MAX}")
+    if NOT_THIRD_PERSON.search(desc):
+        errors.append(f"{rel}: description must be third person")
+
+
 def check_skills(errors: list[str]) -> set[str]:
     """Validate every skill directory and return the set of skill names found."""
     names: set[str] = set()
@@ -72,12 +96,17 @@ def check_skills(errors: list[str]) -> set[str]:
         names.add(skill_dir.name)
         if fm.get("name") != skill_dir.name:
             errors.append(f"{rel}: frontmatter name must be '{skill_dir.name}'")
-        desc = fm.get("description", "")
-        if not isinstance(desc, str) or not TRIGGER.search(desc):
-            errors.append(f"{rel}: description must state its trigger ('Use when…')")
+        if not NAME_RE.match(skill_dir.name):
+            errors.append(f"{rel}: name must be <= 64 chars of lowercase letters, digits, hyphens")
+        check_description(rel, fm.get("description"), errors)
         lines = text.count("\n") + 1
         if lines > SKILL_MAX_LINES:
             errors.append(f"{rel}: {lines} lines > {SKILL_MAX_LINES}")
+        # Long reference files need a table of contents near the top.
+        for ref in sorted(skill_dir.glob("references/*.md")):
+            ref_text = ref.read_text(encoding="utf-8")
+            if ref_text.count("\n") + 1 > REFERENCE_TOC_THRESHOLD and "## Contents" not in ref_text[:600]:
+                errors.append(f"{ref.relative_to(ROOT)}: > {REFERENCE_TOC_THRESHOLD} lines without '## Contents'")
         # Every local link inside any markdown file of the skill must resolve.
         for md in skill_dir.rglob("*.md"):
             for target in LOCAL_LINK.findall(md.read_text(encoding="utf-8")):
@@ -94,12 +123,9 @@ def check_agents(errors: list[str], skill_names: set[str]) -> None:
         fm = parse_frontmatter(text)
         if fm.get("name") != agent_md.stem:
             errors.append(f"{rel}: frontmatter name must be '{agent_md.stem}'")
-        for key in ("description", "tools"):
-            if not fm.get(key):
-                errors.append(f"{rel}: missing '{key}'")
-        desc = fm.get("description", "")
-        if isinstance(desc, str) and desc and not TRIGGER.search(desc):
-            errors.append(f"{rel}: description must state its trigger ('Use when…')")
+        if not fm.get("tools"):
+            errors.append(f"{rel}: missing 'tools'")
+        check_description(rel, fm.get("description"), errors)
         lines = text.count("\n") + 1
         if lines > AGENT_MAX_LINES:
             errors.append(f"{rel}: {lines} lines > {AGENT_MAX_LINES}")
