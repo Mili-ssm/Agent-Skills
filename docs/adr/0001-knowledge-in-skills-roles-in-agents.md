@@ -23,6 +23,10 @@ Specialist agents need large principle catalogs (SOLID, ISTQB, Nielsen…). Embe
 - One edit updates every consumer of a catalog.
 - Agents depend on skill names staying stable.
 
+## Verification
+
+2026-10-27, Claude Code 2.1.311: plugin installed from GitHub; `agent-skills:doc-curator` reported `docs-principles` and `decision-records` preloaded and quoted `docs-principles` verbatim. Bare names resolve inside the plugin.
+
 ## Revisit if
 
-`skills:` preload is not honored for plugin-installed agents, or plugin namespacing (`agent-skills:<name>`) breaks bare-name references.
+A Claude Code release stops resolving bare skill names for plugin agents (missing skills are skipped with a debug-log warning).

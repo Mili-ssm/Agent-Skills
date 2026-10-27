@@ -1,6 +1,5 @@
 {
   "name": "agent-skills",
-  "version": "0.1.0",
   "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) that complement Superpowers and Playwright.",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills"

@@ -4,12 +4,21 @@ Generic specialist skills and agents for Claude Code. Complements [Superpowers](
 
 ## Install
 
-```text
-/plugin install agent-skills --marketplace Mili-ssm/Agent-Skills
-```
+| Where | How |
+|---|---|
+| Local session | `/plugin install agent-skills --marketplace Mili-ssm/Agent-Skills` |
+| Local shell | `claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills` |
+| Cloud environment | Paste [`scripts/cloud-setup.sh`](scripts/cloud-setup.sh) as the environment's setup script (cloud sessions ignore plugins declared in a repo) |
+| Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
 
-Older Claude Code: `/plugin marketplace add Mili-ssm/Agent-Skills` then `/plugin install agent-skills@mili-ssm`.
-Manual: copy `skills/*` → `~/.claude/skills/`, `agents/*` → `~/.claude/agents/`.
+## Update
+
+No pinned version (ADR 0006): every commit on the default branch is a new version.
+
+| Method | Command |
+|---|---|
+| Manual | `claude plugin update agent-skills@mili-ssm`, or `/plugin` → Installed → Update now; then `/reload-plugins` |
+| Automatic | `/plugin` → Marketplaces → `mili-ssm` → Enable auto-update (the cloud script enables it) |
 
 ## Catalog
 
