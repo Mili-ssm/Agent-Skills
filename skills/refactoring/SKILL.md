@@ -1,45 +1,43 @@
 ---
 name: refactoring
-description: Use when restructuring existing code without changing behavior - removing code smells, untangling legacy code, splitting modules, renaming or extracting - safe small-step refactoring with characterization tests, Fowler's catalog, Mikado method, strangler fig and branch by abstraction.
+description: Safe behavior-preserving restructuring - characterization tests, small green steps, Fowler smell catalog, Tidy First, Mikado method, parallel change, branch by abstraction and strangler fig. Use when cleaning up, splitting, renaming, extracting or untangling existing code without changing what it does, paying down tech debt, or working on legacy code without tests.
 ---
 
 # Refactoring
 
-Refactoring = changing structure **without changing behavior**, in small steps that keep tests green. Feature work and refactoring are separate "hats" (Beck): never mix them in one step or commit.
+Refactoring changes structure **without changing behavior**, in small steps that keep tests green. Feature work and refactoring are separate hats (Beck): one commit wears one hat, so a red test has one possible cause.
 
 ## Preconditions
 
-1. Tests pin current behavior of the code to change. Missing → write **characterization tests** first (Feathers): assert what the code does now, even if odd.
-2. Clean working tree; know the command that runs the relevant tests in seconds.
-3. Know why: name the smell and the change it will make easier ("make the change easy, then make the easy change").
+1. Tests pin current behavior. Missing → write **characterization tests** first (Feathers): assert what the code does now, oddities included.
+2. Clean working tree and a test command that runs in seconds.
+3. A named smell and the change it will make easier: "make the change easy, then make the easy change" (Beck). Read the code's history first (Chesterton's fence).
 
 ## Loop
 
-1. Pick one refactoring from [the catalog](references/catalog.md).
-2. Apply the smallest step (IDE-safe moves first: rename, extract, inline, move).
-3. Run tests. Green → commit (`refactor: …`). Red → revert, take a smaller step.
-4. Repeat. Behavior changes go in separate commits afterwards.
+1. Pick one refactoring from the [catalog](references/catalog.md).
+2. Apply the smallest step; automated/IDE moves first (rename, extract, inline, move) because they preserve behavior mechanically.
+3. Run tests. Green → commit `refactor: …`. Red → revert and take a smaller step.
+4. Repeat; behavior changes follow in separate commits.
 
-## Large refactorings
+## Size of the job
 
 | Technique | Use when | Steps |
 |---|---|---|
-| Mikado method | Change has a web of prerequisites | Try goal → note what breaks → revert → solve leaf prerequisites first → retry. Keep the Mikado graph in a note |
-| Parallel change (expand/contract) | Changing an interface with many callers | Add new form → migrate callers gradually → remove old form |
-| Branch by abstraction | Replacing an internal component on trunk | Introduce abstraction → route callers through it → build new impl behind it → switch → delete old |
-| Strangler fig | Replacing a subsystem or legacy app | Intercept entry point → move routes/features one by one → retire legacy |
-| Sprout / wrap (Feathers) | Adding to untested legacy code | New tested function/class called from legacy; wrap old method |
+| Tidy First (Beck) | Small tidyings right before a change | Guard clauses, explaining variables, reorder, extract helper; commit tidyings separately |
+| Preparatory refactoring | The change is awkward in the current shape | Reshape first, then change |
+| Mikado method | Goal has a web of prerequisites | Try goal → note breakages → revert → solve leaf prerequisites → retry; keep the graph in a note |
+| Parallel change | An interface with many callers | Add new form → migrate callers → remove old form |
+| Branch by abstraction | Replacing an internal component on trunk | Abstraction → route callers → new impl behind it → switch → delete old |
+| Strangler fig | Replacing a subsystem or legacy app | Intercept entry point → move features one by one → retire legacy |
+| Sprout / wrap (Feathers) | Adding to untested legacy code | New tested function called from legacy; wrap old method |
 
-## Legacy code (Feathers)
-
-- Legacy = code without tests. Find **seams** (places to alter behavior without editing: parameters, interfaces, module boundaries, dependency injection).
-- Break dependencies minimally to get code under test (extract interface, parameterize constructor, extract and override call).
-- Scratch refactoring to learn the code, then throw it away.
+Legacy code = code without tests. Find **seams** (parameters, interfaces, module boundaries) and break dependencies minimally to get it under test.
 
 ## Rules
 
-- Prefer automated/IDE refactorings and compiler-guided moves (Rust: change a type, follow errors).
-- Don't refactor cold code nobody changes; prioritize hotspots (churn × complexity).
-- Don't refactor and upgrade dependencies in the same step.
-- Stop when the motivating change is easy; perfection is not the goal.
-- Public API changes are not refactorings for consumers: use `change-impact`.
+- Refactor churn hotspots (churn × complexity); cold code nobody changes pays nothing back.
+- Let the compiler guide moves where possible (Rust: change a type, follow the errors).
+- Upgrade dependencies in a separate step, so failures have one cause.
+- Stop when the motivating change is easy.
+- Public API changes are breaking changes for consumers: use `change-impact`.

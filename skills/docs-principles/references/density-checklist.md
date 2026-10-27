@@ -4,28 +4,29 @@ Apply per paragraph. Each "yes" → cut, merge or move.
 
 | # | Check | Action |
 |---|---|---|
-| 1 | Restates what code, types, signature or `--help` already say? | Cut; link if needed |
-| 2 | Repeats a fact stated elsewhere in docs? | Keep one source, link |
-| 3 | Restates the heading above it? | Cut sentence |
-| 4 | Contains filler ("simply", "easily", "powerful", "it is important to note")? | Delete words |
-| 5 | Hedges without information ("might possibly", "in some cases")? | State condition or cut |
-| 6 | Prose listing ≥ 3 parallel items or options? | Convert to list/table |
-| 7 | Prose comparing ≥ 2 things on ≥ 2 attributes? | Convert to table |
-| 8 | Multiple examples showing the same point? | Keep the best one |
-| 9 | Describes history ("we used to…") without current relevance? | Move to ADR or cut |
-| 10 | Unverifiable or stale claim (path, command, version)? | Verify or delete |
+| 1 | Restates code, types, signatures or `--help`? | Cut; link if needed |
+| 2 | Repeats a fact stated elsewhere? | Keep one source, link |
+| 3 | Restates its heading? | Cut the sentence |
+| 4 | Filler ("simply", "easily", "powerful", "it is important to note")? | Delete the words |
+| 5 | Hedge without a condition ("might possibly", "in some cases")? | State the condition or cut |
+| 6 | Prose listing ≥ 3 parallel items? | List or table |
+| 7 | Prose comparing ≥ 2 things on ≥ 2 attributes? | Table |
+| 8 | Several examples of one point? | Keep the best |
+| 9 | History without current relevance? | Move to an ADR or cut |
+| 10 | Unverifiable or stale path, command, version? | Verify or delete |
 | 11 | Mixed Diátaxis types in one section? | Split |
-| 12 | Long setup prose that a script/Makefile target could replace? | Replace with command |
+| 12 | Setup prose a script/Makefile target could replace? | Replace with the command |
+| 13 | Explains a concept the reader (or model) already knows? | Cut; keep only the project-specific twist |
 
-## Keep (never cut for brevity)
+## Keep, even when long
 
 - Rationale, constraints, rejected alternatives.
-- Gotchas and non-obvious behavior (the most valuable docs per token).
+- Gotchas and non-obvious behavior: the highest value per token.
 - Exact commands, versions, env vars.
 - Security and data-loss warnings.
 
-## Density heuristics
+## Heuristics
 
 - Target ≥ 1 non-derivable fact per sentence.
-- A section a newcomer would skip twice is a candidate for deletion.
-- If a doc grows, ask what can be removed in the same change.
+- A section a newcomer skips twice is a deletion candidate.
+- When a doc grows, remove something in the same change.

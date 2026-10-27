@@ -1,47 +1,51 @@
 ---
 name: qa-principles
-description: Use when designing test cases, assessing a test suite or test strategy, hunting coverage gaps, fixing flaky tests or judging test quality - ISTQB test design techniques, risk-based strategy, property-based and mutation testing, test doubles and test smells.
+description: Test design and test strategy toolkit - ISTQB techniques, SFDPOT and HICCUPPS heuristics, property-based, stateful and mutation testing, test doubles, test smells and flaky-test causes. Use when deciding which test cases to write for a function or feature, assessing a test suite or strategy, hunting coverage gaps, or fixing flaky tests.
 ---
 
 # QA Principles
 
-Testing answers "what could go wrong, and would we notice?". Coverage measures lines executed, not behavior verified. Complements Superpowers TDD: TDD decides **when** to write a test; this skill decides **what** to test and **how well**.
+Testing answers "what could go wrong, and would we notice?". Coverage counts lines executed, not defects caught (Goodhart: as a target it stops measuring). Complements TDD (Superpowers, if installed): TDD decides **when** to write a test; this skill decides **what** to test and **how well**.
 
 ## Index
 
 | Need | Reference |
 |---|---|
-| Deriving test cases (partitions, boundaries, decision tables, states, pairwise) | [test-design.md](references/test-design.md) |
-| Strategy (pyramid/trophy, risk-based, contract, property, mutation, E2E scope) | [strategy.md](references/strategy.md) |
-| Test quality (FIRST, AAA, test doubles, test smells, flakiness) | [test-quality.md](references/test-quality.md) |
+| Deriving cases: partitions, boundaries, decision tables, states, pairwise, SFDPOT, HICCUPPS oracles, properties | [test-design.md](references/test-design.md) |
+| Strategy: shapes, risk-based, sizes, contract, stateful/simulation, mutation, E2E scope, flakiness | [strategy.md](references/strategy.md) |
+| Test quality: FIRST, AAA, doubles, smells, DAMP | [test-quality.md](references/test-quality.md) |
 
-## Seven testing principles (ISTQB)
+## Principles that drive the workflow
 
-1. Testing shows presence of defects, not their absence.
-2. Exhaustive testing is impossible → prioritize by risk.
-3. Early testing saves cost (shift left).
-4. Defects cluster (Pareto) → test hotspots harder.
-5. Pesticide paradox → vary and extend tests over time.
-6. Testing is context dependent.
-7. Absence-of-errors fallacy: passing tests ≠ useful system.
+- Exhaustive testing is impossible → prioritize by risk (likelihood × impact).
+- Defects cluster → test churn hotspots harder.
+- Pesticide paradox → vary and extend tests; property-based and exploratory testing find what fixed cases miss.
+- Beyoncé rule: if you depend on a behavior, put a test on it.
 
-## Tooling map
+## Non-obvious tooling
 
-| Concern | Python | Rust | Web |
-|---|---|---|---|
-| Runner | `pytest` | `cargo test`, `cargo nextest` | Playwright Test / `pytest-playwright` |
-| Property-based | `hypothesis` | `proptest`, `quickcheck` | — |
-| Mutation | `mutmut`, `cosmic-ray` | `cargo-mutants` | — |
-| Coverage | `coverage.py` (`--branch`) | `cargo llvm-cov` | Playwright coverage (Chromium) |
-| Snapshot | `syrupy`, `inline-snapshot` | `insta` | Playwright screenshots |
-| Fuzzing | `atheris`, `hypothesis` | `cargo fuzz` | — |
-| HTTP | `httpx` + ASGI transport | `reqwest` + test server | Playwright `request` |
+| Concern | Python | Rust |
+|---|---|---|
+| Property-based / stateful | `hypothesis` (`RuleBasedStateMachine`) | `proptest`, `proptest-state-machine` |
+| Mutation | `mutmut` | `cargo-mutants` |
+| Snapshot / approval | `syrupy`, `inline-snapshot` | `insta` |
+| Fuzzing | `atheris`, `hypothesis` | `cargo fuzz` |
+| Random order / flake detection | `pytest-randomly`, `pytest-repeat` | `cargo nextest` (`--retries` only to detect) |
+| Branch coverage | `coverage.py --branch` | `cargo llvm-cov` |
 
-## Assessment process
+## Assessment workflow
 
-1. **Risk map**: list features/modules; rate likelihood (churn, complexity, history) × impact (money, data, security, UX).
-2. **Inventory** tests per feature and level (unit/integration/E2E); find untested high-risk areas.
-3. **Design** missing cases with test-design techniques; prefer properties for logic with invariants.
-4. **Quality**: scan for test smells, over-mocking, assertion-free tests, flakiness sources.
-5. **Strength**: run mutation testing on high-risk modules if tooling exists; surviving mutants = missing assertions.
+The `qa-engineer` agent follows this workflow; use it inline for one function or feature.
+
+1. **Risk map**: features/modules × likelihood (churn, complexity, defect history) × impact (money, data, security, UX).
+2. **Inventory** tests per feature and size; find untested high-risk areas.
+3. **Design** missing cases, naming the technique; properties for logic with invariants, stateful properties for APIs with sequences.
+4. **Quality**: test smells, over-mocking, assertion-free tests, flakiness sources.
+5. **Strength**: mutation testing on high-risk modules; each surviving mutant is a missing assertion.
 6. **Report** gaps as ready-to-implement cases.
+
+<example>
+| ID | Area | Technique | Input / precondition | Expected | Size |
+|----|------|-----------|----------------------|----------|------|
+| T4 | discount() | BVA | total=99.99, member, no coupon | no member discount (threshold 100) | small |
+</example>

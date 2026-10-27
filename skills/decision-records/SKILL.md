@@ -1,29 +1,27 @@
 ---
 name: decision-records
-description: Use when a significant technical decision is made, changed, superseded or questioned, or when creating, auditing or rating ADRs for staleness - concise MADR-style records with alternatives, consequences and explicit revisit triggers.
+description: Writes and audits concise architecture decision records (MADR or Y-statement) with alternatives, consequences, revisit triggers and a staleness rubric. Use when a technical decision is made, changed, questioned or needs writing up for future developers, or when someone asks why something was built a certain way.
 ---
 
 # Decision Records (ADR)
 
-A decision record captures **why**, not what. Code shows what; ADRs preserve the context that code cannot.
+An ADR keeps the **why** that code cannot show: context, rejected options, accepted trade-offs.
 
-## Significance test (write an ADR if ≥ 1 holds)
+## Significance test (write one if any holds)
 
 | Test | Example |
 |---|---|
-| Hard or costly to reverse | Database, framework, public API shape |
-| Cross-cutting | Error-handling strategy, auth model, module boundaries |
+| One-way door: hard or costly to reverse | Database, framework, public API shape |
+| Cross-cutting | Error strategy, auth model, module boundaries |
 | Surprising to a newcomer | "Why not the obvious library?" |
-| Trade-off accepted knowingly | Consistency sacrificed for latency |
-| Constraint-driven | Legal, budget, platform limitation |
+| Known trade-off accepted | Consistency traded for latency |
+| Constraint-driven | Legal, budget, platform limit |
 
-Skip trivial, local, easily reversible choices.
+Two-way doors (cheap to reverse) get a commit message, not an ADR.
 
 ## Location and naming
 
-1. Reuse existing dir: `docs/adr/`, `doc/adr/`, `adr/`, `docs/decisions/`.
-2. Else create `docs/adr/`.
-3. File: `NNNN-kebab-title.md`, zero-padded, never renumbered.
+Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/`. File `NNNN-kebab-title.md`, numbers never reused.
 
 ## Template (≤ 60 lines)
 
@@ -33,33 +31,36 @@ Skip trivial, local, easily reversible choices.
 Status: proposed | accepted | superseded by NNNN | deprecated · Date: YYYY-MM-DD
 
 ## Context
-Forces, constraints, assumptions (mark each assumption explicitly).
+Forces and constraints. Mark each assumption explicitly.
 
 ## Decision
-What we do. Imperative, specific.
+Imperative and specific.
 
 ## Alternatives
 | Option | Rejected because |
 
 ## Consequences
-Positive and negative. Who/what must change.
+Positive and negative; who or what must change.
 
 ## Revisit if
-Observable triggers that invalidate this decision.
+Observable triggers (version, scale, metric, event).
 ```
+
+Small decisions fit a **Y-statement**: *In the context of `<situation>`, facing `<concern>`, we decided `<option>` and against `<alternatives>`, to achieve `<quality>`, accepting `<downside>`.*
 
 ## Rules
 
-- One decision per record.
-- Accepted records are immutable: change = new ADR that supersedes; update old status line only.
-- `Revisit if` is mandatory and must be observable (version, scale, metric, event), not "if needed".
-- Assumptions stated explicitly → they are what staleness audits check.
-- Link code ↔ ADR when it prevents a "fix" that would undo the decision (`# See ADR 0007`).
+- One decision per record, so each can be superseded alone.
+- Treat an accepted decision as immutable: changing it means a new ADR that supersedes the old one (only the old status line changes), which keeps the history of reasoning. Verifications and clarifications go in an appended `## Review YYYY-MM-DD` section.
+- Write `Revisit if` as observable triggers; staleness audits check them.
+- State assumptions explicitly; they are what goes stale first.
+- Link code to the ADR where a "cleanup" would undo the decision (`# See ADR 0007`): Chesterton's fence made visible.
+- Keep rejected proposals as records; they stop the same debate from restarting.
 
-## Staleness rating
+## Revisit rating
 
-Rate any existing decision with [the rubric](references/staleness-rubric.md). Output `low | medium | high` plus fired signals. Never a percentage (no calibration data).
+Rate existing decisions with the [staleness rubric](references/staleness-rubric.md): output a revisit rating `low | medium | high` plus the signals that fired.
 
 ## Lifecycle
 
-`proposed` → `accepted` → (`superseded by NNNN` | `deprecated`). Rejected proposals stay as records: they prevent re-litigating.
+`proposed` → `accepted` → `superseded by NNNN` | `deprecated`.

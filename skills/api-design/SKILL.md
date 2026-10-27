@@ -1,36 +1,23 @@
 ---
 name: api-design
-description: Use when designing, reviewing or changing an HTTP API or endpoint contract (JSON or HTML/hypermedia) - HTTP semantics, status codes, idempotency, RFC 9457 errors, pagination, versioning and compatibility rules.
+description: HTTP contract rules for JSON and hypermedia endpoints - status-code choices, idempotency keys, RFC 9457 errors, pagination, caching, concurrency control, versioning and compatibility (Hyrum's law). Use when designing, reviewing or changing an API, endpoint, route, webhook or response format, including retry behavior and error formats.
 ---
 
 # API Design
 
-An API is a contract; changing it costs every consumer. Design for clarity, correct HTTP semantics and evolvability.
+An API is a contract; every change costs every consumer, and with enough consumers every observable behavior becomes part of it (Hyrum's law). Method semantics and common status codes are assumed known; this skill covers the decisions that usually go wrong.
 
-## HTTP semantics
+## Status-code decisions
 
-| Method | Safe | Idempotent | Use |
-|---|---|---|---|
-| GET | yes | yes | Read; never changes state |
-| HEAD / OPTIONS | yes | yes | Metadata / CORS |
-| POST | no | no | Create, actions, non-idempotent commands |
-| PUT | no | yes | Full replace at known URI |
-| PATCH | no | not by default | Partial update (JSON Merge Patch RFC 7396 / JSON Patch RFC 6902) |
-| DELETE | no | yes | Remove |
-
-## Status codes (common)
-
-| Code | Use |
+| Situation | Code |
 |---|---|
-| 200 / 201 + `Location` / 204 | OK / created / no body |
-| 303 See Other | Redirect after POST (PRG pattern) |
-| 304 | Conditional GET hit (`ETag`/`If-None-Match`) |
-| 400 / 422 | Malformed / semantically invalid input |
-| 401 / 403 | Not authenticated / not allowed |
-| 404 / 410 | Not found (also to hide existence) / permanently gone |
-| 409 / 412 | Conflict / precondition failed (optimistic locking with `If-Match`) |
-| 429 + `Retry-After` | Rate limited |
-| 500 / 503 | Server bug / temporarily unavailable |
+| Created | 201 + `Location` |
+| Redirect after a form POST (PRG) | 303 See Other |
+| Malformed vs. semantically invalid input | 400 vs. 422 |
+| Not authenticated vs. not allowed | 401 vs. 403 (404 to hide existence) |
+| State conflict / stale write | 409 / 412 with `If-Match` |
+| Rate limited | 429 + `Retry-After` |
+| Permanently removed | 410 |
 
 ## Errors: RFC 9457 Problem Details (JSON APIs)
 
@@ -39,34 +26,34 @@ An API is a contract; changing it costs every consumer. Design for clarity, corr
  "detail": "Item 42 has 0 units", "instance": "/orders/123", "errors": [{"field": "qty", "msg": "max 0"}]}
 ```
 
-Content type `application/problem+json`. Stable `type` URIs; no stack traces.
+`application/problem+json`, stable `type` URIs, no stack traces.
 
 ## Design rules
 
 | Area | Rule |
 |---|---|
-| Resources | Plural nouns, hierarchical only for true ownership (`/orders/{id}/items`); actions as sub-resources or POST commands when CRUD doesn't fit |
-| Naming | One case convention; consistent field names across endpoints; ISO 8601 UTC timestamps |
-| Idempotency | `Idempotency-Key` header for retried POSTs that create/charge |
-| Pagination | Cursor-based for large/changing sets (`next` link); limit with max |
-| Filtering/sorting | Query params, allow-listed fields |
-| Concurrency | `ETag` + `If-Match` for updates |
-| Caching | `Cache-Control`, `ETag`, `Vary` (include `HX-Request` when the same URL serves fragment and full page) |
-| Security | Authz per resource; no sensitive data in URLs; rate limits |
-| Docs | OpenAPI generated from code (FastAPI does it) and reviewed as the contract |
+| Resources | Plural nouns; nest only for true ownership (`/orders/{id}/items`); non-CRUD actions as POST commands or sub-resources |
+| Naming | One case convention; same field names across endpoints; ISO 8601 UTC timestamps |
+| Retries | `Idempotency-Key` header on POSTs that create or charge; PUT/DELETE idempotent by design |
+| Pagination | Cursor-based for large or changing sets (`next` link); enforced max limit |
+| Filtering/sorting | Query params over allow-listed fields |
+| Concurrency | `ETag` + `If-Match` on updates |
+| Caching | `Cache-Control`, `ETag`; `Vary` on every header that changes the response |
+| Security | Per-resource authz; no secrets in URLs; rate limits |
+| Contract | OpenAPI generated from code and reviewed as the contract; consumer-driven contract tests for key consumers |
 
 ## Hypermedia / HTML endpoints
 
-- HTML over the wire is REST's original HATEOAS: links and forms are the contract.
-- Same URL may return full page or fragment; differentiate by `HX-Request` and add `Vary: HX-Request`.
-- Validation errors: return the form fragment with errors (422 requires htmx response handling config; 200 with error markup is the simple default).
-- Redirects after mutations: PRG for full pages, `HX-Redirect`/`HX-Location` for htmx.
-- Keep JSON APIs and HTML endpoints in separate routers when both exist.
+- HTML over the wire is REST's HATEOAS: links and forms are the contract (rule of least power: no client-side state machine needed).
+- One URL may serve a full page or a fragment: branch on `HX-Request` and send `Vary: HX-Request`.
+- Validation errors: return the form fragment with errors. htmx skips swapping 4xx/5xx by default, so either return 200 with error markup (simple default) or configure `htmx.config.responseHandling` for 422.
+- After mutations: PRG for full pages; `HX-Redirect`/`HX-Location` for htmx.
+- Keep JSON APIs and HTML endpoints in separate routers.
 
-## Compatibility (evolution)
+## Compatibility
 
 | Non-breaking | Breaking |
 |---|---|
-| Add optional field / endpoint / enum value consumers tolerate | Remove/rename field, change type or meaning, make optional required, change status codes or auth |
+| Add optional field, endpoint, or an enum value consumers tolerate | Remove/rename a field; change type, meaning, status codes, auth, ordering or error format; make optional required |
 
-Tolerant reader on consumers; Postel at boundaries; version only when breaking (URI `/v2` or media type), with deprecation window (`Deprecation`, `Sunset` headers). Use `change-impact` for breaking changes.
+Consumers use tolerant readers; version only for breaking changes (`/v2` or media type) with a deprecation window (`Deprecation`, `Sunset` headers). Breaking changes go through `change-impact`.

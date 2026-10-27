@@ -5,49 +5,55 @@
 | Model | Emphasis | Fits |
 |---|---|---|
 | Pyramid (Cohn) | Many unit, fewer integration, few E2E | Logic-heavy libraries, Rust crates |
-| Trophy (Dodds) | Integration-heavy, static analysis base | Web apps where wiring is the risk |
-| Honeycomb | Integration of services | Microservices |
+| Trophy (Dodds) | Integration-heavy on a static-analysis base | Web apps where wiring is the risk |
+| Honeycomb | Service integration | Microservices |
 
-Choose by where defects actually occur, not dogma.
+Choose by where defects actually occur.
+
+## Sizes (Google) over levels
+
+| Size | Constraints | Typical |
+|---|---|---|
+| Small | One process, no I/O, no sleep; hermetic | Unit, property |
+| Medium | One machine; localhost services, real DB in container | Integration via ASGI/test server |
+| Large | Multi-machine or external systems | E2E, staging |
+
+Hermetic tests (all dependencies controlled) are deterministic; non-hermetic ones belong to a separate, retry-aware suite.
 
 ## Risk-based testing
 
-Risk = likelihood × impact. Likelihood: complexity, churn, new tech, defect history. Impact: money, data loss, security, legal, user trust. Test depth proportional to risk; document accepted untested risk.
+Risk = likelihood (complexity, churn, new tech, defect history) × impact (money, data loss, security, legal, trust). Depth proportional to risk; record accepted untested risk.
 
-## Levels
+## Techniques by need
 
-| Level | Verifies | Doubles allowed |
-|---|---|---|
-| Unit | Logic in isolation | Fakes for I/O |
-| Integration | Real collaborators (DB, filesystem, HTTP app via ASGI) | External third parties only |
-| Contract | Producer/consumer agree on schema (Pact, OpenAPI checks) | Consumer side |
-| E2E | User journeys through real UI | None (or sandbox external services) |
-| Non-functional | Performance, security, accessibility | Varies |
+| Need | Technique |
+|---|---|
+| Producer/consumer agreement | Contract tests (consumer-driven, OpenAPI checks) |
+| Legacy behavior to preserve | Characterization / golden master / approval tests |
+| Concurrency or distributed logic | Stateful property tests; deterministic simulation testing (seeded clock, scheduler and I/O; replay failures by seed) |
+| Resilience | Fault injection, chaos experiments with a hypothesis and abort condition |
+| Parser/decoder robustness | Fuzzing |
+| Production confidence (shift right) | Canary analysis, synthetic monitoring, feature-flag rollouts |
+| Test strength | Mutation testing on high-risk modules (score = killed/total; review surviving mutants manually, some are equivalent) |
 
 ## E2E scope (Playwright)
 
-- Critical user journeys only (login, checkout, core CRUD); push edge cases down to integration.
-- Locators by role/label/text (`get_by_role`), not CSS/XPath.
-- Wait on conditions (auto-wait, `expect`), never fixed sleeps or `networkidle`.
-- Isolate data per test; parallel-safe.
-- Server-rendered/htmx apps: assert on swapped DOM; also test with JS disabled for progressive enhancement.
-
-## Mutation testing
-
-Introduces small faults (mutants); a surviving mutant means no test detects that change. Mutation score = killed / total. Run on high-risk modules, not whole repos (slow). Equivalent mutants exist; review survivors manually.
+- Critical journeys only; push edge cases down to medium tests.
+- Locate by role/label/text (`get_by_role`), because CSS/XPath break on refactors.
+- Wait on conditions (`expect`, auto-wait); fixed sleeps and `networkidle` cause flakes.
+- Isolate data per test so tests run in parallel.
+- Server-rendered/htmx apps: assert on the swapped DOM; also test with JS disabled for progressive enhancement.
 
 ## Flaky tests
 
 | Root cause | Fix |
 |---|---|
 | Timing / async races | Await conditions; deterministic clocks |
-| Shared state / order dependence | Isolate fixtures; random order (`pytest-randomly`) |
+| Shared state / order dependence | Isolated fixtures; random order |
 | External services | Fakes or contract tests |
-| Time, randomness, locale | Inject clock, seed RNG, fix locale/TZ |
-| Resource leaks | Proper teardown; detect with repeat runs (`pytest --count`, `nextest --retries` only to detect) |
+| Time, randomness, locale | Inject clock, seed RNG, pin locale/TZ |
+| Resource leaks | Proper teardown; detect with repeated runs |
 
-Quarantine is a temporary label with an owner and date, never a fix.
+Quarantine is a temporary label with an owner and a date; the defect stays open until fixed.
 
-## Static analysis as test layer
-
-Type checkers (`pyright`, `mypy`, Rust compiler), linters (`ruff`, `clippy`), and `#[deny]` lints catch whole defect classes cheaply; count them in the strategy.
+Static analysis (`pyright`, `ruff`, compiler, `clippy`) removes whole defect classes cheaply; count it in the strategy.

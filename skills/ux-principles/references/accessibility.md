@@ -1,47 +1,45 @@
 # Accessibility (WCAG 2.2 AA)
 
-## POUR
-
-Perceivable · Operable · Understandable · Robust.
+POUR: Perceivable · Operable · Understandable · Robust.
 
 ## High-yield success criteria
 
 | SC | Requirement | Quick check |
 |---|---|---|
-| 1.1.1 Non-text content | Meaningful alt; decorative `alt=""` | Images, icon buttons have names |
+| 1.1.1 Non-text content | Meaningful alt; decorative `alt=""` | Icon buttons have names |
 | 1.3.1 Info and relationships | Semantics in markup (headings, lists, labels, tables) | Heading outline makes sense |
-| 1.4.3 Contrast (minimum) | Text 4.5:1; large text 3:1 | axe `color-contrast` |
-| 1.4.10 Reflow | Usable at 320 CSS px wide without 2D scroll | 375 px screenshot |
-| 1.4.11 Non-text contrast | UI components/focus indicators 3:1 | Borders of inputs, icons |
-| 1.4.12 Text spacing | No loss when spacing increased | — |
-| 2.1.1 Keyboard | All functionality via keyboard | Focus order capture |
-| 2.4.3 Focus order | Logical order | Focus order capture |
-| 2.4.7 Focus visible | Visible focus indicator | Screenshot while focused |
-| 2.4.11 Focus not obscured (min) | Focused item not hidden by sticky UI | — |
-| 2.5.7 Dragging movements | Single-pointer alternative to drag | — |
-| 2.5.8 Target size (min) | ≥ 24×24 CSS px or spacing | Small icon buttons |
-| 3.3.1 / 3.3.3 Error identification / suggestion | Errors described in text with fix | Submit invalid form |
-| 3.3.7 Redundant entry | Don't ask twice for same info | Multi-step forms |
-| 3.3.8 Accessible authentication (min) | No cognitive tests; allow paste/password managers | Login |
+| 1.4.3 Contrast | Text 4.5:1; large text 3:1 | axe `color-contrast` |
+| 1.4.10 Reflow | Usable at 320 CSS px without 2-D scroll | 375 px screenshot |
+| 1.4.11 Non-text contrast | Components and focus indicators 3:1 | Input borders, icons |
+| 1.4.12 Text spacing | No loss with increased spacing | — |
+| 2.1.1 Keyboard | Everything operable by keyboard | Focus-order capture |
+| 2.4.3 Focus order | Logical order | Focus-order capture |
+| 2.4.7 Focus visible | Visible indicator | Screenshot while focused |
+| 2.4.11 Focus not obscured | Sticky UI never hides focus | — |
+| 2.5.7 Dragging | Single-pointer alternative | — |
+| 2.5.8 Target size | ≥ 24×24 CSS px or spacing | Small icon buttons |
+| 3.3.1 / 3.3.3 Errors | Described in text with a fix | Submit an invalid form |
+| 3.3.7 Redundant entry | Never ask twice | Multi-step forms |
+| 3.3.8 Accessible authentication | No cognitive tests; paste and password managers allowed | Login |
 | 4.1.2 Name, role, value | Custom controls expose ARIA correctly | axe |
-| 4.1.3 Status messages | Status announced without focus move | `role="status"`/`aria-live` |
+| 4.1.3 Status messages | Announced without moving focus | `role="status"` / `aria-live` |
 
 ## Rules of ARIA
 
-1. Native HTML first (`<button>`, `<dialog>`, `<details>`) — no ARIA is better than bad ARIA.
-2. Don't change native semantics unless required.
-3. All interactive ARIA controls keyboard operable.
-4. No `role="presentation"`/`aria-hidden` on focusable elements.
-5. Interactive elements need accessible names.
+Native HTML first (`<button>`, `<dialog>`, `<details>`): no ARIA beats bad ARIA. Keep native semantics. ARIA controls must be keyboard operable. Focusable elements are never `aria-hidden`. Interactive elements need accessible names.
 
-## Dynamic content (partial page updates, htmx, SPA)
+## Dynamic content (partial updates, htmx, SPA)
 
-- Announce updates: target region with `aria-live="polite"` (or `role="status"`); `assertive` only for urgent errors.
-- After content swap that replaces the focused element, move focus to a logical target (heading of new content, first error).
-- Loading: `aria-busy="true"` on region during request.
-- Validation errors: link input to message with `aria-describedby`; set `aria-invalid="true"`.
-- Preserve scroll/focus on back navigation.
+- Target regions announce updates: `aria-live="polite"` or `role="status"`; `assertive` only for urgent errors.
+- When a swap replaces the focused element, move focus to a logical target (new heading, first error).
+- `aria-busy="true"` on a region while it loads.
+- Invalid fields: `aria-invalid="true"` + message linked with `aria-describedby`.
+- Back navigation restores scroll and focus.
+
+## Inclusive design (Microsoft)
+
+Recognize exclusion · solve for one, extend to many · learn from diversity. Consider permanent, temporary and situational limits (one arm / injured arm / holding a baby).
 
 ## Automated vs. manual
 
-axe-core catches ~30–40% of issues. Always also check: focus order logic, visible focus, alt text meaning, announcement of updates, keyboard traps, zoom 200%.
+axe-core finds roughly a third of issues. Always check manually: focus-order logic, visible focus, alt meaning, update announcements, keyboard traps, 200% zoom.

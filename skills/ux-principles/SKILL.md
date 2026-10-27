@@ -1,46 +1,48 @@
 ---
 name: ux-principles
-description: Use when designing, reviewing or auditing a user interface, page, form or flow - Nielsen heuristics, laws of UX, Gestalt, WCAG 2.2 accessibility, visual system rules, plus a Playwright script capturing screenshots, axe-core violations and keyboard focus order as evidence.
+description: Usability and accessibility review kit - Nielsen heuristics, laws of UX, WCAG 2.2 AA, inclusive design, deceptive-pattern checks and visual-system rules, plus a Playwright script that captures screenshots, axe-core violations and keyboard focus order. Use when reviewing or designing a page, form, component or user flow for usability, accessibility or visual consistency.
 ---
 
 # UX/UI Principles
 
-Judge interfaces by evidence (screenshots, axe results, focus order), cite the heuristic or law violated, and rate severity. Taste is not a finding.
+Judge interfaces by evidence (screenshots, axe results, focus order), cite the heuristic, law or WCAG criterion violated, and rate severity. Taste alone is not a finding.
 
 ## Index
 
 | Need | Reference |
 |---|---|
-| Heuristics (Nielsen, Shneiderman, Norman) + severity scale | [heuristics.md](references/heuristics.md) |
-| Laws of UX + Gestalt | [laws.md](references/laws.md) |
-| Accessibility (WCAG 2.2 AA, POUR, dynamic content) | [accessibility.md](references/accessibility.md) |
-| Visual system (tokens, spacing, type, color, states, layout) | [visual-system.md](references/visual-system.md) |
-| Evidence capture script | [scripts/ux_audit.py](scripts/ux_audit.py) |
+| Heuristics, cognitive walkthrough, deceptive patterns, severity scale | [heuristics.md](references/heuristics.md) |
+| Laws of UX, Gestalt, response-time limits | [laws.md](references/laws.md) |
+| Accessibility: WCAG 2.2 AA, ARIA rules, dynamic content, inclusive design | [accessibility.md](references/accessibility.md) |
+| Visual system: tokens, spacing, type, color, states, motion | [visual-system.md](references/visual-system.md) |
+| Evidence capture | [scripts/ux_audit.py](scripts/ux_audit.py) |
 
 ## Evidence capture
 
+Run (do not read) the script:
+
 ```bash
-# Screenshots per viewport, axe-core violations, keyboard focus order → ./ux-audit/
-python3 <skill-dir>/scripts/ux_audit.py http://localhost:8000/ --out ux-audit
-# Several pages and a custom viewport set:
+# Screenshots per viewport, axe-core violations, keyboard focus order; prints a summary table.
 python3 <skill-dir>/scripts/ux_audit.py http://localhost:8000/ http://localhost:8000/login --viewports 375x812,1440x900
 ```
 
-Requires Python Playwright with Chromium. Pre-installed browser of another version → `--executable-path` (or `$PW_CHROMIUM_PATH`). axe-core loads from jsDelivr; offline/blocked → `--axe-path` to a local `axe.min.js` (`npm pack axe-core`).
+Output goes to a temp dir (printed) unless `--out` is given. Requires Python Playwright; a pre-installed Chromium of another version → `--executable-path` or `$PW_CHROMIUM_PATH` (auto-detects `/opt/pw-browsers/chromium`). Blocked CDN → `--axe-path` to a local `axe.min.js` (`npm pack axe-core`).
 
-## Review process
+## Review workflow
 
-1. **Goal**: primary user tasks per screen (ask or infer from routes/templates).
-2. **Capture**: run the script on each screen and relevant states (empty, loading, error, filled, long content).
-3. **Heuristic walk**: per screen, check the 10 Nielsen heuristics against the primary task.
-4. **Accessibility**: axe violations + manual checks axe cannot do (focus order sense, visible focus, meaningful alt, announcements of dynamic updates).
-5. **Visual system**: consistency of spacing, type scale, color tokens, component states.
-6. **Rate** with Nielsen severity 0–4; propose concrete fixes (markup/CSS level, minimal JS).
+The `ux-reviewer` agent follows this workflow; use it inline for one screen.
 
-## Defaults worth enforcing
+1. **Tasks**: primary user tasks per screen (routes, templates, headings).
+2. **Capture** each screen and the states that matter: empty, loading, error (submit invalid form), filled, long content.
+3. **Walk** each task (cognitive walkthrough), then check Nielsen H1–H10.
+4. **Accessibility**: axe violations + manual checks axe cannot do (focus order sense, visible focus, alt meaning, announced updates, reflow at 320 px).
+5. **Visual system**: raw values vs. tokens; spacing, type scale, component states.
+6. **Rate** with Nielsen severity 0–4; propose the smallest fix at markup/CSS level.
 
-- Progressive enhancement: core tasks work without JS; enhancement adds speed.
-- Feedback < 100 ms (instant), < 1 s (flow kept), > 1 s show progress (Doherty threshold ~400 ms).
-- Every interactive element: visible focus, ≥ 24×24 CSS px target (WCAG 2.5.8), accessible name.
-- Errors: inline, next to the field, say how to fix, preserve input.
-- Dynamic region updates announced (`aria-live`) and focus managed after swaps.
+## Defaults (configurable per project)
+
+- Progressive enhancement and rule of least power: core tasks work with HTML alone; CSS, then minimal JS, add polish.
+- Response time: instant < 100 ms; show progress past ~400 ms (Doherty); optimistic UI for safe actions.
+- Every interactive element: visible focus, ≥ 24×24 CSS px target, accessible name.
+- Errors inline next to the field, saying how to fix, with input preserved.
+- Partial updates announced (`aria-live`) and focus moved to the new content when the focused element is replaced.

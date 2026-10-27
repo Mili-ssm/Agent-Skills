@@ -1,51 +1,46 @@
 ---
 name: release-hygiene
-description: Use when writing commit messages, preparing a release, bumping versions, tagging or updating a changelog - Conventional Commits, SemVer, Keep a Changelog and a release checklist.
+description: Conventions for Conventional Commits, SemVer bumps, Keep a Changelog entries and release checklists. Use when writing a commit message or changelog entry, choosing a version number, tagging or preparing a release.
 ---
 
 # Release Hygiene
 
-## Conventional Commits
+Conventional Commits, SemVer and Keep a Changelog are assumed known; these are the decisions that usually go wrong.
 
-`<type>(<scope>)!: <imperative summary ≤ 72 chars>` + optional body (why, not what) + footers.
+## Commits
 
-| Type | Use | SemVer effect |
-|---|---|---|
-| `feat` | New capability | minor |
-| `fix` | Bug fix | patch |
-| `perf` | Performance improvement | patch |
-| `refactor` | Structure change, no behavior change | none |
-| `docs`, `test`, `style` | Docs / tests / formatting | none |
-| `build`, `ci`, `chore` | Tooling, deps, CI, housekeeping | none |
-| `!` or `BREAKING CHANGE:` footer | Incompatible change | major |
+- `<type>(<scope>)!: <imperative summary ≤ 72 chars>`; body says why, not what.
+- `!` or a `BREAKING CHANGE:` footer marks a major change; `feat` → minor; `fix`/`perf` → patch; others → none.
+- One logical change per commit, tests green at each, so bisect and revert stay usable.
+- Refactoring and behavior changes in separate commits.
 
-Rules: one logical change per commit; tests pass at each commit; reference issues in footers (`Refs: #123`).
+## Versions
 
-## SemVer (`MAJOR.MINOR.PATCH`)
+- Define the public API (docs, exported symbols) first; SemVer is meaningless without it.
+- `0.y.z`: bump minor for breaking changes by convention.
+- Pre-releases: `1.4.0-rc.1`.
+- One source of the version (`pyproject.toml` / `Cargo.toml`); lockfile updated with it.
+- Detect breaks mechanically: `cargo semver-checks` (Rust); PEP 440 versions (Python).
 
-- MAJOR: incompatible public API change. MINOR: backward-compatible feature. PATCH: backward-compatible fix.
-- `0.y.z`: anything may change; bump minor for breaking changes by convention.
-- Pre-releases: `1.4.0-rc.1`. Public API must be defined (docs, exported symbols) for SemVer to mean anything.
-- Rust: follow Cargo's SemVer compatibility guide; `cargo semver-checks` detects breaks. Python: PEP 440 versions.
+## Changelog
 
-## Keep a Changelog
+Written for users: impact, migration notes, deprecations. Sections `Added · Changed · Deprecated · Removed · Fixed · Security` under `## [x.y.z] - YYYY-MM-DD`, with an `[Unreleased]` section on top.
 
-```markdown
-## [Unreleased]
-### Added | Changed | Deprecated | Removed | Fixed | Security
-## [1.4.0] - 2026-10-27
-```
-
-Written for users (impact), not a git log dump. Link versions to compare URLs.
+<example>
+## [2.0.0] - 2026-10-27
+### Removed
+- `/v1/export` endpoint (deprecated since 1.6.0). Use `/v2/exports`; see migration notes.
+</example>
 
 ## Release checklist
 
-1. Main green; no unreleased breaking change without major bump.
-2. Version bumped in one place (`pyproject.toml` / `Cargo.toml`), lockfile updated.
-3. Changelog `[Unreleased]` → version + date.
-4. Migration notes for breaking changes and deprecations.
-5. Tag `vX.Y.Z` (annotated), build from tag, publish artifacts.
-6. Verify install from the registry in a clean environment.
-7. Announce; open next `[Unreleased]`.
+```
+- [ ] Main green; breaking changes have a major bump and migration notes
+- [ ] Version bumped in its single source; lockfile updated
+- [ ] Changelog [Unreleased] → version + date
+- [ ] Annotated tag vX.Y.Z; build from the tag
+- [ ] Install from the registry in a clean environment and smoke-test
+- [ ] Open a new [Unreleased]
+```
 
-Tools (optional): `git-cliff`, `release-please`, `cargo-release`, `commitizen`.
+Optional automation: `git-cliff`, `release-please`, `cargo-release`, `commitizen`.

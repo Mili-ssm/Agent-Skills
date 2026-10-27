@@ -1,30 +1,42 @@
 ---
 name: change-impact
-description: Use before planning or implementing a significant change (new feature touching shared code, refactor of boundaries, dependency or schema change, API change, removal) - maps blast radius, breaking changes, decisions and docs made stale, migration and rollback strategy.
+description: Maps the blast radius of a significant change - callers, contracts, data, docs, consumers, breaking changes, migration strategy (expand/contract, flags, strangler), rollout, rollback and point of no return. Use when planning or about to implement a rename, schema or API change, dependency swap, removal or boundary refactor, or when asked what a change will affect and how to roll it out safely.
 ---
 
 # Change Impact Analysis
 
-Run before `writing-plans`. Output feeds the plan; unclear intent → run `intent-elicitation` in `change` mode first.
+Run before writing the implementation plan, because the plan inherits the blast radius. Unclear motivation → run `intent-elicitation` in `change` mode first.
 
-## Process
+## Workflow
 
-1. **State the change** in one sentence plus its motivation. Unclear motivation is the first finding.
-2. **Map the blast radius** (evidence per row):
+Copy and tick:
+
+```
+- [ ] 1 State the change and its motivation in one sentence each
+- [ ] 2 Map the blast radius (evidence per row)
+- [ ] 3 Classify compatibility
+- [ ] 4 Choose migration and rollout strategy
+- [ ] 5 Risks, rollback, point of no return
+- [ ] 6 Verification plan
+- [ ] 7 Docs and ADRs to update in the same change
+```
+
+**2. Blast radius** (Hyrum's law: every observable behavior may have a consumer):
 
 | Dimension | How to find |
 |---|---|
 | Direct callers / importers | Grep symbol, module, route, template names |
-| Public contracts | HTTP routes, CLI flags, library API, events, file formats, env vars |
+| Public contracts | HTTP routes, CLI flags, library API, events, file formats, env vars, error messages |
 | Data | Schemas, migrations, stored formats, caches, serialized objects |
 | Config / infra | Settings, CI, deployment manifests, feature flags |
-| Tests | Tests covering touched code; tests that will need to change |
-| Docs / ADRs | Claims and decisions that become false (dispatch `consistency-auditor` in `change` mode for large scope) |
+| Tests | Covering tests; tests that must change |
+| Docs / ADRs | Claims and decisions made false (large scope: dispatch `consistency-auditor` in `change` mode) |
 | People / systems | Consumers outside the repo, other teams, scheduled jobs |
 | Non-functional | Performance, security surface, accessibility, cost |
 
-3. **Classify compatibility** (SemVer reasoning): `patch` (no contract change) · `minor` (additive) · `major` (breaking). For breaking: list each break and who it hits.
-4. **Choose a migration strategy**:
+**3. Compatibility**: `patch` (no contract change) · `minor` (additive) · `major` (breaking: list each break and who it hits).
+
+**4. Strategy**:
 
 | Strategy | Use when |
 |---|---|
@@ -32,39 +44,34 @@ Run before `writing-plans`. Output feeds the plan; unclear intent → run `inten
 | Parallel change (expand → migrate → contract) | Contracts or schemas with live consumers |
 | Branch by abstraction | Replace an internal component incrementally on trunk |
 | Strangler fig | Replace a subsystem route by route |
-| Feature flag / dark launch | Risky behavior; need fast off-switch |
-| Dual write / backfill | Data model changes with zero downtime |
+| Feature flag (release, ops, experiment, permission — Hodgson) | Risky behavior; fast off-switch; remove release flags after rollout |
+| Dark launch / shadow traffic | Validate under real load without user impact |
+| Canary / blue-green / progressive delivery | Limit exposure; promote on healthy metrics |
+| Dual write + backfill | Data model change with zero downtime |
 
-5. **Risk and rollback**: top risks (likelihood × impact, `low/med/high` with evidence); rollback path per step; point of no return (irreversible steps such as destructive migrations) called out explicitly.
-6. **Verification plan**: tests to add/adjust, characterization tests before touching legacy code, monitoring signals during rollout.
-7. **Docs and decisions**: ADRs to supersede or write, docs to update in the same change.
+**5. Risks**: rate `low | medium | high`, each with its evidence; rollback path per step; name the point of no return (destructive migration, external announcement) or "none".
+
+**6. Verification**: characterization tests before touching legacy code; tests to add/adjust; rollout metrics and abort thresholds.
 
 ## Output
 
 ```markdown
 ## Change
 <sentence> · Motivation · Compatibility: patch | minor | major
-
 ## Blast radius
-| Dimension | Affected item | Evidence | Action needed |
-
+| Dimension | Affected item | Evidence | Action |
 ## Breaking changes
 | Break | Affected consumers | Mitigation |
-
 ## Strategy
-<chosen strategy + why; ordered steps, each independently deployable/revertible>
-
+Ordered steps, each independently deployable and revertible
 ## Risks
 | Risk | Rating | Evidence | Mitigation | Rollback |
-Point of no return: <step or "none">
-
-## Verification
-## Docs / ADRs to update
-## Open questions for owner
+Point of no return: <step | none>
+## Verification · Docs/ADRs to update · Open questions for owner
 ```
 
 ## Rules
 
-- Every affected item needs evidence; "probably used somewhere" → grep or list as open question.
-- Prefer sequences of small reversible steps over one large step.
-- Decision-level changes produce an ADR (`decision-records`).
+- Back every affected item with evidence; "probably used somewhere" → grep it or list it as an open question.
+- Prefer sequences of small reversible steps.
+- A decision-level change produces an ADR (`decision-records`).

@@ -1,51 +1,60 @@
 ---
 name: security-principles
-description: Use when threat modeling, reviewing code or designs for security, handling auth, secrets, user input, file uploads, dependencies or sensitive data - STRIDE, OWASP Top 10 and ASVS themes, CWE classes, secure design principles and Python/Rust/web specifics.
+description: Security review kit - STRIDE threat modeling, OWASP Top 10 and ASVS themes, secure-design principles, and Python, Rust and htmx sinks with safe alternatives. Use when checking code, an endpoint, a design or dependencies for vulnerabilities (injection, XSS, CSRF, SSRF, auth flaws), or when handling login, secrets, user input, file uploads, redirects or sensitive data.
 ---
 
 # Security Principles
 
-Find exploitable paths, not theoretical ones: every finding needs a source (attacker-controlled input), a sink (dangerous operation) and the missing control between them.
+Report exploitable paths, not theoretical ones: every finding names a **source** (attacker-controlled input), a **sink** (dangerous operation) and the **missing control** between them. Scanner hits without such a path are mostly false positives.
 
 ## Index
 
 | Need | Reference |
 |---|---|
-| Threat modeling (STRIDE, trust boundaries, DFD, attack trees) | [threat-modeling.md](references/threat-modeling.md) |
-| Review checklist (OWASP themes, ASVS areas, language/web specifics, supply chain) | [checklist.md](references/checklist.md) |
+| Threat modeling: four questions, DFD, STRIDE, attack trees, LINDDUN | [threat-modeling.md](references/threat-modeling.md) |
+| Review checklist: OWASP themes, ASVS areas, Python/Rust/web sinks, supply chain, secrets | [checklist.md](references/checklist.md) |
 
-## Secure design principles (Saltzer & Schroeder + modern)
+## Secure design principles
 
 | Principle | Meaning |
 |---|---|
-| Least privilege | Minimal rights for users, services, tokens, DB roles |
-| Defense in depth | Multiple independent controls |
-| Fail securely / closed | Errors deny access, never grant it |
-| Complete mediation | Check authorization on every access, server-side |
-| Secure defaults | Safe out of the box; opt-in to risk |
-| Economy of mechanism | Simple, small, reviewable security code |
-| Separation of privilege | Critical actions need more than one condition |
-| Minimize attack surface | Remove unused endpoints, features, deps |
-| Don't trust the client | All client data is attacker-controlled (headers, cookies, hidden fields, HX-* headers) |
-| Zero trust | Authenticate and authorize every request regardless of network |
-| Use vetted crypto | Never roll your own; libraries with safe defaults |
+| Least privilege / least authority | Minimal rights for users, services, tokens, DB roles |
+| Defense in depth | Independent layered controls |
+| Fail closed | Errors deny access |
+| Complete mediation | Authorize every access server-side, per object |
+| Secure by default | Safe out of the box; risk is opt-in |
+| Economy of mechanism | Small, reviewable security code |
+| Minimize attack surface | Remove unused endpoints, features, dependencies |
+| Distrust the client | Headers, cookies, hidden fields, `HX-*` headers are attacker-controlled |
+| Canonicalize, then validate | Normalize paths, encodings, Unicode before checks |
+| Avoid confused deputies | A privileged component acts only with the caller's authority |
+| Check-and-use atomically | Prevent TOCTOU races (files, balances, permissions) |
+| Vetted crypto | Libraries with safe defaults; never custom primitives |
 
 ## Severity
 
 | Level | Criteria |
 |---|---|
 | critical | Remote, unauthenticated, high impact (RCE, auth bypass, mass data exposure) |
-| high | Authenticated or conditional but high impact; or unauthenticated medium impact |
-| medium | Requires unusual conditions; limited data/function |
+| high | Authenticated/conditional with high impact, or unauthenticated medium impact |
+| medium | Unusual preconditions; limited data or function |
 | low | Defense-in-depth gap, hard to exploit |
 | info | Hardening suggestion |
 
-Rate by exploitability × impact; state attacker preconditions.
+Rate by exploitability × impact and state the attacker's preconditions.
 
-## Process
+## Review workflow
+
+The `security-reviewer` agent follows this workflow; use it inline for a snippet or endpoint.
 
 1. Context: assets, actors, trust boundaries (threat model if none exists).
-2. Enumerate entry points: routes, forms, uploads, webhooks, CLI args, env, message queues, deserialization.
-3. Trace sources → sinks; check controls (validation, encoding, authz, rate limits).
-4. Run available scanners (`pip-audit`, `cargo audit`, `cargo deny`, `bandit`, `semgrep`, secret scanners) and triage results; scanners are leads, not findings.
-5. Report exploitable findings with proof path and fix; hardening separately.
+2. Entry points: routes, forms, uploads, webhooks, CLI args, env, queues, deserialization, templates rendering user data.
+3. Trace sources → sinks; check validation, encoding, authorization, rate limits.
+4. Triage available scanner output as leads.
+5. Report exploitable findings with proof path and minimal fix; hardening separately.
+
+<example>
+| # | Severity | Title | Source → sink | Missing control | Evidence | Fix |
+|---|----------|-------|---------------|-----------------|----------|-----|
+| 1 | critical | SQL injection | `cfg['name']` from request body → `db.execute(f"...")` | parameterization | app.py:5 | `db.execute("... WHERE name = ?", (name,))` |
+</example>

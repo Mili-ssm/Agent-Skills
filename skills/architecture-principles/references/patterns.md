@@ -4,38 +4,40 @@
 
 | Style | Fits when | Cost / risk |
 |---|---|---|
-| Layered | Simple CRUD, small team | Layers leak; domain anemic |
+| Layered | Simple CRUD, small team | Leaky layers, anemic domain |
 | Hexagonal (ports & adapters, Cockburn) | Domain logic worth isolating; many I/O adapters | Indirection; overkill for scripts |
-| Clean / Onion | Same as hexagonal, stricter rings | Boilerplate mapping between rings |
-| Modular monolith | Most products; clear modules, one deployable | Needs enforced boundaries |
-| Microservices | Independent scaling/deploy per team; org scale | Distributed systems tax, ops, data consistency |
+| Clean / Onion | As hexagonal, stricter rings | Mapping boilerplate between rings |
+| Vertical slice | Features vary in complexity; change is per feature | Duplication across slices; shared rules need a home |
+| Modular monolith | Most products; enforced modules, one deployable | Needs boundary enforcement (fitness functions) |
+| Microservices | Independent deploy/scale per team at org scale | Distributed-systems tax, data consistency, ops |
 | Event-driven | Decoupled reactions, async workflows, audit | Debuggability, eventual consistency, ordering |
-| Pipes and filters | Data transformation chains | Shared state awkward |
-| Functional core / imperative shell | Logic-heavy code, high testability | Discipline at boundaries |
+| Pipes and filters | Transformation chains | Shared state awkward |
+| Hypermedia-driven application (HDA) | Server-rendered UI with partial updates (htmx) | Rich offline/client state is harder |
+| Microkernel / plugin | Stable core, many optional extensions | Plugin API is a long-lived contract (Hyrum) |
+| Cell-based | Blast-radius isolation at scale | Routing and data partitioning complexity |
+
+Styles combine (e.g. modular monolith of vertical slices with hexagonal cores).
 
 ## Domain-Driven Design (Evans, Vernon)
 
 | Strategic | Tactical |
 |---|---|
-| Ubiquitous language, bounded context, context map (shared kernel, customer/supplier, conformist, anticorruption layer, open host, published language), core/supporting/generic subdomains | Entity, value object, aggregate (consistency boundary, reference by ID), domain event, repository, domain service, factory |
+| Ubiquitous language, bounded context, context map (shared kernel, customer/supplier, conformist, anticorruption layer, open host, published language), core/supporting/generic subdomains, Event Storming for discovery | Entity, value object, aggregate (consistency boundary, reference by ID), domain event, repository, domain service |
 
-## Enterprise (Fowler, PoEAA)
+## Reliability and integration
 
-Transaction script · Domain model · Service layer · Repository · Unit of work · Data mapper vs. Active record · Identity map · Gateway · DTO · Lazy load.
-
-## Integration / distributed
-
-CQRS · Event sourcing · Saga (choreography/orchestration) · Outbox · Idempotent consumer · Circuit breaker · Bulkhead · Retry with backoff + jitter · Strangler fig · Backend-for-frontend · API gateway · Anticorruption layer.
-
-## GoF (most useful today)
-
-| Category | Patterns |
+| Pattern | Use |
 |---|---|
-| Creational | Factory method, Abstract factory, Builder |
-| Structural | Adapter, Facade, Decorator, Composite, Proxy |
-| Behavioral | Strategy, Observer, Command, State, Template method, Iterator, Chain of responsibility |
+| Sans-IO | Protocol/parsing logic as pure state machines; I/O adapters per runtime (sync/async, Python/Rust) |
+| Idempotent consumer + outbox | Exactly-once effects over at-least-once delivery |
+| Saga (orchestration/choreography) | Multi-step workflows without distributed transactions |
+| Circuit breaker, bulkhead, timeout, retry with backoff + jitter | Contain failing dependencies |
+| Backpressure, load shedding | Stay up under overload instead of queueing forever |
+| Supervision / let it crash (Erlang) | Restart isolated workers from known state instead of defensive code everywhere |
+| CQRS, event sourcing | Read/write models diverge; audit history matters (costly: use only when demanded) |
+| Strangler fig, anticorruption layer, BFF, API gateway | Migration and integration boundaries |
 
-Many collapse into first-class functions/closures in Python and Rust.
+Enterprise (Fowler, PoEAA) and GoF patterns are assumed known; many GoF patterns collapse into functions/closures in Python and Rust.
 
 ## Language idioms
 
@@ -43,7 +45,7 @@ Many collapse into first-class functions/closures in Python and Rust.
 |---|---|
 | `Protocol` for structural interfaces | Traits; generics vs. `dyn Trait` trade-off |
 | Dependency injection via parameters / FastAPI `Depends` | Newtype for domain invariants |
-| Dataclasses / Pydantic as value objects | Typestate (state in the type) |
+| Dataclasses / Pydantic as value objects; parse at the edge | Typestate (state in the type) |
 | Context managers for resources | RAII, ownership as resource policy |
-| Modules as singletons; avoid metaclass magic | `Result`/`?` error flow; `thiserror` (lib) / `anyhow` (bin) |
+| Modules over singletons; avoid metaclass magic | `Result` + `?`; `thiserror` (lib) / `anyhow` (bin) |
 | Generators for pipelines | Iterators; enums for closed sets |

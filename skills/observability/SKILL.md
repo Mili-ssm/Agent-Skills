@@ -1,59 +1,57 @@
 ---
 name: observability
-description: Use when adding or reviewing logging, metrics, tracing, health checks, alerting or SLOs - structured logs, OpenTelemetry, RED/USE and golden signals, SLI/SLO/error budgets, cardinality and privacy rules, with Python and Rust tooling.
+description: Telemetry design - wide events (canonical log lines), structured logs, OpenTelemetry traces and metrics, RED/USE, SLOs with burn-rate alerts, cardinality and privacy rules, Python and Rust tooling. Use when deciding what to log, measure, trace or alert on, adding monitoring, dashboards or health checks, or preparing a service so production incidents can be debugged quickly.
 ---
 
 # Observability
 
-Goal: answer "what is broken, for whom, since when, and why" from telemetry alone, without deploying new code.
+Goal: answer "what is broken, for whom, since when, and why" from telemetry alone, without shipping new code.
 
-## Three signals
+## Signals
 
 | Signal | Answers | Rules |
 |---|---|---|
-| Logs | What happened, with context | Structured (JSON), one event per line, stable keys, correlation/trace ID on every line |
-| Metrics | How much / how often, cheaply over time | Low-cardinality labels; counters, histograms (latency), gauges |
-| Traces | Where time went across components | Propagate W3C `traceparent`; spans for I/O boundaries |
+| Wide event / canonical log line (Stripe) | Everything about one request in one queryable record | One structured event per request/job at completion: route, status, duration, user/tenant hash, feature flags, DB time, retries, error class. Also emit on timeout/exception paths so failures leave a record |
+| Logs | Notable moments inside a unit of work | JSON, stable keys, trace ID on every line |
+| Metrics | Cheap aggregates over time | Low-cardinality labels; counters, latency histograms, gauges |
+| Traces | Where time went across components | W3C `traceparent` propagation; spans at I/O boundaries; exemplars link metrics to traces |
 
-Standard: OpenTelemetry (API + SDK + OTLP exporter) for all three.
+Standard: OpenTelemetry (API + SDK + OTLP). High-cardinality fields (user, request ID) belong in events and traces, never in metric labels.
 
 ## What to measure
 
 | Method | For | Metrics |
 |---|---|---|
-| RED (Wilkie) | Request-driven services | Rate, Errors, Duration (histogram, p50/p95/p99) |
-| USE (Gregg) | Resources (CPU, memory, disk, pools, queues) | Utilization, Saturation, Errors |
+| RED (Wilkie) | Request-driven services | Rate, Errors, Duration (p50/p95/p99 histograms) |
+| USE (Gregg) | Resources: CPU, memory, pools, queues | Utilization, Saturation, Errors |
 | Golden signals (Google SRE) | User-facing systems | Latency, traffic, errors, saturation |
 
-## SLOs
+## SLOs and alerts
 
-- **SLI**: ratio of good events (e.g. requests < 300 ms and non-5xx / all requests).
-- **SLO**: target over a window (99.5% / 30 days). **Error budget** = 1 − SLO; spend it on change, freeze when exhausted.
-- Alert on burn rate (multi-window), not on every spike; alerts must be actionable and link a runbook.
+- SLI = good events / all events (e.g. requests < 300 ms and non-5xx).
+- SLO = target over a window (99.5% / 30 days); error budget = 1 − SLO, spent on change, release freeze when exhausted.
+- Alert on multi-window burn rate, not single spikes; every alert is actionable and links a runbook.
 
 ## Logging rules
 
-| Do | Don't |
+| Do | Because |
 |---|---|
-| Levels: ERROR (needs action), WARN (degraded, recoverable), INFO (business events, lifecycle), DEBUG (diagnostics, off in prod) | Log and re-raise the same error at every layer |
-| Include: event name, IDs (request, user hash, entity), outcome, duration | Log secrets, tokens, passwords, full PII, request bodies by default |
-| Log at boundaries (incoming request, outgoing call, job start/end) | Unbounded values in metric labels (user IDs, URLs with IDs) |
-| Use UTC ISO 8601 timestamps | String-concatenate messages (breaks querying) |
+| ERROR = needs action, WARN = degraded but recovered, INFO = business events and lifecycle, DEBUG off in prod | Levels must map to responses |
+| Log each error once, where it is handled, with context | Re-logging at every layer floods and duplicates |
+| Log at boundaries: incoming request, outgoing call, job start/end | Where latency and failures originate |
+| Log IDs and hashes; exclude secrets, tokens, passwords, full PII, raw bodies | Logs are widely readable and retained |
+| Structured fields, never string concatenation | Keeps logs queryable |
+| UTC ISO 8601 timestamps | Cross-service correlation |
+| Sample tail-based (keep errors and slow requests) | Head sampling drops the interesting cases |
 
 ## Health
 
-- `/livez` (process alive), `/readyz` (dependencies OK, ready for traffic); cheap, unauthenticated, no sensitive detail.
-- Startup and shutdown logged; graceful shutdown drains requests.
+`/livez` (process alive) and `/readyz` (dependencies OK): cheap, unauthenticated, no sensitive detail. Graceful shutdown drains in-flight requests.
 
-## Tooling
+## Non-obvious tooling
 
 | Need | Python | Rust |
 |---|---|---|
-| Structured logs | `structlog` or stdlib `logging` + JSON formatter | `tracing` + `tracing-subscriber` (JSON) |
-| Traces/metrics | `opentelemetry-sdk`, `opentelemetry-instrumentation-fastapi` | `opentelemetry`, `tracing-opentelemetry` |
-| Metrics endpoint | `prometheus-client` | `metrics` + `metrics-exporter-prometheus` |
-| Errors | Sentry SDK | Sentry SDK |
-
-## Review checklist
-
-Can you trace one request end to end? Is every error logged once with context? Are latency histograms per route? Are labels bounded? Is there an SLO for the main user journey? Do alerts have runbooks?
+| Structured/wide events | `structlog` | `tracing` + `tracing-subscriber` (JSON) |
+| OpenTelemetry | `opentelemetry-instrumentation-fastapi` | `tracing-opentelemetry` |
+| Metrics endpoint | `prometheus-client` | `metrics-exporter-prometheus` |

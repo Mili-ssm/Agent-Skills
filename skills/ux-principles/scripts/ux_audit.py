@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Capture UX evidence for one or more URLs with Playwright.
 
-For every URL x viewport it writes to --out:
+For every URL x viewport it writes to --out (default: a new temp dir, so the audited repo stays untouched):
   - <slug>_<WxH>.png        full-page screenshot
   - <slug>_<WxH>_axe.json   axe-core violations (WCAG 2.x A/AA + best practices)
   - <slug>_focus.json       keyboard focus order (first --tabs Tab presses, first viewport only)
 and prints a compact summary table so the calling agent does not need to open the JSON files.
 
 Usage:
-  python3 ux_audit.py http://localhost:8000/ [more URLs] --out ux-audit \
+  python3 ux_audit.py http://localhost:8000/ [more URLs] [--out DIR] \
       --viewports 375x812,1440x900 --tabs 25 [--axe-path ./axe.min.js] [--executable-path /opt/pw-browsers/chromium]
 
 Requires: Python Playwright with Chromium (`pip install playwright` + browser).
@@ -20,12 +20,17 @@ import argparse
 import json
 import os
 import re
+import tempfile
 from pathlib import Path
 
+from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import Page, sync_playwright
 
 # Pinned axe-core release served from jsDelivr; override with --axe-path when offline.
 AXE_CDN = "https://cdn.jsdelivr.net/npm/axe-core@4.10.2/axe.min.js"
+# Pre-installed Chromium locations tried when Playwright's own browser build is missing
+# (cloud images ship a browser whose version differs from the pip package).
+FALLBACK_CHROMIUM = ["/opt/pw-browsers/chromium"]
 # Rule tags passed to axe.run: WCAG 2.0/2.1/2.2 levels A and AA plus best practices.
 AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"]
 
@@ -88,10 +93,23 @@ def focus_order(page: Page, tabs: int) -> list[dict | None]:
     return order
 
 
+def launch_chromium(pw, executable_path: str | None):
+    """Launch Chromium; if Playwright's bundled build is missing, retry with known pre-installed paths."""
+    try:
+        return pw.chromium.launch(executable_path=executable_path)
+    except PlaywrightError:
+        if executable_path:
+            raise  # an explicit path that fails is a real error
+        for candidate in FALLBACK_CHROMIUM:
+            if Path(candidate).exists():
+                return pw.chromium.launch(executable_path=candidate)
+        raise
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("urls", nargs="+")
-    parser.add_argument("--out", default="ux-audit")
+    parser.add_argument("--out", default=None, help="evidence dir (default: new temp dir)")
     parser.add_argument("--viewports", default="375x812,1440x900")
     parser.add_argument("--tabs", type=int, default=25)
     parser.add_argument("--axe-path", default=None, help="local axe.min.js instead of the CDN")
@@ -100,13 +118,13 @@ def main() -> None:
                         help="Chromium binary to launch (default: $PW_CHROMIUM_PATH or Playwright's own)")
     args = parser.parse_args()
 
-    out = Path(args.out)
+    out = Path(args.out) if args.out else Path(tempfile.mkdtemp(prefix="ux-audit-"))
     out.mkdir(parents=True, exist_ok=True)
     viewports = parse_viewports(args.viewports)
     rows = []  # summary rows: (url, viewport, violations, serious+critical)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(executable_path=args.executable_path)
+        browser = launch_chromium(pw, args.executable_path)
         for url in args.urls:
             slug = slugify(url)
             for i, (w, h) in enumerate(viewports):
