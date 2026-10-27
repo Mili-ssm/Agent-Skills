@@ -7,10 +7,4 @@ plugins: ["../../.."]
 allowed_tools: [Read, Glob, Grep, Skill, Agent]
 ---
 
-Review this signup form for usability and accessibility:
-
-<form>
-  <input placeholder="Email">
-  <input type="password" placeholder="Password">
-  <div onclick="submit()" style="color:#aaa">Sign up</div>
-</form>
+We're about to build the signup and onboarding flow for our web app (server-rendered, minimal JS). Plan the screens, states and accessibility requirements, and define how we'll verify the UX in the browser with Playwright once it's built.

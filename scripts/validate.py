@@ -10,6 +10,7 @@ Checks (Anthropic skill-authoring rules + repo contract):
   - Line budgets: SKILL.md <= 150, agent <= 120.
   - Relative links to references/ or scripts/ inside a skill point to existing files.
   - Skills listed in an agent's `skills:` frontmatter exist in skills/.
+  - commands/*.md have a description, are user-only and reference existing agents/skills.
 
 Standard library only so it runs in any fresh environment: `python3 scripts/validate.py`.
 Exit code 0 = valid, 1 = at least one error (errors are printed one per line).
@@ -135,10 +136,27 @@ def check_agents(errors: list[str], skill_names: set[str]) -> None:
                 errors.append(f"{rel}: preloads unknown skill '{skill}'")
 
 
+def check_commands(errors: list[str], skill_names: set[str]) -> None:
+    """Commands are user-only entry points that must reference existing agents or skills."""
+    agent_names = {p.stem for p in ROOT.glob("agents/*.md")}
+    for cmd in sorted(ROOT.glob("commands/*.md")):
+        rel = cmd.relative_to(ROOT)
+        text = cmd.read_text(encoding="utf-8")
+        fm = parse_frontmatter(text)
+        if not fm.get("description"):
+            errors.append(f"{rel}: missing 'description'")
+        if fm.get("disable-model-invocation") != "true":
+            errors.append(f"{rel}: commands must set disable-model-invocation: true (user-only)")
+        for ref in re.findall(r"agent-skills:([a-z0-9-]+)", text):
+            if ref not in agent_names and ref not in skill_names:
+                errors.append(f"{rel}: references unknown agent/skill '{ref}'")
+
+
 def main() -> int:
     errors: list[str] = []
     skills = check_skills(errors)
     check_agents(errors, skills)
+    check_commands(errors, skills)
     for err in errors:
         print(err)
     agents = len(list(ROOT.glob("agents/*.md")))

@@ -53,6 +53,22 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `observability` | Knowledge | Logs, metrics, traces, SLOs |
 | `release-hygiene` | Knowledge | Commits, SemVer, changelog, releases |
 
+### Commands (explicit, user-only)
+
+Every skill is also invocable as `/agent-skills:<skill>`. Agents get explicit commands, which never auto-trigger and cost no context per turn:
+
+| Command | Runs |
+|---|---|
+| `/agent-skills:ux-design <feature>` | `ux-principles` design workflow → spec + Playwright acceptance checks |
+| `/agent-skills:ux-review <url>` | `ux-reviewer` |
+| `/agent-skills:arch-review [mode] [scope]` | `architect` |
+| `/agent-skills:qa-review [mode] [scope]` | `qa-engineer` |
+| `/agent-skills:security-audit [mode] [scope]` | `security-reviewer` |
+| `/agent-skills:doc-audit [audit\|apply] [paths]` | `doc-curator` |
+| `/agent-skills:consistency-audit [mode] [scope]` | `consistency-auditor` |
+| `/agent-skills:premortem [plan]` | `pre-mortem` |
+| `/agent-skills:perf-review <target>` | `performance-analyst` |
+
 ## Workflow with Superpowers
 
 ```text

@@ -47,4 +47,4 @@ Trigger evals, Sonnet, same graders (skill fired or its preloading agent dispatc
 
 Adding the reason to load turned 0% → 100% for architecture, security and pre-mortem, and lifted QA and refactoring to 100%. `ux-principles` stays unreliable (2 of 6 runs over the last two measurements): Sonnet answers small HTML reviews from memory.
 
-Revisit `ux-principles` triggering with more prompt variants or a dedicated `/ux-review` command.
+Follow-up (owner): auto-triggering is a bonus, not a requirement, so explicit commands (`commands/*.md`, `disable-model-invocation: true`) supplement every agent plus `ux-design`. `ux-principles` is meant for planning and designing UIs with Playwright verification, not snippet review; its eval now uses a design prompt and fires 3/3.

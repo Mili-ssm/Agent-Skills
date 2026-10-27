@@ -32,6 +32,7 @@ Current as of 2026-10-27. Source: owner conversation and `intent-elicitation` in
 | N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). |
 | N6 | Description or prompt changes are measured with `claude plugin eval` (trigger + no-trigger cases) against the previous version. |
 | N7 | Reviewer agents are read-only via `disallowedTools`, not via prompt text. |
+| N8 | Every agent and the UX design workflow have an explicit user-only command; auto-triggering is a bonus. |
 
 ## Superpowers boundary
 

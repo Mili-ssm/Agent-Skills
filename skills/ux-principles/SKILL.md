@@ -1,21 +1,47 @@
 ---
 name: ux-principles
-description: Reviews pages, forms, components and user flows (live URLs or HTML/CSS snippets) for usability and accessibility using Nielsen heuristics with a severity scale, laws of UX, WCAG 2.2 AA, deceptive-pattern checks and visual-system rules, plus a Playwright script for screenshots, axe-core and focus order. Use when asked to review, critique or improve a UI, form or flow for usability, UX, accessibility or a11y; load it before answering so findings cite the violated heuristic or WCAG criterion with a severity.
+description: Plans, designs and reviews user interfaces and flows with Playwright as the verification loop - task and flow design, screen specs with all states, accessibility plans, acceptance criteria as Playwright checks, plus Nielsen heuristics, laws of UX, WCAG 2.2 AA, deceptive-pattern checks and a script capturing screenshots, axe-core violations and focus order. Use when planning or designing a page, form, component or user flow, defining its UX acceptance criteria, or auditing a running UI; load it before designing so every decision cites a heuristic, law or WCAG criterion.
 ---
 
 # UX/UI Principles
 
-Judge interfaces by evidence (screenshots, axe results, focus order), cite the heuristic, law or WCAG criterion violated, and rate severity. Taste alone is not a finding.
+Design and review interfaces from user tasks, verify them in a real browser with Playwright, and cite the heuristic, law or WCAG criterion behind each decision or finding. Taste alone is not a reason. Explicit entry points: `/agent-skills:ux-design` (plan/design) and `/agent-skills:ux-review` (audit a running UI).
 
 ## Index
 
 | Need | Reference |
 |---|---|
-| Heuristics, cognitive walkthrough, deceptive patterns, severity scale | [heuristics.md](references/heuristics.md) |
+| Heuristics, cognitive walkthrough, deceptive patterns, Kano, severity scale | [heuristics.md](references/heuristics.md) |
 | Laws of UX, Gestalt, response-time limits | [laws.md](references/laws.md) |
 | Accessibility: WCAG 2.2 AA, ARIA rules, dynamic content, inclusive design | [accessibility.md](references/accessibility.md) |
 | Visual system: tokens, spacing, type, color, states, motion | [visual-system.md](references/visual-system.md) |
 | Evidence capture | [scripts/ux_audit.py](scripts/ux_audit.py) |
+
+## Design workflow
+
+Copy and tick:
+
+```
+- [ ] 1 Users and tasks: primary users, jobs-to-be-done, top 3 tasks, success measure, constraints (devices, JS budget)
+- [ ] 2 Flows: task flows as Mermaid flowcharts; fewest steps; error and cancel paths
+- [ ] 3 Information architecture: screens, navigation, content priority per screen
+- [ ] 4 Screen specs: layout regions, components, copy, every state (empty, loading, error, success, overflow), responsive behavior
+- [ ] 5 Accessibility plan: landmarks, heading outline, focus order and focus moves after updates, live regions, target sizes
+- [ ] 6 Acceptance criteria as Playwright checks
+- [ ] 7 After implementation: run the checks and ux_audit.py; fix; repeat until clean
+```
+
+Step 6 turns criteria into executable checks:
+
+| Criterion | Playwright check |
+|---|---|
+| Task completes by keyboard | `page.keyboard.press("Tab")` sequence + `expect(locator).to_be_focused()` |
+| Controls have names and roles | `page.get_by_role("button", name="Sign up")` resolves |
+| Errors announced inline, input kept | Submit invalid → `expect(page.get_by_role("alert")).to_contain_text(...)`; field value unchanged |
+| Partial update moves focus / announces | After swap: `expect(heading).to_be_focused()` or live region text |
+| No serious axe violations | `ux_audit.py` summary: 0 serious+critical |
+| Works without JS (progressive enhancement) | `browser.new_context(java_script_enabled=False)`; core task still completes |
+| Responsive | Screenshots at 375 and 1440 px; no horizontal scroll |
 
 ## Evidence capture
 
@@ -26,18 +52,17 @@ Run (do not read) the script:
 python3 <skill-dir>/scripts/ux_audit.py http://localhost:8000/ http://localhost:8000/login --viewports 375x812,1440x900
 ```
 
-Output goes to a temp dir (printed) unless `--out` is given. Requires Python Playwright; a pre-installed Chromium of another version → `--executable-path` or `$PW_CHROMIUM_PATH` (auto-detects `/opt/pw-browsers/chromium`). Blocked CDN → `--axe-path` to a local `axe.min.js` (`npm pack axe-core`).
+Output goes to a temp dir (printed) unless `--out` is given. Requires Python Playwright; a pre-installed Chromium of another version → `--executable-path` or `$PW_CHROMIUM_PATH` (auto-detects `/opt/pw-browsers/chromium`). Blocked CDN → `--axe-path` to a local `axe.min.js`.
 
 ## Review workflow
 
-The `ux-reviewer` agent follows this workflow; use it inline for one screen.
+The `ux-reviewer` agent follows this workflow for running UIs.
 
-1. **Tasks**: primary user tasks per screen (routes, templates, headings).
-2. **Capture** each screen and the states that matter: empty, loading, error (submit invalid form), filled, long content.
-3. **Walk** each task (cognitive walkthrough), then check Nielsen H1–H10.
-4. **Accessibility**: axe violations + manual checks axe cannot do (focus order sense, visible focus, alt meaning, announced updates, reflow at 320 px).
-5. **Visual system**: raw values vs. tokens; spacing, type scale, component states.
-6. **Rate** with Nielsen severity 0–4; propose the smallest fix at markup/CSS level.
+1. Identify primary tasks per screen; capture each screen and its states.
+2. Walk each task (cognitive walkthrough), then check Nielsen H1–H10.
+3. Accessibility: axe violations + manual checks (focus logic, visible focus, alt meaning, announced updates, reflow at 320 px).
+4. Visual system: raw values vs. tokens; spacing, type scale, component states.
+5. Rate with Nielsen severity 0–4; propose the smallest fix at markup/CSS level.
 
 ## Defaults (configurable per project)
 
@@ -45,4 +70,4 @@ The `ux-reviewer` agent follows this workflow; use it inline for one screen.
 - Response time: instant < 100 ms; show progress past ~400 ms (Doherty); optimistic UI for safe actions.
 - Every interactive element: visible focus, ≥ 24×24 CSS px target, accessible name.
 - Errors inline next to the field, saying how to fix, with input preserved.
-- Partial updates announced (`aria-live`) and focus moved to the new content when the focused element is replaced.
+- Partial updates announced (`aria-live`) and focus moved to new content when the focused element is replaced.
