@@ -1,6 +1,6 @@
 ---
 name: security-principles
-description: Security review kit - STRIDE threat modeling, OWASP Top 10 and ASVS themes, secure-design principles, and Python, Rust and htmx sinks with safe alternatives. Use when checking code, an endpoint, a design or dependencies for vulnerabilities (injection, XSS, CSRF, SSRF, auth flaws), or when handling login, secrets, user input, file uploads, redirects or sensitive data.
+description: Security review checklist that traces attacker input to dangerous sinks and rates exploitability - STRIDE, OWASP Top 10 and ASVS themes, and Python, Rust and htmx sinks with safe fixes. Use when asked whether code, an endpoint or a design is safe, or to check for vulnerabilities (injection, XSS, CSRF, SSRF, auth flaws), secrets, uploads or redirects; load it before answering so findings follow its source-sink format and severity scale.
 ---
 
 # Security Principles

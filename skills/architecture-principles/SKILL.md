@@ -1,6 +1,6 @@
 ---
 name: architecture-principles
-description: Catalog of design principles, software laws, architectural styles, patterns, smells and evaluation methods (ISO 25010, ATAM, C4, fitness functions) for trade-off-aware recommendations. Use when evaluating or restructuring a codebase's architecture, module boundaries, layering or coupling, choosing between styles, or when one change ripples across many files.
+description: Catalog of design principles, software laws, architectural styles, patterns, smells and evaluation methods (ISO 25010, ATAM, C4, fitness functions) for trade-off-aware recommendations. Use when evaluating or restructuring a codebase's architecture, module boundaries, layering or coupling, choosing between styles, or when one change ripples across many files; load it before recommending so each option names its quality attribute, trade-off and migration path.
 ---
 
 # Architecture Principles

@@ -1,6 +1,6 @@
 ---
 name: ux-principles
-description: Usability and accessibility review kit - Nielsen heuristics, laws of UX, WCAG 2.2 AA, inclusive design, deceptive-pattern checks and visual-system rules, plus a Playwright script that captures screenshots, axe-core violations and keyboard focus order. Use when reviewing or designing a page, form, component or user flow for usability, accessibility or visual consistency.
+description: Reviews pages, forms, components and user flows (live URLs or HTML/CSS snippets) for usability and accessibility using Nielsen heuristics with a severity scale, laws of UX, WCAG 2.2 AA, deceptive-pattern checks and visual-system rules, plus a Playwright script for screenshots, axe-core and focus order. Use when asked to review, critique or improve a UI, form or flow for usability, UX, accessibility or a11y; load it before answering so findings cite the violated heuristic or WCAG criterion with a severity.
 ---
 
 # UX/UI Principles

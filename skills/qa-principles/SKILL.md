@@ -1,6 +1,6 @@
 ---
 name: qa-principles
-description: Test design and test strategy toolkit - ISTQB techniques, SFDPOT and HICCUPPS heuristics, property-based, stateful and mutation testing, test doubles, test smells and flaky-test causes. Use when deciding which test cases to write for a function or feature, assessing a test suite or strategy, hunting coverage gaps, or fixing flaky tests.
+description: Test design and test strategy toolkit - ISTQB techniques, SFDPOT and HICCUPPS heuristics, property-based, stateful and mutation testing, test doubles, test smells and flaky-test causes. Use when deciding which test cases to write for a function or feature, assessing a test suite or strategy, hunting coverage gaps, or fixing flaky tests; load it before answering so each case names its technique and the risk it covers.
 ---
 
 # QA Principles

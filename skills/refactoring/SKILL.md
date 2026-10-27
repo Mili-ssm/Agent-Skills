@@ -1,6 +1,6 @@
 ---
 name: refactoring
-description: Safe behavior-preserving restructuring - characterization tests, small green steps, Fowler smell catalog, Tidy First, Mikado method, parallel change, branch by abstraction and strangler fig. Use when cleaning up, splitting, renaming, extracting or untangling existing code without changing what it does, paying down tech debt, or working on legacy code without tests.
+description: Guides refactoring - restructuring code without changing its behavior - through characterization tests, small test-backed steps, Fowler's smell catalog, Tidy First, Mikado method, parallel change, branch by abstraction and strangler fig. Use when asked to refactor, restructure, clean up, split, rename, extract or untangle a function, module or legacy code, or to pay down tech debt; load it before proposing steps so each one names its smell and keeps tests green.
 ---
 
 # Refactoring

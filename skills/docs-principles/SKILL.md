@@ -1,6 +1,6 @@
 ---
 name: docs-principles
-description: Checklists for accurate, dense documentation and LLM-facing prompts - Diataxis, density checklist, CLAUDE.md/AGENTS.md rules and Anthropic skill and subagent authoring guidance. Use when writing, tightening, reviewing or updating a README, docs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts, including requests like "make this shorter" or "this feels bloated".
+description: Checklists for accurate, dense documentation and LLM-facing prompts - Diataxis, density checklist, CLAUDE.md/AGENTS.md rules and Anthropic skill and subagent authoring guidance. Use when writing, tightening, reviewing or updating a README, docs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts, including requests like "make this shorter" or "this feels bloated"; load it before editing so cuts follow the density checklist and keep rationale and gotchas.
 ---
 
 # Documentation Principles

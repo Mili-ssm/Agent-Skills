@@ -34,3 +34,17 @@ Baseline trigger evals (`claude plugin eval`, 13 cases × 2 runs, Sonnet) fired 
 ## Revisit if
 
 Trigger evals regress after a model change, or Anthropic's guidance changes the description or naming rules.
+
+## Review 2026-10-27
+
+Trigger evals, Sonnet, same graders (skill fired or its preloading agent dispatched):
+
+| Version | Positive cases fired | No-trigger cases clean |
+|---|---|---|
+| Original descriptions ("Use when…" first) | 42% (2 runs) | 100% |
+| What + when rewrite | 58% (2 runs) | 100% |
+| + reason to load ("load it before answering so …") | 87% (3 runs) | 100% |
+
+Adding the reason to load turned 0% → 100% for architecture, security and pre-mortem, and lifted QA and refactoring to 100%. `ux-principles` stays unreliable (2 of 6 runs over the last two measurements): Sonnet answers small HTML reviews from memory.
+
+Revisit `ux-principles` triggering with more prompt variants or a dedicated `/ux-review` command.

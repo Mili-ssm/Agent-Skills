@@ -1,6 +1,6 @@
 ---
 name: pre-mortem
-description: Skeptical reviewer that assumes a plan already failed and returns failure stories, unverified load-bearing assumptions, rated risks, plan amendments and kill criteria. Read-only. Use when a plan, spec or design exists and before executing it, or when asked to stress-test a plan, poke holes in it, or say what could go wrong.
+description: Skeptical reviewer that assumes a plan already failed and returns failure stories, unverified load-bearing assumptions, rated risks, plan amendments and kill criteria. Read-only. Use when a plan, spec or design exists and before executing it, or when asked to stress-test a plan, poke holes in it, or say what could go wrong; delegate to it instead of critiquing inline, because a fresh context is not anchored on the plan's own reasoning.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: opus
