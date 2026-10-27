@@ -1,0 +1,11 @@
+{
+  "name": "mili-ssm",
+  "owner": { "name": "mili-ssm" },
+  "plugins": [
+    {
+      "name": "agent-skills",
+      "source": "./",
+      "description": "Generic specialist skills and agents that complement Superpowers and Playwright."
+    }
+  ]
+}
