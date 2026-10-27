@@ -35,6 +35,7 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices*; *Pr
 |---|---|
 | `name` | ≤ 64 chars, lowercase/digits/hyphens, no "anthropic"/"claude"; gerund or noun phrase, one pattern per collection |
 | `description` | Third person; **what it does + "Use when …" triggers** with the user's likely key terms; ≤ 1024 chars; loaded every turn |
+| Reason to load | End knowledge-skill descriptions with why loading beats answering from memory ("load it before answering so findings cite …"); measured on this plugin: positive trigger rate 58% → 87% with no false triggers |
 | Body | Overview + workflow; < 500 lines (Anthropic); smaller is better |
 | References | One level deep from `SKILL.md`; descriptive filenames; `## Contents` when > 100 lines (partial reads see scope) |
 | Workflows | Numbered steps; for long ones a checklist to copy and tick; feedback loop *validate → fix → repeat* |
