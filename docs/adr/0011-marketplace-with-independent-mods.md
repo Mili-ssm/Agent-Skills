@@ -34,3 +34,7 @@ The hooks API changes shape, or a mod needs data another plugin provides (then u
 ## Review 2026-10-28
 
 Added `usage-band` (last answer's duration and tokens per model family, subagents included, plus session totals: the measurement ADR 0010's "Revisit if" asks for) and `plan-progress` (pane over the newest plan in `docs/superpowers/plans/`, `docs/plans/` or `plans/`, pinnable with `/plan-progress <path>`). Same rules: own folder, no version, tests, opt-in in cloud.
+
+## Review 2026-10-28 (2)
+
+Redesign for the VS Code extension, the owner's main surface, where `AbovePrompt` is not raised: `agents-pane` draws a live card on each Agent call's transcript row (Codex-style grouped steps, current tool, elapsed) instead of a side pane; `usage-band` logs a dim line under each answer instead of the band; `plan-progress` uses the status line (every surface) plus the band on terminal and desktop, only while a plan exists. `status-model` is removed: the cards show what it showed. Names kept so installs keep working.

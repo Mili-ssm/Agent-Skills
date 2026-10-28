@@ -1,6 +1,6 @@
 {
   "name": "usage-band",
-  "description": "Mod: a band above the prompt with the last answer's duration and tokens per model (subagents included), plus session totals, to see what offloading saves.",
+  "description": "Mod: a compact line under each answer with its duration and tokens per model (subagents included) plus session totals; /usage-band for a session summary",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
   "types": "./types/index.d.ts"

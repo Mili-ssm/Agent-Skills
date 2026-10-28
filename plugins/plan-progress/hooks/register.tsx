@@ -3,8 +3,8 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Plan, PlanTask } from '../types'
 
-// Pane id, also the slash command that opens it.
-const PANE = 'plan-progress'
+// Slash command name.
+const COMMAND = 'plan-progress'
 // Folders where plans are written: Superpowers (current and older layouts), then a generic one.
 const PLAN_DIRS = ['docs/superpowers/plans', 'docs/plans', 'plans']
 // Bump the shape tag when Plan's fields change: an older stored plan is then read as absent.
@@ -55,6 +55,53 @@ export function bar(done: number, total: number, width: number): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled)
 }
 
+/** `▰▰▰▰▰▱▱▱▱▱` for done/total over `width` cells: the compact glyph bar. */
+export function glyphBar(done: number, total: number, width: number): string {
+  const filled = total === 0 ? 0 : Math.round((done / total) * width)
+  return '▰'.repeat(filled) + '▱'.repeat(width - filled)
+}
+
+/** Cuts a title to `max` characters, ending it with an ellipsis. */
+export function truncate(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
+}
+
+/** The first unfinished task is the one in progress. */
+export function activeTask(plan: Plan): PlanTask | undefined {
+  return plan.tasks.find(task => task.done < task.total)
+}
+
+/** True when every step of a plan with steps is done. */
+export function isFinished(plan: Plan): boolean {
+  return plan.total > 0 && plan.done === plan.total
+}
+
+/** The one-line status: `▰▰▰▰▰▱▱▱▱▱ 5/10 · ▶ Task 3: Auth middleware 2/4`, or `✓ title 10/10` when finished. */
+export function statusLine(plan: Plan): string {
+  if (isFinished(plan)) {
+    return `✓ ${truncate(plan.title, 40)} ${plan.done}/${plan.total}`
+  }
+  const active = activeTask(plan)
+  const task = active === undefined ? '' : ` · ▶ ${truncate(active.title, 40)} ${active.done}/${active.total}`
+  return `${glyphBar(plan.done, plan.total, 10)} ${plan.done}/${plan.total}${task}`
+}
+
+/** The ring as SVG: a track circle and an arc for done/total, starting at 12 o'clock. */
+export function ringSvg(done: number, total: number, size: number, color: string): string {
+  const stroke = 3
+  const radius = (size - stroke) / 2
+  const circumference = 2 * Math.PI * radius
+  const arc = total === 0 ? 0 : (done / total) * circumference
+  const center = size / 2
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
+    `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#888" stroke-opacity="0.3" stroke-width="${stroke}"/>` +
+    `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${color}" stroke-width="${stroke}" ` +
+    `stroke-linecap="round" stroke-dasharray="${arc.toFixed(2)} ${circumference.toFixed(2)}" ` +
+    `transform="rotate(-90 ${center} ${center})"/></svg>`
+  )
+}
+
 /** True when the path is inside one of the plan folders. */
 export function isPlanPath(path: string): boolean {
   return PLAN_DIRS.some(dir => path.includes(`${dir}/`)) && path.endsWith('.md')
@@ -77,16 +124,18 @@ async function newestPlan($: EngineInterface): Promise<string | undefined> {
   return best?.path
 }
 
+/** Stores the plan (or null) and mirrors it on the status line, the VS Code display. */
+async function publish($: EngineInterface, next: Plan | null): Promise<void> {
+  await update($, plan, () => next)
+  $.ui.status(next === null || next.total === 0 ? undefined : statusLine(next))
+}
+
 /** Re-reads the active plan into state; toasts when a task has just been completed. */
 async function refresh($: EngineInterface): Promise<void> {
   const path = (await read($, pinned)) ?? (await newestPlan($))
-  if (path === undefined) {
-    await update($, plan, () => null)
-    return
-  }
-  const text = await $.fs.read(path).catch(() => undefined)
-  if (text === undefined) {
-    await update($, plan, () => null)
+  const text = path === undefined ? undefined : await $.fs.read(path).catch(() => undefined)
+  if (path === undefined || text === undefined) {
+    await publish($, null)
     return
   }
   const next = parsePlan(path, text)
@@ -102,33 +151,28 @@ async function refresh($: EngineInterface): Promise<void> {
       $.ui.toast(`✓ ${task.title} (${next.done}/${next.total})`)
     }
   }
-  await update($, plan, () => next)
+  await publish($, next)
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({
-      name: PANE,
+      name: COMMAND,
       description: 'Show plan progress; pass a path to pin a plan, or "auto" to follow the newest',
     })
     await refresh($)
-    // Open the pane only when there is a plan to show.
-    if ((await read($, plan)) !== null) {
-      void $.ui.open({ id: PANE, title: 'Plan' })
-    }
 
     return started
   })
 
-  // `/plan-progress` opens the pane; `/plan-progress <path>` pins a plan; `auto` unpins.
-  on('command.run', { command: PANE }, async ($, e) => {
+  // `/plan-progress` summarizes and refreshes; `/plan-progress <path>` pins a plan; `auto` unpins.
+  on('command.run', { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim()
     if (arg !== '') {
       await update($, pinned, () => (arg === 'auto' ? null : arg))
     }
     await refresh($)
-    await $.ui.open({ id: PANE, title: 'Plan' })
     const current = await read($, plan)
 
     return {
@@ -158,32 +202,61 @@ export const register: Register = on => {
     return next(e)
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+  // The card next to the prompt (terminal and desktop); vscode shows the status line alone.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const current = await read($, plan)
-
-    if (current === null) {
-      return <Text dimColor>No plan yet. Plans are read from {PLAN_DIRS.join(', ')}.</Text>
+    if (e.props.hasSurvey || current === null || current.total === 0) {
+      return next(e)
     }
 
-    const percent = current.total === 0 ? 0 : Math.round((current.done / current.total) * 100)
-    const width = Math.max(10, Math.min(30, e.props.bodyColumns - 12))
-    // The first unfinished task is the one in progress.
-    const active = current.tasks.findIndex(task => task.done < task.total)
+    const { Box, Text } = $.ui.resolve(e)
+    const finished = isFinished(current)
+    const color = finished ? 'success' : 'claude'
+    const active = activeTask(current)
+    // Room left for the task title after the bar, counts and glyphs.
+    const room = Math.max(12, Math.min(40, e.props.bodyColumns - 28))
+    const taskLine =
+      active === undefined ? undefined : (
+        <Text dimColor>
+          ▶ {truncate(active.title, room)} {glyphBar(active.done, active.total, 6)} {active.done}/{active.total}
+        </Text>
+      )
+
+    // The terminal has no Svg: it gets the glyph card.
+    if (e.surface !== 'terminal') {
+      const { Svg } = $.ui.resolve(e)
+      const hex = finished ? '#3fb950' : '#d97757'
+      return (
+        <Box borderStyle="round" borderColor={color} paddingX={1} gap={1}>
+          <Svg
+            source={ringSvg(current.done, current.total, 18, hex)}
+            alt={`${current.done} of ${current.total} steps done`}
+            width={18}
+            height={18}
+          />
+          <Box flexDirection="column">
+            <Box gap={1}>
+              <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 24))}</Text>
+              <Text color={color}>
+                {current.done}/{current.total}
+              </Text>
+            </Box>
+            {taskLine}
+          </Box>
+        </Box>
+      )
+    }
 
     return (
-      <Box flexDirection="column">
-        <Text weight="bold">{current.title}</Text>
-        <Text>
-          {bar(current.done, current.total, width)} {current.done}/{current.total} ({percent}%)
-        </Text>
-        <Text dimColor>{current.path}</Text>
-        {current.tasks.map((task, index) => (
-          <Text key={`task-${index}`} dimColor={index !== active}>
-            {task.done === task.total ? '✓' : index === active ? '▶' : '·'} {task.title}
-            {task.done === task.total ? '' : ` ${task.done}/${task.total}`}
+      <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column">
+        <Box gap={1}>
+          <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
+          <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 26))}</Text>
+          <Text color={color}>
+            {current.done}/{current.total}
           </Text>
-        ))}
+        </Box>
+        {taskLine}
       </Box>
     )
   })

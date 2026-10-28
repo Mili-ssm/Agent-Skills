@@ -5,12 +5,11 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | Plugin | What | Folder |
 |---|---|---|
 | `agent-skills` | Specialist skills and agents (below) | [`plugins/agent-skills/`](plugins/agent-skills/) |
-| `agents-pane` (mod) | Side pane: subagents with type, model, status, duration, per-model tally; `/agents-pane` reopens it | [`plugins/agents-pane/`](plugins/agents-pane/) |
-| `status-model` (mod) | Status line: `opus-5-5 │ 1 running │ last: researcher → haiku-5-5 ✓ 12s` | [`plugins/status-model/`](plugins/status-model/) |
-| `usage-band` (mod) | Band above the prompt: last answer's duration and tokens per model (subagents included), session totals; `/usage-band` shows it after Hide | [`plugins/usage-band/`](plugins/usage-band/) |
-| `plan-progress` (mod) | Side pane: active plan (`docs/superpowers/plans/`, `docs/plans/`, `plans/`), progress bar, current task, steps per task, toast per finished task; `/plan-progress [path\|auto]` | [`plugins/plan-progress/`](plugins/plan-progress/) |
+| `agents-pane` (mod) | Live card on each Agent call in the chat: type, model chip, current tool, elapsed; folds into `Explored 3 files · Ran 2 commands · 1m 02s` when it ends | [`plugins/agents-pane/`](plugins/agents-pane/) |
+| `usage-band` (mod) | Dim line under each answer: `⏱ 1m15s · haiku ▇▇▇▇▇ 108k · opus ▇▇▁▁▁ 43k │ Σ 1m15s · 151k`; `/usage-band` for a session summary | [`plugins/usage-band/`](plugins/usage-band/) |
+| `plan-progress` (mod) | Only while a plan exists (`docs/superpowers/plans/`, `docs/plans/`, `plans/`): status line `▰▰▰▰▰▱▱▱▱▱ 5/10 · ▶ Task 3 2/4` and a card above the prompt (terminal, desktop), toast per finished task; `/plan-progress [path\|auto]` | [`plugins/plan-progress/`](plugins/plan-progress/) |
 
-`agents-pane`, `status-model` and `usage-band` make offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans.
+`agents-pane` and `usage-band` make offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans.
 
 ## agent-skills
 
@@ -26,7 +25,7 @@ Generic specialist skills and agents for Claude Code. Complements [Superpowers](
 | Desktop app (`/plugin` does not run there) | **+** next to the prompt box → Plugins → Add marketplace `Mili-ssm/Agent-Skills` → Add plugin; or install from a shell at user scope (above), which the app's local sessions also load |
 | VS Code extension | Install from a shell at user scope (above): the extension runs Claude Code on the same `~/.claude` config |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
-| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="agents-pane status-model usage-band plan-progress"` in the environment |
+| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="agents-pane usage-band plan-progress"` in the environment |
 
 ## Offload setup (ADR 0010)
 
@@ -132,7 +131,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 |---|---|
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Measure triggering (before/after any description or prompt change) | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4` |
-| Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests loop over every surface (`terminal`, `desktop`, `vscode`, `mobile`) and mods draw only `Box`, `Text` and `Button`, which all four have |
+| Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |
 
 `plugins/agent-skills/evals/trigger/*` expect the matching skill (or the agent that preloads it) to fire; `evals/no-trigger/*` expect no plugin skill or agent. `evals/offload/*` expect delegation to a worker (need `--scaffold --allow-tools Bash` and a sandbox: `bubblewrap`, `socat`).

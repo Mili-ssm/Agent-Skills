@@ -22,9 +22,7 @@ export type Usage = {
 declare module 'claude-code' {
   interface PluginState {
     'usage-band': {
-      last: Shaped<Usage | null>
       session: Shaped<Usage>
-      isHidden: boolean
     }
   }
 }
