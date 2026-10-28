@@ -300,7 +300,15 @@ export function estimateOf(run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typ
 }
 
 /** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
-function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string, withEstimate = false) {
+function runHeader(
+  ui: Elements,
+  run: AgentRun,
+  now: number,
+  frame: string,
+  label?: string,
+  withEstimate = false,
+  mark?: string,
+) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
   const outcome = OUTCOME[run.status]
@@ -330,6 +338,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
       <Box flexDirection="row" gap={1} minWidth={0} overflow="hidden">
+        {mark === undefined ? null : <Text dimColor>{mark}</Text>}
         {bullet}
         <Text weight="bold" dimColor={run.status === 'done'}>
           {agentName(run)}
@@ -344,7 +353,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
       </Box>
       {label === undefined ? null : (
         <Text dimColor wrap="truncate">
-          {'  '}
+          {mark === undefined ? '  ' : '    '}
           {label}
         </Text>
       )}
@@ -768,6 +777,7 @@ export async function agentCard(
   toolUseId: string,
   surface: RenderSurface,
   ui: Elements,
+  mark?: string,
 ): Promise<RenderElement | null> {
   const cards = await read($, memberOf(byCall, { requestId: toolUseId }))
   if (cards.length === 0) {
@@ -778,9 +788,13 @@ export async function agentCard(
 
   // Running agents live in the "Agentes" pane only; once stopped, the folded card stays on its own row,
   // and a line at the bottom of the chat says it ended (VS Code does not let a mod redraw its notices).
-  const card = (run: AgentRun) => (run.status === 'running' ? <Box key={run.id} /> : finishedCard(ui, run, now, '•'))
+  const card = (run: AgentRun) => (run.status === 'running' ? <Box key={run.id} /> : finishedCard(ui, run, now, '•', mark))
 
-  return <Box flexDirection="column">{cards.map(card)}</Box>
+  return (
+    <Box flexDirection="column" paddingLeft={mark === undefined ? 0 : 4}>
+      {cards.map(card)}
+    </Box>
+  )
 }
 
 /** `✓ implementer · sonnet-5-5 · 8m 51s · Añadir fuzzing… · 26 calls · 26 commands · 3 failed`. */
@@ -798,15 +812,15 @@ export function finishedLine(run: AgentRun): string {
 }
 
 /** A finished agent's card: the header plus what it did (Codex's collapsed group). */
-function finishedCard(ui: Elements, run: AgentRun, now: number, frame: string) {
+function finishedCard(ui: Elements, run: AgentRun, now: number, frame: string, mark?: string) {
   const { Box, Text } = ui
   const summary = summaryOf(run)
   return (
     <Box key={run.id} flexDirection="column">
-      {runHeader(ui, run, now, frame, run.mission ?? run.description)}
+      {runHeader(ui, run, now, frame, run.mission ?? run.description, false, mark)}
       {summary === '' ? null : (
         <Text dimColor wrap="truncate">
-          {'  '}
+          {mark === undefined ? '  ' : '    '}
           {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
         </Text>
       )}

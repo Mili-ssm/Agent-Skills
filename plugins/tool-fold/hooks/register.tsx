@@ -1,5 +1,5 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderNode } from 'claude-code'
+import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
@@ -323,13 +323,18 @@ export const register: Register = (on, options) => {
         : e.props.isInterrupted
           ? 'interrupted'
           : 'done'
+    // In a group each row sits in a frame of its own (desktop, VS Code): indented to the group's
+    // summary, a tree mark on its first line ties it to the group. The mark shares that line's row:
+    // beside a whole card, VS Code wrapped the card under the mark.
+    const mark = isGrouped ? '└' : undefined
     // A call's own drawing: an agent's card (the engine's row for one spawned before the mod loaded),
     // else one line whose arrow, the only pressable part, unfolds the engine's row under it.
     const own = isAgent
-      ? ((await agentCard($, e.props.tool_use_id, e.surface, { Box, Text })) ?? (await next(e)))
+      ? ((await agentCard($, e.props.tool_use_id, e.surface, { Box, Text }, mark)) ?? (await next(e)))
       : (
-          <Box key={`own-${e.requestId}`} flexDirection="column">
+          <Box key={`own-${e.requestId}`} flexDirection="column" paddingLeft={isGrouped ? 4 : 0}>
             <Box key={`row-${e.requestId}`} flexDirection="row" gap={1} alignItems="center">
+              {mark === undefined ? null : <Text dimColor>{mark}</Text>}
               <Button
                 key={`fold-${e.requestId}`}
                 plain
@@ -343,7 +348,7 @@ export const register: Register = (on, options) => {
                 {foldLabel(e.props.tool, e.props.input)}
               </Text>
             </Box>
-            {isUnfolded ? await next(e) : null}
+            {isUnfolded ? <Box paddingLeft={isGrouped ? 2 : 0}>{await next(e)}</Box> : null}
           </Box>
         )
     if (!isGrouped || run === null) {
@@ -352,23 +357,11 @@ export const register: Register = (on, options) => {
 
     const groupOpen = memberOf(isOpen, { requestId: run.id })
     const isGroupOpen = await read($, groupOpen)
-    // A running agent stays in view in a folded group; it folds with the group once it ends.
-    const isShown = isGroupOpen || isLive
-    // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
-    // An agent's card is several lines wide and tall: beside a mark it wraps badly in a narrow chat.
-    // Indented to the group's summary, as an agent card's calls hang under its mission; an agent's
-    // card hangs the same way, beside a mark that keeps to its first line (the card may shrink).
-    const branch = (node: RenderNode) => (
-      <Box flexDirection="row" gap={1} paddingLeft={4} alignItems="flex-start">
-        <Text dimColor>└</Text>
-        <Box flexDirection="column" minWidth={0} flexShrink={1}>
-          {node}
-        </Box>
-      </Box>
-    )
+    // A running agent lives in the "Agentes" pane: its row in the chat stays empty until it ends.
+    const isShown = isGroupOpen && !isLive
     if (run.calls[0]?.id !== e.props.tool_use_id) {
-      // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
-      return isShown ? branch(own) : <Box />
+      // A later call of the group: shown only while the group is unfolded, under it.
+      return isShown ? own : <Box />
     }
 
     // The group is live while a call or an agent of it still works. A call still marked running in
@@ -415,13 +408,13 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {header}
-        {isShown ? branch(own) : null}
+        {isShown ? own : null}
       </Box>
     )
   })
 
   // A standalone row's result block follows its call (same requestId): shown only while its line is.
-  // An agent's result stays as the engine draws it unless its folded group hides the card.
+  // An agent's result stays as the engine draws it unless its folded group hides it.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
     if (UNTOUCHED.has(e.props.tool) || e.props.isExpanded === true) {
       return next(e)
@@ -430,10 +423,7 @@ export const register: Register = (on, options) => {
     const [isUnfolded, groupId] = await Promise.all([read($, memberOf(isOpen, e)), read($, memberOf(groupOf, e))])
     const run = groupId === '' ? null : await read($, memberOf(group, { requestId: groupId }))
     const isHiddenByGroup =
-      run !== null &&
-      run.calls.length >= MIN_GROUP &&
-      !(await read($, memberOf(isOpen, { requestId: run.id }))) &&
-      !(isAgent && (await isAgentLive($, e.props.tool_use_id)))
+      run !== null && run.calls.length >= MIN_GROUP && !(await read($, memberOf(isOpen, { requestId: run.id })))
     if ((isUnfolded || isAgent) && !isHiddenByGroup) {
       return next(e)
     }
