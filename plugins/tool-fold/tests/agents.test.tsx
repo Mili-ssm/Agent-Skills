@@ -37,6 +37,7 @@ test('steps are named and grouped as Codex does', () => {
     'sed -n 1p …/scratch/out.json',
   )
   expect(commandOf('cd /home/mili/Rust/octree_viewer_v3\ncargo test -p viewer')).toBe('cargo test -p viewer')
+  expect(commandOf('S=/tmp/claude-1000/x/scratchpad python3 merge.py')).toBe('python3 merge.py')
   expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
     'Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
   )
