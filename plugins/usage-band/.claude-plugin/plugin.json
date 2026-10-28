@@ -1,6 +1,6 @@
 {
   "name": "usage-band",
-  "description": "Mod: a compact line under each answer with its duration and tokens per model (subagents included) plus session totals; /usage-band for a session summary",
+  "description": "Mod: how long the model worked until it needed you, per interaction cycle (your prompt to your next one): live status line while it works, one dim line when the next prompt closes the cycle, with tokens per model (subagents included), tools, skills and agents, plus session totals; /usage-band for a summary",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
   "types": "./types/index.d.ts"

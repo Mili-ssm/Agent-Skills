@@ -1,6 +1,8 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
-import { bar, formatDuration, formatTally, formatTokens } from '../hooks/register'
+import { bar, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
+import type { Cycle } from '../types'
 
 // Token usage as a turn reports it.
 const usage = (model: string, input: number, output: number) => ({
@@ -24,6 +26,26 @@ test('formatters', () => {
   expect(bar(1, 100)).toBe('▇▁▁▁▁')
 })
 
+test('cycle formatters', () => {
+  const cycle: Cycle = {
+    byModel: { opus: { total: 1_200_000, output: 20_000 }, sonnet: { total: 257_000, output: 7000 } },
+    busyMs: 192_000,
+    runningSince: null,
+    tools: 14,
+    skills: 2,
+    agents: 3,
+  }
+  expect(formatCycle(cycle, 192_000)).toBe('⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 14 tools · 2 skills · 3 agents')
+  expect(formatLine(cycle, 192_000, { durationMs: 2_290_000, turns: 9, byModel: { opus: { total: 41_700_000, output: 0 } } })).toBe(
+    '⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 14 tools · 2 skills · 3 agents │ Σ 38m10s · 41.7M',
+  )
+  // Zero counts are left out, a single one is singular, and no tokens leaves just the time.
+  expect(formatCycle({ ...cycle, byModel: {}, tools: 1, skills: 0, agents: 0 }, 4000)).toBe('⏱ 4s · 1 tool')
+})
+
+type On = Parameters<TestBody>[1]
+
+// A turn ending as the engine reports it.
 const complete = (init: { agentId?: string; durationMs: number; turnId: string; model: string; input: number; output: number }) => ({
   ...(init.agentId === undefined ? {} : { agentId: init.agentId }),
   answer: 'done',
@@ -34,72 +56,140 @@ const complete = (init: { agentId?: string; durationMs: number; turnId: string; 
   usage: usage(init.model, init.input, init.output),
 })
 
-test('an answer logs one line with its duration and the tokens of the main loop and its subagents', async ($, on) => {
+// A submitted prompt as the engine raises it, `origin` saying who it came from.
+const prompt = (text: string, origin: { kind: string; [key: string]: unknown } = { kind: 'composer' }, extra: object = {}) =>
+  ({ text, wait: false, origin, ...extra }) as never
+
+// The engine beneath the mod, recording the log rows and status lines it is asked to draw; time stands still until the test moves it.
+function engine(on: On) {
   const lines: string[] = []
-  // These hooks stand for the engine beneath the mod.
+  const statuses: (string | undefined)[] = []
+  on('prompt.submit', (_, e) => ({ text: e.text }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  on('tool.call', () => ({ result: {} }))
   on('ui.log', (_, e) => {
     lines.push(e.text)
     return { value: undefined }
   })
+  on('ui.status', (_, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
+  return { lines, statuses, clock: mock.clock(on) }
+}
 
-  await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
-  // A Haiku subagent ends inside the answer: no line yet...
-  await $.turn.complete(complete({ agentId: 'a1', durationMs: 9000, turnId: 's1', model: 'claude-haiku-5-5', input: 100000, output: 8000 }))
+test('a cycle spans a hand-back: one line at the next prompt, with summed tokens and counts', async ($, on) => {
+  const { lines, statuses, clock } = engine(on)
+
+  // The person's first prompt: nothing to close yet.
+  await $.prompt.submit(prompt('Plan the login feature'))
   expect(lines).toEqual([])
-  // ...then the main loop's answer closes it.
-  await $.turn.complete(complete({ durationMs: 75000, turnId: 't1', model: 'claude-opus-5-5', input: 40000, output: 3000 }))
+  expect(statuses).toEqual([])
 
-  expect(lines).toEqual(['⏱ 1m15s · haiku ▇▇▇▇▇ 108k · opus ▇▇▁▁▁ 43k │ Σ 1m15s · 151k'])
+  // First main turn: live while it runs, one tick a second.
+  await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
+  expect(statuses.at(-1)).toBe('⏱ 0s')
+  await clock.advance(3000)
+  expect(statuses.at(-1)).toBe('⏱ 3s')
+  await $.tool.call({ tool: 'Bash', command: 'ls' })
+  await $.tool.call({ tool: 'Bash', command: 'pwd' })
+  await $.tool.call({ tool: 'Skill', skill: 'plan' })
+  await $.tool.call({ tool: 'Agent', description: 'Explore', prompt: 'Look around', subagent_type: 'Explore' })
+  await $.tool.call({ tool: 'Agent', description: 'Review', prompt: 'Review it', subagent_type: 'Explore' })
+  // A subagent's own calls are not counted.
+  await $.tool.call({ tool: 'Bash', command: 'cat a', agentId: 'a1' })
+  expect(statuses.at(-1)).toBe('⏱ 3s · 2 tools · 1 skill · 2 agents')
+  await clock.advance(117_000)
+  expect(statuses.at(-1)).toBe('⏱ 2m00s · 2 tools · 1 skill · 2 agents')
+  await $.turn.complete(complete({ durationMs: 120_000, turnId: 't1', model: 'claude-opus-5-5', input: 700_000, output: 10_000 }))
+  expect(statuses.at(-1)).toBe('⏱ 2m00s · opus ▇▇▇▇▇ 710k · 2 tools · 1 skill · 2 agents')
 
-  // The summary command answers with the session so far.
-  const { text } = await $.command.run({ command: 'usage-band' })
+  // The main loop is idle: no tick, so the line stands still however long it waits...
+  const seen = statuses.length
+  await clock.advance(600_000)
+  expect(statuses).toHaveLength(seen)
+  // ...a background Sonnet agent ends meanwhile: its tokens join the cycle.
+  await $.turn.complete(complete({ agentId: 'a1', durationMs: 90_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 250_000, output: 7000 }))
+  expect(statuses.at(-1)).toBe('⏱ 2m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 2 tools · 1 skill · 2 agents')
+
+  // Its hand-back wakes the model: machine-made prompts (a task notification and the like) start no cycle.
+  const machine = [
+    prompt('<task-notification>agent done</task-notification>', { kind: 'task-notification' }),
+    prompt('wake up', { kind: 'scheduled-trigger' }),
+    prompt('hello from a peer', { kind: 'peer' }),
+    prompt('from a plugin', { kind: 'plugin', name: 'other', asUser: true }),
+    prompt('queued by the engine', { kind: 'unclassified' }),
+    prompt('not shown as typed', { kind: 'composer' }, { isMeta: true }),
+    prompt('/usage-band', { kind: 'composer' }, { command: { name: 'usage-band', args: '' } }),
+  ]
+  for (const submission of machine) {
+    await $.prompt.submit(submission)
+  }
+  expect(lines).toEqual([])
+  await $.turn.start({ text: '', turnId: 't2' })
+  await clock.advance(72_000)
+  await $.tool.call({ tool: 'Read', file_path: '/tmp/a.ts' })
+  await $.turn.complete(complete({ durationMs: 72_000, turnId: 't2', model: 'claude-opus-5-5', input: 480_000, output: 10_000 }))
+  expect(lines).toEqual([])
+  expect(statuses.at(-1)).toBe('⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 3 tools · 1 skill · 2 agents')
+
+  // /usage-band: the current cycle on top, then the session.
+  const { text } = await $.command.run({ command: 'usage-band' } as never)
   expect(text).toBe(
     [
-      'Session: 1m15s over 1 answers · 151k tokens',
-      'haiku    ▇▇▇▇▇  108k (8k out) 72%',
-      'opus     ▇▇▁▁▁   43k (3k out) 28%',
+      'Current cycle: ⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 3 tools · 1 skill · 2 agents',
+      'Session: 3m12s over 2 answers · 1.5M tokens',
+      'opus     ▇▇▇▇▇  1.2M (20k out) 82%',
+      'sonnet   ▇▁▁▁▁  257k (7k out) 18%',
     ].join('\n'),
   )
+
+  // The person's next prompt closes the cycle: its one line goes in first, then the new cycle starts empty.
+  await $.prompt.submit(prompt('Now implement it'))
+  expect(lines).toEqual([
+    '⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 3 tools · 1 skill · 2 agents │ Σ 3m12s · 1.5M',
+  ])
+  expect(statuses.at(-1)).toBeUndefined()
+
+  // The second cycle, short: its line carries the session's running total.
+  await $.turn.start({ text: 'Now implement it', turnId: 't3' })
+  await clock.advance(5000)
+  await $.turn.complete(complete({ durationMs: 5000, turnId: 't3', model: 'claude-opus-5-5', input: 40_000, output: 2000 }))
+  expect(statuses.at(-1)).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k')
+  await $.prompt.submit(prompt('Thanks', { kind: 'bridge' }))
+  expect(lines).toHaveLength(2)
+  expect(lines[1]).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k │ Σ 3m17s · 1.5M')
 })
 
-test('a subagent-only turn end logs nothing', async ($, on) => {
-  const lines: string[] = []
-  on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('turn.complete', () => ({ text: '' }))
-  on('ui.log', (_, e) => {
-    lines.push(e.text)
-    return { value: undefined }
-  })
+test('a cycle without tokens logs no line', async ($, on) => {
+  const { lines } = engine(on)
+
+  await $.prompt.submit(prompt('Just a question'))
+  await $.prompt.submit(prompt('Another'))
+  expect(lines).toEqual([])
+})
+
+test('a prompt typed over a running turn carries it into the new cycle from that moment', async ($, on) => {
+  const { lines, statuses, clock } = engine(on)
+
+  await $.prompt.submit(prompt('Start'))
+  await $.turn.start({ text: 'Start', turnId: 't1' })
+  await clock.advance(10_000)
+  await $.prompt.submit(prompt('Actually, do this instead'))
+  // Nothing finished yet, so no line; the new cycle's time counts from its prompt.
+  expect(lines).toEqual([])
+  expect(statuses.at(-1)).toBe('⏱ 0s')
+  await clock.advance(4000)
+  expect(statuses.at(-1)).toBe('⏱ 4s')
+  await $.turn.complete(complete({ durationMs: 14_000, turnId: 't1', model: 'claude-haiku-5-5', input: 1000, output: 200 }))
+  expect(statuses.at(-1)).toBe('⏱ 4s · haiku ▇▇▇▇▇ 1k')
+})
+
+test('a subagent-only turn end before any prompt shows in the status line and logs nothing', async ($, on) => {
+  const { lines, statuses } = engine(on)
 
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 5000, turnId: 's1', model: 'claude-haiku-5-5', input: 1000, output: 100 }))
   expect(lines).toEqual([])
-})
-
-test('a subagent that ends after the answer is complete still counts in the session summary', async ($, on) => {
-  const lines: string[] = []
-  on('turn.start', (_, e) => ({ turnId: e.turnId }))
-  on('turn.complete', () => ({ text: '' }))
-  on('ui.log', (_, e) => {
-    lines.push(e.text)
-    return { value: undefined }
-  })
-
-  await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
-  await $.turn.complete(complete({ durationMs: 10000, turnId: 't1', model: 'claude-opus-5-5', input: 4000, output: 1000 }))
-  expect(lines).toHaveLength(1)
-
-  // A Haiku subagent ends while the main loop is idle: its tokens join the session, with no new line.
-  await $.turn.complete(complete({ agentId: 'a1', durationMs: 9000, turnId: 's1', model: 'claude-haiku-5-5', input: 4000, output: 1000 }))
-  expect(lines).toHaveLength(1)
-
-  const { text } = await $.command.run({ command: 'usage-band' })
-  expect(text).toBe(
-    [
-      'Session: 10s over 1 answers · 10k tokens',
-      'opus     ▇▇▇▇▇    5k (1k out) 50%',
-      'haiku    ▇▇▇▇▇    5k (1k out) 50%',
-    ].join('\n'),
-  )
+  expect(statuses.at(-1)).toBe('⏱ 0s · haiku ▇▇▇▇▇ 1k')
 })

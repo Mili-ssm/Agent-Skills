@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
-import type { Register, TurnUsage } from 'claude-code'
+import type { EngineInterface, PromptOrigin, Register, Timer, TurnUsage } from 'claude-code'
 
-import type { Tally, Usage } from '../types'
+import type { Cycle, Tally, Usage } from '../types'
 
 // The slash command that answers with the session summary.
 const COMMAND = 'usage-band'
@@ -10,6 +10,13 @@ const EMPTY: Usage = { durationMs: 0, turns: 0, byModel: {} }
 const session = atom({ plugin: 'usage-band', key: 'session' } as const, EMPTY, {
   shape: 'usage-1',
 })
+const EMPTY_CYCLE: Cycle = { byModel: {}, busyMs: 0, runningSince: null, tools: 0, skills: 0, agents: 0 }
+// The interaction cycle in progress: from the person's last prompt on (see `isPersonPrompt`).
+const cycleAtom = atom({ plugin: 'usage-band', key: 'cycle' } as const, EMPTY_CYCLE, {
+  shape: 'cycle-1',
+})
+// The live status line redraws this often while a main-loop turn runs.
+const TICK_MS = 1000
 // Cells of a family's mini bar, and the levels a cell can show (empty to full).
 const CELLS = 5
 const LEVELS = '▁▂▃▄▅▆▇█'
@@ -91,15 +98,55 @@ export function sumTokens(tally: Tally): number {
   return Object.values(tally).reduce((sum, tokens) => sum + tokens.total, 0)
 }
 
-/** `⏱ 1m15s · opus ▇▇▇▁▁ 43k · haiku ▇▇▇▇▇ 108k │ Σ 12m · 1.2M`; families biggest first, then `+n`. */
-export function formatLine(answer: Usage, total: Usage): string {
-  const rows = Object.entries(answer.byModel).sort(([, a], [, b]) => b.total - a.total)
+/** Pluralised count: `1 tool`, `14 tools`. */
+function count(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
+}
+
+/** `opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k`; families biggest first, then `+n`. Empty for an empty tally. */
+export function formatModels(byModel: Tally): string[] {
+  const rows = Object.entries(byModel).sort(([, a], [, b]) => b.total - a.total)
   const max = rows[0]?.[1].total ?? 0
   const shown = rows.slice(0, MAX_SHOWN).map(([name, t]) => `${name} ${bar(t.total, max)} ${formatTokens(t.total)}`)
   if (rows.length > MAX_SHOWN) {
     shown.push(`+${rows.length - MAX_SHOWN}`)
   }
-  return `⏱ ${formatDuration(answer.durationMs)} · ${shown.join(' · ')} │ Σ ${formatDuration(total.durationMs)} · ${formatTokens(sumTokens(total.byModel))}`
+  return shown
+}
+
+/** Busy time of a cycle: its finished turns plus the running turn so far (`now` is read only while one runs). */
+export function elapsedMs(cycle: Cycle, now: number): number {
+  return Math.max(0, cycle.busyMs + (cycle.runningSince === null ? 0 : now - cycle.runningSince))
+}
+
+/** True once a cycle has anything to show: a running turn, time, tokens or counted calls. */
+export function hasActivity(cycle: Cycle): boolean {
+  return (
+    cycle.runningSince !== null ||
+    cycle.busyMs !== 0 ||
+    cycle.tools + cycle.skills + cycle.agents > 0 ||
+    sumTokens(cycle.byModel) > 0
+  )
+}
+
+/** `⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 14 tools · 2 skills · 3 agents`; zero counts left out. */
+export function formatCycle(cycle: Cycle, elapsed: number): string {
+  const counts = [
+    [cycle.tools, 'tool'],
+    [cycle.skills, 'skill'],
+    [cycle.agents, 'agent'],
+  ] as const
+  const parts = [
+    `⏱ ${formatDuration(elapsed)}`,
+    ...formatModels(cycle.byModel),
+    ...counts.filter(([n]) => n > 0).map(([n, noun]) => count(n, noun)),
+  ]
+  return parts.join(' · ')
+}
+
+/** The cycle's line then `│ Σ 38m10s · 41.7M` (the session's busy time and tokens). */
+export function formatLine(cycle: Cycle, elapsed: number, total: Usage): string {
+  return `${formatCycle(cycle, elapsed)} │ Σ ${formatDuration(total.durationMs)} · ${formatTokens(sumTokens(total.byModel))}`
 }
 
 /** Multi-line session summary: per family its total, output, share of the session and a bar. */
@@ -118,30 +165,121 @@ export function formatSummary(total: Usage): string {
   return [head, ...lines].join('\n')
 }
 
-export const register: Register = on => {
-  // Tokens of the answer in progress: the main loop's and every subagent's that ends meanwhile.
-  // Module state: a hot reload mid-answer only loses that answer's partial count.
-  let current: Tally = {}
-  // True from the main loop's turn.start to its turn.complete; a subagent that ends outside it has no answer to join.
-  let mainRunning = false
+/**
+ * True for a prompt the person typed (`origin.kind` `composer`, or `bridge` for their phone or web client)
+ * and that is not marked `isMeta`; notifications, peers, schedules, plugins, the SDK host and the like are
+ * machine-made and do not start a cycle. The usage command's own line does not either.
+ */
+export function isPersonPrompt(e: { origin: PromptOrigin; isMeta?: true; command?: { name: string } }): boolean {
+  const kind = e.origin.kind
+  return (kind === 'composer' || kind === 'bridge') && e.isMeta !== true && e.command?.name !== COMMAND
+}
 
+/** The cycle that follows `cycle` when the person submits a prompt at `now`. */
+function nextCycle(cycle: Cycle, now: number): Cycle {
+  // A turn still running (the person typed over it) goes on into the new cycle, counted from this prompt.
+  const carried = cycle.runningSince === null ? 0 : -(now - cycle.runningSince)
+  return { ...EMPTY_CYCLE, busyMs: carried, runningSince: cycle.runningSince }
+}
+
+// Module state, lost on a hot reload: `session.start` restarts the tick, and the next publish resends the status.
+let tick: Timer | undefined
+// The status line as last sent (`undefined`: cleared), so it is sent only when its text changed.
+let lastStatus: string | undefined
+
+/** Draws the cycle on the status line, if its text changed. Never throws. */
+async function publish($: EngineInterface): Promise<void> {
+  try {
+    const cycle = await read($, cycleAtom)
+    const now = cycle.runningSince === null ? 0 : await $.clock.now()
+    const text = hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, now)) : undefined
+    if (text !== lastStatus) {
+      lastStatus = text
+      $.ui.status(text)
+    }
+  } catch (error) {
+    $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+/** Starts the one-second redraw that moves the elapsed time; it runs only while a main-loop turn does. */
+function startTick($: EngineInterface): void {
+  tick ??= $.clock.every(TICK_MS, () => {
+    void publish($)
+  })
+}
+
+function stopTick(): void {
+  tick?.cancel()
+  tick = undefined
+}
+
+export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await $.command.register({
       name: COMMAND,
-      description: 'Show the session summary: time and tokens per model',
+      description: 'Show the current cycle and the session summary: time and tokens per model',
     })
+    // After a hot reload the timer is gone: a turn that is still running needs it again.
+    if ((await read($, cycleAtom)).runningSince !== null) {
+      startTick($)
+    }
+    await publish($)
 
     return started
   })
 
-  on('command.run', { command: 'usage-band' }, async $ => ({ text: formatSummary(await read($, session)) })).catch(($, e, next) => next(e))
+  on('session.end', async ($, e, next) => {
+    const ended = await next(e)
+    stopTick()
+    await update($, cycleAtom, () => EMPTY_CYCLE)
+    await publish($)
 
-  // A new answer starts on the main loop (`current` was emptied when the last one closed).
+    return ended
+  })
+
+  on('command.run', { command: COMMAND }, async $ => {
+    const cycle = await read($, cycleAtom)
+    const now = cycle.runningSince === null ? 0 : await $.clock.now()
+    const line = hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, now)) : 'nothing yet'
+
+    return { text: `Current cycle: ${line}\n${formatSummary(await read($, session))}` }
+  }).catch(($, e, next) => next(e))
+
+  // The person's prompt closes the cycle before it: its line goes in first, so the row lands above their message.
+  on('prompt.submit', async ($, e, next) => {
+    if (isPersonPrompt(e)) {
+      const now = await $.clock.now()
+      const cycle = await read($, cycleAtom)
+      if (sumTokens(cycle.byModel) > 0) {
+        $.ui.log(formatLine(cycle, elapsedMs(cycle, now), await read($, session)))
+      }
+      await update($, cycleAtom, before => nextCycle(before, now))
+      await publish($)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Main-loop calls only; counted as they are made, so the live line moves while a long call runs.
+  on('tool.call', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      const key = e.tool === 'Skill' ? 'skills' : e.tool === 'Agent' ? 'agents' : 'tools'
+      await update($, cycleAtom, before => ({ ...before, [key]: before[key] + 1 }))
+      await publish($)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('turn.start', async ($, e, next) => {
     const started = await next(e)
     if (e.agentId === undefined) {
-      mainRunning = true
+      const now = await $.clock.now()
+      await update($, cycleAtom, before => ({ ...before, runningSince: now }))
+      startTick($)
+      await publish($)
     }
 
     return started
@@ -149,34 +287,25 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
-    if (e.agentId !== undefined) {
-      if (e.usage !== undefined) {
-        if (mainRunning) {
-          current = addUsage(current, e.usage)
-        } else {
-          // The main loop is idle: no answer will close over these tokens, so they go straight to the session.
-          const late = addUsage({}, e.usage)
-          await update($, session, before => ({ ...before, byModel: mergeTallies(before.byModel, late) }))
-        }
-      }
-      return completed
-    }
-    // Only the main loop's end closes an answer; a subagent's end just adds its tokens.
-    if (e.usage !== undefined) {
-      current = addUsage(current, e.usage)
-    }
-    const answer: Usage = { durationMs: e.durationMs, turns: 1, byModel: current }
-    current = {}
-    mainRunning = false
-    const total = await update($, session, before => ({
-      durationMs: before.durationMs + answer.durationMs,
-      turns: before.turns + 1,
-      byModel: mergeTallies(before.byModel, answer.byModel),
+    const isMain = e.agentId === undefined
+    const { usage } = e
+    // Tokens of the main loop and of every subagent join the cycle, even a subagent that ends while the main loop is idle
+    // (a background agent finishing before its hand-back).
+    await update($, cycleAtom, before => ({
+      ...before,
+      byModel: usage === undefined ? before.byModel : addUsage(before.byModel, usage),
+      busyMs: isMain ? before.busyMs + e.durationMs : before.busyMs,
+      runningSince: isMain ? null : before.runningSince,
     }))
-    // A dim row under the answer; surfaces without an above-prompt band draw it too.
-    if (sumTokens(answer.byModel) > 0) {
-      $.ui.log(formatLine(answer, total))
+    await update($, session, before => ({
+      durationMs: before.durationMs + (isMain ? e.durationMs : 0),
+      turns: before.turns + (isMain ? 1 : 0),
+      byModel: usage === undefined ? before.byModel : addUsage(before.byModel, usage),
+    }))
+    if (isMain) {
+      stopTick()
     }
+    await publish($)
 
     return completed
   })
