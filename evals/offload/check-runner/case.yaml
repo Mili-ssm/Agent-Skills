@@ -1,0 +1,12 @@
+schema_version: "1.1"
+name: offload-check-runner
+tags: [offload]
+runs: 3
+plugins: ["../../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  max_turns: 12
+  timeout_seconds: 600
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash]
+  prompt: Run the test suite of this project and tell me what is failing and why.

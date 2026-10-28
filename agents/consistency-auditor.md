@@ -3,7 +3,9 @@ name: consistency-auditor
 description: Forensic analyst that reconstructs intent from code, docs, ADRs, tests and git history and returns contradictions, ambiguities, stale or implicit decisions (rubric-rated) plus prioritized questions for the owner. Read-only. Use before an intent-elicitation interview, when onboarding onto existing code, or before planning a feature or change.
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit
-model: opus
+model: sonnet
+effort: medium
+omitClaudeMd: true
 skills:
   - decision-records
 ---

@@ -3,6 +3,7 @@ name: doc-curator
 description: Technical editor that verifies documentation against code and compresses it for semantic density, returning findings, token metrics and proposed edits; applies edits only when asked. Use to audit, compress or update a README, docs, ADRs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill
 model: sonnet
+effort: medium
 skills:
   - docs-principles
   - decision-records

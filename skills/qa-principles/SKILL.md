@@ -38,7 +38,7 @@ Testing answers "what could go wrong, and would we notice?". Coverage counts lin
 The `qa-engineer` agent follows this workflow; use it inline for one function or feature.
 
 1. **Risk map**: features/modules × likelihood (churn, complexity, defect history) × impact (money, data, security, UX).
-2. **Inventory** tests per feature and size; find untested high-risk areas.
+2. **Inventory** tests per feature and size (`Explore` to map them, `check-runner` to run them); find untested high-risk areas.
 3. **Design** missing cases, naming the technique; properties for logic with invariants, stateful properties for APIs with sequences.
 4. **Quality**: test smells, over-mocking, assertion-free tests, flakiness sources.
 5. **Strength**: mutation testing on high-risk modules; each surviving mutant is a missing assertion.

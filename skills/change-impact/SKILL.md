@@ -25,7 +25,7 @@ Copy and tick:
 
 | Dimension | How to find |
 |---|---|
-| Direct callers / importers | Grep symbol, module, route, template names |
+| Direct callers / importers | Grep symbol, module, route, template names (repo-wide → dispatch `Explore`) |
 | Public contracts | HTTP routes, CLI flags, library API, events, file formats, env vars, error messages |
 | Data | Schemas, migrations, stored formats, caches, serialized objects |
 | Config / infra | Settings, CI, deployment manifests, feature flags |
@@ -51,7 +51,7 @@ Copy and tick:
 
 **5. Risks**: rate `low | medium | high`, each with its evidence; rollback path per step; name the point of no return (destructive migration, external announcement) or "none".
 
-**6. Verification**: characterization tests before touching legacy code; tests to add/adjust; rollout metrics and abort thresholds.
+**6. Verification**: characterization tests before touching legacy code; run suites through `check-runner`; tests to add/adjust; rollout metrics and abort thresholds.
 
 ## Output
 

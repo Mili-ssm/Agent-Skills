@@ -4,6 +4,8 @@ description: UX and accessibility reviewer that captures screenshots, axe-core r
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: sonnet
+effort: medium
+omitClaudeMd: true
 skills:
   - ux-principles
 ---

@@ -29,7 +29,8 @@ Copy and tick:
 | What do official docs and practitioners recommend? | `researcher` × 1–5, one question each |
 | Does it fit the architecture? | `architect` (mode `propose`) |
 | Security, UX or test risks? | `security-reviewer` / `ux-reviewer` / `qa-engineer` (mode `design`), when relevant |
-| Where does the code change? | built-in `Explore` |
+| Where does the code change? | `Explore` (Haiku with the user-scope override) |
+| What do long specs, logs or tickets say? | `summarizer` |
 
 Each brief states the question, the decision it feeds and a max length, so reports stay small.
 
@@ -58,4 +59,4 @@ Prefer the simplest option that meets ranked quality attributes and is reversibl
 - Parallelize independent evidence gathering; sequential dispatch wastes wall-clock time.
 - Keep raw research in subagents; the main thread holds only distilled findings.
 - Skip steps that add nothing for small features (say which and why).
-- No code is written during a briefing.
+- No code is written during a briefing. Execution later goes to `implementer` (one bounded task each, owned files) with `check-runner` for verification.

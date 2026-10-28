@@ -50,6 +50,8 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices*; *Pr
 | Tools | Minimum set; enforce read-only reviewers with `disallowedTools: Edit, Write` instead of prompt text |
 | Output | A condensed, distilled report; raw tool output stays inside |
 | Delegation scope | Parallel, isolated or independent work; direct tools for simple lookups (models over-delegate) |
+| Offload workers | Cheap workers may say "Use proactively … instead of doing it yourself, because …"; measured: descriptions alone moved little, a short offload table in CLAUDE.md made delegation reliable |
+| Self-contained briefs | Workers with `omitClaudeMd: true` see only the brief: include goal, paths, commands, acceptance, max length |
 | Interaction | Subagents cannot ask the user mid-task → interactive work runs in skills |
 | Preload | `skills:` injects full skill content at start; keep preloads few |
 

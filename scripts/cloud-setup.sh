@@ -16,9 +16,18 @@ claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills \
 python3 -m pip install --quiet --user playwright \
   || warn "python playwright install failed (ux_audit.py unavailable)"
 
-# 3. Turn on auto-update for this marketplace, so sessions started from a cached snapshot
+# 3. Offload defaults (ADR 0010):
+#    - Explore on Haiku: a user-scope agent named Explore overrides the built-in one, which
+#      otherwise runs on the main conversation's model. Copied from the marketplace clone.
+#    - CLAUDE_CODE_SUBAGENT_MODEL=sonnet: subagents without their own model (general-purpose,
+#      Superpowers implementers) run on Sonnet; plugin agents keep their frontmatter model.
+mkdir -p ~/.claude/agents
+cp ~/.claude/plugins/marketplaces/mili-ssm/user-agents/Explore.md ~/.claude/agents/Explore.md \
+  || warn "could not install the Haiku Explore override"
+
+# 4. Turn on auto-update for this marketplace, so sessions started from a cached snapshot
 #    pull new commits in the background (applied on the next session or /reload-plugins).
-python3 - <<'EOF' || warn "could not enable marketplace auto-update"
+python3 - <<'EOF' || warn "could not update ~/.claude/settings.json (auto-update, subagent model)"
 import json, pathlib
 path = pathlib.Path.home() / ".claude" / "settings.json"
 settings = json.loads(path.read_text()) if path.exists() else {}
@@ -26,6 +35,7 @@ entry = settings.setdefault("extraKnownMarketplaces", {}).setdefault(
     "mili-ssm", {"source": {"source": "github", "repo": "Mili-ssm/Agent-Skills"}}
 )
 entry["autoUpdate"] = True
+settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
 path.parent.mkdir(parents=True, exist_ok=True)
 path.write_text(json.dumps(settings, indent=2) + "\n")
 EOF

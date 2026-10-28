@@ -17,7 +17,7 @@ Refactoring changes structure **without changing behavior**, in small steps that
 
 1. Pick one refactoring from the [catalog](references/catalog.md).
 2. Apply the smallest step; automated/IDE moves first (rename, extract, inline, move) because they preserve behavior mechanically.
-3. Run tests. Green → commit `refactor: …`. Red → revert and take a smaller step.
+3. Run tests (through `check-runner` when output is long). Green → commit `refactor: …`. Red → revert and take a smaller step. Many mechanical breakages after a move or rename → `fixer`.
 4. Repeat; behavior changes follow in separate commits.
 
 ## Size of the job

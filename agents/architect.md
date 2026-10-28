@@ -4,6 +4,8 @@ description: Senior architect that maps a codebase (C4), measures coupling, cycl
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: opus
+effort: high
+omitClaudeMd: true
 skills:
   - architecture-principles
   - decision-records

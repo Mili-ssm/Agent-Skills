@@ -4,7 +4,7 @@
 Checks (Anthropic skill-authoring rules + repo contract):
   - Every skills/<name>/SKILL.md has frontmatter with `name` == <name> (<= 64 chars, lowercase,
     digits, hyphens) and a `description` that says what it does first, then its trigger
-    ("Use when" / "Use to" / "Use before" / "Use after"), in third person, <= 1024 chars.
+    ("Use when" / "Use to" / "Use before" / "Use after" / "Use proactively"), in third person, <= 1024 chars.
   - Reference files over 100 lines start with a `## Contents` section (partial reads see scope).
   - Every agents/<name>.md has `name` == <name>, `description`, `tools`.
   - Line budgets: SKILL.md <= 150, agent <= 120.
@@ -27,7 +27,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SKILL_MAX_LINES = 150
 AGENT_MAX_LINES = 120
 # Accepted trigger openings for descriptions (N2).
-TRIGGER = re.compile(r"\bUse (when|to|before|after)\b")
+# "Use proactively" is reserved for cheap offload workers (ADR 0010).
+TRIGGER = re.compile(r"\bUse (when|to|before|after|proactively)\b")
 # Skill/agent name format and description limits from Anthropic's skill-authoring guide.
 NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 DESCRIPTION_MAX = 1024
