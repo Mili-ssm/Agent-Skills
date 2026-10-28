@@ -270,34 +270,19 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
 
 /** `  ✓ Read session.py` / `  ◐ Run npm test`: one call, only its glyph colored. */
 function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDetail = false) {
-  const { Box, Text } = ui
+  const { Text } = ui
   const glyph =
     step.status === 'running' ? (
       <Text color="claude">{frame}</Text>
     ) : (
       <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
     )
-  if (!withDetail || step.detail === undefined) {
-    return (
-      <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
-        {indent}
-        {glyph} {step.label}
-      </Text>
-    )
-  }
-  // What the call does reads first; the command itself sits under it, dim.
+  // In the pane a call reads by what it does alone; the command shows until its words arrive.
   return (
-    <Box key={step.id} flexDirection="column">
-      <Text dimColor={step.status !== 'running'} wrap="truncate">
-        {indent}
-        {glyph} {step.detail}
-      </Text>
-      <Text dimColor wrap="truncate">
-        {indent}
-        {'  '}
-        {step.label.replace(/^Run /, '$ ')}
-      </Text>
-    </Box>
+    <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
+      {indent}
+      {glyph} {withDetail && step.detail !== undefined ? step.detail : step.label}
+    </Text>
   )
 }
 
