@@ -8,14 +8,14 @@ const COMMAND = 'usage-band'
 const EMPTY: Usage = { durationMs: 0, turns: 0, byModel: {} }
 // Bump the shape tags when Usage's fields change: older stored values are then read as absent.
 const session = atom({ plugin: 'usage-band', key: 'session' } as const, EMPTY, {
-  shape: 'usage-1',
+  shape: 'usage-2',
 })
-const EMPTY_CYCLE: Cycle = { byModel: {}, busyMs: 0, runningSince: null, tools: 0, skills: 0, agents: 0 }
+const EMPTY_CYCLE: Cycle = { byModel: {}, startedAt: null, calls: 0, skills: 0, agents: 0 }
 // The interaction cycle in progress: from the person's last prompt on (see `isPersonPrompt`).
 const cycleAtom = atom({ plugin: 'usage-band', key: 'cycle' } as const, EMPTY_CYCLE, {
-  shape: 'cycle-1',
+  shape: 'cycle-2',
 })
-// The live status line redraws this often while a main-loop turn runs.
+// The live status line redraws this often while a cycle is open (only a changed text is sent).
 const TICK_MS = 1000
 // Cells of a family's mini bar, and the levels a cell can show (empty to full).
 const CELLS = 5
@@ -114,25 +114,20 @@ export function formatModels(byModel: Tally): string[] {
   return shown
 }
 
-/** Busy time of a cycle: its finished turns plus the running turn so far (`now` is read only while one runs). */
+/** Time since the person's prompt that opened the cycle, idle time included; 0 before any prompt. */
 export function elapsedMs(cycle: Cycle, now: number): number {
-  return Math.max(0, cycle.busyMs + (cycle.runningSince === null ? 0 : now - cycle.runningSince))
+  return cycle.startedAt === null ? 0 : Math.max(0, now - cycle.startedAt)
 }
 
-/** True once a cycle has anything to show: a running turn, time, tokens or counted calls. */
+/** True once a cycle has anything to show: an opening prompt, tokens or counted calls. */
 export function hasActivity(cycle: Cycle): boolean {
-  return (
-    cycle.runningSince !== null ||
-    cycle.busyMs !== 0 ||
-    cycle.tools + cycle.skills + cycle.agents > 0 ||
-    sumTokens(cycle.byModel) > 0
-  )
+  return cycle.startedAt !== null || cycle.calls > 0 || sumTokens(cycle.byModel) > 0
 }
 
-/** `⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 14 tools · 2 skills · 3 agents`; zero counts left out. */
+/** `⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 62 calls · 2 skills · 3 agents`; zero counts left out. */
 export function formatCycle(cycle: Cycle, elapsed: number): string {
   const counts = [
-    [cycle.tools, 'tool'],
+    [cycle.calls, 'call'],
     [cycle.skills, 'skill'],
     [cycle.agents, 'agent'],
   ] as const
@@ -144,7 +139,7 @@ export function formatCycle(cycle: Cycle, elapsed: number): string {
   return parts.join(' · ')
 }
 
-/** The cycle's line then `│ Σ 38m10s · 41.7M` (the session's busy time and tokens). */
+/** The cycle's line then `│ Σ 38m10s · 41.7M` (the session's time and tokens). */
 export function formatLine(cycle: Cycle, elapsed: number, total: Usage): string {
   return `${formatCycle(cycle, elapsed)} │ Σ ${formatDuration(total.durationMs)} · ${formatTokens(sumTokens(total.byModel))}`
 }
@@ -175,13 +170,6 @@ export function isPersonPrompt(e: { origin: PromptOrigin; isMeta?: true; command
   return (kind === 'composer' || kind === 'bridge') && e.isMeta !== true && e.command?.name !== COMMAND
 }
 
-/** The cycle that follows `cycle` when the person submits a prompt at `now`. */
-function nextCycle(cycle: Cycle, now: number): Cycle {
-  // A turn still running (the person typed over it) goes on into the new cycle, counted from this prompt.
-  const carried = cycle.runningSince === null ? 0 : -(now - cycle.runningSince)
-  return { ...EMPTY_CYCLE, busyMs: carried, runningSince: cycle.runningSince }
-}
-
 // Module state, lost on a hot reload: `session.start` restarts the tick, and the next publish resends the status.
 let tick: Timer | undefined
 // The status line as last sent (`undefined`: cleared), so it is sent only when its text changed.
@@ -191,8 +179,7 @@ let lastStatus: string | undefined
 async function publish($: EngineInterface): Promise<void> {
   try {
     const cycle = await read($, cycleAtom)
-    const now = cycle.runningSince === null ? 0 : await $.clock.now()
-    const text = hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, now)) : undefined
+    const text = hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, await $.clock.now())) : undefined
     if (text !== lastStatus) {
       lastStatus = text
       $.ui.status(text)
@@ -202,7 +189,7 @@ async function publish($: EngineInterface): Promise<void> {
   }
 }
 
-/** Starts the one-second redraw that moves the elapsed time; it runs only while a main-loop turn does. */
+/** Starts the one-second redraw that moves the elapsed time; it runs from the person's first prompt on. */
 function startTick($: EngineInterface): void {
   tick ??= $.clock.every(TICK_MS, () => {
     void publish($)
@@ -221,8 +208,8 @@ export const register: Register = on => {
       name: COMMAND,
       description: 'Show the current cycle and the session summary: time and tokens per model',
     })
-    // After a hot reload the timer is gone: a turn that is still running needs it again.
-    if ((await read($, cycleAtom)).runningSince !== null) {
+    // After a hot reload the timer is gone: an open cycle needs it again.
+    if ((await read($, cycleAtom)).startedAt !== null) {
       startTick($)
     }
     await publish($)
@@ -241,49 +228,44 @@ export const register: Register = on => {
 
   on('command.run', { command: COMMAND }, async $ => {
     const cycle = await read($, cycleAtom)
-    const now = cycle.runningSince === null ? 0 : await $.clock.now()
-    const line = hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, now)) : 'nothing yet'
+    const elapsed = elapsedMs(cycle, await $.clock.now())
+    const line = hasActivity(cycle) ? formatCycle(cycle, elapsed) : 'nothing yet'
+    const total = await read($, session)
 
-    return { text: `Current cycle: ${line}\n${formatSummary(await read($, session))}` }
+    return { text: `Current cycle: ${line}\n${formatSummary({ ...total, durationMs: total.durationMs + elapsed })}` }
   }).catch(($, e, next) => next(e))
 
   // The person's prompt closes the cycle before it: its line goes in first, so the row lands above their message.
+  // The cycle's time is the wall time between their prompts: work, waits on agents and their own pause alike.
   on('prompt.submit', async ($, e, next) => {
     if (isPersonPrompt(e)) {
       const now = await $.clock.now()
       const cycle = await read($, cycleAtom)
+      const elapsed = elapsedMs(cycle, now)
+      await update($, session, before => ({ ...before, durationMs: before.durationMs + elapsed }))
       if (sumTokens(cycle.byModel) > 0) {
-        $.ui.log(formatLine(cycle, elapsedMs(cycle, now), await read($, session)))
+        $.ui.log(formatLine(cycle, elapsed, await read($, session)))
       }
-      await update($, cycleAtom, before => nextCycle(before, now))
-      await publish($)
-    }
-
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
-  // Main-loop calls only; counted as they are made, so the live line moves while a long call runs.
-  on('tool.call', async ($, e, next) => {
-    if (e.agentId === undefined) {
-      const key = e.tool === 'Skill' ? 'skills' : e.tool === 'Agent' ? 'agents' : 'tools'
-      await update($, cycleAtom, before => ({ ...before, [key]: before[key] + 1 }))
-      await publish($)
-    }
-
-    return next(e)
-  }).catch(($, e, next) => next(e))
-
-  on('turn.start', async ($, e, next) => {
-    const started = await next(e)
-    if (e.agentId === undefined) {
-      const now = await $.clock.now()
-      await update($, cycleAtom, before => ({ ...before, runningSince: now }))
+      await update($, cycleAtom, () => ({ ...EMPTY_CYCLE, startedAt: now }))
       startTick($)
       await publish($)
     }
 
-    return started
-  })
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // Calls of the main loop and of its agents alike, counted as they are made, so the line moves while a long call runs.
+  on('tool.call', async ($, e, next) => {
+    await update($, cycleAtom, before => ({
+      ...before,
+      calls: before.calls + 1,
+      skills: before.skills + (e.tool === 'Skill' ? 1 : 0),
+      agents: before.agents + (e.tool === 'Agent' ? 1 : 0),
+    }))
+    await publish($)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
@@ -294,17 +276,12 @@ export const register: Register = on => {
     await update($, cycleAtom, before => ({
       ...before,
       byModel: usage === undefined ? before.byModel : addUsage(before.byModel, usage),
-      busyMs: isMain ? before.busyMs + e.durationMs : before.busyMs,
-      runningSince: isMain ? null : before.runningSince,
     }))
     await update($, session, before => ({
-      durationMs: before.durationMs + (isMain ? e.durationMs : 0),
+      ...before,
       turns: before.turns + (isMain ? 1 : 0),
       byModel: usage === undefined ? before.byModel : addUsage(before.byModel, usage),
     }))
-    if (isMain) {
-      stopTick()
-    }
     await publish($)
 
     return completed
