@@ -237,9 +237,26 @@ test('an agent in a folded group: nothing while it runs (the pane has it), folde
 
   const live = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
   expect(await live.find({ type: 'Text', text: /implementer/ })).toBeUndefined()
+  // No tree mark left hanging over an empty row.
+  expect(await live.find({ type: 'Text', text: /└/ })).toBeUndefined()
   await live.unmount()
 
+  // Unfolded, a running agent still shows nothing in the chat.
+  const header = await $.ui.mount({ ...ROW, requestId: 'b1', props: { ...ROW.props, tool_use_id: 'b1' }, surface: 'vscode' })
+  await header.press({ key: 'fold-g-b1' })
+  const liveOpen = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
+  expect(await liveOpen.find({ type: 'Text', text: /└/ })).toBeUndefined()
+  await liveOpen.unmount()
+
+  // Ended and unfolded: the mark opens the card's first line, its mission aligns under it.
   status = 'done'
+  const opened = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
+  expect((await opened.find({ type: 'Text', text: /^└$/ }))?.text).toBe('└')
+  expect((await opened.find({ type: 'Text', text: /Implement Task 14/ }))?.text).toBe('    Implement Task 14')
+  await opened.unmount()
+  await header.press({ key: 'fold-g-b1' })
+  await header.unmount()
+
   const ended = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
   expect(await ended.find({ type: 'Text', text: /implementer/ })).toBeUndefined()
   await ended.unmount()
