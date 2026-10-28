@@ -1,20 +1,20 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { BoxProps, ElementConstructor, EngineInterface, Register, TextProps } from 'claude-code'
+import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
 // Bump the shape tag when AgentRun's fields change: an older stored list is then read as empty.
-const runs = atom({ plugin: 'agents-pane', key: 'runs' } as const, [], {
+const runs = atom({ plugin: 'tool-fold', key: 'runs' } as const, [], {
   shape: 'runs-4',
 })
 // The runs drawn on one Agent call's row, keyed by its tool_use_id: a change to one agent
 // redraws its own card, not every card in the chat.
-const byCall = atom({ plugin: 'agents-pane', key: 'byCall' } as const, [], { shape: 'runs-4' })
+export const byCall = atom({ plugin: 'tool-fold', key: 'byCall' } as const, [], { shape: 'runs-4' })
 // The clock the live elapsed times read: only running cards and the spinner block subscribe,
 // so its tick redraws them alone (an invalidate would redraw every row this plugin hooks).
-const clock = atom({ plugin: 'agents-pane', key: 'now' } as const, 0)
+const clock = atom({ plugin: 'tool-fold', key: 'now' } as const, 0)
 
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
@@ -56,7 +56,10 @@ const base = (path: string): string => path.split('/').filter(Boolean).pop() ?? 
  */
 export function commandOf(command: string): string {
   const prefix = /^\s*(?:cd\s+\S+|export\s+\w+=\S*|\w+=\S*)\s*(?:&&|;)\s*/
-  let line = command.split('\n')[0] ?? ''
+  // A line that only changes directory or sets a variable says nothing: the first other line does.
+  const setup = /^\s*(?:cd\s+\S+|export\s+\w+=\S*|\w+=\S*)\s*(?:&&|;)?\s*\\?\s*$/
+  const lines = command.split('\n').filter(item => item.trim() !== '')
+  let line = lines.find(item => !setup.test(item)) ?? lines[0] ?? ''
   while (prefix.test(line)) {
     line = line.replace(prefix, '')
   }
@@ -125,6 +128,35 @@ export function summarize(counts: AgentRun['counts']): string {
   return parts.join(' · ')
 }
 
+/**
+ * How a call changes the agent's own task list, for its `3/7` progress: TodoWrite states the whole
+ * list; TaskCreate adds one task; TaskUpdate to `completed` finishes one (once per task id).
+ */
+export function planChange(tool: string, input: Record<string, unknown>): ((todo: AgentRun['todo']) => AgentRun['todo']) | undefined {
+  if (tool === 'TodoWrite' && Array.isArray(input.todos)) {
+    const todos = input.todos as readonly Record<string, unknown>[]
+    const done = todos.filter(item => item.status === 'completed').length
+    return () => ({ done, total: todos.length, completed: [] })
+  }
+  if (tool === 'TaskCreate') {
+    return todo => ({ done: todo?.done ?? 0, total: (todo?.total ?? 0) + 1, completed: todo?.completed ?? [] })
+  }
+  if (tool === 'TaskUpdate' && input.status === 'completed' && typeof input.taskId === 'string') {
+    const id = input.taskId
+    return todo =>
+      todo === undefined || todo.completed.includes(id)
+        ? todo
+        : { ...todo, done: Math.min(todo.total, todo.done + 1), completed: [...todo.completed, id] }
+  }
+  return undefined
+}
+
+/** `▰▰▰▱▱` for done/total over `width` cells. */
+export const progressBar = (done: number, total: number, width: number): string => {
+  const filled = total === 0 ? 0 : Math.round((done / total) * width)
+  return '▰'.repeat(filled) + '▱'.repeat(width - filled)
+}
+
 /** Spinner frames; the frame follows the clock tick. A glyph on every surface: an animated Svg
  * needs a sandboxed frame per running header, too heavy for a row redrawn every second. */
 const FRAMES = ['◐', '◓', '◑', '◒']
@@ -184,7 +216,7 @@ export function statusText(list: readonly AgentRun[], now: number): string | und
 }
 
 /** The elements a card is drawn with. */
-type Elements = {
+export type Elements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
 }
@@ -211,6 +243,14 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
       <Text dimColor>
         <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
       </Text>
+      {run.todo === undefined || run.todo.total === 0 ? null : (
+        <Text dimColor>
+          <Text color={run.todo.done === run.todo.total ? 'success' : 'claude'}>
+            {progressBar(run.todo.done, run.todo.total, 5)}
+          </Text>{' '}
+          {run.todo.done}/{run.todo.total}
+        </Text>
+      )}
       {label === undefined ? null : (
         <Text dimColor wrap="truncate">
           {label}
@@ -250,7 +290,7 @@ async function publishStatus($: EngineInterface): Promise<void> {
       $.ui.status(text)
     }
   } catch (error) {
-    $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
+    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
   }
 }
 
@@ -269,7 +309,7 @@ async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) =>
     await mirror($, list, agentId)
     await publishStatus($)
   } catch (error) {
-    $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
+    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
   }
 }
 
@@ -311,7 +351,8 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
   }
 }
 
-export const register: Register = on => {
+/** The agent hooks: spawns, their calls and ends, the spinner block; tool-fold's register adds them. */
+export const registerAgents: Register = (on, options) => {
   // Record each spawn after the engine resolved its model and id.
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
@@ -347,12 +388,12 @@ export const register: Register = on => {
       await syncTick($)
     }
     // A failure here costs the card, never the spawn.
-    await record().catch(error => $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' }))
+    await record().catch(error => $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' }))
     // The mission arrives later; the spawn does not wait for it.
     // A workflow's agents draw no Agent card (and may carry a placeholder prompt): no Haiku call.
     if (isNew && e.workflow === undefined) {
       void writeMission($, id, e.prompt).catch(error =>
-        $.ui.log(`agents-pane: mission: ${String(error)}`, { to: 'debug' }),
+        $.ui.log(`tool-fold: mission: ${String(error)}`, { to: 'debug' }),
       )
     }
 
@@ -360,34 +401,6 @@ export const register: Register = on => {
     // The card is a view: a failing hook lets the call go on as if the mod were not there.
   }).catch(($, e, next) => next(e))
 
-  // A subagent's tool call: show it as current while it runs, then fold it into the summary.
-  on('tool.call', async ($, e, next) => {
-    const agentId = e.agentId
-    // The main loop's calls (most of them) pay for no read.
-    if (agentId === undefined) {
-      return next(e)
-    }
-    const isTracked = await read($, runs)
-      .then(list => list.some(run => run.id === agentId))
-      .catch(() => false)
-    if (!isTracked) {
-      return next(e)
-    }
-    const step: Step = { id: e.tool_use_id, ...describeStep(e.tool, e as Record<string, unknown>), status: 'running' }
-    await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
-
-    const result = await next(e)
-    const status: Step['status'] = result.deny !== undefined || result.isError === true ? 'failed' : 'done'
-    await patch($, agentId, run => ({
-      ...run,
-      current: run.current.filter(item => item.id !== step.id),
-      recent: [...run.recent, { ...step, status }].slice(-2),
-      counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
-      failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
-    }))
-
-    return result
-  }).catch(($, e, next) => next(e))
 
   // After a load or a hot reload (which drops the timer and module state): pick up running agents again.
   on('session.start', async ($, e, next) => {
@@ -408,23 +421,6 @@ export const register: Register = on => {
     return result
   })
 
-  // A subagent's turn ended: store its outcome and duration. The main loop's: back to the status line.
-  // Its end is not held for this: next first, the bookkeeping after.
-  on('turn.complete', async ($, e, next) => {
-    const result = await next(e)
-    const agentId = e.agentId
-    if (agentId === undefined) {
-      isMainWorking = false
-      await publishStatus($)
-    } else {
-      const status: AgentRunStatus =
-        e.reason === 'answer' ? 'done' : e.reason === 'aborted' ? 'aborted' : 'failed'
-      await patch($, agentId, run => ({ ...run, status, durationMs: e.durationMs, current: [] }))
-      await syncTick($)
-    }
-
-    return result
-  })
 
   // Under the main spinner: one framed block per running agent, stacked, with its mission and live call.
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
@@ -478,65 +474,127 @@ export const register: Register = on => {
       </Box>
     )
   })
+}
 
-  // The Agent call's own row in the transcript becomes the card: compact while it runs, one summary after.
-  // Matched on the tool, so the engine never runs this hook for the other rows of the chat.
-  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => {
-    if (e.props.isExpanded === true) {
-      return next(e)
-    }
-    const cards = await read($, memberOf(byCall, e))
-    if (cards.length === 0) {
-      return next(e)
-    }
-    const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
-    // Only a running card follows the tick; a finished one never redraws for it.
-    if (cards.some(run => run.status === 'running')) {
-      await read($, clock)
-    }
-    const now = await $.clock.now()
-    const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    const elements: Elements = { Box, Text }
+/**
+ * A subagent's tool call starts: shown as its live call. Returns the step to close with `endAgentCall`,
+ * or undefined for a loop this mod does not track. Never throws.
+ */
+export async function startAgentCall(
+  $: EngineInterface,
+  agentId: string,
+  tool: string,
+  toolUseId: string,
+  input: Record<string, unknown>,
+): Promise<Step | undefined> {
+  const isTracked = await read($, runs)
+    .then(list => list.some(run => run.id === agentId))
+    .catch(() => false)
+  if (!isTracked) {
+    return undefined
+  }
+  const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running' }
+  await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
+  return step
+}
 
-    const card = (run: AgentRun) => {
-      const header = runHeader(elements, run, now, frame, run.mission ?? run.description)
-      const summary = summaryOf(run)
+/** A subagent's tool call ended: folded into its summary, and into its task count when it plans. */
+export async function endAgentCall(
+  $: EngineInterface,
+  agentId: string,
+  step: Step,
+  tool: string,
+  input: Record<string, unknown>,
+  status: Step['status'],
+): Promise<void> {
+  const plan = status === 'done' ? planChange(tool, input) : undefined
+  await patch($, agentId, run => ({
+    ...run,
+    ...(plan === undefined ? {} : { todo: plan(run.todo) }),
+    current: run.current.filter(item => item.id !== step.id),
+    recent: [...run.recent, { ...step, status }].slice(-2),
+    counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
+    failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
+  }))
+}
 
-      // Finished: the header plus what it did (Codex's collapsed group).
-      if (run.status !== 'running') {
-        return (
-          <Box key={run.id} flexDirection="column">
-            {header}
-            {summary === '' ? null : (
-              <Text dimColor>
-                {'  └ '}
-                {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
-              </Text>
-            )}
-          </Box>
-        )
-      }
+/** A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line. */
+export async function endAgentTurn(
+  $: EngineInterface,
+  agentId: string | undefined,
+  reason: string,
+  durationMs: number,
+): Promise<void> {
+  if (agentId === undefined) {
+    isMainWorking = false
+    await publishStatus($)
+    return
+  }
+  const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
+  await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
+  await syncTick($)
+}
 
-      // Running: the last finished call and the live one; the full block sits at the bottom.
-      const steps = [...run.recent, ...run.current].slice(-2)
+/** True while an agent of this Agent call still runs: its card stays in view, folded group or not. */
+export async function isAgentLive($: EngineInterface, toolUseId: string): Promise<boolean> {
+  return (await read($, memberOf(byCall, { requestId: toolUseId }))).some(run => run.status === 'running')
+}
+
+/**
+ * The card an Agent call's row draws: live while its agent runs, one summary line after.
+ * Null when no run of this session belongs to the call (one spawned before the mod loaded).
+ */
+export async function agentCard(
+  $: EngineInterface,
+  toolUseId: string,
+  surface: RenderSurface,
+  ui: Elements,
+): Promise<RenderElement | null> {
+  const cards = await read($, memberOf(byCall, { requestId: toolUseId }))
+  if (cards.length === 0) {
+    return null
+  }
+  const { Box, Text } = ui
+  // Only a running card follows the tick; a finished one never redraws for it.
+  if (cards.some(run => run.status === 'running')) {
+    await read($, clock)
+  }
+  const now = await $.clock.now()
+  const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
+
+  const card = (run: AgentRun) => {
+    const header = runHeader(ui, run, now, frame, run.mission ?? run.description)
+    const summary = summaryOf(run)
+
+    // Finished: the header plus what it did (Codex's collapsed group).
+    if (run.status !== 'running') {
       return (
-        // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
-        <Box
-          key={run.id}
-          flexDirection="column"
-          {...(e.surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
-        >
+        <Box key={run.id} flexDirection="column">
           {header}
-          {steps.length === 0 ? (
-            <Text dimColor>{'└ Starting…'}</Text>
-          ) : (
-            steps.map(step => stepRow(elements, step, frame, '  '))
+          {summary === '' ? null : (
+            <Text dimColor>
+              {'  └ '}
+              {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
+            </Text>
           )}
         </Box>
       )
     }
 
-    return <Box flexDirection="column">{cards.map(card)}</Box>
-  })
+    // Running: the last finished call and the live one; the full block sits at the bottom.
+    const steps = [...run.recent, ...run.current].slice(-2)
+    return (
+      // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
+      <Box
+        key={run.id}
+        flexDirection="column"
+        {...(surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
+      >
+        {header}
+        {steps.length === 0 ? <Text dimColor>{'└ Starting…'}</Text> : steps.map(step => stepRow(ui, step, frame, '  '))}
+      </Box>
+    )
+  }
+
+  return <Box flexDirection="column">{cards.map(card)}</Box>
 }

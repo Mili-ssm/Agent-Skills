@@ -1,6 +1,6 @@
 {
   "name": "tool-fold",
-  "description": "Mod: tool calls fold into one line, and a run of calls into one group line with a Haiku summary; arrows unfold the calls and the engine's own boxes. Agent calls are left alone.",
+  "description": "Mod: tool calls, skills and agents in the chat fold into compact lines; a run of them into one group line with a Haiku summary. Running agents stay live (card, mission, current call, task progress) until they end. Agent notices shrink to one line.",
   "author": {
     "name": "mili-ssm"
   },

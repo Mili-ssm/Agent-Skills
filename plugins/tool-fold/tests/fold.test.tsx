@@ -1,6 +1,6 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 
-import { foldLabel, runSteps, toolTally } from '../hooks/register'
+import { foldLabel, noticeLine, runSteps, toolTally } from '../hooks/register'
 
 // A finished Bash call's row as a surface would mount it.
 const ROW = {
@@ -25,6 +25,8 @@ test('a folded row says what the call does', () => {
     'agent-skills:ux-review · explorer page',
   )
   expect(foldLabel('mcp__github__get_file', { path: 'README.md' })).toBe('README.md')
+  expect(foldLabel('SendMessage', { to: 'af732a1e51dd9ef7', summary: 'Fix round for Task 11' })).toBe('Fix round for Task 11')
+  expect(foldLabel('AskUserQuestion', {})).toBe('')
 })
 
 test('a call is one line until pressed, then the engine box shows under it', async ($, on) => {
@@ -36,7 +38,7 @@ test('a call is one line until pressed, then the engine box shows under it', asy
     expect((await ui.find({ type: 'Button' }))?.text).toBe('▸')
     expect((await ui.find({ type: 'Text', text: /Read highlight/ }))?.text).toBe('Read highlight browser tests')
     expect(await ui.find({ type: 'Text', text: /^IN / })).toBeUndefined()
-    expect((await ui.find({ type: 'Text', text: /Bash/ }))?.text).toBe(' Bash ')
+    expect((await ui.find({ type: 'Text', text: /Bash/ }))?.text).toBe('Bash')
 
     await ui.press({ key: 'fold-tu1' })
     expect((await ui.find({ type: 'Button' }))?.text).toBe('▾')
@@ -89,19 +91,27 @@ test('a reply groups its calls until text or an Agent call', () => {
     // The engine folds reads into its own count line: they neither join nor close a run.
     { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: 'a.ts' } },
     { type: 'text', text: 'All green.' },
-    { type: 'tool_use', id: 't3', name: 'Agent', input: {} },
+    { type: 'tool_use', id: 't3', name: 'Agent', input: { subagent_type: 'agent-skills:implementer' } },
+    { type: 'tool_use', id: 'q1', name: 'AskUserQuestion', input: {} },
   ])
-  expect(steps.map(step => ('join' in step ? step.join.id : 'close'))).toEqual(['t1', 't2', 'close', 'close'])
-  const call = (tool: string, label = '') => ({ tool, label })
-  expect(toolTally([call('Bash'), call('Read'), call('Bash'), call('Skill', 'agent-skills:qa-review · x')])).toBe(
-    'qa-review · Bash · Read',
-  )
+  // Agents join runs like tools and skills; a question to the person ends one.
+  expect(steps.map(step => ('join' in step ? `${step.join.id}:${step.join.tag}` : 'close'))).toEqual([
+    't1:Bash',
+    't2:qa-review',
+    'close',
+    't3:implementer',
+    'close',
+  ])
+  const call = (tool: string, tag = tool) => ({ tool, tag })
+  expect(
+    toolTally([call('Bash'), call('Edit'), call('Agent', 'implementer'), call('Bash'), call('Skill', 'qa-review')]),
+  ).toBe('qa-review · implementer · Bash · Edit')
   expect(toolTally(['A', 'B', 'C', 'D', 'E', 'F'].map(name => call(name)))).toBe('A · B · C · D · E · …')
 })
 
 test('a group draws on its first row; the rest show only once it is unfolded', async ($, on) => {
   on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: `engine ${e.requestId}` }))
-  const call = (id: string, tool: string, label: string) => ({ id, tool, label, status: 'done' as const })
+  const call = (id: string, tool: string, label: string) => ({ id, tool, tag: tool === 'Skill' ? label : tool, label, status: 'done' as const })
   // The state the reply's rows leave: two Bash calls and a Skill in one closed run.
   const run = {
     id: 'g-tu1',
@@ -119,7 +129,7 @@ test('a group draws on its first row; the rest show only once it is unfolded', a
   const second = { ...ROW, requestId: 'tu2', props: { ...ROW.props, tool_use_id: 'tu2' } }
 
   const first = await $.ui.mount({ ...ROW, surface: 'vscode' })
-  expect((await first.find({ type: 'Text', text: /qa-review · Bash/ }))?.text).toBe(' qa-review · Bash ')
+  expect((await first.find({ type: 'Text', text: /qa-review · Bash/ }))?.text).toBe('qa-review · Bash')
   expect((await first.find({ type: 'Text', text: /Comprueba/ }))?.text).toBe('Comprueba que los tests y el lint pasan')
   const hidden = await $.ui.mount({ ...second, surface: 'vscode' })
   expect(await hidden.find({ type: 'Text' })).toBeUndefined()
@@ -146,4 +156,73 @@ test('the ctrl+o view shows the result of a folded call', async ($, on) => {
   })
   expect((await result.find({ type: 'Text', text: /OUT/ }))?.text).toBe('OUT 3 lines')
   await result.unmount()
+})
+
+test('agent notices fold into one short line', async ($, on) => {
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'engine notice' }))
+  expect(noticeLine('Agent "Implement Task 11: local CI script" finished', undefined, { status: 'completed', durationMs: 182000 })).toBe(
+    '✓ "Implement Task 11: local CI script" · completed · 182s',
+  )
+  const notice = {
+    plugin: 'tool-fold',
+    component: 'UserMessage',
+    requestId: 'm1',
+    surface: 'vscode',
+    props: {
+      text: '[Subagent hand-back] The text below is the final report…',
+      origin: { kind: 'peer-send-message' },
+      isExpanded: false,
+      from: { name: '@agent-skills-implementer' },
+    },
+  } as const
+  const ui = await $.ui.mount(notice as never)
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('↩ agent-skills-implementer · reported back')
+  await ui.unmount()
+  const typed = await $.ui.mount({ ...notice, props: { ...notice.props, origin: { kind: 'composer' }, from: undefined } } as never)
+  expect((await typed.find({ type: 'Text' }))?.text).toBe('engine notice')
+  await typed.unmount()
+})
+
+test('a running agent stays in view inside a folded group; once ended it folds with it', async ($, on) => {
+  mock.clock(on)
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: `engine ${e.requestId}` }))
+  const call = (id: string, tool: string, tag: string) => ({ id, tool, tag, label: tag, status: 'done' as const })
+  const run = { id: 'g-b1', calls: [call('b1', 'Bash', 'Bash'), call('ag1', 'Agent', 'implementer')], isClosed: false }
+  const agent = (status: 'running' | 'done') => ({
+    id: 'a1',
+    toolUseId: 'ag1',
+    type: 'agent-skills:implementer',
+    description: 'Implement Task 14',
+    model: 'claude-sonnet-5-5',
+    status,
+    startedAt: 0,
+    ...(status === 'done' ? { durationMs: 60000 } : {}),
+    current: [],
+    recent: [],
+    counts: {},
+  })
+  let status: 'running' | 'done' = 'running'
+  on('state.get', (_, e, next) =>
+    e.key === 'group' && e.id === 'g-b1'
+      ? { value: { value: run, version: 1 } }
+      : e.key === 'groupOf' && ['b1', 'ag1'].includes(e.id ?? '')
+        ? { value: { value: 'g-b1', version: 1 } }
+        : e.key === 'byCall' && e.id === 'ag1'
+          ? { value: { value: { shape: 'runs-4', value: [agent(status)] }, version: 1 } }
+          : next(e),
+  )
+  const ROW_AGENT = {
+    ...ROW,
+    requestId: 'ag1',
+    props: { ...ROW.props, tool_use_id: 'ag1', tool: 'Agent', input: { subagent_type: 'agent-skills:implementer' } },
+  }
+
+  const live = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
+  expect((await live.find({ type: 'Text', text: /^implementer$/ }))?.text).toBe('implementer')
+  await live.unmount()
+
+  status = 'done'
+  const ended = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
+  expect(await ended.find({ type: 'Text', text: /implementer/ })).toBeUndefined()
+  await ended.unmount()
 })
