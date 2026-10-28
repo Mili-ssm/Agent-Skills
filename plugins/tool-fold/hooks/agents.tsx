@@ -212,21 +212,17 @@ const COMMAND_PROMPT =
   'Responde solo con la frase, sin comillas ni punto final.\n\n'
 // Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
 // How Haiku estimates an agent's progress: the fixed rules as the system prompt, the agent's data as
-// the message. Phases give the percentage a scale; the rules cover the readings that mislead.
+// the message. No phase scale: agents differ too much (a watcher has no phases); the rules cover the
+// readings that mislead, and an open-ended mission gets no number at all.
 const ESTIMATE_SYSTEM = [
   'Estimas cuánto lleva hecho un agente de programación de su misión, a partir de lo que ya hizo.',
-  'Escala por fases:',
-  '- 0-25 %: explora y entiende (lee, busca, prueba el estado actual).',
-  '- 25-75 %: hace el trabajo principal (edita, ejecuta, convierte, mide).',
-  '- 75-90 %: verifica (tests, revisiones, comprobaciones de resultados).',
-  '- 90-95 %: redacta o documenta lo hecho y entrega.',
   'Reglas:',
-  '- La misión dice qué cuenta como terminado; las últimas acciones dicen en qué fase está.',
-  '- Pesa la fase más que el número de acciones o el tiempo.',
+  '- La misión dice qué cuenta como terminado; juzga cuánto de eso muestran ya sus acciones.',
   '- Una espera larga o repetida (compilar, medir, sondear un log) no es avance por sí misma.',
   '- Si la misma acción falla varias veces, está atascado: no subas.',
-  '- Mantente cerca de tu estimación anterior salvo un cambio claro de fase.',
-  'Responde solo con un número entero entre 0 y 95, sin texto.',
+  '- Mantente cerca de tu estimación anterior salvo un avance claro.',
+  '- Si la misión no tiene un final medible (vigilar un proceso o un PR, esperar un evento), responde ?.',
+  'Responde solo con un número entero entre 0 y 95, o con ?, sin texto.',
 ].join('\n')
 // Calls kept per agent for the estimate's history, newest last.
 const HISTORY = 40
@@ -617,6 +613,14 @@ async function estimateProgress($: EngineInterface, agentId: string): Promise<vo
     maxTokens: 10,
     timeoutMs: 15000,
   })
+  // `?`: no measurable end (a watcher): the pane shows no percentage rather than an invented one.
+  if (reply.isAnswered && /^\s*\?\s*$/.test(reply.text)) {
+    await patch($, agentId, item => {
+      const { estimate: _dropped, ...rest } = item
+      return rest
+    })
+    return
+  }
   const value = reply.isAnswered ? Number.parseInt(reply.text.replace(/[^0-9]/g, ''), 10) : Number.NaN
   if (Number.isFinite(value)) {
     await patch($, agentId, item => {

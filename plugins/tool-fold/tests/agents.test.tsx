@@ -197,8 +197,8 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   on('ui.log', () => ({ value: undefined }))
   let estimates = 0
   on('model.complete', (_, e) => {
-    // Only the progress estimates count here (they carry the phase scale), not the mission line.
-    estimates += String(e.system ?? '').includes('Escala por fases') ? 1 : 0
+    // Only the progress estimates count here (they carry the estimate's rules), not the mission line.
+    estimates += String(e.system ?? '').includes('Estimas cuánto lleva hecho') ? 1 : 0
     return { value: { isAnswered: true, text: '40', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   const clock = mock.clock(on)
@@ -303,4 +303,33 @@ test('the estimate reads the mission, elapsed time and each call with its durati
   expect(text).toContain('- 7m 00s ✓ Convierte la muestra a V7')
   expect(text).toContain('- lleva 10s: Mide la lectura de V7')
   expect(text).toContain('Tu estimación anterior: 40%')
+})
+
+test('a mission with no measurable end (a watcher) shows no percentage', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'w1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', (_, e) => ({
+    value: {
+      isAnswered: true,
+      text: String(e.system ?? '').includes('Estimas cuánto lleva hecho') ? '?' : 'Vigila el PR 42',
+      usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    },
+  }))
+  mock.clock(on)
+
+  await $.agent.spawn({ ...SPAWN, subagentType: 'pr-watcher', description: 'Watch PR 42' })
+  await $.tool.call({ tool: 'Bash', command: 'gh pr checks 42', description: 'Check PR status', agentId: 'w1' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const pane = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'Pane',
+    requestId: 'agents',
+    surface: 'vscode',
+    props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  } as never)
+  expect((await pane.find({ type: 'Text', text: /^pr-watcher$/ }))?.text).toBe('pr-watcher')
+  expect(await pane.find({ type: 'Text', text: /%/ })).toBeUndefined()
+  await pane.unmount()
 })
