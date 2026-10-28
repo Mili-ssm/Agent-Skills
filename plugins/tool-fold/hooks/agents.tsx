@@ -184,8 +184,13 @@ const MISSION_PROMPT =
 
 // Asks Haiku what a shell command does, for a call that came without the model's own description.
 const COMMAND_PROMPT =
-  'Describe en 3 a 6 palabras, en español llano, qué hace este comando de terminal. ' +
-  'Responde solo con esas palabras, sin comillas ni punto final.\n\n'
+  'Di en 3 a 7 palabras, en español llano, la acción concreta que ejecuta este comando de terminal: ' +
+  'qué programa corre y sobre qué, no para qué lo quiere el agente. Ejemplos:\n' +
+  '`cargo test -p viewer_format` → Ejecuta los tests de viewer_format\n' +
+  '`until grep -q complete run.log; do sleep 30; done` → Espera a que run.log diga complete\n' +
+  '`sed -n 1,80p src/main.rs` → Muestra las líneas 1-80 de main.rs\n' +
+  '`git diff --stat HEAD~3` → Resume los cambios de 3 commits\n' +
+  'Responde solo con la frase, sin comillas ni punto final.\n\n'
 // Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
 const ESTIMATE_PROMPT =
   'Un agente de programación tiene este encargo y ha hecho estas acciones. Estima qué porcentaje del ' +
@@ -264,27 +269,31 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
 /** `  ✓ Read session.py` / `  ◐ Run npm test`: one call, only its glyph colored. */
 function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDetail = false) {
   const { Box, Text } = ui
-  const line = (
-    <Text key={`${step.id}-line`} dimColor={step.status !== 'running'} wrap="truncate">
-      {indent}
-      {step.status === 'running' ? (
-        <Text color="claude">{frame}</Text>
-      ) : (
-        <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
-      )}{' '}
-      {step.label}
-    </Text>
-  )
+  const glyph =
+    step.status === 'running' ? (
+      <Text color="claude">{frame}</Text>
+    ) : (
+      <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
+    )
   if (!withDetail || step.detail === undefined) {
-    return <Box key={step.id}>{line}</Box>
+    return (
+      <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
+        {indent}
+        {glyph} {step.label}
+      </Text>
+    )
   }
+  // What the call does reads first; the command itself sits under it, dim.
   return (
     <Box key={step.id} flexDirection="column">
-      {line}
-      <Text dimColor italic wrap="truncate">
+      <Text dimColor={step.status !== 'running'} wrap="truncate">
+        {indent}
+        {glyph} {step.detail}
+      </Text>
+      <Text dimColor wrap="truncate">
         {indent}
         {'  '}
-        {step.detail}
+        {step.label.replace(/^Run /, '$ ')}
       </Text>
     </Box>
   )
@@ -432,7 +441,7 @@ export const registerAgents: Register = (on, options) => {
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     return (
       <Box flexDirection="column" gap={1}>
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, e.surface, true))}
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3))}
       </Box>
     )
   })
@@ -563,30 +572,27 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
  * Null when no run of this session belongs to the call (one spawned before the mod loaded).
  */
 /** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, surface: RenderSurface, inPane = false) {
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean) {
   const { Box, Text } = ui
-  const steps = [...run.recent, ...run.current].slice(-2)
+  // Many agents at once: each card keeps its header, mission and live call only.
+  const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
   return (
-    // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
-    <Box
-      key={run.id}
-      flexDirection="column"
-      {...(surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
-    >
-      {runHeader(ui, run, now, frame, run.mission ?? run.description, inPane)}
+    // One card per agent, with a quiet border of its own inside the pane's frame.
+    <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+      {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  └ Starting…'}</Text>
       ) : (
-        steps.map(step => stepRow(ui, step, frame, '  ', inPane))
+        steps.map(step => stepRow(ui, step, frame, '  ', true))
       )}
     </Box>
   )
 }
 
 /**
- * The card an Agent call's row draws: one summary line once its agent ended; while it runs, the
- * live card, or only its header when the "Agentes" pane shows it. Null when no run of this
- * session belongs to the call (one spawned before the mod loaded).
+ * The card an Agent call's row draws: nothing while its agent runs (the pane shows it), the folded
+ * card once a foreground agent ended. Null when no run of this session belongs to the call (one
+ * spawned before the mod loaded).
  */
 export async function agentCard(
   $: EngineInterface,
@@ -598,21 +604,13 @@ export async function agentCard(
   if (cards.length === 0) {
     return null
   }
-  const { Box, Text } = ui
-  const isRunning = cards.some(run => run.status === 'running')
-  // Only a running card follows the tick and the pane; a finished one never redraws for them.
-  const isDocked = isRunning ? (await read($, clock), await read($, docked)) : false
+  const { Box } = ui
   const now = await $.clock.now()
-  const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
 
-  const card = (run: AgentRun) => {
-    if (run.status === 'running') {
-      // Running agents live in the pane; the chat shows an agent once it has stopped.
-      return isDocked ? <Box key={run.id} /> : liveCard(ui, run, now, frame, surface)
-    }
-    // A background agent's folded card moves to its "finished" notice, at the bottom of the chat.
-    return run.background === true ? <Box key={run.id} /> : finishedCard(ui, run, now, frame)
-  }
+  // Running agents live in the "Agentes" pane only; a background agent's folded card moves to its
+  // "finished" notice at the bottom of the chat; a foreground agent's stays on its own row.
+  const card = (run: AgentRun) =>
+    run.status === 'running' || run.background === true ? <Box key={run.id} /> : finishedCard(ui, run, now, '•')
 
   return <Box flexDirection="column">{cards.map(card)}</Box>
 }

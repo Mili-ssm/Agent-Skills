@@ -194,7 +194,7 @@ test('agent notices: a task line is compacted, a hand-back loses the engine fram
   await typed.unmount()
 })
 
-test('a running agent stays in view inside a folded group; once ended it folds with it', async ($, on) => {
+test('an agent in a folded group: nothing while it runs (the pane has it), folded with the group once ended', async ($, on) => {
   mock.clock(on)
   on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: `engine ${e.requestId}` }))
   const call = (id: string, tool: string, tag: string) => ({ id, tool, tag, label: tag, status: 'done' as const })
@@ -229,7 +229,7 @@ test('a running agent stays in view inside a folded group; once ended it folds w
   }
 
   const live = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
-  expect((await live.find({ type: 'Text', text: /^implementer$/ }))?.text).toBe('implementer')
+  expect(await live.find({ type: 'Text', text: /implementer/ })).toBeUndefined()
   await live.unmount()
 
   status = 'done'
