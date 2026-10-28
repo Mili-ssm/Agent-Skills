@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
-import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
+import { agentCard, endAgentCall, endAgentTurn, isAgentLive, noticeCard, registerAgents, startAgentCall } from './agents'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
 const UNTOUCHED = new Set(['AskUserQuestion'])
@@ -331,12 +331,16 @@ export const register: Register = (on, options) => {
     // A running agent stays in view in a folded group; it folds with the group once it ends.
     const isShown = isGroupOpen || isLive
     // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
-    const branch = (node: RenderNode) => (
-      <Box flexDirection="row" gap={1}>
-        <Text dimColor>└</Text>
-        {node}
-      </Box>
-    )
+    // An agent's card is several lines wide and tall: beside a mark it wraps badly in a narrow chat.
+    const branch = (node: RenderNode) =>
+      isAgent ? (
+        <Box>{node}</Box>
+      ) : (
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>└</Text>
+          {node}
+        </Box>
+      )
     if (run.calls[0]?.id !== e.props.tool_use_id) {
       // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
       return isShown ? branch(own) : <Box />
@@ -410,8 +414,10 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (kind === 'task-notification') {
-      const { Text } = $.ui.resolve(e)
-      return <Text dimColor wrap="truncate">{noticeLine(e.props.text, undefined, e.props.task)}</Text>
+      const { Box, Text } = $.ui.resolve(e)
+      // A background agent's notice is where its folded card lands once it stops.
+      const card = await noticeCard($, e.props.task?.toolUseId, e.props.text, { Box, Text })
+      return card ?? <Text dimColor wrap="truncate">{noticeLine(e.props.text, undefined, e.props.task)}</Text>
     }
     const body = e.props.from === undefined ? e.props.text : handBackBody(e.props.text)
     return body === e.props.text ? next(e) : next({ ...e, props: { ...e.props, text: body } })

@@ -80,7 +80,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
     expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
     // The mission replaces the short description; the card keeps the last two calls.
-    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('Busca dónde se crean las sesiones')
+    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('  Busca dónde se crean las sesiones')
     expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  ✓ Read session.py')
     expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  ✓ Search "Session(" in src/')
     await ui.unmount()
@@ -128,4 +128,113 @@ test('a workflow agent gets no Haiku mission call', async ($, on) => {
   // The mission call runs after the spawn returned.
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(missions).toBe(1)
+})
+
+test('while the Agentes pane is placed, running agents live there only; the chat shows them once ended', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  mock.clock(on)
+  const panes: string[] = []
+  on('ui.open', (_, e) => {
+    panes.push(`open ${e.id}`)
+    return { value: { isPlaced: true } }
+  })
+  on('ui.close', (_, e) => {
+    panes.push(`close ${e.id}`)
+    return { value: undefined }
+  })
+  on('ui.log', () => ({ value: undefined }))
+  const PANE = {
+    plugin: 'tool-fold',
+    component: 'Pane',
+    requestId: 'agents',
+    surface: 'vscode',
+    props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'inline', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  } as const
+
+  await $.agent.spawn({ ...SPAWN, subagentType: 'performance-analyst' })
+  await $.tool.call({ tool: 'Bash', command: 'cargo bench', description: 'Benchmark the codec', agentId: 'a1' })
+  expect(panes).toEqual(['open agents'])
+
+  const pane = await $.ui.mount(PANE as never)
+  expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
+  expect((await pane.find({ type: 'Text', text: /cargo bench/ }))?.text).toBe('  ✓ Run cargo bench')
+  // The model's own words on the command, under it.
+  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('    Benchmark the codec')
+  await pane.unmount()
+  // The chat shows a running agent nothing while the pane holds it.
+  const chat = await $.ui.mount({ ...ROW, surface: 'vscode' })
+  expect(await chat.find({ type: 'Text' })).toBeUndefined()
+  await chat.unmount()
+
+  await $.turn.complete({ agentId: 'a1', answer: 'done', durationMs: 60000, isAborted: false, turnId: 't1', reason: 'answer' })
+  expect(panes).toEqual(['open agents', 'close agents'])
+  const ended = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
+  expect((await ended.find({ type: 'Text', text: /Ran 1 command/ }))?.text).toBe('  └ Ran 1 command')
+  await ended.unmount()
+})
+
+test('an agent without a task list gets a Haiku estimate in the pane', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.log', () => ({ value: undefined }))
+  let estimates = 0
+  on('model.complete', (_, e) => {
+    // Only the progress estimates count here, not the mission line.
+    estimates += String(e.prompt).includes('porcentaje') ? 1 : 0
+    return { value: { isAnswered: true, text: '40', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  const clock = mock.clock(on)
+
+  await $.agent.spawn(SPAWN)
+  // The first call asks at once; one 30 s apart waits for the gap, then asks once.
+  await $.tool.call({ tool: 'Read', file_path: 'a.rs', agentId: 'a1' })
+  await $.tool.call({ tool: 'Bash', command: 'cargo bench', description: 'Benchmark', agentId: 'a1' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const pane = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'Pane',
+    requestId: 'agents',
+    surface: 'vscode',
+    props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  } as never)
+  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('▰▰▱▱▱ ≈40%')
+  await pane.unmount()
+  expect(estimates).toBe(1)
+  await clock.advance(30_000)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(estimates).toBe(2)
+})
+
+test('a background agent that ends moves its card to its finished notice', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'engine row' }))
+  mock.clock(on)
+
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await $.tool.call({ tool: 'Bash', command: 'cargo test', description: 'Run tests', agentId: 'a1' })
+  await $.turn.complete({ agentId: 'a1', answer: 'ok', durationMs: 90000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  // Its own row empties...
+  const row = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
+  expect(await row.find({ type: 'Text' })).toBeUndefined()
+  await row.unmount()
+  // ...and the notice at the bottom draws the folded card.
+  const notice = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'UserMessage',
+    requestId: 'n1',
+    surface: 'vscode',
+    props: { text: 'Agent "Find session creation" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed', toolUseId: 'tu1' } },
+  } as never)
+  expect((await notice.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
+  expect((await notice.find({ type: 'Text', text: /Ran 1 command/ }))?.text).toBe('  └ Ran 1 command')
+  await notice.unmount()
 })
