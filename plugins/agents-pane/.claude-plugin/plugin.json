@@ -1,7 +1,9 @@
 {
   "name": "agents-pane",
-  "description": "Mod: a side pane listing this session's subagents with type, model, status and duration, plus a per-model tally to see how much work is offloaded.",
-  "author": { "name": "mili-ssm" },
+  "description": "Mod: each subagent's Agent call in the chat becomes a live card (type, model chip, current tool, elapsed) that folds into a one-line summary of what it did when it ends.",
+  "author": {
+    "name": "mili-ssm"
+  },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
   "types": "./types/index.d.ts"
 }

@@ -13,22 +13,17 @@
     {
       "name": "agents-pane",
       "source": "./plugins/agents-pane",
-      "description": "Mod: a side pane listing this session's subagents with type, model, status and duration."
-    },
-    {
-      "name": "status-model",
-      "source": "./plugins/status-model",
-      "description": "Mod: status line entry with the main model and the last subagent and its model."
+      "description": "Mod: each subagent's Agent call in the chat becomes a live card (type, model, current tool, elapsed) that folds into a one-line summary when it ends."
     },
     {
       "name": "plan-progress",
       "source": "./plugins/plan-progress",
-      "description": "Mod: a side pane with the active implementation plan's progress (current task, steps per task, overall bar)."
+      "description": "Mod: compact progress of the active implementation plan, only while there is one: status line (all surfaces) plus a card above the prompt (terminal, desktop)."
     },
     {
       "name": "usage-band",
       "source": "./plugins/usage-band",
-      "description": "Mod: a band above the prompt with the last answer's duration and tokens per model, plus session totals."
+      "description": "Mod: a compact line under each answer with its duration and tokens per model (subagents included) plus session totals; /usage-band for a summary."
     }
   ]
 }
