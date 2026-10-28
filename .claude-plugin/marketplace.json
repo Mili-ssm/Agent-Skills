@@ -13,7 +13,7 @@
     {
       "name": "agents-pane",
       "source": "./plugins/agents-pane",
-      "description": "Mod: each subagent's Agent call in the chat becomes a live card (type, model, current tool, elapsed) that folds into a one-line summary when it ends."
+      "description": "Mod: running subagents stacked under the spinner (mission in plain words, model, live call) or on the status line; each Agent call in the chat keeps a card that folds into a one-line summary when it ends."
     },
     {
       "name": "plan-progress",
@@ -24,6 +24,11 @@
       "name": "usage-band",
       "source": "./plugins/usage-band",
       "description": "Mod: a compact line under each answer with its duration and tokens per model (subagents included) plus session totals; /usage-band for a summary."
+    },
+    {
+      "name": "tool-fold",
+      "source": "./plugins/tool-fold",
+      "description": "Mod: tool calls in the chat fold into one line; a click unfolds the engine's own box with input and output. Agent calls are left alone."
     }
   ]
 }

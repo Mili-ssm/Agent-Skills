@@ -26,6 +26,8 @@ export type AgentRun = {
   type: string
   /** The Agent call's short task description. */
   description: string
+  /** One plain-language sentence (Spanish) of what the agent was asked, from Haiku; absent until it answers. */
+  mission?: string
   /** Resolved model id, e.g. `claude-haiku-5-5`. */
   model: string
   status: AgentRunStatus
@@ -35,10 +37,12 @@ export type AgentRun = {
   durationMs?: number
   /** Calls still running, oldest first. */
   current: Step[]
-  /** The last finished calls, oldest first (at most RECENT). */
+  /** The last two finished calls: the card shows the newest two of these and the live ones. */
   recent: Step[]
   /** Finished calls per kind, for the summary line. */
   counts: Partial<Record<StepKind, number>>
+  /** Finished calls that failed (absent on runs stored before it was counted). */
+  failures?: number
 }
 
 declare module 'claude-code' {

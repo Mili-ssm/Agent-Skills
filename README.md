@@ -5,11 +5,12 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | Plugin | What | Folder |
 |---|---|---|
 | `agent-skills` | Specialist skills and agents (below) | [`plugins/agent-skills/`](plugins/agent-skills/) |
-| `agents-pane` (mod) | Live card on each Agent call in the chat: type, model chip, current tool, elapsed; folds into `Explored 3 files · Ran 2 commands · 1m 02s` when it ends | [`plugins/agents-pane/`](plugins/agents-pane/) |
+| `agents-pane` (mod) | Running subagents under the main spinner, stacked (type, model, a one-line Spanish mission from Haiku, live call), or on the status line while only background agents run; each Agent call in the chat keeps a card with its last two calls that folds into `Explored 3 files · Ran 2 commands · 1m 02s` when it ends | [`plugins/agents-pane/`](plugins/agents-pane/) |
 | `usage-band` (mod) | Dim line under each answer: `⏱ 1m15s · haiku ▇▇▇▇▇ 108k · opus ▇▇▁▁▁ 43k │ Σ 1m15s · 151k`; `/usage-band` for a session summary | [`plugins/usage-band/`](plugins/usage-band/) |
 | `plan-progress` (mod) | Only while a plan exists (`docs/superpowers/plans/`, `docs/plans/`, `plans/`): status line `▰▰▰▰▰▱▱▱▱▱ 5/10 · ▶ Task 3 2/4` and a card above the prompt (terminal, desktop), toast per finished task; `/plan-progress [path\|auto]` | [`plugins/plan-progress/`](plugins/plan-progress/) |
+| `tool-fold` (mod) | Tool calls fold into one line (`● Bash Read highlight browser tests ▸`); a click unfolds the engine's own box with input and output, another folds it; Agent calls untouched | [`plugins/tool-fold/`](plugins/tool-fold/) |
 
-`agents-pane` and `usage-band` make offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans.
+`agents-pane` and `usage-band` make offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans; `tool-fold` keeps tool output out of the way until asked for.
 
 ## agent-skills
 
@@ -25,7 +26,7 @@ Generic specialist skills and agents for Claude Code. Complements [Superpowers](
 | Desktop app (`/plugin` does not run there) | **+** next to the prompt box → Plugins → Add marketplace `Mili-ssm/Agent-Skills` → Add plugin; or install from a shell at user scope (above), which the app's local sessions also load |
 | VS Code extension | Install from a shell at user scope (above): the extension runs Claude Code on the same `~/.claude` config |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
-| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="agents-pane usage-band plan-progress"` in the environment |
+| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="agents-pane usage-band plan-progress tool-fold"` in the environment |
 
 ## Offload setup (ADR 0010)
 

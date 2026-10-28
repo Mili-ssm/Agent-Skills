@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { describeStep, formatDuration, summarize } from '../hooks/register'
+import { commandOf, describeStep, formatDuration, statusText, summarize } from '../hooks/register'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -15,6 +15,14 @@ const ROW = {
     isErrored: false,
     isInterrupted: false,
   },
+} as const
+
+// The main loop's spinner as a surface would mount it.
+const SPINNER = {
+  plugin: 'agents-pane',
+  component: 'Spinner',
+  requestId: 'main',
+  props: { word: 'Working', message: null, suffix: '…', mode: 'tool-use' },
 } as const
 
 // A spawn as the engine raises it for a model's Agent call.
@@ -33,18 +41,58 @@ test('steps are named and grouped as Codex does', () => {
   expect(describeStep('Read', { file_path: 'src/app/session.py' }).label).toBe('Read session.py')
   expect(describeStep('Grep', { pattern: 'Session(', path: 'src' }).label).toBe('Search "Session(" in src/')
   expect(describeStep('Bash', { command: 'npm test\nnpm run lint' }).label).toBe('Run npm test')
+  expect(commandOf('cd /home/mili/Documentos/WORK/app && S=/tmp/x; sed -n 1p /tmp/claude-1000/-home-mili/scratch/out.json')).toBe(
+    'sed -n 1p …/scratch/out.json',
+  )
   expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
     'Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
   )
   expect(formatDuration(75000)).toBe('1m 15s')
 })
 
+test('the status line lists running agents with their live tool, compact past three', () => {
+  const run = (id: string, type: string, label?: string) => ({
+    id,
+    toolUseId: id,
+    type,
+    description: '',
+    model: 'claude-sonnet-5-5',
+    status: 'running' as const,
+    startedAt: 0,
+    current: label === undefined ? [] : [{ id: `${id}-s`, kind: 'run' as const, label, status: 'running' as const }],
+    counts: {},
+  })
+  expect(statusText([], 0)).toBeUndefined()
+  expect(statusText([run('a', 'ux-reviewer', 'Run npm test')], 37000)).toBe(
+    '◓ ux-reviewer · sonnet-5-5 ▸ Run npm test · 37s',
+  )
+  expect(
+    statusText([run('a', 'ux-reviewer', 'Run npm test'), run('b', 'Explore'), run('c', 'fixer'), run('d', 'qa')], 12000),
+  ).toBe('◐ 4 agents · ux-reviewer ▸ Run npm test 12s │ Explore 12s │ fixer 12s │ +1')
+})
+
 test('a running agent shows its live tool, then folds into one summary line', async ($, on) => {
   // These hooks stand for the engine beneath the mod.
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  // Haiku's answer for the mission line.
+  on('model.complete', () => ({
+    value: {
+      isAnswered: true,
+      text: '«Busca dónde se crean las sesiones.»',
+      usage: { input_tokens: 80, output_tokens: 12, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    },
+  }))
+  // The engine's own spinner line.
+  on('ui.render', { component: 'Spinner' }, ($, e) => $.ui.resolve(e).Text({ children: 'Working…' }))
   mock.clock(on)
+  const statuses: (string | undefined)[] = []
+  on('ui.status', (_, e) => {
+    statuses.push(e.text)
+    return { value: undefined }
+  })
   on('ui.log', (_, e) => {
     logs.push(e.text)
     return { value: undefined }
@@ -56,12 +104,26 @@ test('a running agent shows its live tool, then folds into one summary line', as
   await $.tool.call({ tool: 'Grep', pattern: 'Session(', path: 'src', agentId: 'a1' })
 
   expect(logs).toEqual([])
+  expect(statuses.at(-1)).toMatch(/^. Explore · haiku-5-5 · \d+s$/)
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...ROW, surface })
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
-    expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('haiku-5-5')
-    expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('└ Explored 1 file, 1 search')
+    expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
+    // The mission replaces the short description; the card keeps the last two calls.
+    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('Busca dónde se crean las sesiones')
+    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  ✓ Read session.py')
     expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  ✓ Search "Session(" in src/')
+    await ui.unmount()
+  }
+
+  // While the main loop works, the agents leave the status line for a block under its spinner.
+  await $.turn.start({ text: 'go', turnId: 'm1' })
+  expect(statuses.at(-1)).toBeUndefined()
+  for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
+    const ui = await $.ui.mount({ ...SPINNER, surface })
+    expect((await ui.find({ type: 'Text', text: /^Working…$/ }))?.text).toBe('Working…')
+    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('  Busca dónde se crean las sesiones')
+    expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('  └ Explored 1 file, 1 search')
     await ui.unmount()
   }
 
@@ -74,6 +136,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
     reason: 'answer',
   })
 
+  expect(statuses.at(-1)).toBeUndefined()
   const ui = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
   expect((await ui.find({ type: 'Text', text: /1m 15s/ }))?.text).toBe('1m 15s')
   expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('  └ Explored 1 file, 1 search')
