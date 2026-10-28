@@ -63,8 +63,10 @@ export function commandOf(command: string): string {
   const setup = /^\s*(?:cd\s+\S+|export\s+\w+=\S*|\w+=\S*)\s*(?:&&|;)?\s*\\?\s*$/
   const lines = command.split('\n').filter(item => item.trim() !== '')
   let line = lines.find(item => !setup.test(item)) ?? lines[0] ?? ''
-  while (prefix.test(line)) {
-    line = line.replace(prefix, '')
+  // `VAR=value cmd`: an assignment in front of the command itself.
+  const env = /^\s*\w+=(?:"[^"]*"|'[^']*'|\S*)\s+(?=\S)/
+  while (prefix.test(line) || env.test(line)) {
+    line = line.replace(prefix, '').replace(env, '')
   }
   return line.replace(/(?:\/[^\s/'"]+){3,}/g, path =>
     path.length <= 24 ? path : `…/${path.split('/').slice(-2).join('/')}`,
@@ -268,34 +270,19 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
 
 /** `  ✓ Read session.py` / `  ◐ Run npm test`: one call, only its glyph colored. */
 function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDetail = false) {
-  const { Box, Text } = ui
+  const { Text } = ui
   const glyph =
     step.status === 'running' ? (
       <Text color="claude">{frame}</Text>
     ) : (
       <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
     )
-  if (!withDetail || step.detail === undefined) {
-    return (
-      <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
-        {indent}
-        {glyph} {step.label}
-      </Text>
-    )
-  }
-  // What the call does reads first; the command itself sits under it, dim.
+  // In the pane a call reads by what it does alone; the command shows until its words arrive.
   return (
-    <Box key={step.id} flexDirection="column">
-      <Text dimColor={step.status !== 'running'} wrap="truncate">
-        {indent}
-        {glyph} {step.detail}
-      </Text>
-      <Text dimColor wrap="truncate">
-        {indent}
-        {'  '}
-        {step.label.replace(/^Run /, '$ ')}
-      </Text>
-    </Box>
+    <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
+      {indent}
+      {glyph} {withDetail && step.detail !== undefined ? step.detail : step.label}
+    </Text>
   )
 }
 
@@ -578,7 +565,8 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCom
   const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
   return (
     // One card per agent, with a quiet border of its own inside the pane's frame.
-    <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1}>
+    // Full width and clipped inside: a header wider than a narrowed pane no longer pushes the right edge out.
+    <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} width="100%" overflow="hidden">
       {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  └ Starting…'}</Text>
@@ -659,13 +647,20 @@ export async function noticeCard(
 
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */
 async function openDock($: EngineInterface): Promise<void> {
-  const opened = await $.ui.open({ id: DOCK, title: 'Agentes' }).catch(() => ({ isPlaced: false }))
+  // The surface draws the title bar; its text at least says how many run (an open id only retitles).
+  const running = (await read($, runs)).filter(run => run.status === 'running').length
+  const title = running > 1 ? `Agentes · ${running}` : 'Agentes'
+  const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
 }
 
 /** Closes the pane once no agent runs: they all sit in the chat again. Never throws. */
 async function closeDockWhenIdle($: EngineInterface): Promise<void> {
   if ((await read($, runs)).some(run => run.status === 'running')) {
+    // Still some running: retitle with the new count, if the pane is up.
+    if (await read($, docked)) {
+      await openDock($)
+    }
     return
   }
   await update($, docked, () => false)

@@ -37,6 +37,7 @@ test('steps are named and grouped as Codex does', () => {
     'sed -n 1p …/scratch/out.json',
   )
   expect(commandOf('cd /home/mili/Rust/octree_viewer_v3\ncargo test -p viewer')).toBe('cargo test -p viewer')
+  expect(commandOf('S=/tmp/claude-1000/x/scratchpad python3 merge.py')).toBe('python3 merge.py')
   expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
     'Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
   )
@@ -169,9 +170,9 @@ test('while the Agentes pane is placed, running agents live there only; the chat
 
   const pane = await $.ui.mount(PANE as never)
   expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
-  // What the command does reads first; the command sits under it.
+  // A call reads by what it does alone, without the command.
   expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  ✓ Benchmark the codec')
-  expect((await pane.find({ type: 'Text', text: /cargo bench/ }))?.text).toBe('    $ cargo bench')
+  expect(await pane.find({ type: 'Text', text: /cargo bench/ })).toBeUndefined()
   await pane.unmount()
   // The chat shows a running agent nothing while the pane holds it.
   const chat = await $.ui.mount({ ...ROW, surface: 'vscode' })
