@@ -138,6 +138,8 @@ test('a group draws on its first row; the rest show only once it is unfolded', a
   await first.press({ key: 'fold-g-tu1' })
   const shown = await $.ui.mount({ ...second, surface: 'vscode' })
   expect((await shown.find({ type: 'Button' }))?.text).toBe('▸')
+  // Each row has a frame of its own: a tree mark ties it to the group above.
+  expect((await shown.find({ type: 'Text', text: /^└$/ }))?.text).toBe('└')
   expect(await shown.find({ type: 'Text', text: /engine/ })).toBeUndefined()
   await shown.press({ key: 'fold-tu2' })
   expect((await shown.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine tu2')
@@ -158,28 +160,37 @@ test('the ctrl+o view shows the result of a folded call', async ($, on) => {
   await result.unmount()
 })
 
-test('agent notices fold into one short line', async ($, on) => {
-  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'engine notice' }))
+test('agent notices: a task line is compacted, a hand-back loses the engine framing', async ($, on) => {
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: `engine: ${(e.props as { text: string }).text}` }))
   expect(noticeLine('Agent "Implement Task 11: local CI script" finished', undefined, { status: 'completed', durationMs: 182000 })).toBe(
     '✓ "Implement Task 11: local CI script" · completed · 182s',
   )
-  const notice = {
+  const handBack = {
     plugin: 'tool-fold',
     component: 'UserMessage',
     requestId: 'm1',
     surface: 'vscode',
     props: {
-      text: '[Subagent hand-back] The text below is the final report…',
+      text: '[Subagent hand-back] The text below is the final report of a subagent. The report follows:\nAll 13 ADRs written.',
       origin: { kind: 'peer-send-message' },
-      isExpanded: false,
-      from: { name: '@agent-skills-implementer' },
+      // A surface with no ctrl+o reports every row expanded.
+      isExpanded: true,
+      from: { name: '@agent-skills-doc-curator' },
     },
   } as const
-  const ui = await $.ui.mount(notice as never)
-  expect((await ui.find({ type: 'Text' }))?.text).toBe('↩ agent-skills-implementer · reported back')
+  const ui = await $.ui.mount(handBack as never)
+  expect((await ui.find({ type: 'Text' }))?.text).toBe('engine: ↩ All 13 ADRs written.')
   await ui.unmount()
-  const typed = await $.ui.mount({ ...notice, props: { ...notice.props, origin: { kind: 'composer' }, from: undefined } } as never)
-  expect((await typed.find({ type: 'Text' }))?.text).toBe('engine notice')
+
+  const task = await $.ui.mount({
+    ...handBack,
+    props: { text: 'Agent "Review Task 13a" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed' } },
+  } as never)
+  expect((await task.find({ type: 'Text' }))?.text).toBe('✓ "Review Task 13a" · completed')
+  await task.unmount()
+
+  const typed = await $.ui.mount({ ...handBack, props: { ...handBack.props, origin: { kind: 'composer' }, from: undefined } } as never)
+  expect((await typed.find({ type: 'Text' }))?.text).toMatch(/^engine: \[Subagent/)
   await typed.unmount()
 })
 

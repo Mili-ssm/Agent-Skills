@@ -53,8 +53,8 @@ export type GroupCall = {
   /** The call's `tool_use_id`. */
   id: string
   tool: string
-  /** The name a group line lists it by: a skill's or an agent type's name, else the tool's. */
-  tag: string
+  /** The name a group line lists it by: a skill's or an agent type's name, else the tool's (absent in groups stored before it). */
+  tag?: string
   /** What the folded row says it does. */
   label: string
   status: 'running' | 'done' | 'failed'
