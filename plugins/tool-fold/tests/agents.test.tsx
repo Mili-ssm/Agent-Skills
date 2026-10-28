@@ -39,7 +39,11 @@ test('steps are named and grouped as Codex does', () => {
   expect(commandOf('cd /home/mili/Rust/octree_viewer_v3\ncargo test -p viewer')).toBe('cargo test -p viewer')
   expect(commandOf('S=/tmp/claude-1000/x/scratchpad python3 merge.py')).toBe('python3 merge.py')
   expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
-    'Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
+    '7 calls · Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
+  )
+  // Distinct files rather than edits; skills by name.
+  expect(summarize({ edit: 6, run: 20, skill: 1 }, { files: ['a.rs', 'b.rs', 'c.rs', 'd.rs'], skills: ['qa-review'] })).toBe(
+    '27 calls · Edited 4 files · Ran 20 commands · qa-review',
   )
   expect(formatDuration(75000)).toBe('1m 15s')
 })
@@ -108,7 +112,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
 
   const ui = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
   expect((await ui.find({ type: 'Text', text: /1m 15s/ }))?.text).toBe('1m 15s')
-  expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('  └ Explored 1 file, 1 search')
+  expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('  └ 2 calls · Explored 1 file, 1 search')
   expect(await ui.find({ type: 'Text', text: /Search "/ })).toBeUndefined()
   await ui.unmount()
 })

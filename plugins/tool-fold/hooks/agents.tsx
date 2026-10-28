@@ -101,6 +101,8 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
       return { kind: 'web', label: `Fetch ${clip(text('url').replace(/^https?:\/\//, ''), 40)}` }
     case 'Agent':
       return { kind: 'agent', label: `Agent ${clip(text('description'), 40)}` }
+    case 'Skill':
+      return { kind: 'skill', label: text('skill').replace(/^[\w-]+:/, '') || 'Skill' }
     default:
       return { kind: 'other', label: tool.replace(/^mcp__/, '').replace(/__/g, ' ') }
   }
@@ -109,9 +111,17 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`
 
 /** `Explored 3 files, 2 searches · Edited 1 file · Ran 2 commands`, as Codex groups calls. */
-export function summarize(counts: AgentRun['counts']): string {
+export function summarize(
+  counts: AgentRun['counts'],
+  extra: { files?: readonly string[]; skills?: readonly string[] } = {},
+): string {
   const n = (kind: StepKind): number => counts[kind] ?? 0
   const parts: string[] = []
+  // Every call counted once: how much the agent did, before what kind of things.
+  const total = Object.values(counts).reduce((sum, count) => sum + (count ?? 0), 0)
+  if (total > 1) {
+    parts.push(plural(total, 'call'))
+  }
   const explored = [
     n('read') > 0 ? plural(n('read'), 'file') : '',
     n('list') > 0 ? plural(n('list'), 'listing') : '',
@@ -121,7 +131,8 @@ export function summarize(counts: AgentRun['counts']): string {
     parts.push(`Explored ${explored.join(', ')}`)
   }
   if (n('edit') > 0) {
-    parts.push(`Edited ${plural(n('edit'), 'file')}`)
+    // Distinct files where they were recorded, else the edits.
+    parts.push(`Edited ${plural(extra.files?.length || n('edit'), 'file')}`)
   }
   if (n('run') > 0) {
     parts.push(`Ran ${plural(n('run'), 'command')}`)
@@ -134,6 +145,12 @@ export function summarize(counts: AgentRun['counts']): string {
   }
   if (n('other') > 0) {
     parts.push(`Used ${plural(n('other'), 'tool')}`)
+  }
+  // Skills by name: they say what kind of work it was.
+  if (extra.skills !== undefined && extra.skills.length > 0) {
+    parts.push(extra.skills.join(', '))
+  } else if (n('skill') > 0) {
+    parts.push(plural(n('skill'), 'skill'))
   }
   return parts.join(' · ')
 }
@@ -206,7 +223,7 @@ const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
 /** `Explored 3 files · Ran 2 commands · 1 failed`. */
 const summaryOf = (run: AgentRun): string => {
   const failures = run.failures ?? 0
-  return summarize(run.counts) + (failures > 0 ? ` · ${failures} failed` : '')
+  return summarize(run.counts, { files: run.files, skills: run.skills }) + (failures > 0 ? ` · ${failures} failed` : '')
 }
 
 /** The elements a card is drawn with. */
@@ -479,6 +496,7 @@ export async function endAgentCall(
     recent: [...run.recent, { ...step, status }].slice(-2),
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
     failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
+    ...(status === 'done' ? touched(run, step, input) : {}),
   }))
   await requestEstimate($, agentId)
 }
@@ -531,6 +549,18 @@ async function estimateProgress($: EngineInterface, run: AgentRun): Promise<void
     const estimate = Math.max(0, Math.min(95, value))
     await patch($, run.id, item => (item.status === 'running' ? { ...item, estimate } : item))
   }
+}
+
+/** The distinct files an edit touched and skills a call used, kept for the finished card's line. */
+function touched(run: AgentRun, step: Step, input: Record<string, unknown>): Pick<AgentRun, 'files' | 'skills'> {
+  const path = typeof input.file_path === 'string' ? input.file_path : typeof input.notebook_path === 'string' ? input.notebook_path : ''
+  if (step.kind === 'edit' && path !== '' && !(run.files ?? []).includes(path)) {
+    return { files: [...(run.files ?? []), path] }
+  }
+  if (step.kind === 'skill' && !(run.skills ?? []).includes(step.label)) {
+    return { skills: [...(run.skills ?? []), step.label] }
+  }
+  return {}
 }
 
 /** A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line. */

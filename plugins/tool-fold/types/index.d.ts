@@ -4,7 +4,7 @@
 export type AgentRunStatus = 'running' | 'done' | 'failed' | 'aborted'
 
 /** What a tool call does, as the card groups it: `Explored 3 files, 2 searches`. */
-export type StepKind = 'read' | 'list' | 'search' | 'edit' | 'run' | 'web' | 'agent' | 'other'
+export type StepKind = 'read' | 'list' | 'search' | 'edit' | 'run' | 'web' | 'agent' | 'skill' | 'other'
 
 /** One tool call of a subagent. */
 export type Step = {
@@ -47,6 +47,10 @@ export type AgentRun = {
   failures?: number
   /** The agent's own task list (TodoWrite or Task tools): done of total, and the task ids finished. */
   todo?: { done: number; total: number; completed: string[] }
+  /** Distinct files its edits touched, for the finished card's count. */
+  files?: string[]
+  /** Skills it used, by name. */
+  skills?: string[]
   /** Haiku's rough percentage done, for an agent with no task list, shown in the pane while it runs. */
   estimate?: number
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
