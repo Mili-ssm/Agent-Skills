@@ -15,6 +15,9 @@ export const byCall = atom({ plugin: 'tool-fold', key: 'byCall' } as const, [], 
 // The clock the live elapsed times read: only running cards and the spinner block subscribe,
 // so its tick redraws them alone (an invalidate would redraw every row this plugin hooks).
 const clock = atom({ plugin: 'tool-fold', key: 'now' } as const, 0)
+// The "Agentes" pane: running agents live there while it is placed; the chat keeps one line each.
+const DOCK = 'agents'
+const docked = atom({ plugin: 'tool-fold', key: 'docked' } as const, false)
 
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
@@ -331,6 +334,7 @@ export const registerAgents: Register = (on, options) => {
       await mirror($, list, id)
       await update($, clock, () => startedAt)
       await syncTick($)
+      await openDock($)
     }
     // A failure here costs the card, never the spawn.
     await record().catch(error => $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' }))
@@ -352,9 +356,44 @@ export const registerAgents: Register = (on, options) => {
     const started = await next(e)
     // Earlier versions kept running agents on the status line: clear what one left there.
     $.ui.status(undefined)
+    await $.command.register({ name: 'agents-dock', description: 'Show running agents in the "Agentes" pane' })
     await syncTick($)
+    if ((await read($, runs)).some(run => run.status === 'running')) {
+      await openDock($)
+    }
 
     return started
+  })
+
+  on('command.run', { command: 'agents-dock' }, async $ => {
+    await openDock($)
+    const isPlaced = await read($, docked)
+    return { text: isPlaced ? 'Agentes pane opened.' : 'The pane could not be placed here; agents stay in the chat.' }
+  }).catch(($, e, next) => next(e))
+
+  // The person (or the engine) closed the pane: running agents draw in full in the chat again.
+  on('ui.close', { id: 'agents' }, async ($, e, next) => {
+    const closed = await next(e)
+    await update($, docked, () => false)
+
+    return closed
+  }).catch(($, e, next) => next(e))
+
+  // The "Agentes" pane: every running agent's live card, as the chat draws it, newest first.
+  on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {
+    const { Box, Text } = $.ui.resolve(e)
+    const running = (await read($, runs)).filter(run => run.status === 'running')
+    if (running.length === 0) {
+      return <Text dimColor>No agents running.</Text>
+    }
+    await read($, clock)
+    const now = await $.clock.now()
+    const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
+    return (
+      <Box flexDirection="column" gap={1}>
+        {[...running].reverse().map(run => liveCard({ Box, Text }, run, now, frame, e.surface))}
+      </Box>
+    )
   })
 
 }
@@ -414,6 +453,7 @@ export async function endAgentTurn(
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
   await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
   await syncTick($)
+  await closeDockWhenIdle($)
 }
 
 /** True while an agent of this Agent call still runs: its card stays in view, folded group or not. */
@@ -424,6 +464,28 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
 /**
  * The card an Agent call's row draws: live while its agent runs, one summary line after.
  * Null when no run of this session belongs to the call (one spawned before the mod loaded).
+ */
+/** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, surface: RenderSurface) {
+  const { Box, Text } = ui
+  const steps = [...run.recent, ...run.current].slice(-2)
+  return (
+    // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
+    <Box
+      key={run.id}
+      flexDirection="column"
+      {...(surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
+    >
+      {runHeader(ui, run, now, frame, run.mission ?? run.description)}
+      {steps.length === 0 ? <Text dimColor>{'└ Starting…'}</Text> : steps.map(step => stepRow(ui, step, frame, '  '))}
+    </Box>
+  )
+}
+
+/**
+ * The card an Agent call's row draws: one summary line once its agent ended; while it runs, the
+ * live card, or only its header when the "Agentes" pane shows it. Null when no run of this
+ * session belongs to the call (one spawned before the mod loaded).
  */
 export async function agentCard(
   $: EngineInterface,
@@ -436,46 +498,49 @@ export async function agentCard(
     return null
   }
   const { Box, Text } = ui
-  // Only a running card follows the tick; a finished one never redraws for it.
-  if (cards.some(run => run.status === 'running')) {
-    await read($, clock)
-  }
+  const isRunning = cards.some(run => run.status === 'running')
+  // Only a running card follows the tick and the pane; a finished one never redraws for them.
+  const isDocked = isRunning ? (await read($, clock), await read($, docked)) : false
   const now = await $.clock.now()
   const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
 
   const card = (run: AgentRun) => {
-    const header = runHeader(ui, run, now, frame, run.mission ?? run.description)
-    const summary = summaryOf(run)
-
-    // Finished: the header plus what it did (Codex's collapsed group).
-    if (run.status !== 'running') {
-      return (
-        <Box key={run.id} flexDirection="column">
-          {header}
-          {summary === '' ? null : (
-            <Text dimColor>
-              {'  └ '}
-              {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
-            </Text>
-          )}
-        </Box>
+    if (run.status === 'running') {
+      return isDocked ? (
+        <Box key={run.id}>{runHeader(ui, run, now, frame, run.mission ?? run.description)}</Box>
+      ) : (
+        liveCard(ui, run, now, frame, surface)
       )
     }
-
-    // Running: the last finished call and the live one; the full block sits at the bottom.
-    const steps = [...run.recent, ...run.current].slice(-2)
+    // Finished: the header plus what it did (Codex's collapsed group).
+    const summary = summaryOf(run)
     return (
-      // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
-      <Box
-        key={run.id}
-        flexDirection="column"
-        {...(surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
-      >
-        {header}
-        {steps.length === 0 ? <Text dimColor>{'└ Starting…'}</Text> : steps.map(step => stepRow(ui, step, frame, '  '))}
+      <Box key={run.id} flexDirection="column">
+        {runHeader(ui, run, now, frame, run.mission ?? run.description)}
+        {summary === '' ? null : (
+          <Text dimColor>
+            {'  └ '}
+            {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
+          </Text>
+        )}
       </Box>
     )
   }
 
   return <Box flexDirection="column">{cards.map(card)}</Box>
+}
+
+/** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */
+async function openDock($: EngineInterface): Promise<void> {
+  const opened = await $.ui.open({ id: DOCK, title: 'Agentes' }).catch(() => ({ isPlaced: false }))
+  await update($, docked, () => opened.isPlaced)
+}
+
+/** Closes the pane once no agent runs: they all sit in the chat again. Never throws. */
+async function closeDockWhenIdle($: EngineInterface): Promise<void> {
+  if ((await read($, runs)).some(run => run.status === 'running')) {
+    return
+  }
+  await update($, docked, () => false)
+  await $.ui.close({ id: DOCK }).catch(() => undefined)
 }

@@ -88,6 +88,8 @@ declare module 'claude-code' {
       byCall: StateFamily<Shaped<AgentRun[]>>
       /** Clock time of the last tick, read by what shows a live elapsed time. */
       now: number
+      /** True while the "Agentes" pane is placed: running agents draw there, one line each in the chat. */
+      docked: boolean
     }
   }
 }
