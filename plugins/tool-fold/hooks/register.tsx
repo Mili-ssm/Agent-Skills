@@ -65,11 +65,18 @@ export const register: Register = on => {
       update($, unfolded, list =>
         list.includes(id) ? list.filter(item => item !== id) : [...list, id].slice(-MAX_UNFOLDED),
       )
+    // Only the description is the button (a desktop always draws its native one: keep it small and
+    // secondary); the status dot and the tool tag sit outside it so they keep their own colors.
     const row = (
-      <Button key={`fold-${id}`} plain onPress={toggle}>
-        <Text color={dot}>●</Text> <Text bold>{toolName(e.props.tool)}</Text>{' '}
-        <Text dimColor>{foldLabel(e.props.tool, e.props.input)}</Text> <Text dimColor>{isUnfolded ? '▾' : '▸'}</Text>
-      </Button>
+      <Box key={`row-${id}`} flexDirection="row" gap={1} alignItems="center">
+        <Text color={dot}>●</Text>
+        <Text backgroundColor="inactive" color="inverseText">
+          {` ${toolName(e.props.tool)} `}
+        </Text>
+        <Button key={`fold-${id}`} variant="secondary" dimColor onPress={toggle}>
+          {foldLabel(e.props.tool, e.props.input)} {isUnfolded ? '▾' : '▸'}
+        </Button>
+      </Box>
     )
     if (!isUnfolded) {
       return row

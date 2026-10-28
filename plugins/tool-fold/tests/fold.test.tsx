@@ -29,11 +29,12 @@ test('a call is one line until pressed, then the engine box shows under it', asy
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...ROW, surface })
-    expect((await ui.find({ type: 'Button' }))?.text).toBe('● Bash Read highlight browser tests ▸')
+    expect((await ui.find({ type: 'Button' }))?.text).toBe('Read highlight browser tests ▸')
     expect(await ui.find({ type: 'Text', text: /^IN / })).toBeUndefined()
+    expect((await ui.find({ type: 'Text', text: /Bash/ }))?.text).toBe(' Bash ')
 
     await ui.press({ key: 'fold-tu1' })
-    expect((await ui.find({ type: 'Button' }))?.text).toBe('● Bash Read highlight browser tests ▾')
+    expect((await ui.find({ type: 'Button' }))?.text).toBe('Read highlight browser tests ▾')
     expect((await ui.find({ type: 'Text', text: /^IN / }))?.text).toBe('IN cat test/a.js')
 
     await ui.press({ key: 'fold-tu1' })
