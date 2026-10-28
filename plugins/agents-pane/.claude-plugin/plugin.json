@@ -1,6 +1,6 @@
 {
   "name": "agents-pane",
-  "description": "Mod: each subagent's Agent call in the chat becomes a live card (type, model chip, current tool, elapsed) that folds into a one-line summary of what it did when it ends.",
+  "description": "Mod: running subagents on the status line (current tool, elapsed) and as a compact card on each Agent call in the chat, which folds into a one-line summary of what it did when it ends.",
   "author": {
     "name": "mili-ssm"
   },

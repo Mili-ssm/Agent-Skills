@@ -5,11 +5,9 @@ import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
-// Finished calls a running card keeps on screen under the current ones.
-const RECENT = 2
 // Bump the shape tag when AgentRun's fields change: an older stored list is then read as empty.
 const runs = atom({ plugin: 'agents-pane', key: 'runs' } as const, [], {
-  shape: 'runs-2',
+  shape: 'runs-3',
 })
 
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
@@ -22,7 +20,7 @@ export const family = (model: string): string =>
 /** Dot color per family (the model name stays dim): cheap models read green at a glance. */
 const FAMILY_COLOR: Record<string, string> = {
   haiku: 'success',
-  sonnet: 'permission',
+  sonnet: 'suggestion',
   opus: 'merged',
   fable: 'warning',
 }
@@ -140,6 +138,45 @@ const OUTCOME: Record<AgentRunStatus, { word: string; color: string }> = {
   aborted: { word: 'Stopped', color: 'warning' },
 }
 
+// Agents named on the status line before `+n`.
+const STATUS_SHOWN = 3
+
+/**
+ * The status line while agents run, the one always-visible spot under the chat in VS Code:
+ * `◐ ux-reviewer · sonnet-5-5 ▸ Run npm test · 37s`, or with several
+ * `◐ 3 agents · ux-reviewer ▸ Run npm test 37s │ Explore ▸ Search "x" 12s │ +1`.
+ * Undefined (clears the line) when none runs.
+ */
+export function statusText(list: readonly AgentRun[], now: number): string | undefined {
+  const running = list.filter(run => run.status === 'running')
+  if (running.length === 0) {
+    return undefined
+  }
+  const frame = FRAMES[Math.floor(now / 1000) % FRAMES.length] ?? '◐'
+  const name = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
+  const doing = (run: AgentRun, max: number): string => {
+    const step = run.current[run.current.length - 1]
+    return step === undefined ? '' : ` ▸ ${clip(step.label, max)}`
+  }
+  const elapsed = (run: AgentRun): string => formatDuration(now - run.startedAt)
+  const only = running[0]
+  if (running.length === 1 && only !== undefined) {
+    return `${frame} ${name(only)} · ${shortModel(only.model)}${doing(only, 60)} · ${elapsed(only)}`
+  }
+  const shown = running.slice(0, STATUS_SHOWN).map(run => `${name(run)}${doing(run, 28)} ${elapsed(run)}`)
+  const more = running.length > STATUS_SHOWN ? ` │ +${running.length - STATUS_SHOWN}` : ''
+  return `${frame} ${running.length} agents · ${shown.join(' │ ')}${more}`
+}
+
+/** Mirrors the running agents on the status line; never throws. */
+async function publishStatus($: EngineInterface): Promise<void> {
+  try {
+    $.ui.status(statusText(await read($, runs), await $.clock.now()))
+  } catch (error) {
+    $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 // Ticks the live elapsed time while any agent runs; module state, restarted by the next spawn.
 let tick: { cancel: () => void } | undefined
 
@@ -147,6 +184,7 @@ let tick: { cancel: () => void } | undefined
 async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) => AgentRun): Promise<void> {
   try {
     await update($, runs, list => list.map(run => (run.id === agentId ? fn(run) : run)))
+    await publishStatus($)
   } catch (error) {
     $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
   }
@@ -154,9 +192,13 @@ async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) =>
 
 /** Starts the one-second redraw while something runs, stops it once nothing does. */
 async function syncTick($: EngineInterface): Promise<void> {
+  await publishStatus($)
   const isRunning = (await read($, runs)).some(run => run.status === 'running')
   if (isRunning && tick === undefined) {
-    tick = $.clock.every(1000, () => $.ui.invalidate('ui.render'))
+    tick = $.clock.every(1000, () => {
+      $.ui.invalidate('ui.render')
+      void publishStatus($)
+    })
   } else if (!isRunning && tick !== undefined) {
     tick.cancel()
     tick = undefined
@@ -187,7 +229,6 @@ export const register: Register = on => {
           status: 'running',
           startedAt,
           current: [],
-          recent: [],
           counts: {},
         }
         return [...list, run].slice(-MAX_RUNS)
@@ -217,7 +258,6 @@ export const register: Register = on => {
     await patch($, agentId, run => ({
       ...run,
       current: run.current.filter(item => item.id !== step.id),
-      recent: [...run.recent, { ...step, status }].slice(-RECENT),
       counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
       failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
     }))
@@ -304,8 +344,8 @@ export const register: Register = on => {
         )
       }
 
-      // Running: the summary so far, the last finished calls dim, the live ones bright.
-      const rows = [...run.recent, ...run.current]
+      // Running: two lines, the live detail is on the status line; the card keeps its place in the chat.
+      const step = run.current[run.current.length - 1]
       return (
         // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
         <Box
@@ -314,24 +354,16 @@ export const register: Register = on => {
           {...(e.surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
         >
           {header}
-          <Text dimColor>
+          <Text dimColor wrap="truncate">
             {'└ '}
-            {summary === '' ? 'Starting…' : summary}
+            {step === undefined ? (
+              summary === '' ? 'Starting…' : summary
+            ) : (
+              <Text>
+                <Text color="claude">{frame}</Text> {step.label}
+              </Text>
+            )}
           </Text>
-          {rows.map(step => (
-            // Only the glyph carries the outcome's color; the label stays quiet unless it is live.
-            <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
-              {'  '}
-              {step.status === 'running' ? (
-                <Text color="claude">{frame}</Text>
-              ) : (
-                <Text color={step.status === 'failed' ? 'error' : 'success'}>
-                  {step.status === 'failed' ? '✗' : '✓'}
-                </Text>
-              )}{' '}
-              {step.label}
-            </Text>
-          ))}
         </Box>
       )
     }

@@ -35,8 +35,6 @@ export type AgentRun = {
   durationMs?: number
   /** Calls still running, oldest first. */
   current: Step[]
-  /** The last finished calls, oldest first (at most RECENT). */
-  recent: Step[]
   /** Finished calls per kind, for the summary line. */
   counts: Partial<Record<StepKind, number>>
   /** Finished calls that failed (absent on runs stored before it was counted). */
