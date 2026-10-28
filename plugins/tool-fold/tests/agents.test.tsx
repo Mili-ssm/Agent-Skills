@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { commandOf, countsLine, describeStep, formatDuration, summarize } from '../hooks/agents'
+import { commandOf, countsLine, describeStep, estimateInput, formatDuration, summarize } from '../hooks/agents'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -273,4 +273,35 @@ test('pane texts are cut to the pane width, so a narrow panel is not widened', a
     expect(text.text.length).toBeLessThanOrEqual(40)
   }
   await pane.unmount()
+})
+
+test('the estimate reads the brief, elapsed time and each call with its duration', () => {
+  const text = estimateInput(
+    {
+      id: 'a1',
+      toolUseId: 'tu1',
+      type: 'performance-analyst',
+      description: 'Measure V5 vs V7',
+      mission: 'Medir conversión de V5 frente a V7',
+      brief: 'Measure full conversion and read of V5 against V7.3-pre and document it.',
+      model: 'claude-sonnet-5-5',
+      status: 'running',
+      startedAt: 0,
+      current: [{ id: 's3', kind: 'run', label: 'Run cargo bench', detail: 'Mide la lectura de V7', status: 'running', startedAt: 590_000 }],
+      recent: [],
+      counts: { run: 2 },
+      history: [
+        { what: 'Compila el workspace en release', ms: 95_000, ok: true },
+        { what: 'Convierte la muestra a V7', ms: 420_000, ok: true },
+      ],
+      estimate: 40,
+    },
+    600_000,
+  )
+  expect(text).toContain('Encargo:\nMeasure full conversion')
+  expect(text).toContain('Tiempo transcurrido: 10m 00s')
+  expect(text).toContain('- 1m 35s ✓ Compila el workspace en release')
+  expect(text).toContain('- 7m 00s ✓ Convierte la muestra a V7')
+  expect(text).toContain('- lleva 10s: Mide la lectura de V7')
+  expect(text).toContain('Tu estimación anterior: 40%')
 })
