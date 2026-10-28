@@ -24,6 +24,8 @@ from pathlib import Path
 
 # Repo root = parent of the scripts/ directory, independent of the current working directory.
 ROOT = Path(__file__).resolve().parent.parent
+# The agent-skills plugin lives in its own folder so the marketplace can list mods beside it (ADR 0011).
+PLUGIN = ROOT / "plugins" / "agent-skills"
 SKILL_MAX_LINES = 150
 AGENT_MAX_LINES = 120
 # Accepted trigger openings for descriptions (N2).
@@ -90,7 +92,7 @@ def check_description(rel: Path, desc: object, errors: list[str]) -> None:
 def check_skills(errors: list[str]) -> set[str]:
     """Validate every skill directory and return the set of skill names found."""
     names: set[str] = set()
-    for skill_md in sorted(ROOT.glob("skills/*/SKILL.md")):
+    for skill_md in sorted(PLUGIN.glob("skills/*/SKILL.md")):
         skill_dir = skill_md.parent
         rel = skill_md.relative_to(ROOT)
         text = skill_md.read_text(encoding="utf-8")
@@ -119,7 +121,7 @@ def check_skills(errors: list[str]) -> set[str]:
 
 def check_agents(errors: list[str], skill_names: set[str]) -> None:
     """Validate every agent definition, including its preloaded skills."""
-    for agent_md in sorted(ROOT.glob("agents/*.md")):
+    for agent_md in sorted(PLUGIN.glob("agents/*.md")):
         rel = agent_md.relative_to(ROOT)
         text = agent_md.read_text(encoding="utf-8")
         fm = parse_frontmatter(text)
@@ -139,8 +141,8 @@ def check_agents(errors: list[str], skill_names: set[str]) -> None:
 
 def check_commands(errors: list[str], skill_names: set[str]) -> None:
     """Commands are user-only entry points that must reference existing agents or skills."""
-    agent_names = {p.stem for p in ROOT.glob("agents/*.md")}
-    for cmd in sorted(ROOT.glob("commands/*.md")):
+    agent_names = {p.stem for p in PLUGIN.glob("agents/*.md")}
+    for cmd in sorted(PLUGIN.glob("commands/*.md")):
         rel = cmd.relative_to(ROOT)
         text = cmd.read_text(encoding="utf-8")
         fm = parse_frontmatter(text)
@@ -160,7 +162,7 @@ def main() -> int:
     check_commands(errors, skills)
     for err in errors:
         print(err)
-    agents = len(list(ROOT.glob("agents/*.md")))
+    agents = len(list(PLUGIN.glob("agents/*.md")))
     print(f"{'FAIL' if errors else 'OK'}: {len(skills)} skills, {agents} agents, {len(errors)} errors")
     return 1 if errors else 0
 

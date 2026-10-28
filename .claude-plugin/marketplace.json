@@ -1,11 +1,24 @@
 {
   "name": "mili-ssm",
-  "owner": { "name": "mili-ssm" },
+  "owner": {
+    "name": "mili-ssm"
+  },
+  "description": "mili-ssm's Claude Code plugins: agent-skills (specialist skills and agents) and opt-in mods.",
   "plugins": [
     {
       "name": "agent-skills",
-      "source": "./",
+      "source": "./plugins/agent-skills",
       "description": "Generic specialist skills and agents that complement Superpowers and Playwright."
+    },
+    {
+      "name": "agents-pane",
+      "source": "./plugins/agents-pane",
+      "description": "Mod: a side pane listing this session's subagents with type, model, status and duration."
+    },
+    {
+      "name": "status-model",
+      "source": "./plugins/status-model",
+      "description": "Mod: status line entry with the main model and the last subagent and its model."
     }
   ]
 }

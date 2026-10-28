@@ -1,1 +1,4 @@
 evals/results/
+# Types the engine lays beside a mod while developing it
+plugins/*/.claude-plugin/types/
+plugins/*/tsconfig.json

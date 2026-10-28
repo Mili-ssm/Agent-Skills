@@ -1,0 +1,6 @@
+{
+  "name": "status-model",
+  "description": "Mod: a status line entry with the main model, the subagents running now and the last subagent with its model, outcome and duration.",
+  "author": { "name": "mili-ssm" },
+  "repository": "https://github.com/Mili-ssm/Agent-Skills"
+}
