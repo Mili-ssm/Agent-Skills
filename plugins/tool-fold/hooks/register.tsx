@@ -5,6 +5,9 @@ import type { GroupCall, ToolRun } from '../types'
 
 // Calls drawn as the engine draws them: an Agent call is agents-pane's card.
 const UNTOUCHED = new Set(['Agent'])
+// Calls the engine itself folds into a count line (its ToolGroup), where no ToolUse row is drawn:
+// they never join a run, or a run's header would sit on a row that never shows.
+const ENGINE_FOLDED = new Set(['Read', 'Grep', 'Glob', 'LS'])
 // One value per call: a press redraws that row alone, not every row in the chat.
 const isOpen = atom({ plugin: 'tool-fold', key: 'isOpen' } as const, false)
 // Which group a call is in ('' for none), and each group: read per row, so a change redraws its own rows.
@@ -90,23 +93,6 @@ export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'label'>[]): 
 const dotColor = (status: 'running' | 'done' | 'failed' | 'interrupted'): string =>
   status === 'running' ? 'claude' : status === 'failed' ? 'error' : status === 'interrupted' ? 'warning' : 'success'
 
-/** Closes the run new calls join; a run long enough gets its Haiku line. Never throws. */
-async function closeRun($: EngineInterface): Promise<void> {
-  try {
-    const id = await read($, current)
-    if (id === null) {
-      return
-    }
-    await update($, current, () => null)
-    const run = await update($, memberOf(group, { requestId: id }), value => (value === null ? null : { ...value, isClosed: true }))
-    if (run !== null && run.calls.length >= MIN_GROUP) {
-      void writeSummary($, run).catch(error => $.ui.log(`tool-fold: summary: ${String(error)}`, { to: 'debug' }))
-    }
-  } catch (error) {
-    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
-  }
-}
-
 /** What one reply row does to the runs, block by block: a call joins, reply text or an Agent call closes. */
 export function runSteps(content: readonly unknown[]): ({ close: true } | { join: GroupCall })[] {
   const steps: ({ close: true } | { join: GroupCall })[] = []
@@ -115,7 +101,7 @@ export function runSteps(content: readonly unknown[]): ({ close: true } | { join
     const name = typeof block.name === 'string' ? block.name : ''
     if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') {
       steps.push({ close: true })
-    } else if (block.type === 'tool_use' && typeof block.id === 'string') {
+    } else if (block.type === 'tool_use' && typeof block.id === 'string' && !ENGINE_FOLDED.has(name)) {
       steps.push(
         UNTOUCHED.has(name)
           ? { close: true }
@@ -126,23 +112,66 @@ export function runSteps(content: readonly unknown[]): ({ close: true } | { join
   return steps
 }
 
-/** Adds a call to the open run, or starts one with it. */
-async function joinRun($: EngineInterface, call: GroupCall): Promise<void> {
-  const open = await read($, current)
-  const id = open ?? `g-${call.id}`
-  if (open === null) {
-    await update($, current, () => id)
+/**
+ * Applies a row's steps to the runs. Every read of one dispatch sees one moment, so the open run
+ * is read once, changed locally and each value written once. Never throws.
+ */
+async function applySteps($: EngineInterface, steps: readonly ({ close: true } | { join: GroupCall })[]): Promise<void> {
+  if (steps.length === 0) {
+    return
   }
-  await update($, memberOf(group, { requestId: id }), value =>
-    value === null ? { id, calls: [call], isClosed: false } : { ...value, calls: [...value.calls, call] },
-  )
-  await update($, memberOf(groupOf, { requestId: call.id }), () => id)
+  try {
+    const openId = await read($, current)
+    let open = openId === null ? null : await read($, memberOf(group, { requestId: openId }))
+    const changed: ToolRun[] = []
+    const joined: GroupCall[] = []
+    for (const step of steps) {
+      if ('join' in step) {
+        open =
+          open === null || open.isClosed
+            ? { id: `g-${step.join.id}`, calls: [step.join], isClosed: false }
+            : { ...open, calls: [...open.calls, step.join] }
+        joined.push(step.join)
+      } else if (open !== null) {
+        changed.push({ ...open, isClosed: true })
+        open = null
+      }
+    }
+    if (open !== null) {
+      changed.push(open)
+    }
+    // Several closed runs of one row share no id: the last write per id is the final value.
+    for (const run of changed) {
+      await update($, memberOf(group, { requestId: run.id }), () => run)
+    }
+    for (const call of joined) {
+      const run = changed.find(item => item.calls.some(member => member.id === call.id))
+      if (run !== undefined) {
+        await update($, memberOf(groupOf, { requestId: call.id }), () => run.id)
+      }
+    }
+    const nextOpen = open === null ? null : open.id
+    if (nextOpen !== openId) {
+      await update($, current, () => nextOpen)
+    }
+    for (const run of changed) {
+      if (run.isClosed && run.calls.length >= MIN_GROUP && run.summary === undefined) {
+        void writeSummary($, run).catch(error => $.ui.log(`tool-fold: summary: ${String(error)}`, { to: 'debug' }))
+      }
+    }
+  } catch (error) {
+    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
+  }
 }
 
-/** Sets one call's status inside its group. */
+/** Sets one call's status inside its group; writes only on a change, as every row of the group reads it. */
 async function markCall($: EngineInterface, callId: string, status: GroupCall['status']): Promise<void> {
   const id = await read($, memberOf(groupOf, { requestId: callId }))
-  if (id !== '') {
+  if (id === '') {
+    return
+  }
+  const run = await read($, memberOf(group, { requestId: id }))
+  if (run !== null && run.calls.some(call => call.id === callId && call.status !== status)) {
     await update($, memberOf(group, { requestId: id }), value =>
       value === null ? null : { ...value, calls: value.calls.map(call => (call.id === callId ? { ...call, status } : call)) },
     )
@@ -168,16 +197,10 @@ export const register: Register = on => {
   // The model's reply, block by block in order: tool calls join a run, its text or an Agent call ends it.
   on('session.append', async ($, e, next) => {
     const kept = await next(e)
-    if (e.agentId !== undefined) {
-      return kept
-    }
-    if (e.door === 'prompt') {
-      await closeRun($)
-    }
-    if (e.door === 'response') {
-      for (const step of runSteps(e.message.content)) {
-        await ('join' in step ? joinRun($, step.join) : closeRun($))
-      }
+    if (e.agentId === undefined && e.door === 'prompt') {
+      await applySteps($, [{ close: true }])
+    } else if (e.agentId === undefined && e.door === 'response') {
+      await applySteps($, runSteps(e.message.content))
     }
 
     return kept
@@ -187,7 +210,7 @@ export const register: Register = on => {
   // Each main-loop call's outcome, for the group's dot.
   on('tool.call', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined && !UNTOUCHED.has(e.tool)) {
+    if (e.agentId === undefined && !UNTOUCHED.has(e.tool) && !ENGINE_FOLDED.has(e.tool)) {
       const status = result.deny !== undefined || result.isError === true ? 'failed' : 'done'
       await markCall($, e.tool_use_id, status).catch(() => undefined)
     }
@@ -195,13 +218,14 @@ export const register: Register = on => {
     return result
   }).catch(($, e, next) => next(e))
 
-  // The main loop's turn ended: its last run is complete.
+  // The main loop's turn ended: its last run is complete. The turn's end is not held for it.
   on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
     if (e.agentId === undefined) {
-      await closeRun($)
+      await applySteps($, [{ close: true }])
     }
 
-    return next(e)
+    return result
   })
 
   // A call's row: alone, one folded line; in a group, the first row draws the group and the rest
@@ -212,8 +236,7 @@ export const register: Register = on => {
     }
     const { Box, Button, Text } = $.ui.resolve(e)
     const open = memberOf(isOpen, e)
-    const isUnfolded = await read($, open)
-    const groupId = await read($, memberOf(groupOf, e))
+    const [isUnfolded, groupId] = await Promise.all([read($, open), read($, memberOf(groupOf, e))])
     const run = groupId === '' ? null : await read($, memberOf(group, { requestId: groupId }))
     const isGrouped = run !== null && run.calls.length >= MIN_GROUP
 
@@ -262,10 +285,14 @@ export const register: Register = on => {
       return isGroupOpen ? <Box paddingLeft={2}>{own}</Box> : <Box />
     }
 
-    const groupStatus = run.calls.some(call => call.status === 'running')
-      ? 'running'
-      : run.calls.some(call => call.status === 'failed')
-        ? 'failed'
+    // A call still marked running in a closed run never reported its end (interrupted, or its hook failed).
+    const isRunning = run.calls.some(call => call.status === 'running')
+    const groupStatus = run.calls.some(call => call.status === 'failed')
+      ? 'failed'
+      : isRunning
+        ? run.isClosed
+          ? 'interrupted'
+          : 'running'
         : 'done'
     const header = (
       <Box key={`group-${run.id}`} flexDirection="row" gap={1} alignItems="center">
@@ -295,11 +322,10 @@ export const register: Register = on => {
 
   // A standalone row's result block follows its call (same requestId): shown only while its line is.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    if (UNTOUCHED.has(e.props.tool)) {
+    if (UNTOUCHED.has(e.props.tool) || e.props.isExpanded === true) {
       return next(e)
     }
-    const isUnfolded = await read($, memberOf(isOpen, e))
-    const groupId = await read($, memberOf(groupOf, e))
+    const [isUnfolded, groupId] = await Promise.all([read($, memberOf(isOpen, e)), read($, memberOf(groupOf, e))])
     const run = groupId === '' ? null : await read($, memberOf(group, { requestId: groupId }))
     const isHiddenByGroup =
       run !== null && run.calls.length >= MIN_GROUP && !(await read($, memberOf(isOpen, { requestId: run.id })))

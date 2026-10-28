@@ -122,6 +122,8 @@ export const register: Register = on => {
   // Tokens of the answer in progress: the main loop's and every subagent's that ends meanwhile.
   // Module state: a hot reload mid-answer only loses that answer's partial count.
   let current: Tally = {}
+  // True from the main loop's turn.start to its turn.complete; a subagent that ends outside it has no answer to join.
+  let mainRunning = false
 
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -133,36 +135,49 @@ export const register: Register = on => {
     return started
   })
 
-  on('command.run', { command: COMMAND }, async $ => ({ text: formatSummary(await read($, session)) }))
+  on('command.run', { command: 'usage-band' }, async $ => ({ text: formatSummary(await read($, session)) })).catch(($, e, next) => next(e))
 
-  // A new answer starts on the main loop: count from zero.
+  // A new answer starts on the main loop (`current` was emptied when the last one closed).
   on('turn.start', async ($, e, next) => {
+    const started = await next(e)
     if (e.agentId === undefined) {
-      current = {}
+      mainRunning = true
     }
 
-    return next(e)
+    return started
   })
 
   on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
+    if (e.agentId !== undefined) {
+      if (e.usage !== undefined) {
+        if (mainRunning) {
+          current = addUsage(current, e.usage)
+        } else {
+          // The main loop is idle: no answer will close over these tokens, so they go straight to the session.
+          const late = addUsage({}, e.usage)
+          await update($, session, before => ({ ...before, byModel: mergeTallies(before.byModel, late) }))
+        }
+      }
+      return completed
+    }
+    // Only the main loop's end closes an answer; a subagent's end just adds its tokens.
     if (e.usage !== undefined) {
       current = addUsage(current, e.usage)
     }
-    // Only the main loop's end closes an answer; a subagent's end just adds its tokens.
-    if (e.agentId === undefined) {
-      const answer: Usage = { durationMs: e.durationMs, turns: 1, byModel: current }
-      const total = await update($, session, before => ({
-        durationMs: before.durationMs + answer.durationMs,
-        turns: before.turns + 1,
-        byModel: mergeTallies(before.byModel, answer.byModel),
-      }))
-      // A dim row under the answer; surfaces without an above-prompt band draw it too.
-      if (sumTokens(answer.byModel) > 0) {
-        $.ui.log(formatLine(answer, total))
-      }
-      current = {}
+    const answer: Usage = { durationMs: e.durationMs, turns: 1, byModel: current }
+    current = {}
+    mainRunning = false
+    const total = await update($, session, before => ({
+      durationMs: before.durationMs + answer.durationMs,
+      turns: before.turns + 1,
+      byModel: mergeTallies(before.byModel, answer.byModel),
+    }))
+    // A dim row under the answer; surfaces without an above-prompt band draw it too.
+    if (sumTokens(answer.byModel) > 0) {
+      $.ui.log(formatLine(answer, total))
     }
 
-    return next(e)
+    return completed
   })
 }

@@ -1,5 +1,5 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { BoxProps, ElementConstructor, EngineInterface, Register, SvgProps, TextProps } from 'claude-code'
+import type { BoxProps, ElementConstructor, EngineInterface, Register, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 
@@ -125,16 +125,9 @@ export function summarize(counts: AgentRun['counts']): string {
   return parts.join(' · ')
 }
 
-/** Spinner frames for surfaces without Svg; the frame follows the clock. */
+/** Spinner frames; the frame follows the clock tick. A glyph on every surface: an animated Svg
+ * needs a sandboxed frame per running header, too heavy for a row redrawn every second. */
 const FRAMES = ['◐', '◓', '◑', '◒']
-
-/** A spinning arc, animated by SMIL inside the sandboxed frame (no script). */
-const SPINNER_SVG =
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="12" height="12">' +
-  '<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/>' +
-  '<path d="M8 2a6 6 0 0 1 6 6" fill="none" stroke="#d97757" stroke-width="2" stroke-linecap="round">' +
-  '<animateTransform attributeName="transform" type="rotate" from="0 8 8" to="360 8 8" dur="0.9s" repeatCount="indefinite"/>' +
-  '</path></svg>'
 
 /** Status word and bullet color of a finished or running card. */
 const OUTCOME: Record<AgentRunStatus, { word: string; color: string }> = {
@@ -190,16 +183,15 @@ export function statusText(list: readonly AgentRun[], now: number): string | und
   return `${frame} ${running.length} agents · ${shown.join(' │ ')}${more}`
 }
 
-/** The elements a card is drawn with; `Svg` where the surface has it. */
+/** The elements a card is drawn with. */
 type Elements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
-  Svg?: ElementConstructor<SvgProps>
 }
 
 /** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
 function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string) {
-  const { Box, Text, Svg } = ui
+  const { Box, Text } = ui
   const isRunning = run.status === 'running'
   const outcome = OUTCOME[run.status]
   const elapsed = formatDuration(run.durationMs ?? now - run.startedAt)
@@ -207,10 +199,8 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
     <Text color={outcome.color} bold>
       •
     </Text>
-  ) : Svg === undefined ? (
-    <Text color={outcome.color}>{frame}</Text>
   ) : (
-    <Svg source={SPINNER_SVG} alt="running" width={12} height={12} isInteractive />
+    <Text color={outcome.color}>{frame}</Text>
   )
   return (
     <Box key={`${run.id}-head`} flexDirection="row" gap={1}>
@@ -253,7 +243,12 @@ function stepRow(ui: Elements, step: Step, frame: string, indent: string) {
 async function publishStatus($: EngineInterface): Promise<void> {
   try {
     // While the main loop works, the block under its spinner shows them instead.
-    $.ui.status(isMainWorking ? undefined : statusText(await read($, runs), await $.clock.now()))
+    const text = isMainWorking ? undefined : statusText(await read($, runs), await $.clock.now())
+    // The tick calls this every second: send only a change.
+    if (text !== lastStatus) {
+      lastStatus = text
+      $.ui.status(text)
+    }
   } catch (error) {
     $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
   }
@@ -262,6 +257,8 @@ async function publishStatus($: EngineInterface): Promise<void> {
 // Module state, reset by a reload: the next event sets both again.
 // Ticks the live elapsed time while any agent runs.
 let tick: { cancel: () => void } | undefined
+// The status line as last sent.
+let lastStatus: string | undefined
 // True while the main loop's turn runs, when its spinner (and the block under it) is drawn.
 let isMainWorking = false
 
@@ -352,7 +349,8 @@ export const register: Register = on => {
     // A failure here costs the card, never the spawn.
     await record().catch(error => $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' }))
     // The mission arrives later; the spawn does not wait for it.
-    if (isNew) {
+    // A workflow's agents draw no Agent card (and may carry a placeholder prompt): no Haiku call.
+    if (isNew && e.workflow === undefined) {
       void writeMission($, id, e.prompt).catch(error =>
         $.ui.log(`agents-pane: mission: ${String(error)}`, { to: 'debug' }),
       )
@@ -365,10 +363,14 @@ export const register: Register = on => {
   // A subagent's tool call: show it as current while it runs, then fold it into the summary.
   on('tool.call', async ($, e, next) => {
     const agentId = e.agentId
+    // The main loop's calls (most of them) pay for no read.
+    if (agentId === undefined) {
+      return next(e)
+    }
     const isTracked = await read($, runs)
       .then(list => list.some(run => run.id === agentId))
       .catch(() => false)
-    if (agentId === undefined || !isTracked) {
+    if (!isTracked) {
       return next(e)
     }
     const step: Step = { id: e.tool_use_id, ...describeStep(e.tool, e as Record<string, unknown>), status: 'running' }
@@ -387,18 +389,29 @@ export const register: Register = on => {
     return result
   }).catch(($, e, next) => next(e))
 
+  // After a load or a hot reload (which drops the timer and module state): pick up running agents again.
+  on('session.start', async ($, e, next) => {
+    const started = await next(e)
+    await syncTick($)
+
+    return started
+  })
+
   // The main loop's spinner shows while its turn runs: the running agents move under it.
   on('turn.start', async ($, e, next) => {
+    const result = await next(e)
     if (e.agentId === undefined) {
       isMainWorking = true
       await publishStatus($)
     }
 
-    return next(e)
+    return result
   })
 
   // A subagent's turn ended: store its outcome and duration. The main loop's: back to the status line.
+  // Its end is not held for this: next first, the bookkeeping after.
   on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
     const agentId = e.agentId
     if (agentId === undefined) {
       isMainWorking = false
@@ -410,7 +423,7 @@ export const register: Register = on => {
       await syncTick($)
     }
 
-    return next(e)
+    return result
   })
 
   // Under the main spinner: one framed block per running agent, stacked, with its mission and live call.
@@ -428,7 +441,7 @@ export const register: Register = on => {
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    const elements: Elements = e.surface === 'terminal' ? { Box, Text } : { Box, Text, Svg: $.ui.resolve(e).Svg }
+    const elements: Elements = { Box, Text }
     const hidden = running.length - SHOWN
 
     return (
@@ -484,7 +497,7 @@ export const register: Register = on => {
     }
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    const elements: Elements = e.surface === 'terminal' ? { Box, Text } : { Box, Text, Svg: $.ui.resolve(e).Svg }
+    const elements: Elements = { Box, Text }
 
     const card = (run: AgentRun) => {
       const header = runHeader(elements, run, now, frame, run.mission ?? run.description)

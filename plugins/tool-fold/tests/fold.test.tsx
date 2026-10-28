@@ -86,6 +86,8 @@ test('a reply groups its calls until text or an Agent call', () => {
     { type: 'thinking', thinking: '…' },
     { type: 'tool_use', id: 't1', name: 'Bash', input: { description: 'Run tests' } },
     { type: 'tool_use', id: 't2', name: 'Skill', input: { skill: 'qa-review' } },
+    // The engine folds reads into its own count line: they neither join nor close a run.
+    { type: 'tool_use', id: 'r1', name: 'Read', input: { file_path: 'a.ts' } },
     { type: 'text', text: 'All green.' },
     { type: 'tool_use', id: 't3', name: 'Agent', input: {} },
   ])
@@ -131,4 +133,17 @@ test('a group draws on its first row; the rest show only once it is unfolded', a
   expect((await shown.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine tu2')
   await shown.unmount()
   await first.unmount()
+})
+
+test('the ctrl+o view shows the result of a folded call', async ($, on) => {
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'OUT 3 lines' }))
+  const result = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'ToolResult',
+    requestId: 'tu9',
+    surface: 'terminal',
+    props: { tool_use_id: 'tu9', tool: 'Bash', output: { stdout: 'x' }, isErrored: false, isExpanded: true },
+  })
+  expect((await result.find({ type: 'Text', text: /OUT/ }))?.text).toBe('OUT 3 lines')
+  await result.unmount()
 })

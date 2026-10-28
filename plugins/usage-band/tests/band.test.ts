@@ -76,3 +76,30 @@ test('a subagent-only turn end logs nothing', async ($, on) => {
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 5000, turnId: 's1', model: 'claude-haiku-5-5', input: 1000, output: 100 }))
   expect(lines).toEqual([])
 })
+
+test('a subagent that ends after the answer is complete still counts in the session summary', async ($, on) => {
+  const lines: string[] = []
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.log', (_, e) => {
+    lines.push(e.text)
+    return { value: undefined }
+  })
+
+  await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
+  await $.turn.complete(complete({ durationMs: 10000, turnId: 't1', model: 'claude-opus-5-5', input: 4000, output: 1000 }))
+  expect(lines).toHaveLength(1)
+
+  // A Haiku subagent ends while the main loop is idle: its tokens join the session, with no new line.
+  await $.turn.complete(complete({ agentId: 'a1', durationMs: 9000, turnId: 's1', model: 'claude-haiku-5-5', input: 4000, output: 1000 }))
+  expect(lines).toHaveLength(1)
+
+  const { text } = await $.command.run({ command: 'usage-band' })
+  expect(text).toBe(
+    [
+      'Session: 10s over 1 answers · 10k tokens',
+      'opus     ▇▇▇▇▇    5k (1k out) 50%',
+      'haiku    ▇▇▇▇▇    5k (1k out) 50%',
+    ].join('\n'),
+  )
+})
