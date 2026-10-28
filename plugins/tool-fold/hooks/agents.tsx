@@ -190,8 +190,8 @@ const COMMAND_PROMPT =
 const ESTIMATE_PROMPT =
   'Un agente de programación tiene este encargo y ha hecho estas acciones. Estima qué porcentaje del ' +
   'encargo lleva hecho. Responde solo con un número entero entre 0 y 95.\n\n'
-// Calls between two Haiku estimates of an agent's progress.
-const ESTIMATE_EVERY = 4
+// An estimate follows each shell command, at most this often per agent.
+const ESTIMATE_GAP_MS = 60_000
 
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
@@ -365,6 +365,7 @@ export const registerAgents: Register = (on, options) => {
           model: started.model,
           status: 'running',
           startedAt,
+          background: e.background,
           current: [],
           recent: [],
           counts: {},
@@ -419,7 +420,7 @@ export const registerAgents: Register = (on, options) => {
     return closed
   }).catch(($, e, next) => next(e))
 
-  // The "Agentes" pane: every running agent's live card, as the chat draws it, newest first.
+  // The "Agentes" pane: every running agent's live card, as the chat draws it, oldest first.
   on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
     const running = (await read($, runs)).filter(run => run.status === 'running')
@@ -431,7 +432,7 @@ export const registerAgents: Register = (on, options) => {
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     return (
       <Box flexDirection="column" gap={1}>
-        {[...running].reverse().map(run => liveCard({ Box, Text }, run, now, frame, e.surface, true))}
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, e.surface, true))}
       </Box>
     )
   })
@@ -483,9 +484,17 @@ export async function endAgentCall(
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
     failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
   }))
+  // A shell command is a step forward worth re-estimating, at most once a minute.
   const run = (await read($, runs)).find(item => item.id === agentId)
-  const calls = run === undefined ? 0 : Object.values(run.counts).reduce((sum, count) => sum + (count ?? 0), 0)
-  if (run !== undefined && run.status === 'running' && run.todo === undefined && calls % ESTIMATE_EVERY === 0) {
+  const now = await $.clock.now()
+  if (
+    step.kind === 'run' &&
+    run !== undefined &&
+    run.status === 'running' &&
+    run.todo === undefined &&
+    (run.estimatedAt === undefined || now - run.estimatedAt >= ESTIMATE_GAP_MS)
+  ) {
+    await patch($, agentId, item => ({ ...item, estimatedAt: now }))
     void estimateProgress($, run).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
   }
 }
@@ -587,22 +596,53 @@ export async function agentCard(
       // Running agents live in the pane; the chat shows an agent once it has stopped.
       return isDocked ? <Box key={run.id} /> : liveCard(ui, run, now, frame, surface)
     }
-    // Finished: the header plus what it did (Codex's collapsed group).
-    const summary = summaryOf(run)
-    return (
-      <Box key={run.id} flexDirection="column">
-        {runHeader(ui, run, now, frame, run.mission ?? run.description)}
-        {summary === '' ? null : (
-          <Text dimColor>
-            {'  └ '}
-            {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
-          </Text>
-        )}
-      </Box>
-    )
+    // A background agent's folded card moves to its "finished" notice, at the bottom of the chat.
+    return run.background === true ? <Box key={run.id} /> : finishedCard(ui, run, now, frame)
   }
 
   return <Box flexDirection="column">{cards.map(card)}</Box>
+}
+
+/** A finished agent's card: the header plus what it did (Codex's collapsed group). */
+function finishedCard(ui: Elements, run: AgentRun, now: number, frame: string) {
+  const { Box, Text } = ui
+  const summary = summaryOf(run)
+  return (
+    <Box key={run.id} flexDirection="column">
+      {runHeader(ui, run, now, frame, run.mission ?? run.description)}
+      {summary === '' ? null : (
+        <Text dimColor>
+          {'  └ '}
+          {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
+        </Text>
+      )}
+    </Box>
+  )
+}
+
+/**
+ * The folded card a background agent's "finished" notice draws: that row is the newest in the chat
+ * when the agent stops. Found by the notice's Agent call id, else by the description it quotes;
+ * null while the agent still runs or when no run matches (the notice then stays a line).
+ */
+export async function noticeCard(
+  $: EngineInterface,
+  toolUseId: string | undefined,
+  text: string,
+  ui: Elements,
+): Promise<RenderElement | null> {
+  const quoted = /"([^"]+)"/.exec(text)?.[1]
+  const matches =
+    toolUseId !== undefined
+      ? await read($, memberOf(byCall, { requestId: toolUseId }))
+      : (await read($, runs)).filter(run => run.description === quoted).slice(-1)
+  const ended = matches.filter(run => run.status !== 'running' && run.background === true)
+  if (ended.length === 0) {
+    return null
+  }
+  const { Box } = ui
+  const now = await $.clock.now()
+  return <Box flexDirection="column">{ended.map(run => finishedCard(ui, run, now, '•'))}</Box>
 }
 
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */

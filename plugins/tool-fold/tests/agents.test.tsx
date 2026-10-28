@@ -186,9 +186,9 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   mock.clock(on)
 
   await $.agent.spawn(SPAWN)
-  for (const file of ['a.rs', 'b.rs', 'c.rs', 'd.rs']) {
-    await $.tool.call({ tool: 'Read', file_path: file, agentId: 'a1' })
-  }
+  // A shell command asks for an estimate; reads do not.
+  await $.tool.call({ tool: 'Read', file_path: 'a.rs', agentId: 'a1' })
+  await $.tool.call({ tool: 'Bash', command: 'cargo bench', description: 'Benchmark', agentId: 'a1' })
   await new Promise(resolve => setTimeout(resolve, 20))
   const pane = await $.ui.mount({
     plugin: 'tool-fold',
@@ -199,4 +199,35 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   } as never)
   expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('▰▰▱▱▱ ≈40%')
   await pane.unmount()
+})
+
+test('a background agent that ends moves its card to its finished notice', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'engine row' }))
+  mock.clock(on)
+
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await $.tool.call({ tool: 'Bash', command: 'cargo test', description: 'Run tests', agentId: 'a1' })
+  await $.turn.complete({ agentId: 'a1', answer: 'ok', durationMs: 90000, isAborted: false, turnId: 't1', reason: 'answer' })
+
+  // Its own row empties...
+  const row = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
+  expect(await row.find({ type: 'Text' })).toBeUndefined()
+  await row.unmount()
+  // ...and the notice at the bottom draws the folded card.
+  const notice = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'UserMessage',
+    requestId: 'n1',
+    surface: 'vscode',
+    props: { text: 'Agent "Find session creation" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed', toolUseId: 'tu1' } },
+  } as never)
+  expect((await notice.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
+  expect((await notice.find({ type: 'Text', text: /Ran 1 command/ }))?.text).toBe('  └ Ran 1 command')
+  await notice.unmount()
 })
