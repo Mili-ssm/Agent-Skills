@@ -356,16 +356,16 @@ export const register: Register = (on, options) => {
     const isShown = isGroupOpen || isLive
     // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
     // An agent's card is several lines wide and tall: beside a mark it wraps badly in a narrow chat.
-    // Indented under the group's summary, as an agent card's calls hang under its mission.
-    const branch = (node: RenderNode) =>
-      isAgent ? (
-        <Box paddingLeft={4}>{node}</Box>
-      ) : (
-        <Box flexDirection="row" gap={1} paddingLeft={2}>
-          <Text dimColor>└</Text>
+    // Indented to the group's summary, as an agent card's calls hang under its mission; an agent's
+    // card hangs the same way, beside a mark that keeps to its first line (the card may shrink).
+    const branch = (node: RenderNode) => (
+      <Box flexDirection="row" gap={1} paddingLeft={4} alignItems="flex-start">
+        <Text dimColor>└</Text>
+        <Box flexDirection="column" minWidth={0} flexShrink={1}>
           {node}
         </Box>
-      )
+      </Box>
+    )
     if (run.calls[0]?.id !== e.props.tool_use_id) {
       // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
       return isShown ? branch(own) : <Box />
