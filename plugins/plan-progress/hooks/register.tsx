@@ -124,10 +124,31 @@ async function newestPlan($: EngineInterface): Promise<string | undefined> {
   return best?.path
 }
 
-/** Stores the plan (or null) and mirrors it on the status line, the VS Code display. */
-async function publish($: EngineInterface, next: Plan | null): Promise<void> {
-  await update($, plan, () => next)
+/** Tasks that reached their total between two reads of the same plan. */
+function justFinished(previous: Plan | null, next: Plan | null): PlanTask[] {
+  if (previous === null || next === null || previous.path !== next.path || next.done <= previous.done) {
+    return []
+  }
+  return next.tasks.filter(task => {
+    const before = previous.tasks.find(old => old.title === task.title)
+    return task.done === task.total && before !== undefined && before.done < before.total
+  })
+}
+
+/**
+ * Stores the plan (or null) and mirrors it on the status line, the VS Code display.
+ * Returns the tasks this write completed: judged against the value the update replaces, so two
+ * overlapping refreshes never both see the same task as new.
+ */
+async function publish($: EngineInterface, next: Plan | null): Promise<PlanTask[]> {
+  let finished: PlanTask[] = []
+  // The updater may run again on a version miss: it only assigns, so the last run wins.
+  await update($, plan, previous => {
+    finished = justFinished(previous, next)
+    return next
+  })
   $.ui.status(next === null || next.total === 0 ? undefined : statusLine(next))
+  return finished
 }
 
 /** Re-reads the active plan into state; toasts when a task has just been completed. */
@@ -139,19 +160,10 @@ async function refresh($: EngineInterface): Promise<void> {
     return
   }
   const next = parsePlan(path, text)
-  const previous = await read($, plan)
-
   // Same plan, more steps done: name the tasks that just reached their total.
-  if (previous !== null && previous.path === next.path && next.done > previous.done) {
-    const finished = next.tasks.filter(task => {
-      const before = previous.tasks.find(old => old.title === task.title)
-      return task.done === task.total && before !== undefined && before.done < before.total
-    })
-    for (const task of finished) {
-      $.ui.toast(`✓ ${task.title} (${next.done}/${next.total})`)
-    }
+  for (const task of await publish($, next)) {
+    $.ui.toast(`✓ ${task.title} (${next.done}/${next.total})`)
   }
-  await publish($, next)
 }
 
 export const register: Register = on => {
@@ -167,7 +179,7 @@ export const register: Register = on => {
   })
 
   // `/plan-progress` summarizes and refreshes; `/plan-progress <path>` pins a plan; `auto` unpins.
-  on('command.run', { command: COMMAND }, async ($, e) => {
+  on('command.run', { command: 'plan-progress' }, async ($, e) => {
     const arg = e.args.trim()
     if (arg !== '') {
       await update($, pinned, () => (arg === 'auto' ? null : arg))
@@ -181,7 +193,7 @@ export const register: Register = on => {
           ? `No plan found (looked in ${PLAN_DIRS.join(', ')}).`
           : `Plan: ${current.path} (${current.done}/${current.total} steps).`,
     }
-  })
+  }).catch(($, e, next) => next(e))
 
   // A plan file written or edited (by the main loop or a subagent): re-read it after the write.
   on('tool.call', async ($, e, next) => {
@@ -191,15 +203,16 @@ export const register: Register = on => {
     }
 
     return ran
-  })
+  }).catch(($, e, next) => next(e))
 
   // Catch edits made by other means (Bash, the person): re-read at the end of each main turn.
   on('turn.complete', async ($, e, next) => {
+    const completed = await next(e)
     if (e.agentId === undefined) {
       await refresh($)
     }
 
-    return next(e)
+    return completed
   })
 
   // The card next to the prompt (terminal and desktop); vscode shows the status line alone.

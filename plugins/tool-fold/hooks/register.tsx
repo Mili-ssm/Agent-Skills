@@ -2,9 +2,13 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
+import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
 
-// Calls drawn as the engine draws them: an Agent call is agents-pane's card.
-const UNTOUCHED = new Set(['Agent'])
+// Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
+const UNTOUCHED = new Set(['AskUserQuestion'])
+// Calls the engine itself folds into a count line (its ToolGroup), where no ToolUse row is drawn:
+// they never join a run, or a run's header would sit on a row that never shows.
+const ENGINE_FOLDED = new Set(['Read', 'Grep', 'Glob', 'LS'])
 // One value per call: a press redraws that row alone, not every row in the chat.
 const isOpen = atom({ plugin: 'tool-fold', key: 'isOpen' } as const, false)
 // Which group a call is in ('' for none), and each group: read per row, so a change redraws its own rows.
@@ -50,6 +54,9 @@ export function foldLabel(tool: string, input: unknown): string {
       return clip(text('query'), 60)
     case 'WebFetch':
       return clip(text('url').replace(/^https?:\/\//, ''), 60)
+    case 'SendMessage':
+      // The summary says what was sent; the address alone (an agent id) says nothing.
+      return clip(text('summary') || (text('message').split('\n')[0] ?? '') || text('to'), 80)
     case 'Skill':
       // Which skill, and with what it was asked to work.
       return clip([text('skill'), text('args')].filter(Boolean).join(' · '), 80)
@@ -67,45 +74,31 @@ const toolName = (tool: string): string => tool.replace(/^mcp__/, '').replace(/_
 // Distinct names a group line shows before `…`.
 const MAX_TAGS = 5
 
+/** The name a group line lists a call by: the skill's or the agent type's, without its plugin prefix. */
+export function tagOf(tool: string, input: unknown): string {
+  const fields = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
+  const named = tool === 'Skill' ? fields.skill : tool === 'Agent' ? fields.subagent_type : undefined
+  return typeof named === 'string' && named !== '' ? named.replace(/^[\w-]+:/, '') : toolName(tool)
+}
+
 /**
- * `qa-review · ux-review · Bash · Read`: each skill by its name, then each other tool, once,
- * in order of first use; skills first, as they say more. Past MAX_TAGS names, `…`.
+ * `qa-review · implementer · Bash · Edit`: each name once, in order of first use, skills first, then
+ * agents, then other tools (the first two say the most). Past MAX_TAGS names, `…`.
  */
-export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'label'>[]): string {
-  const skills = new Set<string>()
-  const tools = new Set<string>()
-  for (const call of calls) {
-    if (call.tool === 'Skill') {
-      // The label starts with the skill's name: `agent-skills:qa-review · explorer page`.
-      skills.add((call.label.split(' · ')[0] ?? '').replace(/^[\w-]+:/, '') || 'Skill')
-    } else {
-      tools.add(toolName(call.tool))
+export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'tag'>[]): string {
+  const rank = (tool: string): number => (tool === 'Skill' ? 0 : tool === 'Agent' ? 1 : 2)
+  const names: string[] = []
+  for (const call of [...calls].sort((a, b) => rank(a.tool) - rank(b.tool))) {
+    if (!names.includes(call.tag)) {
+      names.push(call.tag)
     }
   }
-  const names = [...skills, ...tools]
   return names.length > MAX_TAGS ? `${names.slice(0, MAX_TAGS).join(' · ')} · …` : names.join(' · ')
 }
 
 /** The dot of a row or a group: live, failed, interrupted or fine. */
 const dotColor = (status: 'running' | 'done' | 'failed' | 'interrupted'): string =>
   status === 'running' ? 'claude' : status === 'failed' ? 'error' : status === 'interrupted' ? 'warning' : 'success'
-
-/** Closes the run new calls join; a run long enough gets its Haiku line. Never throws. */
-async function closeRun($: EngineInterface): Promise<void> {
-  try {
-    const id = await read($, current)
-    if (id === null) {
-      return
-    }
-    await update($, current, () => null)
-    const run = await update($, memberOf(group, { requestId: id }), value => (value === null ? null : { ...value, isClosed: true }))
-    if (run !== null && run.calls.length >= MIN_GROUP) {
-      void writeSummary($, run).catch(error => $.ui.log(`tool-fold: summary: ${String(error)}`, { to: 'debug' }))
-    }
-  } catch (error) {
-    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
-  }
-}
 
 /** What one reply row does to the runs, block by block: a call joins, reply text or an Agent call closes. */
 export function runSteps(content: readonly unknown[]): ({ close: true } | { join: GroupCall })[] {
@@ -115,34 +108,77 @@ export function runSteps(content: readonly unknown[]): ({ close: true } | { join
     const name = typeof block.name === 'string' ? block.name : ''
     if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') {
       steps.push({ close: true })
-    } else if (block.type === 'tool_use' && typeof block.id === 'string') {
+    } else if (block.type === 'tool_use' && typeof block.id === 'string' && !ENGINE_FOLDED.has(name)) {
       steps.push(
         UNTOUCHED.has(name)
           ? { close: true }
-          : { join: { id: block.id, tool: name, label: foldLabel(name, block.input), status: 'running' } },
+          : { join: { id: block.id, tool: name, tag: tagOf(name, block.input), label: foldLabel(name, block.input), status: 'running' } },
       )
     }
   }
   return steps
 }
 
-/** Adds a call to the open run, or starts one with it. */
-async function joinRun($: EngineInterface, call: GroupCall): Promise<void> {
-  const open = await read($, current)
-  const id = open ?? `g-${call.id}`
-  if (open === null) {
-    await update($, current, () => id)
+/**
+ * Applies a row's steps to the runs. Every read of one dispatch sees one moment, so the open run
+ * is read once, changed locally and each value written once. Never throws.
+ */
+async function applySteps($: EngineInterface, steps: readonly ({ close: true } | { join: GroupCall })[]): Promise<void> {
+  if (steps.length === 0) {
+    return
   }
-  await update($, memberOf(group, { requestId: id }), value =>
-    value === null ? { id, calls: [call], isClosed: false } : { ...value, calls: [...value.calls, call] },
-  )
-  await update($, memberOf(groupOf, { requestId: call.id }), () => id)
+  try {
+    const openId = await read($, current)
+    let open = openId === null ? null : await read($, memberOf(group, { requestId: openId }))
+    const changed: ToolRun[] = []
+    const joined: GroupCall[] = []
+    for (const step of steps) {
+      if ('join' in step) {
+        open =
+          open === null || open.isClosed
+            ? { id: `g-${step.join.id}`, calls: [step.join], isClosed: false }
+            : { ...open, calls: [...open.calls, step.join] }
+        joined.push(step.join)
+      } else if (open !== null) {
+        changed.push({ ...open, isClosed: true })
+        open = null
+      }
+    }
+    if (open !== null) {
+      changed.push(open)
+    }
+    // Several closed runs of one row share no id: the last write per id is the final value.
+    for (const run of changed) {
+      await update($, memberOf(group, { requestId: run.id }), () => run)
+    }
+    for (const call of joined) {
+      const run = changed.find(item => item.calls.some(member => member.id === call.id))
+      if (run !== undefined) {
+        await update($, memberOf(groupOf, { requestId: call.id }), () => run.id)
+      }
+    }
+    const nextOpen = open === null ? null : open.id
+    if (nextOpen !== openId) {
+      await update($, current, () => nextOpen)
+    }
+    for (const run of changed) {
+      if (run.isClosed && run.calls.length >= MIN_GROUP && run.summary === undefined) {
+        void writeSummary($, run).catch(error => $.ui.log(`tool-fold: summary: ${String(error)}`, { to: 'debug' }))
+      }
+    }
+  } catch (error) {
+    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
+  }
 }
 
-/** Sets one call's status inside its group. */
+/** Sets one call's status inside its group; writes only on a change, as every row of the group reads it. */
 async function markCall($: EngineInterface, callId: string, status: GroupCall['status']): Promise<void> {
   const id = await read($, memberOf(groupOf, { requestId: callId }))
-  if (id !== '') {
+  if (id === '') {
+    return
+  }
+  const run = await read($, memberOf(group, { requestId: id }))
+  if (run !== null && run.calls.some(call => call.id === callId && call.status !== status)) {
     await update($, memberOf(group, { requestId: id }), value =>
       value === null ? null : { ...value, calls: value.calls.map(call => (call.id === callId ? { ...call, status } : call)) },
     )
@@ -164,44 +200,67 @@ async function writeSummary($: EngineInterface, run: ToolRun): Promise<void> {
   }
 }
 
-export const register: Register = on => {
+/**
+ * `↩ implementer · reported back` / `✓ Implement Task 11 · finished · 3m 02s`: what an agent notice
+ * says, without the engine's framing. Pure, so it is unit-tested directly.
+ */
+export function noticeLine(
+  text: string,
+  from: string | undefined,
+  task: { status?: string; durationMs?: number } | undefined,
+): string {
+  if (from !== undefined) {
+    return `↩ ${from.replace(/^@/, '')} · reported back`
+  }
+  const head = (text.split('\n')[0] ?? '').replace(/^Agent\s+/, '').replace(/\s+(finished|failed|completed)\.?$/i, '')
+  const glyph = task?.status === 'failed' ? '✗' : task?.status === 'killed' || task?.status === 'stopped' ? '■' : '✓'
+  const took = task?.durationMs === undefined ? '' : ` · ${Math.round(task.durationMs / 1000)}s`
+  return `${glyph} ${clip(head, 80)}${task?.status === undefined ? '' : ` · ${task.status}`}${took}`
+}
+
+export const register: Register = (on, options) => {
+  registerAgents(on, options)
+
   // The model's reply, block by block in order: tool calls join a run, its text or an Agent call ends it.
   on('session.append', async ($, e, next) => {
     const kept = await next(e)
-    if (e.agentId !== undefined) {
-      return kept
-    }
-    if (e.door === 'prompt') {
-      await closeRun($)
-    }
-    if (e.door === 'response') {
-      for (const step of runSteps(e.message.content)) {
-        await ('join' in step ? joinRun($, step.join) : closeRun($))
-      }
+    if (e.agentId === undefined && e.door === 'prompt') {
+      await applySteps($, [{ close: true }])
+    } else if (e.agentId === undefined && e.door === 'response') {
+      await applySteps($, runSteps(e.message.content))
     }
 
     return kept
     // A failing hook leaves the row as the engine keeps it.
   }).catch(($, e, next) => next(e))
 
-  // Each main-loop call's outcome, for the group's dot.
+  // A call's outcome: a main-loop call's for its group's dot, a subagent's for its agent's card.
   on('tool.call', async ($, e, next) => {
+    const agentId = e.agentId
+    const input = e as Record<string, unknown>
+    const step = agentId === undefined ? undefined : await startAgentCall($, agentId, e.tool, e.tool_use_id, input)
     const result = await next(e)
-    if (e.agentId === undefined && !UNTOUCHED.has(e.tool)) {
-      const status = result.deny !== undefined || result.isError === true ? 'failed' : 'done'
+    const status = result.deny !== undefined || result.isError === true ? 'failed' : 'done'
+    if (agentId !== undefined && step !== undefined) {
+      await endAgentCall($, agentId, step, e.tool, input, status).catch(() => undefined)
+    } else if (agentId === undefined && !UNTOUCHED.has(e.tool) && !ENGINE_FOLDED.has(e.tool)) {
       await markCall($, e.tool_use_id, status).catch(() => undefined)
     }
 
     return result
+    // The cards are a view: a failing hook lets the call go on as if the mod were not there.
   }).catch(($, e, next) => next(e))
 
-  // The main loop's turn ended: its last run is complete.
+  // A loop's turn ended: the main loop's last run is complete; a subagent's outcome is stored.
+  // The turn's end is not held for it.
   on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
     if (e.agentId === undefined) {
-      await closeRun($)
+      await applySteps($, [{ close: true }])
     }
+    await endAgentTurn($, e.agentId, e.reason, e.durationMs)
 
-    return next(e)
+    return result
   })
 
   // A call's row: alone, one folded line; in a group, the first row draws the group and the rest
@@ -211,9 +270,13 @@ export const register: Register = on => {
       return next(e)
     }
     const { Box, Button, Text } = $.ui.resolve(e)
+    const isAgent = e.props.tool === 'Agent'
     const open = memberOf(isOpen, e)
-    const isUnfolded = await read($, open)
-    const groupId = await read($, memberOf(groupOf, e))
+    const [isUnfolded, groupId, isLive] = await Promise.all([
+      read($, open),
+      read($, memberOf(groupOf, e)),
+      isAgent ? isAgentLive($, e.props.tool_use_id) : Promise.resolve(false),
+    ])
     const run = groupId === '' ? null : await read($, memberOf(group, { requestId: groupId }))
     const isGrouped = run !== null && run.calls.length >= MIN_GROUP
 
@@ -224,49 +287,55 @@ export const register: Register = on => {
         : e.props.isInterrupted
           ? 'interrupted'
           : 'done'
-    // Only the arrow is pressable: a one-glyph Button is a control by itself.
-    const line = (
-      <Box key={`row-${e.requestId}`} flexDirection="row" gap={1} alignItems="center">
-        <Button
-          key={`fold-${e.requestId}`}
-          plain
-          dimColor
-          label={isUnfolded ? '▾' : '▸'}
-          onPress={() => update($, open, value => !value)}
-        />
-        <Text color={dotColor(status)}>●</Text>
-        <Text backgroundColor="inactive" color="inverseText">
-          {` ${toolName(e.props.tool)} `}
-        </Text>
-        <Text dimColor wrap="truncate">
-          {foldLabel(e.props.tool, e.props.input)}
-        </Text>
-      </Box>
-    )
-    const own = isUnfolded ? (
-      <Box key={`own-${e.requestId}`} flexDirection="column">
-        {line}
-        {await next(e)}
-      </Box>
-    ) : (
-      line
-    )
+    // A call's own drawing: an agent's card (the engine's row for one spawned before the mod loaded),
+    // else one line whose arrow, the only pressable part, unfolds the engine's row under it.
+    const own = isAgent
+      ? ((await agentCard($, e.props.tool_use_id, e.surface, { Box, Text })) ?? (await next(e)))
+      : (
+          <Box key={`own-${e.requestId}`} flexDirection="column">
+            <Box key={`row-${e.requestId}`} flexDirection="row" gap={1} alignItems="center">
+              <Button
+                key={`fold-${e.requestId}`}
+                plain
+                dimColor
+                label={isUnfolded ? '▾' : '▸'}
+                onPress={() => update($, open, value => !value)}
+              />
+              <Text color={dotColor(status)}>●</Text>
+              <Text weight="semibold">{toolName(e.props.tool)}</Text>
+              <Text dimColor wrap="truncate">
+                {foldLabel(e.props.tool, e.props.input)}
+              </Text>
+            </Box>
+            {isUnfolded ? await next(e) : null}
+          </Box>
+        )
     if (!isGrouped || run === null) {
       return own
     }
 
     const groupOpen = memberOf(isOpen, { requestId: run.id })
     const isGroupOpen = await read($, groupOpen)
+    // A running agent stays in view in a folded group; it folds with the group once it ends.
+    const isShown = isGroupOpen || isLive
     if (run.calls[0]?.id !== e.props.tool_use_id) {
-      // A later call of the group: shown only while the group is unfolded, indented under it.
-      return isGroupOpen ? <Box paddingLeft={2}>{own}</Box> : <Box />
+      // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
+      return isShown ? <Box paddingLeft={2}>{own}</Box> : <Box />
     }
 
-    const groupStatus = run.calls.some(call => call.status === 'running')
-      ? 'running'
-      : run.calls.some(call => call.status === 'failed')
-        ? 'failed'
-        : 'done'
+    // The group is live while a call or an agent of it still works. A call still marked running in
+    // a closed run never reported its end (interrupted, or its hook failed).
+    const agentsLive = await Promise.all(
+      run.calls.filter(call => call.tool === 'Agent').map(call => isAgentLive($, call.id)),
+    )
+    const isRunning = run.calls.some(call => call.status === 'running') && !run.isClosed
+    const groupStatus = run.calls.some(call => call.status === 'failed')
+      ? 'failed'
+      : isRunning || agentsLive.some(Boolean)
+        ? 'running'
+        : run.calls.some(call => call.status === 'running')
+          ? 'interrupted'
+          : 'done'
     const header = (
       <Box key={`group-${run.id}`} flexDirection="row" gap={1} alignItems="center">
         <Button
@@ -277,9 +346,7 @@ export const register: Register = on => {
           onPress={() => update($, groupOpen, value => !value)}
         />
         <Text color={dotColor(groupStatus)}>●</Text>
-        <Text backgroundColor="inactive" color="inverseText">
-          {` ${toolTally(run.calls)} `}
-        </Text>
+        <Text weight="semibold">{toolTally(run.calls)}</Text>
         <Text dimColor wrap="truncate">
           {run.summary ?? (run.isClosed ? `${run.calls.length} calls` : 'Working…')}
         </Text>
@@ -288,25 +355,41 @@ export const register: Register = on => {
     return (
       <Box flexDirection="column">
         {header}
-        {isGroupOpen ? <Box paddingLeft={2}>{own}</Box> : null}
+        {isShown ? <Box paddingLeft={2}>{own}</Box> : null}
       </Box>
     )
   })
 
   // A standalone row's result block follows its call (same requestId): shown only while its line is.
+  // An agent's result stays as the engine draws it unless its folded group hides the card.
   on('ui.render', { component: 'ToolResult' }, async ($, e, next) => {
-    if (UNTOUCHED.has(e.props.tool)) {
+    if (UNTOUCHED.has(e.props.tool) || e.props.isExpanded === true) {
       return next(e)
     }
-    const isUnfolded = await read($, memberOf(isOpen, e))
-    const groupId = await read($, memberOf(groupOf, e))
+    const isAgent = e.props.tool === 'Agent'
+    const [isUnfolded, groupId] = await Promise.all([read($, memberOf(isOpen, e)), read($, memberOf(groupOf, e))])
     const run = groupId === '' ? null : await read($, memberOf(group, { requestId: groupId }))
     const isHiddenByGroup =
-      run !== null && run.calls.length >= MIN_GROUP && !(await read($, memberOf(isOpen, { requestId: run.id })))
-    if (isUnfolded && !isHiddenByGroup) {
+      run !== null &&
+      run.calls.length >= MIN_GROUP &&
+      !(await read($, memberOf(isOpen, { requestId: run.id }))) &&
+      !(isAgent && (await isAgentLive($, e.props.tool_use_id)))
+    if ((isUnfolded || isAgent) && !isHiddenByGroup) {
       return next(e)
     }
     const { Box } = $.ui.resolve(e)
     return <Box />
+  })
+
+  // The engine's notices about agents ("Agent … finished", "Message from @agent: [Subagent hand-back]
+  // The text below…"): one short dim line each; ctrl+o shows them whole.
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    const kind = e.props.origin.kind
+    const isNotice = kind === 'task-notification' || (e.props.from !== undefined && kind !== 'composer')
+    if (!isNotice || e.props.isExpanded) {
+      return next(e)
+    }
+    const { Text } = $.ui.resolve(e)
+    return <Text dimColor wrap="truncate">{noticeLine(e.props.text, e.props.from?.name, e.props.task)}</Text>
   })
 }

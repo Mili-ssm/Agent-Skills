@@ -11,11 +11,6 @@
       "description": "Generic specialist skills and agents that complement Superpowers and Playwright."
     },
     {
-      "name": "agents-pane",
-      "source": "./plugins/agents-pane",
-      "description": "Mod: running subagents stacked under the spinner (mission in plain words, model, live call) or on the status line; each Agent call in the chat keeps a card that folds into a one-line summary when it ends."
-    },
-    {
       "name": "plan-progress",
       "source": "./plugins/plan-progress",
       "description": "Mod: compact progress of the active implementation plan, only while there is one: status line (all surfaces) plus a card above the prompt (terminal, desktop)."
@@ -23,12 +18,12 @@
     {
       "name": "usage-band",
       "source": "./plugins/usage-band",
-      "description": "Mod: a compact line under each answer with its duration and tokens per model (subagents included) plus session totals; /usage-band for a summary."
+      "description": "Mod: how long the model worked until it needed you, per interaction cycle (your prompt to your next one): live status line, then one line with busy time, tokens per model (subagents included) and tools, skills and agents used, plus session totals; /usage-band for a summary."
     },
     {
       "name": "tool-fold",
       "source": "./plugins/tool-fold",
-      "description": "Mod: tool calls fold into one line, and a run of calls into one group line with a Haiku summary; arrows unfold the calls and the engine's own boxes. Agent calls are left alone."
+      "description": "Mod: tool calls, skills and agents in the chat fold into compact lines; a run of them into one group line with a Haiku summary. Running agents stay live (card, mission, current call, task progress) until they end. Agent notices shrink to one line."
     }
   ]
 }

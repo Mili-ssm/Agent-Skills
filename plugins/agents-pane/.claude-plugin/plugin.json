@@ -1,9 +1,0 @@
-{
-  "name": "agents-pane",
-  "description": "Mod: running subagents stacked under the spinner (mission in plain words, model, live call) or on the status line; each Agent call in the chat keeps a card that folds into a one-line summary when it ends.",
-  "author": {
-    "name": "mili-ssm"
-  },
-  "repository": "https://github.com/Mili-ssm/Agent-Skills",
-  "types": "./types/index.d.ts"
-}

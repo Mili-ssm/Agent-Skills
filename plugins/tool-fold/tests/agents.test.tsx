@@ -1,10 +1,10 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { commandOf, describeStep, formatDuration, statusText, summarize } from '../hooks/register'
+import { commandOf, describeStep, formatDuration, statusText, summarize } from '../hooks/agents'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
-  plugin: 'agents-pane',
+  plugin: 'tool-fold',
   component: 'ToolUse',
   requestId: 'tu1',
   props: {
@@ -19,7 +19,7 @@ const ROW = {
 
 // The main loop's spinner as a surface would mount it.
 const SPINNER = {
-  plugin: 'agents-pane',
+  plugin: 'tool-fold',
   component: 'Spinner',
   requestId: 'main',
   props: { word: 'Working', message: null, suffix: '…', mode: 'tool-use' },
@@ -44,6 +44,7 @@ test('steps are named and grouped as Codex does', () => {
   expect(commandOf('cd /home/mili/Documentos/WORK/app && S=/tmp/x; sed -n 1p /tmp/claude-1000/-home-mili/scratch/out.json')).toBe(
     'sed -n 1p …/scratch/out.json',
   )
+  expect(commandOf('cd /home/mili/Rust/octree_viewer_v3\ncargo test -p viewer')).toBe('cargo test -p viewer')
   expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
     'Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
   )
@@ -154,4 +155,20 @@ test('the main loop and other tools keep the engine row', async ($, on) => {
   const ui = await $.ui.mount({ ...ROW, surface: 'terminal' })
   expect(await ui.find({ type: 'Text', text: /Explore/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('a workflow agent gets no Haiku mission call', async ($, on) => {
+  on('agent.spawn', (_, e) => ({ model: 'claude-haiku-5-5', agentId: `a-${e.tool_use_id}` }))
+  mock.clock(on)
+  let missions = 0
+  on('model.complete', () => {
+    missions += 1
+    return { value: { isAnswered: true, text: 'x', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+
+  await $.agent.spawn({ ...SPAWN, workflow: { runId: 'r1', name: 'review' } } as never)
+  await $.agent.spawn({ ...SPAWN, tool_use_id: 'tu2' })
+  // The mission call runs after the spawn returned.
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(missions).toBe(1)
 })
