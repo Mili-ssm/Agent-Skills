@@ -21,6 +21,10 @@ test('a folded row says what the call does', () => {
   expect(foldLabel('Bash', ROW.props.input)).toBe('Read highlight browser tests')
   expect(foldLabel('Edit', { file_path: 'UI/frontend/components/HighlightRows.vue' })).toBe('HighlightRows.vue')
   expect(foldLabel('Grep', { pattern: 'row-highlights' })).toBe('row-highlights')
+  expect(foldLabel('Skill', { skill: 'agent-skills:ux-review', args: 'explorer page' })).toBe(
+    'agent-skills:ux-review · explorer page',
+  )
+  expect(foldLabel('mcp__github__get_file', { path: 'README.md' })).toBe('README.md')
 })
 
 test('a call is one line until pressed, then the engine box shows under it', async ($, on) => {
@@ -29,12 +33,13 @@ test('a call is one line until pressed, then the engine box shows under it', asy
 
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...ROW, surface })
-    expect((await ui.find({ type: 'Button' }))?.text).toBe('Read highlight browser tests ▸')
+    expect((await ui.find({ type: 'Button' }))?.text).toBe('▸')
+    expect((await ui.find({ type: 'Text', text: /Read highlight/ }))?.text).toBe('Read highlight browser tests')
     expect(await ui.find({ type: 'Text', text: /^IN / })).toBeUndefined()
     expect((await ui.find({ type: 'Text', text: /Bash/ }))?.text).toBe(' Bash ')
 
     await ui.press({ key: 'fold-tu1' })
-    expect((await ui.find({ type: 'Button' }))?.text).toBe('Read highlight browser tests ▾')
+    expect((await ui.find({ type: 'Button' }))?.text).toBe('▾')
     expect((await ui.find({ type: 'Text', text: /^IN / }))?.text).toBe('IN cat test/a.js')
 
     await ui.press({ key: 'fold-tu1' })

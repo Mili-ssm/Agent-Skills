@@ -1,4 +1,4 @@
-import { atom, read, update } from 'claude-code'
+import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
@@ -9,6 +9,12 @@ const MAX_RUNS = 100
 const runs = atom({ plugin: 'agents-pane', key: 'runs' } as const, [], {
   shape: 'runs-4',
 })
+// The runs drawn on one Agent call's row, keyed by its tool_use_id: a change to one agent
+// redraws its own card, not every card in the chat.
+const byCall = atom({ plugin: 'agents-pane', key: 'byCall' } as const, [], { shape: 'runs-4' })
+// The clock the live elapsed times read: only running cards and the spinner block subscribe,
+// so its tick redraws them alone (an invalidate would redraw every row this plugin hooks).
+const clock = atom({ plugin: 'agents-pane', key: 'now' } as const, 0)
 
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
@@ -262,10 +268,20 @@ let isMainWorking = false
 /** Applies `fn` to the run with this agent id; never throws (a tool call must not fail on it). */
 async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) => AgentRun): Promise<void> {
   try {
-    await update($, runs, list => list.map(run => (run.id === agentId ? fn(run) : run)))
+    const list = await update($, runs, all => all.map(run => (run.id === agentId ? fn(run) : run)))
+    await mirror($, list, agentId)
     await publishStatus($)
   } catch (error) {
     $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+/** Copies the runs of `agentId`'s Agent call into that call's family member, which its card reads. */
+async function mirror($: EngineInterface, list: readonly AgentRun[], agentId: string): Promise<void> {
+  const toolUseId = list.find(run => run.id === agentId)?.toolUseId
+  if (toolUseId !== undefined) {
+    const cards = list.filter(run => run.toolUseId === toolUseId)
+    await update($, memberOf(byCall, { requestId: toolUseId }), () => cards)
   }
 }
 
@@ -275,7 +291,7 @@ async function syncTick($: EngineInterface): Promise<void> {
   const isRunning = (await read($, runs)).some(run => run.status === 'running')
   if (isRunning && tick === undefined) {
     tick = $.clock.every(1000, () => {
-      $.ui.invalidate('ui.render')
+      void $.clock.now().then(now => update($, clock, () => now))
       void publishStatus($)
     })
   } else if (!isRunning && tick !== undefined) {
@@ -295,7 +311,6 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
   if (reply.isAnswered && reply.text.trim() !== '') {
     const mission = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 100)
     await patch($, agentId, run => ({ ...run, mission }))
-    $.ui.invalidate('ui.render')
   }
 }
 
@@ -310,11 +325,11 @@ export const register: Register = on => {
     let isNew = true
     const record = async (): Promise<void> => {
       const startedAt = await $.clock.now()
-      await update($, runs, list => {
+      const list = await update($, runs, all => {
         // A resumed agent keeps its card: mark it running again.
-        if (list.some(run => run.id === id)) {
+        if (all.some(run => run.id === id)) {
           isNew = false
-          return list.map(run => (run.id === id ? { ...run, status: 'running', startedAt } : run))
+          return all.map(run => (run.id === id ? { ...run, status: 'running', startedAt } : run))
         }
         const run: AgentRun = {
           id,
@@ -328,8 +343,10 @@ export const register: Register = on => {
           recent: [],
           counts: {},
         }
-        return [...list, run].slice(-MAX_RUNS)
+        return [...all, run].slice(-MAX_RUNS)
       })
+      await mirror($, list, id)
+      await update($, clock, () => startedAt)
       await syncTick($)
     }
     // A failure here costs the card, never the spawn.
@@ -407,6 +424,8 @@ export const register: Register = on => {
     const engine = await next(e)
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
+    // Subscribes the block to the tick; the time itself is read fresh.
+    await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     const elements: Elements = e.surface === 'terminal' ? { Box, Text } : { Box, Text, Svg: $.ui.resolve(e).Svg }
@@ -448,16 +467,21 @@ export const register: Register = on => {
   })
 
   // The Agent call's own row in the transcript becomes the card: compact while it runs, one summary after.
-  on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
-    if (e.props.tool !== 'Agent' || e.props.isExpanded === true) {
+  // Matched on the tool, so the engine never runs this hook for the other rows of the chat.
+  on('ui.render', { component: 'ToolUse', props: { tool: 'Agent' } }, async ($, e, next) => {
+    if (e.props.isExpanded === true) {
       return next(e)
     }
-    const cards = (await read($, runs)).filter(run => run.toolUseId === e.props.tool_use_id)
+    const cards = await read($, memberOf(byCall, e))
     if (cards.length === 0) {
       return next(e)
     }
     const ui = $.ui.resolve(e)
     const { Box, Text } = ui
+    // Only a running card follows the tick; a finished one never redraws for it.
+    if (cards.some(run => run.status === 'running')) {
+      await read($, clock)
+    }
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     const elements: Elements = e.surface === 'terminal' ? { Box, Text } : { Box, Text, Svg: $.ui.resolve(e).Svg }
