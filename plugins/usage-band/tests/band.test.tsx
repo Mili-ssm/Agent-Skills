@@ -61,7 +61,7 @@ test('an answer shows its duration and the tokens of the main loop and its subag
     usage: usage('claude-opus-5-5', 40000, 3000),
   })
 
-  for (const surface of ['terminal', 'desktop'] as const) {
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...BAND, surface })
     expect((await ui.find({ type: 'Text', text: /Last answer/ }))?.text).toBe(
       'Last answer 1m15s · haiku 108k (8k out) · opus 43k (3k out)',

@@ -23,6 +23,8 @@ Generic specialist skills and agents for Claude Code. Complements [Superpowers](
 | Local session | `/plugin install agent-skills --marketplace Mili-ssm/Agent-Skills` |
 | Local shell | `claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills` |
 | Cloud environment | Paste [`scripts/cloud-setup.sh`](scripts/cloud-setup.sh) as the environment's setup script (cloud sessions ignore plugins declared in a repo) |
+| Desktop app (`/plugin` does not run there) | **+** next to the prompt box → Plugins → Add marketplace `Mili-ssm/Agent-Skills` → Add plugin; or install from a shell at user scope (above), which the app's local sessions also load |
+| VS Code extension | Install from a shell at user scope (above): the extension runs Claude Code on the same `~/.claude` config |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
 | A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="agents-pane status-model usage-band plan-progress"` in the environment |
 
@@ -130,7 +132,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 |---|---|
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Measure triggering (before/after any description or prompt change) | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4` |
-| Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>` |
+| Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests loop over every surface (`terminal`, `desktop`, `vscode`, `mobile`) and mods draw only `Box`, `Text` and `Button`, which all four have |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |
 
 `plugins/agent-skills/evals/trigger/*` expect the matching skill (or the agent that preloads it) to fire; `evals/no-trigger/*` expect no plugin skill or agent. `evals/offload/*` expect delegation to a worker (need `--scaffold --allow-tools Bash` and a sandbox: `bubblewrap`, `socat`).
