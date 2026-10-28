@@ -11,6 +11,13 @@ warn() { echo "WARN [cloud-setup]: $*" >&2; }
 claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills \
   || warn "agent-skills plugin install failed"
 
+# 1b. Opt-in mods (ADR 0011): list them in the environment variable AGENT_SKILLS_MODS,
+#     e.g. AGENT_SKILLS_MODS="agents-pane status-model". Unset → no mods.
+for mod in ${AGENT_SKILLS_MODS:-}; do
+  claude plugin install "$mod" --marketplace Mili-ssm/Agent-Skills \
+    || warn "mod $mod install failed"
+done
+
 # 2. Python Playwright for ux-principles/scripts/ux_audit.py. No browser download: the script
 #    falls back to the image's pre-installed Chromium (/opt/pw-browsers/chromium).
 python3 -m pip install --quiet --user playwright \
