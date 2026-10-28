@@ -1,5 +1,5 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
@@ -89,8 +89,10 @@ export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'tag'>[]): st
   const rank = (tool: string): number => (tool === 'Skill' ? 0 : tool === 'Agent' ? 1 : 2)
   const names: string[] = []
   for (const call of [...calls].sort((a, b) => rank(a.tool) - rank(b.tool))) {
-    if (!names.includes(call.tag)) {
-      names.push(call.tag)
+    // A group stored before calls carried a tag lists the tool's name.
+    const name = call.tag ?? toolName(call.tool)
+    if (!names.includes(name)) {
+      names.push(name)
     }
   }
   return names.length > MAX_TAGS ? `${names.slice(0, MAX_TAGS).join(' · ')} · …` : names.join(' · ')
@@ -218,6 +220,16 @@ export function noticeLine(
   return `${glyph} ${clip(head, 80)}${task?.status === undefined ? '' : ` · ${task.status}`}${took}`
 }
 
+/** A subagent's hand-back without the engine's framing paragraph: the report itself. */
+export function handBackBody(text: string): string {
+  if (!/^\s*\[Subagent hand-back\]/.test(text)) {
+    return text
+  }
+  const marker = /The report follows:\s*/i.exec(text)
+  const body = marker === null ? text.replace(/^\s*\[Subagent hand-back\][^\n]*\n+/, '') : text.slice(marker.index + marker[0].length)
+  return body.trim() === '' ? text : `↩ ${body.trim()}`
+}
+
 export const register: Register = (on, options) => {
   registerAgents(on, options)
 
@@ -318,9 +330,16 @@ export const register: Register = (on, options) => {
     const isGroupOpen = await read($, groupOpen)
     // A running agent stays in view in a folded group; it folds with the group once it ends.
     const isShown = isGroupOpen || isLive
+    // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
+    const branch = (node: RenderNode) => (
+      <Box flexDirection="row" gap={1}>
+        <Text dimColor>└</Text>
+        {node}
+      </Box>
+    )
     if (run.calls[0]?.id !== e.props.tool_use_id) {
       // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
-      return isShown ? <Box paddingLeft={2}>{own}</Box> : <Box />
+      return isShown ? branch(own) : <Box />
     }
 
     // The group is live while a call or an agent of it still works. A call still marked running in
@@ -355,7 +374,7 @@ export const register: Register = (on, options) => {
     return (
       <Box flexDirection="column">
         {header}
-        {isShown ? <Box paddingLeft={2}>{own}</Box> : null}
+        {isShown ? branch(own) : null}
       </Box>
     )
   })
@@ -381,15 +400,20 @@ export const register: Register = (on, options) => {
     return <Box />
   })
 
-  // The engine's notices about agents ("Agent … finished", "Message from @agent: [Subagent hand-back]
-  // The text below…"): one short dim line each; ctrl+o shows them whole.
+  // The engine's notices about agents: "Agent … finished" draws as one short dim line, and a
+  // hand-back message keeps the surface's own row (its expander reads the report) without the engine's
+  // framing paragraph. The terminal's ctrl+o shows both whole; a surface with no ctrl+o reports every
+  // row expanded, so there only the terminal's flag is honoured.
   on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
     const kind = e.props.origin.kind
-    const isNotice = kind === 'task-notification' || (e.props.from !== undefined && kind !== 'composer')
-    if (!isNotice || e.props.isExpanded) {
+    if ((e.surface === 'terminal' && e.props.isExpanded) || kind === 'composer') {
       return next(e)
     }
-    const { Text } = $.ui.resolve(e)
-    return <Text dimColor wrap="truncate">{noticeLine(e.props.text, e.props.from?.name, e.props.task)}</Text>
+    if (kind === 'task-notification') {
+      const { Text } = $.ui.resolve(e)
+      return <Text dimColor wrap="truncate">{noticeLine(e.props.text, undefined, e.props.task)}</Text>
+    }
+    const body = e.props.from === undefined ? e.props.text : handBackBody(e.props.text)
+    return body === e.props.text ? next(e) : next({ ...e, props: { ...e.props, text: body } })
   })
 }
