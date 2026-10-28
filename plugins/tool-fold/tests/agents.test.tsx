@@ -75,8 +75,18 @@ test('a running agent shows its live tool, then folds into one summary line', as
   expect(logs).toEqual([])
   // Running agents live in their cards only: nothing on the status line.
   expect(statuses.filter(text => text !== undefined)).toEqual([])
+  // While it runs, its chat row draws nothing: the Agentes pane holds its card.
+  const row = await $.ui.mount({ ...ROW, surface: 'vscode' })
+  expect(await row.find({ type: 'Text' })).toBeUndefined()
+  await row.unmount()
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
-    const ui = await $.ui.mount({ ...ROW, surface })
+    const ui = await $.ui.mount({
+      plugin: 'tool-fold',
+      component: 'Pane',
+      requestId: 'agents',
+      surface,
+      props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+    } as never)
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
     expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
     // The mission replaces the short description; the card keeps the last two calls.
@@ -159,9 +169,9 @@ test('while the Agentes pane is placed, running agents live there only; the chat
 
   const pane = await $.ui.mount(PANE as never)
   expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
-  expect((await pane.find({ type: 'Text', text: /cargo bench/ }))?.text).toBe('  ✓ Run cargo bench')
-  // The model's own words on the command, under it.
-  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('    Benchmark the codec')
+  // What the command does reads first; the command sits under it.
+  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  ✓ Benchmark the codec')
+  expect((await pane.find({ type: 'Text', text: /cargo bench/ }))?.text).toBe('    $ cargo bench')
   await pane.unmount()
   // The chat shows a running agent nothing while the pane holds it.
   const chat = await $.ui.mount({ ...ROW, surface: 'vscode' })
