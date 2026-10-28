@@ -7,8 +7,10 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | `agent-skills` | Specialist skills and agents (below) | [`plugins/agent-skills/`](plugins/agent-skills/) |
 | `agents-pane` (mod) | Side pane: subagents with type, model, status, duration, per-model tally; `/agents-pane` reopens it | [`plugins/agents-pane/`](plugins/agents-pane/) |
 | `status-model` (mod) | Status line: `opus-5-5 │ 1 running │ last: researcher → haiku-5-5 ✓ 12s` | [`plugins/status-model/`](plugins/status-model/) |
+| `usage-band` (mod) | Band above the prompt: last answer's duration and tokens per model (subagents included), session totals; `/usage-band` shows it after Hide | [`plugins/usage-band/`](plugins/usage-band/) |
+| `plan-progress` (mod) | Side pane: active plan (`docs/superpowers/plans/`, `docs/plans/`, `plans/`), progress bar, current task, steps per task, toast per finished task; `/plan-progress [path\|auto]` | [`plugins/plan-progress/`](plugins/plan-progress/) |
 
-The mods make offloading to Haiku/Sonnet visible (ADR 0010).
+`agents-pane`, `status-model` and `usage-band` make offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans.
 
 ## agent-skills
 
@@ -22,7 +24,7 @@ Generic specialist skills and agents for Claude Code. Complements [Superpowers](
 | Local shell | `claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills` |
 | Cloud environment | Paste [`scripts/cloud-setup.sh`](scripts/cloud-setup.sh) as the environment's setup script (cloud sessions ignore plugins declared in a repo) |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
-| A mod | Same commands with `agents-pane` or `status-model`; in cloud set `AGENT_SKILLS_MODS="agents-pane status-model"` in the environment |
+| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="agents-pane status-model usage-band plan-progress"` in the environment |
 
 ## Offload setup (ADR 0010)
 

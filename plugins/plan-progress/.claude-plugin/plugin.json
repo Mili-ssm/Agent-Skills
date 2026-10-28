@@ -1,0 +1,7 @@
+{
+  "name": "plan-progress",
+  "description": "Mod: a side pane with the progress of the active implementation plan (Superpowers writing-plans checkboxes): current task, steps done per task and overall.",
+  "author": { "name": "mili-ssm" },
+  "repository": "https://github.com/Mili-ssm/Agent-Skills",
+  "types": "./types/index.d.ts"
+}

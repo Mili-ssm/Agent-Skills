@@ -19,6 +19,16 @@
       "name": "status-model",
       "source": "./plugins/status-model",
       "description": "Mod: status line entry with the main model and the last subagent and its model."
+    },
+    {
+      "name": "plan-progress",
+      "source": "./plugins/plan-progress",
+      "description": "Mod: a side pane with the active implementation plan's progress (current task, steps per task, overall bar)."
+    },
+    {
+      "name": "usage-band",
+      "source": "./plugins/usage-band",
+      "description": "Mod: a band above the prompt with the last answer's duration and tokens per model, plus session totals."
     }
   ]
 }

@@ -30,3 +30,7 @@ Install commands are unchanged (`--marketplace Mili-ssm/Agent-Skills`). The mod 
 ## Revisit if
 
 The hooks API changes shape, or a mod needs data another plugin provides (then use `dependencies`).
+
+## Review 2026-10-28
+
+Added `usage-band` (last answer's duration and tokens per model family, subagents included, plus session totals: the measurement ADR 0010's "Revisit if" asks for) and `plan-progress` (pane over the newest plan in `docs/superpowers/plans/`, `docs/plans/` or `plans/`, pinnable with `/plan-progress <path>`). Same rules: own folder, no version, tests, opt-in in cloud.
