@@ -703,8 +703,14 @@ export async function endAgentTurn(
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
   await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
+  const ended = (await read($, runs)).find(run => run.id === agentId)
+  // The newest line of the chat when it stops: what ended and what it did. A dim log row is the one
+  // bottom row a mod can add on every surface; the styled card stays on the Agent call's own row.
+  if (ended !== undefined) {
+    $.ui.log(finishedLine(ended))
+  }
   // A finished run teaches how long its type takes (only those that ended well).
-  const type = (await read($, runs)).find(run => run.id === agentId)?.type
+  const type = ended?.type
   if (status === 'done' && type !== undefined) {
     const past = await rememberedDurations($, type)
     await $.store.set(durationsKey(type), [...past, durationMs].slice(-REMEMBERED)).catch(() => undefined)
@@ -770,12 +776,25 @@ export async function agentCard(
   const { Box } = ui
   const now = await $.clock.now()
 
-  // Running agents live in the "Agentes" pane only; a background agent's folded card moves to its
-  // "finished" notice at the bottom of the chat; a foreground agent's stays on its own row.
-  const card = (run: AgentRun) =>
-    run.status === 'running' || run.background === true ? <Box key={run.id} /> : finishedCard(ui, run, now, '•')
+  // Running agents live in the "Agentes" pane only; once stopped, the folded card stays on its own row,
+  // and a line at the bottom of the chat says it ended (VS Code does not let a mod redraw its notices).
+  const card = (run: AgentRun) => (run.status === 'running' ? <Box key={run.id} /> : finishedCard(ui, run, now, '•'))
 
   return <Box flexDirection="column">{cards.map(card)}</Box>
+}
+
+/** `✓ implementer · sonnet-5-5 · 8m 51s · Añadir fuzzing… · 26 calls · 26 commands · 3 failed`. */
+export function finishedLine(run: AgentRun): string {
+  const glyph = run.status === 'done' ? '✓' : run.status === 'aborted' ? '■' : '✗'
+  return [
+    `${glyph} ${agentName(run)}`,
+    shortModel(run.model),
+    formatDuration(run.durationMs ?? 0),
+    clip(run.mission ?? run.description, 60),
+    countsLine(run),
+  ]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 /** A finished agent's card: the header plus what it did (Codex's collapsed group). */
@@ -793,31 +812,6 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, frame: string) {
       )}
     </Box>
   )
-}
-
-/**
- * The folded card a background agent's "finished" notice draws: that row is the newest in the chat
- * when the agent stops. Found by the notice's Agent call id, else by the description it quotes;
- * null while the agent still runs or when no run matches (the notice then stays a line).
- */
-export async function noticeCard(
-  $: EngineInterface,
-  toolUseId: string | undefined,
-  text: string,
-  ui: Elements,
-): Promise<RenderElement | null> {
-  const quoted = /"([^"]+)"/.exec(text)?.[1]
-  const matches =
-    toolUseId !== undefined
-      ? await read($, memberOf(byCall, { requestId: toolUseId }))
-      : (await read($, runs)).filter(run => run.description === quoted).slice(-1)
-  const ended = matches.filter(run => run.status !== 'running' && run.background === true)
-  if (ended.length === 0) {
-    return null
-  }
-  const { Box } = ui
-  const now = await $.clock.now()
-  return <Box flexDirection="column">{ended.map(run => finishedCard(ui, run, now, '•'))}</Box>
 }
 
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */

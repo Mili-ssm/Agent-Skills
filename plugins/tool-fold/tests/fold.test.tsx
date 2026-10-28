@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { foldLabel, noticeLine, runSteps, toolTally } from '../hooks/register'
+import { foldLabel, groupCounts, noticeLine, runSteps, toolTally } from '../hooks/register'
 
 // A finished Bash call's row as a surface would mount it.
 const ROW = {
@@ -107,6 +107,10 @@ test('a reply groups its calls until text or an Agent call', () => {
     toolTally([call('Bash'), call('Edit'), call('Agent', 'implementer'), call('Bash'), call('Skill', 'qa-review')]),
   ).toBe('qa-review · implementer · Bash · Edit')
   expect(toolTally(['A', 'B', 'C', 'D', 'E', 'F'].map(name => call(name)))).toBe('A · B · C · D · E · …')
+  // What kinds of call a group held, so a tag list naming an agent and a tool reads plainly.
+  expect(groupCounts([call('Agent', 'general-purpose'), call('Bash'), call('Bash'), call('Read')])).toBe(
+    '1 agent · 2 commands · 1 search',
+  )
 })
 
 test('a group draws on its first row; the rest show only once it is unfolded', async ($, on) => {
@@ -118,6 +122,8 @@ test('a group draws on its first row; the rest show only once it is unfolded', a
     calls: [call('tu1', 'Bash', 'Run tests'), call('tu2', 'Bash', 'Lint'), call('tu3', 'Skill', 'qa-review')],
     isClosed: true,
     summary: 'Comprueba que los tests y el lint pasan',
+    startedAt: 0,
+    endedAt: 75_000,
   }
   on('state.get', (_, e, next) =>
     e.key === 'group' && e.id === 'g-tu1'
@@ -130,7 +136,8 @@ test('a group draws on its first row; the rest show only once it is unfolded', a
 
   const first = await $.ui.mount({ ...ROW, surface: 'vscode' })
   expect((await first.find({ type: 'Text', text: /qa-review · Bash/ }))?.text).toBe('qa-review · Bash')
-  expect((await first.find({ type: 'Text', text: /Comprueba/ }))?.text).toBe('Comprueba que los tests y el lint pasan')
+  expect((await first.find({ type: 'Text', text: /Comprueba/ }))?.text).toBe('    Comprueba que los tests y el lint pasan')
+  expect((await first.find({ type: 'Text', text: /commands/ }))?.text).toBe('1 skill · 2 commands · 1m 15s')
   const hidden = await $.ui.mount({ ...second, surface: 'vscode' })
   expect(await hidden.find({ type: 'Text' })).toBeUndefined()
   await hidden.unmount()

@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
-import { agentCard, endAgentCall, endAgentTurn, isAgentLive, noticeCard, registerAgents, startAgentCall } from './agents'
+import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
 const UNTOUCHED = new Set(['AskUserQuestion'])
@@ -98,6 +98,29 @@ export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'tag'>[]): st
   return names.length > MAX_TAGS ? `${names.slice(0, MAX_TAGS).join(' · ')} · …` : names.join(' · ')
 }
 
+/** `1 agent · 2 skills · 3 commands · 1 edit · 4 searches`: what kinds of call a group held. */
+export function groupCounts(calls: readonly Pick<GroupCall, 'tool'>[]): string {
+  const count = (tools: readonly string[]): number => calls.filter(call => tools.includes(call.tool)).length
+  const plural = (n: number, word: string, many = `${word}s`): string => (n === 0 ? '' : `${n} ${n === 1 ? word : many}`)
+  const known = ['Agent', 'Skill', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch']
+  return [
+    plural(count(['Agent']), 'agent'),
+    plural(count(['Skill']), 'skill'),
+    plural(count(['Bash']), 'command'),
+    plural(count(['Edit', 'Write', 'NotebookEdit']), 'edit'),
+    plural(count(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch']), 'search', 'searches'),
+    plural(calls.filter(call => !known.includes(call.tool)).length, 'other tool', 'other tools'),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** 1234 → `1s`, 75000 → `1m 15s`: a group's duration. */
+const formatTook = (ms: number): string => {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+}
+
 /** The dot of a row or a group: live, failed, interrupted or fine. */
 const dotColor = (status: 'running' | 'done' | 'failed' | 'interrupted'): string =>
   status === 'running' ? 'claude' : status === 'failed' ? 'error' : status === 'interrupted' ? 'warning' : 'success'
@@ -132,17 +155,18 @@ async function applySteps($: EngineInterface, steps: readonly ({ close: true } |
   try {
     const openId = await read($, current)
     let open = openId === null ? null : await read($, memberOf(group, { requestId: openId }))
+    const now = await $.clock.now()
     const changed: ToolRun[] = []
     const joined: GroupCall[] = []
     for (const step of steps) {
       if ('join' in step) {
         open =
           open === null || open.isClosed
-            ? { id: `g-${step.join.id}`, calls: [step.join], isClosed: false }
+            ? { id: `g-${step.join.id}`, calls: [step.join], isClosed: false, startedAt: now }
             : { ...open, calls: [...open.calls, step.join] }
         joined.push(step.join)
       } else if (open !== null) {
-        changed.push({ ...open, isClosed: true })
+        changed.push({ ...open, isClosed: true, endedAt: now })
         open = null
       }
     }
@@ -332,15 +356,16 @@ export const register: Register = (on, options) => {
     const isShown = isGroupOpen || isLive
     // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
     // An agent's card is several lines wide and tall: beside a mark it wraps badly in a narrow chat.
-    const branch = (node: RenderNode) =>
-      isAgent ? (
-        <Box>{node}</Box>
-      ) : (
-        <Box flexDirection="row" gap={1}>
-          <Text dimColor>└</Text>
+    // Indented to the group's summary, as an agent card's calls hang under its mission; an agent's
+    // card hangs the same way, beside a mark that keeps to its first line (the card may shrink).
+    const branch = (node: RenderNode) => (
+      <Box flexDirection="row" gap={1} paddingLeft={4} alignItems="flex-start">
+        <Text dimColor>└</Text>
+        <Box flexDirection="column" minWidth={0} flexShrink={1}>
           {node}
         </Box>
-      )
+      </Box>
+    )
     if (run.calls[0]?.id !== e.props.tool_use_id) {
       // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
       return isShown ? branch(own) : <Box />
@@ -359,19 +384,31 @@ export const register: Register = (on, options) => {
         : run.calls.some(call => call.status === 'running')
           ? 'interrupted'
           : 'done'
+    // Like an agent's card, lighter: who took part and what kinds of call it held, then what it did.
+    const took =
+      run.startedAt === undefined || run.endedAt === undefined ? '' : ` · ${formatTook(run.endedAt - run.startedAt)}`
     const header = (
-      <Box key={`group-${run.id}`} flexDirection="row" gap={1} alignItems="center">
-        <Button
-          key={`fold-${run.id}`}
-          plain
-          dimColor
-          label={isGroupOpen ? '▾' : '▸'}
-          onPress={() => update($, groupOpen, value => !value)}
-        />
-        <Text color={dotColor(groupStatus)}>●</Text>
-        <Text weight="semibold">{toolTally(run.calls)}</Text>
+      <Box key={`group-${run.id}`} flexDirection="column">
+        <Box flexDirection="row" gap={1} alignItems="center" minWidth={0} overflow="hidden">
+          <Button
+            key={`fold-${run.id}`}
+            plain
+            dimColor
+            label={isGroupOpen ? '▾' : '▸'}
+            onPress={() => update($, groupOpen, value => !value)}
+          />
+          <Text color={dotColor(groupStatus)}>●</Text>
+          <Text weight="semibold" wrap="truncate">
+            {toolTally(run.calls)}
+          </Text>
+          <Text dimColor wrap="truncate">
+            {groupCounts(run.calls)}
+            {took}
+          </Text>
+        </Box>
         <Text dimColor wrap="truncate">
-          {run.summary ?? (run.isClosed ? `${run.calls.length} calls` : 'Working…')}
+          {'    '}
+          {run.summary ?? (run.isClosed ? '' : 'Working…')}
         </Text>
       </Box>
     )
@@ -414,10 +451,8 @@ export const register: Register = (on, options) => {
       return next(e)
     }
     if (kind === 'task-notification') {
-      const { Box, Text } = $.ui.resolve(e)
-      // A background agent's notice is where its folded card lands once it stops.
-      const card = await noticeCard($, e.props.task?.toolUseId, e.props.text, { Box, Text })
-      return card ?? <Text dimColor wrap="truncate">{noticeLine(e.props.text, undefined, e.props.task)}</Text>
+      const { Text } = $.ui.resolve(e)
+      return <Text dimColor wrap="truncate">{noticeLine(e.props.text, undefined, e.props.task)}</Text>
     }
     const body = e.props.from === undefined ? e.props.text : handBackBody(e.props.text)
     return body === e.props.text ? next(e) : next({ ...e, props: { ...e.props, text: body } })

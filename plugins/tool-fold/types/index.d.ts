@@ -63,7 +63,7 @@ export type AgentRun = {
   isOpenEnded?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
   estimatedAt?: number
-  /** Runs in the background: when it ends, its card moves to its "finished" notice at the bottom. */
+  /** Runs in the background (the main loop does not wait on it). */
   background?: boolean
 }
 
@@ -89,6 +89,9 @@ export type ToolRun = {
   isClosed: boolean
   /** One plain-language sentence (Spanish) for the whole run, from Haiku once closed. */
   summary?: string
+  /** Clock time it opened and closed, for its duration (absent in runs stored before them). */
+  startedAt?: number
+  endedAt?: number
 }
 
 declare module 'claude-code' {

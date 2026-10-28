@@ -223,35 +223,30 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   expect(estimates).toBe(2)
 })
 
-test('a background agent that ends moves its card to its finished notice', async ($, on) => {
+test('an agent that ends keeps its folded card on its row and adds one line at the bottom', async ($, on) => {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
   on('turn.complete', () => ({ text: '' }))
-  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.close', () => ({ value: undefined }))
-  on('ui.log', () => ({ value: undefined }))
-  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: 'engine row' }))
+  const logs: string[] = []
+  on('ui.log', (_, e) => {
+    logs.push(e.text)
+    return { value: undefined }
+  })
   mock.clock(on)
 
   await $.agent.spawn({ ...SPAWN, background: true })
   await $.tool.call({ tool: 'Bash', command: 'cargo test', description: 'Run tests', agentId: 'a1' })
   await $.turn.complete({ agentId: 'a1', answer: 'ok', durationMs: 90000, isAborted: false, turnId: 't1', reason: 'answer' })
 
-  // Its own row empties...
+  // The bottom of the chat gets one line: what ended and what it did.
+  expect(logs.filter(line => line.startsWith('✓'))).toEqual(['✓ Explore · sonnet-5-5 · 1m 30s · Find session creation · 1 call · 1 command'])
+  // Its own row keeps the folded card.
   const row = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
-  expect(await row.find({ type: 'Text' })).toBeUndefined()
+  expect((await row.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
+  expect((await row.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
   await row.unmount()
-  // ...and the notice at the bottom draws the folded card.
-  const notice = await $.ui.mount({
-    plugin: 'tool-fold',
-    component: 'UserMessage',
-    requestId: 'n1',
-    surface: 'vscode',
-    props: { text: 'Agent "Find session creation" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed', toolUseId: 'tu1' } },
-  } as never)
-  expect((await notice.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
-  expect((await notice.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
-  await notice.unmount()
 })
 
 test('pane texts are cut to the pane width, so a narrow panel is not widened', async ($, on) => {
