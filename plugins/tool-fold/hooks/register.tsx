@@ -64,13 +64,26 @@ export function foldLabel(tool: string, input: unknown): string {
 /** `mcp__github__get_file` → `github get_file`. */
 const toolName = (tool: string): string => tool.replace(/^mcp__/, '').replace(/__/g, ' ')
 
-/** `Bash ×5 · Skill · Read ×2`: each tool once, in order of first use. */
-export function toolTally(calls: readonly Pick<GroupCall, 'tool'>[]): string {
-  const counts = new Map<string, number>()
+// Distinct names a group line shows before `…`.
+const MAX_TAGS = 5
+
+/**
+ * `qa-review · ux-review · Bash · Read`: each skill by its name, then each other tool, once,
+ * in order of first use; skills first, as they say more. Past MAX_TAGS names, `…`.
+ */
+export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'label'>[]): string {
+  const skills = new Set<string>()
+  const tools = new Set<string>()
   for (const call of calls) {
-    counts.set(call.tool, (counts.get(call.tool) ?? 0) + 1)
+    if (call.tool === 'Skill') {
+      // The label starts with the skill's name: `agent-skills:qa-review · explorer page`.
+      skills.add((call.label.split(' · ')[0] ?? '').replace(/^[\w-]+:/, '') || 'Skill')
+    } else {
+      tools.add(toolName(call.tool))
+    }
   }
-  return [...counts].map(([tool, count]) => (count === 1 ? toolName(tool) : `${toolName(tool)} ×${count}`)).join(' · ')
+  const names = [...skills, ...tools]
+  return names.length > MAX_TAGS ? `${names.slice(0, MAX_TAGS).join(' · ')} · …` : names.join(' · ')
 }
 
 /** The dot of a row or a group: live, failed, interrupted or fine. */

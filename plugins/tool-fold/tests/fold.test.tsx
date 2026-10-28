@@ -90,7 +90,11 @@ test('a reply groups its calls until text or an Agent call', () => {
     { type: 'tool_use', id: 't3', name: 'Agent', input: {} },
   ])
   expect(steps.map(step => ('join' in step ? step.join.id : 'close'))).toEqual(['t1', 't2', 'close', 'close'])
-  expect(toolTally([{ tool: 'Bash' }, { tool: 'Read' }, { tool: 'Bash' }])).toBe('Bash ×2 · Read')
+  const call = (tool: string, label = '') => ({ tool, label })
+  expect(toolTally([call('Bash'), call('Read'), call('Bash'), call('Skill', 'agent-skills:qa-review · x')])).toBe(
+    'qa-review · Bash · Read',
+  )
+  expect(toolTally(['A', 'B', 'C', 'D', 'E', 'F'].map(name => call(name)))).toBe('A · B · C · D · E · …')
 })
 
 test('a group draws on its first row; the rest show only once it is unfolded', async ($, on) => {
@@ -113,7 +117,7 @@ test('a group draws on its first row; the rest show only once it is unfolded', a
   const second = { ...ROW, requestId: 'tu2', props: { ...ROW.props, tool_use_id: 'tu2' } }
 
   const first = await $.ui.mount({ ...ROW, surface: 'vscode' })
-  expect((await first.find({ type: 'Text', text: /×2/ }))?.text).toBe(' Bash ×2 · Skill ')
+  expect((await first.find({ type: 'Text', text: /qa-review · Bash/ }))?.text).toBe(' qa-review · Bash ')
   expect((await first.find({ type: 'Text', text: /Comprueba/ }))?.text).toBe('Comprueba que los tests y el lint pasan')
   const hidden = await $.ui.mount({ ...second, surface: 'vscode' })
   expect(await hidden.find({ type: 'Text' })).toBeUndefined()
