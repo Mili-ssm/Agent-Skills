@@ -63,7 +63,7 @@ export type AgentRun = {
   isOpenEnded?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
   estimatedAt?: number
-  /** Runs in the background: when it ends, its card moves to its "finished" notice at the bottom. */
+  /** Runs in the background (the main loop does not wait on it). */
   background?: boolean
 }
 
