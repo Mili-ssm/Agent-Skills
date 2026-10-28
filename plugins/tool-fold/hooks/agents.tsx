@@ -190,8 +190,8 @@ const COMMAND_PROMPT =
 const ESTIMATE_PROMPT =
   'Un agente de programación tiene este encargo y ha hecho estas acciones. Estima qué porcentaje del ' +
   'encargo lleva hecho. Responde solo con un número entero entre 0 y 95.\n\n'
-// An estimate follows each shell command, at most this often per agent.
-const ESTIMATE_GAP_MS = 60_000
+// An estimate follows each call of an agent, at most this often per agent; one asked sooner waits.
+const ESTIMATE_GAP_MS = 30_000
 
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
@@ -484,19 +484,7 @@ export async function endAgentCall(
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
     failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
   }))
-  // A shell command is a step forward worth re-estimating, at most once a minute.
-  const run = (await read($, runs)).find(item => item.id === agentId)
-  const now = await $.clock.now()
-  if (
-    step.kind === 'run' &&
-    run !== undefined &&
-    run.status === 'running' &&
-    run.todo === undefined &&
-    (run.estimatedAt === undefined || now - run.estimatedAt >= ESTIMATE_GAP_MS)
-  ) {
-    await patch($, agentId, item => ({ ...item, estimatedAt: now }))
-    void estimateProgress($, run).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
-  }
+  await requestEstimate($, agentId)
 }
 
 /** Asks Haiku what a command without the model's description does, and shows it under the call. */
@@ -507,6 +495,32 @@ async function describeCommand($: EngineInterface, agentId: string, stepId: stri
     const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
     await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
   }
+}
+
+/**
+ * Every call asks for a fresh estimate. One asked within ESTIMATE_GAP_MS of the last is dropped and a
+ * single one is set for when the gap ends, on what the agent has done by then. Module state: a
+ * reload drops a waiting one, and the agent's next call asks again.
+ */
+const waiting = new Set<string>()
+
+async function requestEstimate($: EngineInterface, agentId: string): Promise<void> {
+  const run = (await read($, runs)).find(item => item.id === agentId)
+  if (run === undefined || run.status !== 'running' || run.todo !== undefined || waiting.has(agentId)) {
+    return
+  }
+  const now = await $.clock.now()
+  const wait = run.estimatedAt === undefined ? 0 : run.estimatedAt + ESTIMATE_GAP_MS - now
+  if (wait > 0) {
+    waiting.add(agentId)
+    $.clock.after(wait, () => {
+      waiting.delete(agentId)
+      void requestEstimate($, agentId)
+    })
+    return
+  }
+  await patch($, agentId, item => ({ ...item, estimatedAt: now }))
+  void estimateProgress($, run).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
 }
 
 /** Asks Haiku how far an agent with no task list is: a rough percentage for the pane. */

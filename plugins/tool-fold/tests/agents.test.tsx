@@ -180,13 +180,16 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   on('tool.call', () => ({ result: 'ok' }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('ui.log', () => ({ value: undefined }))
-  on('model.complete', () => ({
-    value: { isAnswered: true, text: '40', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
-  }))
-  mock.clock(on)
+  let estimates = 0
+  on('model.complete', (_, e) => {
+    // Only the progress estimates count here, not the mission line.
+    estimates += String(e.prompt).includes('porcentaje') ? 1 : 0
+    return { value: { isAnswered: true, text: '40', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  const clock = mock.clock(on)
 
   await $.agent.spawn(SPAWN)
-  // A shell command asks for an estimate; reads do not.
+  // The first call asks at once; one 30 s apart waits for the gap, then asks once.
   await $.tool.call({ tool: 'Read', file_path: 'a.rs', agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'cargo bench', description: 'Benchmark', agentId: 'a1' })
   await new Promise(resolve => setTimeout(resolve, 20))
@@ -199,6 +202,10 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   } as never)
   expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('▰▰▱▱▱ ≈40%')
   await pane.unmount()
+  expect(estimates).toBe(1)
+  await clock.advance(30_000)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(estimates).toBe(2)
 })
 
 test('a background agent that ends moves its card to its finished notice', async ($, on) => {

@@ -49,7 +49,7 @@ export type AgentRun = {
   todo?: { done: number; total: number; completed: string[] }
   /** Haiku's rough percentage done, for an agent with no task list, shown in the pane while it runs. */
   estimate?: number
-  /** Clock time of the last estimate asked for (one per shell command, at most once a minute). */
+  /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
   estimatedAt?: number
   /** Runs in the background: when it ends, its card moves to its "finished" notice at the bottom. */
   background?: boolean
