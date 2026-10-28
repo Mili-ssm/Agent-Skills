@@ -197,8 +197,8 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   on('ui.log', () => ({ value: undefined }))
   let estimates = 0
   on('model.complete', (_, e) => {
-    // Only the progress estimates count here, not the mission line.
-    estimates += String(e.prompt).includes('porcentaje') ? 1 : 0
+    // Only the progress estimates count here (they carry the phase scale), not the mission line.
+    estimates += String(e.system ?? '').includes('Escala por fases') ? 1 : 0
     return { value: { isAnswered: true, text: '40', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   const clock = mock.clock(on)
@@ -275,7 +275,7 @@ test('pane texts are cut to the pane width, so a narrow panel is not widened', a
   await pane.unmount()
 })
 
-test('the estimate reads the brief, elapsed time and each call with its duration', () => {
+test('the estimate reads the mission, elapsed time and each call with its duration', () => {
   const text = estimateInput(
     {
       id: 'a1',
@@ -283,7 +283,6 @@ test('the estimate reads the brief, elapsed time and each call with its duration
       type: 'performance-analyst',
       description: 'Measure V5 vs V7',
       mission: 'Medir conversión de V5 frente a V7',
-      brief: 'Measure full conversion and read of V5 against V7.3-pre and document it.',
       model: 'claude-sonnet-5-5',
       status: 'running',
       startedAt: 0,
@@ -298,7 +297,7 @@ test('the estimate reads the brief, elapsed time and each call with its duration
     },
     600_000,
   )
-  expect(text).toContain('Encargo:\nMeasure full conversion')
+  expect(text).toContain('Misión: Medir conversión de V5 frente a V7')
   expect(text).toContain('Tiempo transcurrido: 10m 00s')
   expect(text).toContain('- 1m 35s ✓ Compila el workspace en release')
   expect(text).toContain('- 7m 00s ✓ Convierte la muestra a V7')

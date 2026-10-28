@@ -211,11 +211,23 @@ const COMMAND_PROMPT =
   '`git diff --stat HEAD~3` → Resume los cambios de 3 commits\n' +
   'Responde solo con la frase, sin comillas ni punto final.\n\n'
 // Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
-const ESTIMATE_PROMPT =
-  'Un agente de programación trabaja en el encargo de abajo. Con su historial de acciones (cada una con ' +
-  'su duración), la acción en curso y el tiempo que lleva, estima qué porcentaje del encargo lleva hecho. ' +
-  'Ten en cuenta que verificar, probar y redactar el informe suelen venir al final, y que una espera larga ' +
-  '(compilar, medir) no es avance por sí misma. Responde solo con un número entero entre 0 y 95.\n\n'
+// How Haiku estimates an agent's progress: the fixed rules as the system prompt, the agent's data as
+// the message. Phases give the percentage a scale; the rules cover the readings that mislead.
+const ESTIMATE_SYSTEM = [
+  'Estimas cuánto lleva hecho un agente de programación de su misión, a partir de lo que ya hizo.',
+  'Escala por fases:',
+  '- 0-25 %: explora y entiende (lee, busca, prueba el estado actual).',
+  '- 25-75 %: hace el trabajo principal (edita, ejecuta, convierte, mide).',
+  '- 75-90 %: verifica (tests, revisiones, comprobaciones de resultados).',
+  '- 90-95 %: redacta o documenta lo hecho y entrega.',
+  'Reglas:',
+  '- La misión dice qué cuenta como terminado; las últimas acciones dicen en qué fase está.',
+  '- Pesa la fase más que el número de acciones o el tiempo.',
+  '- Una espera larga o repetida (compilar, medir, sondear un log) no es avance por sí misma.',
+  '- Si la misma acción falla varias veces, está atascado: no subas.',
+  '- Mantente cerca de tu estimación anterior salvo un cambio claro de fase.',
+  'Responde solo con un número entero entre 0 y 95, sin texto.',
+].join('\n')
 // Calls kept per agent for the estimate's history, newest last.
 const HISTORY = 40
 // How far one estimate may fall below the last: a new reading, not a jump back.
@@ -402,8 +414,6 @@ export const registerAgents: Register = (on, options) => {
           status: 'running',
           startedAt,
           background: e.background,
-          // What it was asked, as given: the estimate reads it beside the one-line mission.
-          brief: clip(e.prompt, 1200),
           current: [],
           recent: [],
           counts: {},
@@ -574,7 +584,7 @@ async function requestEstimate($: EngineInterface, agentId: string): Promise<voi
   void estimateProgress($, agentId).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
 }
 
-/** The estimate's input: the brief, the mission, elapsed time, the calls with their durations, the live one. */
+/** The estimate's input: the mission, elapsed time, the calls with their durations, the live one, the last reading. */
 export function estimateInput(run: AgentRun, now: number): string {
   const history = (run.history ?? [])
     .map(call => `- ${formatDuration(call.ms)} ${call.ok ? '✓' : '✗'} ${call.what}`)
@@ -583,8 +593,7 @@ export function estimateInput(run: AgentRun, now: number): string {
     .map(step => `- lleva ${formatDuration(now - (step.startedAt ?? now))}: ${step.detail ?? step.label}`)
     .join('\n')
   return [
-    `Encargo:\n${run.brief ?? run.description}`,
-    `Misión en una frase: ${run.mission ?? run.description}`,
+    `Misión: ${run.mission ?? run.description}`,
     `Tiempo transcurrido: ${formatDuration(now - run.startedAt)}`,
     `Hecho: ${countsLine(run) || 'nada aún'}`,
     `Historial (de más antigua a más reciente, con duración):\n${history || '- (ninguna terminada)'}`,
@@ -601,8 +610,13 @@ async function estimateProgress($: EngineInterface, agentId: string): Promise<vo
   if (run === undefined || run.status !== 'running') {
     return
   }
-  const prompt = ESTIMATE_PROMPT + estimateInput(run, await $.clock.now())
-  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 10, timeoutMs: 15000 })
+  const reply = await $.model.complete({
+    model: 'haiku',
+    system: ESTIMATE_SYSTEM,
+    prompt: estimateInput(run, await $.clock.now()),
+    maxTokens: 10,
+    timeoutMs: 15000,
+  })
   const value = reply.isAnswered ? Number.parseInt(reply.text.replace(/[^0-9]/g, ''), 10) : Number.NaN
   if (Number.isFinite(value)) {
     await patch($, agentId, item => {

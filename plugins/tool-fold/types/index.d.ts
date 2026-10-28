@@ -49,8 +49,6 @@ export type AgentRun = {
   failures?: number
   /** The agent's own task list (TodoWrite or Task tools): done of total, and the task ids finished. */
   todo?: { done: number; total: number; completed: string[] }
-  /** What it was asked (the Agent prompt, cut), for the progress estimate. */
-  brief?: string
   /** Its finished calls, newest last (bounded): what each did, how long it took, whether it worked. */
   history?: { what: string; ms: number; ok: boolean }[]
   /** Distinct files its edits touched, for the finished card's count. */
