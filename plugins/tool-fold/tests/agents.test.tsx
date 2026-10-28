@@ -253,3 +253,24 @@ test('a background agent that ends moves its card to its finished notice', async
   expect((await notice.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
   await notice.unmount()
 })
+
+test('pane texts are cut to the pane width, so a narrow panel is not widened', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.log', () => ({ value: undefined }))
+  mock.clock(on)
+  await $.agent.spawn({ ...SPAWN, description: 'Añadir fuzzing acotado y opcional con dos objetivos (lector de formato y preflight de LAS)' })
+  await $.tool.call({ tool: 'Bash', command: 'cargo fuzz run', description: 'Escribe la documentación de fuzzing en fuzz/README.md con ejemplos', agentId: 'a1' })
+  const pane = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'Pane',
+    requestId: 'agents',
+    surface: 'vscode',
+    props: { title: 'Agentes', isFocused: false, bodyColumns: 40, placement: 'inline', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  } as never)
+  for (const text of await pane.findAll({ type: 'Text' })) {
+    expect(text.text.length).toBeLessThanOrEqual(40)
+  }
+  await pane.unmount()
+})

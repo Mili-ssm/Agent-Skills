@@ -460,9 +460,11 @@ export const registerAgents: Register = (on, options) => {
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
+    // The pane's body in cells, less the card's border and padding.
+    const maxChars = Math.max(24, e.props.bodyColumns - 4)
     return (
-      <Box flexDirection="column" gap={1}>
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3))}
+      <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
       </Box>
     )
   })
@@ -606,26 +608,33 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
  * Null when no run of this session belongs to the call (one spawned before the mod loaded).
  */
 /** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean) {
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean, maxChars: number) {
   const { Box, Text } = ui
   // Many agents at once: each card keeps its header, mission and live call only.
-  const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
+  // Texts are cut to the pane's width by hand: a text's natural width otherwise widens the whole pane
+  // past a narrow VS Code panel, whatever the card's own sizing says.
+  const steps = (isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)).map(step => ({
+    ...step,
+    label: clip(step.label, maxChars - 6),
+    ...(step.detail === undefined ? {} : { detail: clip(step.detail, maxChars - 6) }),
+  }))
+  const counts = clip(countsLine(run), maxChars - 2)
   return (
     // One card per agent, with a quiet border of its own inside the pane's frame.
     // Stretched by the pane, not sized: a set 100% width plus border and padding overflowed into a scroll
     // bar. minWidth 0 lets it shrink below a long header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
+      {runHeader(ui, run, now, frame, clip(run.mission ?? run.description, maxChars - 2), true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  Starting…'}</Text>
       ) : (
         // Each call hangs from the agent: a tree mark on both lines.
         steps.map(step => stepRow(ui, step, frame, '  └ ', true))
       )}
-      {isCompact || countsLine(run) === '' ? null : (
+      {isCompact || counts === '' ? null : (
         <Text dimColor wrap="truncate">
           {'  '}
-          {countsLine(run)}
+          {counts}
         </Text>
       )}
     </Box>
