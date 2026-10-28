@@ -24,6 +24,11 @@
       "name": "usage-band",
       "source": "./plugins/usage-band",
       "description": "Mod: a compact line under each answer with its duration and tokens per model (subagents included) plus session totals; /usage-band for a summary."
+    },
+    {
+      "name": "tool-fold",
+      "source": "./plugins/tool-fold",
+      "description": "Mod: tool calls in the chat fold into one line; a click unfolds the engine's own box with input and output. Agent calls are left alone."
     }
   ]
 }
