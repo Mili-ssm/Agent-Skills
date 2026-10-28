@@ -356,11 +356,12 @@ export const register: Register = (on, options) => {
     const isShown = isGroupOpen || isLive
     // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
     // An agent's card is several lines wide and tall: beside a mark it wraps badly in a narrow chat.
+    // Indented under the group's summary, as an agent card's calls hang under its mission.
     const branch = (node: RenderNode) =>
       isAgent ? (
-        <Box>{node}</Box>
+        <Box paddingLeft={4}>{node}</Box>
       ) : (
-        <Box flexDirection="row" gap={1}>
+        <Box flexDirection="row" gap={1} paddingLeft={2}>
           <Text dimColor>└</Text>
           {node}
         </Box>
