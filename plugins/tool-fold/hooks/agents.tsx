@@ -279,7 +279,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
   // Two lines, so a narrow chat wraps nothing: who and how far, then what it was asked.
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
-      <Box flexDirection="row" gap={1}>
+      <Box flexDirection="row" gap={1} minWidth={0} overflow="hidden">
         {bullet}
         <Text weight="bold" dimColor={run.status === 'done'}>
           {agentName(run)}
@@ -612,8 +612,9 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCom
   const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
   return (
     // One card per agent, with a quiet border of its own inside the pane's frame.
-    // Full width and clipped inside: a header wider than a narrowed pane no longer pushes the right edge out.
-    <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} width="100%" overflow="hidden">
+    // Stretched by the pane, not sized: a set 100% width plus border and padding overflowed into a scroll
+    // bar. minWidth 0 lets it shrink below a long header, and what does not fit is clipped inside.
+    <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={0} overflow="hidden">
       {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  Starting…'}</Text>
@@ -703,7 +704,7 @@ export async function noticeCard(
 async function openDock($: EngineInterface): Promise<void> {
   // The surface draws the title bar; its text at least says how many run (an open id only retitles).
   const running = (await read($, runs)).filter(run => run.status === 'running').length
-  const title = running > 1 ? `Agentes · ${running}` : 'Agentes'
+  const title = `Agentes · ${running}`
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
 }
