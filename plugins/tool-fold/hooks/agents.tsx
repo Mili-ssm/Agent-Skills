@@ -224,6 +224,28 @@ const ESTIMATE_SYSTEM = [
   '- Si la misión no tiene un final medible (vigilar un proceso o un PR, esperar un evento), responde ?.',
   'Responde solo con un número entero entre 0 y 95, o con ?, sin texto.',
 ].join('\n')
+// Durations remembered per agent type across sessions ($.store, a local file): no model call reads them.
+const REMEMBERED = 10
+
+/** Middle of a list of durations: the typical one, robust to an odd outlier. */
+export const median = (values: readonly number[]): number | undefined => {
+  if (values.length === 0) {
+    return undefined
+  }
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[middle] : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2)
+}
+
+/** The store key of one agent type's remembered durations (one key per type: no read-modify race across types). */
+const durationsKey = (type: string): string => `durations:${type}`
+
+/** The durations remembered for an agent type, newest last; an empty list when none or unreadable. */
+async function rememberedDurations($: EngineInterface, type: string): Promise<number[]> {
+  const value = await $.store.get(durationsKey(type)).catch(() => undefined)
+  return Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number') : []
+}
+
 // Calls kept per agent for the estimate's history, newest last.
 const HISTORY = 40
 // How far one estimate may fall below the last: a new reading, not a jump back.
@@ -263,6 +285,20 @@ export type Elements = {
   Text: ElementConstructor<TextProps>
 }
 
+/**
+ * The percentage a running card shows: Haiku's reading, or for an open-ended mission (a watcher) the
+ * time against how long its type usually takes, worked out as it draws (no model call), capped at 95.
+ */
+export function estimateOf(run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt'>, now: number): number | undefined {
+  if (run.estimate !== undefined) {
+    return run.estimate
+  }
+  if (run.isOpenEnded === true && run.typical !== undefined && run.typical.ms > 0) {
+    return Math.min(95, Math.round(((now - run.startedAt) / run.typical.ms) * 100))
+  }
+  return undefined
+}
+
 /** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
 function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string, withEstimate = false) {
   const { Box, Text } = ui
@@ -285,9 +321,9 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
         </Text>{' '}
         {run.todo.done}/{run.todo.total}
       </Text>
-    ) : withEstimate && isRunning && run.estimate !== undefined ? (
+    ) : withEstimate && isRunning && estimateOf(run, now) !== undefined ? (
       <Text dimColor>
-        <Text color="claude">{progressBar(run.estimate, 100, 5)}</Text> ≈{run.estimate}%
+        <Text color="claude">{progressBar(estimateOf(run, now) ?? 0, 100, 5)}</Text> ≈{estimateOf(run, now)}%
       </Text>
     ) : null
   // Two lines, so a narrow chat wraps nothing: who and how far, then what it was asked.
@@ -417,6 +453,12 @@ export const registerAgents: Register = (on, options) => {
         return [...all, run].slice(-MAX_RUNS)
       })
       await mirror($, list, id)
+      // How long agents of this type took before: a reference for the estimate, read once per spawn.
+      const past = await rememberedDurations($, e.subagentType)
+      const typical = median(past)
+      if (typical !== undefined) {
+        await patch($, id, run => ({ ...run, typical: { ms: typical, of: past.length } }))
+      }
       await update($, clock, () => startedAt)
       await syncTick($)
       await openDock($)
@@ -591,6 +633,9 @@ export function estimateInput(run: AgentRun, now: number): string {
   return [
     `Misión: ${run.mission ?? run.description}`,
     `Tiempo transcurrido: ${formatDuration(now - run.startedAt)}`,
+    run.typical === undefined
+      ? ''
+      : `Referencia: agentes de este tipo suelen tardar ~${formatDuration(run.typical.ms)} (mediana de ${run.typical.of})`,
     `Hecho: ${countsLine(run) || 'nada aún'}`,
     `Historial (de más antigua a más reciente, con duración):\n${history || '- (ninguna terminada)'}`,
     `En curso:\n${live || '- (entre acciones)'}`,
@@ -617,7 +662,7 @@ async function estimateProgress($: EngineInterface, agentId: string): Promise<vo
   if (reply.isAnswered && /^\s*\?\s*$/.test(reply.text)) {
     await patch($, agentId, item => {
       const { estimate: _dropped, ...rest } = item
-      return rest
+      return { ...rest, isOpenEnded: true }
     })
     return
   }
@@ -658,6 +703,12 @@ export async function endAgentTurn(
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
   await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
+  // A finished run teaches how long its type takes (only those that ended well).
+  const type = (await read($, runs)).find(run => run.id === agentId)?.type
+  if (status === 'done' && type !== undefined) {
+    const past = await rememberedDurations($, type)
+    await $.store.set(durationsKey(type), [...past, durationMs].slice(-REMEMBERED)).catch(() => undefined)
+  }
   await syncTick($)
   await closeDockWhenIdle($)
 }

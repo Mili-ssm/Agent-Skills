@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { commandOf, countsLine, describeStep, estimateInput, formatDuration, summarize } from '../hooks/agents'
+import { commandOf, countsLine, describeStep, estimateInput, estimateOf, formatDuration, median, summarize } from '../hooks/agents'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -294,9 +294,11 @@ test('the estimate reads the mission, elapsed time and each call with its durati
         { what: 'Convierte la muestra a V7', ms: 420_000, ok: true },
       ],
       estimate: 40,
+      typical: { ms: 480_000, of: 6 },
     },
     600_000,
   )
+  expect(text).toContain('Referencia: agentes de este tipo suelen tardar ~8m 00s (mediana de 6)')
   expect(text).toContain('Misión: Medir conversión de V5 frente a V7')
   expect(text).toContain('Tiempo transcurrido: 10m 00s')
   expect(text).toContain('- 1m 35s ✓ Compila el workspace en release')
@@ -332,4 +334,16 @@ test('a mission with no measurable end (a watcher) shows no percentage', async (
   expect((await pane.find({ type: 'Text', text: /^pr-watcher$/ }))?.text).toBe('pr-watcher')
   expect(await pane.find({ type: 'Text', text: /%/ })).toBeUndefined()
   await pane.unmount()
+})
+
+test('remembered durations: a reference line for Haiku, and time-based progress for an open-ended mission', () => {
+  expect(median([480_000, 300_000, 600_000])).toBe(480_000)
+  expect(median([])).toBeUndefined()
+  const watcher = { startedAt: 0, isOpenEnded: true, typical: { ms: 600_000, of: 4 } }
+  // 6 of a usual 10 minutes; never past 95 while it runs.
+  expect(estimateOf(watcher, 360_000)).toBe(60)
+  expect(estimateOf(watcher, 900_000)).toBe(95)
+  // Without a reference an open-ended mission shows nothing; Haiku's reading wins when there is one.
+  expect(estimateOf({ startedAt: 0, isOpenEnded: true }, 360_000)).toBeUndefined()
+  expect(estimateOf({ startedAt: 0, estimate: 40, typical: { ms: 600_000, of: 4 } }, 360_000)).toBe(40)
 })

@@ -57,6 +57,10 @@ export type AgentRun = {
   skills?: string[]
   /** Haiku's rough percentage done, for an agent with no task list, shown in the pane while it runs. */
   estimate?: number
+  /** How long agents of its type took before (median of the remembered ones, and how many): a reference. */
+  typical?: { ms: number; of: number }
+  /** Haiku found no measurable end (a watcher): the pane shows time against `typical` instead. */
+  isOpenEnded?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
   estimatedAt?: number
   /** Runs in the background: when it ends, its card moves to its "finished" notice at the bottom. */
