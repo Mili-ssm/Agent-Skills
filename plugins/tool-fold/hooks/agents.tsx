@@ -211,9 +211,45 @@ const COMMAND_PROMPT =
   '`git diff --stat HEAD~3` → Resume los cambios de 3 commits\n' +
   'Responde solo con la frase, sin comillas ni punto final.\n\n'
 // Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
-const ESTIMATE_PROMPT =
-  'Un agente de programación tiene este encargo y ha hecho estas acciones. Estima qué porcentaje del ' +
-  'encargo lleva hecho. Responde solo con un número entero entre 0 y 95.\n\n'
+// How Haiku estimates an agent's progress: the fixed rules as the system prompt, the agent's data as
+// the message. No phase scale: agents differ too much (a watcher has no phases); the rules cover the
+// readings that mislead, and an open-ended mission gets no number at all.
+const ESTIMATE_SYSTEM = [
+  'Estimas cuánto lleva hecho un agente de programación de su misión, a partir de lo que ya hizo.',
+  'Reglas:',
+  '- La misión dice qué cuenta como terminado; juzga cuánto de eso muestran ya sus acciones.',
+  '- Una espera larga o repetida (compilar, medir, sondear un log) no es avance por sí misma.',
+  '- Si la misma acción falla varias veces, está atascado: no subas.',
+  '- Mantente cerca de tu estimación anterior salvo un avance claro.',
+  '- Si la misión no tiene un final medible (vigilar un proceso o un PR, esperar un evento), responde ?.',
+  'Responde solo con un número entero entre 0 y 95, o con ?, sin texto.',
+].join('\n')
+// Durations remembered per agent type across sessions ($.store, a local file): no model call reads them.
+const REMEMBERED = 10
+
+/** Middle of a list of durations: the typical one, robust to an odd outlier. */
+export const median = (values: readonly number[]): number | undefined => {
+  if (values.length === 0) {
+    return undefined
+  }
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 1 ? sorted[middle] : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2)
+}
+
+/** The store key of one agent type's remembered durations (one key per type: no read-modify race across types). */
+const durationsKey = (type: string): string => `durations:${type}`
+
+/** The durations remembered for an agent type, newest last; an empty list when none or unreadable. */
+async function rememberedDurations($: EngineInterface, type: string): Promise<number[]> {
+  const value = await $.store.get(durationsKey(type)).catch(() => undefined)
+  return Array.isArray(value) ? value.filter((item): item is number => typeof item === 'number') : []
+}
+
+// Calls kept per agent for the estimate's history, newest last.
+const HISTORY = 40
+// How far one estimate may fall below the last: a new reading, not a jump back.
+const MAX_DROP = 10
 // An estimate follows each call of an agent, at most this often per agent; one asked sooner waits.
 const ESTIMATE_GAP_MS = 30_000
 
@@ -249,6 +285,20 @@ export type Elements = {
   Text: ElementConstructor<TextProps>
 }
 
+/**
+ * The percentage a running card shows: Haiku's reading, or for an open-ended mission (a watcher) the
+ * time against how long its type usually takes, worked out as it draws (no model call), capped at 95.
+ */
+export function estimateOf(run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt'>, now: number): number | undefined {
+  if (run.estimate !== undefined) {
+    return run.estimate
+  }
+  if (run.isOpenEnded === true && run.typical !== undefined && run.typical.ms > 0) {
+    return Math.min(95, Math.round(((now - run.startedAt) / run.typical.ms) * 100))
+  }
+  return undefined
+}
+
 /** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
 function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string, withEstimate = false) {
   const { Box, Text } = ui
@@ -271,9 +321,9 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
         </Text>{' '}
         {run.todo.done}/{run.todo.total}
       </Text>
-    ) : withEstimate && isRunning && run.estimate !== undefined ? (
+    ) : withEstimate && isRunning && estimateOf(run, now) !== undefined ? (
       <Text dimColor>
-        <Text color="claude">{progressBar(run.estimate, 100, 5)}</Text> ≈{run.estimate}%
+        <Text color="claude">{progressBar(estimateOf(run, now) ?? 0, 100, 5)}</Text> ≈{estimateOf(run, now)}%
       </Text>
     ) : null
   // Two lines, so a narrow chat wraps nothing: who and how far, then what it was asked.
@@ -403,6 +453,12 @@ export const registerAgents: Register = (on, options) => {
         return [...all, run].slice(-MAX_RUNS)
       })
       await mirror($, list, id)
+      // How long agents of this type took before: a reference for the estimate, read once per spawn.
+      const past = await rememberedDurations($, e.subagentType)
+      const typical = median(past)
+      if (typical !== undefined) {
+        await patch($, id, run => ({ ...run, typical: { ms: typical, of: past.length } }))
+      }
       await update($, clock, () => startedAt)
       await syncTick($)
       await openDock($)
@@ -460,9 +516,11 @@ export const registerAgents: Register = (on, options) => {
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
+    // The pane's body in cells, less the card's border and padding.
+    const maxChars = Math.max(24, e.props.bodyColumns - 4)
     return (
-      <Box flexDirection="column" gap={1}>
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3))}
+      <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
       </Box>
     )
   })
@@ -486,7 +544,7 @@ export async function startAgentCall(
   if (!isTracked) {
     return undefined
   }
-  const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running' }
+  const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running', startedAt: await $.clock.now() }
   await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
   if (step.kind === 'run' && step.detail === undefined && typeof input.command === 'string') {
     void describeCommand($, agentId, step.id, input.command).catch(error =>
@@ -506,8 +564,18 @@ export async function endAgentCall(
   status: Step['status'],
 ): Promise<void> {
   const plan = status === 'done' ? planChange(tool, input) : undefined
+  const endedAt = await $.clock.now()
   await patch($, agentId, run => ({
     ...run,
+    // The call as the pane last named it (its words may have arrived after it started), and how long it took.
+    history: [
+      ...(run.history ?? []),
+      {
+        what: (run.current.find(item => item.id === step.id) ?? step).detail ?? step.label,
+        ms: endedAt - (step.startedAt ?? endedAt),
+        ok: status === 'done',
+      },
+    ].slice(-HISTORY),
     ...(plan === undefined ? {} : { todo: plan(run.todo) }),
     current: run.current.filter(item => item.id !== step.id),
     recent: [...run.recent, { ...step, status }].slice(-2),
@@ -551,20 +619,63 @@ async function requestEstimate($: EngineInterface, agentId: string): Promise<voi
     return
   }
   await patch($, agentId, item => ({ ...item, estimatedAt: now }))
-  void estimateProgress($, run).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
+  void estimateProgress($, agentId).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
 }
 
-/** Asks Haiku how far an agent with no task list is: a rough percentage for the pane. */
-async function estimateProgress($: EngineInterface, run: AgentRun): Promise<void> {
-  const done = [...run.recent].map(step => `- ${step.label}${step.detail === undefined ? '' : ` (${step.detail})`}`).join('\n')
-  const prompt =
-    ESTIMATE_PROMPT +
-    `Encargo: ${run.mission ?? run.description}\nHecho: ${summarize(run.counts)}\nÚltimas acciones:\n${done}`
-  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 10, timeoutMs: 15000 })
+/** The estimate's input: the mission, elapsed time, the calls with their durations, the live one, the last reading. */
+export function estimateInput(run: AgentRun, now: number): string {
+  const history = (run.history ?? [])
+    .map(call => `- ${formatDuration(call.ms)} ${call.ok ? '✓' : '✗'} ${call.what}`)
+    .join('\n')
+  const live = run.current
+    .map(step => `- lleva ${formatDuration(now - (step.startedAt ?? now))}: ${step.detail ?? step.label}`)
+    .join('\n')
+  return [
+    `Misión: ${run.mission ?? run.description}`,
+    `Tiempo transcurrido: ${formatDuration(now - run.startedAt)}`,
+    run.typical === undefined
+      ? ''
+      : `Referencia: agentes de este tipo suelen tardar ~${formatDuration(run.typical.ms)} (mediana de ${run.typical.of})`,
+    `Hecho: ${countsLine(run) || 'nada aún'}`,
+    `Historial (de más antigua a más reciente, con duración):\n${history || '- (ninguna terminada)'}`,
+    `En curso:\n${live || '- (entre acciones)'}`,
+    run.estimate === undefined ? '' : `Tu estimación anterior: ${run.estimate}%`,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
+}
+
+/** Asks Haiku how far an agent with no task list is: a rough percentage for the pane, smoothed. */
+async function estimateProgress($: EngineInterface, agentId: string): Promise<void> {
+  const run = (await read($, runs)).find(item => item.id === agentId)
+  if (run === undefined || run.status !== 'running') {
+    return
+  }
+  const reply = await $.model.complete({
+    model: 'haiku',
+    system: ESTIMATE_SYSTEM,
+    prompt: estimateInput(run, await $.clock.now()),
+    maxTokens: 10,
+    timeoutMs: 15000,
+  })
+  // `?`: no measurable end (a watcher): the pane shows no percentage rather than an invented one.
+  if (reply.isAnswered && /^\s*\?\s*$/.test(reply.text)) {
+    await patch($, agentId, item => {
+      const { estimate: _dropped, ...rest } = item
+      return { ...rest, isOpenEnded: true }
+    })
+    return
+  }
   const value = reply.isAnswered ? Number.parseInt(reply.text.replace(/[^0-9]/g, ''), 10) : Number.NaN
   if (Number.isFinite(value)) {
-    const estimate = Math.max(0, Math.min(95, value))
-    await patch($, run.id, item => (item.status === 'running' ? { ...item, estimate } : item))
+    await patch($, agentId, item => {
+      if (item.status !== 'running') {
+        return item
+      }
+      // Never past 95 while it runs, and never more than MAX_DROP below the last reading.
+      const floor = item.estimate === undefined ? 0 : item.estimate - MAX_DROP
+      return { ...item, estimate: Math.max(floor, Math.min(95, value)) }
+    })
   }
 }
 
@@ -592,6 +703,12 @@ export async function endAgentTurn(
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
   await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
+  // A finished run teaches how long its type takes (only those that ended well).
+  const type = (await read($, runs)).find(run => run.id === agentId)?.type
+  if (status === 'done' && type !== undefined) {
+    const past = await rememberedDurations($, type)
+    await $.store.set(durationsKey(type), [...past, durationMs].slice(-REMEMBERED)).catch(() => undefined)
+  }
   await syncTick($)
   await closeDockWhenIdle($)
 }
@@ -601,31 +718,34 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
   return (await read($, memberOf(byCall, { requestId: toolUseId }))).some(run => run.status === 'running')
 }
 
-/**
- * The card an Agent call's row draws: live while its agent runs, one summary line after.
- * Null when no run of this session belongs to the call (one spawned before the mod loaded).
- */
 /** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean) {
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean, maxChars: number) {
   const { Box, Text } = ui
   // Many agents at once: each card keeps its header, mission and live call only.
-  const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
+  // Texts are cut to the pane's width by hand: a text's natural width otherwise widens the whole pane
+  // past a narrow VS Code panel, whatever the card's own sizing says.
+  const steps = (isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)).map(step => ({
+    ...step,
+    label: clip(step.label, maxChars - 6),
+    ...(step.detail === undefined ? {} : { detail: clip(step.detail, maxChars - 6) }),
+  }))
+  const counts = clip(countsLine(run), maxChars - 2)
   return (
     // One card per agent, with a quiet border of its own inside the pane's frame.
     // Stretched by the pane, not sized: a set 100% width plus border and padding overflowed into a scroll
     // bar. minWidth 0 lets it shrink below a long header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
+      {runHeader(ui, run, now, frame, clip(run.mission ?? run.description, maxChars - 2), true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  Starting…'}</Text>
       ) : (
         // Each call hangs from the agent: a tree mark on both lines.
         steps.map(step => stepRow(ui, step, frame, '  └ ', true))
       )}
-      {isCompact || countsLine(run) === '' ? null : (
+      {isCompact || counts === '' ? null : (
         <Text dimColor wrap="truncate">
           {'  '}
-          {countsLine(run)}
+          {counts}
         </Text>
       )}
     </Box>

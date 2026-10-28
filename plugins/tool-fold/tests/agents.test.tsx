@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { commandOf, countsLine, describeStep, formatDuration, summarize } from '../hooks/agents'
+import { commandOf, countsLine, describeStep, estimateInput, estimateOf, formatDuration, median, summarize } from '../hooks/agents'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -197,8 +197,8 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   on('ui.log', () => ({ value: undefined }))
   let estimates = 0
   on('model.complete', (_, e) => {
-    // Only the progress estimates count here, not the mission line.
-    estimates += String(e.prompt).includes('porcentaje') ? 1 : 0
+    // Only the progress estimates count here (they carry the estimate's rules), not the mission line.
+    estimates += String(e.system ?? '').includes('Estimas cuánto lleva hecho') ? 1 : 0
     return { value: { isAnswered: true, text: '40', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   const clock = mock.clock(on)
@@ -252,4 +252,98 @@ test('a background agent that ends moves its card to its finished notice', async
   expect((await notice.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
   expect((await notice.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
   await notice.unmount()
+})
+
+test('pane texts are cut to the pane width, so a narrow panel is not widened', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.log', () => ({ value: undefined }))
+  mock.clock(on)
+  await $.agent.spawn({ ...SPAWN, description: 'Añadir fuzzing acotado y opcional con dos objetivos (lector de formato y preflight de LAS)' })
+  await $.tool.call({ tool: 'Bash', command: 'cargo fuzz run', description: 'Escribe la documentación de fuzzing en fuzz/README.md con ejemplos', agentId: 'a1' })
+  const pane = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'Pane',
+    requestId: 'agents',
+    surface: 'vscode',
+    props: { title: 'Agentes', isFocused: false, bodyColumns: 40, placement: 'inline', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  } as never)
+  for (const text of await pane.findAll({ type: 'Text' })) {
+    expect(text.text.length).toBeLessThanOrEqual(40)
+  }
+  await pane.unmount()
+})
+
+test('the estimate reads the mission, elapsed time and each call with its duration', () => {
+  const text = estimateInput(
+    {
+      id: 'a1',
+      toolUseId: 'tu1',
+      type: 'performance-analyst',
+      description: 'Measure V5 vs V7',
+      mission: 'Medir conversión de V5 frente a V7',
+      model: 'claude-sonnet-5-5',
+      status: 'running',
+      startedAt: 0,
+      current: [{ id: 's3', kind: 'run', label: 'Run cargo bench', detail: 'Mide la lectura de V7', status: 'running', startedAt: 590_000 }],
+      recent: [],
+      counts: { run: 2 },
+      history: [
+        { what: 'Compila el workspace en release', ms: 95_000, ok: true },
+        { what: 'Convierte la muestra a V7', ms: 420_000, ok: true },
+      ],
+      estimate: 40,
+      typical: { ms: 480_000, of: 6 },
+    },
+    600_000,
+  )
+  expect(text).toContain('Referencia: agentes de este tipo suelen tardar ~8m 00s (mediana de 6)')
+  expect(text).toContain('Misión: Medir conversión de V5 frente a V7')
+  expect(text).toContain('Tiempo transcurrido: 10m 00s')
+  expect(text).toContain('- 1m 35s ✓ Compila el workspace en release')
+  expect(text).toContain('- 7m 00s ✓ Convierte la muestra a V7')
+  expect(text).toContain('- lleva 10s: Mide la lectura de V7')
+  expect(text).toContain('Tu estimación anterior: 40%')
+})
+
+test('a mission with no measurable end (a watcher) shows no percentage', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'w1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', (_, e) => ({
+    value: {
+      isAnswered: true,
+      text: String(e.system ?? '').includes('Estimas cuánto lleva hecho') ? '?' : 'Vigila el PR 42',
+      usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    },
+  }))
+  mock.clock(on)
+
+  await $.agent.spawn({ ...SPAWN, subagentType: 'pr-watcher', description: 'Watch PR 42' })
+  await $.tool.call({ tool: 'Bash', command: 'gh pr checks 42', description: 'Check PR status', agentId: 'w1' })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const pane = await $.ui.mount({
+    plugin: 'tool-fold',
+    component: 'Pane',
+    requestId: 'agents',
+    surface: 'vscode',
+    props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
+  } as never)
+  expect((await pane.find({ type: 'Text', text: /^pr-watcher$/ }))?.text).toBe('pr-watcher')
+  expect(await pane.find({ type: 'Text', text: /%/ })).toBeUndefined()
+  await pane.unmount()
+})
+
+test('remembered durations: a reference line for Haiku, and time-based progress for an open-ended mission', () => {
+  expect(median([480_000, 300_000, 600_000])).toBe(480_000)
+  expect(median([])).toBeUndefined()
+  const watcher = { startedAt: 0, isOpenEnded: true, typical: { ms: 600_000, of: 4 } }
+  // 6 of a usual 10 minutes; never past 95 while it runs.
+  expect(estimateOf(watcher, 360_000)).toBe(60)
+  expect(estimateOf(watcher, 900_000)).toBe(95)
+  // Without a reference an open-ended mission shows nothing; Haiku's reading wins when there is one.
+  expect(estimateOf({ startedAt: 0, isOpenEnded: true }, 360_000)).toBeUndefined()
+  expect(estimateOf({ startedAt: 0, estimate: 40, typical: { ms: 600_000, of: 4 } }, 360_000)).toBe(40)
 })
