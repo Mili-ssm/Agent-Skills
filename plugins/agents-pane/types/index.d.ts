@@ -47,6 +47,12 @@ export type AgentRun = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'agents-pane': { runs: Shaped<AgentRun[]> }
+    'agents-pane': {
+      runs: Shaped<AgentRun[]>
+      /** The runs drawn on one Agent call's row, keyed by its tool_use_id. */
+      byCall: StateFamily<Shaped<AgentRun[]>>
+      /** Clock time of the last tick, read by what shows a live elapsed time. */
+      now: number
+    }
   }
 }

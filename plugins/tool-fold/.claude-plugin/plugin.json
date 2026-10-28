@@ -1,7 +1,9 @@
 {
   "name": "tool-fold",
-  "description": "Mod: tool calls in the chat fold into one line (status dot, tool, what it does); a click unfolds the engine's own box with its input and output. Agent calls are left alone.",
-  "author": { "name": "mili-ssm" },
+  "description": "Mod: tool calls fold into one line, and a run of calls into one group line with a Haiku summary; arrows unfold the calls and the engine's own boxes. Agent calls are left alone.",
+  "author": {
+    "name": "mili-ssm"
+  },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
   "types": "./types/index.d.ts"
 }
