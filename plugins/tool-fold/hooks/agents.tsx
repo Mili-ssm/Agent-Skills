@@ -169,9 +169,6 @@ const OUTCOME: Record<AgentRunStatus, { word: string; color: string }> = {
   aborted: { word: 'Stopped', color: 'warning' },
 }
 
-// Agents the bottom block and the status line name before `+n`.
-const SHOWN = 3
-
 // Asks Haiku for the mission line: what the agent was asked, as a person would say it.
 const MISSION_PROMPT =
   'En una sola frase corta (máximo 12 palabras), en español llano y sin tecnicismos innecesarios, ' +
@@ -180,39 +177,10 @@ const MISSION_PROMPT =
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
 
-/** The newest live call of a run, if one is running. */
-const liveStep = (run: AgentRun): Step | undefined => run.current[run.current.length - 1]
-
 /** `Explored 3 files · Ran 2 commands · 1 failed`. */
 const summaryOf = (run: AgentRun): string => {
   const failures = run.failures ?? 0
   return summarize(run.counts) + (failures > 0 ? ` · ${failures} failed` : '')
-}
-
-/**
- * The status line, used while the main loop is idle and only background agents run:
- * `◐ ux-reviewer · sonnet-5-5 ▸ Run npm test · 37s`, or with several
- * `◐ 3 agents · ux-reviewer ▸ Run npm test 37s │ Explore ▸ Search "x" 12s │ +1`.
- * Undefined (clears the line) when none runs.
- */
-export function statusText(list: readonly AgentRun[], now: number): string | undefined {
-  const running = list.filter(run => run.status === 'running')
-  if (running.length === 0) {
-    return undefined
-  }
-  const frame = FRAMES[Math.floor(now / 1000) % FRAMES.length] ?? '◐'
-  const doing = (run: AgentRun, max: number): string => {
-    const step = liveStep(run)
-    return step === undefined ? '' : ` ▸ ${clip(step.label, max)}`
-  }
-  const elapsed = (run: AgentRun): string => formatDuration(now - run.startedAt)
-  const only = running[0]
-  if (running.length === 1 && only !== undefined) {
-    return `${frame} ${agentName(only)} · ${shortModel(only.model)}${doing(only, 60)} · ${elapsed(only)}`
-  }
-  const shown = running.slice(0, SHOWN).map(run => `${agentName(run)}${doing(run, 28)} ${elapsed(run)}`)
-  const more = running.length > SHOWN ? ` │ +${running.length - SHOWN}` : ''
-  return `${frame} ${running.length} agents · ${shown.join(' │ ')}${more}`
 }
 
 /** The elements a card is drawn with. */
@@ -279,35 +247,14 @@ function stepRow(ui: Elements, step: Step, frame: string, indent: string) {
   )
 }
 
-/** Mirrors the running agents on the status line while the main loop is idle; never throws. */
-async function publishStatus($: EngineInterface): Promise<void> {
-  try {
-    // While the main loop works, the block under its spinner shows them instead.
-    const text = isMainWorking ? undefined : statusText(await read($, runs), await $.clock.now())
-    // The tick calls this every second: send only a change.
-    if (text !== lastStatus) {
-      lastStatus = text
-      $.ui.status(text)
-    }
-  } catch (error) {
-    $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
-  }
-}
-
-// Module state, reset by a reload: the next event sets both again.
-// Ticks the live elapsed time while any agent runs.
+// Module state, reset by a reload (session.start starts it again): ticks the live elapsed time while any agent runs.
 let tick: { cancel: () => void } | undefined
-// The status line as last sent.
-let lastStatus: string | undefined
-// True while the main loop's turn runs, when its spinner (and the block under it) is drawn.
-let isMainWorking = false
 
 /** Applies `fn` to the run with this agent id; never throws (a tool call must not fail on it). */
 async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) => AgentRun): Promise<void> {
   try {
     const list = await update($, runs, all => all.map(run => (run.id === agentId ? fn(run) : run)))
     await mirror($, list, agentId)
-    await publishStatus($)
   } catch (error) {
     $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' })
   }
@@ -324,12 +271,10 @@ async function mirror($: EngineInterface, list: readonly AgentRun[], agentId: st
 
 /** Starts the one-second redraw while something runs, stops it once nothing does. */
 async function syncTick($: EngineInterface): Promise<void> {
-  await publishStatus($)
   const isRunning = (await read($, runs)).some(run => run.status === 'running')
   if (isRunning && tick === undefined) {
     tick = $.clock.every(1000, () => {
       void $.clock.now().then(now => update($, clock, () => now))
-      void publishStatus($)
     })
   } else if (!isRunning && tick !== undefined) {
     tick.cancel()
@@ -405,75 +350,13 @@ export const registerAgents: Register = (on, options) => {
   // After a load or a hot reload (which drops the timer and module state): pick up running agents again.
   on('session.start', async ($, e, next) => {
     const started = await next(e)
+    // Earlier versions kept running agents on the status line: clear what one left there.
+    $.ui.status(undefined)
     await syncTick($)
 
     return started
   })
 
-  // The main loop's spinner shows while its turn runs: the running agents move under it.
-  on('turn.start', async ($, e, next) => {
-    const result = await next(e)
-    if (e.agentId === undefined) {
-      isMainWorking = true
-      await publishStatus($)
-    }
-
-    return result
-  })
-
-
-  // Under the main spinner: one framed block per running agent, stacked, with its mission and live call.
-  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
-    const list = await read($, runs)
-    const running = list.filter(run => run.status === 'running')
-    // A subagent's own spinner keeps the engine's look.
-    if (running.length === 0 || list.some(run => run.id === e.requestId)) {
-      return next(e)
-    }
-    const engine = await next(e)
-    const ui = $.ui.resolve(e)
-    const { Box, Text } = ui
-    // Subscribes the block to the tick; the time itself is read fresh.
-    await read($, clock)
-    const now = await $.clock.now()
-    const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    const elements: Elements = { Box, Text }
-    const hidden = running.length - SHOWN
-
-    return (
-      <Box flexDirection="column">
-        {engine}
-        <Box
-          flexDirection="column"
-          gap={1}
-          {...(e.surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
-        >
-          {running.slice(0, SHOWN).map(run => {
-            const step = liveStep(run)
-            const summary = summaryOf(run)
-            return (
-              <Box key={run.id} flexDirection="column">
-                {runHeader(elements, run, now, frame)}
-                <Text wrap="truncate">
-                  {'  '}
-                  {run.mission ?? run.description}
-                </Text>
-                {step === undefined ? (
-                  <Text dimColor wrap="truncate">
-                    {'  └ '}
-                    {summary === '' ? 'Starting…' : summary}
-                  </Text>
-                ) : (
-                  stepRow(elements, step, frame, '  ')
-                )}
-              </Box>
-            )
-          })}
-          {hidden > 0 ? <Text dimColor>{`+${hidden} ${hidden === 1 ? 'agente más' : 'agentes más'}`}</Text> : null}
-        </Box>
-      </Box>
-    )
-  })
 }
 
 /**
@@ -526,8 +409,6 @@ export async function endAgentTurn(
   durationMs: number,
 ): Promise<void> {
   if (agentId === undefined) {
-    isMainWorking = false
-    await publishStatus($)
     return
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
