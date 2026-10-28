@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { commandOf, describeStep, formatDuration, summarize } from '../hooks/agents'
+import { commandOf, countsLine, describeStep, formatDuration, summarize } from '../hooks/agents'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -42,9 +42,9 @@ test('steps are named and grouped as Codex does', () => {
     '7 calls · Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
   )
   // Distinct files rather than edits; skills by name.
-  expect(summarize({ edit: 6, run: 20, skill: 1 }, { files: ['a.rs', 'b.rs', 'c.rs', 'd.rs'], skills: ['qa-review'] })).toBe(
-    '27 calls · Edited 4 files · Ran 20 commands · qa-review',
-  )
+  expect(
+    countsLine({ counts: { read: 6, search: 3, edit: 6, run: 20 }, files: ['a', 'b', 'c', 'd'], skills: ['qa-review'], failures: 1 }),
+  ).toBe('35 calls · 9 searches · 4 edits · 20 commands · qa-review · 1 failed')
   expect(formatDuration(75000)).toBe('1m 15s')
 })
 
@@ -112,7 +112,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
 
   const ui = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
   expect((await ui.find({ type: 'Text', text: /1m 15s/ }))?.text).toBe('1m 15s')
-  expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('  └ 2 calls · Explored 1 file, 1 search')
+  expect((await ui.find({ type: 'Text', text: /calls · / }))?.text).toBe('  2 calls · 2 searches')
   expect(await ui.find({ type: 'Text', text: /Search "/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -186,7 +186,7 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   await $.turn.complete({ agentId: 'a1', answer: 'done', durationMs: 60000, isAborted: false, turnId: 't1', reason: 'answer' })
   expect(panes).toEqual(['open agents', 'close agents'])
   const ended = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
-  expect((await ended.find({ type: 'Text', text: /Ran 1 command/ }))?.text).toBe('  └ Ran 1 command')
+  expect((await ended.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
   await ended.unmount()
 })
 
@@ -250,6 +250,6 @@ test('a background agent that ends moves its card to its finished notice', async
     props: { text: 'Agent "Find session creation" finished', origin: { kind: 'task-notification' }, isExpanded: true, task: { status: 'completed', toolUseId: 'tu1' } },
   } as never)
   expect((await notice.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
-  expect((await notice.find({ type: 'Text', text: /Ran 1 command/ }))?.text).toBe('  └ Ran 1 command')
+  expect((await notice.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
   await notice.unmount()
 })

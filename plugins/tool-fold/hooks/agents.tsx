@@ -221,9 +221,26 @@ const ESTIMATE_GAP_MS = 30_000
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
 
 /** `Explored 3 files · Ran 2 commands · 1 failed`. */
-const summaryOf = (run: AgentRun): string => {
-  const failures = run.failures ?? 0
-  return summarize(run.counts, { files: run.files, skills: run.skills }) + (failures > 0 ? ` · ${failures} failed` : '')
+const summaryOf = (run: AgentRun): string => countsLine(run)
+
+/**
+ * `34 calls · 9 searches · 4 edits · 20 commands · qa-review · 1 failed`: what an agent did, in one
+ * condensed line. Searches are reads, listings, searches and web calls; edits are distinct files.
+ */
+export function countsLine(run: Pick<AgentRun, 'counts' | 'files' | 'skills' | 'failures'>): string {
+  const n = (kind: StepKind): number => run.counts[kind] ?? 0
+  const total = Object.values(run.counts).reduce((sum, count) => sum + (count ?? 0), 0)
+  const searches = n('read') + n('list') + n('search') + n('web')
+  const edits = run.files?.length || n('edit')
+  const parts = [
+    total > 0 ? plural(total, 'call') : '',
+    searches > 0 ? plural(searches, 'search').replace('searchs', 'searches') : '',
+    edits > 0 ? plural(edits, 'edit') : '',
+    n('run') > 0 ? plural(n('run'), 'command') : '',
+    (run.skills ?? []).join(', '),
+    (run.failures ?? 0) > 0 ? `${run.failures} failed` : '',
+  ]
+  return parts.filter(Boolean).join(' · ')
 }
 
 /** The elements a card is drawn with. */
@@ -599,9 +616,15 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCom
     <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} width="100%" overflow="hidden">
       {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
       {steps.length === 0 ? (
-        <Text dimColor>{'  └ Starting…'}</Text>
+        <Text dimColor>{'  Starting…'}</Text>
       ) : (
         steps.map(step => stepRow(ui, step, frame, '  ', true))
+      )}
+      {isCompact || countsLine(run) === '' ? null : (
+        <Text dimColor wrap="truncate">
+          {'  '}
+          {countsLine(run)}
+        </Text>
       )}
     </Box>
   )
@@ -641,8 +664,8 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, frame: string) {
     <Box key={run.id} flexDirection="column">
       {runHeader(ui, run, now, frame, run.mission ?? run.description)}
       {summary === '' ? null : (
-        <Text dimColor>
-          {'  └ '}
+        <Text dimColor wrap="truncate">
+          {'  '}
           {run.status === 'done' ? summary : `${OUTCOME[run.status].word} · ${summary}`}
         </Text>
       )}
