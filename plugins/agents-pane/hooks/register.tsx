@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register } from 'claude-code'
+import type { BoxProps, ElementConstructor, EngineInterface, Register, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 
@@ -7,7 +7,7 @@ import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 const MAX_RUNS = 100
 // Bump the shape tag when AgentRun's fields change: an older stored list is then read as empty.
 const runs = atom({ plugin: 'agents-pane', key: 'runs' } as const, [], {
-  shape: 'runs-3',
+  shape: 'runs-4',
 })
 
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
@@ -138,11 +138,28 @@ const OUTCOME: Record<AgentRunStatus, { word: string; color: string }> = {
   aborted: { word: 'Stopped', color: 'warning' },
 }
 
-// Agents named on the status line before `+n`.
-const STATUS_SHOWN = 3
+// Agents the bottom block and the status line name before `+n`.
+const SHOWN = 3
+
+// Asks Haiku for the mission line: what the agent was asked, as a person would say it.
+const MISSION_PROMPT =
+  'En una sola frase corta (máximo 12 palabras), en español llano y sin tecnicismos innecesarios, ' +
+  'di qué se le ha pedido hacer a este agente. Responde solo con la frase, sin comillas ni punto final.\n\nEncargo:\n'
+
+/** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
+const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
+
+/** The newest live call of a run, if one is running. */
+const liveStep = (run: AgentRun): Step | undefined => run.current[run.current.length - 1]
+
+/** `Explored 3 files · Ran 2 commands · 1 failed`. */
+const summaryOf = (run: AgentRun): string => {
+  const failures = run.failures ?? 0
+  return summarize(run.counts) + (failures > 0 ? ` · ${failures} failed` : '')
+}
 
 /**
- * The status line while agents run, the one always-visible spot under the chat in VS Code:
+ * The status line, used while the main loop is idle and only background agents run:
  * `◐ ux-reviewer · sonnet-5-5 ▸ Run npm test · 37s`, or with several
  * `◐ 3 agents · ux-reviewer ▸ Run npm test 37s │ Explore ▸ Search "x" 12s │ +1`.
  * Undefined (clears the line) when none runs.
@@ -153,32 +170,94 @@ export function statusText(list: readonly AgentRun[], now: number): string | und
     return undefined
   }
   const frame = FRAMES[Math.floor(now / 1000) % FRAMES.length] ?? '◐'
-  const name = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
   const doing = (run: AgentRun, max: number): string => {
-    const step = run.current[run.current.length - 1]
+    const step = liveStep(run)
     return step === undefined ? '' : ` ▸ ${clip(step.label, max)}`
   }
   const elapsed = (run: AgentRun): string => formatDuration(now - run.startedAt)
   const only = running[0]
   if (running.length === 1 && only !== undefined) {
-    return `${frame} ${name(only)} · ${shortModel(only.model)}${doing(only, 60)} · ${elapsed(only)}`
+    return `${frame} ${agentName(only)} · ${shortModel(only.model)}${doing(only, 60)} · ${elapsed(only)}`
   }
-  const shown = running.slice(0, STATUS_SHOWN).map(run => `${name(run)}${doing(run, 28)} ${elapsed(run)}`)
-  const more = running.length > STATUS_SHOWN ? ` │ +${running.length - STATUS_SHOWN}` : ''
+  const shown = running.slice(0, SHOWN).map(run => `${agentName(run)}${doing(run, 28)} ${elapsed(run)}`)
+  const more = running.length > SHOWN ? ` │ +${running.length - SHOWN}` : ''
   return `${frame} ${running.length} agents · ${shown.join(' │ ')}${more}`
 }
 
-/** Mirrors the running agents on the status line; never throws. */
+/** The elements a card is drawn with; `Svg` where the surface has it. */
+type Elements = {
+  Box: ElementConstructor<BoxProps>
+  Text: ElementConstructor<TextProps>
+  Svg?: ElementConstructor<SvgProps>
+}
+
+/** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
+function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string) {
+  const { Box, Text, Svg } = ui
+  const isRunning = run.status === 'running'
+  const outcome = OUTCOME[run.status]
+  const elapsed = formatDuration(run.durationMs ?? now - run.startedAt)
+  const bullet = !isRunning ? (
+    <Text color={outcome.color} bold>
+      •
+    </Text>
+  ) : Svg === undefined ? (
+    <Text color={outcome.color}>{frame}</Text>
+  ) : (
+    <Svg source={SPINNER_SVG} alt="running" width={12} height={12} isInteractive />
+  )
+  return (
+    <Box key={`${run.id}-head`} flexDirection="row" gap={1}>
+      {bullet}
+      <Text weight="bold" dimColor={run.status === 'done'}>
+        {agentName(run)}
+      </Text>
+      <Text dimColor>
+        <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
+      </Text>
+      {label === undefined ? null : (
+        <Text dimColor wrap="truncate">
+          {label}
+        </Text>
+      )}
+      <Text dimColor tabular>
+        {isRunning ? `${outcome.word} ${elapsed}` : elapsed}
+      </Text>
+    </Box>
+  )
+}
+
+/** `  ✓ Read session.py` / `  ◐ Run npm test`: one call, only its glyph colored. */
+function stepRow(ui: Elements, step: Step, frame: string, indent: string) {
+  const { Text } = ui
+  return (
+    <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
+      {indent}
+      {step.status === 'running' ? (
+        <Text color="claude">{frame}</Text>
+      ) : (
+        <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
+      )}{' '}
+      {step.label}
+    </Text>
+  )
+}
+
+/** Mirrors the running agents on the status line while the main loop is idle; never throws. */
 async function publishStatus($: EngineInterface): Promise<void> {
   try {
-    $.ui.status(statusText(await read($, runs), await $.clock.now()))
+    // While the main loop works, the block under its spinner shows them instead.
+    $.ui.status(isMainWorking ? undefined : statusText(await read($, runs), await $.clock.now()))
   } catch (error) {
     $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' })
   }
 }
 
-// Ticks the live elapsed time while any agent runs; module state, restarted by the next spawn.
+// Module state, reset by a reload: the next event sets both again.
+// Ticks the live elapsed time while any agent runs.
 let tick: { cancel: () => void } | undefined
+// True while the main loop's turn runs, when its spinner (and the block under it) is drawn.
+let isMainWorking = false
 
 /** Applies `fn` to the run with this agent id; never throws (a tool call must not fail on it). */
 async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) => AgentRun): Promise<void> {
@@ -205,6 +284,21 @@ async function syncTick($: EngineInterface): Promise<void> {
   }
 }
 
+/** Asks Haiku for the run's mission line and stores it; a miss leaves the description. */
+async function writeMission($: EngineInterface, agentId: string, prompt: string): Promise<void> {
+  const reply = await $.model.complete({
+    model: 'haiku',
+    prompt: MISSION_PROMPT + prompt.slice(0, 4000),
+    maxTokens: 60,
+    timeoutMs: 20000,
+  })
+  if (reply.isAnswered && reply.text.trim() !== '') {
+    const mission = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 100)
+    await patch($, agentId, run => ({ ...run, mission }))
+    $.ui.invalidate('ui.render')
+  }
+}
+
 export const register: Register = on => {
   // Record each spawn after the engine resolved its model and id.
   on('agent.spawn', async ($, e, next) => {
@@ -213,11 +307,13 @@ export const register: Register = on => {
       return started
     }
     const id = started.agentId
+    let isNew = true
     const record = async (): Promise<void> => {
       const startedAt = await $.clock.now()
       await update($, runs, list => {
         // A resumed agent keeps its card: mark it running again.
         if (list.some(run => run.id === id)) {
+          isNew = false
           return list.map(run => (run.id === id ? { ...run, status: 'running', startedAt } : run))
         }
         const run: AgentRun = {
@@ -229,6 +325,7 @@ export const register: Register = on => {
           status: 'running',
           startedAt,
           current: [],
+          recent: [],
           counts: {},
         }
         return [...list, run].slice(-MAX_RUNS)
@@ -237,8 +334,15 @@ export const register: Register = on => {
     }
     // A failure here costs the card, never the spawn.
     await record().catch(error => $.ui.log(`agents-pane: ${String(error)}`, { to: 'debug' }))
+    // The mission arrives later; the spawn does not wait for it.
+    if (isNew) {
+      void writeMission($, id, e.prompt).catch(error =>
+        $.ui.log(`agents-pane: mission: ${String(error)}`, { to: 'debug' }),
+      )
+    }
 
     return started
+    // The card is a view: a failing hook lets the call go on as if the mod were not there.
   }).catch(($, e, next) => next(e))
 
   // A subagent's tool call: show it as current while it runs, then fold it into the summary.
@@ -258,18 +362,31 @@ export const register: Register = on => {
     await patch($, agentId, run => ({
       ...run,
       current: run.current.filter(item => item.id !== step.id),
+      recent: [...run.recent, { ...step, status }].slice(-2),
       counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
       failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
     }))
 
     return result
-    // The card is a view: a failing hook lets the call go on as if the mod were not there.
   }).catch(($, e, next) => next(e))
 
-  // A subagent's turn ended: store its outcome and duration.
+  // The main loop's spinner shows while its turn runs: the running agents move under it.
+  on('turn.start', async ($, e, next) => {
+    if (e.agentId === undefined) {
+      isMainWorking = true
+      await publishStatus($)
+    }
+
+    return next(e)
+  })
+
+  // A subagent's turn ended: store its outcome and duration. The main loop's: back to the status line.
   on('turn.complete', async ($, e, next) => {
     const agentId = e.agentId
-    if (agentId !== undefined) {
+    if (agentId === undefined) {
+      isMainWorking = false
+      await publishStatus($)
+    } else {
       const status: AgentRunStatus =
         e.reason === 'answer' ? 'done' : e.reason === 'aborted' ? 'aborted' : 'failed'
       await patch($, agentId, run => ({ ...run, status, durationMs: e.durationMs, current: [] }))
@@ -279,7 +396,58 @@ export const register: Register = on => {
     return next(e)
   })
 
-  // The Agent call's own row in the transcript becomes the card: live while it runs, one line after.
+  // Under the main spinner: one framed block per running agent, stacked, with its mission and live call.
+  on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
+    const list = await read($, runs)
+    const running = list.filter(run => run.status === 'running')
+    // A subagent's own spinner keeps the engine's look.
+    if (running.length === 0 || list.some(run => run.id === e.requestId)) {
+      return next(e)
+    }
+    const engine = await next(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
+    const now = await $.clock.now()
+    const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
+    const elements: Elements = e.surface === 'terminal' ? { Box, Text } : { Box, Text, Svg: $.ui.resolve(e).Svg }
+    const hidden = running.length - SHOWN
+
+    return (
+      <Box flexDirection="column">
+        {engine}
+        <Box
+          flexDirection="column"
+          gap={1}
+          {...(e.surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
+        >
+          {running.slice(0, SHOWN).map(run => {
+            const step = liveStep(run)
+            const summary = summaryOf(run)
+            return (
+              <Box key={run.id} flexDirection="column">
+                {runHeader(elements, run, now, frame)}
+                <Text wrap="truncate">
+                  {'  '}
+                  {run.mission ?? run.description}
+                </Text>
+                {step === undefined ? (
+                  <Text dimColor wrap="truncate">
+                    {'  └ '}
+                    {summary === '' ? 'Starting…' : summary}
+                  </Text>
+                ) : (
+                  stepRow(elements, step, frame, '  ')
+                )}
+              </Box>
+            )
+          })}
+          {hidden > 0 ? <Text dimColor>{`+${hidden} ${hidden === 1 ? 'agente más' : 'agentes más'}`}</Text> : null}
+        </Box>
+      </Box>
+    )
+  })
+
+  // The Agent call's own row in the transcript becomes the card: compact while it runs, one summary after.
   on('ui.render', { component: 'ToolUse' }, async ($, e, next) => {
     if (e.props.tool !== 'Agent' || e.props.isExpanded === true) {
       return next(e)
@@ -288,49 +456,18 @@ export const register: Register = on => {
     if (cards.length === 0) {
       return next(e)
     }
-    const { Box, Text } = $.ui.resolve(e)
+    const ui = $.ui.resolve(e)
+    const { Box, Text } = ui
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-
-    /** The bullet: an animated arc where the surface draws Svg, a turning glyph on the terminal. */
-    const bullet = (run: AgentRun) => {
-      const outcome = OUTCOME[run.status]
-      if (run.status !== 'running') {
-        return <Text color={outcome.color} bold>•</Text>
-      }
-      if (e.surface === 'terminal') {
-        return <Text color={outcome.color}>{frame}</Text>
-      }
-      const { Svg } = $.ui.resolve(e)
-      return <Svg source={SPINNER_SVG} alt="running" width={12} height={12} isInteractive />
-    }
+    const elements: Elements = e.surface === 'terminal' ? { Box, Text } : { Box, Text, Svg: $.ui.resolve(e).Svg }
 
     const card = (run: AgentRun) => {
-      const isRunning = run.status === 'running'
-      const elapsed = run.durationMs ?? now - run.startedAt
-      const failures = run.failures ?? 0
-      const summary = summarize(run.counts) + (failures > 0 ? ` · ${failures} failed` : '')
-      const chip = (
-        <Text dimColor>
-          <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
-        </Text>
-      )
-      const header = (
-        <Box key={`${run.id}-head`} flexDirection="row" gap={1}>
-          {bullet(run)}
-          <Text weight="bold" dimColor={!isRunning && run.status === 'done'}>
-            {run.type.replace(/^[\w-]+:/, '')}
-          </Text>
-          {chip}
-          <Text dimColor wrap="truncate">{run.description}</Text>
-          <Text dimColor tabular>
-            {isRunning ? `${OUTCOME.running.word} ${formatDuration(elapsed)}` : formatDuration(elapsed)}
-          </Text>
-        </Box>
-      )
+      const header = runHeader(elements, run, now, frame, run.mission ?? run.description)
+      const summary = summaryOf(run)
 
-      // Finished: one line, the header plus what it did (Codex's collapsed group).
-      if (!isRunning) {
+      // Finished: the header plus what it did (Codex's collapsed group).
+      if (run.status !== 'running') {
         return (
           <Box key={run.id} flexDirection="column">
             {header}
@@ -344,8 +481,8 @@ export const register: Register = on => {
         )
       }
 
-      // Running: two lines, the live detail is on the status line; the card keeps its place in the chat.
-      const step = run.current[run.current.length - 1]
+      // Running: the last finished call and the live one; the full block sits at the bottom.
+      const steps = [...run.recent, ...run.current].slice(-2)
       return (
         // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
         <Box
@@ -354,16 +491,11 @@ export const register: Register = on => {
           {...(e.surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
         >
           {header}
-          <Text dimColor wrap="truncate">
-            {'└ '}
-            {step === undefined ? (
-              summary === '' ? 'Starting…' : summary
-            ) : (
-              <Text>
-                <Text color="claude">{frame}</Text> {step.label}
-              </Text>
-            )}
-          </Text>
+          {steps.length === 0 ? (
+            <Text dimColor>{'└ Starting…'}</Text>
+          ) : (
+            steps.map(step => stepRow(elements, step, frame, '  '))
+          )}
         </Box>
       )
     }

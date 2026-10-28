@@ -17,6 +17,14 @@ const ROW = {
   },
 } as const
 
+// The main loop's spinner as a surface would mount it.
+const SPINNER = {
+  plugin: 'agents-pane',
+  component: 'Spinner',
+  requestId: 'main',
+  props: { word: 'Working', message: null, suffix: '…', mode: 'tool-use' },
+} as const
+
 // A spawn as the engine raises it for a model's Agent call.
 const SPAWN = {
   tool_use_id: 'tu1',
@@ -67,7 +75,18 @@ test('a running agent shows its live tool, then folds into one summary line', as
   // These hooks stand for the engine beneath the mod.
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
+  on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
+  // Haiku's answer for the mission line.
+  on('model.complete', () => ({
+    value: {
+      isAnswered: true,
+      text: '«Busca dónde se crean las sesiones.»',
+      usage: { input_tokens: 80, output_tokens: 12, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+    },
+  }))
+  // The engine's own spinner line.
+  on('ui.render', { component: 'Spinner' }, ($, e) => $.ui.resolve(e).Text({ children: 'Working…' }))
   mock.clock(on)
   const statuses: (string | undefined)[] = []
   on('ui.status', (_, e) => {
@@ -90,7 +109,21 @@ test('a running agent shows its live tool, then folds into one summary line', as
     const ui = await $.ui.mount({ ...ROW, surface })
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
     expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
-    expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('└ Explored 1 file, 1 search')
+    // The mission replaces the short description; the card keeps the last two calls.
+    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('Busca dónde se crean las sesiones')
+    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  ✓ Read session.py')
+    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  ✓ Search "Session(" in src/')
+    await ui.unmount()
+  }
+
+  // While the main loop works, the agents leave the status line for a block under its spinner.
+  await $.turn.start({ text: 'go', turnId: 'm1' })
+  expect(statuses.at(-1)).toBeUndefined()
+  for (const surface of ['terminal', 'desktop', 'vscode'] as const) {
+    const ui = await $.ui.mount({ ...SPINNER, surface })
+    expect((await ui.find({ type: 'Text', text: /^Working…$/ }))?.text).toBe('Working…')
+    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('  Busca dónde se crean las sesiones')
+    expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('  └ Explored 1 file, 1 search')
     await ui.unmount()
   }
 

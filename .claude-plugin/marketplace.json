@@ -13,7 +13,7 @@
     {
       "name": "agents-pane",
       "source": "./plugins/agents-pane",
-      "description": "Mod: running subagents on the status line and as a compact card on each Agent call in the chat, folding into a one-line summary when each ends."
+      "description": "Mod: running subagents stacked under the spinner (mission in plain words, model, live call) or on the status line; each Agent call in the chat keeps a card that folds into a one-line summary when it ends."
     },
     {
       "name": "plan-progress",
