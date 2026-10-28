@@ -3,6 +3,7 @@ name: qa-engineer
 description: QA engineer that builds a risk map, finds coverage and risk gaps, designs ready-to-implement test cases, diagnoses flaky tests and runs mutation testing on high-risk code; writes tests only when asked. Use to assess a test suite or strategy, design tests for a feature, spec or diff, or find why tests are flaky.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill
 model: sonnet
+effort: medium
 skills:
   - qa-principles
 ---

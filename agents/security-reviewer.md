@@ -4,6 +4,8 @@ description: Application security engineer that traces attacker-controlled sourc
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: opus
+effort: high
+omitClaudeMd: true
 skills:
   - security-principles
 ---

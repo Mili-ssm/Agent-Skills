@@ -1,0 +1,13 @@
+schema_version: "1.1"
+name: offload-summarizer-with-policy
+tags: [offload]
+runs: 3
+plugins: ["../../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  append_system_prompt: "Offload policy: delegate instead of doing it inline. Running tests, lint, typecheck or builds -> agent-skills:check-runner. Reading any file over ~200 lines, logs, PDFs or long docs -> agent-skills:summarizer. Searching or reading more than 3 files -> Explore. Web pages -> agent-skills:researcher. Keep inline only decisions, small edits and integrating results."
+  max_turns: 12
+  timeout_seconds: 600
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash]
+  prompt: build.log in this folder is huge. Read it and tell me why the deployment failed.

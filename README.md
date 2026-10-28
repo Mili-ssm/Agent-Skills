@@ -11,6 +11,19 @@ Generic specialist skills and agents for Claude Code. Complements [Superpowers](
 | Cloud environment | Paste [`scripts/cloud-setup.sh`](scripts/cloud-setup.sh) as the environment's setup script (cloud sessions ignore plugins declared in a repo) |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
 
+## Offload setup (ADR 0010)
+
+The cloud script does this; locally run it once:
+
+```bash
+# Explore on Haiku (overrides the built-in, which uses the main model)
+mkdir -p ~/.claude/agents && cp user-agents/Explore.md ~/.claude/agents/
+# Subagents without their own model run on Sonnet
+# add to ~/.claude/settings.json: "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}
+```
+
+Then add the offload trigger table to `~/.claude/CLAUDE.md`: in evals it raised worker delegation from 0–2/3 to 3/3.
+
 ## Update
 
 No pinned version (ADR 0006): every commit on the default branch is a new version.
@@ -31,10 +44,14 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `qa-engineer` | Test strategy, gaps, case design, flaky tests, mutation | qa-principles | sonnet | when asked |
 | `ux-reviewer` | Usability + accessibility audit with screenshots/axe | ux-principles | sonnet | no |
 | `doc-curator` | Verify and compress docs and prompts | docs-principles, decision-records | sonnet | when asked |
-| `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | opus | no |
+| `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | sonnet | no |
 | `security-reviewer` | Source→sink review, threat model | security-principles | opus | no |
 | `pre-mortem` | Attack a plan before execution | — | opus | no |
 | `researcher` | Offloaded web research, one question, cited | web-research | haiku | no |
+| `check-runner` | Run tests/lint/typecheck/build; return failures only | — | haiku | no |
+| `summarizer` | Read long logs/docs/PDFs/diffs; answer one question | — | haiku | no |
+| `implementer` | Apply one bounded plan task with acceptance | — | sonnet | yes |
+| `fixer` | Loop on mechanical lint/type/test fixes | — | sonnet | yes |
 | `performance-analyst` | Measure, profile, optimize | — | sonnet | when asked |
 
 ### Skills
@@ -73,6 +90,7 @@ Every skill is also invocable as `/agent-skills:<skill>`. Agents get explicit co
 | `/agent-skills:perf-review <target>` | `performance-analyst` |
 | `/agent-skills:research <question>` | parallel `researcher` (Haiku) |
 | `/agent-skills:brief <feature>` | `feature-briefing` workflow |
+| `/agent-skills:offload <task>` | Cheapest suitable worker |
 
 ## Workflow with Superpowers
 
@@ -88,7 +106,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 ## Design
 
 - Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/)
-- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009).
+- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010).
 
 ## Develop
 
@@ -97,4 +115,4 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Measure triggering (before/after any description or prompt change) | `claude plugin eval . --ablation none --model sonnet -j 4` |
 
-`evals/trigger/*` expect the matching skill (or the agent that preloads it) to fire; `evals/no-trigger/*` expect no plugin skill or agent.
+`evals/trigger/*` expect the matching skill (or the agent that preloads it) to fire; `evals/no-trigger/*` expect no plugin skill or agent. `evals/offload/*` expect delegation to a worker (need `--scaffold --allow-tools Bash` and a sandbox: `bubblewrap`, `socat`).

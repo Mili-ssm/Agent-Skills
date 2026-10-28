@@ -27,7 +27,7 @@ Copy and tick:
 - [ ] 5 Report
 ```
 
-1. **Evidence**: the subagent keeps noisy scanning out of this context. Unavailable → run its checks inline and keep only conclusions.
+1. **Evidence**: the subagent keeps noisy scanning out of this context; long specs or transcripts go to `summarizer`. Unavailable → run its checks inline and keep only conclusions.
 2. **Hypothesis first**: the owner corrects a concrete draft faster and more precisely than they answer open questions.
 3. **Interview** with `AskUserQuestion`:
    - ≤ 4 questions per round, each with 2–4 concrete options, recommended option first.
