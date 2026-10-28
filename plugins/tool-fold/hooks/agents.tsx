@@ -704,7 +704,7 @@ export async function noticeCard(
 async function openDock($: EngineInterface): Promise<void> {
   // The surface draws the title bar; its text at least says how many run (an open id only retitles).
   const running = (await read($, runs)).filter(run => run.status === 'running').length
-  const title = running > 1 ? `Agentes · ${running}` : 'Agentes'
+  const title = `Agentes · ${running}`
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
 }
