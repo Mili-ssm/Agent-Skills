@@ -28,7 +28,7 @@
     {
       "name": "tool-fold",
       "source": "./plugins/tool-fold",
-      "description": "Mod: tool calls in the chat fold into one line; a click unfolds the engine's own box with input and output. Agent calls are left alone."
+      "description": "Mod: tool calls fold into one line, and a run of calls into one group line with a Haiku summary; arrows unfold the calls and the engine's own boxes. Agent calls are left alone."
     }
   ]
 }

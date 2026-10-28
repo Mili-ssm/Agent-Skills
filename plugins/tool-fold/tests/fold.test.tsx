@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { foldLabel } from '../hooks/register'
+import { foldLabel, runSteps, toolTally } from '../hooks/register'
 
 // A finished Bash call's row as a surface would mount it.
 const ROW = {
@@ -79,4 +79,52 @@ test('the result block hides while its call is folded', async ($, on) => {
   const shown = await $.ui.mount({ ...RESULT, surface: 'vscode' })
   expect((await shown.find({ type: 'Text', text: /OUT/ }))?.text).toBe('OUT 3 lines')
   await shown.unmount()
+})
+
+test('a reply groups its calls until text or an Agent call', () => {
+  const steps = runSteps([
+    { type: 'thinking', thinking: '…' },
+    { type: 'tool_use', id: 't1', name: 'Bash', input: { description: 'Run tests' } },
+    { type: 'tool_use', id: 't2', name: 'Skill', input: { skill: 'qa-review' } },
+    { type: 'text', text: 'All green.' },
+    { type: 'tool_use', id: 't3', name: 'Agent', input: {} },
+  ])
+  expect(steps.map(step => ('join' in step ? step.join.id : 'close'))).toEqual(['t1', 't2', 'close', 'close'])
+  expect(toolTally([{ tool: 'Bash' }, { tool: 'Read' }, { tool: 'Bash' }])).toBe('Bash ×2 · Read')
+})
+
+test('a group draws on its first row; the rest show only once it is unfolded', async ($, on) => {
+  on('ui.render', ($, e) => $.ui.resolve(e).Text({ children: `engine ${e.requestId}` }))
+  const call = (id: string, tool: string, label: string) => ({ id, tool, label, status: 'done' as const })
+  // The state the reply's rows leave: two Bash calls and a Skill in one closed run.
+  const run = {
+    id: 'g-tu1',
+    calls: [call('tu1', 'Bash', 'Run tests'), call('tu2', 'Bash', 'Lint'), call('tu3', 'Skill', 'qa-review')],
+    isClosed: true,
+    summary: 'Comprueba que los tests y el lint pasan',
+  }
+  on('state.get', (_, e, next) =>
+    e.key === 'group' && e.id === 'g-tu1'
+      ? { value: { value: run, version: 1 } }
+      : e.key === 'groupOf' && ['tu1', 'tu2', 'tu3'].includes(e.id ?? '')
+        ? { value: { value: 'g-tu1', version: 1 } }
+        : next(e),
+  )
+  const second = { ...ROW, requestId: 'tu2', props: { ...ROW.props, tool_use_id: 'tu2' } }
+
+  const first = await $.ui.mount({ ...ROW, surface: 'vscode' })
+  expect((await first.find({ type: 'Text', text: /×2/ }))?.text).toBe(' Bash ×2 · Skill ')
+  expect((await first.find({ type: 'Text', text: /Comprueba/ }))?.text).toBe('Comprueba que los tests y el lint pasan')
+  const hidden = await $.ui.mount({ ...second, surface: 'vscode' })
+  expect(await hidden.find({ type: 'Text' })).toBeUndefined()
+  await hidden.unmount()
+
+  await first.press({ key: 'fold-g-tu1' })
+  const shown = await $.ui.mount({ ...second, surface: 'vscode' })
+  expect((await shown.find({ type: 'Button' }))?.text).toBe('▸')
+  expect(await shown.find({ type: 'Text', text: /engine/ })).toBeUndefined()
+  await shown.press({ key: 'fold-tu2' })
+  expect((await shown.find({ type: 'Text', text: /engine/ }))?.text).toBe('engine tu2')
+  await shown.unmount()
+  await first.unmount()
 })
