@@ -89,6 +89,9 @@ export type ToolRun = {
   isClosed: boolean
   /** One plain-language sentence (Spanish) for the whole run, from Haiku once closed. */
   summary?: string
+  /** Clock time it opened and closed, for its duration (absent in runs stored before them). */
+  startedAt?: number
+  endedAt?: number
 }
 
 declare module 'claude-code' {

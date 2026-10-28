@@ -98,6 +98,29 @@ export function toolTally(calls: readonly Pick<GroupCall, 'tool' | 'tag'>[]): st
   return names.length > MAX_TAGS ? `${names.slice(0, MAX_TAGS).join(' · ')} · …` : names.join(' · ')
 }
 
+/** `1 agent · 2 skills · 3 commands · 1 edit · 4 searches`: what kinds of call a group held. */
+export function groupCounts(calls: readonly Pick<GroupCall, 'tool'>[]): string {
+  const count = (tools: readonly string[]): number => calls.filter(call => tools.includes(call.tool)).length
+  const plural = (n: number, word: string, many = `${word}s`): string => (n === 0 ? '' : `${n} ${n === 1 ? word : many}`)
+  const known = ['Agent', 'Skill', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch']
+  return [
+    plural(count(['Agent']), 'agent'),
+    plural(count(['Skill']), 'skill'),
+    plural(count(['Bash']), 'command'),
+    plural(count(['Edit', 'Write', 'NotebookEdit']), 'edit'),
+    plural(count(['Read', 'Grep', 'Glob', 'LS', 'WebFetch', 'WebSearch']), 'search', 'searches'),
+    plural(calls.filter(call => !known.includes(call.tool)).length, 'other tool', 'other tools'),
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+/** 1234 → `1s`, 75000 → `1m 15s`: a group's duration. */
+const formatTook = (ms: number): string => {
+  const seconds = Math.max(0, Math.round(ms / 1000))
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+}
+
 /** The dot of a row or a group: live, failed, interrupted or fine. */
 const dotColor = (status: 'running' | 'done' | 'failed' | 'interrupted'): string =>
   status === 'running' ? 'claude' : status === 'failed' ? 'error' : status === 'interrupted' ? 'warning' : 'success'
@@ -132,17 +155,18 @@ async function applySteps($: EngineInterface, steps: readonly ({ close: true } |
   try {
     const openId = await read($, current)
     let open = openId === null ? null : await read($, memberOf(group, { requestId: openId }))
+    const now = await $.clock.now()
     const changed: ToolRun[] = []
     const joined: GroupCall[] = []
     for (const step of steps) {
       if ('join' in step) {
         open =
           open === null || open.isClosed
-            ? { id: `g-${step.join.id}`, calls: [step.join], isClosed: false }
+            ? { id: `g-${step.join.id}`, calls: [step.join], isClosed: false, startedAt: now }
             : { ...open, calls: [...open.calls, step.join] }
         joined.push(step.join)
       } else if (open !== null) {
-        changed.push({ ...open, isClosed: true })
+        changed.push({ ...open, isClosed: true, endedAt: now })
         open = null
       }
     }
@@ -359,19 +383,31 @@ export const register: Register = (on, options) => {
         : run.calls.some(call => call.status === 'running')
           ? 'interrupted'
           : 'done'
+    // Like an agent's card, lighter: who took part and what kinds of call it held, then what it did.
+    const took =
+      run.startedAt === undefined || run.endedAt === undefined ? '' : ` · ${formatTook(run.endedAt - run.startedAt)}`
     const header = (
-      <Box key={`group-${run.id}`} flexDirection="row" gap={1} alignItems="center">
-        <Button
-          key={`fold-${run.id}`}
-          plain
-          dimColor
-          label={isGroupOpen ? '▾' : '▸'}
-          onPress={() => update($, groupOpen, value => !value)}
-        />
-        <Text color={dotColor(groupStatus)}>●</Text>
-        <Text weight="semibold">{toolTally(run.calls)}</Text>
+      <Box key={`group-${run.id}`} flexDirection="column">
+        <Box flexDirection="row" gap={1} alignItems="center" minWidth={0} overflow="hidden">
+          <Button
+            key={`fold-${run.id}`}
+            plain
+            dimColor
+            label={isGroupOpen ? '▾' : '▸'}
+            onPress={() => update($, groupOpen, value => !value)}
+          />
+          <Text color={dotColor(groupStatus)}>●</Text>
+          <Text weight="semibold" wrap="truncate">
+            {toolTally(run.calls)}
+          </Text>
+          <Text dimColor wrap="truncate">
+            {groupCounts(run.calls)}
+            {took}
+          </Text>
+        </Box>
         <Text dimColor wrap="truncate">
-          {run.summary ?? (run.isClosed ? `${run.calls.length} calls` : 'Working…')}
+          {'    '}
+          {run.summary ?? (run.isClosed ? '' : 'Working…')}
         </Text>
       </Box>
     )
