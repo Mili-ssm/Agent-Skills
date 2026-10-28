@@ -15,14 +15,14 @@ const runs = atom({ plugin: 'agents-pane', key: 'runs' } as const, [], {
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
 
-/** Model family (`haiku`, `sonnet`, `opus`, ...), which picks the model chip's color. */
+/** Model family (`haiku`, `sonnet`, `opus`, ...), which picks the model dot's color. */
 export const family = (model: string): string =>
   /haiku|sonnet|opus|fable/.exec(model)?.[0] ?? shortModel(model)
 
-/** Chip color per family: cheap models read green at a glance. */
+/** Dot color per family (the model name stays dim): cheap models read green at a glance. */
 const FAMILY_COLOR: Record<string, string> = {
   haiku: 'success',
-  sonnet: 'suggestion',
+  sonnet: 'permission',
   opus: 'merged',
   fable: 'warning',
 }
@@ -46,6 +46,21 @@ const clip = (text: string, max: number): string =>
 /** Last path segment: `src/app/main.py` → `main.py`. */
 const base = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
 
+/**
+ * The part of a shell command that says what runs: drops leading `cd <dir> &&` and
+ * `VAR=value;` segments and shortens long absolute paths to their last two segments.
+ */
+export function commandOf(command: string): string {
+  const prefix = /^\s*(?:cd\s+\S+|export\s+\w+=\S*|\w+=\S*)\s*(?:&&|;)\s*/
+  let line = command.split('\n')[0] ?? ''
+  while (prefix.test(line)) {
+    line = line.replace(prefix, '')
+  }
+  return line.replace(/(?:\/[^\s/'"]+){3,}/g, path =>
+    path.length <= 24 ? path : `…/${path.split('/').slice(-2).join('/')}`,
+  )
+}
+
 /** What a tool call does and how a card names it, from its name and input. */
 export function describeStep(tool: string, input: Record<string, unknown>): { kind: StepKind; label: string } {
   const text = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string) : '')
@@ -62,7 +77,7 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
     case 'NotebookEdit':
       return { kind: 'edit', label: `${tool === 'Write' ? 'Write' : 'Edit'} ${base(text('file_path') || text('notebook_path'))}` }
     case 'Bash':
-      return { kind: 'run', label: `Run ${clip(text('command').split('\n')[0] ?? '', 48)}` }
+      return { kind: 'run', label: `Run ${clip(commandOf(text('command')), 56)}` }
     case 'WebSearch':
       return { kind: 'web', label: `Web search ${clip(`"${text('query')}"`, 40)}` }
     case 'WebFetch':
@@ -204,6 +219,7 @@ export const register: Register = on => {
       current: run.current.filter(item => item.id !== step.id),
       recent: [...run.recent, { ...step, status }].slice(-RECENT),
       counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
+      failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
     }))
 
     return result
@@ -252,10 +268,11 @@ export const register: Register = on => {
     const card = (run: AgentRun) => {
       const isRunning = run.status === 'running'
       const elapsed = run.durationMs ?? now - run.startedAt
-      const summary = summarize(run.counts)
+      const failures = run.failures ?? 0
+      const summary = summarize(run.counts) + (failures > 0 ? ` · ${failures} failed` : '')
       const chip = (
-        <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'} weight="medium">
-          {shortModel(run.model)}
+        <Text dimColor>
+          <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
         </Text>
       )
       const header = (
@@ -290,21 +307,28 @@ export const register: Register = on => {
       // Running: the summary so far, the last finished calls dim, the live ones bright.
       const rows = [...run.recent, ...run.current]
       return (
-        <Box key={run.id} flexDirection="column" borderStyle="round" borderColor="claude" paddingX={1}>
+        // Desktop and VS Code already frame a plugin's tree; the terminal gets a quiet border of its own.
+        <Box
+          key={run.id}
+          flexDirection="column"
+          {...(e.surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
+        >
           {header}
           <Text dimColor>
             {'└ '}
             {summary === '' ? 'Starting…' : summary}
           </Text>
           {rows.map(step => (
-            <Text
-              key={step.id}
-              dimColor={step.status === 'done'}
-              color={step.status === 'failed' ? 'error' : undefined}
-              wrap="truncate"
-            >
+            // Only the glyph carries the outcome's color; the label stays quiet unless it is live.
+            <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
               {'  '}
-              {step.status === 'running' ? `${frame} ` : step.status === 'failed' ? '✗ ' : '✓ '}
+              {step.status === 'running' ? (
+                <Text color="claude">{frame}</Text>
+              ) : (
+                <Text color={step.status === 'failed' ? 'error' : 'success'}>
+                  {step.status === 'failed' ? '✗' : '✓'}
+                </Text>
+              )}{' '}
               {step.label}
             </Text>
           ))}

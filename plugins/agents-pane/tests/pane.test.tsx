@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { describeStep, formatDuration, summarize } from '../hooks/register'
+import { commandOf, describeStep, formatDuration, summarize } from '../hooks/register'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -33,6 +33,9 @@ test('steps are named and grouped as Codex does', () => {
   expect(describeStep('Read', { file_path: 'src/app/session.py' }).label).toBe('Read session.py')
   expect(describeStep('Grep', { pattern: 'Session(', path: 'src' }).label).toBe('Search "Session(" in src/')
   expect(describeStep('Bash', { command: 'npm test\nnpm run lint' }).label).toBe('Run npm test')
+  expect(commandOf('cd /home/mili/Documentos/WORK/app && S=/tmp/x; sed -n 1p /tmp/claude-1000/-home-mili/scratch/out.json')).toBe(
+    'sed -n 1p …/scratch/out.json',
+  )
   expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
     'Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
   )
@@ -59,7 +62,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ ...ROW, surface })
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
-    expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('haiku-5-5')
+    expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
     expect((await ui.find({ type: 'Text', text: /Explored/ }))?.text).toBe('└ Explored 1 file, 1 search')
     expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  ✓ Search "Session(" in src/')
     await ui.unmount()

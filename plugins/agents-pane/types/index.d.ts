@@ -39,6 +39,8 @@ export type AgentRun = {
   recent: Step[]
   /** Finished calls per kind, for the summary line. */
   counts: Partial<Record<StepKind, number>>
+  /** Finished calls that failed (absent on runs stored before it was counted). */
+  failures?: number
 }
 
 declare module 'claude-code' {
