@@ -29,18 +29,17 @@ test('formatters', () => {
 test('cycle formatters', () => {
   const cycle: Cycle = {
     byModel: { opus: { total: 1_200_000, output: 20_000 }, sonnet: { total: 257_000, output: 7000 } },
-    busyMs: 192_000,
-    runningSince: null,
-    tools: 14,
+    startedAt: 0,
+    calls: 62,
     skills: 2,
     agents: 3,
   }
-  expect(formatCycle(cycle, 192_000)).toBe('⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 14 tools · 2 skills · 3 agents')
+  expect(formatCycle(cycle, 192_000)).toBe('⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 62 calls · 2 skills · 3 agents')
   expect(formatLine(cycle, 192_000, { durationMs: 2_290_000, turns: 9, byModel: { opus: { total: 41_700_000, output: 0 } } })).toBe(
-    '⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 14 tools · 2 skills · 3 agents │ Σ 38m10s · 41.7M',
+    '⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 62 calls · 2 skills · 3 agents │ Σ 38m10s · 41.7M',
   )
   // Zero counts are left out, a single one is singular, and no tokens leaves just the time.
-  expect(formatCycle({ ...cycle, byModel: {}, tools: 1, skills: 0, agents: 0 }, 4000)).toBe('⏱ 4s · 1 tool')
+  expect(formatCycle({ ...cycle, byModel: {}, calls: 1, skills: 0, agents: 0 }, 4000)).toBe('⏱ 4s · 1 call')
 })
 
 type On = Parameters<TestBody>[1]
@@ -79,17 +78,16 @@ function engine(on: On) {
   return { lines, statuses, clock: mock.clock(on) }
 }
 
-test('a cycle spans a hand-back: one line at the next prompt, with summed tokens and counts', async ($, on) => {
+test('a cycle runs on the wall clock from one prompt to the next, waits on agents included', async ($, on) => {
   const { lines, statuses, clock } = engine(on)
 
-  // The person's first prompt: nothing to close yet.
+  // The person's first prompt: nothing to close yet; the clock starts.
   await $.prompt.submit(prompt('Plan the login feature'))
   expect(lines).toEqual([])
-  expect(statuses).toEqual([])
-
-  // First main turn: live while it runs, one tick a second.
-  await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
   expect(statuses.at(-1)).toBe('⏱ 0s')
+
+  // First main turn: the line moves once a second.
+  await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
   await clock.advance(3000)
   expect(statuses.at(-1)).toBe('⏱ 3s')
   await $.tool.call({ tool: 'Bash', command: 'ls' })
@@ -97,21 +95,19 @@ test('a cycle spans a hand-back: one line at the next prompt, with summed tokens
   await $.tool.call({ tool: 'Skill', skill: 'plan' })
   await $.tool.call({ tool: 'Agent', description: 'Explore', prompt: 'Look around', subagent_type: 'Explore' })
   await $.tool.call({ tool: 'Agent', description: 'Review', prompt: 'Review it', subagent_type: 'Explore' })
-  // A subagent's own calls are not counted.
+  // A subagent's own calls count too.
   await $.tool.call({ tool: 'Bash', command: 'cat a', agentId: 'a1' })
-  expect(statuses.at(-1)).toBe('⏱ 3s · 2 tools · 1 skill · 2 agents')
+  expect(statuses.at(-1)).toBe('⏱ 3s · 6 calls · 1 skill · 2 agents')
   await clock.advance(117_000)
-  expect(statuses.at(-1)).toBe('⏱ 2m00s · 2 tools · 1 skill · 2 agents')
   await $.turn.complete(complete({ durationMs: 120_000, turnId: 't1', model: 'claude-opus-5-5', input: 700_000, output: 10_000 }))
-  expect(statuses.at(-1)).toBe('⏱ 2m00s · opus ▇▇▇▇▇ 710k · 2 tools · 1 skill · 2 agents')
+  expect(statuses.at(-1)).toBe('⏱ 2m00s · opus ▇▇▇▇▇ 710k · 6 calls · 1 skill · 2 agents')
 
-  // The main loop is idle: no tick, so the line stands still however long it waits...
-  const seen = statuses.length
+  // The main loop is idle while a background agent works: the clock goes on.
   await clock.advance(600_000)
-  expect(statuses).toHaveLength(seen)
-  // ...a background Sonnet agent ends meanwhile: its tokens join the cycle.
+  expect(statuses.at(-1)).toBe('⏱ 12m00s · opus ▇▇▇▇▇ 710k · 6 calls · 1 skill · 2 agents')
+  // The agent ends meanwhile: its tokens join the cycle.
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 90_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 250_000, output: 7000 }))
-  expect(statuses.at(-1)).toBe('⏱ 2m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 2 tools · 1 skill · 2 agents')
+  expect(statuses.at(-1)).toBe('⏱ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents')
 
   // Its hand-back wakes the model: machine-made prompts (a task notification and the like) start no cycle.
   const machine = [
@@ -132,25 +128,27 @@ test('a cycle spans a hand-back: one line at the next prompt, with summed tokens
   await $.tool.call({ tool: 'Read', file_path: '/tmp/a.ts' })
   await $.turn.complete(complete({ durationMs: 72_000, turnId: 't2', model: 'claude-opus-5-5', input: 480_000, output: 10_000 }))
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 3 tools · 1 skill · 2 agents')
+  // Done, waiting on the person: the clock still says how long since they wrote.
+  await clock.advance(60_000)
+  expect(statuses.at(-1)).toBe('⏱ 14m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents')
 
-  // /usage-band: the current cycle on top, then the session.
+  // /usage-band: the current cycle on top, then the session, the open cycle's time included.
   const { text } = await $.command.run({ command: 'usage-band' } as never)
   expect(text).toBe(
     [
-      'Current cycle: ⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 3 tools · 1 skill · 2 agents',
-      'Session: 3m12s over 2 answers · 1.5M tokens',
+      'Current cycle: ⏱ 14m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents',
+      'Session: 14m12s over 2 answers · 1.5M tokens',
       'opus     ▇▇▇▇▇  1.2M (20k out) 82%',
       'sonnet   ▇▁▁▁▁  257k (7k out) 18%',
     ].join('\n'),
   )
 
-  // The person's next prompt closes the cycle: its one line goes in first, then the new cycle starts empty.
+  // The person's next prompt closes the cycle: its one line goes in first, then the new cycle starts at 0.
   await $.prompt.submit(prompt('Now implement it'))
   expect(lines).toEqual([
-    '⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 3 tools · 1 skill · 2 agents │ Σ 3m12s · 1.5M',
+    '⏱ 14m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents │ Σ 14m12s · 1.5M',
   ])
-  expect(statuses.at(-1)).toBeUndefined()
+  expect(statuses.at(-1)).toBe('⏱ 0s')
 
   // The second cycle, short: its line carries the session's running total.
   await $.turn.start({ text: 'Now implement it', turnId: 't3' })
@@ -159,7 +157,7 @@ test('a cycle spans a hand-back: one line at the next prompt, with summed tokens
   expect(statuses.at(-1)).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k')
   await $.prompt.submit(prompt('Thanks', { kind: 'bridge' }))
   expect(lines).toHaveLength(2)
-  expect(lines[1]).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k │ Σ 3m17s · 1.5M')
+  expect(lines[1]).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k │ Σ 14m17s · 1.5M')
 })
 
 test('a cycle without tokens logs no line', async ($, on) => {
@@ -170,7 +168,7 @@ test('a cycle without tokens logs no line', async ($, on) => {
   expect(lines).toEqual([])
 })
 
-test('a prompt typed over a running turn carries it into the new cycle from that moment', async ($, on) => {
+test('a prompt typed over a running turn starts the new cycle at that moment', async ($, on) => {
   const { lines, statuses, clock } = engine(on)
 
   await $.prompt.submit(prompt('Start'))

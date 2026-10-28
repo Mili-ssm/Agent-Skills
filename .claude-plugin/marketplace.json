@@ -18,7 +18,7 @@
     {
       "name": "usage-band",
       "source": "./plugins/usage-band",
-      "description": "Mod: how long the model worked until it needed you, per interaction cycle (your prompt to your next one): live status line, then one line with busy time, tokens per model (subagents included) and tools, skills and agents used, plus session totals; /usage-band for a summary."
+      "description": "Mod: per interaction cycle (your prompt to your next one), how long since you wrote and what it took: live status line, one dim line when the next prompt closes the cycle, with tokens per model and calls, skills and agents (agents' own work included), plus session totals; /usage-band for a summary."
     },
     {
       "name": "tool-fold",

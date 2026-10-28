@@ -12,7 +12,7 @@ export type Tally = Record<string, ModelTokens>
 
 /** The session so far. */
 export type Usage = {
-  /** Busy time in ms: the sum of the main loop's turn durations. */
+  /** Wall time in ms of the closed cycles: from the person's first prompt to their last. */
   durationMs: number
   /** Main-loop turns counted (shown as "answers"). */
   turns: number
@@ -26,19 +26,13 @@ export type Usage = {
 export type Cycle = {
   /** Tokens of the main loop and of every subagent that ended in the cycle. */
   byModel: Tally
-  /**
-   * Busy time of the finished main-loop turns, in ms: the sum of their `durationMs`. Idle time between
-   * turns is not counted. Negative only while a turn that began before the cycle runs on (the person
-   * typed over it): the part before the prompt is taken off when that turn completes.
-   */
-  busyMs: number
-  /** Clock time (ms) the running main-loop turn started at; `null` while the main loop is idle. */
-  runningSince: number | null
-  /** Main-loop tool calls other than `Skill` and `Agent`; a subagent's own calls are not counted. */
-  tools: number
-  /** Main-loop `Skill` calls. */
+  /** Clock time (ms) of the person's prompt that opened the cycle; `null` before their first prompt. */
+  startedAt: number | null
+  /** Every tool call of the main loop and of its agents, `Skill` and `Agent` calls included. */
+  calls: number
+  /** `Skill` calls, by the main loop or an agent. */
   skills: number
-  /** Main-loop `Agent` calls. */
+  /** `Agent` calls, by the main loop or an agent. */
   agents: number
 }
 
