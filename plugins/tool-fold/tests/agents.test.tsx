@@ -96,8 +96,8 @@ test('a running agent shows its live tool, then folds into one summary line', as
     expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
     // The mission replaces the short description; the card keeps the last two calls.
     expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('  Busca dónde se crean las sesiones')
-    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  ✓ Read session.py')
-    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  ✓ Search "Session(" in src/')
+    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  └ ✓ Read session.py')
+    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  └ ✓ Search "Session(" in src/')
     await ui.unmount()
   }
 
@@ -175,7 +175,7 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   const pane = await $.ui.mount(PANE as never)
   expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
   // A call reads by what it does alone, without the command.
-  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  ✓ Benchmark the codec')
+  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
   expect(await pane.find({ type: 'Text', text: /cargo bench/ })).toBeUndefined()
   await pane.unmount()
   // The chat shows a running agent nothing while the pane holds it.

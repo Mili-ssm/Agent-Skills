@@ -618,7 +618,8 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCom
       {steps.length === 0 ? (
         <Text dimColor>{'  Starting…'}</Text>
       ) : (
-        steps.map(step => stepRow(ui, step, frame, '  ', true))
+        // Each call hangs from the agent: a tree mark on both lines.
+        steps.map(step => stepRow(ui, step, frame, '  └ ', true))
       )}
       {isCompact || countsLine(run) === '' ? null : (
         <Text dimColor wrap="truncate">
