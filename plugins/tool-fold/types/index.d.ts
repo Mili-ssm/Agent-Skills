@@ -13,6 +13,8 @@ export type Step = {
   kind: StepKind
   /** `Read register.tsx`, `Search "foo" in src/`, `Run npm test`. */
   label: string
+  /** A few words on what it does: the model's own description of a command, else Haiku's. */
+  detail?: string
   status: 'running' | 'done' | 'failed'
 }
 
@@ -45,6 +47,8 @@ export type AgentRun = {
   failures?: number
   /** The agent's own task list (TodoWrite or Task tools): done of total, and the task ids finished. */
   todo?: { done: number; total: number; completed: string[] }
+  /** Haiku's rough percentage done, for an agent with no task list, shown in the pane while it runs. */
+  estimate?: number
 }
 
 

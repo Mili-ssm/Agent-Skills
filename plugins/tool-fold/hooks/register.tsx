@@ -331,12 +331,16 @@ export const register: Register = (on, options) => {
     // A running agent stays in view in a folded group; it folds with the group once it ends.
     const isShown = isGroupOpen || isLive
     // Each row sits in a frame of its own on desktop and VS Code: a tree mark ties a call to its group.
-    const branch = (node: RenderNode) => (
-      <Box flexDirection="row" gap={1}>
-        <Text dimColor>└</Text>
-        {node}
-      </Box>
-    )
+    // An agent's card is several lines wide and tall: beside a mark it wraps badly in a narrow chat.
+    const branch = (node: RenderNode) =>
+      isAgent ? (
+        <Box>{node}</Box>
+      ) : (
+        <Box flexDirection="row" gap={1}>
+          <Text dimColor>└</Text>
+          {node}
+        </Box>
+      )
     if (run.calls[0]?.id !== e.props.tool_use_id) {
       // A later call of the group: shown only while the group is unfolded (or a live agent), under it.
       return isShown ? branch(own) : <Box />

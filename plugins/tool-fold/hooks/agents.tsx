@@ -72,7 +72,7 @@ export function commandOf(command: string): string {
 }
 
 /** What a tool call does and how a card names it, from its name and input. */
-export function describeStep(tool: string, input: Record<string, unknown>): { kind: StepKind; label: string } {
+export function describeStep(tool: string, input: Record<string, unknown>): { kind: StepKind; label: string; detail?: string } {
   const text = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string) : '')
   const where = text('path') === '' ? '' : ` in ${base(text('path'))}/`
   switch (tool) {
@@ -87,7 +87,12 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
     case 'NotebookEdit':
       return { kind: 'edit', label: `${tool === 'Write' ? 'Write' : 'Edit'} ${base(text('file_path') || text('notebook_path'))}` }
     case 'Bash':
-      return { kind: 'run', label: `Run ${clip(commandOf(text('command')), 56)}` }
+      // The model's own few words on what the command does, when it gave them.
+      return {
+        kind: 'run',
+        label: `Run ${clip(commandOf(text('command')), 56)}`,
+        ...(text('description') === '' ? {} : { detail: clip(text('description'), 60) }),
+      }
     case 'WebSearch':
       return { kind: 'web', label: `Web search ${clip(`"${text('query')}"`, 40)}` }
     case 'WebFetch':
@@ -177,6 +182,17 @@ const MISSION_PROMPT =
   'En una sola frase corta (máximo 12 palabras), en español llano y sin tecnicismos innecesarios, ' +
   'di qué se le ha pedido hacer a este agente. Responde solo con la frase, sin comillas ni punto final.\n\nEncargo:\n'
 
+// Asks Haiku what a shell command does, for a call that came without the model's own description.
+const COMMAND_PROMPT =
+  'Describe en 3 a 6 palabras, en español llano, qué hace este comando de terminal. ' +
+  'Responde solo con esas palabras, sin comillas ni punto final.\n\n'
+// Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
+const ESTIMATE_PROMPT =
+  'Un agente de programación tiene este encargo y ha hecho estas acciones. Estima qué porcentaje del ' +
+  'encargo lleva hecho. Responde solo con un número entero entre 0 y 95.\n\n'
+// Calls between two Haiku estimates of an agent's progress.
+const ESTIMATE_EVERY = 4
+
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
 
@@ -193,7 +209,7 @@ export type Elements = {
 }
 
 /** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
-function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string) {
+function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, label?: string, withEstimate = false) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
   const outcome = OUTCOME[run.status]
@@ -205,40 +221,51 @@ function runHeader(ui: Elements, run: AgentRun, now: number, frame: string, labe
   ) : (
     <Text color={outcome.color}>{frame}</Text>
   )
-  return (
-    <Box key={`${run.id}-head`} flexDirection="row" gap={1}>
-      {bullet}
-      <Text weight="bold" dimColor={run.status === 'done'}>
-        {agentName(run)}
-      </Text>
+  // Its own task list when it keeps one; else, while it runs in the pane, Haiku's estimate.
+  const progress =
+    run.todo !== undefined && run.todo.total > 0 ? (
       <Text dimColor>
-        <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
+        <Text color={run.todo.done === run.todo.total ? 'success' : 'claude'}>
+          {progressBar(run.todo.done, run.todo.total, 5)}
+        </Text>{' '}
+        {run.todo.done}/{run.todo.total}
       </Text>
-      {run.todo === undefined || run.todo.total === 0 ? null : (
-        <Text dimColor>
-          <Text color={run.todo.done === run.todo.total ? 'success' : 'claude'}>
-            {progressBar(run.todo.done, run.todo.total, 5)}
-          </Text>{' '}
-          {run.todo.done}/{run.todo.total}
+    ) : withEstimate && isRunning && run.estimate !== undefined ? (
+      <Text dimColor>
+        <Text color="claude">{progressBar(run.estimate, 100, 5)}</Text> ≈{run.estimate}%
+      </Text>
+    ) : null
+  // Two lines, so a narrow chat wraps nothing: who and how far, then what it was asked.
+  return (
+    <Box key={`${run.id}-head`} flexDirection="column">
+      <Box flexDirection="row" gap={1}>
+        {bullet}
+        <Text weight="bold" dimColor={run.status === 'done'}>
+          {agentName(run)}
         </Text>
-      )}
+        <Text dimColor>
+          <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
+        </Text>
+        {progress}
+        <Text dimColor tabular>
+          {isRunning ? `${outcome.word} ${elapsed}` : elapsed}
+        </Text>
+      </Box>
       {label === undefined ? null : (
         <Text dimColor wrap="truncate">
+          {'  '}
           {label}
         </Text>
       )}
-      <Text dimColor tabular>
-        {isRunning ? `${outcome.word} ${elapsed}` : elapsed}
-      </Text>
     </Box>
   )
 }
 
 /** `  ✓ Read session.py` / `  ◐ Run npm test`: one call, only its glyph colored. */
-function stepRow(ui: Elements, step: Step, frame: string, indent: string) {
-  const { Text } = ui
-  return (
-    <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
+function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDetail = false) {
+  const { Box, Text } = ui
+  const line = (
+    <Text key={`${step.id}-line`} dimColor={step.status !== 'running'} wrap="truncate">
       {indent}
       {step.status === 'running' ? (
         <Text color="claude">{frame}</Text>
@@ -247,6 +274,19 @@ function stepRow(ui: Elements, step: Step, frame: string, indent: string) {
       )}{' '}
       {step.label}
     </Text>
+  )
+  if (!withDetail || step.detail === undefined) {
+    return <Box key={step.id}>{line}</Box>
+  }
+  return (
+    <Box key={step.id} flexDirection="column">
+      {line}
+      <Text dimColor italic wrap="truncate">
+        {indent}
+        {'  '}
+        {step.detail}
+      </Text>
+    </Box>
   )
 }
 
@@ -391,7 +431,7 @@ export const registerAgents: Register = (on, options) => {
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     return (
       <Box flexDirection="column" gap={1}>
-        {[...running].reverse().map(run => liveCard({ Box, Text }, run, now, frame, e.surface))}
+        {[...running].reverse().map(run => liveCard({ Box, Text }, run, now, frame, e.surface, true))}
       </Box>
     )
   })
@@ -417,6 +457,11 @@ export async function startAgentCall(
   }
   const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running' }
   await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
+  if (step.kind === 'run' && step.detail === undefined && typeof input.command === 'string') {
+    void describeCommand($, agentId, step.id, input.command).catch(error =>
+      $.ui.log(`tool-fold: command: ${String(error)}`, { to: 'debug' }),
+    )
+  }
   return step
 }
 
@@ -438,6 +483,35 @@ export async function endAgentCall(
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
     failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
   }))
+  const run = (await read($, runs)).find(item => item.id === agentId)
+  const calls = run === undefined ? 0 : Object.values(run.counts).reduce((sum, count) => sum + (count ?? 0), 0)
+  if (run !== undefined && run.status === 'running' && run.todo === undefined && calls % ESTIMATE_EVERY === 0) {
+    void estimateProgress($, run).catch(error => $.ui.log(`tool-fold: estimate: ${String(error)}`, { to: 'debug' }))
+  }
+}
+
+/** Asks Haiku what a command without the model's description does, and shows it under the call. */
+async function describeCommand($: EngineInterface, agentId: string, stepId: string, command: string): Promise<void> {
+  const reply = await $.model.complete({ model: 'haiku', prompt: COMMAND_PROMPT + command.slice(0, 1500), maxTokens: 30, timeoutMs: 15000 })
+  if (reply.isAnswered && reply.text.trim() !== '') {
+    const detail = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 60)
+    const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
+    await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
+  }
+}
+
+/** Asks Haiku how far an agent with no task list is: a rough percentage for the pane. */
+async function estimateProgress($: EngineInterface, run: AgentRun): Promise<void> {
+  const done = [...run.recent].map(step => `- ${step.label}${step.detail === undefined ? '' : ` (${step.detail})`}`).join('\n')
+  const prompt =
+    ESTIMATE_PROMPT +
+    `Encargo: ${run.mission ?? run.description}\nHecho: ${summarize(run.counts)}\nÚltimas acciones:\n${done}`
+  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 10, timeoutMs: 15000 })
+  const value = reply.isAnswered ? Number.parseInt(reply.text.replace(/[^0-9]/g, ''), 10) : Number.NaN
+  if (Number.isFinite(value)) {
+    const estimate = Math.max(0, Math.min(95, value))
+    await patch($, run.id, item => (item.status === 'running' ? { ...item, estimate } : item))
+  }
 }
 
 /** A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line. */
@@ -466,7 +540,7 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
  * Null when no run of this session belongs to the call (one spawned before the mod loaded).
  */
 /** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, surface: RenderSurface) {
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, surface: RenderSurface, inPane = false) {
   const { Box, Text } = ui
   const steps = [...run.recent, ...run.current].slice(-2)
   return (
@@ -476,8 +550,12 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, surfa
       flexDirection="column"
       {...(surface === 'terminal' ? { borderStyle: 'round', borderDimColor: true, paddingX: 1 } : {})}
     >
-      {runHeader(ui, run, now, frame, run.mission ?? run.description)}
-      {steps.length === 0 ? <Text dimColor>{'└ Starting…'}</Text> : steps.map(step => stepRow(ui, step, frame, '  '))}
+      {runHeader(ui, run, now, frame, run.mission ?? run.description, inPane)}
+      {steps.length === 0 ? (
+        <Text dimColor>{'  └ Starting…'}</Text>
+      ) : (
+        steps.map(step => stepRow(ui, step, frame, '  ', inPane))
+      )}
     </Box>
   )
 }
@@ -506,11 +584,8 @@ export async function agentCard(
 
   const card = (run: AgentRun) => {
     if (run.status === 'running') {
-      return isDocked ? (
-        <Box key={run.id}>{runHeader(ui, run, now, frame, run.mission ?? run.description)}</Box>
-      ) : (
-        liveCard(ui, run, now, frame, surface)
-      )
+      // Running agents live in the pane; the chat shows an agent once it has stopped.
+      return isDocked ? <Box key={run.id} /> : liveCard(ui, run, now, frame, surface)
     }
     // Finished: the header plus what it did (Codex's collapsed group).
     const summary = summaryOf(run)
