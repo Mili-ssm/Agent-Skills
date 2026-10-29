@@ -86,6 +86,8 @@ function engine(on: On) {
   const lines: string[] = []
   const statuses: (string | undefined)[] = []
   const agents: { id: string; status: string }[] = []
+  // The surfaces the session draws on, as \`$.session.surfaces()\` answers.
+  const surfaces: string[] = ['vscode']
   // What Haiku answers for the conclusion (`reply`) and for the live description (`doing`); `null` gives no answer.
   // `described` counts the description requests.
   const haiku: { reply: string | null; doing: string | null; described: number } = {
@@ -98,6 +100,7 @@ function engine(on: On) {
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', () => ({ result: {} }))
   on('agent.list', () => ({ value: agents }) as never)
+  on('session.surfaces', () => ({ value: surfaces }) as never)
   on('model.complete', (_, e) => {
     const isDescription = e.prompt.startsWith('An AI coding assistant')
     haiku.described += isDescription ? 1 : 0
@@ -114,7 +117,7 @@ function engine(on: On) {
     statuses.push(e.text)
     return { value: undefined }
   })
-  return { lines, statuses, agents, haiku, clock: mock.clock(on) }
+  return { lines, statuses, agents, haiku, surfaces, clock: mock.clock(on) }
 }
 
 // Long enough for the idle check after a turn's end.
@@ -323,4 +326,65 @@ test('Haiku describes the work in plain words at most every 30 s, and only after
   expect(haiku.described).toBe(3)
   await clock.advance(60_000)
   expect(haiku.described).toBe(3)
+})
+
+test('Desktop draws the cycle in the band above the prompt instead of its small status line', async ($, on) => {
+  const { statuses, surfaces, clock } = engine(on)
+  surfaces.splice(0, surfaces.length, 'desktop')
+  // The engine beneath draws an empty band.
+  on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
+  const band = (surface: string) =>
+    $.ui.mount({
+      plugin: 'usage-band',
+      component: 'AbovePrompt',
+      requestId: 'band',
+      surface,
+      props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 } },
+    } as never)
+
+  await $.prompt.submit(prompt('Go'))
+  await $.turn.start({ text: 'Go', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'npm test', description: 'Run the unit tests' })
+  await clock.advance(3000)
+  // Desktop is the only surface: the footer status line stays empty.
+  expect(statuses.filter(status => status !== undefined)).toEqual([])
+  const busy = await band('desktop')
+  expect((await busy.find({ type: 'Text', text: /^⏱/ }))?.text).toBe('⏱ 3s')
+  expect((await busy.find({ type: 'Text', text: /call/ }))?.text).toBe('1 call')
+  expect((await busy.find({ type: 'Text', text: /^▸/ }))?.text).toBe('▸ Revisa las notas')
+  await busy.unmount()
+
+  // Done: a check mark and Haiku's conclusion.
+  await $.turn.complete(complete({ durationMs: 3000, turnId: 't1', model: 'claude-opus-5-5', input: 1000, output: 100 }))
+  await clock.advance(SETTLE)
+  const idle = await band('desktop')
+  expect((await idle.find({ type: 'Text', text: /^✓/ }))?.text).toBe('✓ 3s')
+  expect((await idle.find({ type: 'Text', text: /Plan ready/ }))?.text).toBe('Plan ready')
+  await idle.unmount()
+
+  // VS Code has no band: the hook draws nothing of its own there.
+  const vscode = await band('vscode')
+  expect(await vscode.find({ type: 'Text', text: /✓/ })).toBeUndefined()
+  await vscode.unmount()
+
+  // A terminal attached too: the status line comes back for it.
+  surfaces.push('terminal')
+  await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' })
+  expect(statuses.at(-1)).toMatch(/^⏱ 3s · 2 calls/)
+})
+
+test('on Desktop, /usage-band draws its bars as image bars', async ($, on) => {
+  engine(on)
+  on('ui.render', { component: 'CommandOutput' }, ($, e) => $.ui.resolve(e).Text({ children: e.props.text }))
+  const output = await $.ui.mount({
+    plugin: 'usage-band',
+    component: 'CommandOutput',
+    requestId: 'out',
+    surface: 'desktop',
+    props: { command: 'usage-band', args: '', text: 'opus     ▇▇▇▁▁  1.2M (20k out) 82%', isErrored: false },
+  } as never)
+  expect((await output.find({ type: 'Svg' })) !== undefined).toBe(true)
+  expect((await output.find({ type: 'Text', text: /opus/ }))?.text).toBe('opus')
+  expect(await output.find({ type: 'Text', text: /▇/ })).toBeUndefined()
+  await output.unmount()
 })
