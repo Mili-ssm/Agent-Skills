@@ -30,6 +30,9 @@ test('cycle formatters', () => {
   const cycle: Cycle = {
     byModel: { opus: { total: 1_200_000, output: 20_000 }, sonnet: { total: 257_000, output: 7000 } },
     startedAt: 0,
+    activeMs: 0,
+    busySince: 0,
+    logged: false,
     calls: 62,
     skills: 2,
     agents: 3,
@@ -40,6 +43,8 @@ test('cycle formatters', () => {
   )
   // Zero counts are left out, a single one is singular, and no tokens leaves just the time.
   expect(formatCycle({ ...cycle, byModel: {}, calls: 1, skills: 0, agents: 0 }, 4000)).toBe('⏱ 4s · 1 call')
+  // Once Claude is idle the clock mark turns into a check.
+  expect(formatCycle({ ...cycle, busySince: null, byModel: {}, calls: 1, skills: 0, agents: 0 }, 4000)).toBe('✓ 4s · 1 call')
 })
 
 type On = Parameters<TestBody>[1]
@@ -59,14 +64,17 @@ const complete = (init: { agentId?: string; durationMs: number; turnId: string; 
 const prompt = (text: string, origin: { kind: string; [key: string]: unknown } = { kind: 'composer' }, extra: object = {}) =>
   ({ text, wait: false, origin, ...extra }) as never
 
-// The engine beneath the mod, recording the log rows and status lines it is asked to draw; time stands still until the test moves it.
+// The engine beneath the mod, recording the log rows and status lines it is asked to draw; time stands still until the
+// test moves it. `agents` is what `$.agent.list()` answers.
 function engine(on: On) {
   const lines: string[] = []
   const statuses: (string | undefined)[] = []
+  const agents: { id: string; status: string }[] = []
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', () => ({ result: {} }))
+  on('agent.list', () => ({ value: agents }) as never)
   on('ui.log', (_, e) => {
     lines.push(e.text)
     return { value: undefined }
@@ -75,10 +83,13 @@ function engine(on: On) {
     statuses.push(e.text)
     return { value: undefined }
   })
-  return { lines, statuses, clock: mock.clock(on) }
+  return { lines, statuses, agents, clock: mock.clock(on) }
 }
 
-test('a cycle runs on the wall clock from one prompt to the next, waits on agents included', async ($, on) => {
+// Long enough for the idle check after a turn's end.
+const SETTLE = 2000
+
+test('the clock runs while Claude works, agents included, and stops with a printed line when all is done', async ($, on) => {
   const { lines, statuses, clock } = engine(on)
 
   // The person's first prompt: nothing to close yet; the clock starts.
@@ -95,21 +106,30 @@ test('a cycle runs on the wall clock from one prompt to the next, waits on agent
   await $.tool.call({ tool: 'Skill', skill: 'plan' })
   await $.tool.call({ tool: 'Agent', description: 'Explore', prompt: 'Look around', subagent_type: 'Explore' })
   await $.tool.call({ tool: 'Agent', description: 'Review', prompt: 'Review it', subagent_type: 'Explore' })
-  // A subagent's own calls count too.
+  // A background agent starts its run; its own calls count too.
+  await $.turn.start({ text: 'Review it', turnId: 's1', agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'cat a', agentId: 'a1' })
   expect(statuses.at(-1)).toBe('⏱ 3s · 6 calls · 1 skill · 2 agents')
   await clock.advance(117_000)
   await $.turn.complete(complete({ durationMs: 120_000, turnId: 't1', model: 'claude-opus-5-5', input: 700_000, output: 10_000 }))
   expect(statuses.at(-1)).toBe('⏱ 2m00s · opus ▇▇▇▇▇ 710k · 6 calls · 1 skill · 2 agents')
 
-  // The main loop is idle while a background agent works: the clock goes on.
+  // The main loop is done but the agent still works: the clock goes on and nothing is printed.
   await clock.advance(600_000)
+  expect(lines).toEqual([])
   expect(statuses.at(-1)).toBe('⏱ 12m00s · opus ▇▇▇▇▇ 710k · 6 calls · 1 skill · 2 agents')
-  // The agent ends meanwhile: its tokens join the cycle.
-  await $.turn.complete(complete({ agentId: 'a1', durationMs: 90_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 250_000, output: 7000 }))
-  expect(statuses.at(-1)).toBe('⏱ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents')
 
-  // Its hand-back wakes the model: machine-made prompts (a task notification and the like) start no cycle.
+  // The agent ends: nothing works any more, so the clock stops at its end and the line is printed.
+  await $.turn.complete(complete({ agentId: 'a1', durationMs: 597_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 250_000, output: 7000 }))
+  await clock.advance(SETTLE)
+  expect(lines).toEqual(['✓ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents │ Σ 12m00s · 967k'])
+  expect(statuses.at(-1)).toBe('✓ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents')
+
+  // The person is away: the frozen line stays as it is.
+  await clock.advance(600_000)
+  expect(statuses.at(-1)).toBe('✓ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents')
+
+  // A hand-back wakes the model: machine-made prompts open no cycle, but the work resumes the same one.
   const machine = [
     prompt('<task-notification>agent done</task-notification>', { kind: 'task-notification' }),
     prompt('wake up', { kind: 'scheduled-trigger' }),
@@ -122,32 +142,33 @@ test('a cycle runs on the wall clock from one prompt to the next, waits on agent
   for (const submission of machine) {
     await $.prompt.submit(submission)
   }
-  expect(lines).toEqual([])
+  expect(lines).toHaveLength(1)
   await $.turn.start({ text: '', turnId: 't2' })
+  expect(statuses.at(-1)).toBe('⏱ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents')
   await clock.advance(72_000)
   await $.tool.call({ tool: 'Read', file_path: '/tmp/a.ts' })
   await $.turn.complete(complete({ durationMs: 72_000, turnId: 't2', model: 'claude-opus-5-5', input: 480_000, output: 10_000 }))
-  expect(lines).toEqual([])
-  // Done, waiting on the person: the clock still says how long since they wrote.
-  await clock.advance(60_000)
-  expect(statuses.at(-1)).toBe('⏱ 14m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents')
+  await clock.advance(SETTLE)
+  // The idle pause is not counted; the new idle moment prints the updated line.
+  expect(lines).toEqual([
+    '✓ 12m00s · opus ▇▇▇▇▇ 710k · sonnet ▇▇▁▁▁ 257k · 6 calls · 1 skill · 2 agents │ Σ 12m00s · 967k',
+    '✓ 13m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents │ Σ 13m12s · 1.5M',
+  ])
 
-  // /usage-band: the current cycle on top, then the session, the open cycle's time included.
+  // /usage-band: the current cycle on top, then the session.
   const { text } = await $.command.run({ command: 'usage-band' } as never)
   expect(text).toBe(
     [
-      'Current cycle: ⏱ 14m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents',
-      'Session: 14m12s over 2 answers · 1.5M tokens',
+      'Current cycle: ✓ 13m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents',
+      'Session: 13m12s over 2 answers · 1.5M tokens',
       'opus     ▇▇▇▇▇  1.2M (20k out) 82%',
       'sonnet   ▇▁▁▁▁  257k (7k out) 18%',
     ].join('\n'),
   )
 
-  // The person's next prompt closes the cycle: its one line goes in first, then the new cycle starts at 0.
+  // The person's next prompt: the line is already printed, so only the new cycle starts.
   await $.prompt.submit(prompt('Now implement it'))
-  expect(lines).toEqual([
-    '⏱ 14m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 7 calls · 1 skill · 2 agents │ Σ 14m12s · 1.5M',
-  ])
+  expect(lines).toHaveLength(2)
   expect(statuses.at(-1)).toBe('⏱ 0s')
 
   // The second cycle, short: its line carries the session's running total.
@@ -155,20 +176,45 @@ test('a cycle runs on the wall clock from one prompt to the next, waits on agent
   await clock.advance(5000)
   await $.turn.complete(complete({ durationMs: 5000, turnId: 't3', model: 'claude-opus-5-5', input: 40_000, output: 2000 }))
   expect(statuses.at(-1)).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k')
+  await clock.advance(SETTLE)
+  expect(lines[2]).toBe('✓ 5s · opus ▇▇▇▇▇ 42k │ Σ 13m17s · 1.5M')
   await $.prompt.submit(prompt('Thanks', { kind: 'bridge' }))
-  expect(lines).toHaveLength(2)
-  expect(lines[1]).toBe('⏱ 5s · opus ▇▇▇▇▇ 42k │ Σ 14m17s · 1.5M')
+  expect(lines).toHaveLength(3)
+})
+
+test('an agent the engine still lists as working keeps the clock running', async ($, on) => {
+  const { lines, statuses, agents, clock } = engine(on)
+
+  await $.prompt.submit(prompt('Go'))
+  await $.turn.start({ text: 'Go', turnId: 't1' })
+  await clock.advance(10_000)
+  // A teammate works in a pane of its own: no turn of it was heard, but the roster says it runs.
+  agents.push({ id: 'mate@team', status: 'running' })
+  await $.turn.complete(complete({ durationMs: 10_000, turnId: 't1', model: 'claude-opus-5-5', input: 1000, output: 100 }))
+  await clock.advance(SETTLE)
+  expect(lines).toEqual([])
+  expect(statuses.at(-1)).toBe('⏱ 12s · opus ▇▇▇▇▇ 1k')
+  // It goes idle; the next turn end finds nothing working and stops the clock there.
+  agents[0] = { id: 'mate@team', status: 'idle' }
+  await $.turn.start({ text: '', turnId: 't2' })
+  await clock.advance(3000)
+  await $.turn.complete(complete({ durationMs: 3000, turnId: 't2', model: 'claude-opus-5-5', input: 1000, output: 100 }))
+  await clock.advance(SETTLE)
+  expect(lines).toEqual(['✓ 15s · opus ▇▇▇▇▇ 2k │ Σ 15s · 2k'])
 })
 
 test('a cycle without tokens logs no line', async ($, on) => {
-  const { lines } = engine(on)
+  const { lines, clock } = engine(on)
 
   await $.prompt.submit(prompt('Just a question'))
+  await $.turn.start({ text: 'Just a question', turnId: 't1' })
+  await $.turn.complete({ answer: '', durationMs: 0, isAborted: true, turnId: 't1', reason: 'aborted' } as never)
+  await clock.advance(SETTLE)
   await $.prompt.submit(prompt('Another'))
   expect(lines).toEqual([])
 })
 
-test('a prompt typed over a running turn starts the new cycle at that moment', async ($, on) => {
+test('a prompt typed over a running turn closes the old cycle and starts the new one at that moment', async ($, on) => {
   const { lines, statuses, clock } = engine(on)
 
   await $.prompt.submit(prompt('Start'))
@@ -182,12 +228,15 @@ test('a prompt typed over a running turn starts the new cycle at that moment', a
   expect(statuses.at(-1)).toBe('⏱ 4s')
   await $.turn.complete(complete({ durationMs: 14_000, turnId: 't1', model: 'claude-haiku-5-5', input: 1000, output: 200 }))
   expect(statuses.at(-1)).toBe('⏱ 4s · haiku ▇▇▇▇▇ 1k')
+  await clock.advance(SETTLE)
+  expect(lines).toEqual(['✓ 4s · haiku ▇▇▇▇▇ 1k │ Σ 14s · 1k'])
 })
 
 test('a subagent-only turn end before any prompt shows in the status line and logs nothing', async ($, on) => {
-  const { lines, statuses } = engine(on)
+  const { lines, statuses, clock } = engine(on)
 
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 5000, turnId: 's1', model: 'claude-haiku-5-5', input: 1000, output: 100 }))
+  await clock.advance(SETTLE)
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 0s · haiku ▇▇▇▇▇ 1k')
+  expect(statuses.at(-1)).toBe('✓ 0s · haiku ▇▇▇▇▇ 1k')
 })

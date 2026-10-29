@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, PromptOrigin, Register, Timer, TurnUsage } from 'claude-code'
+import type { AgentStatus, EngineInterface, PromptOrigin, Register, Timer, TurnUsage } from 'claude-code'
 
 import type { Cycle, Tally, Usage } from '../types'
 
@@ -10,13 +10,26 @@ const EMPTY: Usage = { durationMs: 0, turns: 0, byModel: {} }
 const session = atom({ plugin: 'usage-band', key: 'session' } as const, EMPTY, {
   shape: 'usage-2',
 })
-const EMPTY_CYCLE: Cycle = { byModel: {}, startedAt: null, calls: 0, skills: 0, agents: 0 }
+const EMPTY_CYCLE: Cycle = {
+  byModel: {},
+  startedAt: null,
+  activeMs: 0,
+  busySince: null,
+  logged: false,
+  calls: 0,
+  skills: 0,
+  agents: 0,
+}
 // The interaction cycle in progress: from the person's last prompt on (see `isPersonPrompt`).
 const cycleAtom = atom({ plugin: 'usage-band', key: 'cycle' } as const, EMPTY_CYCLE, {
-  shape: 'cycle-2',
+  shape: 'cycle-3',
 })
-// The live status line redraws this often while a cycle is open (only a changed text is sent).
+// The live status line redraws this often while Claude is busy (only a changed text is sent).
 const TICK_MS = 1000
+// Wait after a turn ends before calling Claude idle, so a follow-up turn or an agent's status can land.
+const SETTLE_MS = 1500
+// Agent states that mean work is still going on; an idle teammate or a finished agent does not count.
+const WORKING: ReadonlySet<AgentStatus> = new Set(['pending', 'running', 'waiting'])
 // Cells of a family's mini bar, and the levels a cell can show (empty to full).
 const CELLS = 5
 const LEVELS = '▁▂▃▄▅▆▇█'
@@ -114,9 +127,14 @@ export function formatModels(byModel: Tally): string[] {
   return shown
 }
 
-/** Time since the person's prompt that opened the cycle, idle time included; 0 before any prompt. */
+/** Claude's busy time in the cycle: the closed stretches plus the open one up to `now`. */
 export function elapsedMs(cycle: Cycle, now: number): number {
-  return cycle.startedAt === null ? 0 : Math.max(0, now - cycle.startedAt)
+  return cycle.activeMs + (cycle.busySince === null ? 0 : Math.max(0, now - cycle.busySince))
+}
+
+/** The cycle with its open busy stretch closed at `now` (unchanged when Claude is already idle). */
+export function closeStretch(cycle: Cycle, now: number): Cycle {
+  return cycle.busySince === null ? cycle : { ...cycle, activeMs: elapsedMs(cycle, now), busySince: null }
 }
 
 /** True once a cycle has anything to show: an opening prompt, tokens or counted calls. */
@@ -124,7 +142,10 @@ export function hasActivity(cycle: Cycle): boolean {
   return cycle.startedAt !== null || cycle.calls > 0 || sumTokens(cycle.byModel) > 0
 }
 
-/** `⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 62 calls · 2 skills · 3 agents`; zero counts left out. */
+/**
+ * `⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 62 calls · 2 skills · 3 agents` while Claude is busy, `✓ 3m12s · …`
+ * once it is idle; zero counts left out.
+ */
 export function formatCycle(cycle: Cycle, elapsed: number): string {
   const counts = [
     [cycle.calls, 'call'],
@@ -132,7 +153,7 @@ export function formatCycle(cycle: Cycle, elapsed: number): string {
     [cycle.agents, 'agent'],
   ] as const
   const parts = [
-    `⏱ ${formatDuration(elapsed)}`,
+    `${cycle.busySince === null ? '✓' : '⏱'} ${formatDuration(elapsed)}`,
     ...formatModels(cycle.byModel),
     ...counts.filter(([n]) => n > 0).map(([n, noun]) => count(n, noun)),
   ]
@@ -172,6 +193,11 @@ export function isPersonPrompt(e: { origin: PromptOrigin; isMeta?: true; command
 
 // Module state, lost on a hot reload: `session.start` restarts the tick, and the next publish resends the status.
 let tick: Timer | undefined
+// Turns of the main loop and of agents that started and have not ended yet; while one is open, Claude is busy.
+const openTurns = new Set<string>()
+// The pending idle check after a turn ended, and when that turn ended: the busy stretch closes there, not at the check.
+let settling: Timer | undefined
+let lastTurnEnd: number | undefined
 // The status line as last sent (`undefined`: cleared), so it is sent only when its text changed.
 let lastStatus: string | undefined
 
@@ -201,6 +227,52 @@ function stopTick(): void {
   tick = undefined
 }
 
+/** True while an agent still works (spawned, running or waiting on a permission). A failed lookup counts as none. */
+async function agentsWorking($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.agent.list()).some(agent => WORKING.has(agent.status))
+  } catch (error) {
+    $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })
+    return false
+  }
+}
+
+/**
+ * Once no turn is open and no agent works, Claude is idle: the busy stretch closes, its time joins the session,
+ * the cycle's line is printed (once per idle moment) and the clock stops.
+ */
+async function settle($: EngineInterface): Promise<void> {
+  settling = undefined
+  if (openTurns.size > 0 || (await agentsWorking($))) {
+    return
+  }
+  const cycle = await read($, cycleAtom)
+  if (cycle.busySince === null) {
+    return
+  }
+  const closed = closeStretch(cycle, lastTurnEnd ?? (await $.clock.now()))
+  await update($, session, before => ({ ...before, durationMs: before.durationMs + (closed.activeMs - cycle.activeMs) }))
+  const isLogged = sumTokens(closed.byModel) > 0
+  if (isLogged) {
+    $.ui.log(formatLine(closed, closed.activeMs, await read($, session)))
+  }
+  await update($, cycleAtom, () => ({ ...closed, logged: isLogged }))
+  stopTick()
+  await publish($)
+}
+
+function scheduleSettle($: EngineInterface): void {
+  settling?.cancel()
+  settling = $.clock.after(SETTLE_MS, () => {
+    void settle($)
+  })
+}
+
+function cancelSettle(): void {
+  settling?.cancel()
+  settling = undefined
+}
+
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
@@ -208,8 +280,8 @@ export const register: Register = on => {
       name: COMMAND,
       description: 'Show the current cycle and the session summary: time and tokens per model',
     })
-    // After a hot reload the timer is gone: an open cycle needs it again.
-    if ((await read($, cycleAtom)).startedAt !== null) {
+    // After a hot reload the timer is gone: a busy cycle needs it again.
+    if ((await read($, cycleAtom)).busySince !== null) {
       startTick($)
     }
     await publish($)
@@ -220,6 +292,8 @@ export const register: Register = on => {
   on('session.end', async ($, e, next) => {
     const ended = await next(e)
     stopTick()
+    cancelSettle()
+    openTurns.clear()
     await update($, cycleAtom, () => EMPTY_CYCLE)
     await publish($)
 
@@ -232,21 +306,25 @@ export const register: Register = on => {
     const line = hasActivity(cycle) ? formatCycle(cycle, elapsed) : 'nothing yet'
     const total = await read($, session)
 
-    return { text: `Current cycle: ${line}\n${formatSummary({ ...total, durationMs: total.durationMs + elapsed })}` }
+    // The session already holds the cycle's closed stretches; only the open one is added.
+    return {
+      text: `Current cycle: ${line}\n${formatSummary({ ...total, durationMs: total.durationMs + elapsed - cycle.activeMs })}`,
+    }
   }).catch(($, e, next) => next(e))
 
-  // The person's prompt closes the cycle before it: its line goes in first, so the row lands above their message.
-  // The cycle's time is the wall time between their prompts: work, waits on agents and their own pause alike.
+  // The person's prompt closes the cycle before it and opens a busy one. The old cycle's line was printed when
+  // Claude went idle; when they write while it still works, the line goes in now, above their message.
   on('prompt.submit', async ($, e, next) => {
     if (isPersonPrompt(e)) {
+      cancelSettle()
       const now = await $.clock.now()
       const cycle = await read($, cycleAtom)
-      const elapsed = elapsedMs(cycle, now)
-      await update($, session, before => ({ ...before, durationMs: before.durationMs + elapsed }))
-      if (sumTokens(cycle.byModel) > 0) {
-        $.ui.log(formatLine(cycle, elapsed, await read($, session)))
+      const closed = closeStretch(cycle, now)
+      await update($, session, before => ({ ...before, durationMs: before.durationMs + (closed.activeMs - cycle.activeMs) }))
+      if (!cycle.logged && sumTokens(closed.byModel) > 0) {
+        $.ui.log(formatLine(closed, closed.activeMs, await read($, session)))
       }
-      await update($, cycleAtom, () => ({ ...EMPTY_CYCLE, startedAt: now }))
+      await update($, cycleAtom, () => ({ ...EMPTY_CYCLE, startedAt: now, busySince: now }))
       startTick($)
       await publish($)
     }
@@ -267,8 +345,25 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
+  // Any turn starting, the main loop's or an agent's, means Claude works: an idle cycle resumes its clock.
+  on('turn.start', async ($, e, next) => {
+    openTurns.add(e.turnId)
+    cancelSettle()
+    const cycle = await read($, cycleAtom)
+    if (cycle.startedAt !== null && cycle.busySince === null) {
+      const now = await $.clock.now()
+      await update($, cycleAtom, before => ({ ...before, busySince: now, logged: false }))
+      startTick($)
+      await publish($)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('turn.complete', async ($, e, next) => {
     const completed = await next(e)
+    openTurns.delete(e.turnId)
+    lastTurnEnd = await $.clock.now()
     const isMain = e.agentId === undefined
     const { usage } = e
     // Tokens of the main loop and of every subagent join the cycle, even a subagent that ends while the main loop is idle
@@ -283,6 +378,7 @@ export const register: Register = on => {
       byModel: usage === undefined ? before.byModel : addUsage(before.byModel, usage),
     }))
     await publish($)
+    scheduleSettle($)
 
     return completed
   })

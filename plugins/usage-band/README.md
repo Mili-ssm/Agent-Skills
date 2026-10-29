@@ -4,8 +4,9 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 
 ## What it shows
 
-- Live status line per interaction cycle (your prompt to your next): time since you wrote, tokens per model, and calls, skills and agents of the main loop and its agents (`⏱ 1h52m · opus ▇▇▇▇▇ 17.3M · sonnet ▇▇▁▁▁ 6.4M · 412 calls · 2 skills · 8 agents`)
-- One dim line when your next prompt closes the cycle (`… │ Σ 3h10m · 41.7M`)
+- Live status line per interaction cycle (your prompt to your next): how long Claude has worked on it, tokens per model, and calls, skills and agents of the main loop and its agents (`⏱ 1h52m · opus ▇▇▇▇▇ 17.3M · sonnet ▇▇▁▁▁ 6.4M · 412 calls · 2 skills · 8 agents`)
+- The clock stops when no turn of the main loop or of an agent is open and no agent still works: the mark turns to `✓` and one dim line is printed (`✓ … │ Σ 3h10m · 41.7M`, the session's busy time and tokens). A hand-back that wakes Claude again resumes the same cycle without counting the pause.
+- If you write while Claude still works, that line is printed above your message instead
 - `/usage-band` for the cycle and a session summary
 
 ## Install
