@@ -58,7 +58,9 @@ test('a call in a few words', () => {
   expect(activity('Skill', { skill: 'plan' })).toBe('Skill plan')
   expect(activity('Agent', { description: 'Explore the auth code', prompt: 'long brief' })).toBe('Explore the auth code')
   expect(activity('TodoWrite', {})).toBe('TodoWrite')
-  expect(activity('Bash', { description: 'A very long description that goes on and on past the limit' })).toBe('A very long description that goes on an…')
+  expect(activity('Bash', { description: 'A very long description that goes on and on, well past the limit of the line' })).toBe(
+    'A very long description that goes on and on, well past the…',
+  )
 })
 
 type On = Parameters<TestBody>[1]
@@ -84,19 +86,26 @@ function engine(on: On) {
   const lines: string[] = []
   const statuses: (string | undefined)[] = []
   const agents: { id: string; status: string }[] = []
-  // What Haiku answers for the conclusion; `null` makes it give no answer.
-  const haiku: { reply: string | null } = { reply: '«Plan ready.»' }
+  // What Haiku answers for the conclusion (`reply`) and for the live description (`doing`); `null` gives no answer.
+  // `described` counts the description requests.
+  const haiku: { reply: string | null; doing: string | null; described: number } = {
+    reply: '«Plan ready.»',
+    doing: '«Revisa las notas.»',
+    described: 0,
+  }
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
   on('tool.call', () => ({ result: {} }))
   on('agent.list', () => ({ value: agents }) as never)
-  on('model.complete', () => ({
-    value:
-      haiku.reply === null
-        ? { isAnswered: false, text: '' }
-        : { isAnswered: true, text: haiku.reply, usage: usage('claude-haiku-5-5', 50, 8) },
-  }) as never)
+  on('model.complete', (_, e) => {
+    const isDescription = e.prompt.startsWith('An AI coding assistant')
+    haiku.described += isDescription ? 1 : 0
+    const text = isDescription ? haiku.doing : haiku.reply
+    return {
+      value: text === null ? { isAnswered: false, text: '' } : { isAnswered: true, text, usage: usage('claude-haiku-5-5', 50, 8) },
+    } as never
+  })
   on('ui.log', (_, e) => {
     lines.push(e.text)
     return { value: undefined }
@@ -131,15 +140,15 @@ test('the clock runs while Claude works, agents included, and stops with a print
   // A background agent starts its run; its own calls count too.
   await $.turn.start({ text: 'Review it', turnId: 's1', agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'cat a', description: 'Read the notes', agentId: 'a1' })
-  expect(statuses.at(-1)).toBe('⏱ 3s · 6 calls · 1 skill · 2 agents · ▸ Read the notes')
+  expect(statuses.at(-1)).toBe('⏱ 3s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
   await clock.advance(117_000)
   await $.turn.complete(complete({ durationMs: 120_000, turnId: 't1', model: 'claude-opus-5-5', input: 700_000, output: 10_000 }))
-  expect(statuses.at(-1)).toBe('⏱ 2m00s · 6 calls · 1 skill · 2 agents · ▸ Read the notes')
+  expect(statuses.at(-1)).toBe('⏱ 2m00s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
 
   // The main loop is done but the agent still works: the clock goes on and nothing is printed.
   await clock.advance(600_000)
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 12m00s · 6 calls · 1 skill · 2 agents · ▸ Read the notes')
+  expect(statuses.at(-1)).toBe('⏱ 12m00s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
 
   // The agent ends: nothing works any more, so the clock stops at its end; Haiku sums up the answer and the line is printed.
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 597_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 250_000, output: 7000 }))
@@ -272,9 +281,10 @@ test('work seen with no cycle open (after a reload or an update) opens one, so a
   // An agent started before the reload keeps working: only its calls and its roster entry are seen.
   agents.push({ id: 'a1', status: 'running' })
   await $.tool.call({ tool: 'Bash', command: 'sed -i x a.js', description: 'Migrate the scripts', agentId: 'a1' })
+  // The call's own description shows at once; Haiku's plain-words version replaces it when it lands.
   expect(statuses.at(-1)).toBe('⏱ 0s · 1 call · ▸ Migrate the scripts')
   await clock.advance(30_000)
-  expect(statuses.at(-1)).toBe('⏱ 30s · 1 call · ▸ Migrate the scripts')
+  expect(statuses.at(-1)).toBe('⏱ 30s · 1 call · ▸ Revisa las notas')
 
   // Its run ends and the roster says it is done: the clock stops and the line is printed.
   agents[0] = { id: 'a1', status: 'completed' }
@@ -282,4 +292,35 @@ test('work seen with no cycle open (after a reload or an update) opens one, so a
   await clock.advance(SETTLE)
   // No main-loop answer was seen since the reload, so there is nothing for Haiku to sum up.
   expect(lines).toEqual(['✓ 30s · 1 call │ Σ 30s · 6k'])
+})
+
+test('Haiku describes the work in plain words at most every 30 s, and only after new calls', async ($, on) => {
+  const { statuses, haiku, clock } = engine(on)
+  haiku.doing = null
+
+  await $.prompt.submit(prompt('Resuelve la deuda técnica del frontend'))
+  await $.turn.start({ text: 'Resuelve la deuda técnica del frontend', turnId: 't1' })
+  // No description from Haiku yet: the raw call shows meanwhile.
+  await $.tool.call({ tool: 'Bash', command: "sed -i 's/engine/store/g' test/a.js" })
+  expect(statuses.at(-1)).toBe("⏱ 0s · 1 call · ▸ sed -i 's/engine/store/g' test/a.js")
+  expect(haiku.described).toBe(1)
+
+  // Haiku answers from now on; calls inside the 30 s gap wait for one description at its end.
+  haiku.doing = '«Cambia engine por store en los tests»'
+  await clock.advance(5000)
+  await $.tool.call({ tool: 'Bash', command: 'npm run e2e', description: 'Run the e2e suite' })
+  await $.tool.call({ tool: 'Read', file_path: '/repo/test/a.js' })
+  expect(haiku.described).toBe(1)
+  expect(statuses.at(-1)).toBe('⏱ 5s · 3 calls · ▸ Read a.js')
+  await clock.advance(25_000)
+  expect(haiku.described).toBe(2)
+  expect(statuses.at(-1)).toBe('⏱ 30s · 3 calls · ▸ Cambia engine por store en los tests')
+
+  // Its words stay while new calls come; no new call, no new request.
+  await $.tool.call({ tool: 'Edit', file_path: '/repo/test/b.js', old_string: 'engine', new_string: 'store' })
+  expect(statuses.at(-1)).toBe('⏱ 30s · 4 calls · ▸ Cambia engine por store en los tests')
+  await clock.advance(30_000)
+  expect(haiku.described).toBe(3)
+  await clock.advance(60_000)
+  expect(haiku.described).toBe(3)
 })

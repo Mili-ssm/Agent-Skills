@@ -31,7 +31,16 @@ const TICK_MS = 1000
 // Wait after a turn ends before calling Claude idle, so a follow-up turn or an agent's status can land.
 const SETTLE_MS = 1500
 // Widest activity and conclusion shown, so the counters stay visible in a narrow status line.
-const DOING_MAX = 40
+const DOING_MAX = 60
+// Haiku re-describes the work at most this often, and only after new calls.
+const SUMMARY_GAP_MS = 30_000
+// Latest calls Haiku sees to say what Claude is doing.
+const RECENT_MAX = 8
+// Haiku's instruction for the live description; it answers in the request's own language.
+const DOING_PROMPT =
+  'An AI coding assistant is working on the request below. In at most 10 words, in the same language as the ' +
+  'request, say in plain words what it is doing right now, judging by its latest actions. Reply with the phrase ' +
+  'only, without quotes or a final period.\n\n'
 const CONCLUSION_MAX = 60
 // Haiku's instruction for the conclusion; it answers in the answer's own language.
 const CONCLUSION_PROMPT =
@@ -127,7 +136,7 @@ export function clip(text: string, max: number): string {
 }
 
 /** A call in a few words: the model's own `description`, else its main argument, else the tool's name. */
-export function activity(tool: string, input: object): string {
+export function activity(tool: string, input: object, max = DOING_MAX): string {
   const fields = input as Record<string, unknown>
   const text = (key: string): string => (typeof fields[key] === 'string' ? (fields[key] as string) : '')
   const base = (path: string): string => path.split('/').pop() ?? path
@@ -139,7 +148,7 @@ export function activity(tool: string, input: object): string {
     text('query') ||
     text('url').replace(/^https?:\/\//, '') ||
     (text('command').split('\n')[0] ?? '')
-  return clip(detail === '' ? tool : `${tool} ${detail}`.replace(/^(Agent|Bash|Task) /, ''), DOING_MAX)
+  return clip(detail === '' ? tool : `${tool} ${detail}`.replace(/^(Agent|Bash|Task) /, ''), max)
 }
 
 /** Pluralised count: `1 tool`, `14 tools`. */
@@ -233,6 +242,68 @@ let settling: Timer | undefined
 let lastTurnEnd: number | undefined
 // The main loop's last answer in this cycle, which Haiku sums up once Claude is idle.
 let lastAnswer = ''
+// The live description: the person's request, the latest calls, when Haiku last described them, calls since then,
+// the timer for the next description, and whether the line shows Haiku's words yet (raw call labels until then).
+let request = ''
+let recent: string[] = []
+let describedAt: number | undefined
+let freshCalls = 0
+let describing: Timer | undefined
+let isDescribed = false
+
+/** Forgets the live description, so the next call is described at once. */
+function resetDescription(): void {
+  describing?.cancel()
+  describing = undefined
+  describedAt = undefined
+  freshCalls = 0
+  isDescribed = false
+}
+
+/** Asks Haiku what Claude does now, from the request and the latest calls; the line keeps its text on a miss. */
+async function describe($: EngineInterface): Promise<void> {
+  describing = undefined
+  const cycle = await read($, cycleAtom)
+  if (freshCalls === 0 || cycle.busySince === null) {
+    return
+  }
+  describedAt = await $.clock.now()
+  freshCalls = 0
+  const actions = recent.map(line => `- ${line}`).join('\n')
+  try {
+    const reply = await $.model.complete({
+      model: 'haiku',
+      prompt: `${DOING_PROMPT}Request:\n${request.slice(0, 1500) || '(not seen)'}\n\nLatest actions, oldest first:\n${actions}`,
+      maxTokens: 40,
+      timeoutMs: 15000,
+    })
+    const text = reply.isAnswered ? reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, '') : ''
+    const now = await read($, cycleAtom)
+    if (text === '' || now.busySince === null || now.startedAt !== cycle.startedAt) {
+      return
+    }
+    isDescribed = true
+    await update($, cycleAtom, before => ({ ...before, doing: clip(text, DOING_MAX) }))
+    await publish($)
+  } catch (error) {
+    $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })
+  }
+}
+
+/** A description now, or one when the gap since the last ends; at most one waits. */
+async function requestDescription($: EngineInterface): Promise<void> {
+  if (describing !== undefined) {
+    return
+  }
+  const wait = describedAt === undefined ? 0 : describedAt + SUMMARY_GAP_MS - (await $.clock.now())
+  if (wait > 0) {
+    describing = $.clock.after(wait, () => {
+      void describe($)
+    })
+    return
+  }
+  void describe($)
+}
 // The status line as last sent (`undefined`: cleared), so it is sent only when its text changed.
 let lastStatus: string | undefined
 
@@ -304,6 +375,7 @@ async function settle($: EngineInterface): Promise<void> {
     return
   }
   const closed = { ...closeStretch(cycle, lastTurnEnd ?? (await $.clock.now())), doing: null }
+  resetDescription()
   await update($, session, before => ({ ...before, durationMs: before.durationMs + (closed.activeMs - cycle.activeMs) }))
   await update($, cycleAtom, () => closed)
   stopTick()
@@ -339,6 +411,7 @@ async function markBusy($: EngineInterface): Promise<void> {
     logged: false,
     conclusion: null,
   }))
+  resetDescription()
   startTick($)
 }
 
@@ -409,6 +482,9 @@ export const register: Register = on => {
       }
       await update($, cycleAtom, () => ({ ...EMPTY_CYCLE, startedAt: now, busySince: now }))
       lastAnswer = ''
+      request = e.text
+      recent = []
+      resetDescription()
       startTick($)
       await publish($)
     }
@@ -424,9 +500,13 @@ export const register: Register = on => {
       calls: before.calls + 1,
       skills: before.skills + (e.tool === 'Skill' ? 1 : 0),
       agents: before.agents + (e.tool === 'Agent' ? 1 : 0),
-      doing: activity(e.tool, e),
+      // Raw call labels only until Haiku's first description of this busy stretch.
+      doing: isDescribed ? before.doing : activity(e.tool, e),
     }))
+    recent = [...recent, activity(e.tool, e, 120)].slice(-RECENT_MAX)
+    freshCalls += 1
     await publish($)
+    await requestDescription($)
 
     return next(e)
   }).catch(($, e, next) => next(e))
