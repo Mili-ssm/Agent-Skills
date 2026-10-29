@@ -481,7 +481,7 @@ export const registerAgents: Register = (on, options) => {
       }
       await update($, clock, () => startedAt)
       await syncTick($)
-      await openDock($)
+      await openDockUnlessDesktop($)
     }
     // A failure here costs the card, never the spawn.
     await record().catch(error => $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' }))
@@ -506,7 +506,7 @@ export const registerAgents: Register = (on, options) => {
     await $.command.register({ name: 'agents-dock', description: 'Show running agents in the "Agentes" pane' })
     await syncTick($)
     if ((await read($, runs)).some(run => run.status === 'running')) {
-      await openDock($)
+      await openDockUnlessDesktop($)
     }
 
     return started
@@ -526,17 +526,12 @@ export const registerAgents: Register = (on, options) => {
     return closed
   }).catch(($, e, next) => next(e))
 
-  // Desktop docks the pane beside the chat; closed, running agents would show nowhere (their chat rows stay empty
-  // while they run). There, as VS Code does with its inline pane, their cards draw in the band above the prompt.
+  // Desktop's running agents draw in the band above the prompt, as VS Code's inline pane sits there (their chat rows
+  // stay empty while they run). Desktop does not tell the engine when the person closes its docked pane (`ui.close`
+  // never comes, `$.ui.panes()` still says shown), so the band never waits on the pane; `/agents-dock` adds it.
   // The band is shared: other mods' cards stack below, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.surface !== 'desktop' || e.props.hasSurvey) {
-      return next(e)
-    }
-    // Whether the pane is on screen now, as the surface says: Desktop's own close of a docked pane does not always
-    // reach this mod as `ui.close`, so the remembered state alone left the band empty after the person closed it.
-    const panes = await $.ui.panes().catch(() => [])
-    if (panes.some(pane => pane.id === DOCK && pane.isPlaced && pane.isShown)) {
       return next(e)
     }
     const running = (await read($, runs)).filter(run => run.status === 'running')
@@ -876,6 +871,15 @@ async function openDock($: EngineInterface): Promise<void> {
   const title = `Agentes · ${running}`
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
+}
+
+/** Opens the pane, except where Desktop is the only surface: there the band above the prompt holds the agents. */
+async function openDockUnlessDesktop($: EngineInterface): Promise<void> {
+  const surfaces = await $.session.surfaces().catch(() => [])
+  if (surfaces.length > 0 && surfaces.every(surface => surface === 'desktop')) {
+    return
+  }
+  await openDock($)
 }
 
 /** Closes the pane once no agent runs: they all sit in the chat again. Never throws. */

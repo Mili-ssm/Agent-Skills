@@ -354,13 +354,15 @@ test('remembered durations: a reference line for Haiku, and time-based progress 
   expect(estimateOf({ startedAt: 0, estimate: 40, typical: { ms: 600_000, of: 4 } }, 360_000)).toBe(40)
 })
 
-test('on Desktop, without the pane, running agents draw in the band above the prompt', async ($, on) => {
+test('on Desktop, running agents draw in the band above the prompt and open no pane', async ($, on) => {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
-  // The panes the surface shows, as \`$.ui.panes()\` answers: the person closes the pane with Desktop's own mark.
-  let panes = [{ id: 'agents', title: 'Agentes · 1', isShown: true, isFocused: false, isPlaced: true }]
-  on('ui.panes', () => ({ value: panes }) as never)
+  const opened: string[] = []
+  on('ui.open', (_, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  on('session.surfaces', () => ({ value: ['desktop'] }) as never)
   on('ui.log', () => ({ value: undefined }))
   // The engine beneath draws an empty band.
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
@@ -377,17 +379,12 @@ test('on Desktop, without the pane, running agents draw in the band above the pr
   await $.agent.spawn({ ...SPAWN, subagentType: 'performance-analyst' })
   await $.tool.call({ tool: 'Bash', command: 'cargo bench', description: 'Benchmark the codec', agentId: 'a1' })
 
-  // The docked pane holds the agent: the band stays free.
-  const whileDocked = await band('desktop')
-  expect(await whileDocked.find({ type: 'Text', text: /performance-analyst/ })).toBeUndefined()
-  await whileDocked.unmount()
-
-  // The person closes the pane (no \`ui.close\` reaches the mod): the card moves above the prompt.
-  panes = []
-  const closed = await band('desktop')
-  expect((await closed.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
-  expect((await closed.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
-  await closed.unmount()
+  // Desktop never says when its pane is closed: the pane is not opened, the band holds the agent.
+  expect(opened).toEqual([])
+  const desktop = await band('desktop')
+  expect((await desktop.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
+  expect((await desktop.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
+  await desktop.unmount()
 
   // VS Code places its own pane above the prompt: the band is not drawn there.
   const vscode = await band('vscode')
