@@ -475,6 +475,12 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
     .map(([n, noun]) => count(n, noun))
     .join(' · ')
   const sessionMs = total.durationMs + (isBusy ? elapsed - cycle.activeMs : 0)
+  const sessionTokens = sumTokens(total.byModel)
+  // The session total says something only once earlier cycles exist; its tokens only once there are some.
+  const sessionTotal =
+    sessionMs - elapsed < 1000
+      ? null
+      : `Σ ${formatDuration(sessionMs)}${sessionTokens === 0 ? '' : ` · ${formatTokens(sessionTokens)}`}`
   const detail = isBusy ? (cycle.doing === null ? null : `▸ ${cycle.doing}`) : cycle.conclusion
   return Box({
     borderStyle: 'round',
@@ -484,22 +490,26 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
     children: [
       Box({
         flexDirection: 'row',
-        gap: 1,
+        justifyContent: 'space-between',
+        gap: 2,
         children: [
-          Text({
-            color: isBusy ? 'claude' : 'success',
-            weight: 'bold',
-            tabular: true,
-            children: `${isBusy ? '⏱' : '✓'} ${formatDuration(elapsed)}`,
+          Box({
+            flexDirection: 'row',
+            gap: 1,
+            children: [
+              Text({
+                color: isBusy ? 'claude' : 'success',
+                weight: 'bold',
+                tabular: true,
+                children: `${isBusy ? '⏱' : '✓'} ${formatDuration(elapsed)}`,
+              }),
+              counts === '' ? null : Text({ dimColor: true, children: counts }),
+            ],
           }),
-          counts === '' ? null : Text({ dimColor: true, children: counts }),
-          Text({
-            dimColor: true,
-            size: 'footnote',
-            children: `Σ ${formatDuration(sessionMs)} · ${formatTokens(sumTokens(total.byModel))}`,
-          }),
+          sessionTotal === null ? null : Text({ dimColor: true, size: 'footnote', tabular: true, children: sessionTotal }),
         ],
       }),
+      // Busy: what it does now, quiet. Idle: the conclusion, in full color, as the line worth reading.
       detail === null ? null : Text({ dimColor: isBusy, italic: !isBusy, wrap: 'wrap', children: detail }),
     ],
   })
