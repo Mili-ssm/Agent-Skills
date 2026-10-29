@@ -1,6 +1,6 @@
 ---
 name: docs-principles
-description: Checklists for accurate, dense documentation and LLM-facing prompts - Diataxis, density checklist, CLAUDE.md/AGENTS.md rules and Anthropic skill and subagent authoring guidance. Use when writing, tightening, reviewing or updating a README, docs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts, including requests like "make this shorter" or "this feels bloated"; load it before editing so cuts follow the density checklist and keep rationale and gotchas.
+description: Checklists for accurate, dense repository documentation and LLM-facing files - Diátaxis, density checklist, CLAUDE.md/AGENTS.md rules and Anthropic skill and subagent authoring guidance. Use when writing, tightening, reviewing or updating a README, docs, ADRs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts, including requests like "make this shorter" or "this feels bloated" (not for general prose such as emails; the skill-authoring process belongs to Superpowers writing-skills); load it before editing so cuts follow the density checklist and keep rationale and gotchas.
 ---
 
 # Documentation Principles
@@ -13,23 +13,27 @@ description: Checklists for accurate, dense documentation and LLM-facing prompts
 |---|---|
 | Why > what | Code shows what; docs keep intent, constraints, trade-offs |
 | Single source of truth | State a fact once and link to it; copies drift |
-| Diátaxis | Tutorial, how-to, reference and explanation stay separate ([detail](references/diataxis.md)) |
-| BLUF / inverted pyramid | Conclusion and most-used facts first |
-| Every page is page one (Baker) | Readers land from search; each page states its context and links onward |
-| Minimalism (Carroll) | Support the reader's real task; cut what they would skip |
-| Docs as code | Versioned and reviewed with code; examples run in CI where possible |
-| Minimal context files | CLAUDE.md/AGENTS.md hold only what agents cannot discover ([detail](references/agent-context-files.md)) |
-| LLM-aligned prompts | Skills, agents and prompts follow Anthropic authoring guidance ([detail](references/prompt-authoring.md)) |
-| Progressive disclosure | Short index, detail one link away |
-| Verifiable | Commands, paths, versions exact and tested; time-sensitive facts dated |
+| Diátaxis | Tutorial, how-to, reference and explanation stay separate |
+| Minimal context files | CLAUDE.md/AGENTS.md hold only what agents cannot discover |
+| LLM-aligned prompts | Skills, agents and prompts follow Anthropic authoring guidance |
+
+## References
+
+| Open when | Reference |
+|---|---|
+| Cutting or tightening any text (workflow step 4) | [density-checklist.md](references/density-checklist.md) |
+| Sorting sections by reader need or splitting a mixed section (step 2) | [diataxis.md](references/diataxis.md) |
+| Writing or auditing CLAUDE.md or AGENTS.md | [agent-context-files.md](references/agent-context-files.md) |
+| Writing or reviewing a skill, agent prompt or description (wording, examples, evals) | [prompt-authoring.md](references/prompt-authoring.md) |
 
 ## Writing rules
 
 - Tables for comparisons and mappings, lists for sequences, prose for reasoning.
 - One term per concept; synonyms read as different concepts.
 - Prefer one concrete example to an abstract explanation.
+- Date time-sensitive facts ("as of 2026-10") so readers can judge staleness.
 - Decisions go to ADRs (`decision-records`).
-- Apply the [density checklist](references/density-checklist.md) to every paragraph.
+- Apply the density checklist to every paragraph.
 
 ## Compression workflow
 

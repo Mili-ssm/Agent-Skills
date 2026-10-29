@@ -9,27 +9,22 @@ Report exploitable paths, not theoretical ones: every finding names a **source**
 
 ## Index
 
-| Need | Reference |
-|---|---|
-| Threat modeling: four questions, DFD, STRIDE, attack trees, LINDDUN | [threat-modeling.md](references/threat-modeling.md) |
-| Review checklist: OWASP themes, ASVS areas, Python/Rust/web sinks, supply chain, secrets | [checklist.md](references/checklist.md) |
+| Workflow step | Open | For |
+|---|---|---|
+| 1 Context | [threat-modeling.md](references/threat-modeling.md) | Four questions, DFD, STRIDE, attack trees, LINDDUN |
+| 2 Entry points, 3 Trace, 4 Triage | [checklist.md](references/checklist.md) | OWASP themes, ASVS areas, Python/Rust/web sinks, supply chain, secrets |
 
 ## Secure design principles
 
+Least privilege, defense in depth, fail closed and secure defaults are assumed known; the checklist applies them. The less obvious ones:
+
 | Principle | Meaning |
 |---|---|
-| Least privilege / least authority | Minimal rights for users, services, tokens, DB roles |
-| Defense in depth | Independent layered controls |
-| Fail closed | Errors deny access |
 | Complete mediation | Authorize every access server-side, per object |
-| Secure by default | Safe out of the box; risk is opt-in |
-| Economy of mechanism | Small, reviewable security code |
-| Minimize attack surface | Remove unused endpoints, features, dependencies |
-| Distrust the client | Headers, cookies, hidden fields, `HX-*` headers are attacker-controlled |
+| Distrust the client, including `HX-*` headers | Headers, cookies and hidden fields are attacker-controlled; htmx request headers prove nothing |
 | Canonicalize, then validate | Normalize paths, encodings, Unicode before checks |
 | Avoid confused deputies | A privileged component acts only with the caller's authority |
 | Check-and-use atomically | Prevent TOCTOU races (files, balances, permissions) |
-| Vetted crypto | Libraries with safe defaults; never custom primitives |
 
 ## Severity
 
@@ -43,14 +38,12 @@ Report exploitable paths, not theoretical ones: every finding names a **source**
 
 Rate by exploitability × impact and state the attacker's preconditions.
 
-## Review workflow
-
-The `security-reviewer` agent follows this workflow; use it inline for a snippet or endpoint.
+## Review workflow (the `security-reviewer` agent runs it in full; inline for a snippet or endpoint)
 
 1. Context: assets, actors, trust boundaries (threat model if none exists).
 2. Entry points: routes, forms, uploads, webhooks, CLI args, env, queues, deserialization, templates rendering user data.
 3. Trace sources → sinks; check validation, encoding, authorization, rate limits.
-4. Triage available scanner output as leads.
+4. Triage available scanner output: a hit without a source → sink path is a lead, not a finding; trace it, then classify it as exploitable, hardening or false positive.
 5. Report exploitable findings with proof path and minimal fix; hardening separately.
 
 <example>

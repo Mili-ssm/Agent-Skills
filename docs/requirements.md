@@ -1,6 +1,6 @@
 # Requirements
 
-Current as of 2026-10-27. Source: owner conversation and `intent-elicitation` interview. A flipped requirement needs a PR + ADR.
+Current as of 2026-10-29. Source: owner conversation and `intent-elicitation` interview. A flipped requirement needs a PR + ADR.
 
 ## Context
 
@@ -32,8 +32,8 @@ Current as of 2026-10-27. Source: owner conversation and `intent-elicitation` in
 | N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). |
 | N6 | Description or prompt changes are measured with `claude plugin eval` (trigger + no-trigger cases) against the previous version. |
 | N7 | Reviewer agents are read-only via `disallowedTools`, not via prompt text. |
-| N8 | Every agent and the UX design workflow have an explicit user-only command; auto-triggering is a bonus. |
-| N9 | Reading, checks and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. |
+| N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. |
+| N9 | Reading, checks, browser verification and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. |
 
 ## Superpowers boundary
 
@@ -45,6 +45,7 @@ Current as of 2026-10-27. Source: owner conversation and `intent-elicitation` in
 | `test-driven-development` (when to test) | `qa-engineer` / `qa-principles` (what to test, test quality) |
 | `requesting-code-review` (general) | `architect`, `security-reviewer`, `ux-reviewer` (specialist lenses) |
 | `systematic-debugging` | `performance-analyst` (measured optimization) |
+| `verification-before-completion` (evidence before claiming done) | `check-runner`, `ui-verifier` (cheap workers that produce that evidence) |
 | `writing-skills` (authoring process, TDD for skills) | `prompt-authoring.md`: Claude-specific wording, description and eval rules it does not cover |
 
 ## Out of scope (now)

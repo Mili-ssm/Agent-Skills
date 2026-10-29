@@ -22,7 +22,7 @@ Hermetic tests (all dependencies controlled) are deterministic; non-hermetic one
 
 ## Risk-based testing
 
-Risk = likelihood (complexity, churn, new tech, defect history) × impact (money, data loss, security, legal, trust). Depth proportional to risk; record accepted untested risk.
+Rate risk with the levels in the workflow (SKILL.md, step 1); new technology also raises likelihood, and legal or trust exposure raises impact. Depth proportional to risk; record accepted untested risk.
 
 ## Techniques by need
 

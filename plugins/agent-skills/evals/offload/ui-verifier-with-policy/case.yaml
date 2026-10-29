@@ -1,0 +1,29 @@
+schema_version: "1.1"
+name: offload-ui-verifier-with-policy
+tags: [offload]
+runs: 3
+plugins: ["../../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  append_system_prompt: |
+    ## Offload policy (main conversation only)
+
+    Delegate before pulling large sources, logs or command output into this context, because every token here is the most expensive one. Subagents cannot dispatch subagents: they do this work themselves.
+
+    | Situation | Delegate to |
+    |---|---|
+    | Searching or reading more than 3 files, or an unfamiliar codebase | `Explore` |
+    | Running tests, lint, typecheck or a build | `agent-skills:check-runner` |
+    | Reading any file over ~200 lines: logs, docs, PDFs, large diffs | `agent-skills:summarizer` |
+    | Any web search or web page | `agent-skills:researcher`, one per question, in parallel |
+    | Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `agent-skills:implementer`: write its brief, then review its diff instead of writing the code yourself |
+    | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
+    | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
+    | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
+
+    Keep inline: decisions, edits under ~20 lines, integrating results. Briefs are self-contained: goal, paths, commands, constraints, acceptance criteria, max report length. Independent briefs run in parallel in one message.
+  max_turns: 14
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash]
+  prompt: I just changed the newsletter signup form in `site/`. Before I ship it, check in a real browser, on desktop and on mobile, that signing up with a valid email shows the thank-you message and that the FAQ question opens its answer. Serve it with `python3 -m http.server 8765 --directory site`.

@@ -48,3 +48,18 @@ Trigger evals, Sonnet, same graders (skill fired or its preloading agent dispatc
 Adding the reason to load turned 0% → 100% for architecture, security and pre-mortem, and lifted QA and refactoring to 100%. `ux-principles` stays unreliable (2 of 6 runs over the last two measurements): Sonnet answers small HTML reviews from memory.
 
 Follow-up (owner): auto-triggering is a bonus, not a requirement, so explicit commands (`commands/*.md`, `disable-model-invocation: true`) supplement every agent plus `ux-design`. `ux-principles` is meant for planning and designing UIs with Playwright verification, not snippet review; its eval now uses a design prompt and fires 3/3.
+
+## Review 2026-10-29
+
+A prompt and configuration review (bounded reports, write gates, sibling boundaries, role labels in preloaded skills; ADR 0012) was measured with a stricter suite: five near-miss no-trigger cases whose grader names every skill and agent, skill-only graders for `change-impact`, `intent-elicitation` and `ux-principles`, and a `performance-analyst` case. Baseline: the `main` plugin with the same suite. Both sides ran concurrently with the same flags: Sonnet main, 3 runs per case, no Superpowers. Cases that dropped were rerun at 6 runs per side.
+
+| Suite | `main` | This change |
+|---|---|---|
+| Trigger, 16 cases × 3 runs | 39/48 (81%) | 41/48 (85%) |
+| No-trigger, 5 near-misses × 3 runs | 15/15 | 15/15 |
+| Rerun × 6: `pre-mortem` · `ux-principles` · `architecture-principles` | 1/6 · 6/6 · 2/6 | 1/6 · 6/6 · 1/6 |
+
+- No case dropped by 2 or more of 6, the threshold set before measuring. `pre-mortem` and `architecture-principles` fire rarely on both versions, because Sonnet critiques the plan or answers the restructuring question inline; their commands and the owner's offload row stay the entry points.
+- `performance-analyst` fired 0/3 on both: with no codebase in the prompt, Sonnet answers with advice. `/agent-skills:perf-review` is the entry point.
+- The near-misses never fired on `main` either, so the new boundary clauses show no measurable effect on these prompts.
+- Vocabulary: a finding's basis is `evidenced | inferred`; a plan assumption's status stays `verified | unverified`.

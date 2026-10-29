@@ -41,6 +41,7 @@ REP/CCP/CRP: release, change and reuse together. ADP: no cycles. SDP: depend tow
 | Least astonishment (POLA) | Names and behavior match what a reader expects |
 | Make illegal states unrepresentable | Types encode invariants (enums, newtypes, typestate) |
 | Parse, don't validate | Convert raw input to trusted types once, at the boundary |
+| Functional core, imperative shell | Decision logic stays pure; I/O happens at the edges, so logic is testable without I/O |
 | Single level of abstraction (SLAP) | A function mixes no high-level steps with low-level detail |
 | Command-query separation | A function changes state or returns data, not both |
 | Design by contract (Meyer) | Explicit pre/postconditions and invariants; assert them in debug |

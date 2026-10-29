@@ -5,3 +5,5 @@ disable-model-invocation: true
 ---
 
 Load the `agent-skills:feature-briefing` skill and run its workflow for: $ARGUMENTS
+
+If no feature or change was given, ask for it in one question first.

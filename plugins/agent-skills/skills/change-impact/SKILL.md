@@ -9,19 +9,11 @@ Run before writing the implementation plan, because the plan inherits the blast 
 
 ## Workflow
 
-Copy and tick:
+Copy and tick (copy the step names as a checklist, tick each when it completes):
 
-```
-- [ ] 1 State the change and its motivation in one sentence each
-- [ ] 2 Map the blast radius (evidence per row)
-- [ ] 3 Classify compatibility
-- [ ] 4 Choose migration and rollout strategy
-- [ ] 5 Risks, rollback, point of no return
-- [ ] 6 Verification plan
-- [ ] 7 Docs and ADRs to update in the same change
-```
+**1. Change**: state the change and its motivation in one sentence each.
 
-**2. Blast radius** (Hyrum's law: every observable behavior may have a consumer):
+**2. Blast radius** (Hyrum's law: every observable behavior may have a consumer), with evidence per row:
 
 | Dimension | How to find |
 |---|---|
@@ -34,6 +26,8 @@ Copy and tick:
 | People / systems | Consumers outside the repo, other teams, scheduled jobs |
 | Non-functional | Performance, security surface, accessibility, cost |
 
+Above ~20 rows, group by directory. State the search commands used (for example `rg -n 'user_id'`), so the owner can rerun them.
+
 **3. Compatibility**: `patch` (no contract change) · `minor` (additive) · `major` (breaking: list each break and who it hits).
 
 **4. Strategy**:
@@ -41,17 +35,25 @@ Copy and tick:
 | Strategy | Use when |
 |---|---|
 | Direct change | Internal, all callers in repo, covered by tests |
-| Parallel change (expand → migrate → contract) | Contracts or schemas with live consumers |
-| Branch by abstraction | Replace an internal component incrementally on trunk |
-| Strangler fig | Replace a subsystem route by route |
-| Feature flag (release, ops, experiment, permission — Hodgson) | Risky behavior; fast off-switch; remove release flags after rollout |
+| Parallel change (expand → migrate → contract) | Contracts or schemas with live consumers; an interface with many callers |
+| Branch by abstraction (abstraction → route callers → new implementation behind it → switch → delete old) | Replace an internal component incrementally on trunk |
+| Strangler fig (intercept the entry point → move features one by one → retire legacy) | Replace a subsystem or legacy app route by route |
+| Feature flag | Risky behavior; fast off-switch; remove release flags after rollout |
 | Dark launch / shadow traffic | Validate under real load without user impact |
 | Canary / blue-green / progressive delivery | Limit exposure; promote on healthy metrics |
 | Dual write + backfill | Data model change with zero downtime |
 
-**5. Risks**: rate `low | medium | high`, each with its evidence; rollback path per step; name the point of no return (destructive migration, external announcement) or "none".
+**5. Risks**: rate each `low | medium | high` with its evidence, using the criteria below; rollback path per step; name the point of no return (destructive migration, external announcement) or "none".
+
+| Rating | Criteria |
+|---|---|
+| high | Data loss or corruption, an irreversible step, security exposure, or external consumers broken without mitigation |
+| medium | Internal callers broken, or a coordinated deploy or migration with rollback available |
+| low | Local, covered by tests, trivially reversible |
 
 **6. Verification**: characterization tests before touching legacy code; run suites through `check-runner`; tests to add/adjust; rollout metrics and abort thresholds.
+
+**7. Docs and ADRs**: list the docs and ADRs the change makes false and update them in the same change.
 
 ## Output
 
@@ -72,6 +74,6 @@ Point of no return: <step | none>
 
 ## Rules
 
-- Back every affected item with evidence; "probably used somewhere" → grep it or list it as an open question.
-- Prefer sequences of small reversible steps.
+- Back every affected item with evidence, because the plan inherits every gap in this map; "probably used somewhere" → grep it or list it as an open question.
+- Prefer sequences of small reversible steps, because each one can be rolled back alone.
 - A decision-level change produces an ADR (`decision-records`).

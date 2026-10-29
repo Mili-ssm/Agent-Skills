@@ -1,25 +1,24 @@
 ---
 name: qa-principles
-description: Test design and test strategy toolkit - ISTQB techniques, SFDPOT and HICCUPPS heuristics, property-based, stateful and mutation testing, test doubles, test smells and flaky-test causes. Use when deciding which test cases to write for a function or feature, assessing a test suite or strategy, hunting coverage gaps, or fixing flaky tests; load it before answering so each case names its technique and the risk it covers.
+description: Test design and test strategy toolkit - ISTQB techniques, SFDPOT and HICCUPPS heuristics, property-based, stateful and mutation testing, test doubles, test smells and flaky-test causes. Use when deciding which test cases to write for a function or feature, assessing a test suite or strategy, hunting coverage gaps, or fixing flaky tests, but not for the red-green-refactor loop itself (Superpowers test-driven-development); load it before answering so each case names its technique and the risk it covers.
 ---
 
 # QA Principles
 
-Testing answers "what could go wrong, and would we notice?". Coverage counts lines executed, not defects caught (Goodhart: as a target it stops measuring). Complements TDD (Superpowers, if installed): TDD decides **when** to write a test; this skill decides **what** to test and **how well**.
+Testing answers "what could go wrong, and would we notice?". Complements TDD (Superpowers, if installed): TDD decides **when** to write a test; this skill decides **what** to test and **how well**.
 
 ## Index
 
-| Need | Reference |
-|---|---|
-| Deriving cases: partitions, boundaries, decision tables, states, pairwise, SFDPOT, HICCUPPS oracles, properties | [test-design.md](references/test-design.md) |
-| Strategy: shapes, risk-based, sizes, contract, stateful/simulation, mutation, E2E scope, flakiness | [strategy.md](references/strategy.md) |
-| Test quality: FIRST, AAA, doubles, smells, DAMP | [test-quality.md](references/test-quality.md) |
+| Workflow step | Open | For |
+|---|---|---|
+| 1 Risk map, 2 Inventory | [strategy.md](references/strategy.md) | Shapes, sizes, risk-based testing, E2E scope |
+| 3 Design | [test-design.md](references/test-design.md) | Partitions, boundaries, decision tables, states, pairwise, SFDPOT, HICCUPPS oracles, properties |
+| 4 Quality | [test-quality.md](references/test-quality.md), [strategy.md](references/strategy.md) | FIRST, AAA, doubles, smells, DAMP; flaky-test root causes |
+| 5 Strength | [strategy.md](references/strategy.md) | Mutation testing, contract, stateful/simulation and other techniques by need |
 
 ## Principles that drive the workflow
 
-- Exhaustive testing is impossible → prioritize by risk (likelihood × impact).
-- Defects cluster → test churn hotspots harder.
-- Pesticide paradox → vary and extend tests; property-based and exploratory testing find what fixed cases miss.
+- Goodhart's law: coverage counts lines executed, not defects caught, and as a target it stops measuring; pair it with mutation score.
 - Beyoncé rule: if you depend on a behavior, put a test on it.
 
 ## Non-obvious tooling
@@ -33,12 +32,13 @@ Testing answers "what could go wrong, and would we notice?". Coverage counts lin
 | Random order / flake detection | `pytest-randomly`, `pytest-repeat` | `cargo nextest` (`--retries` only to detect) |
 | Branch coverage | `coverage.py --branch` | `cargo llvm-cov` |
 
-## Assessment workflow
+## Assessment workflow (the `qa-engineer` agent runs it in full; inline for one function or feature)
 
-The `qa-engineer` agent follows this workflow; use it inline for one function or feature.
-
-1. **Risk map**: features/modules × likelihood (churn, complexity, defect history) × impact (money, data, security, UX).
-2. **Inventory** tests per feature and size (`Explore` to map them, `check-runner` to run them); find untested high-risk areas.
+1. **Risk map**: rate each feature or module `low | medium | high`, noting the signals behind each level:
+   - likelihood from churn, complexity and defect history, relative to the rest of the codebase;
+   - impact: high = data, money, security or core flow; medium = secondary flow; low = cosmetic;
+   - risk: high when impact is high and likelihood is not low; low when both are low; medium otherwise.
+2. **Inventory** tests per feature and size (main conversation: `Explore` maps them, `check-runner` runs them); find untested high-risk areas.
 3. **Design** missing cases, naming the technique; properties for logic with invariants, stateful properties for APIs with sequences.
 4. **Quality**: test smells, over-mocking, assertion-free tests, flakiness sources.
 5. **Strength**: mutation testing on high-risk modules; each surviving mutant is a missing assertion.
