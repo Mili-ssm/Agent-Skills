@@ -30,21 +30,21 @@ const cycleAtom = atom({ plugin: 'usage-band', key: 'cycle' } as const, EMPTY_CY
 const TICK_MS = 1000
 // Wait after a turn ends before calling Claude idle, so a follow-up turn or an agent's status can land.
 const SETTLE_MS = 1500
-// Widest activity and conclusion shown, so the counters stay visible in a narrow status line.
-const DOING_MAX = 60
+// Widest activity and conclusion shown: room for two lines of a status line, where the counters come first.
+const DOING_MAX = 140
 // Haiku re-describes the work at most this often, and only after new calls.
 const SUMMARY_GAP_MS = 30_000
 // Latest calls Haiku sees to say what Claude is doing.
 const RECENT_MAX = 8
 // Haiku's instruction for the live description; it answers in the request's own language.
 const DOING_PROMPT =
-  'An AI coding assistant is working on the request below. In at most 10 words, in the same language as the ' +
+  'An AI coding assistant is working on the request below. In at most 16 words, in the same language as the ' +
   'request, say in plain words what it is doing right now, judging by its latest actions. Reply with the phrase ' +
   'only, without quotes or a final period.\n\n'
-const CONCLUSION_MAX = 60
+const CONCLUSION_MAX = 140
 // Haiku's instruction for the conclusion; it answers in the answer's own language.
 const CONCLUSION_PROMPT =
-  'In at most 8 words, and in the same language as the text below, state the conclusion or outcome of this ' +
+  'In at most 14 words, and in the same language as the text below, state the conclusion or outcome of this ' +
   'assistant answer. Reply with the phrase only, without quotes or a final period.\n\nAnswer:\n'
 // Agent states that mean work is still going on; an idle teammate or a finished agent does not count.
 const WORKING: ReadonlySet<AgentStatus> = new Set(['pending', 'running', 'waiting'])

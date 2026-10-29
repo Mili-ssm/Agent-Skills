@@ -58,8 +58,8 @@ test('a call in a few words', () => {
   expect(activity('Skill', { skill: 'plan' })).toBe('Skill plan')
   expect(activity('Agent', { description: 'Explore the auth code', prompt: 'long brief' })).toBe('Explore the auth code')
   expect(activity('TodoWrite', {})).toBe('TodoWrite')
-  expect(activity('Bash', { description: 'A very long description that goes on and on, well past the limit of the line' })).toBe(
-    'A very long description that goes on and on, well past the…',
+  expect(activity('Bash', { description: 'A description long enough to need a cut. '.repeat(4) })).toBe(
+    'A description long enough to need a cut. A description long enough to need a cut. A description long enough to need a cut. A description lo…',
   )
 })
 
