@@ -5,7 +5,7 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | Plugin | What | Docs |
 |---|---|---|
 | `agent-skills` | Specialist skills, agents and offload workers (below) | [Catalog](#catalog), [`plugins/agent-skills/`](plugins/agent-skills/) |
-| `usage-band` (mod) | Status line per prompt cycle: time, tokens per model, calls, skills and agents | [README](plugins/usage-band/README.md) |
+| `usage-band` (mod) | Status line per prompt cycle: Claude's busy time, tokens per model, calls, skills, agents | [README](plugins/usage-band/README.md) |
 | `plan-progress` (mod) | While a plan exists: progress status line, card above the prompt, task toasts | [README](plugins/plan-progress/README.md) |
 | `tool-fold` (mod) | Folds tool, skill and agent calls into one line each; running agents get a live card | [README](plugins/tool-fold/README.md) |
 
