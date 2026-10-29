@@ -252,7 +252,7 @@ test('an agent in a folded group: nothing while it runs (the pane has it), folde
   status = 'done'
   const opened = await $.ui.mount({ ...ROW_AGENT, surface: 'vscode' })
   expect((await opened.find({ type: 'Text', text: /^└$/ }))?.text).toBe('└')
-  expect((await opened.find({ type: 'Text', text: /Implement Task 14/ }))?.text).toBe('Implement Task 14')
+  expect((await opened.find({ type: 'Text', text: /Implement Task 14/ }))?.text).toBe('    Implement Task 14')
   await opened.unmount()
   await header.press({ key: 'fold-g-b1' })
   await header.unmount()
