@@ -352,6 +352,8 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   expect((await busy.find({ type: 'Text', text: /^⏱/ }))?.text).toBe('⏱ 3s')
   expect((await busy.find({ type: 'Text', text: /call/ }))?.text).toBe('1 call')
   expect((await busy.find({ type: 'Text', text: /^▸/ }))?.text).toBe('▸ Revisa las notas')
+  // The first cycle is the whole session: no session total yet.
+  expect(await busy.find({ type: 'Text', text: /Σ/ })).toBeUndefined()
   await busy.unmount()
 
   // Done: a check mark and Haiku's conclusion.
@@ -362,6 +364,13 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   expect((await idle.find({ type: 'Text', text: /Plan ready/ }))?.text).toBe('Plan ready')
   await idle.unmount()
 
+  // A second cycle: the session total shows on the right, with its tokens.
+  await $.prompt.submit(prompt('Again'))
+  await clock.advance(2000)
+  const second = await band('desktop')
+  expect((await second.find({ type: 'Text', text: /Σ/ }))?.text).toBe('Σ 5s · 1k')
+  await second.unmount()
+
   // VS Code has no band: the hook draws nothing of its own there.
   const vscode = await band('vscode')
   expect(await vscode.find({ type: 'Text', text: /✓/ })).toBeUndefined()
@@ -370,7 +379,7 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   // A terminal attached too: the status line comes back for it.
   surfaces.push('terminal')
   await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' })
-  expect(statuses.at(-1)).toMatch(/^⏱ 3s · 2 calls/)
+  expect(statuses.at(-1)).toMatch(/^⏱ 2s · 1 call/)
 })
 
 test('on Desktop, /usage-band draws its bars as image bars', async ($, on) => {

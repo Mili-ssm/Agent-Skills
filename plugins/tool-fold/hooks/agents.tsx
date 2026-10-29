@@ -530,7 +530,13 @@ export const registerAgents: Register = (on, options) => {
   // while they run). There, as VS Code does with its inline pane, their cards draw in the band above the prompt.
   // The band is shared: other mods' cards stack below, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, docked))) {
+    if (e.surface !== 'desktop' || e.props.hasSurvey) {
+      return next(e)
+    }
+    // Whether the pane is on screen now, as the surface says: Desktop's own close of a docked pane does not always
+    // reach this mod as `ui.close`, so the remembered state alone left the band empty after the person closed it.
+    const panes = await $.ui.panes().catch(() => [])
+    if (panes.some(pane => pane.id === DOCK && pane.isPlaced && pane.isShown)) {
       return next(e)
     }
     const running = (await read($, runs)).filter(run => run.status === 'running')

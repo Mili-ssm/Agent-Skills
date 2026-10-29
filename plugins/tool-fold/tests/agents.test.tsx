@@ -357,9 +357,10 @@ test('remembered durations: a reference line for Haiku, and time-based progress 
 test('on Desktop, without the pane, running agents draw in the band above the prompt', async ($, on) => {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
-  // Whether the surface seats the pane: a pane that is closed or cannot be placed leaves the agents nowhere else.
-  let isPlaced = true
-  on('ui.open', () => ({ value: { isPlaced } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  // The panes the surface shows, as \`$.ui.panes()\` answers: the person closes the pane with Desktop's own mark.
+  let panes = [{ id: 'agents', title: 'Agentes · 1', isShown: true, isFocused: false, isPlaced: true }]
+  on('ui.panes', () => ({ value: panes }) as never)
   on('ui.log', () => ({ value: undefined }))
   // The engine beneath draws an empty band.
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
@@ -381,9 +382,8 @@ test('on Desktop, without the pane, running agents draw in the band above the pr
   expect(await whileDocked.find({ type: 'Text', text: /performance-analyst/ })).toBeUndefined()
   await whileDocked.unmount()
 
-  // The pane is gone (closed, or not placed when reopened): the card moves above the prompt.
-  isPlaced = false
-  await $.command.run({ command: 'agents-dock' } as never)
+  // The person closes the pane (no \`ui.close\` reaches the mod): the card moves above the prompt.
+  panes = []
   const closed = await band('desktop')
   expect((await closed.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
   expect((await closed.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
