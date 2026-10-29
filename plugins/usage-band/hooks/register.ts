@@ -16,18 +16,27 @@ const EMPTY_CYCLE: Cycle = {
   activeMs: 0,
   busySince: null,
   logged: false,
+  doing: null,
+  conclusion: null,
   calls: 0,
   skills: 0,
   agents: 0,
 }
 // The interaction cycle in progress: from the person's last prompt on (see `isPersonPrompt`).
 const cycleAtom = atom({ plugin: 'usage-band', key: 'cycle' } as const, EMPTY_CYCLE, {
-  shape: 'cycle-3',
+  shape: 'cycle-4',
 })
 // The live status line redraws this often while Claude is busy (only a changed text is sent).
 const TICK_MS = 1000
 // Wait after a turn ends before calling Claude idle, so a follow-up turn or an agent's status can land.
 const SETTLE_MS = 1500
+// Widest activity and conclusion shown, so the counters stay visible in a narrow status line.
+const DOING_MAX = 40
+const CONCLUSION_MAX = 60
+// Haiku's instruction for the conclusion; it answers in the answer's own language.
+const CONCLUSION_PROMPT =
+  'In at most 8 words, and in the same language as the text below, state the conclusion or outcome of this ' +
+  'assistant answer. Reply with the phrase only, without quotes or a final period.\n\nAnswer:\n'
 // Agent states that mean work is still going on; an idle teammate or a finished agent does not count.
 const WORKING: ReadonlySet<AgentStatus> = new Set(['pending', 'running', 'waiting'])
 // Cells of a family's mini bar, and the levels a cell can show (empty to full).
@@ -111,6 +120,28 @@ export function sumTokens(tally: Tally): number {
   return Object.values(tally).reduce((sum, tokens) => sum + tokens.total, 0)
 }
 
+/** `text` cut to `max` characters with `…`. */
+export function clip(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`
+}
+
+/** A call in a few words: the model's own `description`, else its main argument, else the tool's name. */
+export function activity(tool: string, input: object): string {
+  const fields = input as Record<string, unknown>
+  const text = (key: string): string => (typeof fields[key] === 'string' ? (fields[key] as string) : '')
+  const base = (path: string): string => path.split('/').pop() ?? path
+  const detail =
+    text('description') ||
+    (tool === 'Skill' ? text('skill') : '') ||
+    base(text('file_path') || text('notebook_path')) ||
+    text('pattern') ||
+    text('query') ||
+    text('url').replace(/^https?:\/\//, '') ||
+    (text('command').split('\n')[0] ?? '')
+  return clip(detail === '' ? tool : `${tool} ${detail}`.replace(/^(Agent|Bash|Task) /, ''), DOING_MAX)
+}
+
 /** Pluralised count: `1 tool`, `14 tools`. */
 function count(n: number, noun: string): string {
   return `${n} ${noun}${n === 1 ? '' : 's'}`
@@ -143,8 +174,8 @@ export function hasActivity(cycle: Cycle): boolean {
 }
 
 /**
- * `⏱ 3m12s · opus ▇▇▇▇▇ 1.2M · sonnet ▇▁▁▁▁ 257k · 62 calls · 2 skills · 3 agents` while Claude is busy, `✓ 3m12s · …`
- * once it is idle; zero counts left out.
+ * `⏱ 3m12s · 62 calls · 2 skills · 3 agents · ▸ Run the e2e suite` while Claude is busy,
+ * `✓ 3m12s · 62 calls · 2 skills · 3 agents — login works; 2 e2e tests fail` once it is idle; zero counts left out.
  */
 export function formatCycle(cycle: Cycle, elapsed: number): string {
   const counts = [
@@ -152,12 +183,14 @@ export function formatCycle(cycle: Cycle, elapsed: number): string {
     [cycle.skills, 'skill'],
     [cycle.agents, 'agent'],
   ] as const
+  const isBusy = cycle.busySince !== null
   const parts = [
-    `${cycle.busySince === null ? '✓' : '⏱'} ${formatDuration(elapsed)}`,
-    ...formatModels(cycle.byModel),
+    `${isBusy ? '⏱' : '✓'} ${formatDuration(elapsed)}`,
     ...counts.filter(([n]) => n > 0).map(([n, noun]) => count(n, noun)),
+    ...(isBusy && cycle.doing !== null ? [`▸ ${cycle.doing}`] : []),
   ]
-  return parts.join(' · ')
+  const line = parts.join(' · ')
+  return !isBusy && cycle.conclusion !== null ? `${line} — ${cycle.conclusion}` : line
 }
 
 /** The cycle's line then `│ Σ 38m10s · 41.7M` (the session's time and tokens). */
@@ -198,6 +231,8 @@ const openTurns = new Set<string>()
 // The pending idle check after a turn ended, and when that turn ended: the busy stretch closes there, not at the check.
 let settling: Timer | undefined
 let lastTurnEnd: number | undefined
+// The main loop's last answer in this cycle, which Haiku sums up once Claude is idle.
+let lastAnswer = ''
 // The status line as last sent (`undefined`: cleared), so it is sent only when its text changed.
 let lastStatus: string | undefined
 
@@ -237,9 +272,27 @@ async function agentsWorking($: EngineInterface): Promise<boolean> {
   }
 }
 
+/** The answer's conclusion in a few words from Haiku, in the answer's language; `null` when it gives none. */
+async function conclude($: EngineInterface, answer: string): Promise<string | null> {
+  try {
+    const reply = await $.model.complete({
+      model: 'haiku',
+      prompt: CONCLUSION_PROMPT + answer.slice(0, 4000),
+      maxTokens: 40,
+      timeoutMs: 15000,
+    })
+    const text = reply.isAnswered ? reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, '') : ''
+    return text === '' ? null : clip(text, CONCLUSION_MAX)
+  } catch (error) {
+    $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })
+    return null
+  }
+}
+
 /**
- * Once no turn is open and no agent works, Claude is idle: the busy stretch closes, its time joins the session,
- * the cycle's line is printed (once per idle moment) and the clock stops.
+ * Once no turn is open and no agent works, Claude is idle: the busy stretch closes at the last turn's end, its time
+ * joins the session and the clock stops. Haiku then sums up the last answer, and the cycle's line is printed with it
+ * (once per idle moment), unless work resumed or the person wrote meanwhile.
  */
 async function settle($: EngineInterface): Promise<void> {
   settling = undefined
@@ -250,14 +303,22 @@ async function settle($: EngineInterface): Promise<void> {
   if (cycle.busySince === null) {
     return
   }
-  const closed = closeStretch(cycle, lastTurnEnd ?? (await $.clock.now()))
+  const closed = { ...closeStretch(cycle, lastTurnEnd ?? (await $.clock.now())), doing: null }
   await update($, session, before => ({ ...before, durationMs: before.durationMs + (closed.activeMs - cycle.activeMs) }))
-  const isLogged = sumTokens(closed.byModel) > 0
-  if (isLogged) {
-    $.ui.log(formatLine(closed, closed.activeMs, await read($, session)))
-  }
-  await update($, cycleAtom, () => ({ ...closed, logged: isLogged }))
+  await update($, cycleAtom, () => closed)
   stopTick()
+  await publish($)
+  if (sumTokens(closed.byModel) === 0) {
+    return
+  }
+  const conclusion = lastAnswer === '' ? null : await conclude($, lastAnswer)
+  const now = await read($, cycleAtom)
+  if (now.busySince !== null || now.startedAt !== closed.startedAt || now.logged) {
+    return
+  }
+  const done = { ...now, conclusion, logged: true }
+  $.ui.log(formatLine(done, done.activeMs, await read($, session)))
+  await update($, cycleAtom, () => done)
   await publish($)
 }
 
@@ -303,12 +364,14 @@ export const register: Register = on => {
   on('command.run', { command: COMMAND }, async $ => {
     const cycle = await read($, cycleAtom)
     const elapsed = elapsedMs(cycle, await $.clock.now())
+    const models = formatModels(cycle.byModel)
     const line = hasActivity(cycle) ? formatCycle(cycle, elapsed) : 'nothing yet'
+    const tokens = models.length === 0 ? '' : `\nCycle tokens: ${models.join(' · ')}`
     const total = await read($, session)
 
     // The session already holds the cycle's closed stretches; only the open one is added.
     return {
-      text: `Current cycle: ${line}\n${formatSummary({ ...total, durationMs: total.durationMs + elapsed - cycle.activeMs })}`,
+      text: `Current cycle: ${line}${tokens}\n${formatSummary({ ...total, durationMs: total.durationMs + elapsed - cycle.activeMs })}`,
     }
   }).catch(($, e, next) => next(e))
 
@@ -325,6 +388,7 @@ export const register: Register = on => {
         $.ui.log(formatLine(closed, closed.activeMs, await read($, session)))
       }
       await update($, cycleAtom, () => ({ ...EMPTY_CYCLE, startedAt: now, busySince: now }))
+      lastAnswer = ''
       startTick($)
       await publish($)
     }
@@ -339,6 +403,7 @@ export const register: Register = on => {
       calls: before.calls + 1,
       skills: before.skills + (e.tool === 'Skill' ? 1 : 0),
       agents: before.agents + (e.tool === 'Agent' ? 1 : 0),
+      doing: activity(e.tool, e),
     }))
     await publish($)
 
@@ -352,7 +417,7 @@ export const register: Register = on => {
     const cycle = await read($, cycleAtom)
     if (cycle.startedAt !== null && cycle.busySince === null) {
       const now = await $.clock.now()
-      await update($, cycleAtom, before => ({ ...before, busySince: now, logged: false }))
+      await update($, cycleAtom, before => ({ ...before, busySince: now, logged: false, conclusion: null }))
       startTick($)
       await publish($)
     }
@@ -364,6 +429,9 @@ export const register: Register = on => {
     const completed = await next(e)
     openTurns.delete(e.turnId)
     lastTurnEnd = await $.clock.now()
+    if (e.agentId === undefined && e.answer.trim() !== '') {
+      lastAnswer = e.answer
+    }
     const isMain = e.agentId === undefined
     const { usage } = e
     // Tokens of the main loop and of every subagent join the cycle, even a subagent that ends while the main loop is idle

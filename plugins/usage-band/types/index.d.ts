@@ -35,6 +35,10 @@ export type Cycle = {
   busySince: number | null
   /** True once the cycle's line was printed at an idle moment and nothing ran since. */
   logged: boolean
+  /** What Claude does now: the latest call's own description (or its main argument); `null` while idle. */
+  doing: string | null
+  /** The last answer's conclusion in a few words (Haiku), once Claude is idle; `null` until then. */
+  conclusion: string | null
   /** Every tool call of the main loop and of its agents, `Skill` and `Agent` calls included. */
   calls: number
   /** `Skill` calls, by the main loop or an agent. */

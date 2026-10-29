@@ -18,7 +18,7 @@
     {
       "name": "usage-band",
       "source": "./plugins/usage-band",
-      "description": "Mod: per interaction cycle (your prompt to your next one), how long Claude worked on it and what it took: a live status line that stops when the main loop and every agent are done, then one dim line with tokens per model and calls, skills and agents (agents' own work included), plus session totals; /usage-band for a summary."
+      "description": "Mod: per interaction cycle (your prompt to your next one), how long Claude worked on it, its calls, skills and agents and what it does now: a live status line that stops when the main loop and every agent are done, then one dim line with a Haiku summary of the conclusion and the session's time and tokens; /usage-band for tokens per model."
     },
     {
       "name": "tool-fold",

@@ -4,10 +4,12 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 
 ## What it shows
 
-- Live status line per interaction cycle (your prompt to your next): how long Claude has worked on it, tokens per model, and calls, skills and agents of the main loop and its agents (`⏱ 1h52m · opus ▇▇▇▇▇ 17.3M · sonnet ▇▇▁▁▁ 6.4M · 412 calls · 2 skills · 8 agents`)
-- The clock stops when no turn of the main loop or of an agent is open and no agent still works: the mark turns to `✓` and one dim line is printed (`✓ … │ Σ 3h10m · 41.7M`, the session's busy time and tokens). A hand-back that wakes Claude again resumes the same cycle without counting the pause.
-- If you write while Claude still works, that line is printed above your message instead
-- `/usage-band` for the cycle and a session summary
+- Live status line per interaction cycle (your prompt to your next): how long Claude has worked on it, its calls, skills and agents (the main loop's and its agents'), and what it does now, from the latest call's own description: `⏱ 3m12s · 62 calls · 2 skills · 3 agents · ▸ Run the e2e suite`
+- The clock stops when no turn of the main loop or of an agent is open and no agent still works. The mark turns to `✓`, Haiku sums up the last answer in a few words (in the conversation's language), and one dim line is printed with the session's busy time and tokens: `✓ 3m12s · 62 calls · 2 skills · 3 agents — login works; 2 e2e tests fail │ Σ 3h10m · 41.7M`
+- A hand-back that wakes Claude again resumes the same cycle without counting the pause. If you write while Claude still works, the line is printed above your message instead
+- `/usage-band`: the current cycle, its tokens per model and a session summary
+
+One Haiku call per idle moment; no answer from Haiku leaves the line without a conclusion.
 
 ## Install
 
