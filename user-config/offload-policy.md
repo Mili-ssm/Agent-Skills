@@ -1,0 +1,16 @@
+## Offload policy (main conversation only)
+
+Delegate before pulling large sources, logs or command output into this context, because every token here is the most expensive one. Subagents cannot dispatch subagents: they do this work themselves.
+
+| Situation | Delegate to |
+|---|---|
+| Searching or reading more than 3 files, or an unfamiliar codebase | `Explore` |
+| Running tests, lint, typecheck or a build | `agent-skills:check-runner` |
+| Reading any file over ~200 lines: logs, docs, PDFs, large diffs | `agent-skills:summarizer` |
+| Any web search or web page | `agent-skills:researcher`, one per question, in parallel |
+| A plan task with clear files and acceptance | `agent-skills:implementer` |
+| Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
+| Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
+| Before executing any plan, spec or design | `agent-skills:pre-mortem` |
+
+Keep inline: decisions, edits under ~20 lines, integrating results. Briefs are self-contained: goal, paths, commands, constraints, acceptance criteria, max report length. Independent briefs run in parallel in one message.

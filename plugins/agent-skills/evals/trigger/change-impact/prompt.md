@@ -1,6 +1,6 @@
 ---
 tags: [trigger]
-runs: 2
+runs: 3
 max_turns: 12
 timeout_seconds: 600
 plugins: ["../../.."]
