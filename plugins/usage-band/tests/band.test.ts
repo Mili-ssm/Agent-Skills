@@ -265,3 +265,21 @@ test('a subagent-only turn end before any prompt shows in the status line and lo
   expect(lines).toEqual([])
   expect(statuses.at(-1)).toBe('✓ 0s')
 })
+
+test('work seen with no cycle open (after a reload or an update) opens one, so a running task never shows as done', async ($, on) => {
+  const { lines, statuses, agents, clock } = engine(on)
+
+  // An agent started before the reload keeps working: only its calls and its roster entry are seen.
+  agents.push({ id: 'a1', status: 'running' })
+  await $.tool.call({ tool: 'Bash', command: 'sed -i x a.js', description: 'Migrate the scripts', agentId: 'a1' })
+  expect(statuses.at(-1)).toBe('⏱ 0s · 1 call · ▸ Migrate the scripts')
+  await clock.advance(30_000)
+  expect(statuses.at(-1)).toBe('⏱ 30s · 1 call · ▸ Migrate the scripts')
+
+  // Its run ends and the roster says it is done: the clock stops and the line is printed.
+  agents[0] = { id: 'a1', status: 'completed' }
+  await $.turn.complete(complete({ agentId: 'a1', durationMs: 30_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 5000, output: 500 }))
+  await clock.advance(SETTLE)
+  // No main-loop answer was seen since the reload, so there is nothing for Haiku to sum up.
+  expect(lines).toEqual(['✓ 30s · 1 call │ Σ 30s · 6k'])
+})
