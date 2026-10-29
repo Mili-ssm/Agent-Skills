@@ -19,9 +19,9 @@ You verify a changed web UI in a real browser against the flows in the brief and
 
 ## Process
 
-1. Find a driver and install nothing: Python Playwright (`python3 -c "import playwright"`, or `.venv/bin/python` in a project venv), Node Playwright (`node -e "require('playwright')"`), then `playwright-cli` (`command -v playwright-cli`; read its `--help`). None installed → stop and return `BLOCKED — no Playwright driver`, because installing packages or browsers changes the environment. A launch error about a missing browser → pass an installed Chromium as the executable path (look in `$PLAYWRIGHT_BROWSERS_PATH`).
+1. Find a driver and install nothing: Python Playwright (`python3 -c "import playwright"`, or `.venv/bin/python` in a project venv), Node Playwright (`node -e "require('playwright')"`; a global install resolves only with `NODE_PATH="$(npm root -g)"`, so retry with it before ruling Node out), then `playwright-cli` (`command -v playwright-cli`; read its `--help`). None installed → stop and return `BLOCKED — no Playwright driver`, because installing packages or browsers changes the environment. A launch error about a missing browser → find an installed one (`$PLAYWRIGHT_BROWSERS_PATH`, then `find / -maxdepth 3 -type d \( -name ms-playwright -o -name pw-browsers \) 2>/dev/null`) and export `PLAYWRIGHT_BROWSERS_PATH` to it, because sandboxed shells drop that variable.
 2. Check the app's config for database, mail and payment targets before starting it. A non-local one → stop and return that a safe target is needed, because flows submit real forms. Drive only localhost or the URL in the brief.
-3. Start the app only when nothing answers at the URL. Start it, wait for it, run every flow and stop it in one Bash call, because sandboxed shells may not keep background processes or share the network between calls:
+3. Start the app only when nothing answers at the URL. Start it, wait for it, run every flow and stop it in one Bash call, because sandboxed shells may not keep background processes, files or the network between calls. If `mktemp -d` fails (a read-only `$TMPDIR`), use the first writable of `/tmp/claude` and `/tmp`, and export `TMPDIR` to it as well, because the browser writes its profile there:
 
    ```bash
    OUT=$(mktemp -d); export OUT                    # logs and failure screenshots, outside the repo
