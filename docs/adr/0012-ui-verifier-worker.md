@@ -29,7 +29,7 @@ A prompt and configuration review of the plugin (2026-10-29) also found that fou
 ## Consequences
 
 - Browser verification runs on Sonnet; the main model reads a bounded report.
-- One more agent competes for delegation: ADR 0010 saw `pre-mortem` drop as the catalog grew. The evals below measure it.
+- One more agent competes for delegation: ADR 0010 saw `pre-mortem` drop as the catalog grew. ADR 0007's review of 2026-10-29 measures it: no confirmed drop.
 - Owners add the `ui-verifier` row to their own offload table.
 
 ## Revisit if
