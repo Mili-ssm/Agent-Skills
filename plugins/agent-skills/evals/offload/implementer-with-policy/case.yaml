@@ -26,4 +26,6 @@ execution:
   max_turns: 14
   timeout_seconds: 900
   allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash, Edit, Write]
-  prompt: Implement Task 2 of docs/plan.md.
+  # The decision and the off-limits file live only in this conversation: the brief must carry them (ADR 0013).
+  prompt: |
+    Implement Task 2 of docs/plan.md. One decision from our earlier talk: round to cents only once, in total(), because invoice.py already rounds each line and rounding twice drifted totals by a cent. Leave invoice.py alone, the billing team owns it.

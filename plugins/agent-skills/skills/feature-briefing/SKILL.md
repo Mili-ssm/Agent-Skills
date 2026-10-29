@@ -44,7 +44,7 @@ Prefer the simplest option that meets ranked quality attributes and is reversibl
 
 **4. Decide**: present the matrix with a recommendation via `AskUserQuestion`; the owner decides. Significant choices → ADR (`decision-records`).
 
-**5–6. Impact and stress-test**: run `change-impact` on the chosen option, then write the plan (Superpowers `writing-plans` if installed). Dispatch `pre-mortem` once, naming the plan file in the brief, and amend the plan once for its high risks, so the briefing stays bounded. Risks that remain unresolved become kill criteria in the brief.
+**5–6. Impact and stress-test**: run `change-impact` on the chosen option, then write the plan (Superpowers `writing-plans` if installed), recording each decision with its reason, because the worker briefs that execute it carry them. Dispatch `pre-mortem` once, naming the plan file in the brief, and amend the plan once for its high risks, so the briefing stays bounded. Risks that remain unresolved become kill criteria in the brief.
 
 **7. Brief output**:
 

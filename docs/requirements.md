@@ -34,6 +34,7 @@ Current as of 2026-10-29. Source: owner conversation and `intent-elicitation` in
 | N7 | Reviewer agents are read-only via `disallowedTools`, not via prompt text. |
 | N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. |
 | N9 | Reading, checks, browser verification and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. |
+| N10 | A worker's brief carries what only the main conversation knows: goal and acceptance, scope and what not to touch, decisions with their reasons, checks, a stop rule, report bounds; tasks with open design are not delegated (ADR 0013). Measured on the `implementer` offload case. |
 
 ## Superpowers boundary
 
