@@ -17,7 +17,9 @@ Design and review interfaces from user tasks, verify them in a real browser with
 | Visual system: tokens, spacing, type, color, states, motion | [visual-system.md](references/visual-system.md) |
 | Evidence capture | [scripts/ux_audit.py](scripts/ux_audit.py) |
 
-## Design workflow
+## Design workflow (main conversation)
+
+Resolve the unknowns of step 1 with `AskUserQuestion`, because subagents cannot ask the owner.
 
 Copy and tick:
 
@@ -28,7 +30,7 @@ Copy and tick:
 - [ ] 4 Screen specs: layout regions, components, copy, every state (empty, loading, error, success, overflow), responsive behavior
 - [ ] 5 Accessibility plan: landmarks, heading outline, focus order and focus moves after updates, live regions, target sizes
 - [ ] 6 Acceptance criteria as Playwright checks
-- [ ] 7 After implementation: run the checks and ux_audit.py; fix; repeat until clean
+- [ ] 7 After implementation: verify with `ui-verifier` and ux_audit.py; fix; at most 3 rounds, then report what remains
 ```
 
 Step 6 turns criteria into executable checks:
@@ -43,20 +45,20 @@ Step 6 turns criteria into executable checks:
 | Works without JS (progressive enhancement) | `browser.new_context(java_script_enabled=False)`; core task still completes |
 | Responsive | Screenshots at 375 and 1440 px; no horizontal scroll |
 
+Step 7 (main conversation): dispatch `ui-verifier` with a self-contained brief (app URL or start command, the step-6 checks as flows with expected results, viewports 375x812 and 1440x900, login and test data where a flow needs them) and run `ux_audit.py` for the axe row. Fix what fails and verify again, at most 3 rounds; then report the violations that remain, because repeated failures usually need a decision from the owner.
+
 ## Evidence capture
 
-Run (do not read) the script:
+Run the script instead of reading it, because only its summary table matters:
 
 ```bash
 # Screenshots per viewport, axe-core violations, keyboard focus order; prints a summary table.
-python3 <skill-dir>/scripts/ux_audit.py http://localhost:8000/ http://localhost:8000/login --viewports 375x812,1440x900
+python3 ${CLAUDE_SKILL_DIR}/scripts/ux_audit.py http://localhost:8000/ http://localhost:8000/login --viewports 375x812,1440x900
 ```
 
 Output goes to a temp dir (printed) unless `--out` is given. Requires Python Playwright; a pre-installed Chromium of another version → `--executable-path` or `$PW_CHROMIUM_PATH` (auto-detects `/opt/pw-browsers/chromium`). Blocked CDN → `--axe-path` to a local `axe.min.js`.
 
-## Review workflow
-
-The `ux-reviewer` agent follows this workflow for running UIs.
+## Review workflow (`ux-reviewer`, or inline for a small page)
 
 1. Identify primary tasks per screen; capture each screen and its states.
 2. Walk each task (cognitive walkthrough), then check Nielsen H1–H10.
@@ -66,8 +68,4 @@ The `ux-reviewer` agent follows this workflow for running UIs.
 
 ## Defaults (configurable per project)
 
-- Progressive enhancement and rule of least power: core tasks work with HTML alone; CSS, then minimal JS, add polish.
-- Response time: instant < 100 ms; show progress past ~400 ms (Doherty); optimistic UI for safe actions.
-- Every interactive element: visible focus, ≥ 24×24 CSS px target, accessible name.
-- Errors inline next to the field, saying how to fix, with input preserved.
-- Partial updates announced (`aria-live`) and focus moved to new content when the focused element is replaced.
+- Progressive enhancement and rule of least power: core tasks work with HTML alone; CSS, then minimal JS, add polish, because native elements bring accessibility and robustness without code. A JS-first project says so in step 1 and drops the "works without JS" check; the other checks stay.

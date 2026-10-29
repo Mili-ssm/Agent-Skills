@@ -1,6 +1,6 @@
 ---
 name: feature-briefing
-description: Orchestrates a briefing before building a new feature - brainstorming with the owner, parallel researcher, consistency-auditor and specialist subagents to contrast docs, code, requirements and external practice, then an options decision and an implementation plan stress-tested by pre-mortem. Use when asked how to approach or plan a new feature or significant change, or to compare ways of doing something before committing; load it before planning so evidence is gathered in parallel and the decision is recorded.
+description: Orchestrates a briefing before building a new feature - brainstorming with the owner, parallel researcher, consistency-auditor and specialist subagents to contrast docs, code, requirements and external practice, then an options decision and an implementation plan stress-tested by pre-mortem. Use when asked how to approach or plan a new feature or significant change that needs evidence from several sources, or to compare ways of doing something before committing; small features go straight to Superpowers brainstorming or writing-plans. Load it before planning so evidence is gathered in parallel and the decision is recorded.
 ---
 
 # Feature Briefing
@@ -29,10 +29,10 @@ Copy and tick:
 | What do official docs and practitioners recommend? | `researcher` × 1–5, one question each |
 | Does it fit the architecture? | `architect` (mode `propose`) |
 | Security, UX or test risks? | `security-reviewer` / `ux-reviewer` / `qa-engineer` (mode `design`), when relevant |
-| Where does the code change? | `Explore` (Haiku with the user-scope override) |
+| Where does the code change? | `Explore` |
 | What do long specs, logs or tickets say? | `summarizer` |
 
-Each brief states the question, the decision it feeds and a max length, so reports stay small.
+Write each brief to stand alone, because subagents start without this conversation: the question, the decision it feeds, repo paths and scope, the subagent's mode (shown in the table) and a max length, so reports stay small.
 
 **3. Options matrix**:
 
@@ -43,6 +43,8 @@ Each brief states the question, the decision it feeds and a max length, so repor
 Prefer the simplest option that meets ranked quality attributes and is reversible (two-way door); name what would change the choice.
 
 **4. Decide**: present the matrix with a recommendation via `AskUserQuestion`; the owner decides. Significant choices → ADR (`decision-records`).
+
+**5–6. Impact and stress-test**: run `change-impact` on the chosen option, then write the plan (Superpowers `writing-plans` if installed). Dispatch `pre-mortem` once, naming the plan file in the brief, and amend the plan once for its high risks, so the briefing stays bounded. Risks that remain unresolved become kill criteria in the brief.
 
 **7. Brief output**:
 
@@ -57,6 +59,6 @@ Prefer the simplest option that meets ranked quality attributes and is reversibl
 ## Rules
 
 - Parallelize independent evidence gathering; sequential dispatch wastes wall-clock time.
-- Keep raw research in subagents; the main thread holds only distilled findings.
-- Skip steps that add nothing for small features (say which and why).
-- No code is written during a briefing. Execution later goes to `implementer` (one bounded task each, owned files) with `check-runner` for verification.
+- Keep raw research in subagents, because the main context is the expensive one; the main thread holds only distilled findings.
+- Skip steps that add nothing (say which and why).
+- No code is written during a briefing; execution starts after the owner approves the plan.

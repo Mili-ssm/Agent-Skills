@@ -1,21 +1,21 @@
 ---
 name: web-research
-description: Research protocol that offloads web searching and reading to the cheap researcher subagent (Haiku) and returns cited lists, comparisons and conclusions on concrete questions - official docs, best practices, library options, version facts. Use when a task needs current external information, official documentation or community practice; load it before searching so reading stays out of the main context and every claim comes back sourced.
+description: Research protocol that offloads web searching and reading to the cheap researcher subagent (Haiku) and returns cited lists, comparisons and conclusions on concrete questions - official docs, best practices, library options, version facts. Use when a task needs current external information, official documentation or community practice from several sources, a comparison of options or a version-sensitive answer (a single quick fact can use WebSearch directly); load it before searching so reading stays out of the main context and every claim comes back sourced.
 ---
 
 # Web Research
 
 The main model reasons; the `researcher` subagent (Haiku) searches and reads. Raw pages never enter the main context, only distilled, cited findings.
 
-## Workflow
+## Dispatch workflow (main conversation)
 
 1. **Frame** each question so it has a checkable answer: "Which X does official doc Y recommend for Z, as of version V?" beats "research X".
 2. **Split** broad topics into independent questions (≤ 5) and dispatch one `researcher` per question **in parallel**.
 3. **Brief** each researcher with: question, why it matters (decision it feeds), preferred sources, output shape (list, comparison table, yes/no + evidence), max length.
 4. **Reason** in the main thread over the returned findings: reconcile conflicts, decide, cite.
-5. **Re-dispatch** only for gaps or conflicts the findings name; never re-read pages yourself unless one fact is decisive.
+5. **Re-dispatch** only for gaps or conflicts the findings name; read a page yourself only when one fact is decisive, because raw pages bloat the main context.
 
-## Source hierarchy (researcher follows it)
+## Source hierarchy (the `researcher` applies it)
 
 | Rank | Source | Use for |
 |---|---|---|
@@ -25,7 +25,9 @@ The main model reasons; the `researcher` subagent (Haiku) searches and reads. Ra
 | 4 | Reputable engineering blogs with data or reproducible tests | Trade-offs in practice |
 | 5 | Forums, aggregators, SEO listicles | Leads only; confirm in ranks 1–3 |
 
-## Output contract
+## Output contract (the `researcher` returns it)
+
+Return this shape in ≤ 300 words unless the brief says otherwise:
 
 ```markdown
 ## Answer
@@ -33,7 +35,6 @@ The main model reasons; the `researcher` subagent (Haiku) searches and reads. Ra
 ## Findings
 | # | Claim | Source (URL) | Rank | Date/version | Confidence (high/medium/low) |
 ## Conflicts and gaps
-## Sources
 ```
 
 Confidence: high = rank 1–2 source states it directly; medium = rank 3–4 or inferred from rank 1; low = single rank-5 source or undated.

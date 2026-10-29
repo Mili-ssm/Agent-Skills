@@ -1,6 +1,6 @@
 ---
 name: decision-records
-description: Writes and audits concise architecture decision records (MADR or Y-statement) with alternatives, consequences, revisit triggers and a staleness rubric. Use when a technical decision is made, changed, questioned or needs writing up for future developers, or when someone asks why something was built a certain way.
+description: Writes and audits concise architecture decision records (MADR or Y-statement) with alternatives, consequences, revisit triggers and a staleness rubric. Use when a technical decision is made, changed, questioned or needs writing up for future developers, when existing records need an audit, or to find the recorded rationale of an existing decision (check docs/adr first); a casual "why" question about a piece of code does not need it.
 ---
 
 # Decision Records (ADR)
@@ -21,7 +21,7 @@ Two-way doors (cheap to reverse) get a commit message, not an ADR.
 
 ## Location and naming
 
-Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/`. File `NNNN-kebab-title.md`, numbers never reused.
+Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/`. File `NNNN-kebab-title.md`, numbers never reused. To find why an existing decision was made, read these folders first (Context and Alternatives hold the rationale); nothing recorded → say so instead of inferring a rationale.
 
 ## Template (≤ 60 lines)
 
@@ -57,10 +57,8 @@ Small decisions fit a **Y-statement**: *In the context of `<situation>`, facing 
 - Link code to the ADR where a "cleanup" would undo the decision (`# See ADR 0007`): Chesterton's fence made visible.
 - Keep rejected proposals as records; they stop the same debate from restarting.
 
-## Revisit rating
+## Audit
 
-Rate existing decisions with the [staleness rubric](references/staleness-rubric.md): output a revisit rating `low | medium | high` plus the signals that fired.
-
-## Lifecycle
-
-`proposed` → `accepted` → `superseded by NNNN` | `deprecated`.
+1. **Find** the ADRs (locations above) and note decisions that exist only in code or prose.
+2. **Rate** each with the [staleness rubric](references/staleness-rubric.md); open it at this step, because the signals and the aggregation rule live there. The rating is `low | medium | high` plus the signals that fired.
+3. **Report** one row per ADR, worst rating first, unless the task sets its own format: `| ADR | Status | Rating | Signals | Action |`, where Action is keep · add a dated Review note · supersede · deprecate.

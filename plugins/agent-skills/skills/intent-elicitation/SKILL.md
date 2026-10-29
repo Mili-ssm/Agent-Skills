@@ -15,28 +15,21 @@ Goal: what the owner wants, what the docs say and what the code does agree, with
 | `feature` | One feature/module | Before extending or rewriting it |
 | `change` | A proposed significant change | Before planning; pair with `change-impact` |
 
+Default from the request: no scope given → `project`; a diff or proposal mentioned → `change`; a named feature → `feature`.
+
 ## Workflow
 
-Copy and tick:
+Copy and tick (copy the step names as a checklist, tick each when it completes):
 
-```
-- [ ] 1 Evidence: dispatch the consistency-auditor subagent (mode, scope) → findings + candidate questions
-- [ ] 2 Hypothesis: purpose · users · core jobs · constraints · ranked quality attributes · non-goals · assumptions (marked)
-- [ ] 3 Interview rounds until the stop criteria hold
-- [ ] 4 Record answers as you go
-- [ ] 5 Report
-```
-
-1. **Evidence**: the subagent keeps noisy scanning out of this context; long specs or transcripts go to `summarizer`. Unavailable → run its checks inline and keep only conclusions.
-2. **Hypothesis first**: the owner corrects a concrete draft faster and more precisely than they answer open questions.
-3. **Interview** with `AskUserQuestion`:
+1. **Evidence**: dispatch the `consistency-auditor` subagent (mode, scope) → findings plus candidate questions. The subagent keeps noisy scanning out of this context; long specs or transcripts go to `summarizer`. Unavailable → run its checks inline and keep only conclusions.
+2. **Hypothesis first**: draft purpose · users · core jobs · constraints · ranked quality attributes · non-goals · assumptions (marked). The owner corrects a concrete draft faster and more precisely than they answer open questions.
+3. **Interview** with `AskUserQuestion`. Each round asks only the highest-impact unresolved findings, ranked by impact × uncertainty (answers that change architecture, data or scope come first):
    - ≤ 4 questions per round, each with 2–4 concrete options, recommended option first.
-   - Order by impact × uncertainty: answers that change architecture, data or scope come first.
    - Draw from the [question bank](references/question-bank.md); skip what evidence already answers.
    - For a contradiction, show both sources (`file:line`) and ask which holds.
-   - Each answer may open new questions; keep looping (no round limit).
    - Ask in the owner's language.
-4. **Record**:
+   - Stop when every high-impact finding is resolved or explicitly deferred by the owner and each requirement passes the [quality checks](references/requirements-quality.md). Each answer may open new questions, so there is no round limit.
+4. **Record** answers as you go:
 
 | Output | Where |
 |---|---|
@@ -53,8 +46,6 @@ Copy and tick:
 ## Deferred | ID | Why | Revisit trigger |
 ## Docs/ADRs changed
 ```
-
-**Stop when** every high-impact finding is resolved or explicitly deferred by the owner and each requirement passes the [quality checks](references/requirements-quality.md).
 
 ## Rules
 
