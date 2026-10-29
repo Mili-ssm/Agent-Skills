@@ -322,6 +322,26 @@ async function settle($: EngineInterface): Promise<void> {
   await publish($)
 }
 
+/**
+ * Work was seen (a turn starting, a call): an idle cycle resumes its clock. Work with no cycle open (after a reload
+ * or a plugin update, before any prompt was seen) opens one there, so a running task never shows as done.
+ */
+async function markBusy($: EngineInterface): Promise<void> {
+  cancelSettle()
+  if ((await read($, cycleAtom)).busySince !== null) {
+    return
+  }
+  const now = await $.clock.now()
+  await update($, cycleAtom, before => ({
+    ...before,
+    startedAt: before.startedAt ?? now,
+    busySince: now,
+    logged: false,
+    conclusion: null,
+  }))
+  startTick($)
+}
+
 function scheduleSettle($: EngineInterface): void {
   settling?.cancel()
   settling = $.clock.after(SETTLE_MS, () => {
@@ -398,6 +418,7 @@ export const register: Register = on => {
 
   // Calls of the main loop and of its agents alike, counted as they are made, so the line moves while a long call runs.
   on('tool.call', async ($, e, next) => {
+    await markBusy($)
     await update($, cycleAtom, before => ({
       ...before,
       calls: before.calls + 1,
@@ -410,17 +431,11 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  // Any turn starting, the main loop's or an agent's, means Claude works: an idle cycle resumes its clock.
+  // Any turn starting, the main loop's or an agent's, means Claude works.
   on('turn.start', async ($, e, next) => {
     openTurns.add(e.turnId)
-    cancelSettle()
-    const cycle = await read($, cycleAtom)
-    if (cycle.startedAt !== null && cycle.busySince === null) {
-      const now = await $.clock.now()
-      await update($, cycleAtom, before => ({ ...before, busySince: now, logged: false, conclusion: null }))
-      startTick($)
-      await publish($)
-    }
+    await markBusy($)
+    await publish($)
 
     return next(e)
   }).catch(($, e, next) => next(e))
