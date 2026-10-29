@@ -51,7 +51,7 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices*; *Pr
 | Output | A condensed, distilled report; raw tool output stays inside |
 | Delegation scope | Parallel, isolated or independent work; direct tools for simple lookups (models over-delegate) |
 | Offload workers | Cheap workers may say "Use proactively … instead of doing it yourself, because …"; measured: descriptions alone moved little, a short offload table in CLAUDE.md made delegation reliable |
-| Self-contained briefs | Workers with `omitClaudeMd: true` see only the brief: include goal, paths, commands, acceptance, max length |
+| Self-contained briefs | Workers with `omitClaudeMd: true` see only the brief: include goal, paths and what not to touch, decisions with their reasons, commands, acceptance, a stop rule, max length; the what and the limits, not each step |
 | Interaction | Subagents cannot ask the user mid-task → interactive work runs in skills |
 | Preload | `skills:` injects full skill content at start; keep preloads few |
 

@@ -363,6 +363,7 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
     return { value: { isPlaced: true } }
   })
   on('session.surfaces', () => ({ value: ['desktop'] }) as never)
+  on('ui.panes', () => ({ value: [] }) as never)
   on('ui.log', () => ({ value: undefined }))
   // The engine beneath draws an empty band.
   on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
@@ -390,4 +391,11 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   const vscode = await band('vscode')
   expect(await vscode.find({ type: 'Text', text: /performance-analyst/ })).toBeUndefined()
   await vscode.unmount()
+
+  // `/agents-debug` reports what each draw saw, for a surface nobody can watch from here.
+  const { text } = await $.command.run({ command: 'agents-debug' } as never)
+  expect(text).toContain('surfaces: desktop')
+  expect(text).toContain('runs: 1 running of 1')
+  expect(text).toMatch(/desktop survey=false running=1 drew 1 cards; beneath /)
+  expect(text).toMatch(/vscode survey=false running=1 passed/)
 })

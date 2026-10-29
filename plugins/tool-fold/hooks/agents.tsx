@@ -18,6 +18,15 @@ const clock = atom({ plugin: 'tool-fold', key: 'now' } as const, 0)
 // The "Agentes" pane: running agents live there while it is placed; the chat keeps one line each.
 const DOCK = 'agents'
 const docked = atom({ plugin: 'tool-fold', key: 'docked' } as const, false)
+// What the band above the prompt saw on its latest draws, newest last, for `/agents-debug`: on Desktop nothing else
+// says whether the hook ran, what it drew, or what the links beneath it answered. A module value: a draw never writes.
+const BAND_TRACE_MAX = 6
+let bandTrace: string[] = []
+const traceBand = (line: string): void => {
+  bandTrace = [...bandTrace, line].slice(-BAND_TRACE_MAX)
+}
+const beneath = (trace: readonly { plugin: string; outcome: string }[]): string =>
+  trace.map(link => `${link.plugin}:${link.outcome}`).join(' > ') || 'none'
 
 /** `claude-haiku-5-5` → `haiku-5-5`: shorter on a card. */
 export const shortModel = (model: string): string => model.replace(/^claude-/, '')
@@ -504,6 +513,7 @@ export const registerAgents: Register = (on, options) => {
     // Earlier versions kept running agents on the status line: clear what one left there.
     $.ui.status(undefined)
     await $.command.register({ name: 'agents-dock', description: 'Show running agents in the "Agentes" pane' })
+    await $.command.register({ name: 'agents-debug', description: 'tool-fold: what the agent band and pane see here' })
     await syncTick($)
     if ((await read($, runs)).some(run => run.status === 'running')) {
       await openDockUnlessDesktop($)
@@ -511,6 +521,23 @@ export const registerAgents: Register = (on, options) => {
 
     return started
   })
+
+  // Field notes for a surface nobody can watch from here: the surfaces, the panes the engine records, the runs, and
+  // the band's latest draws.
+  on('command.run', { command: 'agents-debug' }, async $ => {
+    const surfaces = await $.session.surfaces().catch(error => [`error ${String(error)}`])
+    const panes = await $.ui.panes().catch(() => [])
+    const list = await read($, runs)
+    const lines = [
+      `surfaces: ${surfaces.join(', ') || 'none'}`,
+      `panes: ${panes.map(pane => `${pane.id} shown=${pane.isShown} placed=${pane.isPlaced}`).join('; ') || 'none'}`,
+      `docked: ${await read($, docked)}`,
+      `runs: ${list.filter(run => run.status === 'running').length} running of ${list.length}`,
+      'band draws (newest last):',
+      ...(bandTrace.length === 0 ? ['  none yet'] : bandTrace.map(line => `  ${line}`)),
+    ]
+    return { text: lines.join('\n') }
+  }).catch(($, e, next) => next(e))
 
   on('command.run', { command: 'agents-dock' }, async $ => {
     await openDock($)
@@ -531,12 +558,12 @@ export const registerAgents: Register = (on, options) => {
   // never comes, `$.ui.panes()` still says shown), so the band never waits on the pane; `/agents-dock` adds it.
   // The band is shared: other mods' cards stack below, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'desktop' || e.props.hasSurvey) {
-      return next(e)
-    }
     const running = (await read($, runs)).filter(run => run.status === 'running')
-    if (running.length === 0) {
-      return next(e)
+    const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${running.length}`
+    if (e.surface !== 'desktop' || e.props.hasSurvey || running.length === 0) {
+      const rest = await next(e)
+      traceBand(`${seen} passed; beneath ${beneath(next.trace)}`)
+      return rest
     }
     const { Box, Text } = $.ui.resolve(e)
     await read($, clock)
@@ -544,13 +571,17 @@ export const registerAgents: Register = (on, options) => {
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     const maxChars = charsFor(e.surface, e.props.bodyColumns)
     const rest = await next(e)
+    traceBand(`${seen} drew ${running.length} cards; beneath ${beneath(next.trace)}`)
     return (
       <Box flexDirection="column" minWidth={0} overflow="hidden">
         {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
         {rest}
       </Box>
     )
-  }).catch(($, e, next) => next(e))
+  }).catch(($, e, next) => {
+    traceBand(`${e.surface} failed: ${next.error.kind} ${next.error.message ?? ''}`.trim())
+    return next(e)
+  })
 
   // The "Agentes" pane: every running agent's live card, as the chat draws it, oldest first.
   on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {

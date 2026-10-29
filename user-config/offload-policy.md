@@ -13,4 +13,15 @@ Delegate before pulling large sources, logs or command output into this context,
 | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
 
-Keep inline: decisions, edits under ~20 lines, integrating results. Briefs are self-contained: goal, paths, commands, constraints, acceptance criteria, max report length. Independent briefs run in parallel in one message.
+Keep inline: decisions, edits under ~20 lines, integrating results. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+
+A worker sees none of this conversation, so its brief carries everything it needs:
+
+1. **Goal** and acceptance criteria it can check itself.
+2. **Scope**: the paths it owns, and what it must not touch.
+3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
+4. **Checks**: the commands that prove the result.
+5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
+6. **Report**: format and max length.
+
+State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.

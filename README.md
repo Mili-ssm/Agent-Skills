@@ -135,9 +135,9 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 
 ## Design
 
-- Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/)
+- Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
 - Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/` and the files you copy into user scope (`user-agents/`, `user-config/`).
-- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012).
+- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012) · worker brief contract (0013).
 
 ## Develop
 
@@ -152,4 +152,4 @@ Eval suites in `plugins/agent-skills/evals/`:
 
 - `trigger/`: one case per skill, plus `performance-analyst` and `pre-mortem`. A case passes when its skill, or the agent named in its grader, fires; `change-impact`, `intent-elicitation` and `ux-principles` accept only the skill, `performance-analyst` and `pre-mortem` only the agent.
 - `no-trigger/`: five near-misses (a live bug, an email to shorten, a small flag, a TDD green step, a "why" about an idiom). A case passes when no plugin skill or agent fires; each grader names every skill and agent.
-- `offload/`: `check-runner` and `summarizer` with and without the [offload policy](user-config/offload-policy.md), `implementer` and `ui-verifier` with it. A case passes when the worker is dispatched, the main conversation does none of the work inline, and the answer (or the file written) is right. Run it with `--scaffold --allow-tools Bash Edit Write` and a sandbox: `bubblewrap`, `socat`.
+- `offload/`: `check-runner` and `summarizer` with and without the [offload policy](user-config/offload-policy.md), `implementer` and `ui-verifier` with it. A case passes when the worker is dispatched, its brief carries what only the conversation knew (the `implementer` case checks the decision with its reason, the off-limits file and the stop rule), the main conversation does none of the work inline, and the answer (or the file written) is right. Run it with `--scaffold --allow-tools Bash Edit Write` and a sandbox: `bubblewrap`, `socat`.

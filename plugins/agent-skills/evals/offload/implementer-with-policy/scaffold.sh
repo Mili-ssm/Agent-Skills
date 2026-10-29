@@ -6,6 +6,10 @@ cat > cart.py <<'PY'
 def total(prices, coupon=None):
     return round(sum(prices), 2)
 PY
+cat > invoice.py <<'PY'
+def line_total(price, quantity):
+    return round(price * quantity, 2)
+PY
 cat > tests/test_cart.py <<'PY'
 import sys, pathlib, unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
