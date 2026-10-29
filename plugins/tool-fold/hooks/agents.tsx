@@ -351,7 +351,7 @@ function runHeader(
           {isRunning ? `${outcome.word} ${elapsed}` : elapsed}
         </Text>
       </Box>
-      {label === undefined ? null : hanging(ui, mark === undefined ? '  ' : '    ', <Text dimColor wrap="wrap">{label}</Text>)}
+      {label === undefined ? null : hanging(ui, mark === undefined ? '  ' : '    ', <Text dimColor wrap="truncate">{label}</Text>)}
     </Box>
   )
 }
@@ -372,7 +372,7 @@ function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDe
       {indent}
       {glyph}{' '}
     </Text>,
-    <Text dimColor={step.status !== 'running'} wrap="wrap">
+    <Text dimColor={step.status !== 'running'} wrap="truncate">
       {withDetail && step.detail !== undefined ? step.detail : step.label}
     </Text>,
     step.id,
@@ -380,8 +380,9 @@ function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDe
 }
 
 /**
- * `prefix` then `body`, the body wrapping under itself rather than under the prefix. A wrapping body adds lines
- * instead of width: a truncated one is as wide as its whole text and widened a narrow VS Code pane.
+ * `prefix` then `body` on one line, the body cut where the card really ends. The body sits in a box that may
+ * shrink below its text's width, so a long text is truncated by the surface instead of widening a narrow pane:
+ * texts need no cut by hand to `bodyColumns`, which counts terminal cells and undercounts VS Code's font.
  */
 function hanging(ui: Elements, prefix: string | RenderElement, body: RenderElement, key?: string) {
   const { Box, Text } = ui
@@ -541,11 +542,9 @@ export const registerAgents: Register = (on, options) => {
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    // The pane's body in cells, less the card's border and padding.
-    const maxChars = Math.max(24, e.props.bodyColumns - 4)
     return (
       <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3))}
       </Box>
     )
   })
@@ -750,23 +749,18 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
 }
 
 /** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean, maxChars: number) {
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean) {
   const { Box, Text } = ui
   // Many agents at once: each card keeps its header, mission and live call only.
-  // Mission and calls wrap to at most two lines (cut by hand at two lines' worth). `maxChars` counts terminal
-  // cells; VS Code's proportional font fits more, so there they often stay on one line.
-  const steps = (isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)).map(step => ({
-    ...step,
-    label: clip(step.label, 2 * (maxChars - 6)),
-    ...(step.detail === undefined ? {} : { detail: clip(step.detail, 2 * (maxChars - 6)) }),
-  }))
-  const counts = clip(countsLine(run), maxChars - 2)
+  // Mission and calls take one line each and are cut by the surface at the card's real edge (see `hanging`).
+  const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
+  const counts = countsLine(run)
   return (
     // One card per agent, with a quiet border of its own inside the pane's frame.
     // Stretched by the pane, not sized: a set 100% width plus border and padding overflowed into a scroll
     // bar. minWidth 0 lets it shrink below a long header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now, frame, clip(run.mission ?? run.description, 2 * (maxChars - 2)), true)}
+      {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  Starting…'}</Text>
       ) : (
@@ -774,10 +768,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCom
         steps.map(step => stepRow(ui, step, frame, '  └ ', true))
       )}
       {isCompact || counts === '' ? null : (
-        <Text dimColor wrap="truncate">
-          {'  '}
-          {counts}
-        </Text>
+        hanging(ui, '  ', <Text dimColor wrap="truncate">{counts}</Text>)
       )}
     </Box>
   )

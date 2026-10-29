@@ -250,7 +250,7 @@ test('an agent that ends keeps its folded card on its row and adds one line at t
   await row.unmount()
 })
 
-test('long pane texts wrap (two lines at most) instead of widening a narrow panel', async ($, on) => {
+test('pane texts take one line, cut by the surface at the card edge instead of widening a narrow panel', async ($, on) => {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -265,16 +265,15 @@ test('long pane texts wrap (two lines at most) instead of widening a narrow pane
     surface: 'vscode',
     props: { title: 'Agentes', isFocused: false, bodyColumns: 40, placement: 'inline', scroll: { offset: 0, bodyRows: 12 }, view: {} },
   } as never)
-  // A text wider than the pane wraps under its own start; none runs past two lines' worth.
-  for (const text of await pane.findAll({ type: 'Text' })) {
-    expect(text.text.length).toBeLessThanOrEqual(2 * 40)
-    if (text.text.length > 40) {
-      expect((text as unknown as { props: { wrap?: string } }).props.wrap).toBe('wrap')
-    }
+  // A text wider than the pane stays whole and one line: the surface truncates it (`truncate`), inside a box that
+  // may shrink (`minWidth` 0), so the pane keeps its width whatever the text's length.
+  const long = (await pane.findAll({ type: 'Text' })).filter(text => text.text.length > 40)
+  expect(long.length).toBeGreaterThan(0)
+  for (const text of long) {
+    expect((text as unknown as { props: { wrap?: string } }).props.wrap).toBe('truncate')
   }
-  // Cut at two lines' worth of a 40-column pane.
   expect((await pane.find({ type: 'Text', text: /Escribe la documentación/ }))?.text).toBe(
-    'Escribe la documentación de fuzzing en fuzz/README.md con e…',
+    'Escribe la documentación de fuzzing en fuzz/README.md con ejemplos',
   )
   await pane.unmount()
 })
