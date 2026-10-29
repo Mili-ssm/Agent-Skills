@@ -1,5 +1,16 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentStatus, EngineInterface, PromptOrigin, Register, Timer, TurnUsage } from 'claude-code'
+import type {
+  AgentStatus,
+  BoxProps,
+  ElementConstructor,
+  EngineInterface,
+  PromptOrigin,
+  Register,
+  SvgProps,
+  TextProps,
+  Timer,
+  TurnUsage,
+} from 'claude-code'
 
 import type { Cycle, Tally, Usage } from '../types'
 
@@ -26,6 +37,8 @@ const EMPTY_CYCLE: Cycle = {
 const cycleAtom = atom({ plugin: 'usage-band', key: 'cycle' } as const, EMPTY_CYCLE, {
   shape: 'cycle-4',
 })
+// Bumped by the one-second tick, so the Desktop band above the prompt redraws with the clock.
+const tickAtom = atom({ plugin: 'usage-band', key: 'tick' } as const, 0)
 // The live status line redraws this often while Claude is busy (only a changed text is sent).
 const TICK_MS = 1000
 // Wait after a turn ends before calling Claude idle, so a follow-up turn or an agent's status can land.
@@ -311,7 +324,12 @@ let lastStatus: string | undefined
 async function publish($: EngineInterface): Promise<void> {
   try {
     const cycle = await read($, cycleAtom)
-    const text = hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, await $.clock.now())) : undefined
+    // Desktop draws the cycle in the band above the prompt; its status line is a small footer line, so it stays empty
+    // while Desktop is the only surface. Another surface attached (a terminal, a phone) keeps it.
+    const surfaces = await $.session.surfaces()
+    const isDesktopOnly = surfaces.length > 0 && surfaces.every(surface => surface === 'desktop')
+    const text =
+      !isDesktopOnly && hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, await $.clock.now())) : undefined
     if (text !== lastStatus) {
       lastStatus = text
       $.ui.status(text)
@@ -324,6 +342,7 @@ async function publish($: EngineInterface): Promise<void> {
 /** Starts the one-second redraw that moves the elapsed time; it runs from the person's first prompt on. */
 function startTick($: EngineInterface): void {
   tick ??= $.clock.every(TICK_MS, () => {
+    void update($, tickAtom, n => n + 1)
     void publish($)
   })
 }
@@ -425,6 +444,85 @@ function scheduleSettle($: EngineInterface): void {
 function cancelSettle(): void {
   settling?.cancel()
   settling = undefined
+}
+
+/** A 5-step bar as an image: `filled` of `CELLS` steps in the accent color on a quiet track. */
+export function barSvg(filled: number): string {
+  const width = 60
+  const fill = Math.round((Math.min(CELLS, Math.max(0, filled)) / CELLS) * width)
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="8" viewBox="0 0 ${width} 8">` +
+    `<rect width="${width}" height="8" rx="4" fill="#8b8b8b" fill-opacity="0.25"/>` +
+    `<rect width="${fill}" height="8" rx="4" fill="#d97757"/></svg>`
+  )
+}
+
+type Ui = { Box: ElementConstructor<BoxProps>; Text: ElementConstructor<TextProps> }
+type UiWithSvg = Ui & { Svg: ElementConstructor<SvgProps> }
+
+/** The Desktop band: the clock in color and bold, the counts and session total quiet, the step or conclusion under. */
+export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
+  const { Box, Text } = ui
+  const isBusy = cycle.busySince !== null
+  const counts = (
+    [
+      [cycle.calls, 'call'],
+      [cycle.skills, 'skill'],
+      [cycle.agents, 'agent'],
+    ] as const
+  )
+    .filter(([n]) => n > 0)
+    .map(([n, noun]) => count(n, noun))
+    .join(' · ')
+  const sessionMs = total.durationMs + (isBusy ? elapsed - cycle.activeMs : 0)
+  const detail = isBusy ? (cycle.doing === null ? null : `▸ ${cycle.doing}`) : cycle.conclusion
+  return Box({
+    borderStyle: 'round',
+    borderColor: isBusy ? 'claude' : 'success',
+    paddingX: 1,
+    flexDirection: 'column',
+    children: [
+      Box({
+        flexDirection: 'row',
+        gap: 1,
+        children: [
+          Text({
+            color: isBusy ? 'claude' : 'success',
+            weight: 'bold',
+            tabular: true,
+            children: `${isBusy ? '⏱' : '✓'} ${formatDuration(elapsed)}`,
+          }),
+          counts === '' ? null : Text({ dimColor: true, children: counts }),
+          Text({
+            dimColor: true,
+            size: 'footnote',
+            children: `Σ ${formatDuration(sessionMs)} · ${formatTokens(sumTokens(total.byModel))}`,
+          }),
+        ],
+      }),
+      detail === null ? null : Text({ dimColor: isBusy, italic: !isBusy, wrap: 'wrap', children: detail }),
+    ],
+  })
+}
+
+/** One line of `/usage-band`'s text, each `▇▁` glyph bar drawn as an image bar (Desktop's font turns glyphs to blocks). */
+export function lineWithBars(ui: UiWithSvg, line: string) {
+  const { Box, Text, Svg } = ui
+  return Box({
+    flexDirection: 'row',
+    gap: 1,
+    alignItems: 'center',
+    children: line
+      .split(/([▇▁]{5})/)
+      .filter(part => part.trim() !== '')
+      .map(part => {
+        if (!/^[▇▁]{5}$/.test(part)) {
+          return Text({ children: part.trim() })
+        }
+        const filled = [...part].filter(c => c === '▇').length
+        return Svg({ source: barSvg(filled), alt: `${filled} of ${CELLS}`, width: 60, height: 8 })
+      }),
+  })
 }
 
 export const register: Register = on => {
@@ -545,4 +643,34 @@ export const register: Register = on => {
 
     return completed
   })
+
+  // Desktop: the cycle in the band above the prompt, at its bottom (other mods' cards stack above, from `next(e)`).
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' || e.props.hasSurvey) {
+      return next(e)
+    }
+    const cycle = await read($, cycleAtom)
+    if (!hasActivity(cycle)) {
+      return next(e)
+    }
+    await read($, tickAtom)
+    const [now, total, rest] = await Promise.all([$.clock.now(), read($, session), next(e)])
+    const { Box, Text } = $.ui.resolve(e)
+    return Box({
+      flexDirection: 'column',
+      children: [rest, bandCard({ Box, Text }, cycle, elapsedMs(cycle, now), total)],
+    })
+  }).catch(($, e, next) => next(e))
+
+  // Desktop: `/usage-band`'s bars as image bars. The row's own text is the snapshot taken when the command ran.
+  on('ui.render', { component: 'CommandOutput' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' || e.props.command !== COMMAND || e.props.isErrored || !/[▇▁]{5}/.test(e.props.text)) {
+      return next(e)
+    }
+    const { Box, Text, Svg } = $.ui.resolve(e)
+    return Box({
+      flexDirection: 'column',
+      children: e.props.text.split('\n').map(line => lineWithBars({ Box, Text, Svg }, line)),
+    })
+  }).catch(($, e, next) => next(e))
 }

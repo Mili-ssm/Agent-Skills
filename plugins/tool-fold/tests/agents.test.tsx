@@ -353,3 +353,44 @@ test('remembered durations: a reference line for Haiku, and time-based progress 
   expect(estimateOf({ startedAt: 0, isOpenEnded: true }, 360_000)).toBeUndefined()
   expect(estimateOf({ startedAt: 0, estimate: 40, typical: { ms: 600_000, of: 4 } }, 360_000)).toBe(40)
 })
+
+test('on Desktop, without the pane, running agents draw in the band above the prompt', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  // Whether the surface seats the pane: a pane that is closed or cannot be placed leaves the agents nowhere else.
+  let isPlaced = true
+  on('ui.open', () => ({ value: { isPlaced } }))
+  on('ui.log', () => ({ value: undefined }))
+  // The engine beneath draws an empty band.
+  on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
+  mock.clock(on)
+  const band = (surface: string) =>
+    $.ui.mount({
+      plugin: 'tool-fold',
+      component: 'AbovePrompt',
+      requestId: 'band',
+      surface,
+      props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 } },
+    } as never)
+
+  await $.agent.spawn({ ...SPAWN, subagentType: 'performance-analyst' })
+  await $.tool.call({ tool: 'Bash', command: 'cargo bench', description: 'Benchmark the codec', agentId: 'a1' })
+
+  // The docked pane holds the agent: the band stays free.
+  const whileDocked = await band('desktop')
+  expect(await whileDocked.find({ type: 'Text', text: /performance-analyst/ })).toBeUndefined()
+  await whileDocked.unmount()
+
+  // The pane is gone (closed, or not placed when reopened): the card moves above the prompt.
+  isPlaced = false
+  await $.command.run({ command: 'agents-dock' } as never)
+  const closed = await band('desktop')
+  expect((await closed.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
+  expect((await closed.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
+  await closed.unmount()
+
+  // VS Code places its own pane above the prompt: the band is not drawn there.
+  const vscode = await band('vscode')
+  expect(await vscode.find({ type: 'Text', text: /performance-analyst/ })).toBeUndefined()
+  await vscode.unmount()
+})

@@ -8,6 +8,8 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 - Running agents live only in an "Agentes" pane (beside the chat, or above the prompt in a narrow VS Code panel; `/agents-dock` reopens it): mission, model, task progress or a Haiku `≈%` estimate (after any call, at most every 30 s), as one bordered card each (compact past three), their last calls as a few words on what each does (the model's own description, else Haiku's).
 - When one ends it leaves the pane, its chat row shows the folded card and one dim line at the bottom of the chat says it ended (`✓ implementer · sonnet-5-5 · 8m 51s · … · 26 calls · 26 commands`).
 
+- Desktop docks the "Agentes" pane beside the chat; with it closed, running agents draw as cards in the band above the prompt, as VS Code's inline pane does
+
 ## Install
 
 ```bash

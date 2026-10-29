@@ -52,6 +52,7 @@ declare module 'claude-code' {
     'usage-band': {
       session: Shaped<Usage>
       cycle: Shaped<Cycle>
+      tick: number
     }
   }
 }

@@ -215,7 +215,8 @@ export const register: Register = on => {
     return completed
   })
 
-  // The card next to the prompt (terminal and desktop); vscode shows the status line alone.
+  // The card next to the prompt (terminal and desktop); vscode shows the status line alone. The band is shared:
+  // other mods' cards (tool-fold's agents, usage-band) stack below this one, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const current = await read($, plan)
     if (e.props.hasSurvey || current === null || current.total === 0) {
@@ -235,41 +236,48 @@ export const register: Register = on => {
         </Text>
       )
 
+    const rest = await next(e)
     // The terminal has no Svg: it gets the glyph card.
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)
       const hex = finished ? '#3fb950' : '#d97757'
       return (
-        <Box borderStyle="round" borderColor={color} paddingX={1} gap={1}>
-          <Svg
-            source={ringSvg(current.done, current.total, 18, hex)}
-            alt={`${current.done} of ${current.total} steps done`}
-            width={18}
-            height={18}
-          />
-          <Box flexDirection="column">
-            <Box gap={1}>
-              <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 24))}</Text>
-              <Text color={color}>
-                {current.done}/{current.total}
-              </Text>
+        <Box flexDirection="column">
+          <Box borderStyle="round" borderColor={color} paddingX={1} gap={1}>
+            <Svg
+              source={ringSvg(current.done, current.total, 18, hex)}
+              alt={`${current.done} of ${current.total} steps done`}
+              width={18}
+              height={18}
+            />
+            <Box flexDirection="column">
+              <Box gap={1}>
+                <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 24))}</Text>
+                <Text color={color}>
+                  {current.done}/{current.total}
+                </Text>
+              </Box>
+              {taskLine}
             </Box>
-            {taskLine}
           </Box>
+          {rest}
         </Box>
       )
     }
 
     return (
-      <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column">
-        <Box gap={1}>
-          <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
-          <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 26))}</Text>
-          <Text color={color}>
-            {current.done}/{current.total}
-          </Text>
+      <Box flexDirection="column">
+        <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column">
+          <Box gap={1}>
+            <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
+            <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 26))}</Text>
+            <Text color={color}>
+              {current.done}/{current.total}
+            </Text>
+          </Box>
+          {taskLine}
         </Box>
-        {taskLine}
+        {rest}
       </Box>
     )
   })

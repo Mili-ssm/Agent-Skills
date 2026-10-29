@@ -250,8 +250,17 @@ async function rememberedDurations($: EngineInterface, type: string): Promise<nu
 const HISTORY = 40
 // How far one estimate may fall below the last: a new reading, not a jump back.
 const MAX_DROP = 10
-// Characters of VS Code's proportional font per cell `bodyColumns` counts, measured on the owner's panel.
-const VSCODE_CHARS_PER_CELL = 1.5
+// Characters of a proportional font (VS Code, Desktop) per cell `bodyColumns` counts, measured on the owner's panel.
+const PROPORTIONAL_CHARS_PER_CELL = 1.5
+
+/**
+ * Characters a card line may hold: the body's cells less the card's border and padding. VS Code and Desktop draw
+ * text in a proportional font that fits about 1.5 characters per cell; the card clips the rare wider line.
+ */
+function charsFor(surface: RenderSurface, bodyColumns: number): number {
+  const cells = Math.max(24, bodyColumns - 4)
+  return surface === 'terminal' ? cells : Math.floor(cells * PROPORTIONAL_CHARS_PER_CELL)
+}
 // An estimate follows each call of an agent, at most this often per agent; one asked sooner waits.
 const ESTIMATE_GAP_MS = 30_000
 
@@ -517,6 +526,31 @@ export const registerAgents: Register = (on, options) => {
     return closed
   }).catch(($, e, next) => next(e))
 
+  // Desktop docks the pane beside the chat; closed, running agents would show nowhere (their chat rows stay empty
+  // while they run). There, as VS Code does with its inline pane, their cards draw in the band above the prompt.
+  // The band is shared: other mods' cards stack below, from `next(e)`.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.surface !== 'desktop' || e.props.hasSurvey || (await read($, docked))) {
+      return next(e)
+    }
+    const running = (await read($, runs)).filter(run => run.status === 'running')
+    if (running.length === 0) {
+      return next(e)
+    }
+    const { Box, Text } = $.ui.resolve(e)
+    await read($, clock)
+    const now = await $.clock.now()
+    const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
+    const maxChars = charsFor(e.surface, e.props.bodyColumns)
+    const rest = await next(e)
+    return (
+      <Box flexDirection="column" minWidth={0} overflow="hidden">
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
+        {rest}
+      </Box>
+    )
+  }).catch(($, e, next) => next(e))
+
   // The "Agentes" pane: every running agent's live card, as the chat draws it, oldest first.
   on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
@@ -527,10 +561,7 @@ export const registerAgents: Register = (on, options) => {
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    // The pane's body in cells, less the card's border and padding. VS Code draws text in a proportional font,
-    // which fits about 1.5 characters per cell; the card clips anything past its edge in the rare wider line.
-    const cells = Math.max(24, e.props.bodyColumns - 4)
-    const maxChars = e.surface === 'vscode' ? Math.floor(cells * VSCODE_CHARS_PER_CELL) : cells
+    const maxChars = charsFor(e.surface, e.props.bodyColumns)
     return (
       <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
         {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}

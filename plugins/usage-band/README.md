@@ -8,6 +8,7 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 - The clock stops when no turn of the main loop or of an agent is open and no agent still works. The mark turns to `✓`, Haiku sums up the last answer in one sentence (in the conversation's language), and one dim line is printed with the session's busy time and tokens: `✓ 3m12s · 62 calls · 2 skills · 3 agents — login works; 2 e2e tests fail │ Σ 3h10m · 41.7M`
 - A hand-back that wakes Claude again resumes the same cycle without counting the pause. If you write while Claude still works, the line is printed above your message instead
 - `/usage-band`: the current cycle, its tokens per model and a session summary
+- Desktop: the cycle draws as a card in the band above the prompt (time in color, counts, the step or conclusion), not in the small footer status line, while Desktop is the only surface; `/usage-band` draws its bars as image bars there
 
 Haiku cost: at most one short call every 30 s while Claude works and has made new calls, plus one per idle moment for the conclusion. No answer from Haiku leaves the previous text, or the line without a conclusion.
 
