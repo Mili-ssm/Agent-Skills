@@ -23,8 +23,12 @@ cat > docs/plan.md <<'MD'
 
 ## Task 1: Sum prices (done)
 
-## Task 2: Percentage coupons
-- Files: `cart.py`, `tests/test_cart.py`
-- Acceptance: `total([10, 10], coupon="SAVE10")` returns `18.0`; `total([10], coupon="BOGUS")` raises `ValueError("unknown coupon")`; `python3 -m unittest discover -s tests` passes.
+## Task 2: Coupon rules
+- Files: `coupons.py` (new), `cart.py`, `tests/test_coupons.py` (new), `tests/test_cart.py`
+- Acceptance:
+  - `coupons.py` defines `apply(coupon, prices) -> float` returning the discounted subtotal for three coupons: `SAVE10` (10 % off the subtotal), `FLAT5` (5 off, never below 0), `BOGO` (the cheapest item is free when there are 2 or more items).
+  - Unknown coupons raise `ValueError("unknown coupon")`.
+  - `total(prices, coupon=None)` applies the coupon through `coupons.apply` and rounds to cents.
+  - Unit tests cover each coupon, the floor at 0, BOGO with a single item and the unknown coupon; `python3 -m unittest discover -s tests` passes.
 - Constraint: keep the `total(prices, coupon=None)` signature.
 MD
