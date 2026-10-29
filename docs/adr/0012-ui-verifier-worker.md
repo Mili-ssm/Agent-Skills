@@ -35,3 +35,18 @@ A prompt and configuration review of the plugin (2026-10-29) also found that fou
 ## Revisit if
 
 `ui-verifier` reports false failures or "not verified" on most runs, or trigger evals show `ux-principles`, `ux-reviewer` or `pre-mortem` losing dispatches to it.
+
+## Measurement 2026-10-29
+
+Offload evals: Sonnet main and 3 runs per case unless noted; `ui-verifier` has 6 runs after its sandbox fix.
+
+| Case | Before | After |
+|---|---|---|
+| `ui-verifier` with policy: delegated · JS defect · working flow · mobile overflow | `main` has no worker: 0/3 delegated, the main conversation drove the browser itself | 6/6 · 6/6 · 6/6 · 6/6 |
+| `check-runner` with policy · without | 3/3 · 0/3 | 3/3 · 2/3 (description unchanged, likely noise) |
+| `summarizer` with policy · without | 3/3 · 2/3 | 3/3 · 1/3 (description unchanged, likely noise) |
+| `implementer` with policy, Opus main: old row → new row | 0/3 | 3/3 |
+| `implementer` with policy, Sonnet main | 0/3 | 0/3 |
+
+- The first `ui-verifier` runs stopped as BLOCKED inside the eval's sandboxed Bash: a global Node Playwright without `NODE_PATH`, no `PLAYWRIGHT_BROWSERS_PATH`, and a read-only `$TMPDIR`. The agent now handles all three.
+- The implementer row now names the ~20-line threshold and the review step. A Sonnet main conversation still writes the code itself; delegating to a Sonnet worker would save it nothing.
