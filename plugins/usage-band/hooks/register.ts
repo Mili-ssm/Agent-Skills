@@ -488,16 +488,13 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
     paddingX: 1,
     flexDirection: 'column',
     children: [
-      // Desktop sizes a row to its content, so the row spans the card and the left group grows to push Σ right.
       Box({
         flexDirection: 'row',
         justifyContent: 'space-between',
-        width: '100%',
         gap: 2,
         children: [
           Box({
             flexDirection: 'row',
-            flexGrow: 1,
             gap: 1,
             children: [
               Text({
