@@ -1,6 +1,7 @@
 #!/bin/bash
-# A static signup page with two planted defects: the submit handler reads a misspelled
-# element id (TypeError, no thank-you message) and the form overflows a 375 px viewport.
+# A static signup page with one working flow (the FAQ toggle) and two planted defects: the
+# submit handler reads a misspelled element id (TypeError, no thank-you message) and the
+# form overflows a 375 px viewport.
 set -e
 mkdir -p site
 cat > site/index.html <<'HTML'
@@ -25,11 +26,24 @@ cat > site/index.html <<'HTML'
     <button type="submit">Sign up</button>
   </form>
   <p id="message" role="status"></p>
+  <section>
+    <h2>FAQ</h2>
+    <button type="button" id="faq-toggle" aria-expanded="false" aria-controls="faq-answer">How often do you send emails?</button>
+    <p id="faq-answer" hidden>Once a month, never more.</p>
+  </section>
   <script src="app.js"></script>
 </body>
 </html>
 HTML
 cat > site/app.js <<'JS'
+const toggle = document.querySelector('#faq-toggle');
+const answer = document.querySelector('#faq-answer');
+toggle.addEventListener('click', () => {
+  const open = toggle.getAttribute('aria-expanded') === 'true';
+  toggle.setAttribute('aria-expanded', String(!open));
+  answer.hidden = open;
+});
+
 const form = document.querySelector('#signup');
 const message = document.querySelector('#message');
 

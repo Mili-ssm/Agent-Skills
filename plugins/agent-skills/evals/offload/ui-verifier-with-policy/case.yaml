@@ -26,4 +26,4 @@ execution:
   max_turns: 14
   timeout_seconds: 900
   allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash]
-  prompt: I just changed the newsletter signup form in `site/`. Before I ship it, check in a real browser, on desktop and on mobile, that signing up with a valid email shows the thank-you message. Serve it with `python3 -m http.server 8765 --directory site`.
+  prompt: I just changed the newsletter signup form in `site/`. Before I ship it, check in a real browser, on desktop and on mobile, that signing up with a valid email shows the thank-you message and that the FAQ question opens its answer. Serve it with `python3 -m http.server 8765 --directory site`.
