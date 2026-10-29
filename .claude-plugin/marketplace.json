@@ -8,7 +8,7 @@
     {
       "name": "agent-skills",
       "source": "./plugins/agent-skills",
-      "description": "Generic specialist skills and agents that complement Superpowers and Playwright."
+      "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright."
     },
     {
       "name": "plan-progress",

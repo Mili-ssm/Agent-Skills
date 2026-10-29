@@ -1,4 +1,5 @@
-evals/results/
+**/evals/**/results/
+__pycache__/
 # Types the engine lays beside a mod while developing it
 plugins/*/.claude-plugin/types/
 plugins/*/tsconfig.json
