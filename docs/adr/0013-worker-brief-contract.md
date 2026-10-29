@@ -42,4 +42,18 @@ Brief graders stay at the baseline, or delegation in the offload cases drops bel
 
 ## Measurement 2026-10-29
 
-MEASUREMENT
+`implementer` offload case, Opus main, 3 runs each, the same scaffold and prompt; the only change is the policy text (and `implementer`'s stop rule naming a brief that does not fit the code).
+
+| Grader | Before (old policy) | After |
+|---|---|---|
+| Delegated to `implementer` | 2/3 | 3/3 |
+| Main conversation edited no owned file | 2/3 | 3/3 |
+| Brief: decision with its reason | 2/3 (2/2 briefs) | 3/3 |
+| Brief: `invoice.py` off-limits | 2/3 (2/2 briefs) | 3/3 |
+| Brief: stop rule | 0/3 | 3/3 |
+| Task implemented | 3/3 | 3/3 |
+
+- Opus already carried the conversation's decision and off-limits file when it delegated; the new text added the stop rule, and every brief came out with the six parts as headed sections, at about 300 words.
+- One "after" brief wrote "Do NOT touch `invoice.py`", which the first scope pattern missed; the pattern now matches any case of "not", and the stored traces were rescored with it.
+- Regression, Sonnet main, 3 runs: REGRESSION
+- Cost: about $0.8 per 3-run Opus case.
