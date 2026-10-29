@@ -81,9 +81,9 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
     case 'Read':
       return { kind: 'read', label: `Read ${base(text('file_path'))}` }
     case 'Glob':
-      return { kind: 'list', label: `List ${clip(text('pattern'), 40)}${where}` }
+      return { kind: 'list', label: `List ${clip(text('pattern'), 80)}${where}` }
     case 'Grep':
-      return { kind: 'search', label: `Search ${clip(`"${text('pattern')}"`, 40)}${where}` }
+      return { kind: 'search', label: `Search ${clip(`"${text('pattern')}"`, 80)}${where}` }
     case 'Edit':
     case 'Write':
     case 'NotebookEdit':
@@ -92,15 +92,15 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
       // The model's own few words on what the command does, when it gave them.
       return {
         kind: 'run',
-        label: `Run ${clip(commandOf(text('command')), 56)}`,
-        ...(text('description') === '' ? {} : { detail: clip(text('description'), 60) }),
+        label: `Run ${clip(commandOf(text('command')), 120)}`,
+        ...(text('description') === '' ? {} : { detail: clip(text('description'), 120) }),
       }
     case 'WebSearch':
-      return { kind: 'web', label: `Web search ${clip(`"${text('query')}"`, 40)}` }
+      return { kind: 'web', label: `Web search ${clip(`"${text('query')}"`, 80)}` }
     case 'WebFetch':
-      return { kind: 'web', label: `Fetch ${clip(text('url').replace(/^https?:\/\//, ''), 40)}` }
+      return { kind: 'web', label: `Fetch ${clip(text('url').replace(/^https?:\/\//, ''), 80)}` }
     case 'Agent':
-      return { kind: 'agent', label: `Agent ${clip(text('description'), 40)}` }
+      return { kind: 'agent', label: `Agent ${clip(text('description'), 80)}` }
     case 'Skill':
       return { kind: 'skill', label: text('skill').replace(/^[\w-]+:/, '') || 'Skill' }
     default:
@@ -351,12 +351,7 @@ function runHeader(
           {isRunning ? `${outcome.word} ${elapsed}` : elapsed}
         </Text>
       </Box>
-      {label === undefined ? null : (
-        <Text dimColor wrap="truncate">
-          {mark === undefined ? '  ' : '    '}
-          {label}
-        </Text>
-      )}
+      {label === undefined ? null : hanging(ui, mark === undefined ? '  ' : '    ', <Text dimColor wrap="truncate">{label}</Text>)}
     </Box>
   )
 }
@@ -371,11 +366,33 @@ function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDe
       <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
     )
   // In the pane a call reads by what it does alone; the command shows until its words arrive.
-  return (
-    <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
+  return hanging(
+    ui,
+    <Text dimColor={step.status !== 'running'}>
       {indent}
-      {glyph} {withDetail && step.detail !== undefined ? step.detail : step.label}
-    </Text>
+      {glyph}{' '}
+    </Text>,
+    <Text dimColor={step.status !== 'running'} wrap="truncate">
+      {withDetail && step.detail !== undefined ? step.detail : step.label}
+    </Text>,
+    step.id,
+  )
+}
+
+/**
+ * `prefix` then `body` on one line, the body cut where the card really ends. The body sits in a box that may
+ * shrink below its text's width, so a long text is truncated by the surface instead of widening a narrow pane:
+ * texts need no cut by hand to `bodyColumns`, which counts terminal cells and undercounts VS Code's font.
+ */
+function hanging(ui: Elements, prefix: string | RenderElement, body: RenderElement, key?: string) {
+  const { Box, Text } = ui
+  return (
+    <Box key={key} flexDirection="row" minWidth={0}>
+      {typeof prefix === 'string' ? <Text dimColor>{prefix}</Text> : prefix}
+      <Box flexShrink={1} minWidth={0}>
+        {body}
+      </Box>
+    </Box>
   )
 }
 
@@ -423,7 +440,7 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
     timeoutMs: 20000,
   })
   if (reply.isAnswered && reply.text.trim() !== '') {
-    const mission = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 100)
+    const mission = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 160)
     await patch($, agentId, run => ({ ...run, mission }))
   }
 }
@@ -525,11 +542,9 @@ export const registerAgents: Register = (on, options) => {
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
-    // The pane's body in cells, less the card's border and padding.
-    const maxChars = Math.max(24, e.props.bodyColumns - 4)
     return (
       <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
+        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3))}
       </Box>
     )
   })
@@ -599,7 +614,7 @@ export async function endAgentCall(
 async function describeCommand($: EngineInterface, agentId: string, stepId: string, command: string): Promise<void> {
   const reply = await $.model.complete({ model: 'haiku', prompt: COMMAND_PROMPT + command.slice(0, 1500), maxTokens: 30, timeoutMs: 15000 })
   if (reply.isAnswered && reply.text.trim() !== '') {
-    const detail = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 60)
+    const detail = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 120)
     const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
     await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
   }
@@ -734,23 +749,18 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
 }
 
 /** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean, maxChars: number) {
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean) {
   const { Box, Text } = ui
   // Many agents at once: each card keeps its header, mission and live call only.
-  // Texts are cut to the pane's width by hand: a text's natural width otherwise widens the whole pane
-  // past a narrow VS Code panel, whatever the card's own sizing says.
-  const steps = (isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)).map(step => ({
-    ...step,
-    label: clip(step.label, maxChars - 6),
-    ...(step.detail === undefined ? {} : { detail: clip(step.detail, maxChars - 6) }),
-  }))
-  const counts = clip(countsLine(run), maxChars - 2)
+  // Mission and calls take one line each and are cut by the surface at the card's real edge (see `hanging`).
+  const steps = isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)
+  const counts = countsLine(run)
   return (
     // One card per agent, with a quiet border of its own inside the pane's frame.
     // Stretched by the pane, not sized: a set 100% width plus border and padding overflowed into a scroll
     // bar. minWidth 0 lets it shrink below a long header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now, frame, clip(run.mission ?? run.description, maxChars - 2), true)}
+      {runHeader(ui, run, now, frame, run.mission ?? run.description, true)}
       {steps.length === 0 ? (
         <Text dimColor>{'  Starting…'}</Text>
       ) : (
@@ -758,10 +768,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCom
         steps.map(step => stepRow(ui, step, frame, '  └ ', true))
       )}
       {isCompact || counts === '' ? null : (
-        <Text dimColor wrap="truncate">
-          {'  '}
-          {counts}
-        </Text>
+        hanging(ui, '  ', <Text dimColor wrap="truncate">{counts}</Text>)
       )}
     </Box>
   )
@@ -804,7 +811,7 @@ export function finishedLine(run: AgentRun): string {
     `${glyph} ${agentName(run)}`,
     shortModel(run.model),
     formatDuration(run.durationMs ?? 0),
-    clip(run.mission ?? run.description, 60),
+    clip(run.mission ?? run.description, 100),
     countsLine(run),
   ]
     .filter(Boolean)

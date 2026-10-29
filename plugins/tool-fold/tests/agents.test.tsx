@@ -95,9 +95,9 @@ test('a running agent shows its live tool, then folds into one summary line', as
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
     expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
     // The mission replaces the short description; the card keeps the last two calls.
-    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('  Busca dónde se crean las sesiones')
-    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  └ ✓ Read session.py')
-    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  └ ✓ Search "Session(" in src/')
+    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('Busca dónde se crean las sesiones')
+    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('Read session.py')
+    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('Search "Session(" in src/')
     await ui.unmount()
   }
 
@@ -175,7 +175,8 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   const pane = await $.ui.mount(PANE as never)
   expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
   // A call reads by what it does alone, without the command.
-  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
+  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('Benchmark the codec')
+  expect((await pane.find({ type: 'Text', text: /└/ }))?.text).toBe('  └ ✓ ')
   expect(await pane.find({ type: 'Text', text: /cargo bench/ })).toBeUndefined()
   await pane.unmount()
   // The chat shows a running agent nothing while the pane holds it.
@@ -249,7 +250,7 @@ test('an agent that ends keeps its folded card on its row and adds one line at t
   await row.unmount()
 })
 
-test('pane texts are cut to the pane width, so a narrow panel is not widened', async ($, on) => {
+test('pane texts take one line, cut by the surface at the card edge instead of widening a narrow panel', async ($, on) => {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -264,9 +265,16 @@ test('pane texts are cut to the pane width, so a narrow panel is not widened', a
     surface: 'vscode',
     props: { title: 'Agentes', isFocused: false, bodyColumns: 40, placement: 'inline', scroll: { offset: 0, bodyRows: 12 }, view: {} },
   } as never)
-  for (const text of await pane.findAll({ type: 'Text' })) {
-    expect(text.text.length).toBeLessThanOrEqual(40)
+  // A text wider than the pane stays whole and one line: the surface truncates it (`truncate`), inside a box that
+  // may shrink (`minWidth` 0), so the pane keeps its width whatever the text's length.
+  const long = (await pane.findAll({ type: 'Text' })).filter(text => text.text.length > 40)
+  expect(long.length).toBeGreaterThan(0)
+  for (const text of long) {
+    expect((text as unknown as { props: { wrap?: string } }).props.wrap).toBe('truncate')
   }
+  expect((await pane.find({ type: 'Text', text: /Escribe la documentación/ }))?.text).toBe(
+    'Escribe la documentación de fuzzing en fuzz/README.md con ejemplos',
+  )
   await pane.unmount()
 })
 

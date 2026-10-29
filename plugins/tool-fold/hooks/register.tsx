@@ -36,7 +36,7 @@ export function foldLabel(tool: string, input: unknown): string {
   const fields = typeof input === 'object' && input !== null ? (input as Record<string, unknown>) : {}
   const text = (key: string): string => (typeof fields[key] === 'string' ? (fields[key] as string) : '')
   if (text('description') !== '') {
-    return clip(text('description'), 80)
+    return clip(text('description'), 120)
   }
   switch (tool) {
     case 'Read':
@@ -47,23 +47,23 @@ export function foldLabel(tool: string, input: unknown): string {
       return base(text('notebook_path'))
     case 'Grep':
     case 'Glob':
-      return clip(text('pattern'), 60)
+      return clip(text('pattern'), 100)
     case 'Bash':
-      return clip(text('command').split('\n')[0] ?? '', 80)
+      return clip(text('command').split('\n')[0] ?? '', 120)
     case 'WebSearch':
-      return clip(text('query'), 60)
+      return clip(text('query'), 100)
     case 'WebFetch':
-      return clip(text('url').replace(/^https?:\/\//, ''), 60)
+      return clip(text('url').replace(/^https?:\/\//, ''), 100)
     case 'SendMessage':
       // The summary says what was sent; the address alone (an agent id) says nothing.
-      return clip(text('summary') || (text('message').split('\n')[0] ?? '') || text('to'), 80)
+      return clip(text('summary') || (text('message').split('\n')[0] ?? '') || text('to'), 120)
     case 'Skill':
       // Which skill, and with what it was asked to work.
-      return clip([text('skill'), text('args')].filter(Boolean).join(' · '), 80)
+      return clip([text('skill'), text('args')].filter(Boolean).join(' · '), 120)
     default: {
       // Any other tool: its first short text field says the most.
       const first = Object.values(fields).find(value => typeof value === 'string' && value.trim() !== '')
-      return typeof first === 'string' ? clip(first.split('\n')[0] ?? '', 60) : ''
+      return typeof first === 'string' ? clip(first.split('\n')[0] ?? '', 100) : ''
     }
   }
 }
