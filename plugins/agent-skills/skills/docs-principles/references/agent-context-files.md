@@ -26,5 +26,3 @@
 1. Could the agent find this in < 2 tool calls? → remove.
 2. Has this line ever changed agent behavior? Unknown → test or remove.
 3. Is it still true? → verify against code.
-
-Skill and subagent files follow [prompt-authoring.md](prompt-authoring.md).

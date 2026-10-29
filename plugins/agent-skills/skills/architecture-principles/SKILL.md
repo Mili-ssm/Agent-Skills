@@ -9,44 +9,37 @@ Architecture = the decisions that are expensive to change. Every recommendation 
 
 ## Index
 
-| Need | Reference |
-|---|---|
-| Design principles (SOLID, coupling/cohesion, connascence, deep modules, code-level rules) | [principles.md](references/principles.md) |
-| Software laws and heuristics (Gall, Hyrum, Conway, Chesterton, Goodhart, LoB…) | [laws.md](references/laws.md) |
-| Styles and patterns (hexagonal, vertical slice, DDD, Sans-IO, hypermedia, idioms) | [patterns.md](references/patterns.md) |
-| Smells with remedies, churn-hotspot analysis | [smells.md](references/smells.md) |
-| Evaluation (ISO 25010, ATAM, C4, fitness functions, metrics, severity) | [evaluation.md](references/evaluation.md) |
+| Workflow step | Open | For |
+|---|---|---|
+| 2 Rank, 3 Map | [evaluation.md](references/evaluation.md) | ISO 25010 attributes, ATAM, C4 |
+| 4 Measure | [smells.md](references/smells.md), [evaluation.md](references/evaluation.md) | Churn-hotspot commands; dependency metrics |
+| 5 Diagnose | [smells.md](references/smells.md), [principles.md](references/principles.md), [evaluation.md](references/evaluation.md) | Smell → remedy; SOLID, coupling/cohesion, connascence, deep modules, code-level rules; severity scale |
+| 6 Options | [patterns.md](references/patterns.md), [laws.md](references/laws.md), [evaluation.md](references/evaluation.md) | Styles, patterns, idioms; laws for plans and evolution (Gall, Conway, Hyrum, Chesterton, Goodhart…); fitness functions |
 
 ## Core heuristics
 
 | Heuristic | Use |
 |---|---|
 | Simplest design meeting the ranked quality attributes | Complexity must be paid for by a named requirement |
-| Grow from a working simple system (Gall) | Prefer incremental evolution to big-bang designs |
+| Grow from a working simple system (Gall) | Prefer incremental migration to big-bang rewrites; a successor system tends to be over-engineered (second-system effect) |
 | Dependencies point toward policy and stability | Domain never imports infrastructure |
-| High cohesion, low coupling, locality of behaviour | One reason to change → one place to look |
-| Deep modules (Ousterhout) | Small interface, rich hidden behavior |
-| Functional core, imperative shell | Logic testable without I/O |
-| Conway's law | Boundaries follow team communication; design both together |
 | Reversibility | Defer one-way-door decisions to the last responsible moment |
-| Rule of three | Abstract at the third real variation, not the first imagined one |
-| Boring technology by default | Spend novelty only where it buys a ranked quality attribute |
+| Conway's law | Boundaries follow team communication; design both together |
 
-## Assessment workflow
+Further principles (cohesion and coupling, deep modules, rule of three, functional core) are in `principles.md`; further laws (boring technology, Lehman, Postel…) in `laws.md`.
 
-The `architect` agent follows this workflow; use it inline for small scopes.
+## Assessment workflow (the `architect` agent runs it in full; inline for a small scope)
 
 1. **Context**: purpose, users, constraints, scale, team size (requirements, ADRs, manifests).
-2. **Rank 3–5 quality attributes** (ISO 25010); trade-offs are only decidable against a ranking.
+2. **Rank 3–5 quality attributes** (ISO 25010); trade-offs are only decidable against a ranking. Main conversation: confirm steps 1–2 with the owner. Agent run (no owner available): mark the ranking `assumed` and list it, with other context gaps, as decisions for the owner.
 3. **Map**: C4 context + container (+ component in scope) as Mermaid, derived from imports and config.
 4. **Measure**: dependency direction, cycles, fan-in/out, churn hotspots (churn × complexity).
-5. **Diagnose**: smell → principle → quality attribute affected → `file:line` → severity.
-6. **Options**: trade-offs, effort S/M/L, incremental migration (strangler, branch by abstraction), a fitness function that keeps the fix in place.
+5. **Diagnose**: smell → principle → quality attribute affected → `file:line` → severity (scale in [evaluation.md](references/evaluation.md)).
+6. **Options**: trade-offs, effort (S ≤ 1 day, M ≤ 1 week, L > 1 week), incremental migration (strangler, branch by abstraction), a fitness function that keeps the fix in place.
 7. **Record** significant choices as ADRs (`decision-records`).
 
 ## Recommendation guardrails
 
 - Recommend a pattern only when a ranked quality attribute needs it; an unneeded pattern is pure cost.
-- Prefer incremental migration to rewrites (second-system effect).
 - Add a layer only when it hides real complexity or creates a needed test seam.
 - One small team → modular monolith before microservices; a distributed monolith is the worst of both.

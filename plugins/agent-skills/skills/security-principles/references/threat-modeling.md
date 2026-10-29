@@ -35,3 +35,5 @@ Linking · Identifying · Non-repudiation · Detecting · Data disclosure · Una
 ```markdown
 | ID | Boundary / element | STRIDE | Threat | Likelihood | Impact | Existing control | Gap → mitigation |
 ```
+
+A report that keeps one `Rating` column instead of Likelihood and Impact uses the severity scale from SKILL.md (critical … info).
