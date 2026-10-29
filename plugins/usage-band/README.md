@@ -4,12 +4,12 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 
 ## What it shows
 
-- Live status line per interaction cycle (your prompt to your next): how long Claude has worked on it, its calls, skills and agents (the main loop's and its agents'), and what it does now, from the latest call's own description: `⏱ 3m12s · 62 calls · 2 skills · 3 agents · ▸ Run the e2e suite`
+- Live status line per interaction cycle (your prompt to your next): how long Claude has worked on it, its calls, skills and agents (the main loop's and its agents'), and what it does now in plain words: Haiku reads your request and the latest calls and says it in one short phrase, in your request's language, at most every 30 s and only after new calls (the call's own label shows until the first one lands): `⏱ 3m12s · 62 calls · 2 skills · 3 agents · ▸ Cambia engine por store en los tests`
 - The clock stops when no turn of the main loop or of an agent is open and no agent still works. The mark turns to `✓`, Haiku sums up the last answer in a few words (in the conversation's language), and one dim line is printed with the session's busy time and tokens: `✓ 3m12s · 62 calls · 2 skills · 3 agents — login works; 2 e2e tests fail │ Σ 3h10m · 41.7M`
 - A hand-back that wakes Claude again resumes the same cycle without counting the pause. If you write while Claude still works, the line is printed above your message instead
 - `/usage-band`: the current cycle, its tokens per model and a session summary
 
-One Haiku call per idle moment; no answer from Haiku leaves the line without a conclusion.
+Haiku cost: at most one short call every 30 s while Claude works and has made new calls, plus one per idle moment for the conclusion. No answer from Haiku leaves the previous text, or the line without a conclusion.
 
 ## Install
 
