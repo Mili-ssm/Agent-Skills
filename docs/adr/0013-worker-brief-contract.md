@@ -55,5 +55,5 @@ Brief graders stay at the baseline, or delegation in the offload cases drops bel
 
 - Opus already carried the conversation's decision and off-limits file when it delegated; the new text added the stop rule, and every brief came out with the six parts as headed sections, at about 300 words.
 - One "after" brief wrote "Do NOT touch `invoice.py`", which the first scope pattern missed; the pattern now matches any case of "not", and the stored traces were rescored with it.
-- Regression, Sonnet main, 3 runs: REGRESSION
+- Regression, Sonnet main, 3 runs with the new policy: `check-runner` and `summarizer` delegated 3/3 with right answers 3/3; `ui-verifier` delegated 3/3 and caught the JS defect 3/3 and the mobile overflow 2/3 (6/6 in ADR 0012; one run, not retried).
 - Cost: about $0.8 per 3-run Opus case.
