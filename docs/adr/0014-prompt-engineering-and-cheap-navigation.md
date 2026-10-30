@@ -48,4 +48,16 @@ The `prompt-engineering` trigger case stays below 2/3, a near-miss starts firing
 
 ## Measurement 2026-10-30
 
-Pending.
+`claude plugin eval`, Sonnet main conversation, about $3 in total.
+
+| Case | Runs | Result |
+|---|---|---|
+| `trigger/prompt-engineering` (rewrite a shouting subagent rule) | 3 + 3 | fired 3/3, then 3/3 after the review fixes |
+| `trigger/docs-principles` (tighten a README) | 6 | 4/6; `main` 5/6 on the same 6-run check. A first description that dropped "CLAUDE.md/AGENTS.md" and said "other repository text" fell to 1/6 and was rewritten |
+| `no-trigger/` (5 near-misses) | 15 | silent 15/15, with both new names in every grader |
+| `offload/summarizer-with-policy` | 3 | delegated, nothing read inline, right answer 3/3 |
+| `offload/check-runner-with-policy` | 3 | delegated, nothing run inline, right answer 3/3 |
+| `offload/summarizer-extract-with-policy` (one section word for word from a 2,168-line runbook) | 3 | right verbatim answer 3/3; whole file never read 3/3 |
+
+- The extract case first required delegation and scored 0/3: the main conversation grepped the heading and read the six lines itself, which is cheaper than any worker. The policy now keeps "reading a range you located with grep" inline and sends to `summarizer` only the parts grep cannot locate; the grader checks that the whole file is never read in the main conversation.
+- A review of the new files by `prompt-engineer` itself (run as a Sonnet subagent with this agent's prompt) returned 15 findings; 14 were fixed (reference paths, mode selection by the brief's words, extract formatting, Haiku stop rules, check-runner time limits and literal-output recipe, the density boundary with `docs-principles`, source labels). One, a stray closing tag, did not exist.
