@@ -70,3 +70,20 @@ A prompt and configuration review (bounded reports, write gates, sibling boundar
 - The digested guidance now lives in `plugins/agent-skills/skills/prompt-engineering/` (`references/prompt-rules.md`, `references/skills-and-agents.md`; ADR 0014).
 - Prompt review 2026-10-30 (three `prompt-engineer` passes, stress-tested by `pre-mortem`): body changes to skills, commands, references and three workers, plus one commit per description change (`researcher`, `Explore`, `fixer`, `intent-elicitation`, `release-hygiene`, `api-design`, `change-impact`) so each can be reverted alone. **Unmeasured**: before merging, run the trigger, no-trigger and offload suites against `main`. Kill criteria: `neg-live-bug` fires `api-design` → revert it; `neg-small-flag` fires `change-impact` → revert it; `trigger/feature-briefing` drops ≥ 2 of 6 while `change-impact` fires → revert `change-impact`; `implementer-with-policy` or `ui-verifier-with-policy` returns work left over or misses defects → revert that worker's round budget; any trigger case drops ≥ 2 of 6 → revert the description named for it.
 - Cheaper measurement protocol (owner, 2026-10-30), replacing the full suite run on both sides: only the cases a change can move (`--case`), the new version at 2 runs against the last recorded result, and a rerun at 6 runs on both sides only for a case that is not unanimous or falls below its record. For this branch that is 13 cases × 2 runs instead of 29 × 3 × 2 (26 runs instead of 174). Rejected: a Haiku main conversation (it measures Haiku's routing, not the owner's Sonnet or Opus), lower `max_turns` (trigger runs rarely reach it, so it saves little and breaks comparison with recorded results). Open: agent mocks for offload cases when only main-conversation text changes (documented by `claude plugin eval`, not yet tried).
+
+## Measurement 2026-10-30
+
+Targeted protocol (CLAUDE.md § Eval protocol) for the 2026-10-30 prompt review: new version only, 2 runs per case, Sonnet main conversation (Opus for `offload-implementer-with-policy`, as in ADR 0013), `claude plugin eval` 2.1.314, about $2.8 in total.
+
+| Case | Change it guards | Result |
+|---|---|---|
+| `api-design`, `change-impact`, `intent-elicitation`, `release-hygiene` | Their new descriptions | Fired 2/2 each |
+| `web-research` | `researcher` description | Fired 2/2; with traces kept, the skill loaded before every `researcher` dispatch (2/2) |
+| `feature-briefing` | `change-impact` crowding it out | Fired 2/2 |
+| The five `neg-*` near-misses | Every description change | Silent 2/2 each |
+| `offload-implementer-with-policy` | Round budget, brief contract | Delegated 2/2; the brief carried the decision, the scope and the stop rule 2/2; implemented 2/2 |
+| `offload-ui-verifier-with-policy` | Round budget | Delegated 2/2; JS defect, mobile overflow and working flow caught 2/2 |
+
+- No kill criterion fired and every case was unanimous, so no 6-run rerun against `main` was needed.
+- Not covered by any suite: `Explore` (user scope, not loaded by plugin evals), `fixer` (no trigger or offload case), skill bodies, references and commands.
+- `--case` takes one glob per invocation; `{a,b}` matched no case.
