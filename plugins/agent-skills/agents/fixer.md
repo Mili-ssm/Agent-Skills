@@ -1,6 +1,6 @@
 ---
 name: fixer
-description: Mechanical-fix worker (Sonnet) that loops run check → fix → rerun on lint errors, type errors, broken imports or tests failing after a refactor or rename, without changing intended behavior. Use proactively when many mechanical errors follow a change, so the main model does not iterate on trivial fixes.
+description: Mechanical-fix worker (Sonnet) that loops run check → fix → rerun on lint errors, type errors, broken imports or tests failing after a refactor or rename, without changing intended behavior. Use proactively when many mechanical errors follow a change, so the main model does not iterate on trivial fixes. Running checks without fixing belongs to check-runner; errors that need a design decision stay with the caller.
 tools: Read, Grep, Glob, Bash, Edit
 model: sonnet
 effort: medium
