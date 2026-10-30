@@ -1,6 +1,6 @@
 # 0011 One marketplace, independent plugins: agent-skills plus opt-in mods
 
-Status: accepted · Date: 2026-10-28
+Status: accepted · Date: 2026-10-28 · Amends 0008 · Amended by 0012, 0015
 
 ## Context
 
@@ -10,7 +10,7 @@ The owner wants Claude Code mods (plugins whose hooks module changes Claude's ow
 
 - Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json`; the root keeps only the marketplace, `docs/`, `scripts/` and `user-agents/`.
 - `agent-skills` moves to `plugins/agent-skills/` (skills, agents, commands, evals); `scripts/validate.py` reads it there.
-- First mods: `agents-pane` (side pane: subagents with type, model, status, duration and a per-model tally) and `status-model` (status line: main model, running subagents, last subagent with model and outcome). Both make offloading to Haiku/Sonnet visible (ADR 0010).
+- First mods (historical: see Review 2026-10-30): `agents-pane` (side pane: subagents with type, model, status, duration and a per-model tally) and `status-model` (status line: main model, running subagents, last subagent with model and outcome). Both make offloading to Haiku/Sonnet visible (ADR 0010).
 - No `version` in any `plugin.json` (ADR 0006): each commit updates every plugin.
 - Mods are opt-in: `cloud-setup.sh` installs them only when `AGENT_SKILLS_MODS` lists them.
 - Each mod ships `claude plugin test` tests; `claude plugin validate` and `tsc` gate changes.
@@ -42,3 +42,11 @@ Redesign for the VS Code extension, the owner's main surface, where `AbovePrompt
 Added `tool-fold`: tool calls fold into one pressable line that unfolds the engine's own row; its own plugin so it stays opt-in apart from the agent cards. `agents-pane` also moved its running agents under the main spinner (status line while only background agents run) with a Haiku mission line.
 
 `agents-pane` merged into `tool-fold` (owner's choice): agents join the folded runs with tools and skills, which needs one plugin to own every tool row (two plugins on one row have no guaranteed order, and a plugin takes one hooks module). Running agents stay in view until they end.
+
+## Review 2026-10-30
+
+- Current mods: `usage-band`, `plan-progress`, `tool-fold`. The Decision's `agents-pane` and `status-model` are historical: the reviews above removed `status-model` and merged `agents-pane` into `tool-fold`.
+- `usage-band` is now a status line per prompt cycle with a Haiku conclusion ([README](../../plugins/usage-band/README.md)); what each surface draws is in [mods-surfaces](../mods-surfaces.md).
+- The root also holds `user-config/` (ADR 0012) and the generated `ports/` with the Copilot and Codex catalogs (ADR 0015).
+- `claude plugin test`, `claude plugin validate` and `tsc` are manual gates: there is no CI (N5).
+- Recorded so the cost is explicit: `usage-band` and `tool-fold` send recent tool-call descriptions to Haiku for one-line summaries and estimates, at most once every 30 s each, in every session that installs them.

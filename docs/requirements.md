@@ -1,6 +1,6 @@
 # Requirements
 
-Current as of 2026-10-29. Source: owner conversation and `intent-elicitation` interview. A flipped requirement needs a PR + ADR.
+Current as of 2026-10-30. Source: owner conversation and `intent-elicitation` interview. A flipped requirement needs a PR + ADR.
 
 ## Context
 
@@ -8,7 +8,7 @@ Current as of 2026-10-29. Source: owner conversation and `intent-elicitation` in
 |---|---|
 | Owner stack | Python, Rust; fullstack FastAPI + htmx, minimal JS |
 | Runtime | Claude Code (local and cloud) with Superpowers and Playwright (CLI/MCP plugin and Python library) |
-| Repo role | Plugin of generic skills/agents complementing both |
+| Repo role | Marketplace: a plugin of generic skills/agents complementing both, opt-in UI mods (ADR 0011) and generated Copilot/Codex ports of the plugin (ADR 0015) |
 | Audience | Owner only for now; no license (ADR 0008) |
 
 ## Functional
@@ -31,7 +31,7 @@ Current as of 2026-10-29. Source: owner conversation and `intent-elicitation` in
 | N4 | Findings carry evidence (`file:line`, command output, screenshot). |
 | N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). |
 | N6 | Description or prompt changes are measured with `claude plugin eval` (trigger + no-trigger cases) against the previous version. |
-| N7 | Reviewer agents are read-only via `disallowedTools`, not via prompt text. |
+| N7 | Agents whose description says "Read-only" block Edit, Write and NotebookEdit via `disallowedTools`, not via prompt text. |
 | N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. |
 | N9 | Reading, checks, browser verification and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. |
 | N10 | A worker's brief carries what only the main conversation knows: goal and acceptance, scope and what not to touch, decisions with their reasons, checks, a stop rule, report bounds; tasks with open design are not delegated (ADR 0013). Measured on the `implementer` offload case. |
@@ -53,7 +53,7 @@ Current as of 2026-10-29. Source: owner conversation and `intent-elicitation` in
 ## Out of scope (now)
 
 - Stack skills: `htmx-fastapi-hypermedia`, `htmx-e2e-playwright`, `python-project`, `rust-project`, `pyo3-maturin`.
-- Hooks and CI (would enforce N5).
+- Git hooks and CI (would enforce N5).
 
 ## Open questions
 

@@ -1,6 +1,6 @@
 # 0008 Install paths and audience
 
-Status: accepted · Date: 2026-10-27 · Supersedes 0005
+Status: accepted · Date: 2026-10-27 · Supersedes 0005 · Amended by 0011
 
 ## Context
 
@@ -28,3 +28,7 @@ ADR 0005 assumed one install command per environment. Verified on Claude Code 2.
 ## Revisit if
 
 Others start using the plugin (add a license, pin versions per ADR 0006), or cloud sessions start honoring repo-declared plugins.
+
+## Review 2026-10-30
+
+Decision bullet 1 is amended by ADR 0011: the root is a marketplace only, and each plugin, `agent-skills` included, lives in `plugins/<name>/`.

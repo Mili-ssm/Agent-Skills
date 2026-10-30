@@ -13,6 +13,8 @@ Refactoring changes structure **without changing behavior**, in small steps that
 2. Clean working tree and a test command that runs in seconds.
 3. A named smell and the change it will make easier: "make the change easy, then make the easy change" (Beck). Read the code's history first (Chesterton's fence).
 
+One tool-driven move (rename, extract, inline) of a non-public symbol whose callers tests cover, in a clean tree: skip characterization tests and hotspot ranking and go to the Loop.
+
 ## Loop
 
 1. Pick one refactoring from the [catalog](references/catalog.md).

@@ -10,4 +10,5 @@ Task: $ARGUMENTS
 
 - Brief it self-contained: the task plus the files, plan or constraints from this conversation that it refers to, because it starts without this conversation.
 - No arguments: use the plan under discussion in this conversation; otherwise leave the agent's default (the only plan file under `docs/plans/`, `docs/superpowers/plans/`, `plans/` or `specs/`) and say which you assumed.
+- If it stops for a missing input (which plan, when several or none are found), ask the owner for exactly that, then dispatch once more with it added.
 - Relay its report in full, dropping no findings; then list the decisions or open questions it leaves to the owner, or say there are none.

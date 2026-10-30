@@ -1,6 +1,6 @@
 # 0010 Cheap offload workers and an explicit offload policy
 
-Status: accepted · Date: 2026-10-28
+Status: accepted · Date: 2026-10-28 · Amends 0007
 
 ## Context
 

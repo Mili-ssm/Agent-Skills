@@ -1,6 +1,6 @@
 ---
 name: "researcher"
-description: "Cheap web researcher (Haiku) that searches and reads official docs, specs, papers and practitioner sources for one concrete question and returns a short cited answer, findings table, conflicts and gaps. Read-only. Use to offload web searching and page reading from the main model, one dispatch per question, several in parallel for broad topics."
+description: "Cheap web researcher (Haiku) that searches and reads official docs, specs, papers and practitioner sources for one concrete question and returns a short cited answer, findings table, conflicts and gaps. Read-only. Use proactively for any web search or page read beyond one quick fact: dispatch it instead of searching yourself, because pages would fill the expensive main context. One dispatch per question, several in parallel for broad topics."
 tools: ["web", "read"]
 model: "claude-haiku-5.5"
 reasoningEffort: "medium"
@@ -50,7 +50,7 @@ The main model reasons; the `researcher` subagent (Haiku) searches and reads. Ra
 2. **Split** broad topics into independent questions (≤ 5) and dispatch one `researcher` per question **in parallel**.
 3. **Brief** each researcher with: question, why it matters (decision it feeds), preferred sources, output shape (list, comparison table, yes/no + evidence), max length.
 4. **Reason** in the main thread over the returned findings: reconcile conflicts, decide, cite.
-5. **Re-dispatch** only for gaps or conflicts the findings name; read a page yourself only when one fact is decisive, because raw pages bloat the main context.
+5. **Re-dispatch** once, only for gaps or conflicts the findings name (a gap still open after that is reported as open); read a page yourself only when one fact is decisive, because raw pages bloat the main context.
 
 ## Source hierarchy (the `researcher` applies it)
 

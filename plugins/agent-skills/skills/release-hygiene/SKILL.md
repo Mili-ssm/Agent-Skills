@@ -1,6 +1,6 @@
 ---
 name: release-hygiene
-description: Conventions for Conventional Commits, SemVer bumps, Keep a Changelog entries and release checklists. Use when writing a commit message or changelog entry, choosing a version number, tagging or preparing a release.
+description: Conventions for Conventional Commits, SemVer bumps, Keep a Changelog entries and release checklists. Use when writing a commit message or changelog entry, choosing a version number, tagging or preparing a release; load it before proposing a version or tag so the bump follows the commit rules.
 ---
 
 # Release Hygiene

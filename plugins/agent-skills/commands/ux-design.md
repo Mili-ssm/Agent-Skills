@@ -8,4 +8,4 @@ Load the `agent-skills:ux-principles` skill and run its **design workflow** for:
 
 If no feature, screen or flow was given, ask for it in one question first.
 
-Interview the owner with `AskUserQuestion` wherever users, tasks, constraints or content are unclear. Deliver the design spec and the Playwright acceptance checks; write no application code unless asked.
+Interview the owner with `AskUserQuestion` wherever users, tasks, constraints or content are unclear. Run steps 1–6 of the design workflow, deliver the design spec and the Playwright acceptance checks, then stop; run step 7 only when the owner says the UI is built. Write no application code unless asked.

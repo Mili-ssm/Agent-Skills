@@ -14,7 +14,7 @@ description: Checklists for accurate, dense repository documentation - Diátaxis
 | Why > what | Code shows what; docs keep intent, constraints, trade-offs |
 | Single source of truth | State a fact once and link to it; copies drift |
 | Diátaxis | Tutorial, how-to, reference and explanation stay separate |
-| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior |
+| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior. In a repository developed mostly by agents every doc is LLM-facing: also apply `prompt-engineering`'s `llm-native-projects.md` |
 
 ## References
 
@@ -30,7 +30,7 @@ description: Checklists for accurate, dense repository documentation - Diátaxis
 - Prefer one concrete example to an abstract explanation.
 - Date time-sensitive facts ("as of 2026-10") so readers can judge staleness.
 - Decisions go to ADRs (`decision-records`).
-- Apply the density checklist to every paragraph.
+- Open [density-checklist.md](references/density-checklist.md) and apply it to every paragraph you write or cut.
 
 ## Compression workflow
 
@@ -45,7 +45,7 @@ Copy and tick:
 - [ ] 6 Measure before/after; repeat 3–5 until no item fires
 ```
 
-## Review output
+## Review output (default; a format in the caller's task or agent definition replaces it)
 
 ```markdown
 | File:line | Issue (stale · false · duplicate · bloat · mixed-type · missing-why · unverified) | Fix |

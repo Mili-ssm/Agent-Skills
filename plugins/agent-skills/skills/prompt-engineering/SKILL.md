@@ -56,7 +56,7 @@ When no eval is feasible, say the change is unmeasured and name the cheapest che
 3. Give a before/after rewrite of only the lines that change.
 4. Say how to verify it (an eval case, a trace to read, a model to test).
 
-## Review output
+## Review output (default; a format in the caller's task or agent definition replaces it)
 
 ```markdown
 | File:line | Rule (reference · measured/prescribed) | Issue | Rewrite | Check |

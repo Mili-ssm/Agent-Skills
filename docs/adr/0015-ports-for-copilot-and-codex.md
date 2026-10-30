@@ -1,6 +1,6 @@
 # 0015 Generated ports for GitHub Copilot and OpenAI Codex
 
-Status: accepted · Date: 2026-10-30
+Status: accepted · Date: 2026-10-30 · Amends 0011
 
 ## Context
 
@@ -57,3 +57,7 @@ Copilot or Codex documents path variables in skill bodies, Codex plugins gain ag
   - Codex tool rules name capabilities, not Claude tool names.
   - Claude-only names were mapped: `(Haiku)` and the other model tags in Codex, `Explore`, `AskUserQuestion`, "Delegation rules in CLAUDE.md", and `/agent-skills:` in Copilot.
 - Not verified: running either tool. Formats come from Copilot's docs source and Codex's source code.
+
+## Review 2026-10-30
+
+The owner added a root `CLAUDE.md` with maintainer notes for the Claude sessions that develop this repo. It holds no offload table, which stays user-level, and no `CLAUDE.md` or `AGENTS.md` is generated for the ports; the decision above stands.

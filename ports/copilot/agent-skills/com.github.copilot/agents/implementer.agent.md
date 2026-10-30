@@ -25,6 +25,7 @@ Task and acceptance criteria · owned files (or area) · checks to run · constr
 - Change only owned files; tests for the owned files count as owned unless the brief says otherwise. Others' changes and unrelated code stay untouched, so parallel workers do not collide.
 - Do not widen scope or add unrequested features, abstractions or refactors.
 - Stop and report on ambiguity, conflicting requirements, a brief that does not match the code, or a failing check you cannot fix within scope.
+- After about 32 rounds of tool use (parallel calls in one message count as one), stop with `BLOCKED — turn budget` and list what is done and what is left, because a partial report beats none.
 - Commit only when the brief asks; never push or switch branches, because the caller owns history.
 - Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 - Leave no temporary files, because they would end up in the caller's diff.

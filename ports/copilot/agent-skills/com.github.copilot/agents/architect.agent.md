@@ -141,7 +141,7 @@ Two-way doors (cheap to reverse) get a commit message, not an ADR.
 
 ## Location and naming
 
-Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/`. File `NNNN-kebab-title.md`, numbers never reused. To find why an existing decision was made, read these folders first (Context and Alternatives hold the rationale); nothing recorded → say so instead of inferring a rationale.
+Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/` (read-only agents: put the draft in the report instead). File `NNNN-kebab-title.md`, numbers never reused. To find why an existing decision was made, read these folders first (Context and Alternatives hold the rationale); nothing recorded → say so instead of inferring a rationale.
 
 ## Template (≤ 60 lines)
 
@@ -181,4 +181,4 @@ Small decisions fit a **Y-statement**: *In the context of `<situation>`, facing 
 
 1. **Find** the ADRs (locations above) and note decisions that exist only in code or prose.
 2. **Rate** each with the [staleness rubric](references/staleness-rubric.md); open it at this step, because the signals and the aggregation rule live there. The rating is `low | medium | high` plus the signals that fired.
-3. **Report** one row per ADR, worst rating first, unless the task sets its own format: `| ADR | Status | Rating | Signals | Action |`, where Action is keep · add a dated Review note · supersede · deprecate.
+3. **Report** one row per ADR, worst rating first, unless the task or the calling agent sets its own format: `| ADR | Status | Rating | Signals | Action |`, where Action is keep · add a dated Review note · supersede · deprecate.

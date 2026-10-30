@@ -1,6 +1,6 @@
 ---
 name: change-impact
-description: Maps the blast radius of a significant change - callers, contracts, data, docs, consumers, breaking changes, migration strategy (expand/contract, flags, strangler), rollout, rollback and point of no return. Use when planning or about to implement a rename, schema or API change, dependency swap, removal or boundary refactor, or when asked what a change will affect and how to roll it out safely.
+description: Maps the blast radius of a significant change - callers, contracts, data, docs, consumers, breaking changes, migration strategy (expand/contract, flags, strangler), rollout, rollback and point of no return. Use when planning or about to implement a rename, schema or API change, dependency swap, removal or boundary refactor, or when asked what a change will affect and how to roll it out safely; load it before planning a rename, schema, API, dependency or boundary change, because the plan inherits the blast radius.
 ---
 
 # Change Impact Analysis
@@ -27,6 +27,8 @@ Copy and tick (copy the step names as a checklist, tick each when it completes):
 | Non-functional | Performance, security surface, accessibility, cost |
 
 Above ~20 rows, group by directory. State the search commands used (for example `rg -n 'user_id'`), so the owner can rerun them.
+
+Light path: when the step 2 rows show one module, every caller in the repo, covering tests and no public contract (route, CLI flag, env var, file format, error message), skip steps 3–5 and finish with 6 and 7.
 
 **3. Compatibility**: `patch` (no contract change) · `minor` (additive) · `major` (breaking: list each break and who it hits).
 

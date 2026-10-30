@@ -1,6 +1,6 @@
 ---
 name: Explore
-description: Fast read-only codebase explorer on Haiku that finds files, symbols, call sites, contracts and patterns and returns concise file:line answers. Use proactively for any search or reading across more than a few files, so exploration runs on a cheap model and stays out of the main context.
+description: Fast read-only codebase explorer on Haiku that finds files, symbols, call sites, contracts and patterns and returns concise file:line answers. Use proactively for any search or reading across more than 3 files, so exploration runs on a cheap model and stays out of the main context.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku

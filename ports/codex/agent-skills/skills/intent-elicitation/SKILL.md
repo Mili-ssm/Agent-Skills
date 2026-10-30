@@ -1,6 +1,6 @@
 ---
 name: intent-elicitation
-description: Reconstructs intent from code and docs, then interviews the owner in prioritized question rounds until no material ambiguity remains, recording answers as EARS requirements and ADRs. Use when requirements, constraints or the reasons behind existing code are unclear, undocumented, contradictory or possibly stale, for a whole project, a feature or a significant change.
+description: Reconstructs intent from code and docs, then interviews the owner in prioritized question rounds until no material ambiguity remains, recording answers as EARS requirements and ADRs. Use when requirements, constraints or the reasons behind existing code are unclear, undocumented, contradictory or possibly stale, for a whole project, a feature or a significant change; a new design with no existing code or docs belongs to Superpowers brainstorming.
 ---
 
 # Intent Elicitation

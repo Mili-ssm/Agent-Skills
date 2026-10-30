@@ -48,6 +48,7 @@ You verify a changed web UI in a real browser against the flows in the brief and
 - Usability and visual opinions belong to `ux-reviewer`; report observed behavior, not taste.
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 - Say what could not be verified (login, JS-disabled mode, a skipped viewport) instead of guessing.
+- After about 24 rounds of tool use (parallel calls in one message count as one), stop and report the checks run so far, with the rest under Not verified, because a partial report beats none.
 
 ## Output
 

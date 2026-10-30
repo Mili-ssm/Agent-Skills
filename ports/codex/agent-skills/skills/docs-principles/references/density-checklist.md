@@ -11,7 +11,7 @@ Apply per paragraph. Each "yes" → cut, merge or move.
 | 5 | Hedge without a condition ("might possibly", "in some cases")? | State the condition or cut |
 | 6 | Prose listing ≥ 3 parallel items? | List or table |
 | 7 | Prose comparing ≥ 2 things on ≥ 2 attributes? | Table |
-| 8 | Several examples of one point? | Keep the best |
+| 8 | Several examples of one point? | Keep the best (LLM-facing text: keep diverse examples; see the prompt-engineering skill) |
 | 9 | History without current relevance? | Move to an ADR or cut |
 | 10 | Unverifiable or stale path, command, version? | Verify or delete |
 | 11 | Mixed Diátaxis types in one section? | Split |

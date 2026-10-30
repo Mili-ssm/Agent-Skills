@@ -72,7 +72,7 @@ Base directory for this skill: `${CODEX_HOME:-$HOME/.codex}/plugins/cache/mili-s
 | Why > what | Code shows what; docs keep intent, constraints, trade-offs |
 | Single source of truth | State a fact once and link to it; copies drift |
 | Diátaxis | Tutorial, how-to, reference and explanation stay separate |
-| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior |
+| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior. In a repository developed mostly by agents every doc is LLM-facing: also apply `prompt-engineering`'s `llm-native-projects.md` |
 
 ## References
 
@@ -88,7 +88,7 @@ Base directory for this skill: `${CODEX_HOME:-$HOME/.codex}/plugins/cache/mili-s
 - Prefer one concrete example to an abstract explanation.
 - Date time-sensitive facts ("as of 2026-10") so readers can judge staleness.
 - Decisions go to ADRs (`decision-records`).
-- Apply the density checklist to every paragraph.
+- Open [density-checklist.md](references/density-checklist.md) and apply it to every paragraph you write or cut.
 
 ## Compression workflow
 
@@ -103,7 +103,7 @@ Copy and tick:
 - [ ] 6 Measure before/after; repeat 3–5 until no item fires
 ```
 
-## Review output
+## Review output (default; a format in the caller's task or agent definition replaces it)
 
 ```markdown
 | File:line | Issue (stale · false · duplicate · bloat · mixed-type · missing-why · unverified) | Fix |
@@ -133,7 +133,7 @@ Two-way doors (cheap to reverse) get a commit message, not an ADR.
 
 ## Location and naming
 
-Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/`. File `NNNN-kebab-title.md`, numbers never reused. To find why an existing decision was made, read these folders first (Context and Alternatives hold the rationale); nothing recorded → say so instead of inferring a rationale.
+Reuse `docs/adr/`, `doc/adr/`, `adr/` or `docs/decisions/`; else create `docs/adr/` (read-only agents: put the draft in the report instead). File `NNNN-kebab-title.md`, numbers never reused. To find why an existing decision was made, read these folders first (Context and Alternatives hold the rationale); nothing recorded → say so instead of inferring a rationale.
 
 ## Template (≤ 60 lines)
 
@@ -173,7 +173,7 @@ Small decisions fit a **Y-statement**: *In the context of `<situation>`, facing 
 
 1. **Find** the ADRs (locations above) and note decisions that exist only in code or prose.
 2. **Rate** each with the [staleness rubric](references/staleness-rubric.md); open it at this step, because the signals and the aggregation rule live there. The rating is `low | medium | high` plus the signals that fired.
-3. **Report** one row per ADR, worst rating first, unless the task sets its own format: `| ADR | Status | Rating | Signals | Action |`, where Action is keep · add a dated Review note · supersede · deprecate.
+3. **Report** one row per ADR, worst rating first, unless the task or the calling agent sets its own format: `| ADR | Status | Rating | Signals | Action |`, where Action is keep · add a dated Review note · supersede · deprecate.
 
 ## Preloaded skill: prompt-engineering
 
@@ -232,7 +232,7 @@ When no eval is feasible, say the change is unmeasured and name the cheapest che
 3. Give a before/after rewrite of only the lines that change.
 4. Say how to verify it (an eval case, a trace to read, a model to test).
 
-## Review output
+## Review output (default; a format in the caller's task or agent definition replaces it)
 
 ```markdown
 | File:line | Rule (reference · measured/prescribed) | Issue | Rewrite | Check |
