@@ -1,6 +1,6 @@
 ---
 name: change-impact
-description: Maps the blast radius of a significant change - callers, contracts, data, docs, consumers, breaking changes, migration strategy (expand/contract, flags, strangler), rollout, rollback and point of no return. Use when planning or about to implement a rename, schema or API change, dependency swap, removal or boundary refactor, or when asked what a change will affect and how to roll it out safely.
+description: Maps the blast radius of a significant change - callers, contracts, data, docs, consumers, breaking changes, migration strategy (expand/contract, flags, strangler), rollout, rollback and point of no return. Use when planning or about to implement a rename, schema or API change, dependency swap, removal or boundary refactor, or when asked what a change will affect and how to roll it out safely; load it before planning a rename, schema, API, dependency or boundary change, because the plan inherits the blast radius.
 ---
 
 # Change Impact Analysis
