@@ -13,9 +13,7 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 
 ## agent-skills
 
-Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright.
-
-[Superpowers](https://github.com/obra/superpowers) owns process and Playwright the browser; this plugin adds the professional lenses and the workers. Personal plugin of its owner (ADR 0008).
+Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers. [Superpowers](https://github.com/obra/superpowers) owns process and Playwright the browser; this plugin adds the specialist lenses and the workers ([boundary](docs/requirements.md#superpowers-boundary)). Personal plugin of its owner (ADR 0008).
 
 ## Install
 
@@ -40,7 +38,7 @@ mkdir -p ~/.claude/agents && cp user-agents/Explore.md ~/.claude/agents/
 # add to ~/.claude/settings.json: "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}
 ```
 
-Then add the offload table to `~/.claude/CLAUDE.md`: copy it from [`user-config/offload-policy.md`](user-config/offload-policy.md) (single source, ADR 0012). In evals it raised worker delegation from 0–2/3 to 3/3; without it, force a worker per task with `/agent-skills:offload <task>`.
+Then add the offload table to `~/.claude/CLAUDE.md`: copy it from [`user-config/offload-policy.md`](user-config/offload-policy.md) (single source, ADR 0012). In evals it raised `check-runner` and `summarizer` delegation from 0–2/3 to 3/3 (ADR 0010); without it, force a worker per task with `/agent-skills:offload <task>`.
 
 The cloud script can write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
 
@@ -67,7 +65,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | Commands `/agent-skills:<name>` | You type one; they never auto-trigger | A specialist review or workflow when you decide |
 | Skills | Their description matches the task, a bonus that can stay silent; force one with its command | Methods and knowledge applied while you work |
 | Workers | The [offload policy](user-config/offload-policy.md) is in your `CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier` (plus user-scope `Explore`) |
-| Superpowers | Its own triggers | Process: brainstorming, plans, TDD, debugging, review. This plugin adds the specialist lenses ([boundary](docs/requirements.md#superpowers-boundary)) |
+| Superpowers | Its own triggers | Process: brainstorming, plans, TDD, debugging, review. This plugin adds the specialist lenses |
 
 ### Agents (fresh context, return a report)
 
@@ -111,7 +109,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 
 ### Commands (explicit, user-only)
 
-Every skill is also invocable as `/agent-skills:<skill>`. Specialist agents get explicit commands, which never auto-trigger and cost no context per turn; workers are forced with `/agent-skills:offload`:
+Every skill is also invocable as `/agent-skills:<skill>`. Specialist agents get commands, which never auto-trigger and cost no context per turn; workers are forced with `/agent-skills:offload`:
 
 | Command | Runs |
 |---|---|
@@ -143,8 +141,8 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 ## Design
 
 - Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
-- Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/` and the files you copy into user scope (`user-agents/`, `user-config/`).
-- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012) · worker brief contract (0013) · prompt engineering and cheap navigation (0014) · generated ports for Copilot and Codex (0015).
+- Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/`, the files you copy into user scope (`user-agents/`, `user-config/`) and the generated ports (`ports/`, ADR 0015).
+- ADRs are cited by number; 0008 supersedes 0005.
 
 ## Develop
 

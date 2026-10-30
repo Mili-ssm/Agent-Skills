@@ -61,3 +61,7 @@ The `prompt-engineering` trigger case stays below 2/3, a near-miss starts firing
 
 - The extract case first required delegation and scored 0/3: the main conversation grepped the heading and read the six lines itself, which is cheaper than any worker. The policy now keeps "reading a range you located with grep" inline and sends to `summarizer` only the parts grep cannot locate; the grader checks that the whole file is never read in the main conversation.
 - A review of the new files by `prompt-engineer` itself (run as a Sonnet subagent with this agent's prompt) returned 15 findings; 14 were fixed (reference paths, mode selection by the brief's words, extract formatting, Haiku stop rules, check-runner time limits and literal-output recipe, the density boundary with `docs-principles`, source labels). One, a stray closing tag, did not exist.
+
+## Review 2026-10-30
+
+Effort per Haiku worker, recorded because the research above says `low` stops early: `researcher` moved to `medium` (commit `6af1a32`) because at `low` it skipped searches and stopped early. `check-runner` and `summarizer` stay `low`: their offload cases scored 3/3 at `low` (Measurement above) and each runs one command or reads one file. `Explore` (user scope) stays `low`, unmeasured; revisit if it returns before its search is done.

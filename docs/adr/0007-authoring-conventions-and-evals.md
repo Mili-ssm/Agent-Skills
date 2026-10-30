@@ -63,3 +63,8 @@ A prompt and configuration review (bounded reports, write gates, sibling boundar
 - `performance-analyst` fired 0/3 on both: with no codebase in the prompt, Sonnet answers with advice. `/agent-skills:perf-review` is the entry point.
 - The near-misses never fired on `main` either, so the new boundary clauses show no measurable effect on these prompts.
 - Vocabulary: a finding's basis is `evidenced | inferred`; a plan assumption's status stays `verified | unverified`.
+
+## Review 2026-10-30
+
+- Amended by ADR 0010 (the six workers, and only they, say "Use proactively") and ADR 0012 (workers have no command each; `/agent-skills:offload` forces them).
+- The digested guidance now lives in `plugins/agent-skills/skills/prompt-engineering/` (`references/prompt-rules.md`, `references/skills-and-agents.md`; ADR 0014).

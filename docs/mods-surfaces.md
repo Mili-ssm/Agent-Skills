@@ -1,6 +1,6 @@
 # Mods on each surface: field notes
 
-What the mods (`tool-fold`, `usage-band`, `plan-progress`) do on the Desktop app, VS Code and the terminal, learned by trying. Little of this is written anywhere else, so every finding is kept here, including the ones that failed.
+What the mods (`tool-fold`, `usage-band`, `plan-progress`) do on the Desktop app, VS Code and the terminal, learned by trying; findings that failed are kept too.
 
 Status labels:
 
@@ -11,6 +11,7 @@ Status labels:
 | **tested** | Passes in `claude plugin test` only; the test kit does not reproduce the surface |
 | **inferred** | Explains what was observed, not confirmed directly |
 | **open** | Not working yet, or not understood |
+| **diagnostic** | A command that reports what a surface does, to settle an open row |
 
 Add a row whenever a surface surprises us: what was tried, what happened, why (or "unknown"), and the PR.
 
