@@ -37,3 +37,7 @@ Cost shifts to Haiku/Sonnet for reading, checks and bounded implementation; the 
 ## Review 2026-10-28
 
 Regression after adding the workers (Sonnet, 2 runs): 15/17 trigger cases clean, no false triggers; `pre-mortem` auto-delegation dropped to 2/6 runs (was 3/3) as the agent catalog grew. Mitigation: explicit `/agent-skills:premortem` and a "before executing a plan → pre-mortem" row in the owner's CLAUDE.md offload table.
+
+## Review 2026-10-30
+
+`implementer` goes from `maxTurns: 40` to 60, because the owner sees its runs end half done, and the soft stop added earlier today (~32 rounds, ADR 0007 Review 2026-10-30) left less room than the old cap alone. Its prompt now has a conditional checkpoint at ~24 rounds (stop with `BLOCKED — checkpoint` only when less than half of the acceptance criteria is met or the brief no longer fits the code) and the soft stop at ~48 rounds. A subagent cannot report to the main conversation mid-run, so every checkpoint ends the run: reporting at every checkpoint would cost the main conversation a turn per run, while the conditional one costs it only when the task is off track or too large. Measured: `offload-implementer-with-policy`, Opus main, 2 runs: delegated, brief complete and implemented 2/2, about $0.54. Revisit if runs still end with `BLOCKED — turn budget`: the task is then too large for one brief, not the cap too low.
