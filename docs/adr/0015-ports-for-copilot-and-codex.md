@@ -40,7 +40,7 @@ Claude Code reads only `.claude-plugin/marketplace.json`, the plugins its entrie
 
 - Generated copies duplicate the skills in the repo; `--check` keeps them in step.
 - Copilot and Codex behavior is unmeasured: no eval tool, and the descriptions were tuned on Claude.
-- In Codex, read-only and tool limits are rules, not enforcement (except `shell_tool`); `omitClaudeMd` has no equivalent.
+- In Codex, read-only and tool limits are rules, not enforcement: its only per-role switch, `shell_tool = false`, would also remove file reads, so no current agent gets it. `omitClaudeMd` has no equivalent.
 - Model names in `MODEL_MAP` age; update them with each tool's model list.
 
 ## Revisit if

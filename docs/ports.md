@@ -44,7 +44,7 @@ Then add [`user-config/offload-policy.codex.md`](../user-config/offload-policy.c
 | Command `/agent-skills:<cmd>` | Skill `/<cmd>`, user-only (`disable-model-invocation`) | Skill `agent-skills:<cmd>`, implicit invocation off (`agents/openai.yaml`) |
 | Agent | `.agent.md`: same text, same Claude model and effort, tool allowlist | Role file: same text, nearest GPT model, same effort |
 | `skills:` preload | Skill text appended to the agent | Same |
-| `tools` / `disallowedTools` | Enforced by `tools` | Stated as rules; only "no shell" is enforced (`shell_tool = false`) |
+| `tools` / `disallowedTools` | Enforced by `tools` | Stated as rules. `shell_tool = false` would enforce "no shell", but Codex also reads files through its shell, so it applies only to an agent without Bash, Read, Grep and Glob (none today) |
 | `omitClaudeMd` | `include-custom-instructions` | No equivalent |
 | `maxTurns` | Stated as a rule | Stated as a rule |
 | Mods, evals | — | — |
