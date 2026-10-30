@@ -92,6 +92,8 @@ Copy and tick:
 - [ ] 7 After implementation: verify with `ui-verifier` and ux_audit.py; fix; at most 3 rounds, then report what remains
 ```
 
+One small component or copy change: steps 4–7 only.
+
 Step 6 turns criteria into executable checks:
 
 | Criterion | Playwright check |

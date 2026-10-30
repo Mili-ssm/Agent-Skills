@@ -12,7 +12,7 @@ A briefing turns "how should we build X?" into a decided, evidenced plan. It run
 Copy and tick:
 
 ```
-- [ ] 1 Frame: goal, success criteria, constraints (Superpowers brainstorming if installed; else intent-elicitation in feature mode)
+- [ ] 1 Frame: goal, success criteria, constraints (Superpowers brainstorming if installed, else intent-elicitation in feature mode); then return to step 2, because writing-plans waits for step 5
 - [ ] 2 Gather evidence in parallel (one message, several subagents)
 - [ ] 3 Synthesize: options matrix
 - [ ] 4 Decide with the owner; record an ADR if significant

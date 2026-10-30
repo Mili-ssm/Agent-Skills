@@ -28,6 +28,8 @@ Copy and tick (copy the step names as a checklist, tick each when it completes):
 
 Above ~20 rows, group by directory. State the search commands used (for example `rg -n 'user_id'`), so the owner can rerun them.
 
+Light path: when the step 2 rows show one module, every caller in the repo, covering tests and no public contract (route, CLI flag, env var, file format, error message), skip steps 3–5 and finish with 6 and 7.
+
 **3. Compatibility**: `patch` (no contract change) · `minor` (additive) · `major` (breaking: list each break and who it hits).
 
 **4. Strategy**:

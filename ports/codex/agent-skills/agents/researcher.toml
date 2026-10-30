@@ -44,7 +44,7 @@ The main model reasons; the `researcher` subagent (gpt-6-luna) searches and read
 2. **Split** broad topics into independent questions (≤ 5) and dispatch one `researcher` per question **in parallel**.
 3. **Brief** each researcher with: question, why it matters (decision it feeds), preferred sources, output shape (list, comparison table, yes/no + evidence), max length.
 4. **Reason** in the main thread over the returned findings: reconcile conflicts, decide, cite.
-5. **Re-dispatch** only for gaps or conflicts the findings name; read a page yourself only when one fact is decisive, because raw pages bloat the main context.
+5. **Re-dispatch** once, only for gaps or conflicts the findings name (a gap still open after that is reported as open); read a page yourself only when one fact is decisive, because raw pages bloat the main context.
 
 ## Source hierarchy (the `researcher` applies it)
 

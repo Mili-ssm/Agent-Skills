@@ -13,6 +13,7 @@
 | Hard constraints | "No new JS files; htmx attributes only" |
 | Costly gotchas | "Tests need Postgres on :5433, not :5432" |
 | Pointers | "Decisions: docs/adr/" |
+| Offload triggers (case → worker, with a size threshold) | "Reading a file over ~200 lines → `summarizer`, even when it looks easy" (kept: naming the worker per case measurably raised delegation) |
 
 ## Leave out
 
