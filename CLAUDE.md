@@ -9,7 +9,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, three UI mods and generated C
 | Before every commit (no CI or git hook enforces it, N5) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
 | After changing agents, skills, commands or `user-config/offload-policy.md` | `python3 scripts/port.py` (`--report` prints the mapping) |
 | After changing a mod | `claude plugin validate plugins/<mod>`, `claude plugin test plugins/<mod>`; type-check with `tsc -p plugins/<mod>` after one `claude --plugin-dir plugins/<mod>` |
-| Measuring a description or prompt change | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<glob>'` (cases from § Eval protocol); offload cases add `--scaffold --allow-tools Bash Edit Write` and a sandbox |
+| Measuring a description or prompt change | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<glob>'` (cases from § Eval protocol; one glob per invocation, `{a,b}` is not supported); offload cases add `--scaffold --allow-tools Bash Edit Write` and a sandbox |
 
 ## Generated files: never edit by hand
 
