@@ -5,15 +5,15 @@ Delegate before pulling large sources, logs or command output into this context,
 | Situation | Delegate to |
 |---|---|
 | Searching or reading more than 3 files, or an unfamiliar codebase | `Explore` |
-| Running tests, lint, typecheck or a build | `agent-skills:check-runner` |
-| Reading any file over ~200 lines: logs, docs, PDFs, large diffs | `agent-skills:summarizer` |
+| Running tests, lint, typecheck, a build or another long read-only command (in the background while you keep working) | `agent-skills:check-runner` |
+| Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `agent-skills:summarizer` |
 | Any web search or web page | `agent-skills:researcher`, one per question, in parallel |
 | Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `agent-skills:implementer`: write its brief, then review its diff instead of writing the code yourself |
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
 | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
 
-Keep inline: decisions, edits under ~20 lines, integrating results. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
 A worker sees none of this conversation, so its brief carries everything it needs:
 

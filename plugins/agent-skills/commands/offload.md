@@ -13,13 +13,14 @@ Pick the worker by the task and send it a self-contained brief with the row's fi
 | Task | Worker | Brief fields |
 |---|---|---|
 | Search or read more than 3 files, or an unfamiliar codebase | `Explore` | question, paths, thoroughness, max length |
-| Run tests, lint, typecheck or a build | `agent-skills:check-runner` | commands (or "detect"), scope, max failure rows |
-| Read a file over ~200 lines: log, document, PDF, large diff | `agent-skills:summarizer` | path, question, max words |
+| Run tests, lint, typecheck, a build or another long read-only command | `agent-skills:check-runner` | commands (or "detect"), scope, result wanted (failures, numbers or last lines verbatim), max rows |
+| Read a file over ~200 lines (log, document, PDF, large diff, source), map it or pull one part out | `agent-skills:summarizer` | path, mode (`answer` + question, `outline`, `extract` + what), max length |
 | Web research | `agent-skills:researcher` | one question, the decision it feeds, preferred sources, max words |
 | A bounded implementation task with clear acceptance | `agent-skills:implementer` | task, owned files, checks, acceptance criteria, constraints |
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` | checks, files in scope, behavior that must not change |
 | Verify a changed web UI in a browser | `agent-skills:ui-verifier` | URL or start command, flows with acceptance criteria, viewports |
 
+- Long runs go in the background, so this conversation keeps working until the result arrives.
 - Independent tasks (for example one researcher per question) run in parallel in one message; dependent steps run in order, for example implementer, then check-runner, then fixer.
 - No row fits: do the task inline and say why.
 - The design is still open (two valid approaches, an unsettled contract): settle it with the owner first; a worker would pick one silently.

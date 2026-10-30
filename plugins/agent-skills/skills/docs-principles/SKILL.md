@@ -1,6 +1,6 @@
 ---
 name: docs-principles
-description: Checklists for accurate, dense repository documentation and LLM-facing files - Diátaxis, density checklist, CLAUDE.md/AGENTS.md rules and Anthropic skill and subagent authoring guidance. Use when writing, tightening, reviewing or updating a README, docs, ADRs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts, including requests like "make this shorter" or "this feels bloated" (not for general prose such as emails; the skill-authoring process belongs to Superpowers writing-skills); load it before editing so cuts follow the density checklist and keep rationale and gotchas.
+description: Checklists for accurate, dense repository documentation - Diátaxis, a density checklist and a compression workflow with before/after metrics. Use when writing, tightening, reviewing or updating a README, docs, ADRs, docstrings or a CLAUDE.md/AGENTS.md, including requests like "make this shorter", "tighten this section" or "this feels bloated" (not for general prose such as emails; how wording steers an LLM - prompts, skills, agents - belongs to `prompt-engineering`); load it before editing so cuts follow the density checklist and keep rationale and gotchas.
 ---
 
 # Documentation Principles
@@ -14,8 +14,7 @@ description: Checklists for accurate, dense repository documentation and LLM-fac
 | Why > what | Code shows what; docs keep intent, constraints, trade-offs |
 | Single source of truth | State a fact once and link to it; copies drift |
 | Diátaxis | Tutorial, how-to, reference and explanation stay separate |
-| Minimal context files | CLAUDE.md/AGENTS.md hold only what agents cannot discover |
-| LLM-aligned prompts | Skills, agents and prompts follow Anthropic authoring guidance |
+| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior |
 
 ## References
 
@@ -23,8 +22,6 @@ description: Checklists for accurate, dense repository documentation and LLM-fac
 |---|---|
 | Cutting or tightening any text (workflow step 4) | [density-checklist.md](references/density-checklist.md) |
 | Sorting sections by reader need or splitting a mixed section (step 2) | [diataxis.md](references/diataxis.md) |
-| Writing or auditing CLAUDE.md or AGENTS.md | [agent-context-files.md](references/agent-context-files.md) |
-| Writing or reviewing a skill, agent prompt or description (wording, examples, evals) | [prompt-authoring.md](references/prompt-authoring.md) |
 
 ## Writing rules
 

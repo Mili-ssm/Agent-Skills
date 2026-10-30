@@ -8,7 +8,7 @@ Baseline trigger evals (`claude plugin eval`, 13 cases × 2 runs, Sonnet) fired 
 
 ## Decision
 
-- Follow Anthropic's skill-authoring and prompting guidance, digested in `skills/docs-principles/references/prompt-authoring.md`; `scripts/validate.py` enforces the checkable parts (what + when, third person, ≤ 1024 chars, name format, `## Contents` above 100 lines).
+- Follow Anthropic's skill-authoring and prompting guidance, digested in `skills/docs-principles/references/prompt-authoring.md` (moved to the `prompt-engineering` skill, ADR 0014); `scripts/validate.py` enforces the checkable parts (what + when, third person, ≤ 1024 chars, name format, `## Contents` above 100 lines).
 - Agents reference their skill's workflow and keep only role, modes, agent-specific additions, rules and output; no copied processes.
 - Rules are positive with a reason; one canonical `<example>` per agent output.
 - Vocabulary: "quality attribute" in full; "owner" for the human decision-maker; "subagent" for the mechanism; "findings" for defects, "risks" for pre-mortem/change-impact; "churn hotspot" vs. "profile hotspot"; ratings `low | medium | high` unless a domain scale is declared (Nielsen 0–4, security critical…info, architecture critical…note).
