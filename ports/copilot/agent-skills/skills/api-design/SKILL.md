@@ -1,6 +1,6 @@
 ---
 name: api-design
-description: HTTP contract rules for JSON and hypermedia endpoints - status-code choices, idempotency keys, RFC 9457 errors, pagination, caching, concurrency control, versioning and compatibility (Hyrum's law). Use when designing, reviewing or changing an API, endpoint, route, webhook or response format, including retry behavior and error formats.
+description: HTTP contract rules for JSON and hypermedia endpoints - status-code choices, idempotency keys, RFC 9457 errors, pagination, caching, concurrency control, versioning and compatibility (Hyrum's law). Use when designing, reviewing or changing an API, endpoint, route, webhook or response format, including retry behavior and error formats; load it before designing or changing an endpoint so status codes, headers and compatibility calls follow its rules. Debugging a failing endpoint belongs to Superpowers systematic-debugging.
 ---
 
 # API Design
