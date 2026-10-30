@@ -1,0 +1,12 @@
+{
+  "name": "mili-ssm",
+  "plugins": [
+    {
+      "name": "agent-skills",
+      "source": {
+        "source": "local",
+        "path": "./ports/codex/agent-skills"
+      }
+    }
+  ]
+}

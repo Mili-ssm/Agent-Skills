@@ -44,6 +44,10 @@ Then add the offload table to `~/.claude/CLAUDE.md`: copy it from [`user-config/
 
 The cloud script can write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
 
+## Other tools (Copilot, Codex)
+
+`agent-skills` also installs in GitHub Copilot CLI and OpenAI Codex from generated copies under `ports/`; the mods stay Claude-only. Install steps, what maps to what and the limits: [docs/ports.md](docs/ports.md) (ADR 0015).
+
 ## Update
 
 No pinned version (ADR 0006): every commit on the default branch is a new version.
@@ -140,13 +144,14 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 
 - Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
 - Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/` and the files you copy into user scope (`user-agents/`, `user-config/`).
-- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012) · worker brief contract (0013) · prompt engineering and cheap navigation (0014).
+- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012) · worker brief contract (0013) · prompt engineering and cheap navigation (0014) · generated ports for Copilot and Codex (0015).
 
 ## Develop
 
 | Step | Command |
 |---|---|
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
+| Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |
 | Measure triggering (before/after any description or prompt change) | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4` |
 | Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |

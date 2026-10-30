@@ -1,0 +1,16 @@
+{
+  "name": "mili-ssm",
+  "owner": {
+    "name": "mili-ssm"
+  },
+  "metadata": {
+    "description": "agent-skills for GitHub Copilot CLI: specialist skills and agents generated from the Claude Code plugin (scripts/port.py)."
+  },
+  "plugins": [
+    {
+      "name": "agent-skills",
+      "source": "ports/copilot/agent-skills",
+      "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright."
+    }
+  ]
+}
