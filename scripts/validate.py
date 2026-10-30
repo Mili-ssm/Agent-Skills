@@ -14,6 +14,7 @@ Checks (each is a small function whose docstring names the requirement it enforc
     non-worker agent has a command that names it.
   - evals: grader patterns name existing skills/agents; no-trigger graders name all of them; offload
     `*-with-policy` cases embed user-config/offload-policy.md verbatim.
+  - ports: `scripts/port.py --check` finds the Copilot and Codex copies under ports/ current and equivalent (ADR 0015).
 
 Standard library only so it runs in any fresh environment: `python3 scripts/validate.py`.
 Exit code 0 = valid, 1 = at least one error (errors are printed one per line).
@@ -22,6 +23,7 @@ Exit code 0 = valid, 1 = at least one error (errors are printed one per line).
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -442,6 +444,16 @@ def check_offload_policy(errors: list[str]) -> None:
             )
 
 
+def check_ports(errors: list[str]) -> None:
+    """ADR 0015: the Copilot and Codex ports are current and equivalent to the Claude sources (scripts/port.py --check)."""
+    run = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "port.py"), "--check"], capture_output=True, text=True, check=False
+    )
+    if run.returncode != 0:
+        lines = run.stdout.splitlines() or run.stderr.strip().splitlines()[-1:]
+        errors.extend(line for line in lines if line.strip())
+
+
 def main() -> int:
     errors: list[str] = []
     skills = check_skills(errors)
@@ -449,6 +461,7 @@ def main() -> int:
     check_commands(errors, skills, agents)
     check_eval_graders(errors, skills, agents)
     check_offload_policy(errors)
+    check_ports(errors)
     for err in errors:
         print(err)
     print(f"{'FAIL' if errors else 'OK'}: {len(skills)} skills, {len(agents)} agents, {len(errors)} errors")

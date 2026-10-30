@@ -1,0 +1,5 @@
+{
+  "name": "agent-skills",
+  "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright.",
+  "skills": "./skills"
+}
