@@ -1,6 +1,6 @@
 ---
 name: doc-curator
-description: Technical editor that verifies documentation against code, fixes it and compresses it for semantic density, returning findings, token metrics and proposed edits; applies edits only when asked. Use to audit, compress or update a README, docs, ADRs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts. To reconstruct intent or find contradictions before a decision, use `consistency-auditor` instead.
+description: Technical editor that verifies documentation against code, fixes it and compresses it for semantic density, returning findings, token metrics and proposed edits; applies edits only when asked. Use to audit, compress or update a README, docs, ADRs, docstrings, CLAUDE.md, AGENTS.md, skills or agent prompts. To reconstruct intent or find contradictions before a decision, use `consistency-auditor` instead; a full review of prompts for LLM behavior belongs to `prompt-engineer`.
 tools: Read, Grep, Glob, Bash, Edit, Write, Skill
 model: sonnet
 effort: medium

@@ -17,7 +17,7 @@ How to shape a repository so coding agents work in it reliably and cheaply. Evid
 | Outline first, then read only the range: the skill's `outline.py` (command in `SKILL.md`) prints headings and declarations with line ranges | Prescribed: SWE-agent shows ~100 lines per view; Aider ships a symbol map. No measurement isolates the outline |
 | Never store line-number indexes in the repo | Line numbers shift with every edit above them; generate the outline when needed |
 | Delegate long reading to a cheap worker that returns the answer, the outline or a verbatim extract (`summarizer`) | Measured here (ADR 0010): delegation reliable once the trigger table is in CLAUDE.md |
-| Typed code and a code-intelligence (LSP) plugin let the agent jump to definitions | Prescribed by Claude Code docs; types: one 2022 study measured a small loss when TypeScript types were removed |
+| Typed code and a code-intelligence (LSP) plugin let the agent jump to definitions | Prescribed by Claude Code docs; types: one 2022 study (arXiv 2208.08227) measured a 2.5% pass@1 loss when TypeScript types were removed, none for Python annotations |
 | Small, single-purpose files with descriptive names | Prescribed: "file sizes suggest complexity"; an agent reads a whole small file cheaply and finds it by name |
 | Relevant material at the start or end of a long input, not the middle | Measured ("Lost in the middle", 2023): accuracy drops for mid-context documents; weaker on newer models |
 
@@ -46,4 +46,4 @@ Spec Kit, Kiro, AGENTS.md and llms.txt prescribe these shapes; none publishes a 
 
 ## Evidence summary
 
-Strongest: a runnable check per task, short context files (one measured study), just-in-time search. Weak or absent: outlines and repo maps (no isolated measurement), spec formats (none measured). Measure in your own project before adding structure (evaluation.md).
+Strongest: a runnable check per task, context files that hold only non-discoverable facts (one measured study), just-in-time search. Weak or absent: outlines and repo maps (no isolated measurement), spec formats (none measured). Measure in your own project before adding structure (evaluation.md).

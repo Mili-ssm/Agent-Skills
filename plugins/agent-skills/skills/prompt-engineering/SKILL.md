@@ -1,6 +1,6 @@
 ---
 name: prompt-engineering
-description: Measured rules and workflows for writing text that LLMs read or act on - prompts and system prompts, skills, subagent and command definitions, worker briefs, tool and MCP descriptions, CLAUDE.md/AGENTS.md, specs and plans - and for shaping projects run mostly by coding agents, including cheap navigation of long files by outline and line range. Use when writing, improving or reviewing such text, when asking how to phrase an instruction so Claude follows it, why an agent ignores a rule, overtriggers, over-engineers or stops early, which model or effort a worker needs, or how to make a repository easier for agents; load it before answering so advice cites current Anthropic guidance and measured results instead of memory.
+description: Rules, labeled measured or prescribed, and workflows for writing text that LLMs read or act on - prompts and system prompts, skills, subagent and command definitions, worker briefs, tool and MCP descriptions, CLAUDE.md/AGENTS.md - and for shaping projects run mostly by coding agents, including cheap navigation of long files by outline and line range. Use when writing, improving or reviewing such text, when asking how to phrase an instruction so Claude follows it, why an agent ignores a rule, overtriggers, over-engineers or stops early, which model or effort a worker needs, or how to make a repository easier for agents; load it before answering so advice cites current Anthropic guidance and measured results instead of memory.
 ---
 
 # Prompt engineering
@@ -19,7 +19,7 @@ description: Measured rules and workflows for writing text that LLMs read or act
 | Structuring a repo, specs, plans and docs for agent-run projects; navigating long files | [llm-native-projects.md](references/llm-native-projects.md) |
 | Measuring a prompt change (`claude plugin eval`) | [evaluation.md](references/evaluation.md) |
 
-Cutting prose for density belongs to `docs-principles`; the authoring *process* for skills (TDD for skills) to Superpowers `writing-skills`.
+Density cuts follow the `docs-principles` checklist; on LLM-facing text, keep every line that changes behavior (context-files.md audit questions). The authoring *process* for skills (TDD for skills) belongs to Superpowers `writing-skills`.
 
 ## Writing or improving
 
@@ -59,7 +59,7 @@ When no eval is feasible, say the change is unmeasured and name the cheapest che
 ## Review output
 
 ```markdown
-| File:line | Rule (reference) | Issue | Rewrite | Measured? |
+| File:line | Rule (reference · measured/prescribed) | Issue | Rewrite | Check |
 Unmeasured changes: <list> → cheapest check
 ```
 
@@ -69,4 +69,4 @@ Unmeasured changes: <list> → cheapest check
 python3 ${CLAUDE_SKILL_DIR}/scripts/outline.py PATH [PATH...] [--depth N] [--max-entries N]
 ```
 
-It prints each file's headings and declarations with line ranges, for zero model tokens; then read only the range you need (Read with offset and limit). Generate it when needed and never store it, because line numbers go stale with every edit. For logs and other material without structure, dispatch `summarizer` instead.
+It prints each file's headings and declarations with line ranges, computed by a script, not a model; then read only the range you need (Read with offset and limit). Generate it when needed and never store it, because line numbers go stale with every edit. For logs and other material without structure, dispatch `summarizer` instead.

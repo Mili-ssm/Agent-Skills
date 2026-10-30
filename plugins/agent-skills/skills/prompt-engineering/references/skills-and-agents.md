@@ -26,15 +26,15 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices* (pla
 
 | Item | Rule |
 |---|---|
-| `description` | Delegation trigger: specific, action-oriented "Use to/when …". "Use proactively" raises auto-delegation; add it only where unprompted use is wanted. All descriptions together stay small (Claude Code warns above ~15,000 tokens) |
+| `description` | Delegation trigger: specific, action-oriented "Use to/when …". "Use proactively" raises auto-delegation; here only the cheap workers carry it (ADR 0010). All descriptions together stay small (Claude Code docs warn above ~15,000 tokens) |
 | Tools | Minimum set; enforce read-only with `disallowedTools: Edit, Write, NotebookEdit`, not prompt text; tell Bash users which commands keep files unchanged |
 | Context | `omitClaudeMd: true` for workers: they see only their prompt and the brief, so restate any rule they need |
 | Output | A condensed report with a format and a length bound; raw tool output stays inside |
 | Delegation scope | Parallel, isolated or independent work; direct tools for simple lookups (models over-delegate) |
-| Offload triggers | Measured here (ADR 0010, 0012): descriptions alone moved delegation little; a short trigger table in the main conversation's CLAUDE.md made it reliable; "even when it looks easy" was needed for Opus to delegate code |
+| Offload triggers | Measured here (ADR 0010, 0012): descriptions alone moved delegation little; a short trigger table in the main conversation's CLAUDE.md made it reliable; Opus delegated code only after its row was rewritten with a size threshold, a review step and "even when it looks easy" |
 | Interaction | Subagents cannot ask the user mid-task: interactive work runs in skills; agents return the gap instead |
 | Preload | `skills:` injects full skill content at start; keep preloads few |
-| Paths | `${CLAUDE_PLUGIN_ROOT}` is substituted in a plugin agent's body; Glob runs in the project and cannot reach plugin files |
+| Paths | `${CLAUDE_PLUGIN_ROOT}` is substituted in a plugin agent's body; Glob runs in the project and did not reach plugin files (observed here) |
 
 ## Commands
 

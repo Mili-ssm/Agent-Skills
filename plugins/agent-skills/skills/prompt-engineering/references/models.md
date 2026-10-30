@@ -9,7 +9,7 @@ As of 2026-10. Model behavior changes with each release: date every claim and re
 | Default `effort` is `medium`; `low` skips searches and stops early. Measured by Anthropic: low → medium roughly halved early stops and more than doubled output tokens | Use `low` for bounded reading and checks with a clear end; use `medium` where finishing matters more than tokens (search, multi-step work) |
 | Needs explicit completion criteria and more guidance than larger models | State "done means …" and the output format with an example |
 | Searches better when given today's date and told its training data ends; a blanket "always search" made it search on half of the prompts that needed none (measured by Anthropic) | Give the date and when to search, not an order to always search |
-| User-supplied text must not be placed inside a `tool_result` | Keep inputs in the user turn |
+| User-supplied text must not be placed inside a `tool_result` (Anthropic, Haiku 5.5 page) | Keep inputs in the user turn |
 
 ## Sonnet (implementation, fixes, reviews)
 
@@ -21,7 +21,7 @@ As of 2026-10. Model behavior changes with each release: date every claim and re
 |---|---|
 | Proactive: tends to over-engineer and to act where it was asked to suggest | Add a scope guard; use the verb that matches the wanted action |
 | Needs less explanation than Haiku | Cut steps it would take anyway; keep reasons and limits |
-| Measured here (ADR 0012): delegated code to a worker only with "even when it looks easy" in its trigger row | Name the case where the model's own judgment says "inline" |
+| Measured here (ADR 0012): delegated code 0/3 → 3/3 when its trigger row was rewritten (a ~20-line threshold, a review step, "even when it looks easy"); the phrase alone was not isolated | Name the case where the model's own judgment says "inline" |
 
 ## Every model
 

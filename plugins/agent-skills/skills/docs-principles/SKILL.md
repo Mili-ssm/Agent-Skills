@@ -1,6 +1,6 @@
 ---
 name: docs-principles
-description: Checklists for accurate, dense repository documentation - Diátaxis, a density checklist and a compression workflow with before/after metrics. Use when writing, tightening, reviewing or updating a README, docs, ADRs, docstrings or other repository text, including requests like "make this shorter" or "this feels bloated" (not for general prose such as emails; wording that steers an LLM - prompts, skills, agents, CLAUDE.md - belongs to `prompt-engineering`); load it before editing so cuts follow the density checklist and keep rationale and gotchas.
+description: Checklists for accurate, dense repository documentation - Diátaxis, a density checklist and a compression workflow with before/after metrics. Use when writing, tightening, reviewing or updating a README, docs, ADRs, docstrings or a CLAUDE.md/AGENTS.md, including requests like "make this shorter", "tighten this section" or "this feels bloated" (not for general prose such as emails; how wording steers an LLM - prompts, skills, agents - belongs to `prompt-engineering`); load it before editing so cuts follow the density checklist and keep rationale and gotchas.
 ---
 
 # Documentation Principles
@@ -14,7 +14,7 @@ description: Checklists for accurate, dense repository documentation - Diátaxis
 | Why > what | Code shows what; docs keep intent, constraints, trade-offs |
 | Single source of truth | State a fact once and link to it; copies drift |
 | Diátaxis | Tutorial, how-to, reference and explanation stay separate |
-| LLM-facing text | Prompts, skills, agents and CLAUDE.md/AGENTS.md follow `prompt-engineering` |
+| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior |
 
 ## References
 
