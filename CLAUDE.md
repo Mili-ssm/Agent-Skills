@@ -19,7 +19,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, three UI mods and generated C
 
 | Change | Edit | Also update |
 |---|---|---|
-| Skill, agent or command | `plugins/agent-skills/{skills,agents,commands}/` | `port.py`; the README catalog row; the eval case when a description changes |
+| Skill, agent or command | `plugins/agent-skills/{skills,agents,commands}/` | `port.py`; the README catalog row (validate.py checks names, model and preloads); the eval case when a description changes |
 | Offload table | `user-config/offload-policy.md` (single copy) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
 | UI mod | `plugins/<mod>/` and its README | `docs/mods-surfaces.md` for anything a surface did unexpectedly |
 | Requirement | `docs/requirements.md` (keep IDs stable: `validate.py` cites them) | a flipped requirement needs an ADR |

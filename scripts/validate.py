@@ -14,6 +14,8 @@ Checks (each is a small function whose docstring names the requirement it enforc
     non-worker agent has a command that names it.
   - evals: grader patterns name existing skills/agents; no-trigger graders name all of them; offload
     `*-with-policy` cases embed user-config/offload-policy.md verbatim.
+  - readme: the `## Catalog` tables in README.md list exactly the plugin's agents (with model and preloads), skills
+    and commands.
   - ports: `scripts/port.py --check` finds the Copilot and Codex copies under ports/ current and equivalent (ADR 0015).
 
 Standard library only so it runs in any fresh environment: `python3 scripts/validate.py`.
@@ -454,6 +456,72 @@ def check_ports(errors: list[str]) -> None:
         errors.extend(line for line in lines if line.strip())
 
 
+def readme_table(text: str, heading: str, first_header: str) -> list[dict[str, str]] | None:
+    """Rows, keyed by column header, of the first table under the `###` heading in `## Catalog`."""
+    catalog = re.search(r"^## Catalog\s*$(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL)
+    section = re.search(rf"^### {heading}\b.*?$(.*?)(?=^###? |\Z)", catalog.group(1) if catalog else "", re.MULTILINE | re.DOTALL)
+    if not section:
+        return None
+    rows = [
+        [cell.strip() for cell in re.split(r"(?<!\\)\|", line.strip())[1:-1]]
+        for line in section.group(1).splitlines()
+        if line.startswith("|")
+    ]
+    if len(rows) < 2 or rows[0][0] != first_header:
+        return None
+    return [dict(zip(rows[0], row)) for row in rows[2:]]
+
+
+def backticked(cell: str, pattern: str = r"`([^`]+)`") -> str | None:
+    """The name a catalog cell starts with: the first backticked text, or the given pattern's group."""
+    match = re.search(pattern, cell)
+    return match.group(1) if match else None
+
+
+def compare_names(table: str, listed: list[str], actual: set[str], errors: list[str]) -> None:
+    """Report README rows without a plugin item (extra) and plugin items without a row (missing)."""
+    for name in sorted(set(listed) - actual):
+        errors.append(f"README.md: {table} table has extra row '{name}' (no such item in the plugin)")
+    for name in sorted(actual - set(listed)):
+        errors.append(f"README.md: {table} table is missing a row for '{name}'")
+
+
+def check_readme_catalog(errors: list[str]) -> None:
+    """README catalog, CLAUDE.md § Where a change goes: README `## Catalog` tables match the plugin.
+
+    Agents: names, `Model` and `Preloads`; Skills and Commands: names. Prose columns stay unchecked.
+    """
+    text = (ROOT / "README.md").read_text(encoding="utf-8")
+    tables = {
+        "Agents": readme_table(text, "Agents", "Agent"),
+        "Skills": readme_table(text, "Skills", "Skill"),
+        "Commands": readme_table(text, "Commands", "Command"),
+    }
+    for table, rows in tables.items():
+        if rows is None:
+            errors.append(f"README.md: no '### {table}' table under '## Catalog' with the expected first column")
+    if tables["Agents"] is not None:
+        agents = {p.stem: p for p in PLUGIN.glob("agents/*.md")}
+        rows = {backticked(row["Agent"]): row for row in tables["Agents"]}
+        compare_names("Agents", [n for n in rows if n], set(agents), errors)
+        for name, row in rows.items():
+            if name not in agents:
+                continue
+            fm = parse_frontmatter(agents[name].read_text(encoding="utf-8"))
+            model, wanted = row.get("Model"), set(as_list(fm.get("skills")))
+            preloads = {v.strip() for v in row.get("Preloads", "").split(",") if v.strip() not in ("", "—")}
+            if model != fm.get("model"):
+                errors.append(f"README.md: Agents table: '{name}' has model '{model}', frontmatter says '{fm.get('model')}'")
+            if preloads != wanted:
+                errors.append(f"README.md: Agents table: '{name}' preloads {sorted(preloads)}, frontmatter says {sorted(wanted)}")
+    if tables["Skills"] is not None:
+        listed = [backticked(row["Skill"]) for row in tables["Skills"]]
+        compare_names("Skills", [n for n in listed if n], {p.parent.name for p in PLUGIN.glob("skills/*/SKILL.md")}, errors)
+    if tables["Commands"] is not None:
+        listed = [backticked(row["Command"], r"agent-skills:([^\s`]+)") for row in tables["Commands"]]
+        compare_names("Commands", [n for n in listed if n], {p.stem for p in PLUGIN.glob("commands/*.md")}, errors)
+
+
 def main() -> int:
     errors: list[str] = []
     skills = check_skills(errors)
@@ -461,6 +529,7 @@ def main() -> int:
     check_commands(errors, skills, agents)
     check_eval_graders(errors, skills, agents)
     check_offload_policy(errors)
+    check_readme_catalog(errors)
     check_ports(errors)
     for err in errors:
         print(err)
