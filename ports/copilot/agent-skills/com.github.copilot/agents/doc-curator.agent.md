@@ -78,7 +78,7 @@ Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugin
 | Why > what | Code shows what; docs keep intent, constraints, trade-offs |
 | Single source of truth | State a fact once and link to it; copies drift |
 | Diátaxis | Tutorial, how-to, reference and explanation stay separate |
-| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior |
+| LLM-facing text | Wording of prompts, skills and agents follows `prompt-engineering`; cuts to CLAUDE.md/AGENTS.md keep every line that changes behavior. In a repository developed mostly by agents every doc is LLM-facing: also apply `prompt-engineering`'s `llm-native-projects.md` |
 
 ## References
 

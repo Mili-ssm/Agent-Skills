@@ -43,6 +43,8 @@ Spec Kit, Kiro, AGENTS.md and llms.txt prescribe these shapes; none publishes a 
 - CLAUDE.md / AGENTS.md: minimal, only what the agent cannot discover (context-files.md); Claude Code advises under ~200 lines.
 - Docs answer one reader need per section (Diátaxis) and state the why; facts live in one place and are linked.
 - One term per concept across code, docs and prompts: agents treat synonyms as different things.
+- Headings that name their content and the conclusion first in each section, because agents locate text by grep and outline and read ranges, not whole files (prescribed).
+- Greppable state: a fixed status line per record (for example `Status:` on line 3 of each ADR, with its `Supersedes` / `Amends` links) and stable requirement IDs, so one search returns the current state instead of reading every record (prescribed).
 
 ## Evidence summary
 
