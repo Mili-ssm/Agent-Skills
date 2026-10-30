@@ -150,7 +150,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 |---|---|
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |
-| Measure triggering (before/after any description or prompt change) | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4` |
+| Measure a description or prompt change before merging | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --case '<glob>'`; which cases and when to rerun: [`CLAUDE.md` § Eval protocol](CLAUDE.md#eval-protocol-adr-0007-review-2026-10-30) |
 | Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |
 
