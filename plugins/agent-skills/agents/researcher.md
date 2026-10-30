@@ -4,7 +4,7 @@ description: Cheap web researcher (Haiku) that searches and reads official docs,
 tools: WebSearch, WebFetch, Read, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku
-effort: low
+effort: medium
 maxTurns: 15
 omitClaudeMd: true
 skills:
