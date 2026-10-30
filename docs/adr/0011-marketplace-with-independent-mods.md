@@ -1,6 +1,6 @@
 # 0011 One marketplace, independent plugins: agent-skills plus opt-in mods
 
-Status: accepted · Date: 2026-10-28 · Amends 0008
+Status: accepted · Date: 2026-10-28 · Amends 0008 · Amended by 0012, 0015
 
 ## Context
 
@@ -10,7 +10,7 @@ The owner wants Claude Code mods (plugins whose hooks module changes Claude's ow
 
 - Each plugin lives in `plugins/<name>/` with its own `.claude-plugin/plugin.json`; the root keeps only the marketplace, `docs/`, `scripts/` and `user-agents/`.
 - `agent-skills` moves to `plugins/agent-skills/` (skills, agents, commands, evals); `scripts/validate.py` reads it there.
-- First mods: `agents-pane` (side pane: subagents with type, model, status, duration and a per-model tally) and `status-model` (status line: main model, running subagents, last subagent with model and outcome). Both make offloading to Haiku/Sonnet visible (ADR 0010).
+- First mods (historical: see Review 2026-10-30): `agents-pane` (side pane: subagents with type, model, status, duration and a per-model tally) and `status-model` (status line: main model, running subagents, last subagent with model and outcome). Both make offloading to Haiku/Sonnet visible (ADR 0010).
 - No `version` in any `plugin.json` (ADR 0006): each commit updates every plugin.
 - Mods are opt-in: `cloud-setup.sh` installs them only when `AGENT_SKILLS_MODS` lists them.
 - Each mod ships `claude plugin test` tests; `claude plugin validate` and `tsc` gate changes.

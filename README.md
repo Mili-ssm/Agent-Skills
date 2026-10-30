@@ -64,7 +64,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 |---|---|---|
 | Commands `/agent-skills:<name>` | You type one; they never auto-trigger | A specialist review or workflow when you decide |
 | Skills | Their description matches the task, a bonus that can stay silent; force one with its command | Methods and knowledge applied while you work |
-| Workers | The [offload policy](user-config/offload-policy.md) is in your `CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier` (plus user-scope `Explore`) |
+| Workers | The [offload policy](user-config/offload-policy.md) is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier` (plus user-scope `Explore`) |
 | Superpowers | Its own triggers | Process: brainstorming, plans, TDD, debugging, review. This plugin adds the specialist lenses |
 
 ### Agents (fresh context, return a report)
@@ -140,7 +140,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 
 ## Design
 
-- Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
+- Maintainer notes for agents (commands, generated files, ADR rules): [`CLAUDE.md`](CLAUDE.md) · Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
 - Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/`, the files you copy into user scope (`user-agents/`, `user-config/`) and the generated ports (`ports/`, ADR 0015).
 - ADRs are cited by number; 0008 supersedes 0005.
 
@@ -154,7 +154,9 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 | Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |
 
-Eval suites in `plugins/agent-skills/evals/`:
+### Eval suites
+
+In `plugins/agent-skills/evals/`:
 
 - `trigger/`: one case per skill, plus `performance-analyst` and `pre-mortem`. A case passes when its skill, or the agent named in its grader, fires; `change-impact`, `intent-elicitation` and `ux-principles` accept only the skill, `performance-analyst` and `pre-mortem` only the agent.
 - `no-trigger/`: five near-misses (a live bug, an email to shorten, a small flag, a TDD green step, a "why" about an idiom). A case passes when no plugin skill or agent fires; each grader names every skill and agent.

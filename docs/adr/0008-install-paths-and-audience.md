@@ -1,6 +1,6 @@
 # 0008 Install paths and audience
 
-Status: accepted · Date: 2026-10-27 · Supersedes 0005
+Status: accepted · Date: 2026-10-27 · Supersedes 0005 · Amended by 0011
 
 ## Context
 

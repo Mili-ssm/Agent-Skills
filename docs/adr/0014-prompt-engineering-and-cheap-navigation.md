@@ -1,6 +1,6 @@
 # 0014 Prompt engineering skill and cheap navigation
 
-Status: accepted · Date: 2026-10-30
+Status: accepted · Date: 2026-10-30 · Amends 0007
 
 ## Context
 

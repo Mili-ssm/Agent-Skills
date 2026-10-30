@@ -1,6 +1,6 @@
 # 0007 Anthropic authoring conventions, measured by evals
 
-Status: accepted · Date: 2026-10-27
+Status: accepted · Date: 2026-10-27 · Amended by 0010, 0012, 0014
 
 ## Context
 

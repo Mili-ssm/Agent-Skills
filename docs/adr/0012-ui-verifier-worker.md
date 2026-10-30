@@ -1,6 +1,6 @@
 # 0012 UI verification worker, worker commands through offload
 
-Status: accepted · Date: 2026-10-29
+Status: accepted · Date: 2026-10-29 · Amends 0007, 0011
 
 ## Context
 
