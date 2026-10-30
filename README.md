@@ -72,13 +72,14 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `architect` | Assess/review/propose architecture | architecture-principles, decision-records | opus | no |
 | `qa-engineer` | Test strategy, gaps, case design, flaky tests, mutation | qa-principles | sonnet | when asked |
 | `ux-reviewer` | Usability + accessibility audit with screenshots/axe | ux-principles | sonnet | no |
-| `doc-curator` | Verify and compress docs and prompts | docs-principles, decision-records | sonnet | when asked |
+| `doc-curator` | Verify and compress docs and prompts | docs-principles, decision-records, prompt-engineering | sonnet | when asked |
+| `prompt-engineer` | Review prompts, skills, agents, tool descriptions and CLAUDE.md for LLM behavior; rewrites with the check that measures each | prompt-engineering | sonnet | no |
 | `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | sonnet | no |
 | `security-reviewer` | Source→sink review, threat model | security-principles | opus | no |
 | `pre-mortem` | Attack a plan before execution | — | opus | no |
 | `researcher` | Offloaded web research, one question, cited | web-research | haiku | no |
-| `check-runner` | Run tests/lint/typecheck/build; return failures only | — | haiku | no |
-| `summarizer` | Read long logs/docs/PDFs/diffs; answer one question | — | haiku | no |
+| `check-runner` | Run tests/lint/typecheck/build or another long read-only command; return failures, the result or the last lines verbatim | — | haiku | no |
+| `summarizer` | Read long logs/docs/PDFs/diffs/source; answer one question, outline with line ranges, or extract verbatim | — | haiku | no |
 | `implementer` | Apply one bounded plan task with acceptance | — | sonnet | yes |
 | `fixer` | Loop on mechanical lint/type/test fixes | — | sonnet | yes |
 | `ui-verifier` | Verify a changed web UI in a browser (Playwright): pass/fail per flow, desktop and mobile | — | sonnet | no |
@@ -94,7 +95,8 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `change-impact` | Workflow | Before a significant change: blast radius, migration, rollback |
 | `refactoring` | Workflow | Behavior-preserving restructuring |
 | `decision-records` | Knowledge | ADRs and staleness rubric |
-| `docs-principles` | Knowledge | Docs, CLAUDE.md, skills and prompts (incl. Anthropic authoring guidance) |
+| `docs-principles` | Knowledge | Repository docs: Diátaxis, density, compression with metrics |
+| `prompt-engineering` | Knowledge + script | Text LLMs act on (prompts, skills, agents, briefs, tools, CLAUDE.md), per-model notes, eval practice, agent-run repos; `outline.py` (file map with line ranges, zero model tokens) |
 | `architecture-principles` | Knowledge | Principles, software laws, patterns, smells, evaluation |
 | `qa-principles` | Knowledge | Test design, strategy, test quality |
 | `ux-principles` | Knowledge + script | Heuristics, laws, WCAG, visual system, `ux_audit.py` |
@@ -115,6 +117,7 @@ Every skill is also invocable as `/agent-skills:<skill>`. Specialist agents get 
 | `/agent-skills:qa-review [mode] [scope]` | `qa-engineer` |
 | `/agent-skills:security-audit [mode] [scope]` | `security-reviewer` |
 | `/agent-skills:doc-audit [audit\|apply] [paths]` | `doc-curator` |
+| `/agent-skills:prompt-review [paths] [models] [symptom]` | `prompt-engineer` |
 | `/agent-skills:consistency-audit [mode] [scope]` | `consistency-auditor` |
 | `/agent-skills:premortem [plan]` | `pre-mortem` |
 | `/agent-skills:perf-review [optimize] <target>` | `performance-analyst` |
@@ -137,7 +140,7 @@ finishing-a-branch ◄── security-reviewer / ux-reviewer / architect ◄─�
 
 - Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
 - Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/` and the files you copy into user scope (`user-agents/`, `user-config/`).
-- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012) · worker brief contract (0013).
+- ADRs: knowledge in skills, roles in agents (0001) · dense English (0002) · interactive work in skills (0003) · rubrics, not percentages (0004) · track commits (0006) · Anthropic authoring conventions + evals (0007) · install paths and audience (0008, supersedes 0005) · research offload + briefing orchestration (0009) · cheap offload workers (0010) · marketplace with independent mods (0011) · UI verification worker + workers through offload (0012) · worker brief contract (0013) · prompt engineering and cheap navigation (0014).
 
 ## Develop
 
@@ -152,4 +155,4 @@ Eval suites in `plugins/agent-skills/evals/`:
 
 - `trigger/`: one case per skill, plus `performance-analyst` and `pre-mortem`. A case passes when its skill, or the agent named in its grader, fires; `change-impact`, `intent-elicitation` and `ux-principles` accept only the skill, `performance-analyst` and `pre-mortem` only the agent.
 - `no-trigger/`: five near-misses (a live bug, an email to shorten, a small flag, a TDD green step, a "why" about an idiom). A case passes when no plugin skill or agent fires; each grader names every skill and agent.
-- `offload/`: `check-runner` and `summarizer` with and without the [offload policy](user-config/offload-policy.md), `implementer` and `ui-verifier` with it. A case passes when the worker is dispatched, its brief carries what only the conversation knew (the `implementer` case checks the decision with its reason, the off-limits file and the stop rule), the main conversation does none of the work inline, and the answer (or the file written) is right. Run it with `--scaffold --allow-tools Bash Edit Write` and a sandbox: `bubblewrap`, `socat`.
+- `offload/`: `check-runner` and `summarizer` with and without the [offload policy](user-config/offload-policy.md), `summarizer` in `extract` mode, `implementer` and `ui-verifier` with it. A case passes when the worker is dispatched, its brief carries what only the conversation knew (the `implementer` case checks the decision with its reason, the off-limits file and the stop rule), the main conversation does none of the work inline, and the answer (or the file written) is right. Run it with `--scaffold --allow-tools Bash Edit Write` and a sandbox: `bubblewrap`, `socat`.
