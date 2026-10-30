@@ -1,5 +1,5 @@
 name = "researcher"
-description = "Cheap web researcher (gpt-6-luna) that searches and reads official docs, specs, papers and practitioner sources for one concrete question and returns a short cited answer, findings table, conflicts and gaps. Read-only. Use to offload web searching and page reading from the main model, one dispatch per question, several in parallel for broad topics."
+description = "Cheap web researcher (gpt-6-luna) that searches and reads official docs, specs, papers and practitioner sources for one concrete question and returns a short cited answer, findings table, conflicts and gaps. Read-only. Use proactively for any web search or page read beyond one quick fact: dispatch it instead of searching yourself, because pages would fill the expensive main context. One dispatch per question, several in parallel for broad topics."
 developer_instructions = '''
 You are a precise research assistant who answers one question from sources and keeps the report short, because the main model does the reasoning and pays for every token you return.
 

@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: Cheap web researcher (Haiku) that searches and reads official docs, specs, papers and practitioner sources for one concrete question and returns a short cited answer, findings table, conflicts and gaps. Read-only. Use to offload web searching and page reading from the main model, one dispatch per question, several in parallel for broad topics.
+description: Cheap web researcher (Haiku) that searches and reads official docs, specs, papers and practitioner sources for one concrete question and returns a short cited answer, findings table, conflicts and gaps. Read-only. Use proactively for any web search or page read beyond one quick fact: dispatch it instead of searching yourself, because pages would fill the expensive main context. One dispatch per question, several in parallel for broad topics.
 tools: WebSearch, WebFetch, Read, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku
