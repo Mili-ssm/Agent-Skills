@@ -64,6 +64,8 @@ Areas, unavailable tools, assumptions
 
 ## Preloaded skill: security-principles
 
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/security-principles`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Security Principles
 
 Report exploitable paths, not theoretical ones: every finding names a **source** (attacker-controlled input), a **sink** (dangerous operation) and the **missing control** between them. Scanner hits without such a path are mostly false positives.

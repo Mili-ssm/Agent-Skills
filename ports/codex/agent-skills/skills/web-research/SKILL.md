@@ -1,11 +1,11 @@
 ---
 name: web-research
-description: Research protocol that offloads web searching and reading to the cheap researcher subagent (Haiku) and returns cited lists, comparisons and conclusions on concrete questions - official docs, best practices, library options, version facts. Use when a task needs current external information, official documentation or community practice from several sources, a comparison of options or a version-sensitive answer (a single quick fact can use WebSearch directly); load it before searching so reading stays out of the main context and every claim comes back sourced.
+description: Research protocol that offloads web searching and reading to the cheap researcher subagent (gpt-6-luna) and returns cited lists, comparisons and conclusions on concrete questions - official docs, best practices, library options, version facts. Use when a task needs current external information, official documentation or community practice from several sources, a comparison of options or a version-sensitive answer (a single quick fact can use WebSearch directly); load it before searching so reading stays out of the main context and every claim comes back sourced.
 ---
 
 # Web Research
 
-The main model reasons; the `researcher` subagent (Haiku) searches and reads. Raw pages never enter the main context, only distilled, cited findings.
+The main model reasons; the `researcher` subagent (gpt-6-luna) searches and reads. Raw pages never enter the main context, only distilled, cited findings.
 
 ## Dispatch workflow (main conversation)
 

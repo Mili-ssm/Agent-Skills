@@ -37,7 +37,7 @@ Follow the compression workflow in `docs-principles`. Agent-specific additions:
 - Keep the owner's style unless it breaks a density rule.
 - Keep each doc in its original language.
 - Propose one ADR per decision found in prose.
-- Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
+- Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 
 ## Output
 
@@ -64,6 +64,8 @@ Types: stale · false · duplicate · bloat · mixed-type · missing-why · unve
 </example>
 
 ## Preloaded skill: docs-principles
+
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/docs-principles`; resolve its relative links (`references/…`, `scripts/…`) there.
 
 # Documentation Principles
 
@@ -116,6 +118,8 @@ Removed facts: fact → still at / reason dropped
 ```
 
 ## Preloaded skill: decision-records
+
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/decision-records`; resolve its relative links (`references/…`, `scripts/…`) there.
 
 # Decision Records (ADR)
 
@@ -178,6 +182,8 @@ Small decisions fit a **Y-statement**: *In the context of `<situation>`, facing 
 3. **Report** one row per ADR, worst rating first, unless the task sets its own format: `| ADR | Status | Rating | Signals | Action |`, where Action is keep · add a dated Review note · supersede · deprecate.
 
 ## Preloaded skill: prompt-engineering
+
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/prompt-engineering`; resolve its relative links (`references/…`, `scripts/…`) there.
 
 # Prompt engineering
 

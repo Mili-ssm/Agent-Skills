@@ -39,7 +39,7 @@ Follow the assessment workflow in `qa-principles`. Agent-specific additions:
 - Judge suite quality by risk coverage and surviving mutants; report coverage % only beside them, because it counts lines executed, not defects caught.
 - Say whether each defect lies in product code or in the test.
 - Return conclusions and failing cases; long command output stays with you.
-- Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
+- Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 
 ## Output
 
@@ -69,6 +69,8 @@ Runner · counts per size · duration · failures/skips · flaky suspects
 </example>
 
 ## Preloaded skill: qa-principles
+
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/qa-principles`; resolve its relative links (`references/…`, `scripts/…`) there.
 
 # QA Principles
 
@@ -105,7 +107,7 @@ Testing answers "what could go wrong, and would we notice?". Complements TDD (Su
    - likelihood from churn, complexity and defect history, relative to the rest of the codebase;
    - impact: high = data, money, security or core flow; medium = secondary flow; low = cosmetic;
    - risk: high when impact is high and likelihood is not low; low when both are low; medium otherwise.
-2. **Inventory** tests per feature and size (main conversation: `Explore` maps them, `check-runner` runs them); find untested high-risk areas.
+2. **Inventory** tests per feature and size (main conversation: `explore` (built-in agent) maps them, `check-runner` runs them); find untested high-risk areas.
 3. **Design** missing cases, naming the technique; properties for logic with invariants, stateful properties for APIs with sequences.
 4. **Quality**: test smells, over-mocking, assertion-free tests, flakiness sources.
 5. **Strength**: mutation testing on high-risk modules; each surviving mutant is a missing assertion.

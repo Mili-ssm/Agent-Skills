@@ -70,6 +70,8 @@ Counts per kind; anything skipped and why
 
 ## Preloaded skill: decision-records
 
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/decision-records`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Decision Records (ADR)
 
 An ADR keeps the **why** that code cannot show: context, rejected options, accepted trade-offs.

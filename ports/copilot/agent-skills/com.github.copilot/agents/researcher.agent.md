@@ -38,6 +38,8 @@ The output contract of the preloaded `web-research` skill, including its word ca
 
 ## Preloaded skill: web-research
 
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/web-research`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Web Research
 
 The main model reasons; the `researcher` subagent (Haiku) searches and reads. Raw pages never enter the main context, only distilled, cited findings.

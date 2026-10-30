@@ -38,7 +38,7 @@ Testing answers "what could go wrong, and would we notice?". Complements TDD (Su
    - likelihood from churn, complexity and defect history, relative to the rest of the codebase;
    - impact: high = data, money, security or core flow; medium = secondary flow; low = cosmetic;
    - risk: high when impact is high and likelihood is not low; low when both are low; medium otherwise.
-2. **Inventory** tests per feature and size (main conversation: `Explore` maps them, `check-runner` runs them); find untested high-risk areas.
+2. **Inventory** tests per feature and size (main conversation: `explore` (built-in agent) maps them, `check-runner` runs them); find untested high-risk areas.
 3. **Design** missing cases, naming the technique; properties for logic with invariants, stateful properties for APIs with sequences.
 4. **Quality**: test smells, over-mocking, assertion-free tests, flakiness sources.
 5. **Strength**: mutation testing on high-risk modules; each surviving mutant is a missing assertion.

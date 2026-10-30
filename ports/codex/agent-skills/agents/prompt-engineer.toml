@@ -48,6 +48,8 @@ Keep the report ≤ 60 lines, because it lands in the main conversation's contex
 
 ## Preloaded skill: prompt-engineering
 
+Base directory for this skill: `${CODEX_HOME:-$HOME/.codex}/plugins/cache/mili-ssm/agent-skills/local/skills/prompt-engineering`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Prompt engineering
 
 **Core rule:** a model acts only on what is in its context. Write the smallest set of high-signal tokens that makes the wanted behavior likely, give the reason for each non-obvious rule, and prove the change with an eval, not by rereading it.
@@ -118,11 +120,11 @@ It prints each file's headings and declarations with line ranges, computed by a 
 
 ## Tools
 
-Use only these tools: Read, Grep, Glob, Bash, Skill. Claude Code enforces this list; Codex does not, so it is your rule.
+Use only these tools: read files, search file contents, find files by name, shell commands, use skills. Claude Code enforces this list; Codex does not, so it is your rule.
 
 ## Read-only
 
-Do not create, modify or delete files. Claude Code enforces this; Codex does not, so it is your rule.
+Leave the project's files unchanged: do not use apply_patch or any edit tool, and run only commands that do not change them (temp dirs and build caches are fine). Claude Code enforces this; Codex does not, so it is your rule.
 '''
 model = "gpt-6.1-sol"
 model_reasoning_effort = "medium"

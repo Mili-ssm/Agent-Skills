@@ -5,7 +5,7 @@ description: Plans, designs and reviews user interfaces and flows with Playwrigh
 
 # UX/UI Principles
 
-Design and review interfaces from user tasks, verify them in a real browser with Playwright, and cite the heuristic, law or WCAG criterion behind each decision or finding. Taste alone is not a reason. Explicit entry points: `/agent-skills:ux-design` (plan/design) and `/agent-skills:ux-review` (audit a running UI).
+Design and review interfaces from user tasks, verify them in a real browser with Playwright, and cite the heuristic, law or WCAG criterion behind each decision or finding. Taste alone is not a reason. Explicit entry points: `/ux-design` (plan/design) and `/ux-review` (audit a running UI).
 
 ## Index
 
@@ -19,7 +19,7 @@ Design and review interfaces from user tasks, verify them in a real browser with
 
 ## Design workflow (main conversation)
 
-Resolve the unknowns of step 1 with `AskUserQuestion`, because subagents cannot ask the owner.
+Resolve the unknowns of step 1 with your tool for asking the user questions (or a direct question in chat), because subagents cannot ask the owner.
 
 Copy and tick:
 

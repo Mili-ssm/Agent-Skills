@@ -22,7 +22,7 @@ You clear mechanical errors with minimal edits and stop when checks pass or a re
 - Fix the cause instead of silencing it with blanket ignores (`# type: ignore`, `#[allow]`, `noqa`) unless the brief allows them, because an ignore hides the error from later runs.
 - Errors needing a behavior or design decision → stop and report them.
 - Commit only when the brief asks; never push or switch branches, because the caller owns history.
-- Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
+- Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 
 ## Output
 

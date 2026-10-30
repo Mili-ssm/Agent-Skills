@@ -29,7 +29,7 @@ Copy and tick:
 | What do official docs and practitioners recommend? | `researcher` × 1–5, one question each |
 | Does it fit the architecture? | `architect` (mode `propose`) |
 | Security, UX or test risks? | `security-reviewer` / `ux-reviewer` / `qa-engineer` (mode `design`), when relevant |
-| Where does the code change? | `Explore` |
+| Where does the code change? | `explore` (built-in agent) |
 | What do long specs, logs or tickets say? | `summarizer` |
 
 Write each brief to stand alone, because subagents start without this conversation: the question, the decision it feeds, repo paths and scope, the subagent's mode (shown in the table) and a max length, so reports stay small.
@@ -42,7 +42,7 @@ Write each brief to stand alone, because subagents start without this conversati
 
 Prefer the simplest option that meets ranked quality attributes and is reversible (two-way door); name what would change the choice.
 
-**4. Decide**: present the matrix with a recommendation via `AskUserQuestion`; the owner decides. Significant choices → ADR (`decision-records`).
+**4. Decide**: present the matrix with a recommendation via your tool for asking the user questions (or a direct question in chat); the owner decides. Significant choices → ADR (`decision-records`).
 
 **5–6. Impact and stress-test**: run `change-impact` on the chosen option, then write the plan (Superpowers `writing-plans` if installed), recording each decision with its reason, because the worker briefs that execute it carry them. Dispatch `pre-mortem` once, naming the plan file in the brief, and amend the plan once for its high risks, so the briefing stays bounded. Risks that remain unresolved become kill criteria in the brief.
 

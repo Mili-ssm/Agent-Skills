@@ -46,3 +46,14 @@ Claude Code reads only `.claude-plugin/marketplace.json`, the plugins its entrie
 ## Revisit if
 
 Copilot or Codex documents path variables in skill bodies, Codex plugins gain agents or tool allowlists, or the Agent Plugins spec adds portable agents.
+
+## Verification 2026-10-30
+
+- Claude Code unchanged: `git diff origin/main -- plugins .claude-plugin user-config/offload-policy.md` is empty, and the SHA-256 of all 178 files Claude Code loads matches the pre-change baseline. Claude evals were not re-run, because their inputs did not change.
+- `port.py --check` passes. Tamper tests (an edited, deleted or extra generated file; a stale source; one per mapping rule; generator bugs that leave no drift) each fail it and name the file.
+- An independent review (a Sonnet subagent that had not seen the generator) compared all 15 agents, the skills, the commands and both policies across the two tools and found the ports equivalent with notes. Fixed after it:
+  - Preloaded skills now state their base directory, so relative links resolve.
+  - Codex read-only rule now allows temp dirs and build caches, as the sources do.
+  - Codex tool rules name capabilities, not Claude tool names.
+  - Claude-only names were mapped: `(Haiku)` and the other model tags in Codex, `Explore`, `AskUserQuestion`, "Delegation rules in CLAUDE.md", and `/agent-skills:` in Copilot.
+- Not verified: running either tool. Formats come from Copilot's docs source and Codex's source code.

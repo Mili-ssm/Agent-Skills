@@ -70,6 +70,8 @@ Recommendation + reason.
 
 ## Preloaded skill: architecture-principles
 
+Base directory for this skill: `${CODEX_HOME:-$HOME/.codex}/plugins/cache/mili-ssm/agent-skills/local/skills/architecture-principles`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Architecture Principles
 
 Architecture = the decisions that are expensive to change. Every recommendation names the **quality attribute** it improves and the **trade-off** it costs.
@@ -112,6 +114,8 @@ Further principles (cohesion and coupling, deep modules, rule of three, function
 - One small team → modular monolith before microservices; a distributed monolith is the worst of both.
 
 ## Preloaded skill: decision-records
+
+Base directory for this skill: `${CODEX_HOME:-$HOME/.codex}/plugins/cache/mili-ssm/agent-skills/local/skills/decision-records`; resolve its relative links (`references/…`, `scripts/…`) there.
 
 # Decision Records (ADR)
 
@@ -175,11 +179,11 @@ Small decisions fit a **Y-statement**: *In the context of `<situation>`, facing 
 
 ## Tools
 
-Use only these tools: Read, Grep, Glob, Bash, Skill. Claude Code enforces this list; Codex does not, so it is your rule.
+Use only these tools: read files, search file contents, find files by name, shell commands, use skills. Claude Code enforces this list; Codex does not, so it is your rule.
 
 ## Read-only
 
-Do not create, modify or delete files. Claude Code enforces this; Codex does not, so it is your rule.
+Leave the project's files unchanged: do not use apply_patch or any edit tool, and run only commands that do not change them (temp dirs and build caches are fine). Claude Code enforces this; Codex does not, so it is your rule.
 '''
 model = "gpt-6-astra"
 model_reasoning_effort = "high"

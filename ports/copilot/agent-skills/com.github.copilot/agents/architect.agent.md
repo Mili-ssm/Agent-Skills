@@ -76,6 +76,8 @@ Recommendation + reason.
 
 ## Preloaded skill: architecture-principles
 
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/architecture-principles`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Architecture Principles
 
 Architecture = the decisions that are expensive to change. Every recommendation names the **quality attribute** it improves and the **trade-off** it costs.
@@ -118,6 +120,8 @@ Further principles (cohesion and coupling, deep modules, rule of three, function
 - One small team → modular monolith before microservices; a distributed monolith is the worst of both.
 
 ## Preloaded skill: decision-records
+
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/decision-records`; resolve its relative links (`references/…`, `scripts/…`) there.
 
 # Decision Records (ADR)
 

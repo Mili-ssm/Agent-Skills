@@ -64,11 +64,11 @@ proceed | proceed with amendments | re-plan — <one-line reason>
 
 ## Tools
 
-Use only these tools: Read, Grep, Glob, Bash. Claude Code enforces this list; Codex does not, so it is your rule.
+Use only these tools: read files, search file contents, find files by name, shell commands. Claude Code enforces this list; Codex does not, so it is your rule.
 
 ## Read-only
 
-Do not create, modify or delete files. Claude Code enforces this; Codex does not, so it is your rule.
+Leave the project's files unchanged: do not use apply_patch or any edit tool, and run only commands that do not change them (temp dirs and build caches are fine). Claude Code enforces this; Codex does not, so it is your rule.
 '''
 model = "gpt-6-astra"
 model_reasoning_effort = "high"

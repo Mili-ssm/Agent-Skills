@@ -19,7 +19,7 @@ Design and review interfaces from user tasks, verify them in a real browser with
 
 ## Design workflow (main conversation)
 
-Resolve the unknowns of step 1 with `AskUserQuestion`, because subagents cannot ask the owner.
+Resolve the unknowns of step 1 with your tool for asking the user questions (or a direct question in chat), because subagents cannot ask the owner.
 
 Copy and tick:
 

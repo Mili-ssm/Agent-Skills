@@ -47,6 +47,7 @@ Then add [`user-config/offload-policy.codex.md`](../user-config/offload-policy.c
 | `tools` / `disallowedTools` | Enforced by `tools` | Stated as rules. `shell_tool = false` would enforce "no shell", but Codex also reads files through its shell, so it applies only to an agent without Bash, Read, Grep and Glob (none today) |
 | `omitClaudeMd` | `include-custom-instructions` | No equivalent |
 | `maxTurns` | Stated as a rule | Stated as a rule |
+| Claude-only names in the text (`Explore`, `AskUserQuestion`, "CLAUDE.md" for delegation rules) | Mapped to Copilot's equivalents; `/agent-skills:<x>` becomes `/<x>` | Mapped to Codex's; model tags such as "(Haiku)" become the GPT model |
 | Mods, evals | — | — |
 
 `python3 scripts/port.py --report` prints the full mapping; `--check` proves it, file by file.

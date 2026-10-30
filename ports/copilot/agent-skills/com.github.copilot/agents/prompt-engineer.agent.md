@@ -54,6 +54,8 @@ Keep the report ≤ 60 lines, because it lands in the main conversation's contex
 
 ## Preloaded skill: prompt-engineering
 
+Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/prompt-engineering`; resolve its relative links (`references/…`, `scripts/…`) there.
+
 # Prompt engineering
 
 **Core rule:** a model acts only on what is in its context. Write the smallest set of high-signal tokens that makes the wanted behavior likely, give the reason for each non-obvious rule, and prove the change with an eval, not by rereading it.

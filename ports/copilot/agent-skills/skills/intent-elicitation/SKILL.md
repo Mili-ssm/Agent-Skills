@@ -23,7 +23,7 @@ Copy and tick (copy the step names as a checklist, tick each when it completes):
 
 1. **Evidence**: dispatch the `consistency-auditor` subagent (mode, scope) → findings plus candidate questions. The subagent keeps noisy scanning out of this context; long specs or transcripts go to `summarizer`. Unavailable → run its checks inline and keep only conclusions.
 2. **Hypothesis first**: draft purpose · users · core jobs · constraints · ranked quality attributes · non-goals · assumptions (marked). The owner corrects a concrete draft faster and more precisely than they answer open questions.
-3. **Interview** with `AskUserQuestion`. Each round asks only the highest-impact unresolved findings, ranked by impact × uncertainty (answers that change architecture, data or scope come first):
+3. **Interview** with your tool for asking the user questions (or a direct question in chat). Each round asks only the highest-impact unresolved findings, ranked by impact × uncertainty (answers that change architecture, data or scope come first):
    - ≤ 4 questions per round, each with 2–4 concrete options, recommended option first.
    - Draw from the [question bank](references/question-bank.md); skip what evidence already answers.
    - For a contradiction, show both sources (`file:line`) and ask which holds.

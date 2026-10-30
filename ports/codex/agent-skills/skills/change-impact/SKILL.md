@@ -17,7 +17,7 @@ Copy and tick (copy the step names as a checklist, tick each when it completes):
 
 | Dimension | How to find |
 |---|---|
-| Direct callers / importers | Grep symbol, module, route, template names (repo-wide → dispatch `Explore`) |
+| Direct callers / importers | Grep symbol, module, route, template names (repo-wide → dispatch `explorer` (built-in role)) |
 | Public contracts | HTTP routes, CLI flags, library API, events, file formats, env vars, error messages |
 | Data | Schemas, migrations, stored formats, caches, serialized objects |
 | Config / infra | Settings, CI, deployment manifests, feature flags |
