@@ -3,7 +3,7 @@ import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderEle
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 import { AGENT_SAMPLES_KEY, askSimilar, loadSamples, median, recordSample, similarMedian } from './estimates'
-import { PHRASE_TOKENS, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
+import { PHRASE_TOKENS, agentWaitRuns, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -84,7 +84,9 @@ export function remainingOf(elapsedMs: number, percent: number | undefined): str
 }
 
 /** The synthetic card of the main agent's wait (see waiting.tsx). */
-const isMainCard = (run: Pick<AgentRun, 'id'>): boolean => run.id.startsWith('wait-')
+const isMainCard = (run: Pick<AgentRun, 'id'>): boolean => run.id === 'wait-main'
+/** Any synthetic waiting card: the main agent's, or a subagent's that ended its turn with a process still running. */
+const isWaitCard = (run: Pick<AgentRun, 'id'>): boolean => run.id.startsWith('wait-')
 
 /** Cuts `text` to `max` characters with an ellipsis. */
 const clip = (text: string, max: number): string =>
@@ -366,7 +368,7 @@ export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
 
 /** The state a card is drawn in: the main agent's wait is `waiting`; a stopped agent reads as failed. */
 export function stateOf(run: Pick<AgentRun, 'id' | 'status'>): CardState {
-  if (isMainCard(run)) {
+  if (isWaitCard(run)) {
     return 'waiting'
   }
   return run.status === 'running' ? 'running' : run.status === 'done' ? 'completed' : 'failed'
@@ -558,10 +560,11 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
   }
 }
 
-/** The running agents, with the main agent's wait drawn first (none under a survey, which owns the band). */
+/** The running agents, with the main agent's wait drawn first and the waiting subagents' after (none under a survey, which owns the band). */
 async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<AgentRun[]> {
-  const running = (await read($, runs)).filter(run => run.status === 'running')
-  return hasSurvey ? running : [...(await waitingRuns($)), ...running]
+  const all = await read($, runs)
+  const running = all.filter(run => run.status === 'running')
+  return hasSurvey ? running : [...(await waitingRuns($)), ...running, ...(await agentWaitRuns($, all))]
 }
 
 /** The agent hooks: spawns, their calls and ends, the spinner block; tool-fold's register adds them. */
@@ -689,7 +692,7 @@ export const registerAgents: Register = (on, options) => {
     const running = isPaneUp
       ? []
       : e.surface === 'vscode'
-        ? e.props.hasSurvey ? [] : await waitingRuns($)
+        ? e.props.hasSurvey ? [] : [...(await waitingRuns($)), ...(await agentWaitRuns($, await read($, runs)))]
         : await runningWithWait($, e.props.hasSurvey)
     const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${running.length}`
     if (e.surface === 'terminal' || e.props.hasSurvey || running.length === 0) {
@@ -958,7 +961,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
   const running = [...run.recent, ...run.current].slice(-1)[0]
   // Line 3: the live call (a few words on what it does), else the mission; the wait card adds what it waits on.
   const call = running === undefined ? undefined : clip(running.detail ?? running.label, maxChars - 6)
-  const detail = isMainCard(run)
+  const detail = isWaitCard(run)
     ? clip([run.mission, call].filter(Boolean).join(' · '), maxChars - 2)
     : (call ?? clip(run.mission ?? run.description, maxChars - 2))
   return (
@@ -967,7 +970,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
     <Box key={run.id} flexDirection="column" minWidth={0} overflow="hidden">
       {runHeader(ui, run, now)}
       <Text dimColor wrap="truncate">
-        {running === undefined || isMainCard(run) ? '  ' : glyph(ui, running, frame)}
+        {running === undefined || isWaitCard(run) ? '  ' : glyph(ui, running, frame)}
         {detail}
       </Text>
     </Box>
@@ -1047,7 +1050,7 @@ async function openDock($: EngineInterface): Promise<void> {
 /** Retitles the pane with the cards it shows now (the main agent's wait comes and goes with its turns). Never throws. */
 export async function retitleDock($: EngineInterface): Promise<void> {
   if (await read($, docked)) {
-    await openDock($)
+    await closeDockWhenIdle($)
   }
 }
 
@@ -1062,8 +1065,8 @@ async function openDockUnlessDesktop($: EngineInterface): Promise<void> {
 
 /** Closes the pane once no agent runs: they all sit in the chat again. Never throws. */
 async function closeDockWhenIdle($: EngineInterface): Promise<void> {
-  if ((await read($, runs)).some(run => run.status === 'running')) {
-    // Still some running: retitle with the new count, if the pane is up.
+  if ((await runningWithWait($, false)).length > 0) {
+    // Still some card to show: retitle with the new count, if the pane is up.
     if (await read($, docked)) {
       await openDock($)
     }

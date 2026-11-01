@@ -90,6 +90,8 @@ export type WaitTask = {
   label: string
   /** True once `label` came from Haiku (the call had no description). */
   isLabelGuessed?: boolean
+  /** The subagent that launched it (its turn may have ended): the wait is that agent's, not the main agent's. */
+  owner?: string
   /** An agent's type, else its description: what the card names when it waits on this one agent. */
   name?: string
   /** Clock time it launched, for the elapsed time. */

@@ -317,6 +317,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     if (e.origin.kind === 'task-notification') {
       await onNotification($, e.text).catch(() => undefined)
+      await retitleDock($).catch(() => undefined)
     }
 
     return next(e)

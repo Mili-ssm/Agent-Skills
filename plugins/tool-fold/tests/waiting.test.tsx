@@ -493,3 +493,29 @@ test('the pane title counts the cards it shows', async ($, on) => {
   // The turn ended: the main card joins the running agent.
   expect(titles.at(-1)).toBe('Agentes · 2')
 })
+
+test('a subagent that ends its turn with a background process keeps its card, waiting, until the process ends', async ($, on) => {
+  const clock = engine(on)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn({ description: 'Run checks', prompt: 'p', subagentType: 'agent-skills:check-runner', background: false } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 240', description: 'sleep 240', run_in_background: true, agentId: 'a1' } as never)
+  await $.turn.complete({ ...done, agentId: 'a1' })
+  await clock.advance(5000)
+  // The main turn still runs and the main agent waits on nothing: only the subagent's card shows.
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^check-runner$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /esperando · sleep 240 en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeUndefined()
+  await ui.unmount()
+  // The main agent has no wait of its own.
+  const { text } = await $.command.run({ command: 'agents-debug' } as never)
+  expect(text).toContain('waits: shell b1')
+  await $.prompt.submit(notice('b1', 'completed') as never)
+  const after = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await after.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
+  await after.unmount()
+})
