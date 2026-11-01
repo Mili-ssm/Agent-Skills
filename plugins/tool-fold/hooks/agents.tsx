@@ -1,5 +1,5 @@
 import { atom, memberOf, read, update } from 'claude-code'
-import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, TextProps } from 'claude-code'
+import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
 import { onAgentSpawn, resume, waitingRuns } from './waiting'
@@ -77,7 +77,7 @@ export function remainingOf(elapsedMs: number, percent: number | undefined): str
 }
 
 /** The synthetic card of the main agent's wait (see waiting.tsx). */
-const isMainCard = (run: AgentRun): boolean => run.id.startsWith('wait-')
+const isMainCard = (run: Pick<AgentRun, 'id'>): boolean => run.id.startsWith('wait-')
 
 /** Cuts `text` to `max` characters with an ellipsis. */
 const clip = (text: string, max: number): string =>
@@ -327,6 +327,96 @@ export function countsLine(run: Pick<AgentRun, 'counts' | 'files' | 'skills' | '
 export type Elements = {
   Box: ElementConstructor<BoxProps>
   Text: ElementConstructor<TextProps>
+  /** Absent on the terminal, which draws a glyph line instead. */
+  Svg?: ElementConstructor<SvgProps>
+}
+
+/** What an agent card shows by state: running, waiting (the main agent's wait), completed, failed or killed. */
+export type CardState = 'running' | 'waiting' | 'completed' | 'failed'
+
+/** Color per state: `hex` for the Svg line, `theme` for text and the terminal. */
+export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
+  running: { hex: '#d97757', theme: 'claude' },
+  waiting: { hex: '#58a6ff', theme: 'suggestion' },
+  completed: { hex: '#3fb950', theme: 'success' },
+  failed: { hex: '#f85149', theme: 'error' },
+}
+
+/** The state a card is drawn in: the main agent's wait is `waiting`; a stopped agent reads as failed. */
+export function stateOf(run: Pick<AgentRun, 'id' | 'status'>): CardState {
+  if (isMainCard(run)) {
+    return 'waiting'
+  }
+  return run.status === 'running' ? 'running' : run.status === 'done' ? 'completed' : 'failed'
+}
+
+/** Icon per agent type (name without the plugin prefix): read/explore, write, run; `◇` for any other. */
+export const AGENT_ICONS: Record<string, string> = {
+  Explore: '⌕',
+  summarizer: '⌕',
+  researcher: '⌕',
+  'consistency-auditor': '⌕',
+  architect: '⌕',
+  'pre-mortem': '⌕',
+  'prompt-engineer': '⌕',
+  'security-reviewer': '⌕',
+  'ux-reviewer': '⌕',
+  implementer: '✎',
+  fixer: '✎',
+  'doc-curator': '✎',
+  'check-runner': '▶',
+  'ui-verifier': '▶',
+  'performance-analyst': '▶',
+}
+
+/** The icon before an agent's name by type, with or without `agent-skills:`; `◆` (the main agent) is the wait card's own. */
+export function iconOf(type: string): string {
+  return AGENT_ICONS[type.replace(/^[\w-]+:/, '')] ?? '◇'
+}
+
+/** The thin progress line as SVG (plan-progress's): a 1px track in the fill color at 0.45 opacity under a 2px fill. */
+export function progressSvg(done: number, total: number, width: number, color: string): string {
+  const fill = total === 0 ? 0 : (width * done) / total
+  const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="2" rx="1" fill="${color}"/>` : ''
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2" viewBox="0 0 ${width} 2" preserveAspectRatio="none">` +
+    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="${color}" fill-opacity="0.45"/>${bar}</svg>`
+  )
+}
+
+/** Fraction of the progress line (done over total), from the agent's task list or its estimate; undefined with neither. */
+export function progressOfRun(run: AgentRun, now: number): { done: number; total: number } | undefined {
+  if (run.todo !== undefined && run.todo.total > 0) {
+    return { done: run.todo.done, total: run.todo.total }
+  }
+  const estimate = run.status === 'running' ? estimateOf(run, now) : undefined
+  return estimate === undefined ? undefined : { done: Math.max(0, Math.min(100, estimate)), total: 100 }
+}
+
+/** The progress line: an Svg where the surface has one, else a short glyph line; null with no estimate. */
+function progressLine(ui: Elements, run: AgentRun, now: number) {
+  const progress = progressOfRun(run, now)
+  if (progress === undefined) {
+    return null
+  }
+  const { Text, Svg } = ui
+  const color = STATE_COLOR[stateOf(run)]
+  if (Svg === undefined) {
+    return (
+      <Text key={`${run.id}-line`} color={color.theme}>
+        {progressBar(progress.done, progress.total, 12)}
+      </Text>
+    )
+  }
+  // A wider markup than any slot, stretched (preserveAspectRatio none) with no width prop: the line fills the card.
+  return (
+    <Svg
+      key={`${run.id}-line`}
+      source={progressSvg(progress.done, progress.total, 4000, color.hex)}
+      alt={`${progress.done} of ${progress.total}`}
+      height={2}
+    />
+  )
 }
 
 /**
@@ -343,66 +433,38 @@ export function estimateOf(run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typ
   return undefined
 }
 
-/** `◐ ux-reviewer ● sonnet-5-5 [label] 37s`: the row every card and block opens with. */
-function runHeader(
-  ui: Elements,
-  run: AgentRun,
-  now: number,
-  frame: string,
-  label?: string,
-  withEstimate = false,
-  mark?: string,
-) {
+/** `⌕ ux-reviewer ● sonnet-5-5 ... ≈60% · ~3 min`, then the thin progress line: the rows every card opens with. */
+function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, withEstimate = false, mark?: string) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
-  const outcome = OUTCOME[run.status]
+  const color = STATE_COLOR[stateOf(run)].theme
   const elapsed = formatDuration(run.durationMs ?? now - run.startedAt)
-  const bullet = !isRunning ? (
-    <Text color={outcome.color} bold>
-      •
-    </Text>
-  ) : (
-    <Text color={outcome.color}>{frame}</Text>
-  )
-  const left = remainingOf(now - run.startedAt, estimateOf(run, now))
-  // Its own task list when it keeps one; else, while it runs in the pane, Haiku's estimate.
-  const progress =
-    run.todo !== undefined && run.todo.total > 0 ? (
-      <Text dimColor>
-        <Text color={run.todo.done === run.todo.total ? 'success' : 'claude'}>
-          {progressBar(run.todo.done, run.todo.total, 5)}
-        </Text>{' '}
-        {run.todo.done}/{run.todo.total}
-      </Text>
-    ) : withEstimate && isRunning && estimateOf(run, now) !== undefined ? (
-      <Text dimColor>
-        <Text color="claude">{progressBar(estimateOf(run, now) ?? 0, 100, 5)}</Text> ≈{estimateOf(run, now)}%
-        {left === undefined ? null : ` · ${left}`}
-      </Text>
-    ) : null
-  // Two lines, so a narrow chat wraps nothing: who and how far, then what it was asked.
+  const estimate = estimateOf(run, now)
+  const left = remainingOf(now - run.startedAt, estimate)
+  // The key datum: its task list when it keeps one, else (in the pane) Haiku's estimate, else the elapsed time.
+  const datum =
+    run.todo !== undefined && run.todo.total > 0
+      ? `${run.todo.done}/${run.todo.total}`
+      : withEstimate && isRunning && estimate !== undefined
+        ? `≈${estimate}%${left === undefined ? '' : ` · ${left}`}`
+        : elapsed
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
       <Box flexDirection="row" gap={1} minWidth={0} overflow="hidden">
         {mark === undefined ? null : <Text dimColor>{mark}</Text>}
-        {bullet}
-        {isMainCard(run) ? (
-          <Text weight="bold" underline>
-            ◆ {agentName(run)}
-          </Text>
-        ) : (
-          <Text weight="bold" dimColor={run.status === 'done'}>
-            {agentName(run)}
-          </Text>
-        )}
+        <Text color={color}>{isMainCard(run) ? '◆' : iconOf(run.type)}</Text>
+        <Text weight="bold" dimColor={run.status === 'done'}>
+          {agentName(run)}
+        </Text>
         <Text dimColor>
           <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
         </Text>
-        {progress}
-        <Text dimColor tabular>
-          {isRunning ? `${outcome.word} ${elapsed}` : elapsed}
+        <Box flexGrow={1} />
+        <Text color={color} bold tabular>
+          {datum}
         </Text>
       </Box>
+      {progressLine(ui, run, now)}
       {label === undefined ? null : (
         <Text dimColor wrap="truncate">
           {mark === undefined ? '  ' : '    '}
@@ -410,24 +472,6 @@ function runHeader(
         </Text>
       )}
     </Box>
-  )
-}
-
-/** `  ✓ Read session.py` / `  ◐ Run npm test`: one call, only its glyph colored. */
-function stepRow(ui: Elements, step: Step, frame: string, indent: string, withDetail = false) {
-  const { Text } = ui
-  const glyph =
-    step.status === 'running' ? (
-      <Text color="claude">{frame}</Text>
-    ) : (
-      <Text color={step.status === 'failed' ? 'error' : 'success'}>{step.status === 'failed' ? '✗' : '✓'}</Text>
-    )
-  // In the pane a call reads by what it does alone; the command shows until its words arrive.
-  return (
-    <Text key={step.id} dimColor={step.status !== 'running'} wrap="truncate">
-      {indent}
-      {glyph} {withDetail && step.detail !== undefined ? step.detail : step.label}
-    </Text>
   )
 }
 
@@ -605,7 +649,7 @@ export const registerAgents: Register = (on, options) => {
       traceBand(`${seen} passed; beneath ${beneath(next.trace)}`)
       return rest
     }
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Svg } = $.ui.resolve(e)
     await read($, clock)
     const now = await $.clock.now()
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
@@ -613,8 +657,8 @@ export const registerAgents: Register = (on, options) => {
     const rest = await next(e)
     traceBand(`${seen} drew ${running.length} cards; beneath ${beneath(next.trace)}`)
     return (
-      <Box flexDirection="column" minWidth={0} overflow="hidden">
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
+      <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
+        {running.map(run => liveCard({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, run, now, frame, maxChars))}
         {rest}
       </Box>
     )
@@ -625,7 +669,7 @@ export const registerAgents: Register = (on, options) => {
 
   // The "Agentes" pane: every running agent's live card, as the chat draws it, oldest first.
   on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Text, Svg } = $.ui.resolve(e)
     const running = await runningWithWait($, false)
     if (running.length === 0) {
       return <Text dimColor>No agents running.</Text>
@@ -636,7 +680,7 @@ export const registerAgents: Register = (on, options) => {
     const maxChars = charsFor(e.surface, e.props.bodyColumns)
     return (
       <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
-        {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
+        {running.map(run => liveCard({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, run, now, frame, maxChars))}
       </Box>
     )
   })
@@ -840,36 +884,33 @@ export async function isAgentLive($: EngineInterface, toolUseId: string): Promis
   return (await read($, memberOf(byCall, { requestId: toolUseId }))).some(run => run.status === 'running')
 }
 
-/** A running agent's live card: header, mission, its last two calls. The chat and the pane draw the same one. */
-function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, isCompact: boolean, maxChars: number) {
+/** The call's glyph and a space: the spinner while it runs, else `✓` or `✗`. */
+function glyph(ui: Elements, step: Step, frame: string) {
+  const { Text } = ui
+  const color = step.status === 'running' ? 'claude' : step.status === 'failed' ? 'error' : 'success'
+  return <Text color={color}>{step.status === 'running' ? frame : step.status === 'failed' ? '✗' : '✓'} </Text>
+}
+
+/** A running agent's live card: header, progress line, then its live call or mission. The chat and the pane draw the same one. */
+function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxChars: number) {
   const { Box, Text } = ui
-  // Many agents at once: each card keeps its header, mission and live call only.
   // Texts are cut to the pane's width by hand: a text's natural width otherwise widens the whole pane
   // past a narrow VS Code panel, whatever the card's own sizing says.
-  const steps = (isCompact ? run.current.slice(-1) : [...run.recent, ...run.current].slice(-2)).map(step => ({
-    ...step,
-    label: clip(step.label, maxChars - 6),
-    ...(step.detail === undefined ? {} : { detail: clip(step.detail, maxChars - 6) }),
-  }))
-  const counts = clip(countsLine(run), maxChars - 2)
+  const running = [...run.recent, ...run.current].slice(-1)[0]
+  // Line 3: the live call (a few words on what it does), else the mission; the wait card adds what it waits on.
+  const call = running === undefined ? undefined : clip(running.detail ?? running.label, maxChars - 6)
+  const detail = isMainCard(run)
+    ? clip([run.mission, call].filter(Boolean).join(' · '), maxChars - 2)
+    : (call ?? clip(run.mission ?? run.description, maxChars - 2))
   return (
-    // One card per agent, with a quiet border of its own inside the pane's frame.
-    // Stretched by the pane, not sized: a set 100% width plus border and padding overflowed into a scroll
-    // bar. minWidth 0 lets it shrink below a long header, and what does not fit is clipped inside.
-    <Box key={run.id} flexDirection="column" borderStyle="round" borderDimColor paddingX={1} minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now, frame, clip(run.mission ?? run.description, maxChars - 2), true)}
-      {steps.length === 0 ? (
-        <Text dimColor>{'  Starting…'}</Text>
-      ) : (
-        // Each call hangs from the agent: a tree mark on both lines.
-        steps.map(step => stepRow(ui, step, frame, '  └ ', true))
-      )}
-      {isCompact || counts === '' ? null : (
-        <Text dimColor wrap="truncate">
-          {'  '}
-          {counts}
-        </Text>
-      )}
+    // One borderless card per agent. Stretched by the pane, not sized: minWidth 0 lets it shrink below a long
+    // header, and what does not fit is clipped inside.
+    <Box key={run.id} flexDirection="column" minWidth={0} overflow="hidden">
+      {runHeader(ui, run, now, undefined, true)}
+      <Text dimColor wrap="truncate">
+        {running === undefined || isMainCard(run) ? '  ' : glyph(ui, running, frame)}
+        {detail}
+      </Text>
     </Box>
   )
 }
@@ -895,7 +936,7 @@ export async function agentCard(
 
   // Running agents live in the "Agentes" pane only; once stopped, the folded card stays on its own row,
   // and a line at the bottom of the chat says it ended (VS Code does not let a mod redraw its notices).
-  const card = (run: AgentRun) => (run.status === 'running' ? <Box key={run.id} /> : finishedCard(ui, run, now, '•', mark))
+  const card = (run: AgentRun) => (run.status === 'running' ? <Box key={run.id} /> : finishedCard(ui, run, now, mark))
 
   return (
     <Box flexDirection="column" paddingLeft={mark === undefined ? 0 : 4}>
@@ -919,12 +960,12 @@ export function finishedLine(run: AgentRun): string {
 }
 
 /** A finished agent's card: the header plus what it did (Codex's collapsed group). */
-function finishedCard(ui: Elements, run: AgentRun, now: number, frame: string, mark?: string) {
+function finishedCard(ui: Elements, run: AgentRun, now: number, mark?: string) {
   const { Box, Text } = ui
   const summary = summaryOf(run)
   return (
     <Box key={run.id} flexDirection="column">
-      {runHeader(ui, run, now, frame, run.mission ?? run.description, false, mark)}
+      {runHeader(ui, run, now, run.mission ?? run.description, false, mark)}
       {summary === '' ? null : (
         <Text dimColor wrap="truncate">
           {mark === undefined ? '  ' : '    '}
