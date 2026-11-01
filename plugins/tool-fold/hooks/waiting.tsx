@@ -191,7 +191,8 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const now = await $.clock.now()
   const model = await $.session.model().catch(() => '')
   return list.map(task => {
-    const fraction = progressOf(Math.max(0, now - task.startedAt), task.etaMs)
+    // Waiting on an agent: its own card carries the estimate.
+    const fraction = task.kind === 'agent' ? undefined : progressOf(Math.max(0, now - task.startedAt), task.etaMs)
     return {
       id: `wait-${task.id}`,
       toolUseId: `wait-${task.id}`,

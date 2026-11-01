@@ -36,13 +36,16 @@ export const shortModel = (model: string): string => model.replace(/^claude-/, '
 export const family = (model: string): string =>
   /haiku|sonnet|opus|fable/.exec(model)?.[0] ?? shortModel(model)
 
-/** Dot color per family (the model name stays dim): cheap models read green at a glance. */
-const FAMILY_COLOR: Record<string, string> = {
-  haiku: 'success',
-  sonnet: 'suggestion',
-  opus: 'merged',
-  fable: 'warning',
+/** Dot color per family (the model name stays dim). */
+export const FAMILY_COLOR: Record<string, string> = {
+  opus: '#a371f7',
+  sonnet: '#58a6ff',
+  haiku: '#39c5cf',
+  fable: '#e3b341',
 }
+
+/** The model dot's color: its family's, else the dim theme color. */
+export const dotColor = (model: string): string => FAMILY_COLOR[family(model)] ?? 'subtle'
 
 /** 1234 → `1s`, 75000 → `1m 15s`, 3725000 → `1h 02m` (Codex's compact elapsed). */
 export const formatDuration = (ms: number): string => {
@@ -434,20 +437,20 @@ export function estimateOf(run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typ
 }
 
 /** `⌕ ux-reviewer ● sonnet-5-5 ... ≈60% · ~3 min`, then the thin progress line: the rows every card opens with. */
-function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, withEstimate = false, mark?: string) {
+function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mark?: string) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
   const color = STATE_COLOR[stateOf(run)].theme
   const elapsed = formatDuration(run.durationMs ?? now - run.startedAt)
   const estimate = estimateOf(run, now)
   const left = remainingOf(now - run.startedAt, estimate)
-  // The key datum: its task list when it keeps one, else (in the pane) Haiku's estimate, else the elapsed time.
+  // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
   const datum =
     run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
-      : withEstimate && isRunning && estimate !== undefined
+      : isRunning && estimate !== undefined
         ? `≈${estimate}%${left === undefined ? '' : ` · ${left}`}`
-        : elapsed
+        : ''
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
       <Box flexDirection="row" gap={1} minWidth={0} overflow="hidden">
@@ -457,7 +460,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, wit
           {agentName(run)}
         </Text>
         <Text dimColor>
-          <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
+          <Text color={dotColor(run.model)}>●</Text> {shortModel(run.model)} · {elapsed}
         </Text>
         <Box flexGrow={1} />
         <Text color={color} bold tabular>
@@ -906,7 +909,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
     // One borderless card per agent. Stretched by the pane, not sized: minWidth 0 lets it shrink below a long
     // header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now, undefined, true)}
+      {runHeader(ui, run, now)}
       <Text dimColor wrap="truncate">
         {running === undefined || isMainCard(run) ? '  ' : glyph(ui, running, frame)}
         {detail}
@@ -965,7 +968,7 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, mark?: string) {
   const summary = summaryOf(run)
   return (
     <Box key={run.id} flexDirection="column">
-      {runHeader(ui, run, now, run.mission ?? run.description, false, mark)}
+      {runHeader(ui, run, now, run.mission ?? run.description, mark)}
       {summary === '' ? null : (
         <Text dimColor wrap="truncate">
           {mark === undefined ? '  ' : '    '}
