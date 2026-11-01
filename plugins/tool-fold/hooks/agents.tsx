@@ -2,6 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
+import { AGENT_SAMPLES_KEY, askSimilar, loadSamples, median, recordSample, similarMedian } from './estimates'
 import { onAgentSpawn, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
@@ -266,16 +267,6 @@ const ESTIMATE_SYSTEM = [
 // Durations remembered per agent type across sessions ($.store, a local file): no model call reads them.
 const REMEMBERED = 10
 
-/** Middle of a list of durations: the typical one, robust to an odd outlier. */
-export const median = (values: readonly number[]): number | undefined => {
-  if (values.length === 0) {
-    return undefined
-  }
-  const sorted = [...values].sort((a, b) => a - b)
-  const middle = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 1 ? sorted[middle] : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2)
-}
-
 /** The store key of one agent type's remembered durations (one key per type: no read-modify race across types). */
 const durationsKey = (type: string): string => `durations:${type}`
 
@@ -302,6 +293,29 @@ function charsFor(surface: RenderSurface, bodyColumns: number): number {
 }
 // An estimate follows each call of an agent, at most this often per agent; one asked sooner waits.
 const ESTIMATE_GAP_MS = 30_000
+
+/** What the agent memory calls an agent: `Explore: map the hooks`. */
+export const agentSummary = (type: string, description: string): string => `${type}: ${description}`
+
+/** Gives a new agent the typical duration of similar past ones: stored summaries first, else one Haiku pick. Never throws. */
+async function lookUpSimilar($: EngineInterface, id: string, type: string, description: string, brief?: string): Promise<void> {
+  try {
+    const summary = agentSummary(type, description)
+    const samples = await loadSamples($, AGENT_SAMPLES_KEY)
+    const give = (etaMs: number) => patch($, id, run => ({ ...run, etaMs, etaSource: 'similar' }))
+    const found = similarMedian(samples, summary)
+    if (found !== undefined) {
+      await give(found)
+    } else if (samples.length > 0 && brief !== undefined) {
+      // After the card is up; the spawn does not wait for Haiku. A workflow's agents pass no brief: no call.
+      void askSimilar($, summary, samples, brief)
+        .then(picked => (picked === undefined ? undefined : give(picked)))
+        .catch(error => $.ui.log(`tool-fold: agent pick: ${String(error)}`, { to: 'debug' }))
+    }
+  } catch (error) {
+    $.ui.log(`tool-fold: agent memory: ${String(error)}`, { to: 'debug' })
+  }
+}
 
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
@@ -432,7 +446,14 @@ function progressLine(ui: Elements, run: AgentRun, now: number) {
  * The percentage a running card shows: Haiku's reading, or for an open-ended mission (a watcher) the
  * time against how long its type usually takes, worked out as it draws (no model call), capped at 95.
  */
-export function estimateOf(run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt'>, now: number): number | undefined {
+export function estimateOf(
+  run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt' | 'etaMs'>,
+  now: number,
+): number | undefined {
+  // Similar past agents measured this kind of work: elapsed over their median, held under 100%.
+  if (run.etaMs !== undefined && run.etaMs > 0) {
+    return Math.min(95, Math.max(0, Math.round(((now - run.startedAt) / run.etaMs) * 100)))
+  }
   if (run.estimate !== undefined) {
     return run.estimate
   }
@@ -455,7 +476,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
     run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
-        ? `≈${estimate}%${run.isOverdue === true ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
+        ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt >= run.etaMs) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
@@ -584,6 +605,9 @@ export const registerAgents: Register = (on, options) => {
       await update($, clock, () => startedAt)
       await syncTick($)
       await openDockUnlessDesktop($)
+      if (isNew) {
+        await lookUpSimilar($, id, e.subagentType, e.description, e.workflow === undefined ? e.prompt : undefined)
+      }
     }
     // A failure here costs the card, never the spawn.
     await record().catch(error => $.ui.log(`tool-fold: ${String(error)}`, { to: 'debug' }))
@@ -782,7 +806,7 @@ const waiting = new Set<string>()
 
 async function requestEstimate($: EngineInterface, agentId: string): Promise<void> {
   const run = (await read($, runs)).find(item => item.id === agentId)
-  if (run === undefined || run.status !== 'running' || run.todo !== undefined || waiting.has(agentId)) {
+  if (run === undefined || run.status !== 'running' || run.todo !== undefined || run.etaMs !== undefined || waiting.has(agentId)) {
     return
   }
   const now = await $.clock.now()
@@ -851,7 +875,7 @@ async function estimateProgress($: EngineInterface, agentId: string): Promise<vo
       }
       // Never past 95 while it runs, and never more than MAX_DROP below the last reading.
       const floor = item.estimate === undefined ? 0 : item.estimate - MAX_DROP
-      return { ...item, estimate: Math.max(floor, Math.min(95, value)) }
+      return { ...item, estimate: Math.max(floor, Math.min(95, value)), ...(item.etaMs === undefined ? { etaSource: 'guess' as const } : {}) }
     })
   }
 }
@@ -891,6 +915,7 @@ export async function endAgentTurn(
   if (status === 'done' && type !== undefined) {
     const past = await rememberedDurations($, type)
     await $.store.set(durationsKey(type), [...past, durationMs].slice(-REMEMBERED)).catch(() => undefined)
+    await recordSample($, AGENT_SAMPLES_KEY, agentSummary(type, ended?.description ?? ''), durationMs, await $.clock.now())
   }
   await syncTick($)
   await closeDockWhenIdle($)

@@ -1,7 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { formatRemaining, remainingOf } from '../hooks/agents'
-import { SIMILARITY_MIN, cleanPhrase, estimateKey, minutesOf, progressOf, similarity, waitLabel } from '../hooks/waiting'
+import { SIMILARITY_MIN, similarity } from '../hooks/estimates'
+import { cleanPhrase, estimateKey, minutesOf, progressOf, waitLabel } from '../hooks/waiting'
 
 // The band above the prompt as a surface mounts it.
 const BAND = { plugin: 'tool-fold', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 100 } } as const
