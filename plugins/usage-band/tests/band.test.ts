@@ -360,8 +360,8 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   await $.turn.complete(complete({ durationMs: 3000, turnId: 't1', model: 'claude-opus-5-5', input: 1000, output: 100 }))
   await clock.advance(SETTLE)
   const idle = await band('desktop')
-  expect((await idle.find({ type: 'Text', text: /^✓/ }))?.text).toBe('✓ 3s')
-  expect((await idle.find({ type: 'Text', text: /Plan ready/ }))?.text).toBe('Plan ready')
+  expect((await idle.find({ type: 'Text', text: /^⏱/ }))?.text).toBe('⏱ 3s')
+  expect((await idle.find({ type: 'Text', text: /Plan ready/ }))?.text).toBe('✓ Plan ready')
   await idle.unmount()
 
   // A second cycle: the session total shows on the right, with its tokens.
@@ -373,7 +373,7 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
 
   // VS Code has no band: the hook draws nothing of its own there.
   const vscode = await band('vscode')
-  expect(await vscode.find({ type: 'Text', text: /✓/ })).toBeUndefined()
+  expect(await vscode.find({ type: 'Text', text: /⏱|✓/ })).toBeUndefined()
   await vscode.unmount()
 
   // A terminal attached too: the status line comes back for it.
