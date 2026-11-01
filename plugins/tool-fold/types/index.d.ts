@@ -65,6 +65,8 @@ export type AgentRun = {
   isTrackOnly?: boolean
   /** Where the wait's estimate came from, drawn as a dim icon before the right datum: `✦` Claude's message, `⟲` similar runs, `?` Haiku's guess. */
   etaSource?: EtaSource
+  /** Typical duration of similar past agents (ms), from the agent memory: progress is elapsed over it. */
+  etaMs?: number
   /** The main agent's wait ran past its estimate: the card says so instead of the time left. */
   isOverdue?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */

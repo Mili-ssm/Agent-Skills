@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRun, EtaSource, WaitKind, WaitSample, WaitTask } from '../types'
-import { commandOf, median } from './agents'
+import { commandOf } from './agents'
+import { WAIT_SAMPLES_KEY, askSimilar, loadSamples, recordSample, similarMedian } from './estimates'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
@@ -12,17 +13,8 @@ const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
 
-// Finished waits remembered across sessions ($.store, a local file), newest last.
-const REMEMBERED = 50
-const SAMPLES_KEY = 'wait-samples'
-// Word overlap (Jaccard) from which a stored summary counts as the same kind of work.
-export const SIMILARITY_MIN = 0.5
-// Summaries offered to Haiku when no stored one is similar enough.
-const PICK_CANDIDATES = 20
 // Stronger sources replace weaker ones: Claude knows its data, past runs measured, a guess is last.
 const RANK: Record<EtaSource, number> = { guess: 1, similar: 2, message: 3 }
-// A run shorter than this teaches nothing (a command that failed at once).
-const MIN_SAMPLE_MS = 1000
 // Progress never reaches 100% before the work is done.
 const MAX_PROGRESS = 0.95
 // Characters of a command's first line that name it for the estimate.
@@ -34,36 +26,6 @@ const ENDED = new Set(['completed', 'failed', 'killed', 'stopped'])
 
 /** Cuts `text` to `max` characters with an ellipsis. */
 const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`)
-
-const STOPWORDS = new Set([
-  'the', 'and', 'for', 'with', 'from', 'into', 'run', 'running', 'that', 'this', 'les', 'los', 'las', 'del', 'para', 'con', 'por', 'una', 'uno', 'que', 'ejecuta', 'ejecutar',
-])
-
-/** Lowercased words of 3+ letters or digits, stopwords out. */
-export function wordsOf(text: string): Set<string> {
-  const found = text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []
-  return new Set(found.filter(word => !STOPWORDS.has(word)))
-}
-
-/** Jaccard overlap of two summaries' words: 0 (nothing shared) to 1 (same words). */
-export function similarity(a: string, b: string): number {
-  const left = wordsOf(a)
-  const right = wordsOf(b)
-  const shared = [...left].filter(word => right.has(word)).length
-  const total = left.size + right.size - shared
-  return total === 0 ? 0 : shared / total
-}
-
-/** The samples in the store (anything of another shape is dropped; the old per-key lists are never read). */
-async function loadSamples($: EngineInterface): Promise<WaitSample[]> {
-  const value = await $.store.get(SAMPLES_KEY).catch(() => undefined)
-  return Array.isArray(value)
-    ? value.filter(
-        (item): item is WaitSample =>
-          typeof item === 'object' && item !== null && typeof item.summary === 'string' && typeof item.durationMs === 'number',
-      )
-    : []
-}
 
 /**
  * Haiku's reply cut to one usable phrase: its first non-empty line without quotes or a final period, or '' when it
@@ -175,21 +137,7 @@ async function guess($: EngineInterface, id: string, subject: string, isLabelNee
 
 /** Asks Haiku which of the latest summaries are the same kind of work as this one; sets the median of their durations. */
 async function pickSimilar($: EngineInterface, id: string, subject: string, samples: readonly WaitSample[]): Promise<void> {
-  const latest = samples.slice(-PICK_CANDIDATES)
-  const reply = await $.model.complete({
-    model: 'haiku',
-    prompt:
-      'Cuál de estas tareas anteriores es el mismo tipo de trabajo que la nueva (misma operación, tamaño parecido). ' +
-      `Responde solo con los números separados por comas, o none.\n\nNueva: ${subject.slice(0, 300)}\n\nAnteriores:\n` +
-      latest.map((sample, index) => `${index + 1}. ${sample.summary}`).join('\n'),
-    maxTokens: 20,
-    timeoutMs: 15000,
-  })
-  if (!reply.isAnswered) {
-    return
-  }
-  const picked = (reply.text.match(/\d+/g) ?? []).map(Number).filter(n => n >= 1 && n <= latest.length)
-  const etaMs = median(picked.map(n => latest[n - 1]?.durationMs ?? 0).filter(ms => ms > 0))
+  const etaMs = await askSimilar($, subject, samples)
   if (etaMs !== undefined) {
     await setEta($, [id], etaMs, 'similar')
   }
@@ -219,9 +167,8 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
   try {
     const key = estimateKey(kind, input)
     const label = waitLabel(kind, input)
-    const samples = await loadSamples($)
-    const similar = samples.filter(sample => similarity(sample.summary, label) >= SIMILARITY_MIN).map(sample => sample.durationMs)
-    const etaMs = median(similar)
+    const samples = await loadSamples($, WAIT_SAMPLES_KEY)
+    const etaMs = similarMedian(samples, label)
     const startedAt = await $.clock.now()
     const task: WaitTask = {
       id,
@@ -264,10 +211,8 @@ async function finish($: EngineInterface, id: string | undefined, isDone: boolea
     const now = await $.clock.now()
     for (const task of ended) {
       const took = now - task.startedAt
-      if (isDone && id !== undefined && took >= MIN_SAMPLE_MS) {
-        const list = await loadSamples($)
-        const sample: WaitSample = { summary: task.label, durationMs: took, at: now }
-        await $.store.set(SAMPLES_KEY, [...list, sample].slice(-REMEMBERED)).catch(() => undefined)
+      if (isDone && id !== undefined) {
+        await recordSample($, WAIT_SAMPLES_KEY, task.label, took, now)
       }
     }
     await syncTick($)

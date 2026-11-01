@@ -12,11 +12,11 @@ import {
   estimateOf,
   formatDuration,
   iconOf,
-  median,
   progressSvg,
   stateOf,
   summarize,
 } from '../hooks/agents'
+import { median } from '../hooks/estimates'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -463,4 +463,101 @@ test('the model dot takes the color of its family, dim for others', () => {
   expect(dotColor('claude-haiku-5-5')).toBe('#39c5cf')
   expect(dotColor('fable-1')).toBe('#e3b341')
   expect(dotColor('gpt-x')).toBe('subtle')
+})
+
+/** The engine beneath the mod for the agent memory tests: a map store, agents a1, a2, ... in order. */
+function memoryEngine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Record<string, unknown>, prompts: string[] = [], pick = 'none') {
+  let spawned = 0
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: `a${++spawned}` }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('store.get', (_, e) => ({ value: saved[e.key] }))
+  on('store.set', (_, e) => {
+    saved[e.key] = e.value
+    return { value: undefined }
+  })
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    prompts.push(prompt)
+    const text = prompt.includes('Anteriores') ? pick : '?'
+    return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  return mock.clock(on)
+}
+
+const paneOf = ($: Parameters<Parameters<typeof test>[1]>[0]) =>
+  $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
+
+test('a finished agent is remembered apart from waits and gives a similar one its progress, with the ⟲ icon', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const prompts: string[] = []
+  const clock = memoryEngine(on, saved, prompts)
+
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await $.turn.complete({ agentId: 'a1', answer: 'ok', durationMs: 90_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  // Recorded under its own key, as `type: description`; the wait store stays untouched.
+  expect(saved['agent-samples']).toMatchObject([{ summary: 'Explore: Find session creation', durationMs: 90_000 }])
+  expect(saved['wait-samples']).toBeUndefined()
+
+  await $.agent.spawn({ ...SPAWN, tool_use_id: 'tu2', description: 'Find session creation code', background: true })
+  await clock.advance(45_000)
+  const pane = await paneOf($)
+  // 45 s of the 90 s similar agents took: 50%.
+  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('≈50% · <1 min')
+  expect((await pane.find({ type: 'Text', text: /^⟲$/ }))?.props.dimColor).toBe(true)
+  await pane.unmount()
+  // Past the typical time it says so, and stays under 100%.
+  await clock.advance(60_000)
+  const late = await paneOf($)
+  expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈95% · más de lo previsto')
+  await late.unmount()
+  // A found sample needs no Haiku pick, and a failed agent teaches nothing.
+  expect(prompts.some(prompt => prompt.includes('Anteriores'))).toBe(false)
+})
+
+test('with no similar agent Haiku picks once, given the brief; a failed agent is not remembered', async ($, on) => {
+  const saved: Record<string, unknown> = {
+    'agent-samples': [{ summary: 'Plan: migrate the database', durationMs: 600_000, at: 1 }],
+  }
+  const prompts: string[] = []
+  const clock = memoryEngine(on, saved, prompts, '1')
+
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  await clock.advance(300_000)
+  const picks = prompts.filter(prompt => prompt.includes('Anteriores'))
+  expect(picks).toHaveLength(1)
+  expect(picks[0]).toContain('Find where sessions are created')
+  const pane = await paneOf($)
+  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toMatch(/^≈50%/)
+  expect(await pane.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
+  await pane.unmount()
+  await $.turn.complete({ agentId: 'a1', answer: '', durationMs: 5000, isAborted: false, turnId: 't1', reason: 'error' })
+  expect(saved['agent-samples']).toHaveLength(1)
+})
+
+test('the agent task list still wins over the similar-agent estimate', async ($, on) => {
+  const saved: Record<string, unknown> = {
+    'agent-samples': [{ summary: 'Explore: Find session creation', durationMs: 90_000, at: 1 }],
+  }
+  const clock = memoryEngine(on, saved)
+
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await $.tool.call({
+    tool: 'TodoWrite',
+    todos: [
+      { content: 'a', status: 'completed', activeForm: 'a' },
+      { content: 'b', status: 'pending', activeForm: 'b' },
+    ],
+    agentId: 'a1',
+  })
+  await clock.advance(45_000)
+  const pane = await paneOf($)
+  expect(await pane.find({ type: 'Text', text: /^1\/2$/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /%/ })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /^⟲$/ })).toBeUndefined()
+  await pane.unmount()
 })
