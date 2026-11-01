@@ -1006,8 +1006,11 @@ async function isParked($: EngineInterface, agentId: string): Promise<boolean> {
 export async function wakeAgentRun($: EngineInterface, agentId: string): Promise<void> {
   const run = (await read($, runs)).find(item => item.id === agentId)
   if (run !== undefined && run.background === true && run.status !== 'running') {
-    const startedAt = await $.clock.now()
-    await patch($, agentId, item => ({ ...item, status: 'running', startedAt }))
+    // startedAt stays the spawn time: progress and elapsed count the whole task, not the turn after the wake.
+    await patch($, agentId, item => {
+      const { durationMs: _turn, ...rest } = item
+      return { ...rest, status: 'running' }
+    })
     await syncTick($)
   }
 }
