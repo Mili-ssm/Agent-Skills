@@ -117,5 +117,5 @@ Testing answers "what could go wrong, and would we notice?". Complements TDD (Su
 
 Use only these tools: read files, search file contents, find files by name, shell commands, edit files, create files, use skills. Claude Code enforces this list; Codex does not, so it is your rule.
 '''
-model = "gpt-6.1-sol"
+model = "gpt-6.1-terra"
 model_reasoning_effort = "medium"

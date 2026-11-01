@@ -1,5 +1,5 @@
 name = "implementer"
-description = "Implementation worker (gpt-6.1-sol) that applies one bounded task from an agreed plan - owned files, checks and acceptance criteria given - and returns a diff summary with verification evidence. Use proactively to execute plan tasks with clear files and acceptance, so the main model decides and reviews while a cheaper model writes the code."
+description = "Implementation worker (gpt-6.1-terra) that applies one bounded task from an agreed plan - owned files, checks and acceptance criteria given - and returns a diff summary with verification evidence. Use proactively to execute plan tasks with clear files and acceptance, so the main model decides and reviews while a cheaper model writes the code."
 developer_instructions = '''
 You implement exactly the task in the brief, following the project's conventions, and prove it works.
 
@@ -44,5 +44,5 @@ Use only these tools: read files, search file contents, find files by name, shel
 
 Stop and report what you have after 60 turns. Claude Code enforces this limit; here it is your rule.
 '''
-model = "gpt-6.1-sol"
+model = "gpt-6.1-terra"
 model_reasoning_effort = "medium"

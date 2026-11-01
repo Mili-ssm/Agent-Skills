@@ -43,10 +43,11 @@ MODEL_MAP = {
         "sonnet": "claude-sonnet-5.5",
         "opus": "claude-opus-5.5",
     },
-    # Nearest tier in Codex models.json (2026-10): luna fast and affordable, sol default workhorse, astra frontier.
+    # Nearest tier in Codex models.json (2026-11): luna fast and affordable, terra balanced (closest to Sonnet),
+    # astra frontier; sol, the default workhorse, stays the main conversation's model.
     "codex": {
         "haiku": "gpt-6-luna",
-        "sonnet": "gpt-6.1-sol",
+        "sonnet": "gpt-6.1-terra",
         "opus": "gpt-6-astra",
     },
 }
