@@ -86,20 +86,31 @@ export function statusLine(plan: Plan): string {
   return `${glyphBar(plan.done, plan.total, 10)} ${plan.done}/${plan.total}${task}`
 }
 
-/** The ring as SVG: a track circle and an arc for done/total, starting at 12 o'clock. */
-export function ringSvg(done: number, total: number, size: number, color: string): string {
-  const stroke = 3
-  const radius = (size - stroke) / 2
-  const circumference = 2 * Math.PI * radius
-  const arc = total === 0 ? 0 : (done / total) * circumference
-  const center = size / 2
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
-    `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#888" stroke-opacity="0.3" stroke-width="${stroke}"/>` +
-    `<circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="${color}" stroke-width="${stroke}" ` +
-    `stroke-linecap="round" stroke-dasharray="${arc.toFixed(2)} ${circumference.toFixed(2)}" ` +
-    `transform="rotate(-90 ${center} ${center})"/></svg>`
-  )
+/**
+ * The progress bar as SVG: one segment per task, wide in proportion to its steps, 2px apart.
+ * Each segment has a faint track and a fill for its done steps; the active task is drawn at full
+ * opacity with an outline, the others slightly dimmer.
+ */
+export function segmentsSvg(plan: Plan, width: number, height: number, color: string): string {
+  const gap = 2
+  const tasks = plan.tasks.filter(task => task.total > 0)
+  const room = width - gap * Math.max(0, tasks.length - 1)
+  const active = activeTask(plan)
+  const radius = height / 2
+  let x = 0
+  let body = ''
+  for (const task of tasks) {
+    const w = plan.total === 0 ? 0 : (room * task.total) / plan.total
+    const fill = (w * task.done) / task.total
+    const isActive = task === active
+    body += `<rect class="track" x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${height}" rx="${radius}" fill="#888" fill-opacity="0.25"`
+    body += isActive ? ` stroke="${color}" stroke-width="1"/>` : '/>'
+    if (fill > 0) {
+      body += `<rect class="done" x="${x.toFixed(2)}" y="0" width="${fill.toFixed(2)}" height="${height}" rx="${radius}" fill="${color}" fill-opacity="${isActive ? 1 : 0.8}"/>`
+    }
+    x += w + gap
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`
 }
 
 /** True when the path is inside one of the plan folders. */
@@ -136,7 +147,7 @@ function justFinished(previous: Plan | null, next: Plan | null): PlanTask[] {
 }
 
 /**
- * Stores the plan (or null) and mirrors it on the status line, the VS Code display.
+ * Stores the plan (or null) and mirrors it on the status line where no card is drawn (VS Code).
  * Returns the tasks this write completed: judged against the value the update replaces, so two
  * overlapping refreshes never both see the same task as new.
  */
@@ -147,7 +158,10 @@ async function publish($: EngineInterface, next: Plan | null): Promise<PlanTask[
     finished = justFinished(previous, next)
     return next
   })
-  $.ui.status(next === null || next.total === 0 ? undefined : statusLine(next))
+  // VS Code raises no AbovePrompt card, so the status line is its only display; elsewhere the card shows the plan.
+  const surfaces = await $.session.surfaces().catch(() => ['vscode' as const])
+  const line = next === null || next.total === 0 || !surfaces.includes('vscode') ? undefined : statusLine(next)
+  $.ui.status(line)
   return finished
 }
 
@@ -215,7 +229,7 @@ export const register: Register = on => {
     return completed
   })
 
-  // The card next to the prompt (terminal and desktop); vscode shows the status line alone. The band is shared:
+  // The card next to the prompt (terminal and desktop, no border); vscode shows the status line alone. The band is shared:
   // other mods' cards (tool-fold's agents, usage-band) stack below this one, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const current = await read($, plan)
@@ -227,39 +241,42 @@ export const register: Register = on => {
     const finished = isFinished(current)
     const color = finished ? 'success' : 'claude'
     const active = activeTask(current)
-    // Room left for the task title after the bar, counts and glyphs.
-    const room = Math.max(12, Math.min(40, e.props.bodyColumns - 28))
+    const percent = `${Math.round((current.done / current.total) * 100)}%`
+    const title = truncate(current.title, Math.max(16, e.props.bodyColumns - 26))
+    const counts = (
+      <>
+        <Text color={color}>{finished ? `✓ ${current.done}/${current.total}` : `${current.done}/${current.total}`}</Text>
+        <Text dimColor>{percent}</Text>
+      </>
+    )
+    // Room left for the task title after the glyphs and counts.
+    const room = Math.max(12, Math.min(60, e.props.bodyColumns - 12))
     const taskLine =
       active === undefined ? undefined : (
         <Text dimColor>
-          ▶ {truncate(active.title, room)} {glyphBar(active.done, active.total, 6)} {active.done}/{active.total}
+          ▶ {truncate(active.title, room)} · {active.done}/{active.total}
         </Text>
       )
 
     const rest = await next(e)
-    // The terminal has no Svg: it gets the glyph card.
+    // The terminal has no Svg: it gets the glyph bar.
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)
       const hex = finished ? '#3fb950' : '#d97757'
+      const width = Math.max(160, Math.min(480, e.props.bodyColumns * 7))
       return (
         <Box flexDirection="column">
-          <Box borderStyle="round" borderColor={color} paddingX={1} gap={1}>
-            <Svg
-              source={ringSvg(current.done, current.total, 18, hex)}
-              alt={`${current.done} of ${current.total} steps done`}
-              width={18}
-              height={18}
-            />
-            <Box flexDirection="column">
-              <Box gap={1}>
-                <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 24))}</Text>
-                <Text color={color}>
-                  {current.done}/{current.total}
-                </Text>
-              </Box>
-              {taskLine}
-            </Box>
+          <Box gap={1}>
+            <Text weight="bold">{title}</Text>
+            {counts}
           </Box>
+          <Svg
+            source={segmentsSvg(current, width, 6, hex)}
+            alt={`${current.done} of ${current.total} steps done`}
+            width={width}
+            height={6}
+          />
+          {taskLine}
           {rest}
         </Box>
       )
@@ -267,16 +284,12 @@ export const register: Register = on => {
 
     return (
       <Box flexDirection="column">
-        <Box borderStyle="round" borderColor={color} paddingX={1} flexDirection="column">
-          <Box gap={1}>
-            <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
-            <Text weight="bold">{truncate(current.title, Math.max(16, e.props.bodyColumns - 26))}</Text>
-            <Text color={color}>
-              {current.done}/{current.total}
-            </Text>
-          </Box>
-          {taskLine}
+        <Box gap={1}>
+          <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
+          <Text weight="bold">{title}</Text>
+          {counts}
         </Box>
+        {taskLine}
         {rest}
       </Box>
     )

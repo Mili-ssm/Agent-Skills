@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { bar, glyphBar, isPlanPath, parsePlan, statusLine } from '../hooks/register'
+import { bar, glyphBar, isPlanPath, parsePlan, segmentsSvg, statusLine } from '../hooks/register'
 
 // A plan in the shape Superpowers' writing-plans produces.
 const PLAN = `# Login with magic links
@@ -60,7 +60,22 @@ test('glyphBar and statusLine', () => {
   expect(statusLine(parsePlan('p.md', '# Done\n## T\n- [x] a\n'))).toBe('✓ Done 1/1')
 })
 
-test('status line, terminal and desktop cards show the newest plan; other surfaces and no plan pass', async ($, on) => {
+test('segmentsSvg draws one segment per task, filled in proportion, green when finished', () => {
+  const plan = parsePlan('p.md', PLAN)
+  const svg = segmentsSvg(plan, 106, 6, '#d97757')
+  // 106 - 2 gaps of 2px = 102px over 6 steps: 34, 51, 17.
+  expect(svg.match(/class="track"/g)).toHaveLength(3)
+  expect(svg.match(/class="done"[^>]*width="([\d.]+)"/g)).toHaveLength(2)
+  expect(svg).toContain('class="done" x="0.00" y="0" width="34.00"')
+  expect(svg).toContain('class="done" x="36.00" y="0" width="17.00"')
+  expect(svg).toContain('#d97757')
+  expect(svg).not.toContain('#3fb950')
+  const finished = segmentsSvg(parsePlan('p.md', '# D\n## T\n- [x] a\n'), 100, 6, '#3fb950')
+  expect(finished).toContain('class="done" x="0.00" y="0" width="100.00"')
+  expect(finished).toContain('#3fb950')
+})
+
+test('status line only without a card (vscode); terminal and desktop cards show the newest plan; no plan passes', async ($, on) => {
   let files = 1
   const statuses: (string | undefined)[] = []
   // These hooks stand for the engine: one plan folder with one file.
@@ -75,6 +90,8 @@ test('status line, terminal and desktop cards show the newest plan; other surfac
     statuses.push(e.text)
     return { value: undefined }
   })
+  let surfaces: ('desktop' | 'vscode')[] = ['desktop']
+  on('session.surfaces', () => ({ value: surfaces }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.complete', () => ({ text: '' }))
   // The engine's own band is empty: what the chain falls to when the card passes.
@@ -84,13 +101,15 @@ test('status line, terminal and desktop cards show the newest plan; other surfac
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  expect(statuses.at(-1)).toBe('▰▰▰▰▰▱▱▱▱▱ 3/6 · ▶ Task 2: Email sender 1/3')
+  // The card draws on desktop and terminal: no status line to duplicate it.
+  expect(statuses.at(-1)).toBeUndefined()
 
   const terminal = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await terminal.find({ type: 'Text', text: /Login/ }))?.text).toBe('Login with magic links')
   expect((await terminal.find({ type: 'Text', text: /^3\/6$/ }))?.text).toBe('3/6')
+  expect((await terminal.find({ type: 'Text', text: /^50%$/ }))?.text).toBe('50%')
   expect((await terminal.find({ type: 'Text', text: /▰▰▰▰▰▱▱▱▱▱/ }))?.text).toBe('▰▰▰▰▰▱▱▱▱▱')
-  expect((await terminal.find({ type: 'Text', text: /▶/ }))?.text).toBe('▶ Task 2: Email sender ▰▰▱▱▱▱ 1/3')
+  expect((await terminal.find({ type: 'Text', text: /▶/ }))?.text).toBe('▶ Task 2: Email sender · 1/3')
   await terminal.unmount()
 
   const desktop = await $.ui.mount({ ...BAND, surface: 'desktop' })
@@ -98,6 +117,11 @@ test('status line, terminal and desktop cards show the newest plan; other surfac
   expect((await desktop.find({ type: 'Text', text: /Login/ }))?.text).toBe('Login with magic links')
   expect((await desktop.find({ type: 'Text', text: /▶/ }))?.text).toContain('Task 2: Email sender')
   await desktop.unmount()
+
+  // VS Code draws no card: the status line is its display.
+  surfaces = ['vscode']
+  await $.session.start({ cwd: '/', surface: 'vscode', isInteractive: true })
+  expect(statuses.at(-1)).toBe('▰▰▰▰▰▱▱▱▱▱ 3/6 · ▶ Task 2: Email sender 1/3')
 
   // The chain passes (nothing beneath draws) when a survey is up, or there is no plan.
   files = 0
