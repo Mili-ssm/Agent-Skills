@@ -45,4 +45,4 @@ Use only these tools: read files, search file contents, find files by name, shel
 Stop and report what you have after 60 turns. Claude Code enforces this limit; here it is your rule.
 '''
 model = "gpt-6.1-terra"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "low"

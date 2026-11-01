@@ -36,21 +36,38 @@ MARKETPLACE = "mili-ssm"
 # The one plugin that is ported; the mods are Claude-only (no mods API elsewhere).
 PLUGIN_NAME = "agent-skills"
 
-MODEL_MAP = {
-    # Copilot runs the same Claude models, so the mapping is exact.
-    "copilot": {
-        "haiku": "claude-haiku-5.5",
-        "sonnet": "claude-sonnet-5.5",
-        "opus": "claude-opus-5.5",
-    },
-    # Nearest tier in Codex models.json (2026-11): luna fast and affordable, terra balanced (closest to Sonnet),
-    # sol the default workhorse, treated as Opus's equal (owner, 2026-11); astra frontier stays unmapped.
-    "codex": {
-        "haiku": "gpt-6-luna",
-        "sonnet": "gpt-6.1-terra",
-        "opus": "gpt-6.1-sol",
-    },
+# Copilot runs the same Claude models, so model and effort pass through unchanged.
+COPILOT_MODELS = {
+    "haiku": "claude-haiku-5.5",
+    "sonnet": "claude-sonnet-5.5",
+    "opus": "claude-opus-5.5",
 }
+# Claude (model, effort) -> Codex (model, effort). Source: owner, 2026-11; Codex models.json slugs.
+# Cost-optimized equivalences; Opus high stays on sol because astra costs more. If one agent needs an
+# exception, add a per-agent override here; none exists yet. A pair missing here is an error in --check.
+CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
+    **{("haiku", e): ("gpt-6-luna", e) for e in ("low", "medium", "high", "xhigh", "max")},
+    ("sonnet", "low"): ("gpt-6-luna", "high"),
+    ("sonnet", "medium"): ("gpt-6.1-terra", "low"),
+    ("sonnet", "high"): ("gpt-6.1-terra", "medium"),
+    ("sonnet", "xhigh"): ("gpt-6.1-terra", "high"),
+    ("sonnet", "max"): ("gpt-6.1-terra", "xhigh"),
+    ("opus", "low"): ("gpt-6.1-sol", "low"),
+    ("opus", "medium"): ("gpt-6.1-sol", "medium"),
+    ("opus", "high"): ("gpt-6.1-sol", "high"),
+    ("opus", "xhigh"): ("gpt-6-astra", "low"),
+    ("opus", "max"): ("gpt-6-astra", "medium"),
+}
+# Text like "(Sonnet)" names a model, not an agent; it is rewritten with the model of the pair most agents use.
+CODEX_LABEL_EFFORT = {"haiku": "medium", "sonnet": "medium", "opus": "high"}
+MODEL_MAP = {"copilot": COPILOT_MODELS}
+
+
+def codex_label_model(tier: str) -> str:
+    """The Codex model that replaces the Claude name "(Haiku)", "(Sonnet)" or "(Opus)" in text."""
+    return CODEX_PAIRS[(tier, CODEX_LABEL_EFFORT[tier])][0]
+
+
 # Where Copilot CLI installs plugins; the shell expands the variables inside the commands the skills print.
 COPILOT_BASE = "${COPILOT_HOME:-$HOME/.copilot}/installed-plugins"
 COPILOT_ROOT = f"{COPILOT_BASE}/{MARKETPLACE}/{PLUGIN_NAME}"
@@ -84,7 +101,7 @@ AGENT_FIELDS = {
     "skills",
 }
 COMMAND_FIELDS = {"description", "argument-hint", "disable-model-invocation"}
-# Both tools take the same effort names as Claude, so the value is copied.
+# Copilot takes the same effort names as Claude, so the value is copied.
 EFFORTS = {"low", "medium", "high"}
 # Codex rejects unknown keys in a role file, so only these may be emitted (features: shell_tool only).
 CODEX_ROLE_KEYS = {
@@ -290,6 +307,10 @@ def check_agent(doc: Doc, skills: dict[str, Doc], errors: list[str]) -> None:
         errors.append(
             f"{rel}: effort {fm.get('effort')!r} is not one of {sorted(EFFORTS)}"
         )
+    if (fm.get("model"), fm.get("effort")) not in CODEX_PAIRS:
+        errors.append(
+            f"{rel}: (model, effort) {(fm.get('model'), fm.get('effort'))!r} is not in CODEX_PAIRS"
+        )
     for tool in as_list(fm.get("tools")):
         if tool not in TOOL_MAP or tool not in TOOL_CAPABILITY:
             errors.append(
@@ -409,7 +430,7 @@ def transform(
     text = text.replace("`AskUserQuestion`", ASK_USER_TEXT)
     if target is CODEX:
         for tier, label in MODEL_LABELS.items():
-            text = text.replace(f"({label})", f"({MODEL_MAP[target.key][tier]})")
+            text = text.replace(f"({label})", f"({codex_label_model(tier)})")
     return text
 
 
@@ -600,8 +621,8 @@ class Generator:
             fm = doc.fm
             description = self.t(fm["description"], target, f"agents/{name}.md")
             instructions = self.instructions(doc, target)
-            model = q(MODEL_MAP[target.key][fm["model"]])
             if target is COPILOT:
+                model = q(COPILOT_MODELS[fm["model"]])
                 pairs = [
                     ("name", q(name)),
                     ("description", q(description)),
@@ -618,12 +639,13 @@ class Generator:
                     dest, f"{frontmatter(pairs)}\n{instructions}", target
                 )
             else:
+                model, effort = CODEX_PAIRS[(fm["model"], fm["effort"])]
                 lines = [
                     f"name = {q(name)}",
                     f"description = {q(description)}",
                     f"developer_instructions = {toml_multiline(instructions)}",
-                    f"model = {model}",
-                    f"model_reasoning_effort = {q(fm['effort'])}",
+                    f"model = {q(model)}",
+                    f"model_reasoning_effort = {q(effort)}",
                 ]
                 if not needs_codex_shell(fm):
                     lines += ["", "[features]", "shell_tool = false"]
@@ -770,7 +792,7 @@ def expected_text(
     swaps += [("`Explore`", target.explore), ("`AskUserQuestion`", ASK_USER_TEXT)]
     if target is CODEX:
         swaps += [
-            (f"({label})", f"({MODEL_MAP['codex'][tier]})")
+            (f"({label})", f"({codex_label_model(tier)})")
             for tier, label in MODEL_LABELS.items()
         ]
     for old, new in swaps:
@@ -940,10 +962,9 @@ class Verifier:
         check.eq(
             "description", got.get("description"), self.want(fm["description"], CODEX)
         )
-        check.eq("model", got.get("model"), MODEL_MAP["codex"][fm["model"]])
-        check.eq(
-            "model_reasoning_effort", got.get("model_reasoning_effort"), fm["effort"]
-        )
+        want_model, want_effort = CODEX_PAIRS[(fm["model"], fm["effort"])]
+        check.eq("model", got.get("model"), want_model)
+        check.eq("model_reasoning_effort", got.get("model_reasoning_effort"), want_effort)
         no_shell = {"shell_tool": False}
         check.eq(
             "[features]",
@@ -1159,7 +1180,7 @@ def report(src: Sources) -> str:
         (
             f"Agents ({n_agents}): identity",
             "`com.github.copilot/agents/<name>.agent.md`; model to the same Claude id; `effort` to `reasoningEffort`; delegation rules point to copilot-instructions.md and AGENTS.md",
-            "`agents/<name>.toml`; model to the nearest GPT tier; `effort` to `model_reasoning_effort`; delegation rules point to AGENTS.md",
+            "`agents/<name>.toml`; `model` and `effort` together to a GPT model and `model_reasoning_effort` (table in docs/ports.md); delegation rules point to AGENTS.md",
             "Codex plugins cannot carry agents: copy `agents/*.toml` to `~/.codex/agents/`",
         ),
         (

@@ -127,4 +127,4 @@ Use only these tools: read files, search file contents, find files by name, shel
 Leave the project's files unchanged: do not use apply_patch or any edit tool, and run only commands that do not change them (temp dirs and build caches are fine). Claude Code enforces this; Codex does not, so it is your rule.
 '''
 model = "gpt-6.1-terra"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "low"
