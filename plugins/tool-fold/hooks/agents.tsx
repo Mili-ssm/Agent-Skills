@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
-import { onAgentSpawn, resume, waitingRuns } from './waiting'
+import { onAgentSpawn, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -620,6 +620,7 @@ export const registerAgents: Register = (on, options) => {
       `panes: ${panes.map(pane => `${pane.id} shown=${pane.isShown} placed=${pane.isPlaced}`).join('; ') || 'none'}`,
       `docked: ${await read($, docked)}`,
       `runs: ${list.filter(run => run.status === 'running').length} running of ${list.length}`,
+      ...(await waitDebug($)),
       'band draws (newest last):',
       ...(bandTrace.length === 0 ? ['  none yet'] : bandTrace.map(line => `  ${line}`)),
     ]

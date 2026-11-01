@@ -218,3 +218,12 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
     }
   })
 }
+
+/** For `/agents-debug`: what the wait card would draw from, so a missing card can be explained. */
+export async function waitDebug($: EngineInterface): Promise<string[]> {
+  const [list, idle] = await Promise.all([read($, waits), read($, idleAt)])
+  return [
+    `main loop idle since: ${idle === null ? 'not idle' : new Date(idle).toISOString().slice(11, 19)}`,
+    `waits: ${list.length === 0 ? 'none' : list.map(task => `${task.kind} ${task.id}`).join('; ')}`,
+  ]
+}
