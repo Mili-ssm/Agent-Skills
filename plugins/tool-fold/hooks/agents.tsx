@@ -426,7 +426,8 @@ export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
   waiting: { hex: '#58a6ff', theme: 'suggestion' },
   completed: { hex: '#3fb950', theme: 'success' },
   // Claude's 'listo' card stays until the next prompt: grey, so a finished request does not draw the eye.
-  idle: { hex: '#8b8b8b', theme: 'inactive' },
+  // The line in a greyed green, quieter than the context's (#5f9e6e); the diamond and ✓ keep the success green.
+  idle: { hex: '#5b6b5f', theme: 'success' },
   failed: { hex: '#f85149', theme: 'error' },
 }
 
