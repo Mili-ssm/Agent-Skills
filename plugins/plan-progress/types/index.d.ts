@@ -24,6 +24,8 @@ declare module 'claude-code' {
       plan: Shaped<Plan | null>
       /** Path set with `/plan-progress <path>`; null follows the newest plan. */
       pinned: string | null
+      /** Haiku's description of what remains, for the plan state `key` (`path:done/total`). */
+      remaining: { key: string; text: string } | null
     }
   }
 }
