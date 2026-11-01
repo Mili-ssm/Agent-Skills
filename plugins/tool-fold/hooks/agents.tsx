@@ -655,10 +655,10 @@ export const registerAgents: Register = (on, options) => {
     const record = async (): Promise<void> => {
       const startedAt = await $.clock.now()
       const list = await update($, runs, all => {
-        // A resumed agent keeps its card: mark it running again.
+        // A resumed agent keeps its card and its original start: mark it running again.
         if (all.some(run => run.id === id)) {
           isNew = false
-          return all.map(run => (run.id === id ? { ...run, status: 'running', startedAt } : run))
+          return all.map(run => (run.id === id ? withoutDuration({ ...run, status: 'running' }) : run))
         }
         const run: AgentRun = {
           id,
@@ -1002,14 +1002,19 @@ async function isParked($: EngineInterface, agentId: string): Promise<boolean> {
   return list.some(info => info.id === agentId && info.status === 'waiting')
 }
 
+/** The run without the duration of its last end: it is running again. */
+function withoutDuration(run: AgentRun): AgentRun {
+  const { durationMs: _ended, ...rest } = run
+  return rest
+}
+
 /** A parked background agent woke for a new turn: its run is running again. */
 export async function wakeAgentRun($: EngineInterface, agentId: string): Promise<void> {
   const run = (await read($, runs)).find(item => item.id === agentId)
   if (run !== undefined && run.background === true && run.status !== 'running') {
     // startedAt stays the spawn time: progress and elapsed count the whole task, not the turn after the wake.
     await patch($, agentId, item => {
-      const { durationMs: _turn, ...rest } = item
-      return { ...rest, status: 'running' }
+      return withoutDuration({ ...item, status: 'running' })
     })
     await syncTick($)
   }
@@ -1023,7 +1028,7 @@ export async function endAgentTurn(
   $: EngineInterface,
   agentId: string | undefined,
   reason: string,
-  durationMs: number,
+  turnMs: number,
 ): Promise<boolean> {
   if (agentId === undefined) {
     return true
@@ -1032,7 +1037,11 @@ export async function endAgentTurn(
     return false
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
-  await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
+  // The whole task counts, from the spawn: a parked agent that woke would otherwise show only its last turn.
+  const endedAt = await $.clock.now()
+  const started = (await read($, runs)).find(run => run.id === agentId)?.startedAt
+  const total = started === undefined ? turnMs : Math.max(turnMs, endedAt - started)
+  await patch($, agentId, run => ({ ...run, status, durationMs: total, current: [] }))
   const ended = (await read($, runs)).find(run => run.id === agentId)
   // The newest line of the chat when it stops: what ended and what it did. A dim log row is the one
   // bottom row a mod can add on every surface; the styled card stays on the Agent call's own row.
@@ -1044,8 +1053,8 @@ export async function endAgentTurn(
   // One that ended while it still waits on background work did not do its work in that time: nothing to learn.
   if (status === 'done' && type !== undefined && !(await hasOwnedWaits($, agentId))) {
     const past = await rememberedDurations($, type)
-    await $.store.set(durationsKey(type), [...past, durationMs].slice(-REMEMBERED)).catch(() => undefined)
-    await recordSample($, AGENT_SAMPLES_KEY, agentSummary(type, ended?.description ?? ''), durationMs, await $.clock.now())
+    await $.store.set(durationsKey(type), [...past, total].slice(-REMEMBERED)).catch(() => undefined)
+    await recordSample($, AGENT_SAMPLES_KEY, agentSummary(type, ended?.description ?? ''), total, await $.clock.now())
   }
   await syncTick($)
   await closeDockWhenIdle($)
