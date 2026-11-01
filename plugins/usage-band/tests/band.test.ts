@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { activity, bar, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
+import { activity, agentDots, bar, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
 import type { Cycle } from '../types'
 
 // Token usage as a turn reports it.
@@ -396,4 +396,51 @@ test('on Desktop, /usage-band draws its bars as image bars', async ($, on) => {
   expect((await output.find({ type: 'Text', text: /opus/ }))?.text).toBe('opus')
   expect(await output.find({ type: 'Text', text: /▇/ })).toBeUndefined()
   await output.unmount()
+})
+
+test('the agent count carries one colored dot per model family the agents ran on', async ($, on) => {
+  const { statuses, surfaces, clock } = engine(on)
+  surfaces.splice(0, surfaces.length, 'desktop')
+  const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'fable-1', 'mystery', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5']
+  let spawned = 0
+  on('agent.spawn', () => ({ model: models[spawned++] ?? 'x', agentId: `a${spawned}` }) as never)
+  on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
+  const band = () =>
+    $.ui.mount({
+      plugin: 'usage-band',
+      component: 'AbovePrompt',
+      requestId: 'band',
+      surface: 'desktop',
+      props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 } },
+    } as never)
+  const spawn = async () => {
+    await $.tool.call({ tool: 'Agent', description: 'x' } as never)
+    await $.agent.spawn({ tool_use_id: `tu${spawned}`, prompt: 'p', description: 'd', subagentType: 'Explore', provider: { plugin: 'engine', tier: 'core' }, parentModel: 'claude-opus-5-5', background: false, fork: false } as never)
+  }
+
+  await $.prompt.submit(prompt('Go'))
+  await $.turn.start({ text: 'Go', turnId: 't1' })
+  for (let i = 0; i < 3; i++) {
+    await spawn()
+  }
+  await clock.advance(1000)
+  let ui = await band()
+  const dots = await ui.findAll({ type: 'Text', text: /^●$/ })
+  expect(dots.map(dot => dot.props.color)).toEqual(['#a371f7', '#f778ba', '#39c5cf'])
+  expect((await ui.find({ type: 'Text', text: /agents/ }))?.text).toBe(' 3 agents')
+  await ui.unmount()
+  // The plain status line keeps text only.
+  expect(statuses.filter(status => status !== undefined).every(status => !status.includes('●'))).toBe(true)
+
+  // Six more agents, three on opus again, one fable, one unknown: one dot per family, in order, unknown dim last.
+  for (let i = 0; i < 6; i++) {
+    await spawn()
+  }
+  await clock.advance(1000)
+  ui = await band()
+  const all = await ui.findAll({ type: 'Text', text: /^●$/ })
+  expect(all.map(dot => dot.props.color)).toEqual(['#a371f7', '#f778ba', '#39c5cf', '#e3b341', undefined])
+  expect(all[4]?.props.dimColor).toBe(true)
+  await ui.unmount()
+  expect(agentDots({ agents: 2, agentModels: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] } as never)).toEqual(['#f778ba', '#39c5cf'])
 })

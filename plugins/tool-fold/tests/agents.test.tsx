@@ -457,9 +457,9 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
 })
 
 test('the model dot takes the color of its family, dim for others', () => {
-  expect(FAMILY_COLOR).toEqual({ opus: '#a371f7', sonnet: '#58a6ff', haiku: '#39c5cf', fable: '#e3b341' })
+  expect(FAMILY_COLOR).toEqual({ opus: '#a371f7', sonnet: '#f778ba', haiku: '#39c5cf', fable: '#e3b341' })
   expect(dotColor('claude-opus-5-5')).toBe('#a371f7')
-  expect(dotColor('claude-sonnet-5-5')).toBe('#58a6ff')
+  expect(dotColor('claude-sonnet-5-5')).toBe('#f778ba')
   expect(dotColor('claude-haiku-5-5')).toBe('#39c5cf')
   expect(dotColor('fable-1')).toBe('#e3b341')
   expect(dotColor('gpt-x')).toBe('subtle')

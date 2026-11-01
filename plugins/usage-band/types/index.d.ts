@@ -45,6 +45,8 @@ export type Cycle = {
   skills: number
   /** `Agent` calls, by the main loop or an agent. */
   agents: number
+  /** Model of each agent spawned in the cycle (the dots show its families) (absent in a cycle stored before it was tracked). */
+  agentModels?: string[]
 }
 
 declare module 'claude-code' {

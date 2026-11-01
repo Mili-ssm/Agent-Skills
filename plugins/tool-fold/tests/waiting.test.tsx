@@ -143,7 +143,7 @@ test('a new turn hides the card, a monitor event keeps its wait, and a killed ta
 
 test('a background agent is waited on until its turn ends', async ($, on) => {
   const clock = engine(on, { 'wait-durations:agent:Explore': [100_000, 180_000, 240_000] })
-  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
+  on('agent.spawn', (_, e) => ({ model: 'claude-haiku-5-5', agentId: e.tool_use_id === 'tu2' ? 'a2' : 'a1' }))
   on('model.complete', () => ({
     value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
   }))
@@ -162,10 +162,27 @@ test('a background agent is waited on until its turn ends', async ($, on) => {
   await clock.advance(2000)
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /agente · en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /esperando a Explore/ })).toBeDefined()
   // Even with a history, the wait on an agent has no right datum: the agent's own card carries it.
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   await ui.unmount()
+
+  // A second agent: the detail counts them instead of naming one.
+  await $.agent.spawn({
+    tool_use_id: 'tu2',
+    prompt: 'More',
+    description: 'Other',
+    subagentType: 'Plan',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5',
+    background: true,
+    fork: false,
+  } as never)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /esperando a 2 agentes/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /esperando a Explore/ })).toBeUndefined()
+  await ui.unmount()
+  await $.turn.complete({ ...done, agentId: 'a2', turnId: 's2' })
 
   await $.turn.complete({ ...done, agentId: 'a1', turnId: 's1' })
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })

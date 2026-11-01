@@ -48,6 +48,12 @@ export function waitLabel(kind: WaitKind, input: Record<string, unknown>): strin
   return clip((text('description') || command.split('\n')[0] || text('subagent_type') || 'tarea').trim(), 120)
 }
 
+/** The agent a wait names: its type (`Explore`), else its description. */
+const agentName = (input: Record<string, unknown>): string => {
+  const text = (name: string): string => (typeof input[name] === 'string' ? (input[name] as string).trim() : '')
+  return clip(text('subagent_type') || text('description') || 'agente', 60)
+}
+
 /** Elapsed over the estimate, held under 100% until the work is done; undefined with no estimate. */
 export function progressOf(elapsedMs: number, etaMs: number | undefined): number | undefined {
   return etaMs === undefined || etaMs <= 0 ? undefined : Math.min(MAX_PROGRESS, Math.max(0, elapsedMs / etaMs))
@@ -76,7 +82,7 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
     const past = await $.store.get(sampleKey(key)).catch(() => undefined)
     const etaMs = median(Array.isArray(past) ? past.filter((item): item is number => typeof item === 'number') : [])
     const startedAt = await $.clock.now()
-    const task: WaitTask = { id, kind, key, label: waitLabel(kind, input), startedAt, ...(etaMs === undefined ? {} : { etaMs }) }
+    const task: WaitTask = { id, kind, key, label: waitLabel(kind, input), ...(kind === 'agent' ? { name: agentName(input) } : {}), startedAt, ...(etaMs === undefined ? {} : { etaMs }) }
     await update($, waits, all => [...all.filter(item => item.id !== id), task])
     await syncTick($)
   } catch (error) {
@@ -190,6 +196,9 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   await read($, waitTick)
   const now = await $.clock.now()
   const model = await $.session.model().catch(() => '')
+  const agents = list.filter(task => task.kind === 'agent')
+  // What an agent wait says: the one agent's name, else how many.
+  const agentDetail = agents.length === 1 ? `esperando a ${agents[0]?.name ?? agents[0]?.label}` : `esperando a ${agents.length} agentes`
   return list.map(task => {
     // Waiting on an agent: its own card carries the estimate.
     const fraction = task.kind === 'agent' ? undefined : progressOf(Math.max(0, now - task.startedAt), task.etaMs)
@@ -202,7 +211,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
       model,
       status: 'running',
       startedAt: task.startedAt,
-      current: [{ id: task.id, kind: 'other', label: `${KIND_NAME[task.kind]} · en segundo plano`, status: 'running' }],
+      current: [{ id: task.id, kind: 'other', label: task.kind === 'agent' ? agentDetail : `${KIND_NAME[task.kind]} · en segundo plano`, status: 'running' }],
       recent: [],
       counts: {},
       ...(fraction === undefined ? {} : { estimate: Math.round(fraction * 100) }),

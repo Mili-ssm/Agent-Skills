@@ -39,7 +39,7 @@ export const family = (model: string): string =>
 /** Dot color per family (the model name stays dim). */
 export const FAMILY_COLOR: Record<string, string> = {
   opus: '#a371f7',
-  sonnet: '#58a6ff',
+  sonnet: '#f778ba',
   haiku: '#39c5cf',
   fable: '#e3b341',
 }

@@ -80,6 +80,8 @@ export type WaitTask = {
   key: string
   /** What the card's mission says it waits on, from the model's description or the command. */
   label: string
+  /** An agent's type, else its description: what the card names when it waits on this one agent. */
+  name?: string
   /** Clock time it launched, for the elapsed time. */
   startedAt: number
   /** Median of the durations remembered for its key; absent with no sample. */
