@@ -100,7 +100,8 @@ export function segmentsSvg(plan: Plan, width: number, height: number, color: st
   let x = 0
   let body = ''
   for (const task of tasks) {
-    const w = plan.total === 0 ? 0 : (room * task.total) / plan.total
+    // Equal width per task, so the bar reads as a row of tasks; the fill shows each task's own progress.
+    const w = tasks.length === 0 ? 0 : room / tasks.length
     const fill = (w * task.done) / task.total
     const isActive = task === active
     body += `<rect class="track" x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${height}" rx="${radius}" fill="#888" fill-opacity="0.25"`
@@ -159,8 +160,10 @@ async function publish($: EngineInterface, next: Plan | null): Promise<PlanTask[
     return next
   })
   // VS Code raises no AbovePrompt card, so the status line is its only display; elsewhere the card shows the plan.
+  // Terminal and desktop draw the card above the prompt; the status line is only for a session drawn in VS Code alone.
   const surfaces = await $.session.surfaces().catch(() => ['vscode' as const])
-  const line = next === null || next.total === 0 || !surfaces.includes('vscode') ? undefined : statusLine(next)
+  const vscodeOnly = surfaces.length > 0 && surfaces.every(surface => surface === 'vscode')
+  const line = next === null || next.total === 0 || !vscodeOnly ? undefined : statusLine(next)
   $.ui.status(line)
   return finished
 }
@@ -245,8 +248,10 @@ export const register: Register = on => {
     const title = truncate(current.title, Math.max(16, e.props.bodyColumns - 26))
     const counts = (
       <>
-        <Text color={color}>{finished ? `✓ ${current.done}/${current.total}` : `${current.done}/${current.total}`}</Text>
-        <Text dimColor>{percent}</Text>
+        <Text color={color}>
+          {finished ? '✓ ' : ''}
+          {current.done}/{current.total} <Text dimColor>· {percent}</Text>
+        </Text>
       </>
     )
     // Room left for the task title after the glyphs and counts.
