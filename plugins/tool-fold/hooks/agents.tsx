@@ -711,6 +711,8 @@ export const registerAgents: Register = (on, options) => {
     $.ui.status(undefined)
     await $.command.register({ name: 'agents-dock', description: 'Show running agents in the "Agentes" pane' })
     await $.command.register({ name: 'agents-debug', description: 'tool-fold: what the agent band and pane see here' })
+    // A reload may drop runs or waits an older version kept: the pane title must count what is there now.
+    await retitleDock($).catch(() => undefined)
     await syncTick($)
     await resume($).catch(() => undefined)
     if ((await read($, runs)).some(run => run.status === 'running')) {
