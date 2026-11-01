@@ -2,10 +2,12 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import {
   AGENT_ICONS,
+  FAMILY_COLOR,
   STATE_COLOR,
   commandOf,
   countsLine,
   describeStep,
+  dotColor,
   estimateInput,
   estimateOf,
   formatDuration,
@@ -133,7 +135,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
       props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
     } as never)
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
-    expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
+    expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toMatch(/^● haiku-5-5 · \d+s$/)
     // One detail line: the latest call (the mission shows while it has none).
     expect(await ui.find({ type: 'Text', text: /Read session/ })).toBeUndefined()
     expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('✓ Search "Session(" in src/')
@@ -150,7 +152,7 @@ test('a running agent shows its live tool, then folds into one summary line', as
   })
 
   const ui = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
-  expect((await ui.find({ type: 'Text', text: /1m 15s/ }))?.text).toBe('1m 15s')
+  expect((await ui.find({ type: 'Text', text: /1m 15s/ }))?.text).toBe('● haiku-5-5 · 1m 15s')
   expect((await ui.find({ type: 'Text', text: /calls · / }))?.text).toBe('  2 calls · 2 searches')
   expect(await ui.find({ type: 'Text', text: /Search "/ })).toBeUndefined()
   await ui.unmount()
@@ -452,4 +454,13 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   expect(text).toContain('runs: 1 running of 1')
   expect(text).toMatch(/desktop survey=false running=1 drew 1 cards; beneath /)
   expect(text).toMatch(/vscode survey=false running=1 passed/)
+})
+
+test('the model dot takes the color of its family, dim for others', () => {
+  expect(FAMILY_COLOR).toEqual({ opus: '#a371f7', sonnet: '#58a6ff', haiku: '#39c5cf', fable: '#e3b341' })
+  expect(dotColor('claude-opus-5-5')).toBe('#a371f7')
+  expect(dotColor('claude-sonnet-5-5')).toBe('#58a6ff')
+  expect(dotColor('claude-haiku-5-5')).toBe('#39c5cf')
+  expect(dotColor('fable-1')).toBe('#e3b341')
+  expect(dotColor('gpt-x')).toBe('subtle')
 })

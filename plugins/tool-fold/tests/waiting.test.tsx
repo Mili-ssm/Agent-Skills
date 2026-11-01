@@ -70,12 +70,12 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   expect(await ui.find({ type: 'Text', text: /opus-5-5/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /bash · en segundo plano/ })).toBeDefined()
-  // No sample yet: elapsed only, no percentage.
-  expect(await ui.find({ type: 'Text', text: /1m 12s/ })).toBeDefined()
+  // No sample yet: the elapsed time sits by the model, no percentage on the right.
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 12s')
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   // The clock moves the card.
   await clock.advance(3000)
-  expect(await ui.find({ type: 'Text', text: /1m 15s/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 15s')
   await ui.unmount()
 
   // The pane lists it as it lists any running agent.
@@ -100,6 +100,7 @@ test('a recorded sample gives the estimate and the progress', async ($, on) => {
   await clock.advance(90_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 30s')
   await ui.unmount()
 
   // It finishes after 4 minutes: the duration joins the samples.
@@ -141,7 +142,7 @@ test('a new turn hides the card, a monitor event keeps its wait, and a killed ta
 })
 
 test('a background agent is waited on until its turn ends', async ($, on) => {
-  const clock = engine(on)
+  const clock = engine(on, { 'wait-durations:agent:Explore': [100_000, 180_000, 240_000] })
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
   on('model.complete', () => ({
     value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
@@ -162,6 +163,8 @@ test('a background agent is waited on until its turn ends', async ($, on) => {
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /agente · en segundo plano/ })).toBeDefined()
+  // Even with a history, the wait on an agent has no right datum: the agent's own card carries it.
+  expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   await ui.unmount()
 
   await $.turn.complete({ ...done, agentId: 'a1', turnId: 's1' })
