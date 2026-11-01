@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { formatRemaining, remainingOf } from '../hooks/agents'
-import { cleanPhrase, estimateKey, minutesOf, progressOf, waitLabel } from '../hooks/waiting'
+import { SIMILARITY_MIN, cleanPhrase, estimateKey, minutesOf, progressOf, similarity, waitLabel } from '../hooks/waiting'
 
 // The band above the prompt as a surface mounts it.
 const BAND = { plugin: 'tool-fold', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 100 } } as const
@@ -101,7 +101,7 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
 })
 
 test('a recorded sample gives the estimate and the progress', async ($, on) => {
-  const saved: Record<string, unknown> = { 'wait-durations:bash:run the bench': [100_000, 180_000, 240_000] }
+  const saved: Record<string, unknown> = { 'wait-samples': [100_000, 180_000, 240_000].map(durationMs => ({ summary: 'Run the bench', durationMs, at: 1 })) }
   const clock = engine(on, saved)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
@@ -115,7 +115,7 @@ test('a recorded sample gives the estimate and the progress', async ($, on) => {
   // It finishes after 4 minutes: the duration joins the samples.
   await clock.advance(150_000)
   await $.prompt.submit(notice('b1', 'completed') as never)
-  expect(saved['wait-durations:bash:run the bench']).toEqual([100_000, 180_000, 240_000, 240_000])
+  expect((saved['wait-samples'] as { durationMs: number }[]).map(item => item.durationMs)).toEqual([100_000, 180_000, 240_000, 240_000])
 })
 
 test('a new turn hides the card, a monitor event keeps its wait, and a killed task teaches nothing', async ($, on) => {
@@ -211,7 +211,7 @@ test('formatRemaining and remainingOf', () => {
 })
 
 test('the main agent card comes first, stands out, and shows the time left', async ($, on) => {
-  const saved: Record<string, unknown> = { 'wait-durations:bash:run the bench': [180_000] }
+  const saved: Record<string, unknown> = { 'wait-samples': [{ summary: 'Run the bench', durationMs: 180_000, at: 1 }] }
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
   const clock = engine(on, saved)
   await $.agent.spawn({
@@ -289,7 +289,7 @@ test('without a description Haiku names the wait and guesses its duration', asyn
 })
 
 test('a recorded median wins over the guess', async ($, on) => {
-  const clock = engine(on, { 'wait-durations:bash:run the bench': [180_000] })
+  const clock = engine(on, { 'wait-samples': [{ summary: 'Run the bench', durationMs: 180_000, at: 1 }] })
   haiku(on, '60')
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
@@ -322,5 +322,97 @@ test('with no estimate at all only the empty track is drawn', async ($, on) => {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  await ui.unmount()
+})
+
+const sample = (summary: string, durationMs: number) => ({ summary, durationMs, at: 1 })
+const withAnswer = (answer: string) => ({ ...done, answer })
+
+test('similarity is word overlap', () => {
+  expect(SIMILARITY_MIN).toBe(0.5)
+  expect(similarity('Run the cargo bench release', 'Run cargo bench release now')).toBeGreaterThanOrEqual(SIMILARITY_MIN)
+  expect(similarity('Run the bench', 'Fetch the logs from CI')).toBeLessThan(SIMILARITY_MIN)
+})
+
+test('similar past runs give the estimate and the ⟲ icon; unrelated ones are ignored', async ($, on) => {
+  const clock = engine(on, {
+    'wait-samples': [sample('Compile the viewer crate in release', 600_000), sample('Run the cargo bench release', 180_000), sample('Run the cargo bench release core', 120_000)],
+  })
+  const prompts: string[] = []
+  haiku(on, 'none', prompts)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call({ ...BENCH, description: 'Run cargo bench release' })
+  await $.turn.complete(done)
+  await clock.advance(75_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // Median of 180 s and 120 s is 150 s: 75 s is 50%.
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^⟲$/ }))?.props.dimColor).toBe(true)
+  // Similar runs found: no pick call, and the guess asks no minutes.
+  expect(prompts.every(prompt => !prompt.includes('Anteriores'))).toBe(true)
+  await ui.unmount()
+})
+
+test('with no similar summary Haiku picks from the latest ones', async ($, on) => {
+  const clock = engine(on, { 'wait-samples': [sample('Deploy the docs site', 900_000), sample('Train the model overnight', 120_000)] })
+  const prompts: string[] = []
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    prompts.push(prompt)
+    const text = prompt.includes('Anteriores') ? '2' : '30'
+    return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(60_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  // The pick (120 s) outranks the guess (30 min): 60 s is 50%.
+  expect(prompts.some(prompt => prompt.includes('2. Train the model overnight'))).toBe(true)
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a Haiku guess shows the ? icon', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, '4')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(120_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^\?$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test("Claude's own estimate from its message overrides similar runs and shows ✦", async ($, on) => {
+  const clock = engine(on, { 'wait-samples': [sample('Run the bench', 180_000)] })
+  const prompts: string[] = []
+  haiku(on, '150', prompts)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(withAnswer('Lanzado. Calculo unas 2–3 horas.'))
+  await clock.advance(75 * 60_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(prompts.some(prompt => prompt.includes('Calculo unas 2–3 horas'))).toBe(true)
+  // 75 of 150 minutes.
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^✦$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('a message with no duration leaves the other estimates alone', async ($, on) => {
+  const clock = engine(on, { 'wait-samples': [sample('Run the bench', 180_000)] })
+  haiku(on, 'none')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(withAnswer('Lanzado, espero.'))
+  await clock.advance(90_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
   await ui.unmount()
 })

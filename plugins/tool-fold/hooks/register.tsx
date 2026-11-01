@@ -297,7 +297,7 @@ export const register: Register = (on, options) => {
       await applySteps($, [{ close: true }])
     }
     await endAgentTurn($, e.agentId, e.reason, e.durationMs)
-    await onTurn($, e.agentId, 'end', e.reason).catch(() => undefined)
+    await onTurn($, e.agentId, 'end', e.reason, e.answer).catch(() => undefined)
 
     return result
   })

@@ -1,19 +1,26 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { AgentRun, WaitKind, WaitTask } from '../types'
+import type { AgentRun, EtaSource, WaitKind, WaitSample, WaitTask } from '../types'
 import { commandOf, median } from './agents'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
-const waits = atom({ plugin: 'tool-fold', key: 'waits' } as const, [], { shape: 'waits-1' })
+const waits = atom({ plugin: 'tool-fold', key: 'waits' } as const, [], { shape: 'waits-2' })
 // Clock time the main loop's turn ended (null while a turn runs): the wait shows only while it is idle.
 const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
 
-// Durations remembered per command key across sessions ($.store, a local file).
-const REMEMBERED = 10
+// Finished waits remembered across sessions ($.store, a local file), newest last.
+const REMEMBERED = 50
+const SAMPLES_KEY = 'wait-samples'
+// Word overlap (Jaccard) from which a stored summary counts as the same kind of work.
+export const SIMILARITY_MIN = 0.5
+// Summaries offered to Haiku when no stored one is similar enough.
+const PICK_CANDIDATES = 20
+// Stronger sources replace weaker ones: Claude knows its data, past runs measured, a guess is last.
+const RANK: Record<EtaSource, number> = { guess: 1, similar: 2, message: 3 }
 // A run shorter than this teaches nothing (a command that failed at once).
 const MIN_SAMPLE_MS = 1000
 // Progress never reaches 100% before the work is done.
@@ -28,8 +35,35 @@ const ENDED = new Set(['completed', 'failed', 'killed', 'stopped'])
 /** Cuts `text` to `max` characters with an ellipsis. */
 const clip = (text: string, max: number): string => (text.length <= max ? text : `${text.slice(0, max - 1)}…`)
 
-/** The store key of one work key's remembered durations (one key each: no read-modify race across keys). */
-const sampleKey = (key: string): string => `wait-durations:${key}`
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'from', 'into', 'run', 'running', 'that', 'this', 'les', 'los', 'las', 'del', 'para', 'con', 'por', 'una', 'uno', 'que', 'ejecuta', 'ejecutar',
+])
+
+/** Lowercased words of 3+ letters or digits, stopwords out. */
+export function wordsOf(text: string): Set<string> {
+  const found = text.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []
+  return new Set(found.filter(word => !STOPWORDS.has(word)))
+}
+
+/** Jaccard overlap of two summaries' words: 0 (nothing shared) to 1 (same words). */
+export function similarity(a: string, b: string): number {
+  const left = wordsOf(a)
+  const right = wordsOf(b)
+  const shared = [...left].filter(word => right.has(word)).length
+  const total = left.size + right.size - shared
+  return total === 0 ? 0 : shared / total
+}
+
+/** The samples in the store (anything of another shape is dropped; the old per-key lists are never read). */
+async function loadSamples($: EngineInterface): Promise<WaitSample[]> {
+  const value = await $.store.get(SAMPLES_KEY).catch(() => undefined)
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is WaitSample =>
+          typeof item === 'object' && item !== null && typeof item.summary === 'string' && typeof item.durationMs === 'number',
+      )
+    : []
+}
 
 /**
  * Haiku's reply cut to one usable phrase: its first non-empty line without quotes or a final period, or '' when it
@@ -83,6 +117,7 @@ export function progressOf(elapsedMs: number, etaMs: number | undefined): number
 }
 
 // Module state, reset by a reload (session.start starts it again): the one-second redraw while the card shows.
+let turnStartedAt = 0
 let ticker: { cancel: () => void } | undefined
 
 /** Runs the clock while something is waited on and the main loop is idle; stops it otherwise. */
@@ -104,6 +139,15 @@ const GUESS_HEAD =
 const LABEL_LINE = '- Una descripción de 8 palabras como máximo, en español llano: qué hace (no cómo).\n'
 const ETA_LINE = '- Cuántos minutos tardará aproximadamente, solo un número (por ejemplo 3 o 0.5).\n'
 
+/** Gives a wait an estimate unless it already has one from an equal or stronger source. */
+async function setEta($: EngineInterface, ids: readonly string[], etaMs: number, source: EtaSource): Promise<void> {
+  await update($, waits, all =>
+    all.map(task =>
+      !ids.includes(task.id) || (task.etaSource !== undefined && RANK[task.etaSource] >= RANK[source]) ? task : { ...task, etaMs, etaSource: source },
+    ),
+  )
+}
+
 /** Fills in a wait's label and/or estimate with one Haiku call. Fire and forget: a miss leaves the wait as it was. */
 async function guess($: EngineInterface, id: string, subject: string, isLabelNeeded: boolean, isEtaNeeded: boolean): Promise<void> {
   const reply = await $.model.complete({
@@ -121,28 +165,73 @@ async function guess($: EngineInterface, id: string, subject: string, isLabelNee
   if (label === '' && etaMs === undefined) {
     return
   }
-  await update($, waits, all =>
-    all.map(task =>
-      task.id !== id
-        ? task
-        : {
-            ...task,
-            ...(label === '' ? {} : { label: clip(label, 120), isLabelGuessed: true }),
-            // A recorded median (already on the wait) always wins over a guess.
-            ...(etaMs === undefined || task.etaMs !== undefined ? {} : { etaMs, etaGuessed: true }),
-          },
-    ),
-  )
+  if (label !== '') {
+    await update($, waits, all => all.map(task => (task.id === id ? { ...task, label: clip(label, 120), isLabelGuessed: true } : task)))
+  }
+  if (etaMs !== undefined) {
+    await setEta($, [id], etaMs, 'guess')
+  }
+}
+
+/** Asks Haiku which of the latest summaries are the same kind of work as this one; sets the median of their durations. */
+async function pickSimilar($: EngineInterface, id: string, subject: string, samples: readonly WaitSample[]): Promise<void> {
+  const latest = samples.slice(-PICK_CANDIDATES)
+  const reply = await $.model.complete({
+    model: 'haiku',
+    prompt:
+      'Cuál de estas tareas anteriores es el mismo tipo de trabajo que la nueva (misma operación, tamaño parecido). ' +
+      `Responde solo con los números separados por comas, o none.\n\nNueva: ${subject.slice(0, 300)}\n\nAnteriores:\n` +
+      latest.map((sample, index) => `${index + 1}. ${sample.summary}`).join('\n'),
+    maxTokens: 20,
+    timeoutMs: 15000,
+  })
+  if (!reply.isAnswered) {
+    return
+  }
+  const picked = (reply.text.match(/\d+/g) ?? []).map(Number).filter(n => n >= 1 && n <= latest.length)
+  const etaMs = median(picked.map(n => latest[n - 1]?.durationMs ?? 0).filter(ms => ms > 0))
+  if (etaMs !== undefined) {
+    await setEta($, [id], etaMs, 'similar')
+  }
+}
+
+// Claude's last message, read once per turn end for a duration it states for the running work.
+const MESSAGE_ETA_PROMPT =
+  'Este mensaje de un agente de programación deja trabajo en marcha en segundo plano. Si el mensaje dice cuánto tardará ' +
+  '(por ejemplo "unas 2–3 horas"), responde ese tiempo en minutos como un solo número (el punto medio de un rango: 150). ' +
+  'Si no lo dice, responde none. Solo el número o none.\n\nMensaje:\n'
+
+/** Reads the duration Claude's message states for the waits started in its turn. Fire and forget. */
+async function messageEta($: EngineInterface, answer: string, since: number): Promise<void> {
+  const ids = (await read($, waits)).filter(task => task.kind !== 'agent' && task.startedAt >= since).map(task => task.id)
+  if (ids.length === 0) {
+    return
+  }
+  const reply = await $.model.complete({ model: 'haiku', prompt: MESSAGE_ETA_PROMPT + answer.slice(-3000), maxTokens: 10, timeoutMs: 15000 })
+  const etaMs = reply.isAnswered ? minutesOf(reply.text) : undefined
+  if (etaMs !== undefined) {
+    await setEta($, ids, etaMs, 'message')
+  }
 }
 
 /** Adds a wait, with the estimate its key remembers. Never throws. */
 async function begin($: EngineInterface, id: string, kind: WaitKind, input: Record<string, unknown>): Promise<void> {
   try {
     const key = estimateKey(kind, input)
-    const past = await $.store.get(sampleKey(key)).catch(() => undefined)
-    const etaMs = median(Array.isArray(past) ? past.filter((item): item is number => typeof item === 'number') : [])
+    const label = waitLabel(kind, input)
+    const samples = await loadSamples($)
+    const similar = samples.filter(sample => similarity(sample.summary, label) >= SIMILARITY_MIN).map(sample => sample.durationMs)
+    const etaMs = median(similar)
     const startedAt = await $.clock.now()
-    const task: WaitTask = { id, kind, key, label: waitLabel(kind, input), ...(kind === 'agent' ? { name: agentName(input) } : {}), startedAt, ...(etaMs === undefined ? {} : { etaMs }) }
+    const task: WaitTask = {
+      id,
+      kind,
+      key,
+      label,
+      ...(kind === 'agent' ? { name: agentName(input) } : {}),
+      startedAt,
+      ...(etaMs === undefined ? {} : { etaMs, etaSource: 'similar' as const }),
+    }
     await update($, waits, all => [...all.filter(item => item.id !== id), task])
     await syncTick($)
     // A shell or monitor with no description or no history asks Haiku, after the wait is on the card.
@@ -154,6 +243,10 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
       void guess($, id, description === '' ? subject : `${description}\n${subject}`, isLabelNeeded, isEtaNeeded).catch(error =>
         $.ui.log(`tool-fold: wait guess: ${String(error)}`, { to: 'debug' }),
       )
+    }
+    // No similar summary: Haiku may still see one among the latest.
+    if (kind !== 'agent' && etaMs === undefined && samples.length > 0) {
+      void pickSimilar($, id, label, samples).catch(error => $.ui.log(`tool-fold: wait pick: ${String(error)}`, { to: 'debug' }))
     }
   } catch (error) {
     $.ui.log(`tool-fold: wait: ${String(error)}`, { to: 'debug' })
@@ -172,9 +265,9 @@ async function finish($: EngineInterface, id: string | undefined, isDone: boolea
     for (const task of ended) {
       const took = now - task.startedAt
       if (isDone && id !== undefined && took >= MIN_SAMPLE_MS) {
-        const past = await $.store.get(sampleKey(task.key)).catch(() => undefined)
-        const list = Array.isArray(past) ? past.filter((item): item is number => typeof item === 'number') : []
-        await $.store.set(sampleKey(task.key), [...list, took].slice(-REMEMBERED)).catch(() => undefined)
+        const list = await loadSamples($)
+        const sample: WaitSample = { summary: task.label, durationMs: took, at: now }
+        await $.store.set(SAMPLES_KEY, [...list, sample].slice(-REMEMBERED)).catch(() => undefined)
       }
     }
     await syncTick($)
@@ -235,7 +328,13 @@ export async function onNotification($: EngineInterface, text: string): Promise<
 }
 
 /** The main loop's turn starts (it is not waiting any more) or ends (it is, if work remains); a background agent's end ends its wait. */
-export async function onTurn($: EngineInterface, agentId: string | undefined, phase: 'start' | 'end', reason = 'answer'): Promise<void> {
+export async function onTurn(
+  $: EngineInterface,
+  agentId: string | undefined,
+  phase: 'start' | 'end',
+  reason = 'answer',
+  answer = '',
+): Promise<void> {
   if (agentId !== undefined) {
     if (phase === 'end') {
       await finish($, agentId, reason === 'answer')
@@ -245,6 +344,11 @@ export async function onTurn($: EngineInterface, agentId: string | undefined, ph
   const now = await $.clock.now()
   await update($, idleAt, () => (phase === 'end' ? now : null))
   await syncTick($)
+  if (phase === 'start') {
+    turnStartedAt = now
+  } else if (answer.trim() !== '') {
+    void messageEta($, answer, turnStartedAt).catch(error => $.ui.log(`tool-fold: message estimate: ${String(error)}`, { to: 'debug' }))
+  }
 }
 
 /** Takes the redraw clock up again after a reload, which drops the timer. */
@@ -287,6 +391,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
       recent: [],
       counts: {},
       ...(fraction === undefined ? {} : { estimate: Math.round(fraction * 100) }),
+      ...(task.etaSource === undefined || task.kind === 'agent' ? {} : { etaSource: task.etaSource }),
       ...(isOverdue ? { isOverdue } : {}),
       // No estimate at all: the empty track keeps the card's shape (a wait on an agent has none, its own card has it).
       ...(fraction === undefined && task.kind !== 'agent' ? { isTrackOnly: true } : {}),

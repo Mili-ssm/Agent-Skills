@@ -63,6 +63,8 @@ export type AgentRun = {
   isOpenEnded?: boolean
   /** The main agent's wait has no estimate: its card draws the empty track only. */
   isTrackOnly?: boolean
+  /** Where the wait's estimate came from, drawn as a dim icon before the right datum: `✦` Claude's message, `⟲` similar runs, `?` Haiku's guess. */
+  etaSource?: EtaSource
   /** The main agent's wait ran past its estimate: the card says so instead of the time left. */
   isOverdue?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
@@ -90,11 +92,17 @@ export type WaitTask = {
   name?: string
   /** Clock time it launched, for the elapsed time. */
   startedAt: number
-  /** Median of the durations remembered for its key; absent with no sample. */
+  /** The estimate in ms; absent with none. */
   etaMs?: number
-  /** True when `etaMs` is Haiku's guess (no sample yet); a recorded median replaces it. */
-  etaGuessed?: boolean
+  /** Where `etaMs` came from; a stronger source (message over similar over guess) replaces a weaker one. */
+  etaSource?: EtaSource
 }
+
+/** Claude's own message, similar finished runs, or Haiku's guess from the command. */
+export type EtaSource = 'message' | 'similar' | 'guess'
+
+/** One finished wait, remembered across sessions: its label and how long it took. */
+export type WaitSample = { summary: string; durationMs: number; at: number }
 
 /** One call of a group, in the order the model made them. */
 export type GroupCall = {
