@@ -626,7 +626,7 @@ async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<
   return hasSurvey ? { main: [], agents: running } : { main: await waitingRuns($), agents: [...running, ...(await agentWaitRuns($, all))] }
 }
 
-/** Main card first, then a dim "Agentes" line across the width with the subagent count at its right, then their cards. */
+/** Main card first, then a dim "Agentes" line across the width with the subagent count right after the word, then their cards. */
 function cardGroups(ui: Elements, cards: Cards, now: number, frame: string, maxChars: number) {
   const { Text } = ui
   const draw = (run: AgentRun) => liveCard(ui, run, now, frame, maxChars)
@@ -634,7 +634,7 @@ function cardGroups(ui: Elements, cards: Cards, now: number, frame: string, maxC
     ...cards.main.map(draw),
     cards.agents.length > 0 ? (
       <Text key="agents-divider" dimColor wrap="truncate">
-        {`── Agentes ${'─'.repeat(Math.max(0, maxChars - 14 - String(cards.agents.length).length))} ${cards.agents.length}`}
+        {`── Agentes ${cards.agents.length} ${'─'.repeat(Math.max(1, maxChars - 14 - String(cards.agents.length).length))}`}
       </Text>
     ) : null,
     ...cards.agents.map(draw),
@@ -759,19 +759,15 @@ export const registerAgents: Register = (on, options) => {
   // stay empty while they run). Desktop does not tell the engine when the person closes its docked pane (`ui.close`
   // never comes, `$.ui.panes()` still says shown), so the band never waits on the pane; `/agents-dock` adds it.
   // The band is shared: other mods' cards stack below, from `next(e)`.
-  // VS Code (also the surface some app panels report) draws subagents on their chat rows, so its band carries only the
-  // main agent's wait card, which has no row; the terminal band draws no agents.
+  // VS Code draws like Desktop: its pane's title bar cannot be removed, so the pane is not auto-opened there and the
+  // band holds the main card and the subagents (chat rows stay empty while they run); the terminal band draws none.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     // The pane already draws these cards where it is up (Desktop never reports its pane closed: no pane check there).
     const isPaneUp =
       e.surface !== 'desktop' &&
       ((await read($, docked)) || (await $.ui.panes().catch(() => [])).some(pane => pane.id === DOCK && pane.isShown && pane.isPlaced))
     const none: Cards = { main: [], agents: [] }
-    const cards = isPaneUp
-      ? none
-      : e.surface === 'vscode'
-        ? e.props.hasSurvey ? none : { main: await waitingRuns($), agents: await agentWaitRuns($, await read($, runs)) }
-        : await runningWithWait($, e.props.hasSurvey)
+    const cards = isPaneUp ? none : await runningWithWait($, e.props.hasSurvey)
     const total = cards.main.length + cards.agents.length
     const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${total}`
     if (e.surface === 'terminal' || e.props.hasSurvey || total === 0) {
@@ -1173,10 +1169,10 @@ export async function retitleDock($: EngineInterface): Promise<void> {
   }
 }
 
-/** Opens the pane, except where Desktop is the only surface: there the band above the prompt holds the agents. */
+/** Opens the pane, except where every surface is Desktop or VS Code: there the band above the prompt holds the agents. */
 async function openDockUnlessDesktop($: EngineInterface): Promise<void> {
   const surfaces = await $.session.surfaces().catch(() => [])
-  if (surfaces.length > 0 && surfaces.every(surface => surface === 'desktop')) {
+  if (surfaces.length > 0 && surfaces.every(surface => surface === 'desktop' || surface === 'vscode')) {
     return
   }
   await openDock($)

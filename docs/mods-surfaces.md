@@ -64,6 +64,7 @@ Add a row whenever a surface surprises us: what was tried, what happened, why (o
 | Gating the band on `$.ui.panes()` (`isShown && isPlaced`) did not show it either after closing: the engine probably still lists the pane as shown | inferred | #29 |
 | With no pane opened on Desktop and the band drawn whenever agents run, the agent cards **still did not show** above the prompt, while the usage-band card did. `/agents-dock` opened the pane with the cards, so the runs were tracked as running | observed, **open** | #30 |
 | The owner's app session reported `surfaces: vscode` (`/agents-debug`, 2026-11-01): a mod gated on `desktop` drew nothing there; the main agent's wait card now draws in the VS Code band too | observed | #54 |
+| A mod cannot remove a pane's title bar (puzzle icon, name, ✕) on VS Code, so `tool-fold` no longer auto-opens its "Agentes" pane where every surface is desktop or vscode: the band draws the main card and the subagents there, and yields only when the pane is placed (`/agents-dock`) | decision (owner, 2026-11-01) | |
 | `/agents-debug` (tool-fold) lists the surfaces, the panes the engine records, the runs and the band's latest draws with `next.trace` (what each link beneath answered), to find out whether the band hook runs on Desktop and what happens to its tree | diagnostic | #31 |
 
 Hypotheses still open for the missing agent band, to check with `/agents-debug`:

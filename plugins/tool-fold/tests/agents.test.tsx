@@ -442,7 +442,7 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
     opened.push(e.id)
     return { value: { isPlaced: true } }
   })
-  on('session.surfaces', () => ({ value: ['desktop'] }) as never)
+  on('session.surfaces', () => ({ value: ['desktop', 'vscode'] }) as never)
   on('ui.panes', () => ({ value: [] }) as never)
   on('ui.log', () => ({ value: undefined }))
   // The engine beneath draws an empty band.
@@ -467,17 +467,17 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   expect((await desktop.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
   await desktop.unmount()
 
-  // VS Code places its own pane above the prompt: the band is not drawn there.
+  // VS Code draws like Desktop: no pane opens on its own, the band holds the agent.
   const vscode = await band('vscode')
-  expect(await vscode.find({ type: 'Text', text: /performance-analyst/ })).toBeUndefined()
+  expect((await vscode.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
   await vscode.unmount()
 
   // `/agents-debug` reports what each draw saw, for a surface nobody can watch from here.
   const { text } = await $.command.run({ command: 'agents-debug' } as never)
-  expect(text).toContain('surfaces: desktop')
+  expect(text).toContain('surfaces: desktop, vscode')
   expect(text).toContain('runs: 1 running of 1')
   expect(text).toMatch(/desktop survey=false running=1 drew 1 cards; beneath /)
-  expect(text).toMatch(/vscode survey=false running=0 passed/)
+  expect(text).toMatch(/vscode survey=false running=1 drew 1 cards/)
 })
 
 test('the model dot takes the color of its family, dim for others', () => {

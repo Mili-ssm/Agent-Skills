@@ -562,7 +562,7 @@ test('the pane title is fixed: the count sits on the Agentes line', async ($, on
     titles.push(e.title)
     return { value: { isPlaced: true } }
   })
-  on('session.surfaces', () => ({ value: ['vscode'] }) as never)
+  on('session.surfaces', () => ({ value: ['terminal'] }) as never)
   on('ui.panes', () => ({ value: [] }) as never)
   on('ui.log', () => ({ value: undefined }))
   await $.turn.start({ text: 'go', turnId: 't1' })
@@ -733,7 +733,7 @@ test('the main card is drawn first in its own group, then a divider, then the ag
     const ui = surface === 'pane' ? await $.ui.mount(PANE as never) : await $.ui.mount({ ...BAND, surface: 'desktop' })
     const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text)
     const main = texts.findIndex(text => /Claude · esperando/.test(text))
-    const divider = texts.findIndex(text => /^── Agentes ─+ \d+$/.test(text))
+    const divider = texts.findIndex(text => /^── Agentes \d+ ─+$/.test(text))
     const agent = texts.findIndex(text => /^Explore$/.test(text))
     expect(main).toBeGreaterThanOrEqual(0)
     expect(divider).toBeGreaterThan(main)
@@ -743,7 +743,7 @@ test('the main card is drawn first in its own group, then a divider, then the ag
   // The work ends: only the agent shows, under the Agentes line with its count.
   await $.prompt.submit(notice('b1', 'completed') as never)
   const alone = await $.ui.mount(PANE as never)
-  expect((await alone.find({ type: 'Text', text: /── Agentes/ }))?.text).toMatch(/ 1$/)
+  expect((await alone.find({ type: 'Text', text: /── Agentes/ }))?.text).toMatch(/^── Agentes 1 ─+$/)
   expect(await alone.find({ type: 'Text', text: /^Explore$/ })).toBeDefined()
   await alone.unmount()
 })
