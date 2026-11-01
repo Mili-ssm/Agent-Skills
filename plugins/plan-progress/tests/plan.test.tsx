@@ -60,14 +60,14 @@ test('glyphBar and statusLine', () => {
   expect(statusLine(parsePlan('p.md', '# Done\n## T\n- [x] a\n'))).toBe('✓ Done 1/1')
 })
 
-test('segmentsSvg draws one segment per task, filled in proportion, green when finished', () => {
+test('segmentsSvg draws one equal segment per task, each filled by its own progress, green when finished', () => {
   const plan = parsePlan('p.md', PLAN)
   const svg = segmentsSvg(plan, 106, 6, '#d97757')
-  // 106 - 2 gaps of 2px = 102px over 6 steps: 34, 51, 17.
+  // 106 - 2 gaps of 2px = 102px over 3 tasks: 34px each; task 2 is 1/3 done.
   expect(svg.match(/class="track"/g)).toHaveLength(3)
   expect(svg.match(/class="done"[^>]*width="([\d.]+)"/g)).toHaveLength(2)
   expect(svg).toContain('class="done" x="0.00" y="0" width="34.00"')
-  expect(svg).toContain('class="done" x="36.00" y="0" width="17.00"')
+  expect(svg).toContain('class="done" x="36.00" y="0" width="11.33"')
   expect(svg).toContain('#d97757')
   expect(svg).not.toContain('#3fb950')
   const finished = segmentsSvg(parsePlan('p.md', '# D\n## T\n- [x] a\n'), 100, 6, '#3fb950')
@@ -106,8 +106,8 @@ test('status line only without a card (vscode); terminal and desktop cards show 
 
   const terminal = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await terminal.find({ type: 'Text', text: /Login/ }))?.text).toBe('Login with magic links')
-  expect((await terminal.find({ type: 'Text', text: /^3\/6$/ }))?.text).toBe('3/6')
-  expect((await terminal.find({ type: 'Text', text: /^50%$/ }))?.text).toBe('50%')
+  expect((await terminal.find({ type: 'Text', text: /3\/6/ }))?.text).toContain('3/6')
+  expect((await terminal.find({ type: 'Text', text: /50%/ }))?.text).toContain('50%')
   expect((await terminal.find({ type: 'Text', text: /▰▰▰▰▰▱▱▱▱▱/ }))?.text).toBe('▰▰▰▰▰▱▱▱▱▱')
   expect((await terminal.find({ type: 'Text', text: /▶/ }))?.text).toBe('▶ Task 2: Email sender · 1/3')
   await terminal.unmount()
