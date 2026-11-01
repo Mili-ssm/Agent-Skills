@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRun, EtaSource, WaitKind, WaitTask } from '../types'
-import { commandOf, isAgentRunning } from './agents'
+import { commandOf, isAgentRunning, isBackgroundAgent } from './agents'
 import {
   REESTIMATE_GAP_MS,
   WAIT_SAMPLES_KEY,
@@ -18,7 +18,7 @@ import {
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
 const waits = atom({ plugin: 'tool-fold', key: 'waits' } as const, [], { shape: 'waits-2' })
-// Clock time the main loop's turn ended (null while a turn runs): the wait shows only while it is idle.
+// Clock time the main loop's turn ended (null while a turn runs): only the card's label depends on it.
 const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
@@ -106,11 +106,10 @@ export function progressOf(elapsedMs: number, etaMs: number | undefined): number
 let turnStartedAt = 0
 let ticker: { cancel: () => void } | undefined
 
-/** Runs the clock while something is waited on and the main loop is idle; stops it otherwise. */
+/** Runs the clock while anything is waited on; stops it otherwise. */
 async function syncTick($: EngineInterface): Promise<void> {
   const all = await read($, waits)
-  // The main agent's waits show while it is idle; a subagent's, whenever it has them.
-  const isShown = all.some(task => task.owner !== undefined) || (all.some(task => task.owner === undefined) && (await read($, idleAt)) !== null)
+  const isShown = all.length > 0
   if (isShown && ticker === undefined) {
     ticker = $.clock.every(1000, () => {
       void update($, waitTick, n => n + 1)
@@ -326,7 +325,8 @@ export async function onToolCall(
   const record = (typeof result.result === 'object' && result.result !== null ? result.result : {}) as Record<string, unknown>
   if (e.tool === 'Bash' && typeof record.backgroundTaskId === 'string') {
     // A subagent's command that dies with its final response sends no notification: there is nothing to wait for.
-    if (e.agentId !== undefined && record.backgroundEndsWithFinalResponse === true) {
+    // A background agent's own turns go on after its Agent call returned: its command is a wait all the same.
+    if (e.agentId !== undefined && record.backgroundEndsWithFinalResponse === true && !(await isBackgroundAgent($, e.agentId))) {
       return
     }
     await begin($, record.backgroundTaskId, 'shell', input, e.agentId)
@@ -426,14 +426,14 @@ export async function resume($: EngineInterface): Promise<void> {
 }
 
 /**
- * The main agent's wait as runs the agent card draws (label "Claude · esperando", the wait as its mission and live
- * call, the estimate as its percentage): empty while a turn runs or nothing is waited on. Never writes.
+ * The main agent's wait as runs the agent card draws (label "Claude · esperando" idle, "Claude · en segundo plano" while a turn runs, the wait as its mission and live
+ * call, the estimate as its percentage): empty when nothing is waited on; labelled by whether the main loop is idle. Never writes.
  */
 export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const [everything, idle] = await Promise.all([read($, waits), read($, idleAt)])
   // A subagent's waits are its own card's (see `agentWaitRuns`).
   const list = everything.filter(task => task.owner === undefined)
-  if (list.length === 0 || idle === null) {
+  if (list.length === 0) {
     return []
   }
   await read($, waitTick)
@@ -458,7 +458,8 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
     {
       id: 'wait-main',
       toolUseId: 'wait-main',
-      type: 'Claude · esperando',
+      // Same card and place while a turn runs: only the label changes, so nothing jumps.
+      type: idle === null ? 'Claude · en segundo plano' : 'Claude · esperando',
       description: mission,
       mission,
       model,

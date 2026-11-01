@@ -733,6 +733,7 @@ export const registerAgents: Register = (on, options) => {
       `panes: ${panes.map(pane => `${pane.id} shown=${pane.isShown} placed=${pane.isPlaced}`).join('; ') || 'none'}`,
       `docked: ${await read($, docked)}`,
       `runs: ${list.filter(run => run.status === 'running').length} running of ${list.length}`,
+      ...list.map(run => `  run ${run.id} ${run.status} background=${run.background === true} ${run.type}`),
       ...(await waitDebug($)),
       'band draws (newest last):',
       ...(bandTrace.length === 0 ? ['  none yet'] : bandTrace.map(line => `  ${line}`)),
@@ -990,15 +991,42 @@ function touched(run: AgentRun, step: Step, input: Record<string, unknown>): Pic
   return {}
 }
 
-/** A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line. */
+/** True when this agent was spawned in the background (its Agent call returned at once; its own turns go on). */
+export async function isBackgroundAgent($: EngineInterface, agentId: string): Promise<boolean> {
+  return (await read($, runs)).some(run => run.id === agentId && run.background === true)
+}
+
+/** True when the engine says the agent's loop is parked on work it owns: its turn ended but it is not finished. */
+async function isParked($: EngineInterface, agentId: string): Promise<boolean> {
+  const list = await $.agent.list().catch(() => [])
+  return list.some(info => info.id === agentId && info.status === 'waiting')
+}
+
+/** A parked background agent woke for a new turn: its run is running again. */
+export async function wakeAgentRun($: EngineInterface, agentId: string): Promise<void> {
+  const run = (await read($, runs)).find(item => item.id === agentId)
+  if (run !== undefined && run.background === true && run.status !== 'running') {
+    const startedAt = await $.clock.now()
+    await patch($, agentId, item => ({ ...item, status: 'running', startedAt }))
+    await syncTick($)
+  }
+}
+
+/**
+ * A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line.
+ * Returns false when a background agent's turn ended but the agent is parked on its own work: its run stays running.
+ */
 export async function endAgentTurn(
   $: EngineInterface,
   agentId: string | undefined,
   reason: string,
   durationMs: number,
-): Promise<void> {
+): Promise<boolean> {
   if (agentId === undefined) {
-    return
+    return true
+  }
+  if (reason === 'answer' && (await isBackgroundAgent($, agentId)) && (await isParked($, agentId))) {
+    return false
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
   await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
@@ -1018,6 +1046,7 @@ export async function endAgentTurn(
   }
   await syncTick($)
   await closeDockWhenIdle($)
+  return true
 }
 
 /** True while an agent of this Agent call still runs: its card stays in view, folded group or not. */
