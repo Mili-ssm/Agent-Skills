@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { formatRemaining, remainingOf } from '../hooks/agents'
 import { estimateKey, progressOf, waitLabel } from '../hooks/waiting'
 
 // The band above the prompt as a surface mounts it.
@@ -168,4 +169,51 @@ test('a background agent is waited on until its turn ends', async ($, on) => {
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('formatRemaining and remainingOf', () => {
+  expect(formatRemaining(45_000)).toBe('<1 min')
+  expect(formatRemaining(180_000)).toBe('~3 min')
+  expect(formatRemaining(65 * 60_000)).toBe('~1 h 5 min')
+  expect(formatRemaining(120 * 60_000)).toBe('~2 h')
+  // elapsed × (1 − p) / p; none without an estimate or at 5% and under.
+  expect(remainingOf(120_000, 40)).toBe('~3 min')
+  expect(remainingOf(120_000, 5)).toBeUndefined()
+  expect(remainingOf(120_000, undefined)).toBeUndefined()
+})
+
+test('the main agent card comes first, stands out, and shows the time left', async ($, on) => {
+  const saved: Record<string, unknown> = { 'wait-durations:bash:cargo bench': [180_000] }
+  on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
+  const clock = engine(on, saved)
+  await $.agent.spawn({
+    tool_use_id: 'tu1',
+    prompt: 'Find where sessions are created',
+    description: 'Find session creation',
+    subagentType: 'Explore',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5',
+    background: false,
+    fork: false,
+  } as never)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(90_000)
+
+  for (const surface of ['desktop', 'pane'] as const) {
+    const ui = surface === 'pane' ? await $.ui.mount(PANE as never) : await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text)
+    const main = texts.findIndex(text => /Claude · esperando/.test(text))
+    const other = texts.findIndex(text => /Explore/.test(text))
+    expect(main).toBeGreaterThanOrEqual(0)
+    expect(other).toBeGreaterThan(main)
+    const name = await ui.find({ type: 'Text', text: /Claude · esperando/ })
+    expect(name?.props.underline).toBe(true)
+    expect(name?.props.weight).toBe('bold')
+    expect(name?.text).toMatch(/^◆/)
+    // 50% at 90 s: 90 s left.
+    expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
+    await ui.unmount()
+  }
 })

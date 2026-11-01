@@ -56,6 +56,29 @@ export const formatDuration = (ms: number): string => {
   return `${Math.floor(seconds / 3600)}h ${String(Math.floor((seconds % 3600) / 60)).padStart(2, '0')}m`
 }
 
+/** Time left as a rough hint: 45000 → `<1 min`, 180000 → `~3 min`, 3900000 → `~1 h 5 min`. */
+export const formatRemaining = (ms: number): string => {
+  const minutes = Math.round(Math.max(0, ms) / 60000)
+  if (ms < 60000 || minutes < 1) {
+    return '<1 min'
+  }
+  if (minutes < 60) {
+    return `~${minutes} min`
+  }
+  return minutes % 60 === 0 ? `~${minutes / 60} h` : `~${Math.floor(minutes / 60)} h ${minutes % 60} min`
+}
+
+/** Time left from elapsed time and the estimated percent; undefined with no estimate or one under 5% (too unreliable). */
+export function remainingOf(elapsedMs: number, percent: number | undefined): string | undefined {
+  if (percent === undefined || percent <= 5 || percent >= 100) {
+    return undefined
+  }
+  return formatRemaining((Math.max(0, elapsedMs) * (100 - percent)) / percent)
+}
+
+/** The synthetic card of the main agent's wait (see waiting.tsx). */
+const isMainCard = (run: AgentRun): boolean => run.id.startsWith('wait-')
+
 /** Cuts `text` to `max` characters with an ellipsis. */
 const clip = (text: string, max: number): string =>
   text.length <= max ? text : `${text.slice(0, max - 1)}…`
@@ -341,6 +364,7 @@ function runHeader(
   ) : (
     <Text color={outcome.color}>{frame}</Text>
   )
+  const left = remainingOf(now - run.startedAt, estimateOf(run, now))
   // Its own task list when it keeps one; else, while it runs in the pane, Haiku's estimate.
   const progress =
     run.todo !== undefined && run.todo.total > 0 ? (
@@ -353,6 +377,7 @@ function runHeader(
     ) : withEstimate && isRunning && estimateOf(run, now) !== undefined ? (
       <Text dimColor>
         <Text color="claude">{progressBar(estimateOf(run, now) ?? 0, 100, 5)}</Text> ≈{estimateOf(run, now)}%
+        {left === undefined ? null : ` · ${left}`}
       </Text>
     ) : null
   // Two lines, so a narrow chat wraps nothing: who and how far, then what it was asked.
@@ -361,9 +386,15 @@ function runHeader(
       <Box flexDirection="row" gap={1} minWidth={0} overflow="hidden">
         {mark === undefined ? null : <Text dimColor>{mark}</Text>}
         {bullet}
-        <Text weight="bold" dimColor={run.status === 'done'}>
-          {agentName(run)}
-        </Text>
+        {isMainCard(run) ? (
+          <Text weight="bold" underline>
+            ◆ {agentName(run)}
+          </Text>
+        ) : (
+          <Text weight="bold" dimColor={run.status === 'done'}>
+            {agentName(run)}
+          </Text>
+        )}
         <Text dimColor>
           <Text color={FAMILY_COLOR[family(run.model)] ?? 'subtle'}>●</Text> {shortModel(run.model)}
         </Text>
@@ -449,10 +480,10 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
   }
 }
 
-/** The running agents, then the main agent's wait drawn as one more (none under a survey, which owns the band). */
+/** The running agents, with the main agent's wait drawn first (none under a survey, which owns the band). */
 async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<AgentRun[]> {
   const running = (await read($, runs)).filter(run => run.status === 'running')
-  return hasSurvey ? running : [...running, ...(await waitingRuns($))]
+  return hasSurvey ? running : [...(await waitingRuns($)), ...running]
 }
 
 /** The agent hooks: spawns, their calls and ends, the spinner block; tool-fold's register adds them. */
