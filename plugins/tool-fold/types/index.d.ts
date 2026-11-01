@@ -61,6 +61,10 @@ export type AgentRun = {
   typical?: { ms: number; of: number }
   /** Haiku found no measurable end (a watcher): the pane shows time against `typical` instead. */
   isOpenEnded?: boolean
+  /** The main agent's wait has no estimate: its card draws the empty track only. */
+  isTrackOnly?: boolean
+  /** The main agent's wait ran past its estimate: the card says so instead of the time left. */
+  isOverdue?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
   estimatedAt?: number
   /** Runs in the background (the main loop does not wait on it). */
@@ -80,12 +84,16 @@ export type WaitTask = {
   key: string
   /** What the card's mission says it waits on, from the model's description or the command. */
   label: string
+  /** True once `label` came from Haiku (the call had no description). */
+  isLabelGuessed?: boolean
   /** An agent's type, else its description: what the card names when it waits on this one agent. */
   name?: string
   /** Clock time it launched, for the elapsed time. */
   startedAt: number
   /** Median of the durations remembered for its key; absent with no sample. */
   etaMs?: number
+  /** True when `etaMs` is Haiku's guess (no sample yet); a recorded median replaces it. */
+  etaGuessed?: boolean
 }
 
 /** One call of a group, in the order the model made them. */
