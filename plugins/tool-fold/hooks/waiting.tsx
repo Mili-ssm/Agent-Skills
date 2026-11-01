@@ -392,29 +392,12 @@ export async function onTurn(
   if (phase === 'start') {
     turnStartedAt = now
   } else {
-    await dropAfterTurn($)
     if (answer.trim() !== '') {
       void messageEta($, answer, turnStartedAt).catch(error => $.ui.log(`tool-fold: message estimate: ${String(error)}`, { to: 'debug' }))
     }
   }
 }
 
-/**
- * The main loop's turn ended: a subagent's wait from before the turn whose agent has completed, and that no
- * notification of the turn ended, is dropped (safety net c).
- */
-async function dropAfterTurn($: EngineInterface): Promise<void> {
-  if (turnStartedAt === 0) {
-    return
-  }
-  const stale: string[] = []
-  for (const task of await read($, waits)) {
-    if (task.owner !== undefined && task.startedAt < turnStartedAt && !(await isAgentRunning($, task.owner))) {
-      stale.push(task.id)
-    }
-  }
-  await drop($, stale)
-}
 
 /**
  * A subagent that parked on its background command is woken by the command's end (`backgroundWakesOwner`): the

@@ -10,7 +10,8 @@ const REMEMBERED = 50
 // Word overlap (Jaccard) from which a stored summary counts as the same kind of work.
 export const SIMILARITY_MIN = 0.5
 // A run shorter than this teaches nothing (a command that failed at once).
-export const MIN_SAMPLE_MS = 1000
+// Runs shorter than this teach nothing: earlier versions recorded ~5 s agents that only launched background work.
+export const MIN_SAMPLE_MS = 20_000
 
 const STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'from', 'into', 'run', 'running', 'that', 'this', 'les', 'los', 'las', 'del', 'para', 'con', 'por', 'una', 'uno', 'que', 'ejecuta', 'ejecutar',
@@ -47,7 +48,11 @@ export async function loadSamples($: EngineInterface, key: string): Promise<Wait
   return Array.isArray(value)
     ? value.filter(
         (item): item is WaitSample =>
-          typeof item === 'object' && item !== null && typeof item.summary === 'string' && typeof item.durationMs === 'number',
+          typeof item === 'object' &&
+          item !== null &&
+          typeof item.summary === 'string' &&
+          typeof item.durationMs === 'number' &&
+          item.durationMs >= MIN_SAMPLE_MS,
       )
     : []
 }

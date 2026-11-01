@@ -719,19 +719,6 @@ test('safety net b: an ended agent\'s wait past max(2 x estimate, estimate + 10 
   expect(saved['wait-samples']).toBeUndefined()
 })
 
-test('safety net c: the main turn that ends after the owner completed, with no notification, drops the wait', async ($, on) => {
-  const saved: Record<string, unknown> = {}
-  const clock = await ownedWait($, on, saved)
-  // The turn that launched it ends: the wait started in it and stays.
-  await $.turn.complete(done)
-  await clock.advance(5000)
-  expect(await waitsOf($)).toBe('waits: shell b1')
-  // A later turn ends with no notification for it.
-  await $.turn.start({ text: 'again', turnId: 't2' })
-  await $.turn.complete({ ...done, turnId: 't2' })
-  expect(await waitsOf($)).toBe('waits: none')
-  expect(saved['wait-samples']).toBeUndefined()
-})
 
 test('the main card is drawn first in its own group, then a divider, then the agents, in the pane and the band', async ($, on) => {
   const clock = engine(on)
