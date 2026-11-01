@@ -296,8 +296,12 @@ export const register: Register = on => {
       const hex = finished ? '#3fb950' : '#d97757'
       // A wider markup than any slot, stretched (preserveAspectRatio none) with no width prop: the line fills the card.
       const lineText = text !== undefined ? text : active === undefined ? undefined : `${active.title} · ${active.done}/${active.total}`
+      // The band is one tree shared by every mod: cards from the mods beneath (tool-fold's agents) go first, the plan
+      // after them, so what is running reads before what is planned.
       return (
-        <Box flexDirection="column">
+        <Box flexDirection="column" gap={1}>
+          {rest}
+          <Box flexDirection="column">
           <Box gap={1}>
             <Text weight="bold" wrap="truncate-end">
               {current.title}
@@ -314,20 +318,22 @@ export const register: Register = on => {
               ▶ {lineText}
             </Text>
           )}
-          {rest}
+          </Box>
         </Box>
       )
     }
 
     return (
-      <Box flexDirection="column">
-        <Box gap={1}>
-          <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
-          <Text weight="bold">{title}</Text>
-          {counts}
-        </Box>
-        {taskLine}
+      <Box flexDirection="column" gap={1}>
         {rest}
+        <Box flexDirection="column">
+          <Box gap={1}>
+            <Text color={color}>{glyphBar(current.done, current.total, 10)}</Text>
+            <Text weight="bold">{title}</Text>
+            {counts}
+          </Box>
+          {taskLine}
+        </Box>
       </Box>
     )
   })
