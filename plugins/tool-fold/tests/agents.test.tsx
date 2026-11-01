@@ -306,6 +306,29 @@ test('an agent that ends keeps its folded card on its row and adds one line at t
   await row.unmount()
 })
 
+test('a resumed run keeps its spawn start and the done card counts the whole task', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  const logs: string[] = []
+  on('ui.log', (_, e) => {
+    logs.push(e.text)
+    return { value: undefined }
+  })
+  const clock = mock.clock(on)
+
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await clock.advance(120_000)
+  await $.turn.complete({ agentId: 'a1', answer: 'ok', durationMs: 30_000, isAborted: false, turnId: 't1', reason: 'answer' })
+  await clock.advance(60_000)
+  // A message resumes the ended agent: same run, original start.
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await clock.advance(30_000)
+  await $.turn.complete({ agentId: 'a1', answer: 'ok', durationMs: 30_000, isAborted: false, turnId: 't2', reason: 'answer' })
+
+  expect(logs.filter(line => line.startsWith('✓')).at(-1)).toContain('3m 30s')
+})
+
 test('pane texts are cut to the room the surface really has, so a narrow panel is not widened', async ($, on) => {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
