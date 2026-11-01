@@ -44,11 +44,11 @@ MODEL_MAP = {
         "opus": "claude-opus-5.5",
     },
     # Nearest tier in Codex models.json (2026-11): luna fast and affordable, terra balanced (closest to Sonnet),
-    # astra frontier; sol, the default workhorse, stays the main conversation's model.
+    # sol the default workhorse, treated as Opus's equal (owner, 2026-11); astra frontier stays unmapped.
     "codex": {
         "haiku": "gpt-6-luna",
         "sonnet": "gpt-6.1-terra",
-        "opus": "gpt-6-astra",
+        "opus": "gpt-6.1-sol",
     },
 }
 # Where Copilot CLI installs plugins; the shell expands the variables inside the commands the skills print.
