@@ -2,8 +2,8 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
-import { AGENT_SAMPLES_KEY, askSimilar, loadSamples, median, recordSample, similarMedian } from './estimates'
-import { PHRASE_TOKENS, agentWaitRuns, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
+import { AGENT_SAMPLES_KEY, askSimilar, loadSamples, median, recordSample, similarMedian, statedDuration } from './estimates'
+import { PHRASE_TOKENS, agentWaitRuns, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -49,7 +49,7 @@ export const FAMILY_COLOR: Record<string, string> = {
 export const dotColor = (model: string): string => FAMILY_COLOR[family(model)] ?? 'subtle'
 
 /** The dim icon before a wait's estimate by source: Claude's message, similar runs, Haiku's guess. */
-const ETA_ICON = { message: '✦', similar: '⟲', guess: '?' } as const
+const ETA_ICON = { stated: '✦', message: '✦', similar: '⟲', guess: '?' } as const
 
 /** 1234 → `1s`, 75000 → `1m 15s`, 3725000 → `1h 02m` (Codex's compact elapsed). */
 export const formatDuration = (ms: number): string => {
@@ -305,6 +305,12 @@ export const agentSummary = (type: string, description: string): string => `${ty
 async function lookUpSimilar($: EngineInterface, id: string, type: string, description: string, brief?: string): Promise<void> {
   try {
     const summary = agentSummary(type, description)
+    // A duration the description or brief states wins over what past agents took.
+    const stated = statedDuration(description) ?? (brief === undefined ? undefined : statedDuration(brief))
+    if (stated !== undefined) {
+      await patch($, id, run => ({ ...run, etaMs: stated, etaSource: 'stated' }))
+      return
+    }
     const samples = await loadSamples($, AGENT_SAMPLES_KEY)
     const give = (etaMs: number) => patch($, id, run => ({ ...run, etaMs, etaSource: 'similar' }))
     const found = similarMedian(samples, summary)
@@ -932,7 +938,8 @@ export async function endAgentTurn(
   }
   // A finished run teaches how long its type takes (only those that ended well).
   const type = ended?.type
-  if (status === 'done' && type !== undefined) {
+  // One that ended while it still waits on background work did not do its work in that time: nothing to learn.
+  if (status === 'done' && type !== undefined && !(await hasOwnedWaits($, agentId))) {
     const past = await rememberedDurations($, type)
     await $.store.set(durationsKey(type), [...past, durationMs].slice(-REMEMBERED)).catch(() => undefined)
     await recordSample($, AGENT_SAMPLES_KEY, agentSummary(type, ended?.description ?? ''), durationMs, await $.clock.now())

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { formatRemaining, remainingOf } from '../hooks/agents'
-import { SIMILARITY_MIN, similarity } from '../hooks/estimates'
+import { SIMILARITY_MIN, similarity, statedDuration } from '../hooks/estimates'
 import { cleanPhrase, estimateKey, minutesOf, progressOf, waitLabel } from '../hooks/waiting'
 
 // The band above the prompt as a surface mounts it.
@@ -75,7 +75,8 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /opus-5-5/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Run the bench en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /bash · en segundo plano/ })).toBeDefined()
+  expect(await ui.findAll({ type: 'Text', text: /Run the bench/ })).toHaveLength(1)
   // No sample yet: the elapsed time sits by the model, no percentage on the right.
   expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 12s')
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
@@ -128,7 +129,7 @@ test('a new turn hides the card, a monitor event keeps its wait, and a killed ta
   await clock.advance(5000)
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Watch CI/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /Watch CI en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /monitor · en segundo plano/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   await ui.unmount()
 
@@ -452,7 +453,7 @@ test('several waits make one main card; the process with the latest end gives th
   await clock.advance(90_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.findAll({ type: 'Text', text: /Claude · esperando/ })).toHaveLength(1)
-  expect(await ui.find({ type: 'Text', text: /esperando a check-runner · Run the bench en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /esperando a check-runner · bash en segundo plano/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /agent-skills:/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
   await ui.unmount()
@@ -518,4 +519,65 @@ test('a subagent that ends its turn with a background process keeps its card, wa
   const after = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await after.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
   await after.unmount()
+})
+
+test('statedDuration reads durations written in a command or description', () => {
+  expect(statedDuration('sleep 290 && echo done-290')).toBe(290_000)
+  expect(statedDuration('sleep 5m')).toBe(300_000)
+  expect(statedDuration('Pedirle que espera 180 segundos')).toBe(180_000)
+  expect(statedDuration('Sleep 290 seconds then echo done-290')).toBe(290_000)
+  expect(statedDuration('Wait 5 minutes in background')).toBe(300_000)
+  expect(statedDuration('unas 2–3 horas')).toBe(9_000_000)
+  expect(statedDuration('Run the bench')).toBeUndefined()
+  expect(statedDuration('build v2.5 of the crate')).toBeUndefined()
+})
+
+test('a stated duration beats similar runs and shows ✦', async ($, on) => {
+  const clock = engine(on, { 'wait-samples': [sample('Wait 5 minutes in background', 2000)] })
+  haiku(on, 'none')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 300', description: 'Wait 5 minutes in background', run_in_background: true } as never)
+  await $.turn.complete(done)
+  await clock.advance(150_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^✦$/ })).toBeDefined()
+  // The label stays in the mission; the detail does not repeat it.
+  expect(await ui.findAll({ type: 'Text', text: /Wait 5 minutes in background/ })).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('a subagent waiting on sleep 240 shows elapsed over 240 s with ✦, not overdue at 18 s', async ($, on) => {
+  const clock = engine(on, { 'wait-samples': [sample('sleep 240', 2000)], 'agent-samples': [sample('agent-skills:check-runner: Run checks', 3000)] })
+  haiku(on, 'none')
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn({ description: 'Run checks', prompt: 'p', subagentType: 'agent-skills:check-runner', background: false } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 240', description: 'sleep 240', run_in_background: true, agentId: 'a1' } as never)
+  await $.turn.complete({ ...done, agentId: 'a1' })
+  await clock.advance(18_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈8%/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^✦$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('an agent that ends its turn with open waits is not recorded as a sample', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = engine(on, saved)
+  haiku(on, 'none')
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn({ description: 'Run checks', prompt: 'p', subagentType: 'agent-skills:check-runner', background: false } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 240', run_in_background: true, agentId: 'a1' } as never)
+  await clock.advance(18_000)
+  await $.turn.complete({ ...done, agentId: 'a1', durationMs: 18_000 })
+  expect(saved['agent-samples']).toBeUndefined()
 })

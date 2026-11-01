@@ -99,3 +99,35 @@ export async function askSimilar(
   const picked = (reply.text.match(/\d+/g) ?? []).map(Number).filter(n => n >= 1 && n <= latest.length)
   return median(picked.map(n => latest[n - 1]?.durationMs ?? 0).filter(ms => ms > 0))
 }
+
+const NUM = String.raw`(\d+(?:[.,]\d+)?)`
+const SLEEP = new RegExp(String.raw`\bsleep\s+${NUM}\s*([smhd])?(?![\p{L}\d])`, 'giu')
+const STATED = new RegExp(
+  String.raw`(?<![\p{L}\d.,])${NUM}(?:\s*(?:[–—-]|\s(?:a|to)\s)\s*${NUM})?\s*(horas?|hours?|hrs?|h|minutos?|minutes?|mins?|segundos?|seconds?|secs?|s)(?![\p{L}\d])`,
+  'iu',
+)
+const UNIT_MS = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1000 } as const
+const toNumber = (text: string): number => Number.parseFloat(text.replace(',', '.'))
+
+/**
+ * A duration written in a command or description, in ms: `sleep 290` (also `sleep 5m`; several add up),
+ * `espera 180 segundos`, `Wait 5 minutes`, `unas 2–3 horas` (a range is its midpoint); undefined when none.
+ */
+export function statedDuration(text: string): number | undefined {
+  let slept = 0
+  for (const match of text.matchAll(SLEEP)) {
+    slept += toNumber(match[1] ?? '0') * UNIT_MS[(match[2]?.toLowerCase() ?? 's') as keyof typeof UNIT_MS]
+  }
+  if (slept > 0) {
+    return Math.round(slept)
+  }
+  const found = STATED.exec(text)
+  if (found === null) {
+    return undefined
+  }
+  const low = toNumber(found[1] ?? '0')
+  const value = found[2] === undefined ? low : (low + toNumber(found[2])) / 2
+  const unit = (found[3] ?? 's').toLowerCase()
+  const ms = Math.round(value * (unit.startsWith('h') ? UNIT_MS.h : unit.startsWith('m') ? UNIT_MS.m : UNIT_MS.s))
+  return ms > 0 ? ms : undefined
+}
