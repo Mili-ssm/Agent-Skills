@@ -67,6 +67,19 @@ const LEVELS = '▁▂▃▄▅▆▇█'
 // Families named on the footer line before `+n`.
 const MAX_SHOWN = 4
 
+/**
+ * Haiku's reply cut to one usable phrase: its first non-empty line without quotes or a final period, or '' when it
+ * thinks aloud ("Wait, the instruction says…", "Let me…") or runs past 24 words, so the band never shows it.
+ */
+export function cleanPhrase(reply: string): string {
+  const line = reply.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
+  const phrase = line.replace(/^["'«“]+|["'»”.]+$/g, '')
+  const isMeta =
+    /^(let me|let's|wait\b|i (will|need|should|think)|okay|ok,|hmm|actually|word count|counting)/i.test(phrase) ||
+    /\b(the instruction|the request says|reply with the phrase)\b/i.test(phrase)
+  return isMeta || phrase.split(/\s+/).length > 24 ? '' : phrase
+}
+
 /** Model family for grouping: `claude-haiku-5-5` → `haiku`. */
 export function family(model: string): string {
   return /haiku|sonnet|opus|fable/.exec(model)?.[0] ?? model.replace(/^claude-/, '')
@@ -300,7 +313,7 @@ async function describe($: EngineInterface): Promise<void> {
       maxTokens: 40,
       timeoutMs: 15000,
     })
-    const text = reply.isAnswered ? reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, '') : ''
+    const text = reply.isAnswered ? cleanPhrase(reply.text) : ''
     const now = await read($, cycleAtom)
     if (text === '' || now.busySince === null || now.startedAt !== cycle.startedAt) {
       return
@@ -381,7 +394,7 @@ async function conclude($: EngineInterface, answer: string): Promise<string | nu
       maxTokens: 40,
       timeoutMs: 15000,
     })
-    const text = reply.isAnswered ? reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, '') : ''
+    const text = reply.isAnswered ? cleanPhrase(reply.text) : ''
     return text === '' ? null : clip(text, CONCLUSION_MAX)
   } catch (error) {
     $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })

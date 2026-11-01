@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { activity, agentDots, bar, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
+import { activity, agentDots, bar, cleanPhrase, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
 import type { Cycle } from '../types'
 
 // Token usage as a turn reports it.
@@ -443,4 +443,10 @@ test('the agent count carries one colored dot per model family the agents ran on
   expect(all[4]?.props.dimColor).toBe(true)
   await ui.unmount()
   expect(agentDots({ agents: 2, agentModels: ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] } as never)).toEqual(['#f778ba', '#39c5cf'])
+})
+
+test('cleanPhrase drops Haiku thinking aloud', () => {
+  expect(cleanPhrase('Lanzaré un tercer sleep en segundo plano y luego saludaré Wait, the instruction says to reply')).toBe('')
+  expect(cleanPhrase('Wait, I need to check')).toBe('')
+  expect(cleanPhrase('"Revisando el plan de formato v7."\nmore')).toBe('Revisando el plan de formato v7')
 })
