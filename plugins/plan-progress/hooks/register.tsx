@@ -83,13 +83,13 @@ export function isFinished(plan: Plan): boolean {
   return plan.total > 0 && plan.done === plan.total
 }
 
-/** The progress line as SVG, 2px high: a 1px track centred under a 2px fill for done/total, left to right. */
+/** The progress line as SVG, 2px high: a 1px track in the same color, faded, centred under a 2px fill for done/total, left to right. */
 export function progressSvg(done: number, total: number, width: number, color: string): string {
   const fill = total === 0 ? 0 : (width * done) / total
   const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="2" rx="1" fill="${color}"/>` : ''
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2" viewBox="0 0 ${width} 2">` +
-    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="#888" fill-opacity="0.35"/>${bar}</svg>`
+    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="${color}" fill-opacity="0.35"/>${bar}</svg>`
   )
 }
 
