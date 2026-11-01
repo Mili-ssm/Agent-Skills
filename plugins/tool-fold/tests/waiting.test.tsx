@@ -971,16 +971,18 @@ test('the stats line: context first with icon and color, calls, skills, cycle ag
   let all = await texts()
   expect(all).toContain('  ▸ Revisa los hooks del plugin')
   expect(all.some(text => /Agent x|qa-review/.test(text))).toBe(false)
-  expect(all.join('')).toContain('◔ 13% · 3 calls · 1 skill · ●● 2 agents')
+  expect(all.join('')).toContain('◔ 13%    3 calls · 1 skill · ●● 2 agents')
   // Done: the conclusion, the session total with its tokens, and the dots stay (agents used in the whole request).
   await $.turn.complete({ ...done, turnId: 't1', answer: 'All reviewed', usage: USAGE('claude-opus-5-5', 7_000_000) } as never)
   await clock.advance(2000)
   all = await texts()
   expect(all).toContain('  ✓ Todo listo y probado')
-  expect(all.join('')).toContain('◔ 13% · 3 calls · 1 skill · ●● 2 agents · Σ 12s · 7.0M')
+  expect(all.join('')).toContain('◔ 13%    3 calls · 1 skill · ●● 2 agents')
   // The context icon is its own text, colored by use.
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /^◔ 13%$/ }))?.props.color).toBe('#3fb950')
+  expect(await ui.find({ type: 'Text', text: 'Σ 12s · 7.0M' })).toBeDefined()
+  expect(await ui.find({ type: 'Box', props: { justifyContent: 'space-between' } })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^◔ 13%$/ }))?.props.color).toBe('#5f9e6e')
   // (the main card's own model dot comes first, then the stats line's, then the agent cards')
   expect((await ui.findAll({ type: 'Text', text: /^●$/ })).map(dot => dot.props.color).slice(1, 3)).toEqual(['#f778ba', '#39c5cf'])
   // The only agent count outside the stats line is the divider's (cards shown).
@@ -993,9 +995,9 @@ test('context icon by quarters and color by use; agent dots by family', () => {
   expect(at(undefined)).toBeNull()
   expect(at(Number.NaN)).toBeNull()
   expect([0, 12, 12.5, 37, 37.5, 62, 62.5, 87, 87.5, 100].map(p => at(p)?.icon).join('')).toBe('○○◔◔◑◑◕◕●●')
-  const GREEN = '#3fb950'
-  const AMBER = '#e3b341'
-  const RED = '#f85149'
+  const GREEN = '#5f9e6e'
+  const AMBER = '#c49a3c'
+  const RED = '#c0605a'
   expect([0, 49.9].map(p => at(p)?.color)).toEqual([GREEN, GREEN])
   expect([50, 65, 80].map(p => at(p)?.color)).toEqual([AMBER, AMBER, AMBER])
   expect([80.1, 95, 100, 140].map(p => at(p)?.color)).toEqual([RED, RED, RED, RED])

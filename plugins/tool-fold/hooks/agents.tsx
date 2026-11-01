@@ -1108,30 +1108,52 @@ function glyph(ui: Elements, step: Step, frame: string) {
   return <Text color={color}>{step.status === 'running' ? frame : step.status === 'failed' ? '✗' : '✓'} </Text>
 }
 
-/** The main card's dim stats line: context share (icon and color by use), calls, skills, agents with one dot per model family, session. */
+/**
+ * The main card's stats line: context share (icon and %, one color by use), a gap, the request's counts dim
+ * (calls, skills, agents with one dot per model family), then the session (`Σ time · tokens`) at the far right
+ * through a `flexGrow` spacer. The terminal (no Svg) gets the same order on one line, separated by spaces.
+ */
 function statsRow(ui: Elements, info: MainInfo) {
   const { Box, Text } = ui
-  const before = [info.calls > 0 ? plural(info.calls, 'call') : '', info.skills > 0 ? plural(info.skills, 'skill') : ''].filter(Boolean)
-  const after = [info.session ?? ''].filter(Boolean)
-  const agentText = info.agents > 0 ? plural(info.agents, 'agent') : ''
-  const lead = [...before, ...(info.agents > 0 && info.dots.length > 0 ? [] : agentText === '' ? [] : [agentText])]
   const text = (key: string, value: string) => <Text key={key} dimColor>{value}</Text>
-  const parts = [
-    info.ctx === null ? null : <Text key="ctx" color={info.ctx.color}>{info.ctx.text}</Text>,
-    lead.length === 0 ? null : text('lead', `${info.ctx === null ? '' : ' · '}${lead.join(' · ')}`),
-    ...(info.agents > 0 && info.dots.length > 0
-      ? [
-          text('sep', info.ctx === null && lead.length === 0 ? '' : ' · '),
-          ...info.dots.map((color, i) => (color === undefined ? <Text key={`d${i}`} dimColor>●</Text> : <Text key={`d${i}`} color={color}>●</Text>)),
-          text('agents', ` ${agentText}`),
-        ]
-      : []),
-    after.length === 0 ? null : text('after', `${info.ctx === null && lead.length === 0 && agentText === '' ? '' : ' · '}${after.join(' · ')}`),
+  const counts = [info.calls > 0 ? plural(info.calls, 'call') : '', info.skills > 0 ? plural(info.skills, 'skill') : ''].filter(Boolean)
+  const agentText = info.agents > 0 ? plural(info.agents, 'agent') : ''
+  const dotted = info.agents > 0 && info.dots.length > 0
+  const agentParts = dotted
+    ? [
+        ...info.dots.map((color, i) => (color === undefined ? <Text key={`d${i}`} dimColor>●</Text> : <Text key={`d${i}`} color={color}>●</Text>)),
+        text('agents', ` ${agentText}`),
+      ]
+    : agentText === '' ? [] : [text('agents', agentText)]
+  const left = [
+    counts.length === 0 ? null : text('counts', counts.join(' · ')),
+    ...(agentParts.length === 0 ? [] : [counts.length === 0 ? null : text('sep', ' · '), ...agentParts]),
   ]
-  return (
-    <Box key="stats" flexDirection="row" minWidth={0} overflow="hidden">
+  const hasCounts = counts.length > 0 || agentParts.length > 0
+  const session = info.session ?? ''
+  const terminal = ui.Svg === undefined
+  const leftGroup = (
+    <Box key="left" flexDirection="row">
       <Text dimColor>{'  '}</Text>
-      {parts}
+      {info.ctx === null ? null : <Text key="ctx" color={info.ctx.color}>{info.ctx.text}</Text>}
+      {info.ctx !== null && hasCounts ? text('gap', '    ') : null}
+      {left}
+    </Box>
+  )
+  if (terminal) {
+    return (
+      <Box key="stats" flexDirection="row" minWidth={0} overflow="hidden">
+        {leftGroup}
+        {session === '' ? null : text('session', `${info.ctx === null && !hasCounts ? '' : '   '}${session}`)}
+      </Box>
+    )
+  }
+  // Σ at the far right: space-between, as the usage-band card drew it on the owner's vscode surface (a flexGrow
+  // spacer was followed by Σ missing on Desktop, docs/mods-surfaces.md).
+  return (
+    <Box key="stats" flexDirection="row" justifyContent="space-between" minWidth={0} overflow="hidden">
+      {leftGroup}
+      {session === '' ? null : text('session', session)}
     </Box>
   )
 }
