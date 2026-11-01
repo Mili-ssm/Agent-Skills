@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { formatRemaining, remainingOf } from '../hooks/agents'
-import { estimateKey, progressOf, waitLabel } from '../hooks/waiting'
+import { cleanPhrase, estimateKey, minutesOf, progressOf, waitLabel } from '../hooks/waiting'
 
 // The band above the prompt as a surface mounts it.
 const BAND = { plugin: 'tool-fold', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 100 } } as const
@@ -45,7 +45,12 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Record<str
 const BENCH = { tool: 'Bash', command: 'cargo bench --release', description: 'Run the bench', run_in_background: true } as const
 
 test('keys, labels and progress', () => {
-  expect(estimateKey('shell', { command: 'cd /x && cargo bench --release -p core' })).toBe('bash:cargo bench')
+  expect(estimateKey('shell', { command: 'cd /x && cargo bench --release -p core' })).toBe('bash:cargo bench --release -p core')
+  expect(estimateKey('shell', { command: "cat > $S <<'EOF'\nbody", description: 'Write the script' })).toBe('bash:write the script')
+  expect(estimateKey('shell', { command: "cat  > $S <<'EOF'\nbody" })).toBe("bash:cat > $s <<'eof'")
+  expect(minutesOf('~3,5 min')).toBe(210_000)
+  expect(minutesOf('muchos')).toBeUndefined()
+  expect(cleanPhrase('"Ejecuta los tests."\nextra')).toBe('Ejecuta los tests')
   expect(estimateKey('monitor', { description: ' Watch CI ' })).toBe('monitor:watch ci')
   expect(waitLabel('shell', { command: 'cargo bench\nmore' })).toBe('cargo bench')
   expect(waitLabel('shell', { command: 'x', description: 'Run the bench' })).toBe('Run the bench')
@@ -96,7 +101,7 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
 })
 
 test('a recorded sample gives the estimate and the progress', async ($, on) => {
-  const saved: Record<string, unknown> = { 'wait-durations:bash:cargo bench': [100_000, 180_000, 240_000] }
+  const saved: Record<string, unknown> = { 'wait-durations:bash:run the bench': [100_000, 180_000, 240_000] }
   const clock = engine(on, saved)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
@@ -110,7 +115,7 @@ test('a recorded sample gives the estimate and the progress', async ($, on) => {
   // It finishes after 4 minutes: the duration joins the samples.
   await clock.advance(150_000)
   await $.prompt.submit(notice('b1', 'completed') as never)
-  expect(saved['wait-durations:bash:cargo bench']).toEqual([100_000, 180_000, 240_000, 240_000])
+  expect(saved['wait-durations:bash:run the bench']).toEqual([100_000, 180_000, 240_000, 240_000])
 })
 
 test('a new turn hides the card, a monitor event keeps its wait, and a killed task teaches nothing', async ($, on) => {
@@ -206,7 +211,7 @@ test('formatRemaining and remainingOf', () => {
 })
 
 test('the main agent card comes first, stands out, and shows the time left', async ($, on) => {
-  const saved: Record<string, unknown> = { 'wait-durations:bash:cargo bench': [180_000] }
+  const saved: Record<string, unknown> = { 'wait-durations:bash:run the bench': [180_000] }
   on('agent.spawn', () => ({ model: 'claude-haiku-5-5', agentId: 'a1' }))
   const clock = engine(on, saved)
   await $.agent.spawn({
@@ -241,4 +246,81 @@ test('the main agent card comes first, stands out, and shows the time left', asy
     expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('#58a6ff')
     await ui.unmount()
   }
+})
+
+/** A model.complete stub answering `text`, recording the prompts. */
+const haiku = (on: Parameters<Parameters<typeof test>[1]>[1], text: string, prompts: string[] = []) =>
+  on('model.complete', (_, e) => {
+    prompts.push(String((e as { prompt?: string }).prompt))
+    return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+
+const RAW = { tool: 'Bash', command: "cat > $S <<'EOF'\nbody\nEOF", run_in_background: true } as const
+
+test('with a description Haiku writes no label; a guessed estimate draws the line and time left', async ($, on) => {
+  const clock = engine(on)
+  const prompts: string[] = []
+  haiku(on, '4', prompts)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(120_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(prompts).toHaveLength(1)
+  expect(prompts[0]).not.toContain('8 palabras')
+  expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
+  // 2 of 4 minutes: 50%, 2 min left.
+  expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('without a description Haiku names the wait and guesses its duration', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, 'Escribe el script de prueba\n10')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(RAW)
+  await $.turn.complete(done)
+  await clock.advance(300_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Escribe el script de prueba/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a recorded median wins over the guess', async ($, on) => {
+  const clock = engine(on, { 'wait-durations:bash:run the bench': [180_000] })
+  haiku(on, '60')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(90_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('past the estimate the card says so', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, '1')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(150_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈95% · más de lo previsto/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('with no estimate at all only the empty track is drawn', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, 'no idea')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(5000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Svg' })).toBeDefined()
+  await ui.unmount()
 })

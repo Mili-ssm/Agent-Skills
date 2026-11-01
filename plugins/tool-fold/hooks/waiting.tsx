@@ -18,8 +18,10 @@ const REMEMBERED = 10
 const MIN_SAMPLE_MS = 1000
 // Progress never reaches 100% before the work is done.
 const MAX_PROGRESS = 0.95
-// Words of a command that name it for the estimate: `cargo bench`, `npm test`.
-const KEY_TOKENS = 2
+// Characters of a command's first line that name it for the estimate.
+const KEY_CHARS = 80
+// A guessed duration outside this range is Haiku misreading the question.
+const MAX_GUESS_MIN = 24 * 60
 // Statuses a notification states when a task is over.
 const ENDED = new Set(['completed', 'failed', 'killed', 'stopped'])
 
@@ -29,11 +31,32 @@ const clip = (text: string, max: number): string => (text.length <= max ? text :
 /** The store key of one work key's remembered durations (one key each: no read-modify race across keys). */
 const sampleKey = (key: string): string => `wait-durations:${key}`
 
-/** `cargo bench --release -p x` → `bash:cargo bench`: what the estimate calls the same work. */
+/**
+ * Haiku's reply cut to one usable phrase: its first non-empty line without quotes or a final period, or '' when it
+ * thinks aloud or runs past 24 words (copied from usage-band's register.ts).
+ */
+export function cleanPhrase(reply: string): string {
+  const line = reply.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
+  const phrase = line.replace(/^["'«“]+|["'»”.]+$/g, '')
+  const isMeta =
+    /^(let me|let's|wait\b|i (will|need|should|think)|okay|ok,|hmm|actually|word count|counting)/i.test(phrase) ||
+    /\b(the instruction|the request says|reply with the phrase)\b/i.test(phrase)
+  return isMeta || phrase.split(/\s+/).length > 24 ? '' : phrase
+}
+
+/** Minutes in a reply (`12`, `~3,5 min`) as milliseconds; undefined when it holds no sensible number. */
+export function minutesOf(reply: string): number | undefined {
+  const found = /(\d+(?:[.,]\d+)?)/.exec(reply)?.[1]
+  const minutes = found === undefined ? Number.NaN : Number.parseFloat(found.replace(',', '.'))
+  return Number.isFinite(minutes) && minutes > 0 && minutes <= MAX_GUESS_MIN ? Math.round(minutes * 60000) : undefined
+}
+
+/** `cargo bench -p x` (or its description) → `bash:run the bench`: what the estimate calls the same work. */
 export function estimateKey(kind: WaitKind, input: Record<string, unknown>): string {
   const text = (name: string): string => (typeof input[name] === 'string' ? (input[name] as string) : '')
   if (kind === 'shell') {
-    return `bash:${commandOf(text('command')).trim().split(/\s+/).slice(0, KEY_TOKENS).join(' ')}`
+    const line = (commandOf(text('command')).split('\n')[0] ?? '').trim().replace(/\s+/g, ' ')
+    return `bash:${(text('description').trim().replace(/\s+/g, ' ') || line).toLowerCase().slice(0, KEY_CHARS)}`
   }
   if (kind === 'monitor') {
     return `monitor:${text('description').trim().toLowerCase()}`
@@ -75,6 +98,43 @@ async function syncTick($: EngineInterface): Promise<void> {
   }
 }
 
+// Asks Haiku, once per wait, for what it could not read off the call: a plain description and a rough duration.
+const GUESS_HEAD =
+  'Una tarea en segundo plano de un agente de programación ejecuta esto. Responde en líneas, sin comillas ni texto extra:\n'
+const LABEL_LINE = '- Una descripción de 8 palabras como máximo, en español llano: qué hace (no cómo).\n'
+const ETA_LINE = '- Cuántos minutos tardará aproximadamente, solo un número (por ejemplo 3 o 0.5).\n'
+
+/** Fills in a wait's label and/or estimate with one Haiku call. Fire and forget: a miss leaves the wait as it was. */
+async function guess($: EngineInterface, id: string, subject: string, isLabelNeeded: boolean, isEtaNeeded: boolean): Promise<void> {
+  const reply = await $.model.complete({
+    model: 'haiku',
+    prompt: `${GUESS_HEAD}${isLabelNeeded ? LABEL_LINE : ''}${isEtaNeeded ? ETA_LINE : ''}\nTarea:\n${subject.slice(0, 1500)}`,
+    maxTokens: 40,
+    timeoutMs: 15000,
+  })
+  if (!reply.isAnswered) {
+    return
+  }
+  const lines = reply.text.split('\n').map(part => part.trim()).filter(part => part !== '')
+  const label = isLabelNeeded ? cleanPhrase(lines[0] ?? '') : ''
+  const etaMs = isEtaNeeded ? minutesOf(lines[isLabelNeeded ? 1 : 0] ?? '') : undefined
+  if (label === '' && etaMs === undefined) {
+    return
+  }
+  await update($, waits, all =>
+    all.map(task =>
+      task.id !== id
+        ? task
+        : {
+            ...task,
+            ...(label === '' ? {} : { label: clip(label, 120), isLabelGuessed: true }),
+            // A recorded median (already on the wait) always wins over a guess.
+            ...(etaMs === undefined || task.etaMs !== undefined ? {} : { etaMs, etaGuessed: true }),
+          },
+    ),
+  )
+}
+
 /** Adds a wait, with the estimate its key remembers. Never throws. */
 async function begin($: EngineInterface, id: string, kind: WaitKind, input: Record<string, unknown>): Promise<void> {
   try {
@@ -85,6 +145,16 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
     const task: WaitTask = { id, kind, key, label: waitLabel(kind, input), ...(kind === 'agent' ? { name: agentName(input) } : {}), startedAt, ...(etaMs === undefined ? {} : { etaMs }) }
     await update($, waits, all => [...all.filter(item => item.id !== id), task])
     await syncTick($)
+    // A shell or monitor with no description or no history asks Haiku, after the wait is on the card.
+    const description = typeof input.description === 'string' ? input.description.trim() : ''
+    const isLabelNeeded = kind === 'shell' && description === ''
+    const isEtaNeeded = kind !== 'agent' && etaMs === undefined
+    const subject = typeof input.command === 'string' ? input.command : description
+    if ((isLabelNeeded || isEtaNeeded) && subject.trim() !== '') {
+      void guess($, id, description === '' ? subject : `${description}\n${subject}`, isLabelNeeded, isEtaNeeded).catch(error =>
+        $.ui.log(`tool-fold: wait guess: ${String(error)}`, { to: 'debug' }),
+      )
+    }
   } catch (error) {
     $.ui.log(`tool-fold: wait: ${String(error)}`, { to: 'debug' })
   }
@@ -201,7 +271,9 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const agentDetail = agents.length === 1 ? `esperando a ${agents[0]?.name ?? agents[0]?.label}` : `esperando a ${agents.length} agentes`
   return list.map(task => {
     // Waiting on an agent: its own card carries the estimate.
-    const fraction = task.kind === 'agent' ? undefined : progressOf(Math.max(0, now - task.startedAt), task.etaMs)
+    const elapsed = Math.max(0, now - task.startedAt)
+    const fraction = task.kind === 'agent' ? undefined : progressOf(elapsed, task.etaMs)
+    const isOverdue = fraction !== undefined && task.etaMs !== undefined && elapsed >= task.etaMs
     return {
       id: `wait-${task.id}`,
       toolUseId: `wait-${task.id}`,
@@ -215,6 +287,9 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
       recent: [],
       counts: {},
       ...(fraction === undefined ? {} : { estimate: Math.round(fraction * 100) }),
+      ...(isOverdue ? { isOverdue } : {}),
+      // No estimate at all: the empty track keeps the card's shape (a wait on an agent has none, its own card has it).
+      ...(fraction === undefined && task.kind !== 'agent' ? { isTrackOnly: true } : {}),
     }
   })
 }

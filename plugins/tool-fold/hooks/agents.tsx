@@ -389,6 +389,9 @@ export function progressSvg(done: number, total: number, width: number, color: s
 
 /** Fraction of the progress line (done over total), from the agent's task list or its estimate; undefined with neither. */
 export function progressOfRun(run: AgentRun, now: number): { done: number; total: number } | undefined {
+  if (run.isTrackOnly === true) {
+    return { done: 0, total: 100 }
+  }
   if (run.todo !== undefined && run.todo.total > 0) {
     return { done: run.todo.done, total: run.todo.total }
   }
@@ -449,7 +452,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
     run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
-        ? `≈${estimate}%${left === undefined ? '' : ` · ${left}`}`
+        ? `≈${estimate}%${run.isOverdue === true ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
