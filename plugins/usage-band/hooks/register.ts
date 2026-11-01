@@ -215,6 +215,16 @@ export function formatCycle(cycle: Cycle, elapsed: number): string {
   return !isBusy && cycle.conclusion !== null ? `${line} — ${cycle.conclusion}` : line
 }
 
+// Dot color per model family, the same palette as tool-fold; any other model stays dim.
+export const FAMILY_COLOR: Record<string, string> = { opus: '#a371f7', sonnet: '#f778ba', haiku: '#39c5cf', fable: '#e3b341' }
+
+/** One entry per model family the cycle's agents ran on, ordered opus, sonnet, haiku, fable (its color; `undefined`: other, dim, last). */
+export function agentDots(cycle: Cycle): (string | undefined)[] {
+  const used = new Set((cycle.agentModels ?? []).map(family))
+  const known = Object.keys(FAMILY_COLOR).filter(name => used.has(name)).map(name => FAMILY_COLOR[name])
+  return [...known, ...([...used].some(name => !(name in FAMILY_COLOR)) ? [undefined] : [])]
+}
+
 /** The cycle's line then `│ Σ 38m10s · 41.7M` (the session's time and tokens). */
 export function formatLine(cycle: Cycle, elapsed: number, total: Usage): string {
   return `${formatCycle(cycle, elapsed)} │ Σ ${formatDuration(total.durationMs)} · ${formatTokens(sumTokens(total.byModel))}`
@@ -464,16 +474,29 @@ type UiWithSvg = Ui & { Svg: ElementConstructor<SvgProps> }
 export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
   const { Box, Text } = ui
   const isBusy = cycle.busySince !== null
-  const counts = (
+  const others = (
     [
       [cycle.calls, 'call'],
       [cycle.skills, 'skill'],
-      [cycle.agents, 'agent'],
     ] as const
   )
     .filter(([n]) => n > 0)
     .map(([n, noun]) => count(n, noun))
-    .join(' · ')
+  const agentText = cycle.agents > 0 ? count(cycle.agents, 'agent') : ''
+  const counts = [...others, ...(agentText === '' ? [] : [agentText])].join(' · ')
+  const colors = agentDots(cycle)
+  // The counters: plain text, then one colored dot per model family the agents ran on before the agents' count.
+  const countsRow =
+    cycle.agents === 0
+      ? Text({ dimColor: true, children: counts })
+      : Box({
+          flexDirection: 'row',
+          children: [
+            others.length === 0 ? null : Text({ dimColor: true, children: `${others.join(' · ')} · ` }),
+            ...colors.map(color => (color === undefined ? Text({ dimColor: true, children: '●' }) : Text({ color, children: '●' }))),
+            Text({ dimColor: true, children: ` ${agentText}` }),
+          ],
+        })
   const sessionMs = total.durationMs + (isBusy ? elapsed - cycle.activeMs : 0)
   const sessionTokens = sumTokens(total.byModel)
   // The session total says something only once earlier cycles exist; its tokens only once there are some.
@@ -504,7 +527,7 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
             justifyContent: 'space-between',
             gap: 2,
             children: [
-              Text({ dimColor: true, children: counts }),
+              countsRow,
               sessionTotal === null ? null : Text({ dimColor: true, tabular: true, children: sessionTotal }),
             ],
           }),
@@ -615,6 +638,17 @@ export const register: Register = on => {
     await requestDescription($)
 
     return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // The model each agent runs on, once the engine resolved it, for the dots beside the agent count.
+  on('agent.spawn', async ($, e, next) => {
+    const started = await next(e)
+    if (started.deny === undefined && typeof started.model === 'string') {
+      const model = started.model
+      await update($, cycleAtom, before => ({ ...before, agentModels: [...(before.agentModels ?? []), model] }))
+    }
+
+    return started
   }).catch(($, e, next) => next(e))
 
   // Any turn starting, the main loop's or an agent's, means Claude works.
