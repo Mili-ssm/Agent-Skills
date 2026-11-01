@@ -100,8 +100,19 @@ export function progressSvg(done: number, total: number, width: number, color: s
 export function cleanPhrase(reply: string): string {
   const line = reply.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
   const phrase = line.replace(/^["'«“]+|["'»”.]+$/g, '')
-  const isMeta = /^(let me|let's|i (will|need|should)|okay|ok,|hmm|word count|counting)/i.test(phrase)
+  const isMeta =
+    /^(let me|let's|wait\b|i (will|need|should|think)|okay|ok,|hmm|actually|word count|counting)/i.test(phrase) ||
+    /\b(the instruction|the request says|reply with the phrase)\b/i.test(phrase)
   return isMeta || phrase.split(/\s+/).length > 24 ? '' : phrase
+}
+
+/** Tokens a phrase reply may use; a reply that used them all was probably cut and is dropped. */
+export const PHRASE_TOKENS = 80
+
+/** The usable phrase of a Haiku reply: '' when it is unanswered, cut by `maxTokens` or thinking aloud. */
+export function phraseOf(reply: { isAnswered: boolean; text: string; usage?: { output_tokens?: number } }, maxTokens = PHRASE_TOKENS): string {
+  const isCut = (reply.usage?.output_tokens ?? 0) >= maxTokens
+  return reply.isAnswered && !isCut ? cleanPhrase(reply.text) : ''
 }
 
 /** True when the path is inside one of the plan folders. */
@@ -168,11 +179,11 @@ async function describeRemaining($: EngineInterface, plan: Plan, key: string): P
     const tasks = open.map((task, index) => `- ${index === 0 ? '(current) ' : ''}${task.title} ${task.done}/${task.total}`)
     const reply = await $.model.complete({
       model: 'haiku',
-      prompt: `${REMAINING_PROMPT}Plan: ${plan.title}\n\nUnfinished tasks:\n${tasks.join('\n')}`,
-      maxTokens: 40,
+      prompt: `<plan>${plan.title}</plan>\n<unfinished_tasks>(done/total; the first is current)\n${tasks.join('\n')}</unfinished_tasks>\n\n${REMAINING_PROMPT}`,
+      maxTokens: PHRASE_TOKENS,
       timeoutMs: 15000,
     })
-    const text = reply.isAnswered ? cleanPhrase(reply.text) : ''
+    const text = phraseOf(reply)
     // A newer plan state took over while Haiku answered: drop this text.
     if (text !== '' && asked === key) {
       await update($, remaining, () => ({ key, text }))

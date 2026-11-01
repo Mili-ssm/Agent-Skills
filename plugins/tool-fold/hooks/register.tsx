@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
-import { onNotification, onToolCall, onTurn } from './waiting'
+import { PHRASE_TOKENS, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
 const UNTOUCHED = new Set(['AskUserQuestion'])
@@ -21,9 +21,10 @@ const MIN_GROUP = 2
 
 // Asks Haiku for the line that names a whole run of calls.
 const SUMMARY_PROMPT =
-  'Estas son las herramientas que un asistente de programación acaba de ejecutar seguidas. ' +
-  'Resume en una sola frase corta (máximo 12 palabras), en español llano, qué estaba haciendo con ellas. ' +
-  'Responde solo con la frase, sin comillas ni punto final.\n\n'
+  'Las herramientas de arriba son las que un asistente de programación acaba de ejecutar seguidas. ' +
+  'Resume qué estaba haciendo con ellas en una frase corta que quepa en una línea, en español llano. ' +
+  'Tu respuesta entera es esa frase, sin comillas ni punto final.\n' +
+  '<example>Busca y lee los tests del parser</example>\n<example>Compila el proyecto y corrige dos errores de tipos</example>'
 
 /** Cuts `text` to `max` characters with an ellipsis. */
 const clip = (text: string, max: number): string =>
@@ -217,12 +218,13 @@ async function writeSummary($: EngineInterface, run: ToolRun): Promise<void> {
   const list = run.calls.map(call => `- ${toolName(call.tool)}: ${call.label}`).join('\n')
   const reply = await $.model.complete({
     model: 'haiku',
-    prompt: SUMMARY_PROMPT + list.slice(0, 4000),
-    maxTokens: 60,
+    prompt: `<herramientas>\n${list.slice(0, 4000)}\n</herramientas>\n\n${SUMMARY_PROMPT}`,
+    maxTokens: PHRASE_TOKENS,
     timeoutMs: 20000,
   })
-  if (reply.isAnswered && reply.text.trim() !== '') {
-    const summary = clip(reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, ''), 100)
+  const text = phraseOf(reply)
+  if (text !== '') {
+    const summary = clip(text, 100)
     await update($, memberOf(group, { requestId: run.id }), value => (value === null ? null : { ...value, summary }))
   }
 }

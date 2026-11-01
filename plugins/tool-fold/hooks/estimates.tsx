@@ -82,14 +82,18 @@ export async function askSimilar(
   const reply = await $.model.complete({
     model: 'haiku',
     prompt:
-      'Cuál de estas tareas anteriores es el mismo tipo de trabajo que la nueva (misma operación, tamaño parecido). ' +
-      `Responde solo con los números separados por comas, o none.\n\nNueva: ${subject.slice(0, 300)}\n\n` +
-      (context === undefined || context.trim() === '' ? '' : `Encargo de la nueva:\n${context.slice(0, 600)}\n\n`) +
-      `Anteriores:\n${latest.map((sample, index) => `${index + 1}. ${sample.summary}`).join('\n')}`,
+      `<nueva>${subject.slice(0, 300)}</nueva>\n` +
+      (context === undefined || context.trim() === '' ? '' : `<encargo_de_la_nueva>${context.slice(0, 600)}</encargo_de_la_nueva>\n`) +
+      `<anteriores>\n${latest.map((sample, index) => `${index + 1}. ${sample.summary}`).join('\n')}\n</anteriores>\n\n` +
+      'Cuál de las tareas anteriores es el mismo tipo de trabajo que la nueva (misma operación, tamaño parecido). ' +
+      'Responde solo con los números de las anteriores separados por comas, o none.\n<example>2,5</example>\n<example>none</example>',
     maxTokens: 20,
     timeoutMs: 15000,
   })
   if (!reply.isAnswered) {
+    return undefined
+  }
+  if (!/^\s*(\d+(\s*,\s*\d+)*|none)\s*$/i.test(reply.text)) {
     return undefined
   }
   const picked = (reply.text.match(/\d+/g) ?? []).map(Number).filter(n => n >= 1 && n <= latest.length)
