@@ -174,8 +174,9 @@ test('a workflow agent gets no Haiku mission call', async ($, on) => {
   on('agent.spawn', (_, e) => ({ model: 'claude-haiku-5-5', agentId: `a-${e.tool_use_id}` }))
   mock.clock(on)
   let missions = 0
-  on('model.complete', () => {
-    missions += 1
+  on('model.complete', (_, e) => {
+    // The minutes call (it sees the brief) is not a mission call.
+    missions += String((e as { prompt?: string }).prompt).includes('<encargo>') ? 1 : 0
     return { value: { isAnswered: true, text: 'x', usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
 
@@ -482,7 +483,7 @@ function memoryEngine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Reco
   on('model.complete', (_, e) => {
     const prompt = String((e as { prompt?: string }).prompt)
     prompts.push(prompt)
-    const text = prompt.includes('<anteriores>') ? pick : '?'
+    const text = prompt.includes('<tareas_parecidas>') ? pick : '?'
     return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   return mock.clock(on)
@@ -514,29 +515,56 @@ test('a finished agent is remembered apart from waits and gives a similar one it
   const late = await paneOf($)
   expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈95% · más de lo previsto')
   await late.unmount()
-  // A found sample needs no Haiku pick, and a failed agent teaches nothing.
-  expect(prompts.some(prompt => prompt.includes('<anteriores>'))).toBe(false)
+  // Haiku saw the brief and the similar run together (it gave no minutes: the median stands).
+  const asked = prompts.filter(prompt => prompt.includes('<tareas_parecidas>') && !prompt.includes('<estimacion_anterior>') && prompt.includes('Find session creation code'))
+  expect(asked).toHaveLength(1)
+  expect(asked[0]).toContain('1. Explore: Find session creation — 1.5 min')
 })
 
-test('with no similar agent Haiku picks once, given the brief; a failed agent is not remembered', async ($, on) => {
+test('Haiku gets the brief and the similar runs in one call and its minutes are the estimate; a failed agent is not remembered', async ($, on) => {
   const saved: Record<string, unknown> = {
-    'agent-samples': [{ summary: 'Plan: migrate the database', durationMs: 600_000, at: 1 }],
+    'agent-samples': [
+      { summary: 'Plan: migrate the database', durationMs: 600_000, at: 1 },
+      { summary: 'Explore: Find session creation paths', durationMs: 600_000, at: 1 },
+    ],
   }
   const prompts: string[] = []
-  const clock = memoryEngine(on, saved, prompts, '1')
+  const clock = memoryEngine(on, saved, prompts, 'minutos: 1')
 
   await $.agent.spawn({ ...SPAWN, background: true })
   await new Promise(resolve => setTimeout(resolve, 20))
-  await clock.advance(300_000)
-  const picks = prompts.filter(prompt => prompt.includes('<anteriores>'))
-  expect(picks).toHaveLength(1)
-  expect(picks[0]).toContain('Find where sessions are created')
+  await clock.advance(30_000)
+  const asks = prompts.filter(prompt => prompt.includes('<tareas_parecidas>'))
+  expect(asks).toHaveLength(1)
+  expect(asks[0]).toContain('Find where sessions are created')
+  expect(asks[0]).toContain('1. Explore: Find session creation paths — 10 min')
+  expect(asks[0]).not.toContain('migrate the database')
+  // Haiku's 1 minute replaced the 10 of the similar run: 30 s is 50%.
   const pane = await paneOf($)
   expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toMatch(/^≈50%/)
   expect(await pane.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
   await pane.unmount()
   await $.turn.complete({ agentId: 'a1', answer: '', durationMs: 5000, isAborted: false, turnId: 't1', reason: 'error' })
-  expect(saved['agent-samples']).toHaveLength(1)
+  expect(saved['agent-samples']).toHaveLength(2)
+})
+
+test('an agent past its estimate asks Haiku again with the elapsed time, at most every 30 s', async ($, on) => {
+  const prompts: string[] = []
+  const clock = memoryEngine(on, {}, prompts, 'minutos: 1')
+  // The first ask has no similar run: it still answers 1 minute; later asks answer 3 minutes.
+  await $.agent.spawn({ ...SPAWN, background: true })
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(prompts.filter(prompt => prompt.includes('<tareas_parecidas>'))).toHaveLength(1)
+  await clock.advance(61_000)
+  const asks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
+  // Overdue at 60 s but the last ask (spawn) was under 30 s before only until 30 s: the re-ask comes at once.
+  expect(asks()).toHaveLength(1)
+  expect(asks()[0]).toContain('<ya_transcurrido>1 min</ya_transcurrido>')
+  // Haiku answered 1 minute again (not more than elapsed): rejected, and the next ask waits 30 s.
+  await clock.advance(20_000)
+  expect(asks()).toHaveLength(1)
+  await clock.advance(15_000)
+  expect(asks()).toHaveLength(2)
 })
 
 test('the agent task list still wins over the similar-agent estimate', async ($, on) => {

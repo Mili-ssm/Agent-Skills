@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, retitleDock, startAgentCall } from './agents'
-import { PHRASE_TOKENS, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
+import { PHRASE_TOKENS, onAgentWoken, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
 const UNTOUCHED = new Set(['AskUserQuestion'])
@@ -308,6 +308,10 @@ export const register: Register = (on, options) => {
   // The main loop works again: nothing is waited on idle any more.
   on('turn.start', async ($, e, next) => {
     await onTurn($, e.agentId, 'start').catch(() => undefined)
+    // A subagent parked on its background command starts a turn when the command ends.
+    if (e.agentId !== undefined) {
+      await onAgentWoken($, e.agentId, e.text).catch(() => undefined)
+    }
     await retitleDock($).catch(() => undefined)
 
     return next(e)

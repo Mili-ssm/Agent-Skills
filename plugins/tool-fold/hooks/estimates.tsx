@@ -9,8 +9,6 @@ export const AGENT_SAMPLES_KEY = 'agent-samples'
 const REMEMBERED = 50
 // Word overlap (Jaccard) from which a stored summary counts as the same kind of work.
 export const SIMILARITY_MIN = 0.5
-// Summaries offered to Haiku when no stored one is similar enough.
-const PICK_CANDIDATES = 20
 // A run shorter than this teaches nothing (a command that failed at once).
 export const MIN_SAMPLE_MS = 1000
 
@@ -68,36 +66,76 @@ export function similarMedian(samples: readonly WaitSample[], summary: string): 
   return median(samples.filter(sample => similarity(sample.summary, summary) >= SIMILARITY_MIN).map(sample => sample.durationMs))
 }
 
+// Past runs listed to Haiku with the text: the most similar ones, never fewer words in common than this.
+const SIMILAR_SHOWN = 5
+const SIMILAR_LISTED_MIN = 0.2
+// A re-estimate of one piece of work waits this long after the last ask of it.
+export const REESTIMATE_GAP_MS = 30_000
+// An answer outside this range is Haiku misreading the question.
+const MAX_ESTIMATE_MIN = 24 * 60
+
+/** The (at most five) stored runs most like `summary`, most similar first; empty when none shares words with it. */
+export function similarRuns(samples: readonly WaitSample[], summary: string): WaitSample[] {
+  return samples
+    .map(sample => ({ sample, score: similarity(sample.summary, summary) }))
+    .filter(item => item.score >= SIMILAR_LISTED_MIN)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, SIMILAR_SHOWN)
+    .map(item => item.sample)
+}
+
+/** Milliseconds in a reply that is exactly the line `minutos: N` (`3`, `0.5`, `3,5`); undefined for anything else, prose included. */
+export function minutesLine(reply: string): number | undefined {
+  const found = /^\s*minutos:\s*(\d+(?:[.,]\d+)?)\s*$/i.exec(reply)?.[1]
+  const minutes = found === undefined ? Number.NaN : Number.parseFloat(found.replace(',', '.'))
+  return Number.isFinite(minutes) && minutes > 0 && minutes <= MAX_ESTIMATE_MIN ? Math.round(minutes * 60000) : undefined
+}
+
+/** The icon source of an estimate Haiku gave: a stated duration, else similar runs it was shown, else its own guess. */
+export const sourceOfAsk = (statedMs: number | undefined, similar: readonly WaitSample[]): 'stated' | 'similar' | 'guess' =>
+  statedMs !== undefined ? 'stated' : similar.length > 0 ? 'similar' : 'guess'
+
+export type MinutesAsk = {
+  /** The description, command or brief of the work. */
+  text: string
+  /** A duration the text states, when it parses one. */
+  statedMs?: number
+  /** Similar finished runs (top five), or none. */
+  similar: readonly WaitSample[]
+  /** A re-estimate: how long the work already took and what was said it would take. */
+  again?: { elapsedMs: number; previousMs: number }
+}
+
+const fmtMin = (ms: number): string => `${Math.round((ms / 60000) * 10) / 10} min`
+
 /**
- * Asks Haiku (one call) which of the latest summaries are the same kind of work as this one; the median of their
- * durations, or undefined when it picks none or does not answer. `context` (a brief) helps it judge the size.
+ * Asks Haiku (one call) for the minutes a piece of work takes: it sees the text and the similar past runs together.
+ * Reads `minutos: N` strictly; a re-estimate must also be longer than the elapsed time. Undefined when it does not answer well.
  */
-export async function askSimilar(
-  $: EngineInterface,
-  subject: string,
-  samples: readonly WaitSample[],
-  context?: string,
-): Promise<number | undefined> {
-  const latest = samples.slice(-PICK_CANDIDATES)
+export async function askMinutes($: EngineInterface, ask: MinutesAsk): Promise<number | undefined> {
+  const runs = ask.similar.length === 0 ? 'none' : `\n${ask.similar.map((run, index) => `${index + 1}. ${run.summary} — ${fmtMin(run.durationMs)}`).join('\n')}`
   const reply = await $.model.complete({
     model: 'haiku',
     prompt:
-      `<nueva>${subject.slice(0, 300)}</nueva>\n` +
-      (context === undefined || context.trim() === '' ? '' : `<encargo_de_la_nueva>${context.slice(0, 600)}</encargo_de_la_nueva>\n`) +
-      `<anteriores>\n${latest.map((sample, index) => `${index + 1}. ${sample.summary}`).join('\n')}\n</anteriores>\n\n` +
-      'Cuál de las tareas anteriores es el mismo tipo de trabajo que la nueva (misma operación, tamaño parecido). ' +
-      'Responde solo con los números de las anteriores separados por comas, o none.\n<example>2,5</example>\n<example>none</example>',
+      `<tarea>${ask.text.slice(0, 1500)}</tarea>\n` +
+      (ask.statedMs === undefined ? '' : `<duracion_indicada>${fmtMin(ask.statedMs)}</duracion_indicada>\n`) +
+      `<tareas_parecidas>${runs}</tareas_parecidas>\n` +
+      (ask.again === undefined
+        ? ''
+        : `<ya_transcurrido>${fmtMin(ask.again.elapsedMs)}</ya_transcurrido>\n<estimacion_anterior>${fmtMin(ask.again.previousMs)}</estimacion_anterior>\n`) +
+      '\nUna tarea en segundo plano de un agente de programación ejecuta lo de arriba. ' +
+      (ask.again === undefined
+        ? 'Estima cuántos minutos tardará en total.'
+        : 'Ya pasó la estimación anterior: estima cuántos minutos durará en total, contando lo ya transcurrido (más que lo transcurrido).') +
+      ' Responde solo con esta línea:\nminutos: N\n<example>minutos: 4</example>',
     maxTokens: 20,
     timeoutMs: 15000,
   })
-  if (!reply.isAnswered) {
+  if (!reply.isAnswered || (reply.usage?.output_tokens ?? 0) >= 20) {
     return undefined
   }
-  if (!/^\s*(\d+(\s*,\s*\d+)*|none)\s*$/i.test(reply.text)) {
-    return undefined
-  }
-  const picked = (reply.text.match(/\d+/g) ?? []).map(Number).filter(n => n >= 1 && n <= latest.length)
-  return median(picked.map(n => latest[n - 1]?.durationMs ?? 0).filter(ms => ms > 0))
+  const ms = minutesLine(reply.text)
+  return ms !== undefined && (ask.again === undefined || ms > ask.again.elapsedMs) ? ms : undefined
 }
 
 const NUM = String.raw`(\d+(?:[.,]\d+)?)`

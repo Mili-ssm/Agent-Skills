@@ -22,17 +22,28 @@ const PANE = {
   props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'inline', scroll: { offset: 0, bodyRows: 12 }, view: {} },
 } as const
 
+const SPAWN_FG = {
+  tool_use_id: 'tu1',
+  prompt: 'Find where sessions are created',
+  description: 'Find session creation',
+  subagentType: 'Explore',
+  provider: { plugin: 'engine', tier: 'core' },
+  parentModel: 'claude-opus-5-5',
+  background: false,
+  fork: false,
+} as never
+
 const done = { reason: 'answer', answer: '', durationMs: 1000, isAborted: false, turnId: 't1' } as const
 
 /** The engine beneath the mod: a background Bash answers a task id, the store is a map. */
-function engine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Record<string, unknown> = {}) {
+function engine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Record<string, unknown> = {}, bashExtra: Record<string, unknown> = {}) {
   on('store.get', (_, e) => ({ value: saved[e.key] }))
   on('store.set', (_, e) => {
     saved[e.key] = e.value
     return { value: undefined }
   })
   on('tool.call', (_, e) => ({
-    result: e.tool === 'Bash' ? { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1' } : { taskId: 'm1', timeoutMs: 0 },
+    result: e.tool === 'Bash' ? { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1', ...bashExtra } : { taskId: 'm1', timeoutMs: 0 },
   }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -277,9 +288,13 @@ test('with a description Haiku writes no label; a guessed estimate draws the lin
   await ui.unmount()
 })
 
-test('without a description Haiku names the wait and guesses its duration', async ($, on) => {
+test('without a description Haiku names the wait and, in its own call, estimates its duration', async ($, on) => {
   const clock = engine(on)
-  haiku(on, 'descripcion: Escribe el script de prueba\nminutos: 10')
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    const text = prompt.includes('<tareas_parecidas>') ? 'minutos: 10' : 'descripcion: Escribe el script de prueba'
+    return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(RAW)
   await $.turn.complete(done)
@@ -356,24 +371,87 @@ test('similar past runs give the estimate and the ⟲ icon; unrelated ones are i
   await ui.unmount()
 })
 
-test('with no similar summary Haiku picks from the latest ones', async ($, on) => {
-  const clock = engine(on, { 'wait-samples': [sample('Deploy the docs site', 900_000), sample('Train the model overnight', 120_000)] })
-  const prompts: string[] = []
-  on('model.complete', (_, e) => {
-    const prompt = String((e as { prompt?: string }).prompt)
-    prompts.push(prompt)
-    const text = prompt.includes('<anteriores>') ? '2' : 'minutos: 30'
-    return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+test('Haiku gets the text and the similar runs (top five, most similar first) in one call, and its minutes win', async ($, on) => {
+  const clock = engine(on, {
+    'wait-samples': [
+      sample('Deploy the docs site', 900_000),
+      sample('Run the bench', 180_000),
+      sample('Run the bench on core', 120_000),
+      sample('Run the bench on core again', 100_000),
+      sample('Bench run one', 100_000),
+      sample('Bench run two', 100_000),
+      sample('Bench run three', 100_000),
+    ],
   })
+  const prompts: string[] = []
+  haiku(on, 'minutos: 2', prompts)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
   await clock.advance(60_000)
+  expect(prompts).toHaveLength(1)
+  expect(prompts[0]).toContain('Run the bench')
+  expect(prompts[0]).toContain('cargo bench --release')
+  const listed = prompts[0]?.split('\n').filter(line => /^\d\. /.test(line)) ?? []
+  expect(listed).toHaveLength(5)
+  expect(listed[0]).toBe('1. Run the bench — 3 min')
+  expect(prompts[0]).not.toContain('Deploy the docs site')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  // The pick (120 s) outranks the guess (30 min): 60 s is 50%.
-  expect(prompts.some(prompt => prompt.includes('2. Train the model overnight'))).toBe(true)
+  // Haiku's 2 minutes replace the 3 of the similar run: 60 s is 50%.
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('with a stated duration Haiku sees it and its answer shows ✦; without similar runs the prompt says none', async ($, on) => {
+  const clock = engine(on)
+  const prompts: string[] = []
+  haiku(on, 'minutos: 6', prompts)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 300', description: 'Wait for the deploy', run_in_background: true } as never)
+  await $.turn.complete(done)
+  await clock.advance(1000)
+  expect(prompts[0]).toContain('<duracion_indicada>5 min</duracion_indicada>')
+  expect(prompts[0]).toContain('<tareas_parecidas>none</tareas_parecidas>')
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^✦$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('past the estimate Haiku is asked again with the elapsed time, throttled to 30 s, and must answer more than elapsed', async ($, on) => {
+  const clock = engine(on)
+  const prompts: string[] = []
+  let answer = 'minutos: 1'
+  on('model.complete', (_, e) => {
+    prompts.push(String((e as { prompt?: string }).prompt))
+    return { value: { isAnswered: true, text: answer, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  const reasks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
+  await clock.advance(59_000)
+  expect(reasks()).toHaveLength(0)
+  // Overdue at 60 s, 60 s after the first ask: asked at once; the answer (1 min) is not more than elapsed.
+  answer = 'minutos: 1'
+  await clock.advance(2000)
+  expect(reasks()).toHaveLength(1)
+  expect(reasks()[0]).toContain('<ya_transcurrido>1 min</ya_transcurrido>')
+  expect(reasks()[0]).toContain('<estimacion_anterior>1 min</estimacion_anterior>')
+  // Under 30 s since that ask: no new one.
+  answer = 'minutos: 5'
+  await clock.advance(25_000)
+  expect(reasks()).toHaveLength(1)
+  // 30 s passed: asked again; 5 minutes is the new total.
+  await clock.advance(5000)
+  expect(reasks()).toHaveLength(2)
+  await clock.advance(1000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /≈\d+%/ })).toBeDefined()
+  // No more asks while it is within the new estimate.
+  await clock.advance(60_000)
+  expect(reasks()).toHaveLength(2)
   await ui.unmount()
 })
 
@@ -491,8 +569,8 @@ test('the pane title counts the cards it shows', async ($, on) => {
   await $.turn.complete(done)
   await clock.advance(1000)
   expect(titles[0]).toBe('Agentes · 1')
-  // The turn ended: the main card joins the running agent.
-  expect(titles.at(-1)).toBe('Agentes · 2')
+  // The turn ended: the main card joins the running agent, but the count is of agents.
+  expect(titles.at(-1)).toBe('Agentes · 1')
 })
 
 test('a subagent that ends its turn with a background process keeps its card, waiting, until the process ends', async ($, on) => {
@@ -580,4 +658,105 @@ test('an agent that ends its turn with open waits is not recorded as a sample', 
   await clock.advance(18_000)
   await $.turn.complete({ ...done, agentId: 'a1', durationMs: 18_000 })
   expect(saved['agent-samples']).toBeUndefined()
+})
+
+/** A subagent a1 that launched `sleep 240` (shell b1) and ended its turn; the main loop runs turn t1. */
+async function ownedWait($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], saved: Record<string, unknown>, bashExtra: Record<string, unknown> = {}) {
+  const clock = engine(on, saved, bashExtra)
+  haiku(on, 'none')
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn({ description: 'Run checks', prompt: 'p', subagentType: 'agent-skills:check-runner', background: false } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 240', description: 'sleep 240', run_in_background: true, agentId: 'a1' } as never)
+  await $.turn.complete({ ...done, agentId: 'a1', turnId: 's1' })
+  return clock
+}
+const waitsOf = async ($: Parameters<Parameters<typeof test>[1]>[0]) => ((await $.command.run({ command: 'agents-debug' } as never)).text.split('\n').find(line => line.startsWith('waits:')) ?? '')
+
+test("a subagent woken by its command's end (backgroundWakesOwner) ends that wait and records the sample", async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = await ownedWait($, on, saved, { backgroundWakesOwner: true })
+  await clock.advance(240_000)
+  expect(await waitsOf($)).toBe('waits: shell b1')
+  // The wake-up turn of the subagent carries the notification.
+  await $.turn.start({ text: notice('b1', 'completed').text, turnId: 's2', agentId: 'a1' })
+  expect(await waitsOf($)).toBe('waits: none')
+  expect((saved['wait-samples'] as { durationMs: number }[]).map(item => item.durationMs)).toEqual([240_000])
+})
+
+test('a woken subagent whose message names another task keeps the wait', async ($, on) => {
+  const clock = await ownedWait($, on, {}, { backgroundWakesOwner: true })
+  await clock.advance(10_000)
+  await $.turn.start({ text: notice('zzz', 'completed').text, turnId: 's2', agentId: 'a1' })
+  expect(await waitsOf($)).toBe('waits: shell b1')
+})
+
+test('a subagent command that ends with its final response makes no wait', async ($, on) => {
+  await ownedWait($, on, {}, { backgroundEndsWithFinalResponse: true })
+  expect(await waitsOf($)).toBe('waits: none')
+})
+
+test('safety net a: the main loop notification naming an ended agent\'s wait drops it with no sample', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = await ownedWait($, on, saved)
+  await clock.advance(240_000)
+  await $.prompt.submit(notice('b1', 'completed') as never)
+  expect(await waitsOf($)).toBe('waits: none')
+  expect(saved['wait-samples']).toBeUndefined()
+})
+
+test('safety net b: an ended agent\'s wait past max(2 x estimate, estimate + 10 min) is dropped with no sample', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = await ownedWait($, on, saved)
+  // sleep 240 states 4 min: the limit is 14 min.
+  await clock.advance(13 * 60_000)
+  expect(await waitsOf($)).toBe('waits: shell b1')
+  await clock.advance(2 * 60_000)
+  expect(await waitsOf($)).toBe('waits: none')
+  expect(saved['wait-samples']).toBeUndefined()
+})
+
+test('safety net c: the main turn that ends after the owner completed, with no notification, drops the wait', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = await ownedWait($, on, saved)
+  // The turn that launched it ends: the wait started in it and stays.
+  await $.turn.complete(done)
+  await clock.advance(5000)
+  expect(await waitsOf($)).toBe('waits: shell b1')
+  // A later turn ends with no notification for it.
+  await $.turn.start({ text: 'again', turnId: 't2' })
+  await $.turn.complete({ ...done, turnId: 't2' })
+  expect(await waitsOf($)).toBe('waits: none')
+  expect(saved['wait-samples']).toBeUndefined()
+})
+
+test('the main card is drawn first in its own group, then a divider, then the agents, in the pane and the band', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, 'none')
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn(SPAWN_FG)
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(5000)
+  for (const surface of ['pane', 'desktop'] as const) {
+    const ui = surface === 'pane' ? await $.ui.mount(PANE as never) : await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text)
+    const main = texts.findIndex(text => /Claude · esperando/.test(text))
+    const divider = texts.findIndex(text => /^── Agentes ─+$/.test(text))
+    const agent = texts.findIndex(text => /^Explore$/.test(text))
+    expect(main).toBeGreaterThanOrEqual(0)
+    expect(divider).toBeGreaterThan(main)
+    expect(agent).toBeGreaterThan(divider)
+    await ui.unmount()
+  }
+  // The work ends: only the agent shows, with no divider.
+  await $.prompt.submit(notice('b1', 'completed') as never)
+  const alone = await $.ui.mount(PANE as never)
+  expect(await alone.find({ type: 'Text', text: /── Agentes/ })).toBeUndefined()
+  expect(await alone.find({ type: 'Text', text: /^Explore$/ })).toBeDefined()
+  await alone.unmount()
 })
