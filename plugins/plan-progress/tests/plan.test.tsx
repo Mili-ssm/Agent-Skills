@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { bar, glyphBar, isPlanPath, parsePlan, progressSvg, statusLine } from '../hooks/register'
+import { bar, glyphBar, isPlanPath, parsePlan, progressSvg } from '../hooks/register'
 
 // A plan in the shape Superpowers' writing-plans produces.
 const PLAN = `# Login with magic links
@@ -54,22 +54,25 @@ test('bar and isPlanPath', () => {
   expect(isPlanPath('/repo/docs/adr/0001.md')).toBe(false)
 })
 
-test('glyphBar and statusLine', () => {
+test('glyphBar', () => {
   expect(glyphBar(5, 10, 10)).toBe('▰▰▰▰▰▱▱▱▱▱')
-  expect(statusLine(parsePlan('p.md', PLAN))).toBe('▰▰▰▰▰▱▱▱▱▱ 3/6 · ▶ Task 2: Email sender 1/3')
-  expect(statusLine(parsePlan('p.md', '# Done\n## T\n- [x] a\n'))).toBe('✓ Done 1/1')
 })
 
-test('progressSvg fills done/total steps left to right, green when finished', () => {
-  const svg = progressSvg(3, 6, 100, 6, '#d97757')
-  expect(svg).toContain('class="track" x="0" y="0" width="100"')
-  expect(svg).toContain('class="done" x="0" y="0" width="50.00"')
+test('progressSvg is 20 equal segments filled by overall progress, green when finished', () => {
+  const svg = progressSvg(3, 6, 158, 3, '#d97757')
+  expect(svg.match(/class="track"/g)).toHaveLength(10)
+  expect(svg.match(/class="done"/g)).toHaveLength(10)
+  expect(svg).toContain('height="3" rx="1.5" fill="#d97757"')
+  expect(svg).toContain('x="0.00" y="0" width="6.00"')
+  expect(svg).toContain('fill="#888" fill-opacity="0.25"')
   expect(svg).not.toContain('#3fb950')
-  expect(progressSvg(0, 6, 100, 6, '#d97757')).not.toContain('class="done"')
-  expect(progressSvg(4, 4, 100, 6, '#3fb950')).toContain('width="100.00" height="6" rx="3" fill="#3fb950"')
+  expect(progressSvg(0, 6, 160, 3, '#d97757')).not.toContain('class="done"')
+  const finished = progressSvg(4, 4, 160, 3, '#3fb950')
+  expect(finished.match(/class="done"/g)).toHaveLength(20)
+  expect(finished).not.toContain('class="track"')
 })
 
-test('status line only without a card (vscode); terminal and desktop cards show the newest plan; no plan passes', async ($, on) => {
+test('cards show the newest plan and Haiku\'s remaining line; the status line stays clear; no plan passes', async ($, on) => {
   let files = 1
   const statuses: (string | undefined)[] = []
   // These hooks stand for the engine: one plan folder with one file.
@@ -78,14 +81,17 @@ test('status line only without a card (vscode); terminal and desktop cards show 
       ? { value: [{ name: 'login.md', kind: 'file', size: 1, mtimeMs: 1, isLink: false }] }
       : { value: [] },
   )
-  on('fs.read', () => ({ value: PLAN }))
+  let text = PLAN
+  on('fs.read', () => ({ value: text }))
   on('command.register', () => ({ value: { command: 'plan-progress' } }))
   on('ui.status', (_, e) => {
     statuses.push(e.text)
     return { value: undefined }
   })
-  let surfaces: ('desktop' | 'vscode')[] = ['desktop']
-  on('session.surfaces', () => ({ value: surfaces }))
+  let haiku: string | null = 'finish the email sender and the login route'
+  on('model.complete', () => ({
+    value: haiku === null ? { isAnswered: false, text: '' } : { isAnswered: true, text: `"${haiku}."`, usage: { model: 'claude-haiku-5-5', input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+  }) as never)
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('turn.complete', () => ({ text: '' }))
   // The engine's own band is empty: what the chain falls to when the card passes.
@@ -95,7 +101,8 @@ test('status line only without a card (vscode); terminal and desktop cards show 
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  // The card draws on desktop and terminal: no status line to duplicate it.
+  // Haiku's call is fire and forget: let it land.
+  await new Promise(resolve => setTimeout(resolve, 0))
   expect(statuses.at(-1)).toBeUndefined()
 
   const terminal = await $.ui.mount({ ...BAND, surface: 'terminal' })
@@ -103,19 +110,24 @@ test('status line only without a card (vscode); terminal and desktop cards show 
   expect((await terminal.find({ type: 'Text', text: /3\/6/ }))?.text).toContain('3/6')
   expect((await terminal.find({ type: 'Text', text: /50%/ }))?.text).toContain('50%')
   expect((await terminal.find({ type: 'Text', text: /▰▰▰▰▰▱▱▱▱▱/ }))?.text).toBe('▰▰▰▰▰▱▱▱▱▱')
-  expect((await terminal.find({ type: 'Text', text: /▶/ }))?.text).toBe('▶ Task 2: Email sender · 1/3')
+  expect((await terminal.find({ type: 'Text', text: /▶/ }))?.text).toBe('▶ finish the email sender and the login route')
   await terminal.unmount()
 
   const desktop = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect((await desktop.find({ type: 'Svg' }))?.props.alt).toBe('3 of 6 steps done')
   expect((await desktop.find({ type: 'Text', text: /Login/ }))?.text).toBe('Login with magic links')
-  expect((await desktop.find({ type: 'Text', text: /▶/ }))?.text).toContain('Task 2: Email sender')
+  expect((await desktop.find({ type: 'Text', text: /▶/ }))?.text).toContain('finish the email sender')
   await desktop.unmount()
+  expect(statuses.every(status => status === undefined)).toBe(true)
 
-  // VS Code draws no card: the status line is its display.
-  surfaces = ['vscode']
-  await $.session.start({ cwd: '/', surface: 'vscode', isInteractive: true })
-  expect(statuses.at(-1)).toBe('▰▰▰▰▰▱▱▱▱▱ 3/6 · ▶ Task 2: Email sender 1/3')
+  // Haiku not answering: the active task line stays.
+  haiku = null
+  text = PLAN.replace('- [ ] **Step 2: Implement**', '- [x] **Step 2: Implement**')
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const fallback = await $.ui.mount({ ...BAND, surface: 'terminal' })
+  expect((await fallback.find({ type: 'Text', text: /▶/ }))?.text).toBe('▶ Task 2: Email sender · 2/3')
+  await fallback.unmount()
 
   // The chain passes (nothing beneath draws) when a survey is up, or there is no plan.
   files = 0

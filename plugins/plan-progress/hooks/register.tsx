@@ -10,6 +10,13 @@ const PLAN_DIRS = ['docs/superpowers/plans', 'docs/plans', 'plans']
 // Bump the shape tag when Plan's fields change: an older stored plan is then read as absent.
 const plan = atom({ plugin: 'plan-progress', key: 'plan' } as const, null, { shape: 'plan-1' })
 const pinned = atom({ plugin: 'plan-progress', key: 'pinned' } as const, null)
+// Haiku's words on what remains of the plan, for the plan state named by `key`.
+const remaining = atom({ plugin: 'plan-progress', key: 'remaining' } as const, null)
+// Haiku's instruction for the remaining-work line; it answers in the plan's own language.
+const REMAINING_PROMPT =
+  'Below is a plan and its unfinished tasks (done/total steps; the first one is the current task). In at most 16 ' +
+  "words, in the same language as the plan, say what remains to be done. Reply with the phrase only, without " +
+  'quotes or a final period.\n\n'
 
 // `- [ ] step` / `* [x] step`, at any indentation.
 const CHECKBOX = /^\s*[-*] \[([ xX])\]/
@@ -76,25 +83,23 @@ export function isFinished(plan: Plan): boolean {
   return plan.total > 0 && plan.done === plan.total
 }
 
-/** The one-line status: `▰▰▰▰▰▱▱▱▱▱ 5/10 · ▶ Task 3: Auth middleware 2/4`, or `✓ title 10/10` when finished. */
-export function statusLine(plan: Plan): string {
-  if (isFinished(plan)) {
-    return `✓ ${truncate(plan.title, 40)} ${plan.done}/${plan.total}`
-  }
-  const active = activeTask(plan)
-  const task = active === undefined ? '' : ` · ▶ ${truncate(active.title, 40)} ${active.done}/${active.total}`
-  return `${glyphBar(plan.done, plan.total, 10)} ${plan.done}/${plan.total}${task}`
-}
+/** Equal segments of the progress line. */
+const SEGMENTS = 20
+const GAP = 2
 
-/** The progress line as SVG: a rounded track and a fill for done/total steps, left to right. */
+/** The progress line as SVG: `SEGMENTS` equal segments with 2px gaps, the first `round(done/total * SEGMENTS)` filled. */
 export function progressSvg(done: number, total: number, width: number, height: number, color: string): string {
+  const filled = total === 0 ? 0 : Math.round((done / total) * SEGMENTS)
+  const segment = (width - GAP * (SEGMENTS - 1)) / SEGMENTS
   const radius = height / 2
-  const fill = total === 0 ? 0 : (width * done) / total
-  const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="${height}" rx="${radius}" fill="${color}"/>` : ''
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<rect class="track" x="0" y="0" width="${width}" height="${height}" rx="${radius}" fill="#888" fill-opacity="0.25"/>${bar}</svg>`
-  )
+  let rects = ''
+  for (let index = 0; index < SEGMENTS; index += 1) {
+    const x = (index * (segment + GAP)).toFixed(2)
+    const isDone = index < filled
+    const fill = isDone ? `fill="${color}"` : 'fill="#888" fill-opacity="0.25"'
+    rects += `<rect class="${isDone ? 'done' : 'track'}" x="${x}" y="0" width="${segment.toFixed(2)}" height="${height}" rx="${radius}" ${fill}/>`
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${rects}</svg>`
 }
 
 /** True when the path is inside one of the plan folders. */
@@ -131,7 +136,7 @@ function justFinished(previous: Plan | null, next: Plan | null): PlanTask[] {
 }
 
 /**
- * Stores the plan (or null) and mirrors it on the status line where no card is drawn (VS Code).
+ * Stores the plan (or null) and clears the status line that older versions set.
  * Returns the tasks this write completed: judged against the value the update replaces, so two
  * overlapping refreshes never both see the same task as new.
  */
@@ -142,15 +147,37 @@ async function publish($: EngineInterface, next: Plan | null): Promise<PlanTask[
     finished = justFinished(previous, next)
     return next
   })
-  // VS Code raises no AbovePrompt card, so the status line is its only display; elsewhere the card shows the plan.
-  // Terminal and desktop draw the card above the prompt; the status line is only for a session drawn in VS Code alone.
-  // Unknown surfaces count as none: a missing status line is better than a duplicate.
-  const surfaces = await $.session.surfaces().catch(() => [])
-  const vscodeOnly = surfaces.length > 0 && surfaces.every(surface => surface === 'vscode')
-  const show = next !== null && next.total > 0 && vscodeOnly
-  const line = show ? statusLine(next) : undefined
-  $.ui.status(line)
+  $.ui.status(undefined)
   return finished
+}
+
+/** The key of a plan state: Haiku's description is asked again only when it changes. */
+function remainingKey(plan: Plan): string {
+  return `${plan.path}:${plan.done}/${plan.total}`
+}
+
+// The key last asked about, so a refresh without change does not ask Haiku again.
+let asked: string | undefined
+
+/** Asks Haiku what remains and stores it; keeps the fallback line on a miss. Never throws. */
+async function describeRemaining($: EngineInterface, plan: Plan, key: string): Promise<void> {
+  try {
+    const open = plan.tasks.filter(task => task.done < task.total)
+    const tasks = open.map((task, index) => `- ${index === 0 ? '(current) ' : ''}${task.title} ${task.done}/${task.total}`)
+    const reply = await $.model.complete({
+      model: 'haiku',
+      prompt: `${REMAINING_PROMPT}Plan: ${plan.title}\n\nUnfinished tasks:\n${tasks.join('\n')}`,
+      maxTokens: 40,
+      timeoutMs: 15000,
+    })
+    const text = reply.isAnswered ? reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, '') : ''
+    // A newer plan state took over while Haiku answered: drop this text.
+    if (text !== '' && asked === key) {
+      await update($, remaining, () => ({ key, text }))
+    }
+  } catch (error) {
+    $.ui.log(`plan-progress: ${String(error)}`, { to: 'debug' })
+  }
 }
 
 /** Re-reads the active plan into state; toasts when a task has just been completed. */
@@ -165,6 +192,14 @@ async function refresh($: EngineInterface): Promise<void> {
   // Same plan, more steps done: name the tasks that just reached their total.
   for (const task of await publish($, next)) {
     $.ui.toast(`✓ ${task.title} (${next.done}/${next.total})`)
+  }
+  // Fire and forget: the card shows the fallback line until Haiku answers.
+  const key = remainingKey(next)
+  if (key !== asked) {
+    asked = key
+    if (!isFinished(next)) {
+      void describeRemaining($, next, key)
+    }
   }
 }
 
@@ -188,14 +223,12 @@ export const register: Register = on => {
     }
     await refresh($)
     const current = await read($, plan)
-    // Surfaces decide whether the status line shows (VS Code alone); printing them makes a stray line diagnosable.
-    const surfaces = await $.session.surfaces().then(list => list.join(', ') || 'none', () => 'unknown')
 
     return {
       text:
-        (current === null
+        current === null
           ? `No plan found (looked in ${PLAN_DIRS.join(', ')}).`
-          : `Plan: ${current.path} (${current.done}/${current.total} steps).`) + ` Surfaces: ${surfaces}.`,
+          : `Plan: ${current.path} (${current.done}/${current.total} steps).`,
     }
   }).catch(($, e, next) => next(e))
 
@@ -219,10 +252,11 @@ export const register: Register = on => {
     return completed
   })
 
-  // The card next to the prompt (terminal and desktop, no border); vscode shows the status line alone. The band is shared:
+  // The card next to the prompt (no border). The band is shared:
   // other mods' cards (tool-fold's agents, usage-band) stack below this one, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const current = await read($, plan)
+    const described = await read($, remaining)
     if (e.props.hasSurvey || current === null || current.total === 0) {
       return next(e)
     }
@@ -243,8 +277,11 @@ export const register: Register = on => {
     )
     // Room left for the task title after the glyphs and counts.
     const room = Math.max(12, Math.min(60, e.props.bodyColumns - 12))
+    const text = described !== null && described.key === remainingKey(current) ? described.text : undefined
     const taskLine =
-      active === undefined ? undefined : (
+      text !== undefined ? (
+        <Text dimColor>▶ {truncate(text, room)}</Text>
+      ) : active === undefined ? undefined : (
         <Text dimColor>
           ▶ {truncate(active.title, room)} · {active.done}/{active.total}
         </Text>
@@ -263,10 +300,10 @@ export const register: Register = on => {
             {counts}
           </Box>
           <Svg
-            source={progressSvg(current.done, current.total, width, 6, hex)}
+            source={progressSvg(current.done, current.total, width, 3, hex)}
             alt={`${current.done} of ${current.total} steps done`}
             width={width}
-            height={6}
+            height={3}
           />
           {taskLine}
           {rest}
