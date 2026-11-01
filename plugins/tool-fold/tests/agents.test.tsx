@@ -1,6 +1,20 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { commandOf, countsLine, describeStep, estimateInput, estimateOf, formatDuration, median, summarize } from '../hooks/agents'
+import {
+  AGENT_ICONS,
+  STATE_COLOR,
+  commandOf,
+  countsLine,
+  describeStep,
+  estimateInput,
+  estimateOf,
+  formatDuration,
+  iconOf,
+  median,
+  progressSvg,
+  stateOf,
+  summarize,
+} from '../hooks/agents'
 
 // The Agent call's row as a surface would mount it.
 const ROW = {
@@ -28,6 +42,32 @@ const SPAWN = {
   background: false,
   fork: false,
 } as const
+
+const PANE_PROPS = { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} }
+
+test('icons follow the agent type, with or without the plugin prefix', () => {
+  expect(iconOf('Explore')).toBe('⌕')
+  expect(iconOf('agent-skills:researcher')).toBe('⌕')
+  expect(iconOf('agent-skills:implementer')).toBe('✎')
+  expect(iconOf('doc-curator')).toBe('✎')
+  expect(iconOf('agent-skills:check-runner')).toBe('▶')
+  expect(iconOf('performance-analyst')).toBe('▶')
+  expect(iconOf('general-purpose')).toBe('◇')
+  expect(Object.keys(AGENT_ICONS)).toContain('summarizer')
+})
+
+test('state colors: running orange, waiting blue, completed green, failed and stopped red', () => {
+  expect(STATE_COLOR.running).toEqual({ hex: '#d97757', theme: 'claude' })
+  expect(STATE_COLOR.waiting.hex).toBe('#58a6ff')
+  expect(STATE_COLOR.completed).toEqual({ hex: '#3fb950', theme: 'success' })
+  expect(STATE_COLOR.failed.theme).toBe('error')
+  expect(stateOf({ id: 'a1', status: 'running' })).toBe('running')
+  expect(stateOf({ id: 'wait-b1', status: 'running' })).toBe('waiting')
+  expect(stateOf({ id: 'a1', status: 'done' })).toBe('completed')
+  expect(stateOf({ id: 'a1', status: 'failed' })).toBe('failed')
+  expect(stateOf({ id: 'a1', status: 'aborted' })).toBe('failed')
+  expect(progressSvg(1, 4, 100, '#fff')).toContain('width="25.00"')
+})
 
 test('steps are named and grouped as Codex does', () => {
   expect(describeStep('Read', { file_path: 'src/app/session.py' }).label).toBe('Read session.py')
@@ -94,10 +134,9 @@ test('a running agent shows its live tool, then folds into one summary line', as
     } as never)
     expect((await ui.find({ type: 'Text', text: /^Explore$/ }))?.text).toBe('Explore')
     expect((await ui.find({ type: 'Text', text: /haiku/ }))?.text).toBe('● haiku-5-5')
-    // The mission replaces the short description; the card keeps the last two calls.
-    expect((await ui.find({ type: 'Text', text: /Busca/ }))?.text).toBe('  Busca dónde se crean las sesiones')
-    expect((await ui.find({ type: 'Text', text: /Read/ }))?.text).toBe('  └ ✓ Read session.py')
-    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('  └ ✓ Search "Session(" in src/')
+    // One detail line: the latest call (the mission shows while it has none).
+    expect(await ui.find({ type: 'Text', text: /Read session/ })).toBeUndefined()
+    expect((await ui.find({ type: 'Text', text: /Search/ }))?.text).toBe('✓ Search "Session(" in src/')
     await ui.unmount()
   }
 
@@ -175,7 +214,7 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   const pane = await $.ui.mount(PANE as never)
   expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
   // A call reads by what it does alone, without the command.
-  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
+  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
   expect(await pane.find({ type: 'Text', text: /cargo bench/ })).toBeUndefined()
   await pane.unmount()
   // The chat shows a running agent nothing while the pane holds it.
@@ -215,9 +254,24 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
     surface: 'vscode',
     props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
   } as never)
-  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('▰▰▱▱▱ ≈40% · <1 min')
+  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('≈40% · <1 min')
   await pane.unmount()
   expect(estimates).toBe(1)
+  // The thin progress line: an Svg on a surface that has one, a glyph line on the terminal; the key datum is orange while running.
+  const surfaces = {
+    vscode: await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never),
+    terminal: await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'terminal', props: PANE_PROPS } as never),
+  }
+  const svg = await surfaces.vscode.find({ type: 'Svg' })
+  expect(String(svg?.props.source)).toContain('fill="#d97757"')
+  expect(String(svg?.props.source)).toContain('fill-opacity="0.45"')
+  expect(svg?.props.height).toBe(2)
+  expect(svg?.props.width).toBeUndefined()
+  expect((await surfaces.vscode.find({ type: 'Text', text: /%/ }))?.props.color).toBe('claude')
+  expect(await surfaces.terminal.find({ type: 'Svg' })).toBeUndefined()
+  expect((await surfaces.terminal.find({ type: 'Text', text: /^▰/ }))?.props.color).toBe('claude')
+  await surfaces.vscode.unmount()
+  await surfaces.terminal.unmount()
   await clock.advance(30_000)
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(estimates).toBe(2)
@@ -384,7 +438,7 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   expect(opened).toEqual([])
   const desktop = await band('desktop')
   expect((await desktop.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
-  expect((await desktop.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('  └ ✓ Benchmark the codec')
+  expect((await desktop.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
   await desktop.unmount()
 
   // VS Code places its own pane above the prompt: the band is not drawn there.

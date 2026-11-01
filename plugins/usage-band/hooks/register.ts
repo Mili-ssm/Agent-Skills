@@ -481,11 +481,11 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
     sessionMs - elapsed < 1000
       ? null
       : `Σ ${formatDuration(sessionMs)}${sessionTokens === 0 ? '' : ` · ${formatTokens(sessionTokens)}`}`
-  const detail = isBusy ? (cycle.doing === null ? null : `▸ ${cycle.doing}`) : cycle.conclusion
+  // Busy: what it does now. Idle: Haiku's conclusion.
+  const detail = isBusy ? (cycle.doing === null ? null : `▸ ${cycle.doing}`) : cycle.conclusion === null ? null : `✓ ${cycle.conclusion}`
+  const color = isBusy ? 'claude' : 'success'
+  // Common skeleton, borderless: label and key datum, counters, activity or conclusion.
   return Box({
-    borderStyle: 'round',
-    borderColor: isBusy ? 'claude' : 'success',
-    paddingX: 1,
     flexDirection: 'column',
     children: [
       Box({
@@ -493,24 +493,22 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
         justifyContent: 'space-between',
         gap: 2,
         children: [
-          Box({
-            flexDirection: 'row',
-            gap: 1,
-            children: [
-              Text({
-                color: isBusy ? 'claude' : 'success',
-                weight: 'bold',
-                tabular: true,
-                children: `${isBusy ? '⏱' : '✓'} ${formatDuration(elapsed)}`,
-              }),
-              counts === '' ? null : Text({ dimColor: true, children: counts }),
-            ],
-          }),
-          sessionTotal === null ? null : Text({ dimColor: true, size: 'footnote', tabular: true, children: sessionTotal }),
+          Text({ weight: 'bold', children: isBusy ? 'Claude' : 'Done' }),
+          Text({ color, weight: 'bold', tabular: true, children: `⏱ ${formatDuration(elapsed)}` }),
         ],
       }),
-      // Busy: what it does now, quiet. Idle: the conclusion, in full color, as the line worth reading.
-      detail === null ? null : Text({ dimColor: isBusy, italic: !isBusy, wrap: 'wrap', children: detail }),
+      counts === '' && sessionTotal === null
+        ? null
+        : Box({
+            flexDirection: 'row',
+            justifyContent: 'space-between',
+            gap: 2,
+            children: [
+              Text({ dimColor: true, children: counts }),
+              sessionTotal === null ? null : Text({ dimColor: true, tabular: true, children: sessionTotal }),
+            ],
+          }),
+      detail === null ? null : Text({ dimColor: true, wrap: 'truncate-end', children: detail }),
     ],
   })
 }

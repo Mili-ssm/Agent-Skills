@@ -99,7 +99,6 @@ test('a recorded sample gives the estimate and the progress', async ($, on) => {
   await $.turn.complete(done)
   await clock.advance(90_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /1m 30s/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
   await ui.unmount()
 
@@ -209,11 +208,13 @@ test('the main agent card comes first, stands out, and shows the time left', asy
     expect(main).toBeGreaterThanOrEqual(0)
     expect(other).toBeGreaterThan(main)
     const name = await ui.find({ type: 'Text', text: /Claude · esperando/ })
-    expect(name?.props.underline).toBe(true)
     expect(name?.props.weight).toBe('bold')
-    expect(name?.text).toMatch(/^◆/)
+    expect(name?.text).toBe('Claude · esperando')
+    expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('suggestion')
     // 50% at 90 s: 90 s left.
     expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
+    // The wait is blue, its thin line too.
+    expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('#58a6ff')
     await ui.unmount()
   }
 })
