@@ -106,7 +106,7 @@ export function formatContext(percent: number | undefined): { text: string; colo
   }
   const used = Math.min(100, Math.max(0, percent))
   const icon = used < 12.5 ? '○' : used < 37.5 ? '◔' : used < 62.5 ? '◑' : used < 87.5 ? '◕' : '●'
-  const color = used < 50 ? '#3fb950' : used <= 80 ? '#e3b341' : '#f85149'
+  const color = used < 50 ? '#5f9e6e' : used <= 80 ? '#c49a3c' : '#c0605a'
   return { text: `${icon} ${Math.round(used)}%`, color, icon }
 }
 
