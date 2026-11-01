@@ -93,6 +93,17 @@ export function progressSvg(done: number, total: number, width: number, color: s
   )
 }
 
+/**
+ * Haiku's reply cut to one usable phrase: its first non-empty line without quotes or a final period, or '' when
+ * that line is the model thinking aloud ("Let me count…") or runs past 24 words, so the card never shows it.
+ */
+export function cleanPhrase(reply: string): string {
+  const line = reply.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
+  const phrase = line.replace(/^["'«“]+|["'»”.]+$/g, '')
+  const isMeta = /^(let me|let's|i (will|need|should)|okay|ok,|hmm|word count|counting)/i.test(phrase)
+  return isMeta || phrase.split(/\s+/).length > 24 ? '' : phrase
+}
+
 /** True when the path is inside one of the plan folders. */
 export function isPlanPath(path: string): boolean {
   return PLAN_DIRS.some(dir => path.includes(`${dir}/`)) && path.endsWith('.md')
@@ -161,7 +172,7 @@ async function describeRemaining($: EngineInterface, plan: Plan, key: string): P
       maxTokens: 40,
       timeoutMs: 15000,
     })
-    const text = reply.isAnswered ? reply.text.trim().replace(/^["'«“]+|["'»”.]+$/g, '') : ''
+    const text = reply.isAnswered ? cleanPhrase(reply.text) : ''
     // A newer plan state took over while Haiku answered: drop this text.
     if (text !== '' && asked === key) {
       await update($, remaining, () => ({ key, text }))

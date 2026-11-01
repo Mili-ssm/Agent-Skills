@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { bar, glyphBar, isPlanPath, parsePlan, progressSvg } from '../hooks/register'
+import { bar, cleanPhrase, glyphBar, isPlanPath, parsePlan, progressSvg } from '../hooks/register'
 
 // A plan in the shape Superpowers' writing-plans produces.
 const PLAN = `# Login with magic links
@@ -142,4 +142,11 @@ test('cards show the newest plan and Haiku\'s remaining line; the status line st
   const empty = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await empty.find({ type: 'Text' }))?.text).toBe('engine band')
   await empty.unmount()
+})
+
+test('cleanPhrase keeps the first line and drops thinking aloud', () => {
+  expect(cleanPhrase('Spike de densidad, luego spec v7.4.\n\nLet me count words: ...')).toBe('Spike de densidad, luego spec v7.4')
+  expect(cleanPhrase('"Cerrar R1-T2."')).toBe('Cerrar R1-T2')
+  expect(cleanPhrase('Let me count the words first')).toBe('')
+  expect(cleanPhrase('')).toBe('')
 })
