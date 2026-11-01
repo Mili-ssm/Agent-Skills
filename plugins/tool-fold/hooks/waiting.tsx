@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRun, EtaSource, WaitKind, WaitTask } from '../types'
-import { commandOf, isAgentRunning, isBackgroundAgent } from './agents'
+import { commandOf, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
 import {
   REESTIMATE_GAP_MS,
   WAIT_SAMPLES_KEY,
@@ -13,6 +13,9 @@ import {
   similarRuns,
   sourceOfAsk,
   statedDuration,
+  LINGER_MS,
+  MAX_PERCENT,
+  OVERDUE_GRACE_MS,
 } from './estimates'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
@@ -20,12 +23,16 @@ import {
 const waits = atom({ plugin: 'tool-fold', key: 'waits' } as const, [], { shape: 'waits-2' })
 // Clock time the main loop's turn ended (null while a turn runs): only the card's label depends on it.
 const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
+// Waits that ended with `completed`, kept for LINGER_MS so their card shows full and green. Drawn by the clock, swept on the tick.
+const lingering = atom({ plugin: 'tool-fold', key: 'lingeringWaits' } as const, [])
+
+type Lingered = WaitTask & { endedAt: number }
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
 
 export { statedDuration }
 // Progress never reaches 100% before the work is done.
-const MAX_PROGRESS = 0.95
+const MAX_PROGRESS = MAX_PERCENT / 100
 // Characters of a command's first line that name it for the estimate.
 const KEY_CHARS = 80
 // A guessed duration outside this range is Haiku misreading the question.
@@ -109,7 +116,7 @@ let ticker: { cancel: () => void } | undefined
 /** Runs the clock while anything is waited on; stops it otherwise. */
 async function syncTick($: EngineInterface): Promise<void> {
   const all = await read($, waits)
-  const isShown = all.length > 0
+  const isShown = all.length > 0 || (await read($, lingering)).length > 0
   if (isShown && ticker === undefined) {
     ticker = $.clock.every(1000, () => {
       void update($, waitTick, n => n + 1)
@@ -250,6 +257,9 @@ async function finish($: EngineInterface, id: string | undefined, isDone: boolea
     }
     await update($, waits, all => all.filter(item => !ended.some(gone => gone.id === item.id)))
     const now = await $.clock.now()
+    if (isDone) {
+      await update($, lingering, all => [...all.filter(item => !ended.some(gone => gone.id === item.id)), ...ended.map(task => ({ ...task, endedAt: now }))])
+    }
     for (const task of ended) {
       const took = now - task.startedAt
       if (isDone && id !== undefined) {
@@ -288,6 +298,11 @@ export const isStale = (task: Pick<WaitTask, 'startedAt' | 'etaMs'>, now: number
 async function sweep($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   const all = await read($, waits)
+  if ((await read($, lingering)).some(item => now - item.endedAt >= LINGER_MS)) {
+    await update($, lingering, list => list.filter(item => now - item.endedAt < LINGER_MS))
+    await syncTick($)
+    await retitleDock($).catch(() => undefined)
+  }
   const stale: string[] = []
   for (const task of all) {
     if (task.owner !== undefined && isStale(task, now) && !(await isAgentRunning($, task.owner))) {
@@ -433,12 +448,35 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const [everything, idle] = await Promise.all([read($, waits), read($, idleAt)])
   // A subagent's waits are its own card's (see `agentWaitRuns`).
   const list = everything.filter(task => task.owner === undefined)
-  if (list.length === 0) {
-    return []
-  }
   await read($, waitTick)
   const now = await $.clock.now()
   const model = await $.session.model().catch(() => '')
+  if (list.length === 0) {
+    // The last wait just completed: its card stays full and green until LINGER_MS passes.
+    const done = (await read($, lingering) as Lingered[]).filter(task => task.owner === undefined && now - task.endedAt < LINGER_MS)
+    const first = done[0]
+    if (first === undefined) {
+      return []
+    }
+    const mission = done.length === 1 ? first.label : `${done.length} tareas en segundo plano`
+    return [
+      {
+        id: 'wait-main',
+        toolUseId: 'wait-main',
+        type: 'Claude · esperando',
+        description: mission,
+        mission,
+        model,
+        status: 'done',
+        startedAt: Math.min(...done.map(task => task.startedAt)),
+        durationMs: Math.max(...done.map(task => task.endedAt)) - Math.min(...done.map(task => task.startedAt)),
+        current: [],
+        recent: [],
+        counts: {},
+        isLingering: true,
+      },
+    ]
+  }
   const agents = list.filter(task => task.kind === 'agent')
   const procs = list.filter(task => task.kind !== 'agent')
   // What the wait says: the agents (one by name, else how many), then the processes the same way.
@@ -452,7 +490,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const earliest = Math.min(...list.map(task => task.startedAt))
   const elapsed = Math.max(0, now - (driver?.startedAt ?? earliest))
   const fraction = driver === undefined ? undefined : progressOf(elapsed, driver.etaMs)
-  const isOverdue = fraction !== undefined && driver?.etaMs !== undefined && elapsed >= driver.etaMs
+  const isOverdue = fraction !== undefined && driver?.etaMs !== undefined && elapsed > driver.etaMs + OVERDUE_GRACE_MS
   const mission = driver?.label ?? agents[0]?.name ?? agents[0]?.label ?? detail
   return [
     {
@@ -484,7 +522,8 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
  */
 export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRun[]): Promise<AgentRun[]> {
   const owned = (await read($, waits)).filter(task => task.owner !== undefined)
-  if (owned.length === 0) {
+  const ended = (await read($, lingering) as Lingered[]).filter(task => task.owner !== undefined)
+  if (owned.length === 0 && ended.length === 0) {
     return []
   }
   await read($, waitTick)
@@ -492,7 +531,25 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
   const cards: AgentRun[] = []
   for (const run of agents) {
     const procs = owned.filter(task => task.owner === run.id)
-    if (run.status === 'running' || procs.length === 0) {
+    if (run.status === 'running') {
+      continue
+    }
+    if (procs.length === 0) {
+      // Its last background process completed: the waiting card stays full and green for a moment.
+      const done = ended.filter(task => task.owner === run.id && now - task.endedAt < LINGER_MS)
+      if (done.length > 0) {
+        const { estimate: _e, etaMs: _m, etaSource: _s, todo: _t, isOpenEnded: _o, ...own } = run
+        cards.push({
+          ...own,
+          id: `wait-agent-${run.id}`,
+          status: 'done',
+          durationMs: Math.max(...done.map(task => task.endedAt)) - run.startedAt,
+          current: [],
+          recent: [],
+          counts: {},
+          isLingering: true,
+        })
+      }
       continue
     }
     const endOf = (task: WaitTask): number => task.startedAt + (task.etaMs ?? 0)
@@ -512,7 +569,7 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
       counts: {},
       ...(fraction === undefined ? { isTrackOnly: true } : { estimate: Math.round(fraction * 100) }),
       ...(driver.etaSource === undefined ? {} : { etaSource: driver.etaSource }),
-      ...(fraction !== undefined && driver.etaMs !== undefined && now - driver.startedAt >= driver.etaMs ? { isOverdue: true } : {}),
+      ...(fraction !== undefined && driver.etaMs !== undefined && now - driver.startedAt > driver.etaMs + OVERDUE_GRACE_MS ? { isOverdue: true } : {}),
     })
   }
   return cards

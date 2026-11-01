@@ -495,8 +495,13 @@ export function barSvg(filled: number): string {
 type Ui = { Box: ElementConstructor<BoxProps>; Text: ElementConstructor<TextProps> }
 type UiWithSvg = Ui & { Svg: ElementConstructor<SvgProps> }
 
-/** The Desktop band: the clock in color and bold, the counts and session total quiet, the step or conclusion under. */
-export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
+/** `ctx 42%`: the share of the main conversation's context window in use (`$.session.usage().context.percent`); null while unknown. */
+export function formatContext(percent: number | undefined): string | null {
+  return percent === undefined || !Number.isFinite(percent) ? null : `ctx ${Math.round(Math.min(100, Math.max(0, percent)))}%`
+}
+
+/** The Desktop band: line 1 the stats (clock in color and bold, counts, context share, session total, quiet), line 2 the step or conclusion. */
+export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage, contextPercent?: number) {
   const { Box, Text } = ui
   const isBusy = cycle.busySince !== null
   const others = (
@@ -532,7 +537,9 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
   // Busy: what it does now. Idle: Haiku's conclusion.
   const detail = isBusy ? (cycle.doing === null ? null : `▸ ${cycle.doing}`) : cycle.conclusion === null ? null : `✓ ${cycle.conclusion}`
   const color = isBusy ? 'claude' : 'success'
-  // Common skeleton, borderless: label and key datum, counters, activity or conclusion.
+  const ctx = formatContext(contextPercent)
+  const stats = [ctx === null ? null : Text({ dimColor: true, tabular: true, children: ctx }), sessionTotal === null ? null : Text({ dimColor: true, tabular: true, children: sessionTotal })]
+  // Two lines, borderless: the stats (clock, counters, context share, session total), then the activity or conclusion.
   return Box({
     flexDirection: 'column',
     children: [
@@ -541,21 +548,14 @@ export function bandCard(ui: Ui, cycle: Cycle, elapsed: number, total: Usage) {
         justifyContent: 'space-between',
         gap: 2,
         children: [
-          Text({ weight: 'bold', children: isBusy ? 'Claude' : 'Done' }),
-          Text({ color, weight: 'bold', tabular: true, children: `⏱ ${formatDuration(elapsed)}` }),
+          Box({
+            flexDirection: 'row',
+            gap: 2,
+            children: [Text({ color, weight: 'bold', tabular: true, children: `⏱ ${formatDuration(elapsed)}` }), counts === '' ? null : countsRow],
+          }),
+          Box({ flexDirection: 'row', gap: 2, children: stats }),
         ],
       }),
-      counts === '' && sessionTotal === null
-        ? null
-        : Box({
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            gap: 2,
-            children: [
-              countsRow,
-              sessionTotal === null ? null : Text({ dimColor: true, tabular: true, children: sessionTotal }),
-            ],
-          }),
       detail === null ? null : Text({ dimColor: true, wrap: 'truncate-end', children: detail }),
     ],
   })
@@ -579,6 +579,15 @@ export function lineWithBars(ui: UiWithSvg, line: string) {
         return Svg({ source: barSvg(filled), alt: `${filled} of ${CELLS}`, width: 60, height: 8 })
       }),
   })
+}
+
+/** The context window's used share, read only; undefined before the first response or when the lookup fails. */
+async function contextPercent($: EngineInterface): Promise<number | undefined> {
+  try {
+    return (await $.session.usage()).context.percent
+  } catch {
+    return undefined
+  }
 }
 
 export const register: Register = on => {
@@ -721,11 +730,11 @@ export const register: Register = on => {
       return next(e)
     }
     await read($, tickAtom)
-    const [now, total, rest] = await Promise.all([$.clock.now(), read($, session), next(e)])
+    const [now, total, rest, percent] = await Promise.all([$.clock.now(), read($, session), next(e), contextPercent($)])
     const { Box, Text } = $.ui.resolve(e)
     return Box({
       flexDirection: 'column',
-      children: [rest, bandCard({ Box, Text }, cycle, elapsedMs(cycle, now), total)],
+      children: [rest, bandCard({ Box, Text }, cycle, elapsedMs(cycle, now), total, percent)],
     })
   }).catch(($, e, next) => next(e))
 

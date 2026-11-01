@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { activity, agentDots, bar, cleanPhrase, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
+import { activity, agentDots, bar, cleanPhrase, formatContext, formatCycle, formatDuration, formatLine, formatTally, formatTokens } from '../hooks/register'
 import type { Cycle } from '../types'
 
 // Token usage as a turn reports it.
@@ -24,6 +24,14 @@ test('formatters', () => {
   expect(bar(50, 100)).toBe('▇▇▇▁▁')
   expect(bar(100, 100)).toBe('▇▇▇▇▇')
   expect(bar(1, 100)).toBe('▇▁▁▁▁')
+})
+
+test('context share formats as ctx N%', () => {
+  expect(formatContext(42)).toBe('ctx 42%')
+  expect(formatContext(41.6)).toBe('ctx 42%')
+  expect(formatContext(0)).toBe('ctx 0%')
+  expect(formatContext(140)).toBe('ctx 100%')
+  expect(formatContext(undefined)).toBeNull()
 })
 
 test('cycle formatters', () => {
@@ -101,6 +109,7 @@ function engine(on: On) {
   on('tool.call', () => ({ result: {} }))
   on('agent.list', () => ({ value: agents }) as never)
   on('session.surfaces', () => ({ value: surfaces }) as never)
+  on('session.usage', () => ({ value: { startedAt: 0, rateLimits: [], context: { window: 200000, tokens: 84000, percent: 42 } } }) as never)
   on('model.complete', (_, e) => {
     const isDescription = e.prompt.includes('<latest_actions>')
     haiku.described += isDescription ? 1 : 0
@@ -352,6 +361,11 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   expect((await busy.find({ type: 'Text', text: /^⏱/ }))?.text).toBe('⏱ 3s')
   expect((await busy.find({ type: 'Text', text: /call/ }))?.text).toBe('1 call')
   expect((await busy.find({ type: 'Text', text: /^▸/ }))?.text).toBe('▸ Revisa las notas')
+  // Two lines: the stats (clock, counts, ctx) on the first, the activity on the second.
+  expect((await busy.find({ type: 'Text', text: /^ctx/ }))?.text).toBe('ctx 42%')
+  const texts = (await busy.findAll({ type: 'Text' })).map(node => node.text)
+  expect(texts.slice(0, 3)).toEqual(['⏱ 3s', '1 call', 'ctx 42%'])
+  expect(texts.at(-1)).toBe('▸ Revisa las notas')
   // The first cycle is the whole session: no session total yet.
   expect(await busy.find({ type: 'Text', text: /Σ/ })).toBeUndefined()
   await busy.unmount()

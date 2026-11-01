@@ -67,7 +67,7 @@ test('keys, labels and progress', () => {
   expect(waitLabel('shell', { command: 'cargo bench\nmore' })).toBe('cargo bench')
   expect(waitLabel('shell', { command: 'x', description: 'Run the bench' })).toBe('Run the bench')
   expect(progressOf(90_000, 180_000)).toBe(0.5)
-  expect(progressOf(400_000, 180_000)).toBe(0.95)
+  expect(progressOf(400_000, 180_000)).toBe(0.99)
   expect(progressOf(5000, undefined)).toBeUndefined()
 })
 
@@ -109,6 +109,11 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
 
   // The work ends: the notification clears the card.
   await $.prompt.submit(notice('b1', 'completed') as never)
+  // A completed wait lingers 5 s: full green line, 100%, then it goes.
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^100%$/ }))?.props.color).toBe('success')
+  await ui.unmount()
+  await clock.advance(5000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
   await ui.unmount()
@@ -208,6 +213,7 @@ test('a background agent is waited on until its turn ends', async ($, on) => {
   await $.turn.complete({ ...done, agentId: 'a2', turnId: 's2' })
 
   await $.turn.complete({ ...done, agentId: 'a1', turnId: 's1' })
+  await clock.advance(5000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
   await ui.unmount()
@@ -326,7 +332,24 @@ test('past the estimate the card says so', async ($, on) => {
   await $.turn.complete(done)
   await clock.advance(150_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /≈95% · más de lo previsto/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /≈99% · más de lo previsto/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('within 10 s of the estimate the card is not overdue; 15 s past it is', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, 'minutos: 1')
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(65_000)
+  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈99% · <1 min/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
+  await ui.unmount()
+  await clock.advance(10_000)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /≈99% · más de lo previsto/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -767,6 +790,7 @@ test('the main card persists across a main turn start: only the label switches',
   await clock.advance(3000)
   await $.turn.complete({ ...done, turnId: 't2' })
   await $.prompt.submit(notice('b1', 'completed') as never)
+  await clock.advance(5000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · (esperando|en segundo plano)/ })).toBeUndefined()
   await ui.unmount()

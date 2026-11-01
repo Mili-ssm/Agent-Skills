@@ -13,6 +13,9 @@ import {
   similarRuns,
   sourceOfAsk,
   statedDuration,
+  LINGER_MS,
+  MAX_PERCENT,
+  OVERDUE_GRACE_MS,
 } from './estimates'
 import { PHRASE_TOKENS, agentWaitRuns, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
@@ -276,7 +279,7 @@ const ESTIMATE_SYSTEM = [
   '- Si la misma acción falla varias veces, está atascado: no subas.',
   '- Mantente cerca de tu estimación anterior salvo un avance claro.',
   '- Si la misión no tiene un final medible (vigilar un proceso o un PR, esperar un evento), responde ?.',
-  'Responde solo con un número entero entre 0 y 95, o con ?, sin texto.',
+  'Responde solo con un número entero entre 0 y 99, o con ?, sin texto.',
   '<example>35</example>',
 ].join('\n')
 // Durations remembered per agent type across sessions ($.store, a local file): no model call reads them.
@@ -422,7 +425,10 @@ export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
 }
 
 /** The state a card is drawn in: the main agent's wait is `waiting`; a stopped agent reads as failed. */
-export function stateOf(run: Pick<AgentRun, 'id' | 'status'>): CardState {
+export function stateOf(run: Pick<AgentRun, 'id' | 'status'> & { isLingering?: boolean }): CardState {
+  if (run.isLingering === true) {
+    return 'completed'
+  }
   if (isWaitCard(run)) {
     return 'waiting'
   }
@@ -465,6 +471,9 @@ export function progressSvg(done: number, total: number, width: number, color: s
 
 /** Fraction of the progress line (done over total), from the agent's task list or its estimate; undefined with neither. */
 export function progressOfRun(run: AgentRun, now: number): { done: number; total: number } | undefined {
+  if (run.isLingering === true) {
+    return { done: 100, total: 100 }
+  }
   if (run.isTrackOnly === true) {
     return { done: 0, total: 100 }
   }
@@ -503,7 +512,7 @@ function progressLine(ui: Elements, run: AgentRun, now: number) {
 
 /**
  * The percentage a running card shows: Haiku's reading, or for an open-ended mission (a watcher) the
- * time against how long its type usually takes, worked out as it draws (no model call), capped at 95.
+ * time against how long its type usually takes, worked out as it draws (no model call), capped at 99.
  */
 export function estimateOf(
   run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt' | 'etaMs'>,
@@ -511,13 +520,13 @@ export function estimateOf(
 ): number | undefined {
   // Similar past agents measured this kind of work: elapsed over their median, held under 100%.
   if (run.etaMs !== undefined && run.etaMs > 0) {
-    return Math.min(95, Math.max(0, Math.round(((now - run.startedAt) / run.etaMs) * 100)))
+    return Math.min(MAX_PERCENT, Math.max(0, Math.round(((now - run.startedAt) / run.etaMs) * 100)))
   }
   if (run.estimate !== undefined) {
     return run.estimate
   }
   if (run.isOpenEnded === true && run.typical !== undefined && run.typical.ms > 0) {
-    return Math.min(95, Math.round(((now - run.startedAt) / run.typical.ms) * 100))
+    return Math.min(MAX_PERCENT, Math.round(((now - run.startedAt) / run.typical.ms) * 100))
   }
   return undefined
 }
@@ -526,16 +535,19 @@ export function estimateOf(
 function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mark?: string) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
+  const isLingering = run.isLingering === true
   const color = STATE_COLOR[stateOf(run)].theme
   const elapsed = formatDuration(run.durationMs ?? now - run.startedAt)
   const estimate = estimateOf(run, now)
   const left = remainingOf(now - run.startedAt, estimate)
   // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
   const datum =
-    run.todo !== undefined && run.todo.total > 0
+    isLingering
+      ? '100%'
+      : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
-        ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt >= run.etaMs) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
+        ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
@@ -589,10 +601,18 @@ async function mirror($: EngineInterface, list: readonly AgentRun[], agentId: st
 
 /** Starts the one-second redraw while something runs, stops it once nothing does. */
 async function syncTick($: EngineInterface): Promise<void> {
-  const isRunning = (await read($, runs)).some(run => run.status === 'running')
+  const now = await $.clock.now()
+  const isRunning = (await read($, runs)).some(run => run.status === 'running' || (run.endedAt !== undefined && now - run.endedAt < LINGER_MS))
   if (isRunning && tick === undefined) {
     tick = $.clock.every(1000, () => {
-      void $.clock.now().then(now => update($, clock, () => now))
+      void $.clock.now().then(async now => {
+        await update($, clock, () => now)
+        // A lingering card just ran out: the tick stops, and the pane or band drops it.
+        if (tick !== undefined && !(await read($, runs)).some(run => run.status === 'running' || (run.endedAt !== undefined && now - run.endedAt < LINGER_MS))) {
+          await syncTick($)
+          await closeDockWhenIdle($)
+        }
+      })
       void reestimateAgents($).catch(error => $.ui.log(`tool-fold: re-estimate: ${String(error)}`, { to: 'debug' }))
     })
   } else if (!isRunning && tick !== undefined) {
@@ -622,8 +642,15 @@ type Cards = { main: AgentRun[]; agents: AgentRun[] }
 /** The running agents, with the main agent's wait apart from the subagents (none under a survey, which owns the band). */
 async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<Cards> {
   const all = await read($, runs)
+  const now = await $.clock.now()
+  // A run that just ended well stays a few seconds, full and green; the filter is by the clock, so nothing is written.
+  const lingering = all
+    .filter(run => run.status === 'done' && run.endedAt !== undefined && now - run.endedAt < LINGER_MS)
+    .map(run => ({ ...run, isLingering: true }))
   const running = all.filter(run => run.status === 'running')
-  return hasSurvey ? { main: [], agents: running } : { main: await waitingRuns($), agents: [...running, ...(await agentWaitRuns($, all))] }
+  return hasSurvey
+    ? { main: [], agents: running }
+    : { main: await waitingRuns($), agents: [...running, ...(await agentWaitRuns($, all)), ...lingering] }
 }
 
 /** Main card first, then a dim "Agentes" line across the width with the subagent count right after the word, then their cards. */
@@ -968,9 +995,9 @@ async function estimateProgress($: EngineInterface, agentId: string): Promise<vo
       if (item.status !== 'running') {
         return item
       }
-      // Never past 95 while it runs, and never more than MAX_DROP below the last reading.
+      // Never past 99 while it runs, and never more than MAX_DROP below the last reading.
       const floor = item.estimate === undefined ? 0 : item.estimate - MAX_DROP
-      return { ...item, estimate: Math.max(floor, Math.min(95, value)), ...(item.etaMs === undefined ? { etaSource: 'guess' as const } : {}) }
+      return { ...item, estimate: Math.max(floor, Math.min(MAX_PERCENT, value)), ...(item.etaMs === undefined ? { etaSource: 'guess' as const } : {}) }
     })
   }
 }
@@ -1000,7 +1027,7 @@ async function isParked($: EngineInterface, agentId: string): Promise<boolean> {
 
 /** The run without the duration of its last end: it is running again. */
 function withoutDuration(run: AgentRun): AgentRun {
-  const { durationMs: _ended, ...rest } = run
+  const { durationMs: _ended, endedAt: _at, ...rest } = run
   return rest
 }
 
@@ -1037,7 +1064,9 @@ export async function endAgentTurn(
   const endedAt = await $.clock.now()
   const started = (await read($, runs)).find(run => run.id === agentId)?.startedAt
   const total = started === undefined ? turnMs : Math.max(turnMs, endedAt - started)
-  await patch($, agentId, run => ({ ...run, status, durationMs: total, current: [] }))
+  // A run that ends well while it still waits on background work shows its waiting card instead of lingering.
+  const isLingering = status === 'done' && !(await hasOwnedWaits($, agentId))
+  await patch($, agentId, run => ({ ...run, status, durationMs: total, current: [], ...(isLingering ? { endedAt } : {}) }))
   const ended = (await read($, runs)).find(run => run.id === agentId)
   // The newest line of the chat when it stops: what ended and what it did. A dim log row is the one
   // bottom row a mod can add on every surface; the styled card stays on the Agent call's own row.

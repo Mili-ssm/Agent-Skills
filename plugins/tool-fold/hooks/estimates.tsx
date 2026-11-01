@@ -9,6 +9,12 @@ export const AGENT_SAMPLES_KEY = 'agent-samples'
 const REMEMBERED = 50
 // Word overlap (Jaccard) from which a stored summary counts as the same kind of work.
 export const SIMILARITY_MIN = 0.5
+// Progress held under 100% while the work runs, in percent.
+export const MAX_PERCENT = 99
+// A run counts as past its estimate only this long after the estimate.
+export const OVERDUE_GRACE_MS = 10_000
+// A card of work that ended well stays in view, full and green, this long.
+export const LINGER_MS = 5000
 // A run shorter than this teaches nothing (a command that failed at once).
 // Runs shorter than this teach nothing: earlier versions recorded ~5 s agents that only launched background work.
 export const MIN_SAMPLE_MS = 20_000

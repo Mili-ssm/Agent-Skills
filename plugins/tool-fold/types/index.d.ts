@@ -39,6 +39,10 @@ export type AgentRun = {
   startedAt: number
   /** Wall time of the run (from `turn.complete`), set when it ends. */
   durationMs?: number
+  /** Clock time the run ended well: its card lingers full and green for a few seconds. */
+  endedAt?: number
+  /** Drawn only: the card of work that just ended well (100%, green). */
+  isLingering?: boolean
   /** Calls still running, oldest first. */
   current: Step[]
   /** The last two finished calls: the card shows the newest two of these and the live ones. */
@@ -163,6 +167,8 @@ declare module 'claude-code' {
       idleAt: number | null
       /** Bumped each second while the main agent's wait shows. */
       waitTick: number
+      /** Waits that completed in the last few seconds: their card lingers full and green. */
+      lingeringWaits: (WaitTask & { endedAt: number })[]
       /** True while the "Agentes" pane is placed: running agents draw there, one line each in the chat. */
       docked: boolean
     }
