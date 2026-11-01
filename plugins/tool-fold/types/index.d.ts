@@ -71,14 +71,14 @@ export type AgentRun = {
 /** What a background task is: a shell command, a monitor or an agent. */
 export type WaitKind = 'shell' | 'monitor' | 'agent'
 
-/** Background work the main loop launched and still waits on, drawn as the waiting card. */
+/** Background work the main loop launched and still waits on, drawn as a synthetic main-agent run on the agent card. */
 export type WaitTask = {
   /** The task id its launch answered (a shell's `backgroundTaskId`, a monitor's `taskId`, an agent's id). */
   id: string
   kind: WaitKind
   /** What the estimate calls the same work: `bash:cargo bench`. */
   key: string
-  /** What the card says it waits on, from the model's description or the command. */
+  /** What the card's mission says it waits on, from the model's description or the command. */
   label: string
   /** Clock time it launched, for the elapsed time. */
   startedAt: number
@@ -133,7 +133,7 @@ declare module 'claude-code' {
       waits: Shaped<WaitTask[]>
       /** Clock time the main loop's turn ended; null while a turn runs. */
       idleAt: number | null
-      /** Bumped each second while the waiting card shows. */
+      /** Bumped each second while the main agent's wait shows. */
       waitTick: number
       /** True while the "Agentes" pane is placed: running agents draw there, one line each in the chat. */
       docked: boolean

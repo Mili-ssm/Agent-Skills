@@ -1,13 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { WaitKind, WaitTask } from '../types'
-import { commandOf, formatDuration, median } from './agents'
+import type { AgentRun, WaitKind, WaitTask } from '../types'
+import { commandOf, median } from './agents'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
 const waits = atom({ plugin: 'tool-fold', key: 'waits' } as const, [], { shape: 'waits-1' })
-// Clock time the main loop's turn ended (null while a turn runs): the card shows only while it is idle.
+// Clock time the main loop's turn ended (null while a turn runs): the wait shows only while it is idle.
 const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
@@ -48,42 +48,10 @@ export function waitLabel(kind: WaitKind, input: Record<string, unknown>): strin
   return clip((text('description') || command.split('\n')[0] || text('subagent_type') || 'tarea').trim(), 120)
 }
 
-/** `~45s`, `~3m`, `~1h 05m`: a rough duration, rounded. */
-export function approx(ms: number): string {
-  const seconds = Math.max(1, Math.round(ms / 1000))
-  if (seconds < 60) {
-    return `~${seconds}s`
-  }
-  const minutes = Math.round(seconds / 60)
-  return minutes < 60 ? `~${minutes}m` : `~${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`
-}
-
 /** Elapsed over the estimate, held under 100% until the work is done; undefined with no estimate. */
 export function progressOf(elapsedMs: number, etaMs: number | undefined): number | undefined {
   return etaMs === undefined || etaMs <= 0 ? undefined : Math.min(MAX_PROGRESS, Math.max(0, elapsedMs / etaMs))
 }
-
-/** The task type the card's detail line names. */
-const KIND_NAME: Record<WaitKind, string> = { shell: 'bash', monitor: 'monitor', agent: 'agente' }
-
-/** The progress line as SVG, 2px high: a 1px faded track under a 2px fill for `fraction`, left to right (undefined: track only). */
-export function progressSvg(fraction: number | undefined, width: number, color: string): string {
-  const fill = fraction === undefined ? 0 : width * fraction
-  const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="2" rx="1" fill="${color}"/>` : ''
-  return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2" viewBox="0 0 ${width} 2" preserveAspectRatio="none">` +
-    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="${color}" fill-opacity="0.45"/>${bar}</svg>`
-  )
-}
-
-/** `▰▰▰▱▱▱▱▱▱▱` for a fraction over `width` cells; no estimate draws only the empty cells. */
-export function glyphLine(fraction: number | undefined, width: number): string {
-  const filled = fraction === undefined ? 0 : Math.round(fraction * width)
-  return '▰'.repeat(filled) + '▱'.repeat(width - filled)
-}
-
-// The band's render event, as `$.ui.resolve` takes it.
-type BandEvent = Parameters<EngineInterface['ui']['resolve']>[0]
 
 // Module state, reset by a reload (session.start starts it again): the one-second redraw while the card shows.
 let ticker: { cancel: () => void } | undefined
@@ -208,56 +176,35 @@ export async function resume($: EngineInterface): Promise<void> {
   await syncTick($)
 }
 
+const KIND_NAME: Record<WaitKind, string> = { shell: 'bash', monitor: 'monitor', agent: 'agente' }
+
 /**
- * Puts the waiting card above `rest` (the band's cards below it), or returns `rest` when nothing is waited on. The
- * band is shared: the agents' cards and usage-band's stack beneath. Never writes.
+ * The main agent's wait as runs the agent card draws (label "Claude · esperando", the wait as its mission and live
+ * call, the estimate as its percentage): empty while a turn runs or nothing is waited on. Never writes.
  */
-export async function stackCard($: EngineInterface, e: BandEvent, rest: unknown) {
+export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const [list, idle] = await Promise.all([read($, waits), read($, idleAt)])
-  const task = list[0]
-  if ((e.props as unknown as { hasSurvey?: boolean }).hasSurvey || task === undefined || idle === null) {
-    return rest as never
+  if (list.length === 0 || idle === null) {
+    return []
   }
   await read($, waitTick)
-  const { Box, Text } = $.ui.resolve(e)
   const now = await $.clock.now()
-  const elapsed = Math.max(0, now - task.startedAt)
-  const fraction = progressOf(elapsed, task.etaMs)
-  const time = task.etaMs === undefined ? formatDuration(elapsed) : `${formatDuration(elapsed)} / ${approx(task.etaMs)}`
-  const more = list.length > 1 ? ` · +${list.length - 1} más` : ''
-  const columns = (e.props as unknown as { bodyColumns: number }).bodyColumns
-  const room = Math.max(12, Math.min(80, columns - time.length - 16))
-  const title = (
-    <Box gap={1}>
-      <Text weight="bold">Esperando</Text>
-      <Text wrap="truncate-end">{clip(task.label, room)}</Text>
-      <Text dimColor>{time}</Text>
-    </Box>
-  )
-  const detail = <Text dimColor wrap="truncate-end">{`${KIND_NAME[task.kind]} · en segundo plano${more}`}</Text>
-  if (e.surface === 'terminal') {
-    return (
-      <Box flexDirection="column">
-        {title}
-        <Text dimColor={fraction === undefined} color={fraction === undefined ? undefined : 'claude'}>
-          {glyphLine(fraction, 10)}
-        </Text>
-        {detail}
-        {rest as never}
-      </Box>
-    )
-  }
-  const { Svg } = $.ui.resolve(e)
-  return (
-    <Box flexDirection="column">
-      {title}
-      <Svg
-        source={progressSvg(fraction, 4000, '#d97757')}
-        alt={fraction === undefined ? 'Waiting for background work' : `${Math.round(fraction * 100)}% of the estimated time`}
-        height={2}
-      />
-      {detail}
-      {rest as never}
-    </Box>
-  )
+  const model = await $.session.model().catch(() => '')
+  return list.map(task => {
+    const fraction = progressOf(Math.max(0, now - task.startedAt), task.etaMs)
+    return {
+      id: `wait-${task.id}`,
+      toolUseId: `wait-${task.id}`,
+      type: 'Claude · esperando',
+      description: task.label,
+      mission: task.label,
+      model,
+      status: 'running',
+      startedAt: task.startedAt,
+      current: [{ id: task.id, kind: 'other', label: `${KIND_NAME[task.kind]} · en segundo plano`, status: 'running' }],
+      recent: [],
+      counts: {},
+      ...(fraction === undefined ? {} : { estimate: Math.round(fraction * 100) }),
+    }
+  })
 }
