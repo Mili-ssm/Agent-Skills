@@ -86,33 +86,15 @@ export function statusLine(plan: Plan): string {
   return `${glyphBar(plan.done, plan.total, 10)} ${plan.done}/${plan.total}${task}`
 }
 
-/**
- * The progress bar as SVG: one segment per task, wide in proportion to its steps, 2px apart.
- * Each segment has a faint track and a fill for its done steps; the active task is drawn at full
- * opacity with an outline, the others slightly dimmer.
- */
-export function segmentsSvg(plan: Plan, width: number, height: number, color: string): string {
-  const gap = 2
-  const tasks = plan.tasks.filter(task => task.total > 0)
-  const room = width - gap * Math.max(0, tasks.length - 1)
-  const active = activeTask(plan)
-  // Nearly square ends: round caps on short partial fills read as dots.
-  const radius = height / 4
-  let x = 0
-  let body = ''
-  for (const task of tasks) {
-    // Equal width per task, so the bar reads as a row of tasks; the fill shows each task's own progress.
-    const w = tasks.length === 0 ? 0 : room / tasks.length
-    const fill = (w * task.done) / task.total
-    const isActive = task === active
-    // The active task's track is lighter instead of outlined, so every segment has the same edge.
-    body += `<rect class="track" x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${height}" rx="${radius}" fill="#888" fill-opacity="${isActive ? 0.5 : 0.2}"/>`
-    if (fill > 0) {
-      body += `<rect class="done" x="${x.toFixed(2)}" y="0" width="${fill.toFixed(2)}" height="${height}" rx="${radius}" fill="${color}"/>`
-    }
-    x += w + gap
-  }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`
+/** The progress line as SVG: a rounded track and a fill for done/total steps, left to right. */
+export function progressSvg(done: number, total: number, width: number, height: number, color: string): string {
+  const radius = height / 2
+  const fill = total === 0 ? 0 : (width * done) / total
+  const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="${height}" rx="${radius}" fill="${color}"/>` : ''
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<rect class="track" x="0" y="0" width="${width}" height="${height}" rx="${radius}" fill="#888" fill-opacity="0.25"/>${bar}</svg>`
+  )
 }
 
 /** True when the path is inside one of the plan folders. */
@@ -281,7 +263,7 @@ export const register: Register = on => {
             {counts}
           </Box>
           <Svg
-            source={segmentsSvg(current, width, 6, hex)}
+            source={progressSvg(current.done, current.total, width, 6, hex)}
             alt={`${current.done} of ${current.total} steps done`}
             width={width}
             height={6}

@@ -4,7 +4,7 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 
 ## What it shows
 
-- Only while a plan exists (`docs/superpowers/plans/`, `docs/plans/`, `plans/`): a borderless card above the prompt (terminal, desktop): title, `5/10`, percent, then a progress bar (glyphs in the terminal, one SVG segment per task on desktop) and the active task `▶ Task 3 · 2/4`; in VS Code, which draws no card, the status line `▰▰▰▰▰▱▱▱▱▱ 5/10 · ▶ Task 3 2/4` instead; toast per finished task
+- Only while a plan exists (`docs/superpowers/plans/`, `docs/plans/`, `plans/`): a borderless card above the prompt (terminal, desktop): title, `5/10`, percent, then a progress bar (glyphs in the terminal, an SVG progress line on desktop) and the active task `▶ Task 3 · 2/4`; in VS Code, which draws no card, the status line `▰▰▰▰▰▱▱▱▱▱ 5/10 · ▶ Task 3 2/4` instead; toast per finished task
 - `/plan-progress [path|auto]`: pass a path to pin a plan, or `auto` to follow the newest
 
 ## Install
