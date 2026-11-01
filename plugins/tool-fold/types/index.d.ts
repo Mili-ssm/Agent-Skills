@@ -63,7 +63,7 @@ export type AgentRun = {
   isOpenEnded?: boolean
   /** The main agent's wait has no estimate: its card draws the empty track only. */
   isTrackOnly?: boolean
-  /** Where the wait's estimate came from, drawn as a dim icon before the right datum: `✦` Claude's message, `⟲` similar runs, `?` Haiku's guess. */
+  /** Where the wait's estimate came from, drawn as a dim icon before the right datum: `✦` a stated duration or Claude's message, `⟲` similar runs, `?` Haiku's guess. */
   etaSource?: EtaSource
   /** Typical duration of similar past agents (ms), from the agent memory: progress is elapsed over it. */
   etaMs?: number
@@ -102,8 +102,8 @@ export type WaitTask = {
   etaSource?: EtaSource
 }
 
-/** Claude's own message, similar finished runs, or Haiku's guess from the command. */
-export type EtaSource = 'message' | 'similar' | 'guess'
+/** The duration written in the command or description, Claude's own message, similar finished runs, or Haiku's guess from the command. */
+export type EtaSource = 'stated' | 'message' | 'similar' | 'guess'
 
 /** One finished wait, remembered across sessions: its label and how long it took. */
 export type WaitSample = { summary: string; durationMs: number; at: number }

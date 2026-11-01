@@ -3,7 +3,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { AgentRun, EtaSource, WaitKind, WaitSample, WaitTask } from '../types'
 import { commandOf } from './agents'
-import { WAIT_SAMPLES_KEY, askSimilar, loadSamples, recordSample, similarMedian } from './estimates'
+import { WAIT_SAMPLES_KEY, askSimilar, loadSamples, recordSample, similarMedian, statedDuration } from './estimates'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
@@ -14,7 +14,9 @@ const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
 
 // Stronger sources replace weaker ones: Claude knows its data, past runs measured, a guess is last.
-const RANK: Record<EtaSource, number> = { guess: 1, similar: 2, message: 3 }
+const RANK: Record<EtaSource, number> = { guess: 1, similar: 2, message: 3, stated: 4 }
+
+export { statedDuration }
 // Progress never reaches 100% before the work is done.
 const MAX_PROGRESS = 0.95
 // Characters of a command's first line that name it for the estimate.
@@ -186,7 +188,11 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
     const key = estimateKey(kind, input)
     const label = waitLabel(kind, input)
     const samples = await loadSamples($, WAIT_SAMPLES_KEY)
-    const etaMs = similarMedian(samples, label)
+    const description = typeof input.description === 'string' ? input.description.trim() : ''
+    const command = typeof input.command === 'string' ? input.command : ''
+    // A duration written in the call (a `sleep`, "Wait 5 minutes") beats every estimate; only a sleep is read off a command.
+    const stated = (/\bsleep\s/.test(command) ? statedDuration(command) : undefined) ?? (kind === 'agent' ? undefined : statedDuration(description))
+    const etaMs = stated ?? similarMedian(samples, label)
     const startedAt = await $.clock.now()
     const task: WaitTask = {
       id,
@@ -196,15 +202,14 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
       ...(kind === 'agent' ? { name: agentName(input) } : {}),
       ...(owner === undefined ? {} : { owner }),
       startedAt,
-      ...(etaMs === undefined ? {} : { etaMs, etaSource: 'similar' as const }),
+      ...(etaMs === undefined ? {} : { etaMs, etaSource: stated === undefined ? ('similar' as const) : ('stated' as const) }),
     }
     await update($, waits, all => [...all.filter(item => item.id !== id), task])
     await syncTick($)
     // A shell or monitor with no description or no history asks Haiku, after the wait is on the card.
-    const description = typeof input.description === 'string' ? input.description.trim() : ''
     const isLabelNeeded = kind === 'shell' && description === ''
     const isEtaNeeded = kind !== 'agent' && etaMs === undefined
-    const subject = typeof input.command === 'string' ? input.command : description
+    const subject = command !== '' ? command : description
     if ((isLabelNeeded || isEtaNeeded) && subject.trim() !== '') {
       void guess($, id, description === '' ? subject : `${description}\n${subject}`, isLabelNeeded, isEtaNeeded).catch(error =>
         $.ui.log(`tool-fold: wait guess: ${String(error)}`, { to: 'debug' }),
@@ -318,6 +323,11 @@ export async function onTurn(
   }
 }
 
+/** True while a background process launched by this subagent is still waited on. */
+export async function hasOwnedWaits($: EngineInterface, agentId: string): Promise<boolean> {
+  return (await read($, waits)).some(task => task.owner === agentId)
+}
+
 /** Takes the redraw clock up again after a reload, which drops the timer. */
 export async function resume($: EngineInterface): Promise<void> {
   await syncTick($)
@@ -341,8 +351,9 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const procs = list.filter(task => task.kind !== 'agent')
   // What the wait says: the agents (one by name, else how many), then the processes the same way.
   const agentPart = agents.length === 0 ? '' : agents.length === 1 ? `a ${agents[0]?.name ?? agents[0]?.label}` : `a ${agents.length} agentes`
-  const procPart = procs.length === 0 ? '' : procs.length === 1 ? `${procs[0]?.label} en segundo plano` : `${procs.length} procesos`
-  const detail = agentPart === '' ? `esperando ${procPart}` : `esperando ${agentPart}${procPart === '' ? '' : ` · ${procPart}`}`
+  // The label is the mission; the detail only says what kind of process runs, never the mission's words again.
+  const procPart = procs.length === 0 ? '' : procs.length === 1 ? `${procs[0]?.kind === 'monitor' ? 'monitor' : 'bash'} en segundo plano` : `${procs.length} procesos en segundo plano`
+  const detail = agentPart === '' ? procPart.replace(' en segundo plano', ' · en segundo plano') : `esperando ${agentPart}${procPart === '' ? '' : ` · ${procPart}`}`
   // The process that ends the wait (latest estimated end) gives the estimate; agents carry their own cards' estimates.
   const endOf = (task: WaitTask): number => task.startedAt + (task.etaMs ?? 0)
   const driver = procs.reduce<WaitTask | undefined>((best, task) => (best === undefined || endOf(task) > endOf(best) ? task : best), undefined)
