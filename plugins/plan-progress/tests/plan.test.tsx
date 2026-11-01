@@ -58,18 +58,13 @@ test('glyphBar', () => {
   expect(glyphBar(5, 10, 10)).toBe('▰▰▰▰▰▱▱▱▱▱')
 })
 
-test('progressSvg is 20 equal segments filled by overall progress, green when finished', () => {
-  const svg = progressSvg(3, 6, 158, 3, '#d97757')
-  expect(svg.match(/class="track"/g)).toHaveLength(10)
-  expect(svg.match(/class="done"/g)).toHaveLength(10)
-  expect(svg).toContain('height="3" rx="1.5" fill="#d97757"')
-  expect(svg).toContain('x="0.00" y="0" width="6.00"')
-  expect(svg).toContain('fill="#888" fill-opacity="0.25"')
+test('progressSvg is a continuous line: 1px track, 2px fill by done/total, green when finished', () => {
+  const svg = progressSvg(3, 6, 160, '#d97757')
+  expect(svg).toContain('class="track" x="0" y="0.5" width="160" height="1"')
+  expect(svg).toContain('class="done" x="0" y="0" width="80.00" height="2"')
   expect(svg).not.toContain('#3fb950')
-  expect(progressSvg(0, 6, 160, 3, '#d97757')).not.toContain('class="done"')
-  const finished = progressSvg(4, 4, 160, 3, '#3fb950')
-  expect(finished.match(/class="done"/g)).toHaveLength(20)
-  expect(finished).not.toContain('class="track"')
+  expect(progressSvg(0, 6, 160, '#d97757')).not.toContain('class="done"')
+  expect(progressSvg(4, 4, 160, '#3fb950')).toContain('width="160.00" height="2" rx="1" fill="#3fb950"')
 })
 
 test('cards show the newest plan and Haiku\'s remaining line; the status line stays clear; no plan passes', async ($, on) => {
