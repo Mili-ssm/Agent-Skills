@@ -62,7 +62,7 @@ test('progressSvg is a continuous line: 1px track, 2px fill by done/total, green
   const svg = progressSvg(3, 6, 160, '#d97757')
   expect(svg).toContain('class="track" x="0" y="0.5" width="160" height="1"')
   expect(svg).toContain('class="done" x="0" y="0" width="80.00" height="2"')
-  expect(svg).toContain('height="1" fill="#d97757" fill-opacity="0.35"')
+  expect(svg).toContain('height="1" fill="#d97757" fill-opacity="0.45"')
   expect(svg).not.toContain('#3fb950')
   expect(progressSvg(0, 6, 160, '#d97757')).not.toContain('class="done"')
   expect(progressSvg(4, 4, 160, '#3fb950')).toContain('width="160.00" height="2" rx="1" fill="#3fb950"')

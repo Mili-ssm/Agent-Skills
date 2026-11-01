@@ -88,8 +88,8 @@ export function progressSvg(done: number, total: number, width: number, color: s
   const fill = total === 0 ? 0 : (width * done) / total
   const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="2" rx="1" fill="${color}"/>` : ''
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2" viewBox="0 0 ${width} 2">` +
-    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="${color}" fill-opacity="0.35"/>${bar}</svg>`
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2" viewBox="0 0 ${width} 2" preserveAspectRatio="none">` +
+    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="${color}" fill-opacity="0.45"/>${bar}</svg>`
   )
 }
 
@@ -283,20 +283,26 @@ export const register: Register = on => {
     if (e.surface !== 'terminal') {
       const { Svg } = $.ui.resolve(e)
       const hex = finished ? '#3fb950' : '#d97757'
-      const width = Math.max(160, Math.min(480, e.props.bodyColumns * 7))
+      // A wider markup than any slot, stretched (preserveAspectRatio none) with no width prop: the line fills the card.
+      const lineText = text !== undefined ? text : active === undefined ? undefined : `${active.title} · ${active.done}/${active.total}`
       return (
         <Box flexDirection="column">
           <Box gap={1}>
-            <Text weight="bold">{title}</Text>
+            <Text weight="bold" wrap="truncate-end">
+              {current.title}
+            </Text>
             {counts}
           </Box>
           <Svg
-            source={progressSvg(current.done, current.total, width, hex)}
+            source={progressSvg(current.done, current.total, 4000, hex)}
             alt={`${current.done} of ${current.total} steps done`}
-            width={width}
-            height={3}
+            height={2}
           />
-          {taskLine}
+          {lineText === undefined ? undefined : (
+            <Text dimColor wrap="truncate-end">
+              ▶ {lineText}
+            </Text>
+          )}
           {rest}
         </Box>
       )
