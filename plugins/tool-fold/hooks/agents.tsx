@@ -47,6 +47,9 @@ export const FAMILY_COLOR: Record<string, string> = {
 /** The model dot's color: its family's, else the dim theme color. */
 export const dotColor = (model: string): string => FAMILY_COLOR[family(model)] ?? 'subtle'
 
+/** The dim icon before a wait's estimate by source: Claude's message, similar runs, Haiku's guess. */
+const ETA_ICON = { message: '✦', similar: '⟲', guess: '?' } as const
+
 /** 1234 → `1s`, 75000 → `1m 15s`, 3725000 → `1h 02m` (Codex's compact elapsed). */
 export const formatDuration = (ms: number): string => {
   const seconds = Math.max(0, Math.round(ms / 1000))
@@ -466,6 +469,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
           <Text color={dotColor(run.model)}>●</Text> {shortModel(run.model)} · {elapsed}
         </Text>
         <Box flexGrow={1} />
+        {datum !== '' && run.etaSource !== undefined && run.todo === undefined ? <Text dimColor>{ETA_ICON[run.etaSource]}</Text> : null}
         <Text color={color} bold tabular>
           {datum}
         </Text>
