@@ -2,7 +2,18 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
-import { AGENT_SAMPLES_KEY, askSimilar, loadSamples, median, recordSample, similarMedian, statedDuration } from './estimates'
+import {
+  AGENT_SAMPLES_KEY,
+  REESTIMATE_GAP_MS,
+  askMinutes,
+  loadSamples,
+  median,
+  recordSample,
+  similarMedian,
+  similarRuns,
+  sourceOfAsk,
+  statedDuration,
+} from './estimates'
 import { PHRASE_TOKENS, agentWaitRuns, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
@@ -301,30 +312,68 @@ const ESTIMATE_GAP_MS = 30_000
 /** What the agent memory calls an agent: `Explore: map the hooks`. */
 export const agentSummary = (type: string, description: string): string => `${type}: ${description}`
 
-/** Gives a new agent the typical duration of similar past ones: stored summaries first, else one Haiku pick. Never throws. */
+/**
+ * Gives a new agent its estimate: the best deterministic value at once (a stated duration, else the median of similar
+ * past agents), then Haiku's minutes, from the text and the similar runs together. Never throws.
+ */
 async function lookUpSimilar($: EngineInterface, id: string, type: string, description: string, brief?: string): Promise<void> {
   try {
     const summary = agentSummary(type, description)
-    // A duration the description or brief states wins over what past agents took.
+    // A duration the description or brief states.
     const stated = statedDuration(description) ?? (brief === undefined ? undefined : statedDuration(brief))
-    if (stated !== undefined) {
-      await patch($, id, run => ({ ...run, etaMs: stated, etaSource: 'stated' }))
-      return
-    }
     const samples = await loadSamples($, AGENT_SAMPLES_KEY)
-    const give = (etaMs: number) => patch($, id, run => ({ ...run, etaMs, etaSource: 'similar' }))
-    const found = similarMedian(samples, summary)
-    if (found !== undefined) {
-      await give(found)
-    } else if (samples.length > 0 && brief !== undefined) {
-      // After the card is up; the spawn does not wait for Haiku. A workflow's agents pass no brief: no call.
-      void askSimilar($, summary, samples, brief)
-        .then(picked => (picked === undefined ? undefined : give(picked)))
-        .catch(error => $.ui.log(`tool-fold: agent pick: ${String(error)}`, { to: 'debug' }))
+    const found = stated ?? similarMedian(samples, summary)
+    const similar = similarRuns(samples, summary)
+    const now = await $.clock.now()
+    await patch($, id, run => ({
+      ...run,
+      ...(found === undefined ? {} : { etaMs: found, etaSource: stated === undefined ? ('similar' as const) : ('stated' as const) }),
+      ...(brief === undefined ? {} : { etaAskedAt: now }),
+    }))
+    // After the card is up; the spawn does not wait for Haiku. A workflow's agents pass no brief: no call.
+    if (brief !== undefined) {
+      void askMinutes($, { text: `${summary}\n${brief}`, ...(stated === undefined ? {} : { statedMs: stated }), similar })
+        .then(etaMs => (etaMs === undefined ? undefined : patch($, id, run => ({ ...run, etaMs, etaSource: sourceOfAsk(stated, similar) }))))
+        .catch(error => $.ui.log(`tool-fold: agent estimate: ${String(error)}`, { to: 'debug' }))
     }
   } catch (error) {
     $.ui.log(`tool-fold: agent memory: ${String(error)}`, { to: 'debug' })
   }
+}
+
+// Agents with a re-estimate in flight.
+const reasking = new Set<string>()
+
+/** Each clock tick: a running agent past its estimate gets Haiku's new total, at most every 30 s. Fire and forget. */
+async function reestimateAgents($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  for (const run of await read($, runs)) {
+    const previousMs = run.etaMs
+    const asked = run.etaAskedAt
+    const elapsedMs = now - run.startedAt
+    if (run.status !== 'running' || previousMs === undefined || asked === undefined || reasking.has(run.id) || elapsedMs < previousMs || now - asked < REESTIMATE_GAP_MS) {
+      continue
+    }
+    reasking.add(run.id)
+    await patch($, run.id, item => ({ ...item, etaAskedAt: now }))
+    const summary = agentSummary(run.type, run.description)
+    void loadSamples($, AGENT_SAMPLES_KEY)
+      .then(samples =>
+        askMinutes($, {
+          text: `${summary}${run.mission === undefined ? '' : `\n${run.mission}`}`,
+          similar: similarRuns(samples, summary),
+          again: { elapsedMs, previousMs },
+        }),
+      )
+      .then(etaMs => (etaMs === undefined ? undefined : patch($, run.id, item => ({ ...item, etaMs, etaSource: item.etaSource ?? 'guess' }))))
+      .catch(error => $.ui.log(`tool-fold: agent re-estimate: ${String(error)}`, { to: 'debug' }))
+      .finally(() => reasking.delete(run.id))
+  }
+}
+
+/** True while this subagent's turn runs (false once it ended, or for an agent this mod never saw). */
+export async function isAgentRunning($: EngineInterface, agentId: string): Promise<boolean> {
+  return (await read($, runs)).some(run => run.id === agentId && run.status === 'running')
 }
 
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
@@ -544,6 +593,7 @@ async function syncTick($: EngineInterface): Promise<void> {
   if (isRunning && tick === undefined) {
     tick = $.clock.every(1000, () => {
       void $.clock.now().then(now => update($, clock, () => now))
+      void reestimateAgents($).catch(error => $.ui.log(`tool-fold: re-estimate: ${String(error)}`, { to: 'debug' }))
     })
   } else if (!isRunning && tick !== undefined) {
     tick.cancel()
@@ -566,11 +616,29 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
   }
 }
 
-/** The running agents, with the main agent's wait drawn first and the waiting subagents' after (none under a survey, which owns the band). */
-async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<AgentRun[]> {
+/** The cards to draw in two groups: the main agent's wait apart, and the subagents (running, then waiting ones). */
+type Cards = { main: AgentRun[]; agents: AgentRun[] }
+
+/** The running agents, with the main agent's wait apart from the subagents (none under a survey, which owns the band). */
+async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<Cards> {
   const all = await read($, runs)
   const running = all.filter(run => run.status === 'running')
-  return hasSurvey ? running : [...(await waitingRuns($)), ...running, ...(await agentWaitRuns($, all))]
+  return hasSurvey ? { main: [], agents: running } : { main: await waitingRuns($), agents: [...running, ...(await agentWaitRuns($, all))] }
+}
+
+/** Main card first, then a dim "Agentes" line across the width, then the subagents' cards (the line only when both groups show). */
+function cardGroups(ui: Elements, cards: Cards, now: number, frame: string, maxChars: number) {
+  const { Text } = ui
+  const draw = (run: AgentRun) => liveCard(ui, run, now, frame, maxChars)
+  return [
+    ...cards.main.map(draw),
+    cards.main.length > 0 && cards.agents.length > 0 ? (
+      <Text key="agents-divider" dimColor wrap="truncate">
+        {`── Agentes ${'─'.repeat(Math.max(0, maxChars - 12))}`}
+      </Text>
+    ) : null,
+    ...cards.agents.map(draw),
+  ]
 }
 
 /** The agent hooks: spawns, their calls and ends, the spinner block; tool-fold's register adds them. */
@@ -695,13 +763,15 @@ export const registerAgents: Register = (on, options) => {
     const isPaneUp =
       e.surface !== 'desktop' &&
       ((await read($, docked)) || (await $.ui.panes().catch(() => [])).some(pane => pane.id === DOCK && pane.isShown && pane.isPlaced))
-    const running = isPaneUp
-      ? []
+    const none: Cards = { main: [], agents: [] }
+    const cards = isPaneUp
+      ? none
       : e.surface === 'vscode'
-        ? e.props.hasSurvey ? [] : [...(await waitingRuns($)), ...(await agentWaitRuns($, await read($, runs)))]
+        ? e.props.hasSurvey ? none : { main: await waitingRuns($), agents: await agentWaitRuns($, await read($, runs)) }
         : await runningWithWait($, e.props.hasSurvey)
-    const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${running.length}`
-    if (e.surface === 'terminal' || e.props.hasSurvey || running.length === 0) {
+    const total = cards.main.length + cards.agents.length
+    const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${total}`
+    if (e.surface === 'terminal' || e.props.hasSurvey || total === 0) {
       const rest = await next(e)
       traceBand(`${seen} passed; beneath ${beneath(next.trace)}`)
       return rest
@@ -712,12 +782,12 @@ export const registerAgents: Register = (on, options) => {
     const frame = FRAMES[Math.floor(now / 250) % FRAMES.length] ?? '•'
     const maxChars = charsFor(e.surface, e.props.bodyColumns)
     const rest = await next(e)
-    traceBand(`${seen} drew ${running.length} cards; beneath ${beneath(next.trace)}`)
+    traceBand(`${seen} drew ${total} cards; beneath ${beneath(next.trace)}`)
     return (
       // The engine's node (other mods' cards) may not sit under a Box with minWidth: only the cards' box shrinks.
       <Box flexDirection="column" gap={1}>
         <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
-          {running.map(run => liveCard({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, run, now, frame, maxChars))}
+          {cardGroups({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, cards, now, frame, maxChars)}
         </Box>
         {rest}
       </Box>
@@ -730,8 +800,8 @@ export const registerAgents: Register = (on, options) => {
   // The "Agentes" pane: every running agent's live card, as the chat draws it, oldest first.
   on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {
     const { Box, Text, Svg } = $.ui.resolve(e)
-    const running = await runningWithWait($, false)
-    if (running.length === 0) {
+    const cards = await runningWithWait($, false)
+    if (cards.main.length + cards.agents.length === 0) {
       return <Text dimColor>No agents running.</Text>
     }
     await read($, clock)
@@ -740,7 +810,7 @@ export const registerAgents: Register = (on, options) => {
     const maxChars = charsFor(e.surface, e.props.bodyColumns)
     return (
       <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
-        {running.map(run => liveCard({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, run, now, frame, maxChars))}
+        {cardGroups({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, cards, now, frame, maxChars)}
       </Box>
     )
   })
@@ -1048,7 +1118,7 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, mark?: string) {
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */
 async function openDock($: EngineInterface): Promise<void> {
   // The surface draws the title bar; its text at least says how many run (an open id only retitles).
-  const shown = (await runningWithWait($, false)).length
+  const shown = (await runningWithWait($, false)).agents.length
   const title = `Agentes · ${shown}`
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
@@ -1072,7 +1142,8 @@ async function openDockUnlessDesktop($: EngineInterface): Promise<void> {
 
 /** Closes the pane once no agent runs: they all sit in the chat again. Never throws. */
 async function closeDockWhenIdle($: EngineInterface): Promise<void> {
-  if ((await runningWithWait($, false)).length > 0) {
+  const cards = await runningWithWait($, false)
+  if (cards.main.length + cards.agents.length > 0) {
     // Still some card to show: retitle with the new count, if the pane is up.
     if (await read($, docked)) {
       await openDock($)

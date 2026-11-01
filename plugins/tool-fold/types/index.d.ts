@@ -71,6 +71,8 @@ export type AgentRun = {
   isOverdue?: boolean
   /** Clock time of the last estimate asked for (one per call, at most every 30 s). */
   estimatedAt?: number
+  /** Clock time Haiku was last asked for the minutes (at spawn, then again when overdue, at most every 30 s). */
+  etaAskedAt?: number
   /** Runs in the background (the main loop does not wait on it). */
   background?: boolean
 }
@@ -96,6 +98,10 @@ export type WaitTask = {
   name?: string
   /** Clock time it launched, for the elapsed time. */
   startedAt: number
+  /** The text Haiku estimates from (command, else description), kept for the re-estimate. */
+  subject?: string
+  /** Clock time Haiku was last asked for the minutes (at launch, then when overdue, at most every 30 s). */
+  askedAt?: number
   /** The estimate in ms; absent with none. */
   etaMs?: number
   /** Where `etaMs` came from; a stronger source (message over similar over guess) replaces a weaker one. */
