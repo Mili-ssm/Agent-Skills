@@ -215,7 +215,7 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
     surface: 'vscode',
     props: { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} },
   } as never)
-  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('▰▰▱▱▱ ≈40%')
+  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toBe('▰▰▱▱▱ ≈40% · <1 min')
   await pane.unmount()
   expect(estimates).toBe(1)
   await clock.advance(30_000)
