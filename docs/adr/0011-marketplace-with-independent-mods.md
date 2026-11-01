@@ -1,6 +1,6 @@
 # 0011 One marketplace, independent plugins: agent-skills plus opt-in mods
 
-Status: accepted · Date: 2026-10-28 · Amends 0008 · Amended by 0012, 0015
+Status: accepted · Date: 2026-10-28 · Amends 0008 · Amended by 0012, 0015, 0016
 
 ## Context
 
@@ -46,7 +46,7 @@ Added `tool-fold`: tool calls fold into one pressable line that unfolds the engi
 ## Review 2026-10-30
 
 - Current mods: `usage-band`, `plan-progress`, `tool-fold`. The Decision's `agents-pane` and `status-model` are historical: the reviews above removed `status-model` and merged `agents-pane` into `tool-fold`.
-- `usage-band` is now a status line per prompt cycle with a Haiku conclusion ([README](../../plugins/usage-band/README.md)); what each surface draws is in [mods-surfaces](../mods-surfaces.md).
+- `usage-band` is now a status line per prompt cycle with a Haiku conclusion (merged into `tool-fold` by ADR 0016); what each surface draws is in [mods-surfaces](../mods-surfaces.md).
 - The root also holds `user-config/` (ADR 0012) and the generated `ports/` with the Copilot and Codex catalogs (ADR 0015).
 - `claude plugin test`, `claude plugin validate` and `tsc` are manual gates: there is no CI (N5).
 - Recorded so the cost is explicit: `usage-band` and `tool-fold` send recent tool-call descriptions to Haiku for one-line summaries and estimates, at most once every 30 s each, in every session that installs them.

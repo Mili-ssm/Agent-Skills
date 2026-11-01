@@ -6,7 +6,7 @@
 # failed step prints a WARN line so it shows up in the setup log instead of failing silently.
 #
 # Environment variables (all optional):
-#   AGENT_SKILLS_MODS            mods to install, space-separated (ADR 0011), e.g. "tool-fold usage-band"
+#   AGENT_SKILLS_MODS            mods to install, space-separated (ADR 0011), e.g. "tool-fold plan-progress"
 #   AGENT_SKILLS_OFFLOAD_POLICY  1 → write user-config/offload-policy.md into ~/.claude/CLAUDE.md (step 3b)
 
 warn() { echo "WARN [cloud-setup]: $*" >&2; }
@@ -28,7 +28,7 @@ claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills \
   || warn "agent-skills plugin install failed"
 
 # 1b. Opt-in mods (ADR 0011): list them in the environment variable AGENT_SKILLS_MODS,
-#     e.g. AGENT_SKILLS_MODS="tool-fold usage-band". Unset → no mods.
+#     e.g. AGENT_SKILLS_MODS="tool-fold plan-progress". Unset → no mods.
 for mod in ${AGENT_SKILLS_MODS:-}; do
   claude plugin install "$mod" --marketplace Mili-ssm/Agent-Skills \
     || warn "mod $mod install failed"

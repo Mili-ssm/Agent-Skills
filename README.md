@@ -5,11 +5,10 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | Plugin | What | Docs |
 |---|---|---|
 | `agent-skills` | Specialist skills, agents and offload workers (below) | [Catalog](#catalog), [`plugins/agent-skills/`](plugins/agent-skills/) |
-| `usage-band` (mod) | Status line per prompt cycle: busy time, calls, skills, agents, current step; Haiku conclusion | [README](plugins/usage-band/README.md) |
 | `plan-progress` (mod) | While a plan exists: progress status line, card above the prompt, task toasts | [README](plugins/plan-progress/README.md) |
-| `tool-fold` (mod) | Folds tool, skill and agent calls into one line each; running agents get a live card | [README](plugins/tool-fold/README.md) |
+| `tool-fold` (mod) | Folds tool, skill and agent calls into one line each; running agents get a live card; Claude's own card per request: time, calls, skills, agents, context, session, Haiku activity and conclusion (ADR 0016) | [README](plugins/tool-fold/README.md) |
 
-`tool-fold` and `usage-band` make offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans; `tool-fold` also keeps tool output out of the way until asked for.
+`tool-fold` makes offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans; `tool-fold` also keeps tool output out of the way until asked for.
 
 ## agent-skills
 
@@ -25,7 +24,7 @@ Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirement
 | Desktop app (`/plugin` does not run there) | **+** next to the prompt box → Plugins → Add marketplace `Mili-ssm/Agent-Skills` → Add plugin; or install from a shell at user scope (above), which the app's local sessions also load |
 | VS Code extension | Install from a shell at user scope (above): the extension runs Claude Code on the same `~/.claude` config |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
-| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="tool-fold usage-band plan-progress"` in the environment |
+| A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="tool-fold plan-progress"` in the environment |
 
 ## Offload setup (ADR 0010)
 

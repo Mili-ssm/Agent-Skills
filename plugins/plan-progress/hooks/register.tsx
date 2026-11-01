@@ -266,7 +266,7 @@ export const register: Register = on => {
   })
 
   // The card next to the prompt (no border). The band is shared:
-  // other mods' cards (tool-fold's agents, usage-band) stack below this one, from `next(e)`.
+  // other mods' cards (tool-fold's agents) stack below this one, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const current = await read($, plan)
     const described = await read($, remaining)

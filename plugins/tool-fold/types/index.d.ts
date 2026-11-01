@@ -45,6 +45,10 @@ export type AgentRun = {
   isLingering?: boolean
   /** Drawn only: the main agent's card while a main turn runs (orange, not the blue wait card). */
   isWorking?: boolean
+  /** Drawn only: the elapsed time the header shows (the main card: since the owner's prompt), instead of the run's own. */
+  elapsedMs?: number
+  /** Drawn only: the main card's activity line and stats line. */
+  main?: MainInfo
   /** Calls still running, oldest first. */
   current: Step[]
   /** The last two finished calls: the card shows the newest two of these and the live ones. */
@@ -171,21 +175,64 @@ declare module 'claude-code' {
       waitTick: number
       /** Waits that completed in the last few seconds: their card lingers full and green. */
       lingeringWaits: (WaitTask & { endedAt: number })[]
-      /** The main turn the main card follows; null while idle. */
-      turnCard: TurnCard | null
+      /** The interaction cycle the main card follows: from the owner's prompt to the next one. */
+      cycle: Shaped<Cycle>
+      /** The session so far: busy time and tokens. */
+      session: Shaped<Usage>
       /** True while the "Agentes" pane is placed: running agents draw there, one line each in the chat. */
       docked: boolean
     }
   }
 }
 
-/** The main turn the main card follows: from the prompt to the answer, then lingering a moment. */
-export type TurnCard = {
-  startedAt: number
-  /** The owner's prompt, clipped: the card's detail until a call arrives. */
+/** Tokens of one model family (`opus`, `sonnet`, `haiku`, ...): every token counted, and the output ones. */
+export type ModelTokens = { total: number; output: number }
+
+/** Tokens per model family. */
+export type Tally = Record<string, ModelTokens>
+
+/** The session so far: Claude's busy time over every cycle, main-loop turns and tokens. */
+export type Usage = { durationMs: number; turns: number; byModel: Tally }
+
+/**
+ * One interaction cycle: from the owner's prompt to the next one. The main card shows it: `startedAt` to `endedAt` is
+ * the header's time; `activeMs` (busy time, no pauses) feeds the session total.
+ */
+export type Cycle = {
+  /** Tokens of the main loop and of every subagent that ended in the cycle. */
+  byModel: Tally
+  /** Clock time of the prompt (or of the first work seen) that opened the cycle; null before any. */
+  startedAt: number | null
+  /** Clock time Claude went idle (nothing open, no agent working); null while it works. */
+  endedAt: number | null
+  /** Busy time (ms) of the closed stretches, and when the open one began (null while idle). */
+  activeMs: number
+  busySince: number | null
+  /** The owner's prompt, clipped: the card's activity until a call arrives. */
   prompt: string
-  /** The latest main-loop call, as a subagent card names a call. */
-  call?: string
-  /** Clock time the turn ended with nothing in the background: the card lingers green from here. */
-  endedAt?: number
+  /** What Claude does now (Haiku's phrase, else the latest call's label); null while idle. */
+  doing: string | null
+  /** The last answer's conclusion (Haiku), once idle. */
+  conclusion: string | null
+  /** Tool calls, `Skill` calls and `Agent` calls of the main loop and its agents. */
+  calls: number
+  skills: number
+  agents: number
+  /** Model of each agent spawned in the cycle: the dots show its families. */
+  agentModels?: string[]
+}
+
+/** What the main card draws besides the header: the activity line and the stats line. */
+export type MainInfo = {
+  /** `▸ doing` / `✓ conclusion`; absent when there is none yet. */
+  activity?: string
+  calls: number
+  skills: number
+  agents: number
+  /** One entry per model family the cycle's agents ran on (its color; undefined: other, dim). */
+  dots: (string | undefined)[]
+  /** The context share first on the stats line: `◔ 13%` and its color (see `formatContext`); null while unknown. */
+  ctx: { text: string; color: string } | null
+  /** `Σ 28m 03s · 7.0M`, null before any time. */
+  session: string | null
 }
