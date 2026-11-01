@@ -626,15 +626,15 @@ async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<
   return hasSurvey ? { main: [], agents: running } : { main: await waitingRuns($), agents: [...running, ...(await agentWaitRuns($, all))] }
 }
 
-/** Main card first, then a dim "Agentes" line across the width, then the subagents' cards (the line only when both groups show). */
+/** Main card first, then a dim "Agentes" line across the width with the subagent count at its right, then their cards. */
 function cardGroups(ui: Elements, cards: Cards, now: number, frame: string, maxChars: number) {
   const { Text } = ui
   const draw = (run: AgentRun) => liveCard(ui, run, now, frame, maxChars)
   return [
     ...cards.main.map(draw),
-    cards.main.length > 0 && cards.agents.length > 0 ? (
+    cards.agents.length > 0 ? (
       <Text key="agents-divider" dimColor wrap="truncate">
-        {`── Agentes ${'─'.repeat(Math.max(0, maxChars - 12))}`}
+        {`── Agentes ${'─'.repeat(Math.max(0, maxChars - 14 - String(cards.agents.length).length))} ${cards.agents.length}`}
       </Text>
     ) : null,
     ...cards.agents.map(draw),
@@ -733,6 +733,7 @@ export const registerAgents: Register = (on, options) => {
       `panes: ${panes.map(pane => `${pane.id} shown=${pane.isShown} placed=${pane.isPlaced}`).join('; ') || 'none'}`,
       `docked: ${await read($, docked)}`,
       `runs: ${list.filter(run => run.status === 'running').length} running of ${list.length}`,
+      ...list.map(run => `  run ${run.id} ${run.status} background=${run.background === true} ${run.type}`),
       ...(await waitDebug($)),
       'band draws (newest last):',
       ...(bandTrace.length === 0 ? ['  none yet'] : bandTrace.map(line => `  ${line}`)),
@@ -990,15 +991,42 @@ function touched(run: AgentRun, step: Step, input: Record<string, unknown>): Pic
   return {}
 }
 
-/** A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line. */
+/** True when this agent was spawned in the background (its Agent call returned at once; its own turns go on). */
+export async function isBackgroundAgent($: EngineInterface, agentId: string): Promise<boolean> {
+  return (await read($, runs)).some(run => run.id === agentId && run.background === true)
+}
+
+/** True when the engine says the agent's loop is parked on work it owns: its turn ended but it is not finished. */
+async function isParked($: EngineInterface, agentId: string): Promise<boolean> {
+  const list = await $.agent.list().catch(() => [])
+  return list.some(info => info.id === agentId && info.status === 'waiting')
+}
+
+/** A parked background agent woke for a new turn: its run is running again. */
+export async function wakeAgentRun($: EngineInterface, agentId: string): Promise<void> {
+  const run = (await read($, runs)).find(item => item.id === agentId)
+  if (run !== undefined && run.background === true && run.status !== 'running') {
+    const startedAt = await $.clock.now()
+    await patch($, agentId, item => ({ ...item, status: 'running', startedAt }))
+    await syncTick($)
+  }
+}
+
+/**
+ * A loop's turn ended: a subagent's stores its outcome; the main loop's moves agents back to the status line.
+ * Returns false when a background agent's turn ended but the agent is parked on its own work: its run stays running.
+ */
 export async function endAgentTurn(
   $: EngineInterface,
   agentId: string | undefined,
   reason: string,
   durationMs: number,
-): Promise<void> {
+): Promise<boolean> {
   if (agentId === undefined) {
-    return
+    return true
+  }
+  if (reason === 'answer' && (await isBackgroundAgent($, agentId)) && (await isParked($, agentId))) {
+    return false
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
   await patch($, agentId, run => ({ ...run, status, durationMs, current: [] }))
@@ -1018,6 +1046,7 @@ export async function endAgentTurn(
   }
   await syncTick($)
   await closeDockWhenIdle($)
+  return true
 }
 
 /** True while an agent of this Agent call still runs: its card stays in view, folded group or not. */
@@ -1119,9 +1148,8 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, mark?: string) {
 
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */
 async function openDock($: EngineInterface): Promise<void> {
-  // The surface draws the title bar; its text at least says how many run (an open id only retitles).
-  const shown = (await runningWithWait($, false)).agents.length
-  const title = `Agentes · ${shown}`
+  // The surface draws the title bar; a fixed title never retitles (that blinked), the count sits on the Agentes line.
+  const title = 'Agentes'
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
 }

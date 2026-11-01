@@ -75,9 +75,10 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   const clock = engine(on)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
-  // The turn still runs: nothing waits yet.
+  // The turn still runs, but the wait is open: the card shows, labelled as background work.
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeUndefined()
   await ui.unmount()
 
   await $.turn.complete(done)
@@ -553,7 +554,7 @@ test('the band draws no wait card where the Agentes pane is placed; Desktop keep
   await desktop.unmount()
 })
 
-test('the pane title counts the cards it shows', async ($, on) => {
+test('the pane title is fixed: the count sits on the Agentes line', async ($, on) => {
   const clock = engine(on)
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   const titles: string[] = []
@@ -568,9 +569,8 @@ test('the pane title counts the cards it shows', async ($, on) => {
   await $.agent.spawn(SPAWN)
   await $.turn.complete(done)
   await clock.advance(1000)
-  expect(titles[0]).toBe('Agentes · 1')
-  // The turn ended: the main card joins the running agent, but the count is of agents.
-  expect(titles.at(-1)).toBe('Agentes · 1')
+  // A fixed title never retitles (that blinked); the count is drawn on the divider.
+  expect(new Set(titles)).toEqual(new Set(['Agentes']))
 })
 
 test('a subagent that ends its turn with a background process keeps its card, waiting, until the process ends', async ($, on) => {
@@ -733,17 +733,82 @@ test('the main card is drawn first in its own group, then a divider, then the ag
     const ui = surface === 'pane' ? await $.ui.mount(PANE as never) : await $.ui.mount({ ...BAND, surface: 'desktop' })
     const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text)
     const main = texts.findIndex(text => /Claude · esperando/.test(text))
-    const divider = texts.findIndex(text => /^── Agentes ─+$/.test(text))
+    const divider = texts.findIndex(text => /^── Agentes ─+ \d+$/.test(text))
     const agent = texts.findIndex(text => /^Explore$/.test(text))
     expect(main).toBeGreaterThanOrEqual(0)
     expect(divider).toBeGreaterThan(main)
     expect(agent).toBeGreaterThan(divider)
     await ui.unmount()
   }
-  // The work ends: only the agent shows, with no divider.
+  // The work ends: only the agent shows, under the Agentes line with its count.
   await $.prompt.submit(notice('b1', 'completed') as never)
   const alone = await $.ui.mount(PANE as never)
-  expect(await alone.find({ type: 'Text', text: /── Agentes/ })).toBeUndefined()
+  expect((await alone.find({ type: 'Text', text: /── Agentes/ }))?.text).toMatch(/ 1$/)
   expect(await alone.find({ type: 'Text', text: /^Explore$/ })).toBeDefined()
   await alone.unmount()
+})
+
+test('the main card persists across a main turn start: only the label switches', async ($, on) => {
+  const clock = engine(on)
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(5000)
+  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
+  await ui.unmount()
+  await $.turn.start({ text: 'wake', turnId: 't2' })
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
+  await ui.unmount()
+  // The clock keeps running through the turn.
+  await clock.advance(3000)
+  await $.turn.complete({ ...done, turnId: 't2' })
+  await $.prompt.submit(notice('b1', 'completed') as never)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · (esperando|en segundo plano)/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+/** A background agent a1 (check-runner) spawned by the main loop; the engine lists it with `status`. */
+async function backgroundAgent($: Parameters<Parameters<typeof test>[1]>[0], on: Parameters<Parameters<typeof test>[1]>[1], status: () => string, bashExtra: Record<string, unknown> = {}) {
+  const clock = engine(on, {}, bashExtra)
+  haiku(on, 'none')
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('agent.list', () => ({ value: [{ id: 'a1', description: 'Run checks', type: 'agent-skills:check-runner', status: status() }] }) as never)
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn(SPAWN)
+  await $.tool.call({ tool: 'Agent', description: 'Run checks', run_in_background: true } as never)
+  await $.turn.complete(done)
+  return clock
+}
+const runsLine = async ($: Parameters<Parameters<typeof test>[1]>[0]) => (await $.command.run({ command: 'agents-debug' } as never)).text.split('\n').filter(line => /^runs:|^  run /.test(line))
+
+test('a background agent stays running after its Agent call returns and while parked; it ends at its last turn', async ($, on) => {
+  let status = 'waiting'
+  const clock = await backgroundAgent($, on, () => status, { backgroundWakesOwner: true, backgroundEndsWithFinalResponse: true })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 150', description: 'sleep 150', run_in_background: true, agentId: 'a1' } as never)
+  // Its Bash answered "ends with final response", yet it is the background agent's own wait.
+  expect(await waitsOf($)).toBe('waits: agent a1; shell b1')
+  expect(await runsLine($)).toEqual(['runs: 1 running of 1', '  run a1 running background=true agent-skills:check-runner'])
+  // Its turn ends while it is parked on its command: still running, its waits kept.
+  await $.turn.complete({ ...done, agentId: 'a1', turnId: 's1' })
+  expect(await runsLine($)).toEqual(['runs: 1 running of 1', '  run a1 running background=true agent-skills:check-runner'])
+  expect(await waitsOf($)).toBe('waits: agent a1; shell b1')
+  // The main card counts the agent and the agent's card shows its process estimate.
+  await clock.advance(30_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /esperando a check-runner/ })).toBeDefined()
+  await ui.unmount()
+  // Woken by the command's end, then its last turn completes.
+  await $.turn.start({ text: notice('b1', 'completed').text, turnId: 's2', agentId: 'a1' })
+  status = 'completed'
+  await $.turn.complete({ ...done, agentId: 'a1', turnId: 's2' })
+  expect(await runsLine($)).toEqual(['runs: 0 running of 1', '  run a1 done background=true agent-skills:check-runner'])
+  expect(await waitsOf($)).toBe('waits: none')
 })

@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
-import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, retitleDock, startAgentCall } from './agents'
+import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, retitleDock, startAgentCall, wakeAgentRun } from './agents'
 import { PHRASE_TOKENS, onAgentWoken, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
@@ -298,8 +298,11 @@ export const register: Register = (on, options) => {
     if (e.agentId === undefined) {
       await applySteps($, [{ close: true }])
     }
-    await endAgentTurn($, e.agentId, e.reason, e.durationMs)
-    await onTurn($, e.agentId, 'end', e.reason, e.answer).catch(() => undefined)
+    // A background agent parked on its own work has not finished: its run and its wait go on.
+    const isEnded = await endAgentTurn($, e.agentId, e.reason, e.durationMs)
+    if (isEnded) {
+      await onTurn($, e.agentId, 'end', e.reason, e.answer).catch(() => undefined)
+    }
     await retitleDock($).catch(() => undefined)
 
     return result
@@ -310,6 +313,7 @@ export const register: Register = (on, options) => {
     await onTurn($, e.agentId, 'start').catch(() => undefined)
     // A subagent parked on its background command starts a turn when the command ends.
     if (e.agentId !== undefined) {
+      await wakeAgentRun($, e.agentId).catch(() => undefined)
       await onAgentWoken($, e.agentId, e.text).catch(() => undefined)
     }
     await retitleDock($).catch(() => undefined)
