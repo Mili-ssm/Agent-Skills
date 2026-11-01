@@ -113,7 +113,7 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   // The wait is gone and the cycle is idle: the card stays as the done one, green, until the next prompt.
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('success')
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('inactive')
   await ui.unmount()
   await clock.advance(60_000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
@@ -878,7 +878,7 @@ test('a woken background agent keeps its spawn time: the orange card counts the 
   expect(Number(percent)).toBeGreaterThanOrEqual(90)
 })
 
-test('the main card while a turn runs: orange with no estimate, blue with background work; done it stays green until the next prompt', async ($, on) => {
+test('the main card while a turn runs: orange with no estimate, blue with background work; done it stays grey until the next prompt', async ($, on) => {
   const saved: Record<string, unknown> = {}
   const clock = engine(on, saved)
   const prompts: string[] = []
@@ -906,7 +906,7 @@ test('the main card while a turn runs: orange with no estimate, blue with backgr
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^✓$/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('success')
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('inactive')
   await ui.unmount()
   expect(saved['turn-samples']).toBeUndefined()
   await clock.advance(600_000)
