@@ -554,7 +554,7 @@ test('the band draws no wait card where the Agentes pane is placed; Desktop keep
   await desktop.unmount()
 })
 
-test('the pane title counts the cards it shows', async ($, on) => {
+test('the pane title is fixed: the count sits on the Agentes line', async ($, on) => {
   const clock = engine(on)
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   const titles: string[] = []
@@ -569,9 +569,8 @@ test('the pane title counts the cards it shows', async ($, on) => {
   await $.agent.spawn(SPAWN)
   await $.turn.complete(done)
   await clock.advance(1000)
-  expect(titles[0]).toBe('Agentes · 1')
-  // The turn ended: the main card joins the running agent, but the count is of agents.
-  expect(titles.at(-1)).toBe('Agentes · 1')
+  // A fixed title never retitles (that blinked); the count is drawn on the divider.
+  expect(new Set(titles)).toEqual(new Set(['Agentes']))
 })
 
 test('a subagent that ends its turn with a background process keeps its card, waiting, until the process ends', async ($, on) => {
@@ -734,17 +733,17 @@ test('the main card is drawn first in its own group, then a divider, then the ag
     const ui = surface === 'pane' ? await $.ui.mount(PANE as never) : await $.ui.mount({ ...BAND, surface: 'desktop' })
     const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text)
     const main = texts.findIndex(text => /Claude · esperando/.test(text))
-    const divider = texts.findIndex(text => /^── Agentes ─+$/.test(text))
+    const divider = texts.findIndex(text => /^── Agentes ─+ \d+$/.test(text))
     const agent = texts.findIndex(text => /^Explore$/.test(text))
     expect(main).toBeGreaterThanOrEqual(0)
     expect(divider).toBeGreaterThan(main)
     expect(agent).toBeGreaterThan(divider)
     await ui.unmount()
   }
-  // The work ends: only the agent shows, with no divider.
+  // The work ends: only the agent shows, under the Agentes line with its count.
   await $.prompt.submit(notice('b1', 'completed') as never)
   const alone = await $.ui.mount(PANE as never)
-  expect(await alone.find({ type: 'Text', text: /── Agentes/ })).toBeUndefined()
+  expect((await alone.find({ type: 'Text', text: /── Agentes/ }))?.text).toMatch(/ 1$/)
   expect(await alone.find({ type: 'Text', text: /^Explore$/ })).toBeDefined()
   await alone.unmount()
 })

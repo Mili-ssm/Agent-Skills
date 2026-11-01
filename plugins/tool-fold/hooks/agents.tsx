@@ -626,15 +626,15 @@ async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<
   return hasSurvey ? { main: [], agents: running } : { main: await waitingRuns($), agents: [...running, ...(await agentWaitRuns($, all))] }
 }
 
-/** Main card first, then a dim "Agentes" line across the width, then the subagents' cards (the line only when both groups show). */
+/** Main card first, then a dim "Agentes" line across the width with the subagent count at its right, then their cards. */
 function cardGroups(ui: Elements, cards: Cards, now: number, frame: string, maxChars: number) {
   const { Text } = ui
   const draw = (run: AgentRun) => liveCard(ui, run, now, frame, maxChars)
   return [
     ...cards.main.map(draw),
-    cards.main.length > 0 && cards.agents.length > 0 ? (
+    cards.agents.length > 0 ? (
       <Text key="agents-divider" dimColor wrap="truncate">
-        {`── Agentes ${'─'.repeat(Math.max(0, maxChars - 12))}`}
+        {`── Agentes ${'─'.repeat(Math.max(0, maxChars - 14 - String(cards.agents.length).length))} ${cards.agents.length}`}
       </Text>
     ) : null,
     ...cards.agents.map(draw),
@@ -1148,9 +1148,8 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, mark?: string) {
 
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */
 async function openDock($: EngineInterface): Promise<void> {
-  // The surface draws the title bar; its text at least says how many run (an open id only retitles).
-  const shown = (await runningWithWait($, false)).agents.length
-  const title = `Agentes · ${shown}`
+  // The surface draws the title bar; a fixed title never retitles (that blinked), the count sits on the Agentes line.
+  const title = 'Agentes'
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
 }
