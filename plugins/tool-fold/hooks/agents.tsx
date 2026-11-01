@@ -97,6 +97,9 @@ export function remainingOf(elapsedMs: number, percent: number | undefined): str
   return formatRemaining((Math.max(0, elapsedMs) * (100 - percent)) / percent)
 }
 
+// A subagent parked on its background process: a clock in the slot of its type icon.
+const WAITING_ICON = '◷'
+
 /** The synthetic card of the main agent's wait (see waiting.tsx). */
 const isMainCard = (run: Pick<AgentRun, 'id'>): boolean => run.id === 'wait-main'
 /** Any synthetic waiting card: the main agent's, or a subagent's that ended its turn with a process still running. */
@@ -425,9 +428,12 @@ export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
 }
 
 /** The state a card is drawn in: the main agent's wait is `waiting`; a stopped agent reads as failed. */
-export function stateOf(run: Pick<AgentRun, 'id' | 'status'> & { isLingering?: boolean }): CardState {
+export function stateOf(run: Pick<AgentRun, 'id' | 'status'> & { isLingering?: boolean; isWorking?: boolean }): CardState {
   if (run.isLingering === true) {
     return 'completed'
+  }
+  if (run.isWorking === true) {
+    return 'running'
   }
   if (isWaitCard(run)) {
     return 'waiting'
@@ -543,7 +549,9 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
   // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
   const datum =
     isLingering
-      ? '100%'
+      ? run.isWorking === true
+        ? '✓'
+        : '100%'
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
@@ -553,7 +561,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
     <Box key={`${run.id}-head`} flexDirection="column">
       <Box flexDirection="row" gap={1} minWidth={0} overflow="hidden">
         {mark === undefined ? null : <Text dimColor>{mark}</Text>}
-        <Text color={color}>{isMainCard(run) ? '◆' : iconOf(run.type)}</Text>
+        <Text color={color}>{isMainCard(run) ? '◆' : stateOf(run) === 'waiting' ? WAITING_ICON : iconOf(run.type)}</Text>
         <Text weight="bold" dimColor={run.status === 'done'}>
           {agentName(run)}
         </Text>

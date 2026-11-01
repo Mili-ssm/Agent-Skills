@@ -352,22 +352,15 @@ async function requestDescription($: EngineInterface): Promise<void> {
   }
   void describe($)
 }
-// The status line as last sent (`undefined`: cleared), so it is sent only when its text changed.
-let lastStatus: string | undefined
+// Whether the status line was cleared: the card above the prompt carries the cycle, so the status line stays empty.
+let isStatusCleared = false
 
-/** Draws the cycle on the status line, if its text changed. Never throws. */
+/** Clears the status line once (the card replaces it). Never throws. */
 async function publish($: EngineInterface): Promise<void> {
   try {
-    const cycle = await read($, cycleAtom)
-    // Desktop draws the cycle in the band above the prompt; its status line is a small footer line, so it stays empty
-    // while Desktop is the only surface. Another surface attached (a terminal, a phone) keeps it.
-    const surfaces = await $.session.surfaces()
-    const isDesktopOnly = surfaces.length > 0 && surfaces.every(surface => surface === 'desktop')
-    const text =
-      !isDesktopOnly && hasActivity(cycle) ? formatCycle(cycle, elapsedMs(cycle, await $.clock.now())) : undefined
-    if (text !== lastStatus) {
-      lastStatus = text
-      $.ui.status(text)
+    if (!isStatusCleared) {
+      isStatusCleared = true
+      $.ui.status(undefined)
     }
   } catch (error) {
     $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })
@@ -720,9 +713,9 @@ export const register: Register = on => {
     return completed
   })
 
-  // Desktop: the cycle in the band above the prompt, at its bottom (other mods' cards stack above, from `next(e)`).
+  // The cycle in the card above the prompt (Desktop, VS Code), at its bottom (other mods' cards stack above, from `next(e)`).
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.surface !== 'desktop' || e.props.hasSurvey) {
+    if (e.props.hasSurvey) {
       return next(e)
     }
     const cycle = await read($, cycleAtom)

@@ -126,7 +126,30 @@ function engine(on: On) {
     statuses.push(e.text)
     return { value: undefined }
   })
+  // The engine beneath draws an empty band; the mod's card goes under it.
+  on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
   return { lines, statuses, agents, haiku, surfaces, clock: mock.clock(on) }
+}
+
+// The card above the prompt as one line (`⏱ 3s · 6 calls · ▸ doing`, or `✓ … — conclusion` once idle), to compare with the old status text.
+async function shown($: { ui: { mount: (props: never) => Promise<any> } }): Promise<string | undefined> {
+  const ui = await $.ui.mount({
+    plugin: 'usage-band',
+    component: 'AbovePrompt',
+    requestId: 'shown',
+    surface: 'vscode',
+    props: { hasSurvey: false, isWorking: true, maxRows: 20, bodyColumns: 80, scroll: { offset: 0, bodyRows: 20 } },
+  } as never)
+  const texts: string[] = (await ui.findAll({ type: 'Text' })).map((node: { text: string }) => node.text)
+  await ui.unmount()
+  const [clock] = texts
+  if (clock === undefined) {
+    return undefined
+  }
+  const detail = texts.find(text => /^[▸✓] /.test(text))
+  const counts = texts.slice(1).filter(text => !/^(ctx|Σ|[▸✓●]) ?/.test(text) || /^\d/.test(text)).map(text => text.replace(/ ·\s*$/, '').trim())
+  const head = [detail?.startsWith('✓') ? clock.replace('⏱', '✓') : clock, ...counts.filter(text => text !== '')].join(' · ')
+  return detail === undefined ? head : detail.startsWith('✓') ? `${head} — ${detail.slice(2)}` : `${head} · ${detail}`
 }
 
 // Long enough for the idle check after a turn's end.
@@ -138,12 +161,12 @@ test('the clock runs while Claude works, agents included, and stops with a print
   // The person's first prompt: nothing to close yet; the clock starts.
   await $.prompt.submit(prompt('Plan the login feature'))
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 0s')
+  expect(await shown($)).toBe('⏱ 0s')
 
   // First main turn: the line moves once a second.
   await $.turn.start({ text: 'Plan the login feature', turnId: 't1' })
   await clock.advance(3000)
-  expect(statuses.at(-1)).toBe('⏱ 3s')
+  expect(await shown($)).toBe('⏱ 3s')
   await $.tool.call({ tool: 'Bash', command: 'ls', description: 'List files' })
   await $.tool.call({ tool: 'Bash', command: 'pwd' })
   await $.tool.call({ tool: 'Skill', skill: 'plan' })
@@ -152,25 +175,25 @@ test('the clock runs while Claude works, agents included, and stops with a print
   // A background agent starts its run; its own calls count too.
   await $.turn.start({ text: 'Review it', turnId: 's1', agentId: 'a1' })
   await $.tool.call({ tool: 'Bash', command: 'cat a', description: 'Read the notes', agentId: 'a1' })
-  expect(statuses.at(-1)).toBe('⏱ 3s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
+  expect(await shown($)).toBe('⏱ 3s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
   await clock.advance(117_000)
   await $.turn.complete(complete({ durationMs: 120_000, turnId: 't1', model: 'claude-opus-5-5', input: 700_000, output: 10_000 }))
-  expect(statuses.at(-1)).toBe('⏱ 2m00s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
+  expect(await shown($)).toBe('⏱ 2m00s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
 
   // The main loop is done but the agent still works: the clock goes on and nothing is printed.
   await clock.advance(600_000)
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 12m00s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
+  expect(await shown($)).toBe('⏱ 12m00s · 6 calls · 1 skill · 2 agents · ▸ Revisa las notas')
 
   // The agent ends: nothing works any more, so the clock stops at its end; Haiku sums up the answer and the line is printed.
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 597_000, turnId: 's1', model: 'claude-sonnet-5-5', input: 250_000, output: 7000 }))
   await clock.advance(SETTLE)
   expect(lines).toEqual(['✓ 12m00s · 6 calls · 1 skill · 2 agents — Plan ready │ Σ 12m00s · 967k'])
-  expect(statuses.at(-1)).toBe('✓ 12m00s · 6 calls · 1 skill · 2 agents — Plan ready')
+  expect(await shown($)).toBe('✓ 12m00s · 6 calls · 1 skill · 2 agents — Plan ready')
 
   // The person is away: the frozen line stays as it is.
   await clock.advance(600_000)
-  expect(statuses.at(-1)).toBe('✓ 12m00s · 6 calls · 1 skill · 2 agents — Plan ready')
+  expect(await shown($)).toBe('✓ 12m00s · 6 calls · 1 skill · 2 agents — Plan ready')
 
   // A hand-back wakes the model: machine-made prompts open no cycle, but the work resumes the same one.
   const machine = [
@@ -187,7 +210,7 @@ test('the clock runs while Claude works, agents included, and stops with a print
   }
   expect(lines).toHaveLength(1)
   await $.turn.start({ text: '', turnId: 't2' })
-  expect(statuses.at(-1)).toBe('⏱ 12m00s · 6 calls · 1 skill · 2 agents')
+  expect(await shown($)).toBe('⏱ 12m00s · 6 calls · 1 skill · 2 agents')
   await clock.advance(72_000)
   await $.tool.call({ tool: 'Read', file_path: '/tmp/a.ts' })
   await $.turn.complete(complete({ durationMs: 72_000, turnId: 't2', model: 'claude-opus-5-5', input: 480_000, output: 10_000 }))
@@ -213,13 +236,13 @@ test('the clock runs while Claude works, agents included, and stops with a print
   // The person's next prompt: the line is already printed, so only the new cycle starts.
   await $.prompt.submit(prompt('Now implement it'))
   expect(lines).toHaveLength(2)
-  expect(statuses.at(-1)).toBe('⏱ 0s')
+  expect(await shown($)).toBe('⏱ 0s')
 
   // The second cycle, short: its line carries the session's running total.
   await $.turn.start({ text: 'Now implement it', turnId: 't3' })
   await clock.advance(5000)
   await $.turn.complete(complete({ durationMs: 5000, turnId: 't3', model: 'claude-opus-5-5', input: 40_000, output: 2000 }))
-  expect(statuses.at(-1)).toBe('⏱ 5s')
+  expect(await shown($)).toBe('⏱ 5s')
   await clock.advance(SETTLE)
   expect(lines[2]).toBe('✓ 5s — Plan ready │ Σ 13m17s · 1.5M')
   await $.prompt.submit(prompt('Thanks', { kind: 'bridge' }))
@@ -237,7 +260,7 @@ test('an agent the engine still lists as working keeps the clock running', async
   await $.turn.complete(complete({ durationMs: 10_000, turnId: 't1', model: 'claude-opus-5-5', input: 1000, output: 100 }))
   await clock.advance(SETTLE)
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 12s')
+  expect(await shown($)).toBe('⏱ 12s')
   // It goes idle; the next turn end finds nothing working and stops the clock there.
   agents[0] = { id: 'mate@team', status: 'idle' }
   await $.turn.start({ text: '', turnId: 't2' })
@@ -268,23 +291,23 @@ test('a prompt typed over a running turn closes the old cycle and starts the new
   await $.prompt.submit(prompt('Actually, do this instead'))
   // Nothing finished yet, so no line; the new cycle's time counts from its prompt.
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('⏱ 0s')
+  expect(await shown($)).toBe('⏱ 0s')
   await clock.advance(4000)
-  expect(statuses.at(-1)).toBe('⏱ 4s')
+  expect(await shown($)).toBe('⏱ 4s')
   await $.turn.complete(complete({ durationMs: 14_000, turnId: 't1', model: 'claude-haiku-5-5', input: 1000, output: 200 }))
-  expect(statuses.at(-1)).toBe('⏱ 4s')
+  expect(await shown($)).toBe('⏱ 4s')
   await clock.advance(SETTLE)
   // Haiku gave no answer: the line goes out without a conclusion.
   expect(lines).toEqual(['✓ 4s │ Σ 14s · 1k'])
 })
 
-test('a subagent-only turn end before any prompt shows in the status line and logs nothing', async ($, on) => {
+test('a subagent-only turn end before any prompt shows in the card and logs nothing', async ($, on) => {
   const { lines, statuses, clock } = engine(on)
 
   await $.turn.complete(complete({ agentId: 'a1', durationMs: 5000, turnId: 's1', model: 'claude-haiku-5-5', input: 1000, output: 100 }))
   await clock.advance(SETTLE)
   expect(lines).toEqual([])
-  expect(statuses.at(-1)).toBe('✓ 0s')
+  expect(await shown($)).toBe('⏱ 0s')
 })
 
 test('work seen with no cycle open (after a reload or an update) opens one, so a running task never shows as done', async ($, on) => {
@@ -294,9 +317,9 @@ test('work seen with no cycle open (after a reload or an update) opens one, so a
   agents.push({ id: 'a1', status: 'running' })
   await $.tool.call({ tool: 'Bash', command: 'sed -i x a.js', description: 'Migrate the scripts', agentId: 'a1' })
   // The call's own description shows at once; Haiku's plain-words version replaces it when it lands.
-  expect(statuses.at(-1)).toBe('⏱ 0s · 1 call · ▸ Migrate the scripts')
+  expect(await shown($)).toBe('⏱ 0s · 1 call · ▸ Migrate the scripts')
   await clock.advance(30_000)
-  expect(statuses.at(-1)).toBe('⏱ 30s · 1 call · ▸ Revisa las notas')
+  expect(await shown($)).toBe('⏱ 30s · 1 call · ▸ Revisa las notas')
 
   // Its run ends and the roster says it is done: the clock stops and the line is printed.
   agents[0] = { id: 'a1', status: 'completed' }
@@ -314,7 +337,7 @@ test('Haiku describes the work in plain words at most every 30 s, and only after
   await $.turn.start({ text: 'Resuelve la deuda técnica del frontend', turnId: 't1' })
   // No description from Haiku yet: the raw call shows meanwhile.
   await $.tool.call({ tool: 'Bash', command: "sed -i 's/engine/store/g' test/a.js" })
-  expect(statuses.at(-1)).toBe("⏱ 0s · 1 call · ▸ sed -i 's/engine/store/g' test/a.js")
+  expect(await shown($)).toBe("⏱ 0s · 1 call · ▸ sed -i 's/engine/store/g' test/a.js")
   expect(haiku.described).toBe(1)
 
   // Haiku answers from now on; calls inside the 30 s gap wait for one description at its end.
@@ -323,25 +346,23 @@ test('Haiku describes the work in plain words at most every 30 s, and only after
   await $.tool.call({ tool: 'Bash', command: 'npm run e2e', description: 'Run the e2e suite' })
   await $.tool.call({ tool: 'Read', file_path: '/repo/test/a.js' })
   expect(haiku.described).toBe(1)
-  expect(statuses.at(-1)).toBe('⏱ 5s · 3 calls · ▸ Read a.js')
+  expect(await shown($)).toBe('⏱ 5s · 3 calls · ▸ Read a.js')
   await clock.advance(25_000)
   expect(haiku.described).toBe(2)
-  expect(statuses.at(-1)).toBe('⏱ 30s · 3 calls · ▸ Cambia engine por store en los tests')
+  expect(await shown($)).toBe('⏱ 30s · 3 calls · ▸ Cambia engine por store en los tests')
 
   // Its words stay while new calls come; no new call, no new request.
   await $.tool.call({ tool: 'Edit', file_path: '/repo/test/b.js', old_string: 'engine', new_string: 'store' })
-  expect(statuses.at(-1)).toBe('⏱ 30s · 4 calls · ▸ Cambia engine por store en los tests')
+  expect(await shown($)).toBe('⏱ 30s · 4 calls · ▸ Cambia engine por store en los tests')
   await clock.advance(30_000)
   expect(haiku.described).toBe(3)
   await clock.advance(60_000)
   expect(haiku.described).toBe(3)
 })
 
-test('Desktop draws the cycle in the band above the prompt instead of its small status line', async ($, on) => {
+test('Desktop draws the cycle in the band above the prompt and leaves the status line empty', async ($, on) => {
   const { statuses, surfaces, clock } = engine(on)
   surfaces.splice(0, surfaces.length, 'desktop')
-  // The engine beneath draws an empty band.
-  on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
   const band = (surface: string) =>
     $.ui.mount({
       plugin: 'usage-band',
@@ -355,7 +376,7 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   await $.turn.start({ text: 'Go', turnId: 't1' })
   await $.tool.call({ tool: 'Bash', command: 'npm test', description: 'Run the unit tests' })
   await clock.advance(3000)
-  // Desktop is the only surface: the footer status line stays empty.
+  // The footer status line stays empty.
   expect(statuses.filter(status => status !== undefined)).toEqual([])
   const busy = await band('desktop')
   expect((await busy.find({ type: 'Text', text: /^⏱/ }))?.text).toBe('⏱ 3s')
@@ -385,15 +406,17 @@ test('Desktop draws the cycle in the band above the prompt instead of its small 
   expect((await second.find({ type: 'Text', text: /Σ/ }))?.text).toBe('Σ 5s · 1k')
   await second.unmount()
 
-  // VS Code has no band: the hook draws nothing of its own there.
+  // VS Code draws the same two-line card.
+  surfaces.splice(0, surfaces.length, 'vscode')
   const vscode = await band('vscode')
-  expect(await vscode.find({ type: 'Text', text: /⏱|✓/ })).toBeUndefined()
+  expect((await vscode.find({ type: 'Text', text: /^⏱/ }))?.text).toBe('⏱ 2s')
+  expect((await vscode.find({ type: 'Text', text: /^ctx/ }))?.text).toBe('ctx 42%')
   await vscode.unmount()
 
-  // A terminal attached too: the status line comes back for it.
+  // Another surface attached: the status line stays cleared, never set.
   surfaces.push('terminal')
   await $.tool.call({ tool: 'Read', file_path: '/repo/a.ts' })
-  expect(statuses.at(-1)).toMatch(/^⏱ 2s · 1 call/)
+  expect(statuses.filter(status => status !== undefined)).toEqual([])
 })
 
 test('on Desktop, /usage-band draws its bars as image bars', async ($, on) => {
@@ -418,7 +441,6 @@ test('the agent count carries one colored dot per model family the agents ran on
   const models = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5', 'fable-1', 'mystery', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5', 'claude-opus-5-5']
   let spawned = 0
   on('agent.spawn', () => ({ model: models[spawned++] ?? 'x', agentId: `a${spawned}` }) as never)
-  on('ui.render', ($, e) => $.ui.resolve(e).Box({}))
   const band = () =>
     $.ui.mount({
       plugin: 'usage-band',
