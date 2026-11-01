@@ -2,6 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
+import { onAgentSpawn, resume, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -448,11 +449,18 @@ async function writeMission($: EngineInterface, agentId: string, prompt: string)
   }
 }
 
+/** The running agents, then the main agent's wait drawn as one more (none under a survey, which owns the band). */
+async function runningWithWait($: EngineInterface, hasSurvey: boolean): Promise<AgentRun[]> {
+  const running = (await read($, runs)).filter(run => run.status === 'running')
+  return hasSurvey ? running : [...running, ...(await waitingRuns($))]
+}
+
 /** The agent hooks: spawns, their calls and ends, the spinner block; tool-fold's register adds them. */
 export const registerAgents: Register = (on, options) => {
   // Record each spawn after the engine resolved its model and id.
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
+    await onAgentSpawn($, e, started).catch(() => undefined)
     if (started.deny !== undefined || started.agentId === undefined) {
       return started
     }
@@ -515,6 +523,7 @@ export const registerAgents: Register = (on, options) => {
     await $.command.register({ name: 'agents-dock', description: 'Show running agents in the "Agentes" pane' })
     await $.command.register({ name: 'agents-debug', description: 'tool-fold: what the agent band and pane see here' })
     await syncTick($)
+    await resume($).catch(() => undefined)
     if ((await read($, runs)).some(run => run.status === 'running')) {
       await openDockUnlessDesktop($)
     }
@@ -558,7 +567,7 @@ export const registerAgents: Register = (on, options) => {
   // never comes, `$.ui.panes()` still says shown), so the band never waits on the pane; `/agents-dock` adds it.
   // The band is shared: other mods' cards stack below, from `next(e)`.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const running = (await read($, runs)).filter(run => run.status === 'running')
+    const running = await runningWithWait($, e.props.hasSurvey)
     const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${running.length}`
     if (e.surface !== 'desktop' || e.props.hasSurvey || running.length === 0) {
       const rest = await next(e)
@@ -586,7 +595,7 @@ export const registerAgents: Register = (on, options) => {
   // The "Agentes" pane: every running agent's live card, as the chat draws it, oldest first.
   on('ui.render', { component: 'Pane', requestId: 'agents' }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const running = (await read($, runs)).filter(run => run.status === 'running')
+    const running = await runningWithWait($, false)
     if (running.length === 0) {
       return <Text dimColor>No agents running.</Text>
     }
