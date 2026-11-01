@@ -418,20 +418,22 @@ export type Elements = {
 }
 
 /** What an agent card shows by state: running, waiting (the main agent's wait), completed, failed or killed. */
-export type CardState = 'running' | 'waiting' | 'completed' | 'failed'
+export type CardState = 'running' | 'waiting' | 'completed' | 'idle' | 'failed'
 
 /** Color per state: `hex` for the Svg line, `theme` for text and the terminal. */
 export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
   running: { hex: '#d97757', theme: 'claude' },
   waiting: { hex: '#58a6ff', theme: 'suggestion' },
   completed: { hex: '#3fb950', theme: 'success' },
+  // Claude's 'listo' card stays until the next prompt: grey, so a finished request does not draw the eye.
+  idle: { hex: '#8b8b8b', theme: 'inactive' },
   failed: { hex: '#f85149', theme: 'error' },
 }
 
 /** The state a card is drawn in: the main agent's wait is `waiting`; a stopped agent reads as failed. */
 export function stateOf(run: Pick<AgentRun, 'id' | 'status'> & { isLingering?: boolean; isWorking?: boolean }): CardState {
   if (run.isLingering === true) {
-    return 'completed'
+    return isMainCard(run) && run.isWorking === true ? 'idle' : 'completed'
   }
   if (run.isWorking === true) {
     return 'running'
