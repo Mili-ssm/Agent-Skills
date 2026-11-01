@@ -2,7 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
-import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
+import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, retitleDock, startAgentCall } from './agents'
 import { PHRASE_TOKENS, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
@@ -300,6 +300,7 @@ export const register: Register = (on, options) => {
     }
     await endAgentTurn($, e.agentId, e.reason, e.durationMs)
     await onTurn($, e.agentId, 'end', e.reason, e.answer).catch(() => undefined)
+    await retitleDock($).catch(() => undefined)
 
     return result
   })
@@ -307,6 +308,7 @@ export const register: Register = (on, options) => {
   // The main loop works again: nothing is waited on idle any more.
   on('turn.start', async ($, e, next) => {
     await onTurn($, e.agentId, 'start').catch(() => undefined)
+    await retitleDock($).catch(() => undefined)
 
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -315,6 +317,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     if (e.origin.kind === 'task-notification') {
       await onNotification($, e.text).catch(() => undefined)
+      await retitleDock($).catch(() => undefined)
     }
 
     return next(e)
