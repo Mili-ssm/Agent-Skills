@@ -866,20 +866,19 @@ test('a woken background agent keeps its spawn time: the orange card counts the 
   expect(Number(percent)).toBeGreaterThanOrEqual(90)
 })
 
-test('the main card while a turn runs: orange with a Haiku estimate, blue with background work, green linger at the end, then hidden', async ($, on) => {
+test('the main card while a turn runs: orange with no estimate, blue with background work, green linger at the end, then hidden', async ($, on) => {
   const saved: Record<string, unknown> = {}
   const clock = engine(on, saved)
   const prompts: string[] = []
   haiku(on, 'minutos: 2', prompts)
   await $.turn.start({ text: 'Refactor the parser module', turnId: 't1' })
-  expect(prompts).toHaveLength(1)
-  expect(prompts[0]).toContain('<tarea>Refactor the parser module</tarea>')
+  expect(prompts).toHaveLength(0)
   await clock.advance(60_000)
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const name = await ui.find({ type: 'Text', text: /Claude · trabajando/ })
   expect(name).toBeDefined()
-  // 60 s of 2 min: 50%, orange, with the prompt as detail until a call arrives.
-  expect(await ui.find({ type: 'Text', text: /≈50% · ~1 min/ })).toBeDefined()
+  // No time inference: no percentage, orange, with the prompt as detail until a call arrives.
+  expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('claude')
   expect(await ui.find({ type: 'Text', text: /Refactor the parser module/ })).toBeDefined()
   await ui.unmount()
@@ -888,14 +887,14 @@ test('the main card while a turn runs: orange with a Haiku estimate, blue with b
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /lexer\.ts/ })).toBeDefined()
   await ui.unmount()
-  // The turn ends with nothing in the background: 5 s green at 100%, then nothing.
+  // The turn ends with nothing in the background: 5 s green with a check, then nothing.
   await clock.advance(30_000)
   await $.turn.complete({ ...done, turnId: 't1' })
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /^100%$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^✓$/ })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('success')
   await ui.unmount()
-  expect((saved['turn-samples'] as { summary: string; durationMs: number }[]).map(item => item.durationMs)).toEqual([90_000])
+  expect(saved['turn-samples']).toBeUndefined()
   await clock.advance(6000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude ·/ })).toBeUndefined()

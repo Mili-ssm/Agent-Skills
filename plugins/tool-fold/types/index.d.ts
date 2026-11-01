@@ -182,12 +182,10 @@ declare module 'claude-code' {
 /** The main turn the main card follows: from the prompt to the answer, then lingering a moment. */
 export type TurnCard = {
   startedAt: number
-  /** The owner's prompt, clipped: what the estimate is asked about and the card's detail until a call arrives. */
+  /** The owner's prompt, clipped: the card's detail until a call arrives. */
   prompt: string
   /** The latest main-loop call, as a subagent card names a call. */
   call?: string
-  etaMs?: number
-  etaSource?: EtaSource
   /** Clock time the turn ended with nothing in the background: the card lingers green from here. */
   endedAt?: number
 }

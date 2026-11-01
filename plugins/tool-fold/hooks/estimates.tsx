@@ -6,8 +6,6 @@ import type { WaitSample } from '../types'
 // (processes `wait-samples`, subagents `agent-samples`), so their summaries never mix.
 export const WAIT_SAMPLES_KEY = 'wait-samples'
 export const AGENT_SAMPLES_KEY = 'agent-samples'
-// Main turns (the owner's prompt and how long it took to answer), for the main card's estimate.
-export const TURN_SAMPLES_KEY = 'turn-samples'
 const REMEMBERED = 50
 // Word overlap (Jaccard) from which a stored summary counts as the same kind of work.
 export const SIMILARITY_MIN = 0.5

@@ -5,7 +5,6 @@ import type { AgentRun, EtaSource, TurnCard, WaitKind, WaitTask } from '../types
 import { commandOf, describeStep, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
 import {
   REESTIMATE_GAP_MS,
-  TURN_SAMPLES_KEY,
   WAIT_SAMPLES_KEY,
   askMinutes,
   loadSamples,
@@ -397,16 +396,6 @@ export async function onNotification($: EngineInterface, text: string): Promise<
   }
 }
 
-/** Haiku's minutes for the main turn (the prompt and similar past turns together). Fire and forget: a miss leaves the deterministic value. */
-async function askTurn($: EngineInterface, prompt: string, startedAt: number): Promise<void> {
-  const similar = similarRuns(await loadSamples($, TURN_SAMPLES_KEY), prompt)
-  const etaMs = await askMinutes($, { text: prompt, similar })
-  if (etaMs !== undefined) {
-    const etaSource = sourceOfAsk(undefined, similar)
-    await update($, turnCard, (turn: TurnCard | null) => (turn === null || turn.startedAt !== startedAt ? turn : { ...turn, etaMs, etaSource }))
-  }
-}
-
 /** A main-loop call starts: the main card's detail line names it. Never throws. */
 export async function onMainCall($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<void> {
   const step = describeStep(tool, input)
@@ -434,23 +423,11 @@ export async function onTurn(
   if (phase === 'start') {
     turnStartedAt = now
     const text = prompt.replace(/\s+/g, ' ').trim()
-    const similarEta = similarMedian(await loadSamples($, TURN_SAMPLES_KEY), text)
-    const card: TurnCard = {
-      startedAt: now,
-      prompt: clip(text, 200),
-      ...(similarEta === undefined ? {} : { etaMs: similarEta, etaSource: 'similar' as const }),
-    }
-    await update($, turnCard, () => card)
-    if (text !== '') {
-      void askTurn($, clip(text, 1500), now).catch(error => $.ui.log(`tool-fold: turn estimate: ${String(error)}`, { to: 'debug' }))
-    }
+    await update($, turnCard, () => ({ startedAt: now, prompt: clip(text, 200) }) as TurnCard)
   } else {
     const turn = (await read($, turnCard)) as TurnCard | null
     const isBackground = (await read($, waits)).some(task => task.owner === undefined)
     if (turn !== null) {
-      if (reason === 'answer') {
-        await recordSample($, TURN_SAMPLES_KEY, turn.prompt, now - turn.startedAt, now)
-      }
       // Background work takes the card over (blue); a turn that ended otherwise than by answering leaves at once.
       await update($, turnCard, () => (reason === 'answer' && !isBackground ? { ...turn, endedAt: now } : null))
     }
@@ -499,17 +476,8 @@ async function turnRuns($: EngineInterface, now: number, model: string): Promise
   if (turn.endedAt !== undefined) {
     return [{ ...base, status: 'done', durationMs: turn.endedAt - turn.startedAt, isLingering: true, isWorking: true }]
   }
-  const fraction = progressOf(Math.max(0, now - turn.startedAt), turn.etaMs)
-  return [
-    {
-      ...base,
-      status: 'running',
-      isWorking: true,
-      ...(fraction === undefined ? { isTrackOnly: true } : { estimate: Math.round(fraction * 100) }),
-      ...(turn.etaSource === undefined || fraction === undefined ? {} : { etaSource: turn.etaSource }),
-      ...(turn.etaMs !== undefined && now - turn.startedAt > turn.etaMs + OVERDUE_GRACE_MS ? { isOverdue: true } : {}),
-    },
-  ]
+  // No time inference while a turn works: the empty track only keeps the layout of the other states.
+  return [{ ...base, status: 'running', isWorking: true, isTrackOnly: true }]
 }
 
 /**

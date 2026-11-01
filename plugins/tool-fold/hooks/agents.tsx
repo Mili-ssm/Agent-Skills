@@ -549,7 +549,9 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
   // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
   const datum =
     isLingering
-      ? '100%'
+      ? run.isWorking === true
+        ? '✓'
+        : '100%'
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
