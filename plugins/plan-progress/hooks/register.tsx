@@ -96,7 +96,8 @@ export function segmentsSvg(plan: Plan, width: number, height: number, color: st
   const tasks = plan.tasks.filter(task => task.total > 0)
   const room = width - gap * Math.max(0, tasks.length - 1)
   const active = activeTask(plan)
-  const radius = height / 2
+  // Nearly square ends: round caps on short partial fills read as dots.
+  const radius = height / 4
   let x = 0
   let body = ''
   for (const task of tasks) {
@@ -104,10 +105,10 @@ export function segmentsSvg(plan: Plan, width: number, height: number, color: st
     const w = tasks.length === 0 ? 0 : room / tasks.length
     const fill = (w * task.done) / task.total
     const isActive = task === active
-    body += `<rect class="track" x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${height}" rx="${radius}" fill="#888" fill-opacity="0.25"`
-    body += isActive ? ` stroke="${color}" stroke-width="1"/>` : '/>'
+    // The active task's track is lighter instead of outlined, so every segment has the same edge.
+    body += `<rect class="track" x="${x.toFixed(2)}" y="0" width="${w.toFixed(2)}" height="${height}" rx="${radius}" fill="#888" fill-opacity="${isActive ? 0.5 : 0.2}"/>`
     if (fill > 0) {
-      body += `<rect class="done" x="${x.toFixed(2)}" y="0" width="${fill.toFixed(2)}" height="${height}" rx="${radius}" fill="${color}" fill-opacity="${isActive ? 1 : 0.8}"/>`
+      body += `<rect class="done" x="${x.toFixed(2)}" y="0" width="${fill.toFixed(2)}" height="${height}" rx="${radius}" fill="${color}"/>`
     }
     x += w + gap
   }
@@ -161,9 +162,11 @@ async function publish($: EngineInterface, next: Plan | null): Promise<PlanTask[
   })
   // VS Code raises no AbovePrompt card, so the status line is its only display; elsewhere the card shows the plan.
   // Terminal and desktop draw the card above the prompt; the status line is only for a session drawn in VS Code alone.
-  const surfaces = await $.session.surfaces().catch(() => ['vscode' as const])
+  // Unknown surfaces count as none: a missing status line is better than a duplicate.
+  const surfaces = await $.session.surfaces().catch(() => [])
   const vscodeOnly = surfaces.length > 0 && surfaces.every(surface => surface === 'vscode')
-  const line = next === null || next.total === 0 || !vscodeOnly ? undefined : statusLine(next)
+  const show = next !== null && next.total > 0 && vscodeOnly
+  const line = show ? statusLine(next) : undefined
   $.ui.status(line)
   return finished
 }
@@ -203,12 +206,14 @@ export const register: Register = on => {
     }
     await refresh($)
     const current = await read($, plan)
+    // Surfaces decide whether the status line shows (VS Code alone); printing them makes a stray line diagnosable.
+    const surfaces = await $.session.surfaces().then(list => list.join(', ') || 'none', () => 'unknown')
 
     return {
       text:
-        current === null
+        (current === null
           ? `No plan found (looked in ${PLAN_DIRS.join(', ')}).`
-          : `Plan: ${current.path} (${current.done}/${current.total} steps).`,
+          : `Plan: ${current.path} (${current.done}/${current.total} steps).`) + ` Surfaces: ${surfaces}.`,
     }
   }).catch(($, e, next) => next(e))
 
