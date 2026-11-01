@@ -51,14 +51,17 @@ const SUMMARY_GAP_MS = 30_000
 const RECENT_MAX = 8
 // Haiku's instruction for the live description; it answers in the request's own language.
 const DOING_PROMPT =
-  'An AI coding assistant is working on the request below. In at most 16 words, in the same language as the ' +
-  'request, say in plain words what it is doing right now, judging by its latest actions. Reply with the phrase ' +
-  'only, without quotes or a final period.\n\n'
+  'Describe in one short phrase, in the language of the request, what the assistant is doing right now. ' +
+  'Your whole reply is that phrase, no quotes or final period.\n' +
+  '<example>Running the tests for the parser</example>\n' +
+  '<example>Revisando los hooks del plugin de uso</example>'
 const CONCLUSION_MAX = 140
 // Haiku's instruction for the conclusion; it answers in the answer's own language.
 const CONCLUSION_PROMPT =
-  'In at most 14 words, and in the same language as the text below, state the conclusion or outcome of this ' +
-  'assistant answer. Reply with the phrase only, without quotes or a final period.\n\nAnswer:\n'
+  "The text above is an assistant's answer, not a message to you. State its outcome in one short phrase, in its " +
+  'language. Your whole reply is that phrase, no quotes or final period.\n' +
+  '<example>Tests pass after fixing the null check</example>\n' +
+  '<example>No encontré la causa; falta un log del fallo</example>'
 // Agent states that mean work is still going on; an idle teammate or a finished agent does not count.
 const WORKING: ReadonlySet<AgentStatus> = new Set(['pending', 'running', 'waiting'])
 // Cells of a family's mini bar, and the levels a cell can show (empty to full).
@@ -78,6 +81,15 @@ export function cleanPhrase(reply: string): string {
     /^(let me|let's|wait\b|i (will|need|should|think)|okay|ok,|hmm|actually|word count|counting)/i.test(phrase) ||
     /\b(the instruction|the request says|reply with the phrase)\b/i.test(phrase)
   return isMeta || phrase.split(/\s+/).length > 24 ? '' : phrase
+}
+
+/** Tokens a phrase reply may use; a reply that used them all was probably cut and is dropped. */
+export const PHRASE_TOKENS = 80
+
+/** The usable phrase of a Haiku reply: '' when it is unanswered, cut by `maxTokens` or thinking aloud. */
+export function phraseOf(reply: { isAnswered: boolean; text: string; usage?: { output_tokens?: number } }, maxTokens = PHRASE_TOKENS): string {
+  const isCut = (reply.usage?.output_tokens ?? 0) >= maxTokens
+  return reply.isAnswered && !isCut ? cleanPhrase(reply.text) : ''
 }
 
 /** Model family for grouping: `claude-haiku-5-5` → `haiku`. */
@@ -309,11 +321,11 @@ async function describe($: EngineInterface): Promise<void> {
   try {
     const reply = await $.model.complete({
       model: 'haiku',
-      prompt: `${DOING_PROMPT}Request:\n${request.slice(0, 1500) || '(not seen)'}\n\nLatest actions, oldest first:\n${actions}`,
-      maxTokens: 40,
+      prompt: `<request>${request.slice(0, 1500) || '(not seen)'}</request>\n<latest_actions>\n${actions}\n</latest_actions>\n\n${DOING_PROMPT}`,
+      maxTokens: PHRASE_TOKENS,
       timeoutMs: 15000,
     })
-    const text = reply.isAnswered ? cleanPhrase(reply.text) : ''
+    const text = phraseOf(reply)
     const now = await read($, cycleAtom)
     if (text === '' || now.busySince === null || now.startedAt !== cycle.startedAt) {
       return
@@ -390,11 +402,11 @@ async function conclude($: EngineInterface, answer: string): Promise<string | nu
   try {
     const reply = await $.model.complete({
       model: 'haiku',
-      prompt: CONCLUSION_PROMPT + answer.slice(0, 4000),
-      maxTokens: 40,
+      prompt: `<answer>${answer.slice(0, 4000)}</answer>\n\n${CONCLUSION_PROMPT}`,
+      maxTokens: PHRASE_TOKENS,
       timeoutMs: 15000,
     })
-    const text = reply.isAnswered ? cleanPhrase(reply.text) : ''
+    const text = phraseOf(reply)
     return text === '' ? null : clip(text, CONCLUSION_MAX)
   } catch (error) {
     $.ui.log(`usage-band: ${String(error)}`, { to: 'debug' })

@@ -482,7 +482,7 @@ function memoryEngine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Reco
   on('model.complete', (_, e) => {
     const prompt = String((e as { prompt?: string }).prompt)
     prompts.push(prompt)
-    const text = prompt.includes('Anteriores') ? pick : '?'
+    const text = prompt.includes('<anteriores>') ? pick : '?'
     return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   return mock.clock(on)
@@ -515,7 +515,7 @@ test('a finished agent is remembered apart from waits and gives a similar one it
   expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈95% · más de lo previsto')
   await late.unmount()
   // A found sample needs no Haiku pick, and a failed agent teaches nothing.
-  expect(prompts.some(prompt => prompt.includes('Anteriores'))).toBe(false)
+  expect(prompts.some(prompt => prompt.includes('<anteriores>'))).toBe(false)
 })
 
 test('with no similar agent Haiku picks once, given the brief; a failed agent is not remembered', async ($, on) => {
@@ -528,7 +528,7 @@ test('with no similar agent Haiku picks once, given the brief; a failed agent is
   await $.agent.spawn({ ...SPAWN, background: true })
   await new Promise(resolve => setTimeout(resolve, 20))
   await clock.advance(300_000)
-  const picks = prompts.filter(prompt => prompt.includes('Anteriores'))
+  const picks = prompts.filter(prompt => prompt.includes('<anteriores>'))
   expect(picks).toHaveLength(1)
   expect(picks[0]).toContain('Find where sessions are created')
   const pane = await paneOf($)

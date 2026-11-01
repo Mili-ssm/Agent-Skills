@@ -49,7 +49,7 @@ test('keys, labels and progress', () => {
   expect(estimateKey('shell', { command: 'cd /x && cargo bench --release -p core' })).toBe('bash:cargo bench --release -p core')
   expect(estimateKey('shell', { command: "cat > $S <<'EOF'\nbody", description: 'Write the script' })).toBe('bash:write the script')
   expect(estimateKey('shell', { command: "cat  > $S <<'EOF'\nbody" })).toBe("bash:cat > $s <<'eof'")
-  expect(minutesOf('~3,5 min')).toBe(210_000)
+  expect(minutesOf('3,5')).toBe(210_000)
   expect(minutesOf('muchos')).toBeUndefined()
   expect(cleanPhrase('"Ejecuta los tests."\nextra')).toBe('Ejecuta los tests')
   expect(estimateKey('monitor', { description: ' Watch CI ' })).toBe('monitor:watch ci')
@@ -261,14 +261,14 @@ const RAW = { tool: 'Bash', command: "cat > $S <<'EOF'\nbody\nEOF", run_in_backg
 test('with a description Haiku writes no label; a guessed estimate draws the line and time left', async ($, on) => {
   const clock = engine(on)
   const prompts: string[] = []
-  haiku(on, '4', prompts)
+  haiku(on, 'minutos: 4', prompts)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
   await clock.advance(120_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(prompts).toHaveLength(1)
-  expect(prompts[0]).not.toContain('8 palabras')
+  expect(prompts[0]).not.toContain('descripcion:')
   expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
   // 2 of 4 minutes: 50%, 2 min left.
   expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
@@ -278,7 +278,7 @@ test('with a description Haiku writes no label; a guessed estimate draws the lin
 
 test('without a description Haiku names the wait and guesses its duration', async ($, on) => {
   const clock = engine(on)
-  haiku(on, 'Escribe el script de prueba\n10')
+  haiku(on, 'descripcion: Escribe el script de prueba\nminutos: 10')
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(RAW)
   await $.turn.complete(done)
@@ -303,7 +303,7 @@ test('a recorded median wins over the guess', async ($, on) => {
 
 test('past the estimate the card says so', async ($, on) => {
   const clock = engine(on)
-  haiku(on, '1')
+  haiku(on, 'minutos: 1')
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
@@ -351,7 +351,7 @@ test('similar past runs give the estimate and the ⟲ icon; unrelated ones are i
   expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /^⟲$/ }))?.props.dimColor).toBe(true)
   // Similar runs found: no pick call, and the guess asks no minutes.
-  expect(prompts.every(prompt => !prompt.includes('Anteriores'))).toBe(true)
+  expect(prompts.every(prompt => !prompt.includes('<anteriores>'))).toBe(true)
   await ui.unmount()
 })
 
@@ -361,7 +361,7 @@ test('with no similar summary Haiku picks from the latest ones', async ($, on) =
   on('model.complete', (_, e) => {
     const prompt = String((e as { prompt?: string }).prompt)
     prompts.push(prompt)
-    const text = prompt.includes('Anteriores') ? '2' : '30'
+    const text = prompt.includes('<anteriores>') ? '2' : 'minutos: 30'
     return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   await $.turn.start({ text: 'go', turnId: 't1' })
@@ -378,7 +378,7 @@ test('with no similar summary Haiku picks from the latest ones', async ($, on) =
 
 test('a Haiku guess shows the ? icon', async ($, on) => {
   const clock = engine(on)
-  haiku(on, '4')
+  haiku(on, 'minutos: 4')
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
@@ -416,4 +416,22 @@ test('a message with no duration leaves the other estimates alone', async ($, on
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
   await ui.unmount()
+})
+
+test('minutesOf reads only a bare number; prose gives none', () => {
+  expect(minutesOf('150')).toBe(9_000_000)
+  expect(minutesOf('3 of 5 → 40')).toBeUndefined()
+  expect(minutesOf('none')).toBeUndefined()
+})
+
+test('cleanPhrase drops thinking aloud and long replies', () => {
+  expect(cleanPhrase('Wait, the instruction says to reply')).toBe('')
+  expect(cleanPhrase('Hmm, let me think')).toBe('')
+  expect(cleanPhrase(Array(30).fill('a').join(' '))).toBe('')
+  expect(cleanPhrase('"Compila el proyecto."\nextra')).toBe('Compila el proyecto')
+})
+
+test('a message ETA "unas 2–3 horas" answered 150 sets 150 minutes; prose sets nothing', async () => {
+  expect(minutesOf('150')).toBe(150 * 60000)
+  expect(minutesOf('unas 2–3 horas')).toBeUndefined()
 })

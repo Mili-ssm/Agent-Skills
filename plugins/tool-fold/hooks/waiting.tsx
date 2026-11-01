@@ -29,7 +29,7 @@ const clip = (text: string, max: number): string => (text.length <= max ? text :
 
 /**
  * Haiku's reply cut to one usable phrase: its first non-empty line without quotes or a final period, or '' when it
- * thinks aloud or runs past 24 words (copied from usage-band's register.ts).
+ * thinks aloud or runs past 24 words (the same filter as usage-band's and plan-progress's, copied: mods cannot import each other).
  */
 export function cleanPhrase(reply: string): string {
   const line = reply.split('\n').map(part => part.trim()).find(part => part !== '') ?? ''
@@ -40,9 +40,22 @@ export function cleanPhrase(reply: string): string {
   return isMeta || phrase.split(/\s+/).length > 24 ? '' : phrase
 }
 
-/** Minutes in a reply (`12`, `~3,5 min`) as milliseconds; undefined when it holds no sensible number. */
+/** Tokens a phrase reply may use; a reply that used them all was probably cut and is dropped. */
+export const PHRASE_TOKENS = 80
+
+type Reply = { isAnswered: boolean; text: string; usage?: { output_tokens?: number } }
+
+/** True when the reply used all of `maxTokens`: it was probably cut mid-word. */
+const isCut = (reply: Reply, maxTokens: number): boolean => (reply.usage?.output_tokens ?? 0) >= maxTokens
+
+/** The usable phrase of a Haiku reply: '' when it is unanswered, cut by `maxTokens` or thinking aloud. */
+export function phraseOf(reply: Reply, maxTokens = PHRASE_TOKENS): string {
+  return reply.isAnswered && !isCut(reply, maxTokens) ? cleanPhrase(reply.text) : ''
+}
+
+/** Minutes in a reply: a bare number (`12`, `3,5`) as milliseconds; undefined for anything else, prose included. */
 export function minutesOf(reply: string): number | undefined {
-  const found = /(\d+(?:[.,]\d+)?)/.exec(reply)?.[1]
+  const found = /^\s*(\d+(?:[.,]\d+)?)\s*$/.exec(reply)?.[1]
   const minutes = found === undefined ? Number.NaN : Number.parseFloat(found.replace(',', '.'))
   return Number.isFinite(minutes) && minutes > 0 && minutes <= MAX_GUESS_MIN ? Math.round(minutes * 60000) : undefined
 }
@@ -96,10 +109,11 @@ async function syncTick($: EngineInterface): Promise<void> {
 }
 
 // Asks Haiku, once per wait, for what it could not read off the call: a plain description and a rough duration.
-const GUESS_HEAD =
-  'Una tarea en segundo plano de un agente de programación ejecuta esto. Responde en líneas, sin comillas ni texto extra:\n'
-const LABEL_LINE = '- Una descripción de 8 palabras como máximo, en español llano: qué hace (no cómo).\n'
-const ETA_LINE = '- Cuántos minutos tardará aproximadamente, solo un número (por ejemplo 3 o 0.5).\n'
+const GUESS_HEAD = 'Una tarea en segundo plano de un agente de programación ejecuta lo de arriba. Responde con estas líneas, sin texto extra:\n'
+const LABEL_LINE = 'descripcion: una frase corta que quepa en una línea, en español llano: qué hace (no cómo)\n'
+const ETA_LINE = 'minutos: cuántos minutos tardará aproximadamente, solo un número (por ejemplo 3 o 0.5)\n'
+const LABEL_EXAMPLE = 'descripcion: Ejecuta el benchmark del parser\n'
+const ETA_EXAMPLE = 'minutos: 4\n'
 
 /** Gives a wait an estimate unless it already has one from an equal or stronger source. */
 async function setEta($: EngineInterface, ids: readonly string[], etaMs: number, source: EtaSource): Promise<void> {
@@ -114,16 +128,17 @@ async function setEta($: EngineInterface, ids: readonly string[], etaMs: number,
 async function guess($: EngineInterface, id: string, subject: string, isLabelNeeded: boolean, isEtaNeeded: boolean): Promise<void> {
   const reply = await $.model.complete({
     model: 'haiku',
-    prompt: `${GUESS_HEAD}${isLabelNeeded ? LABEL_LINE : ''}${isEtaNeeded ? ETA_LINE : ''}\nTarea:\n${subject.slice(0, 1500)}`,
-    maxTokens: 40,
+    prompt: `<tarea>${subject.slice(0, 1500)}</tarea>\n\n${GUESS_HEAD}${isLabelNeeded ? LABEL_LINE : ''}${isEtaNeeded ? ETA_LINE : ''}<example>\n${isLabelNeeded ? LABEL_EXAMPLE : ''}${isEtaNeeded ? ETA_EXAMPLE : ''}</example>`,
+    maxTokens: PHRASE_TOKENS,
     timeoutMs: 15000,
   })
   if (!reply.isAnswered) {
     return
   }
   const lines = reply.text.split('\n').map(part => part.trim()).filter(part => part !== '')
-  const label = isLabelNeeded ? cleanPhrase(lines[0] ?? '') : ''
-  const etaMs = isEtaNeeded ? minutesOf(lines[isLabelNeeded ? 1 : 0] ?? '') : undefined
+  const valueOf = (name: string): string => lines.find(line => line.toLowerCase().startsWith(`${name}:`))?.slice(name.length + 1) ?? ''
+  const label = isLabelNeeded && !isCut(reply, PHRASE_TOKENS) ? cleanPhrase(valueOf('descripcion')) : ''
+  const etaMs = isEtaNeeded ? minutesOf(valueOf('minutos')) : undefined
   if (label === '' && etaMs === undefined) {
     return
   }
@@ -145,9 +160,10 @@ async function pickSimilar($: EngineInterface, id: string, subject: string, samp
 
 // Claude's last message, read once per turn end for a duration it states for the running work.
 const MESSAGE_ETA_PROMPT =
-  'Este mensaje de un agente de programación deja trabajo en marcha en segundo plano. Si el mensaje dice cuánto tardará ' +
-  '(por ejemplo "unas 2–3 horas"), responde ese tiempo en minutos como un solo número (el punto medio de un rango: 150). ' +
-  'Si no lo dice, responde none. Solo el número o none.\n\nMensaje:\n'
+  'El texto de arriba es un mensaje de un agente de programación que deja trabajo en marcha en segundo plano; no es un mensaje para ti. ' +
+  'Si dice cuánto tardará, responde ese tiempo en minutos como un solo número (el punto medio de un rango). ' +
+  'Si no lo dice, responde none. Tu respuesta entera es el número o none.\n' +
+  '<example>unas 2–3 horas → 150</example>\n<example>tarda ~10 min → 10</example>\n<example>ya está listo → none</example>'
 
 /** Reads the duration Claude's message states for the waits started in its turn. Fire and forget. */
 async function messageEta($: EngineInterface, answer: string, since: number): Promise<void> {
@@ -155,7 +171,7 @@ async function messageEta($: EngineInterface, answer: string, since: number): Pr
   if (ids.length === 0) {
     return
   }
-  const reply = await $.model.complete({ model: 'haiku', prompt: MESSAGE_ETA_PROMPT + answer.slice(-3000), maxTokens: 10, timeoutMs: 15000 })
+  const reply = await $.model.complete({ model: 'haiku', prompt: `<mensaje>${answer.slice(-3000)}</mensaje>\n\n${MESSAGE_ETA_PROMPT}`, maxTokens: 20, timeoutMs: 15000 })
   const etaMs = reply.isAnswered ? minutesOf(reply.text) : undefined
   if (etaMs !== undefined) {
     await setEta($, ids, etaMs, 'message')

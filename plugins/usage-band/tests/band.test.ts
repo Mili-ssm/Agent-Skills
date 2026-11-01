@@ -102,7 +102,7 @@ function engine(on: On) {
   on('agent.list', () => ({ value: agents }) as never)
   on('session.surfaces', () => ({ value: surfaces }) as never)
   on('model.complete', (_, e) => {
-    const isDescription = e.prompt.startsWith('An AI coding assistant')
+    const isDescription = e.prompt.includes('<latest_actions>')
     haiku.described += isDescription ? 1 : 0
     const text = isDescription ? haiku.doing : haiku.reply
     return {
