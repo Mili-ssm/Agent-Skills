@@ -682,8 +682,15 @@ export const registerAgents: Register = (on, options) => {
   // VS Code (also the surface some app panels report) draws subagents on their chat rows, so its band carries only the
   // main agent's wait card, which has no row; the terminal band draws no agents.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const running =
-      e.surface === 'vscode' ? (e.props.hasSurvey ? [] : await waitingRuns($)) : await runningWithWait($, e.props.hasSurvey)
+    // The pane already draws these cards where it is up (Desktop never reports its pane closed: no pane check there).
+    const isPaneUp =
+      e.surface !== 'desktop' &&
+      ((await read($, docked)) || (await $.ui.panes().catch(() => [])).some(pane => pane.id === DOCK && pane.isShown && pane.isPlaced))
+    const running = isPaneUp
+      ? []
+      : e.surface === 'vscode'
+        ? e.props.hasSurvey ? [] : await waitingRuns($)
+        : await runningWithWait($, e.props.hasSurvey)
     const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${running.length}`
     if (e.surface === 'terminal' || e.props.hasSurvey || running.length === 0) {
       const rest = await next(e)
@@ -1031,10 +1038,17 @@ function finishedCard(ui: Elements, run: AgentRun, now: number, mark?: string) {
 /** Opens the "Agentes" pane and records whether a surface placed it. Never throws. */
 async function openDock($: EngineInterface): Promise<void> {
   // The surface draws the title bar; its text at least says how many run (an open id only retitles).
-  const running = (await read($, runs)).filter(run => run.status === 'running').length
-  const title = `Agentes · ${running}`
+  const shown = (await runningWithWait($, false)).length
+  const title = `Agentes · ${shown}`
   const opened = await $.ui.open({ id: DOCK, title }).catch(() => ({ isPlaced: false }))
   await update($, docked, () => opened.isPlaced)
+}
+
+/** Retitles the pane with the cards it shows now (the main agent's wait comes and goes with its turns). Never throws. */
+export async function retitleDock($: EngineInterface): Promise<void> {
+  if (await read($, docked)) {
+    await openDock($)
+  }
 }
 
 /** Opens the pane, except where Desktop is the only surface: there the band above the prompt holds the agents. */

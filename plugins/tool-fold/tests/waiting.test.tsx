@@ -75,7 +75,7 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /opus-5-5/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /bash · en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Run the bench en segundo plano/ })).toBeDefined()
   // No sample yet: the elapsed time sits by the model, no percentage on the right.
   expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 12s')
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
@@ -128,7 +128,7 @@ test('a new turn hides the card, a monitor event keeps its wait, and a killed ta
   await clock.advance(5000)
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Watch CI/ })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /monitor · en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Watch CI en segundo plano/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   await ui.unmount()
 
@@ -434,4 +434,62 @@ test('cleanPhrase drops thinking aloud and long replies', () => {
 test('a message ETA "unas 2–3 horas" answered 150 sets 150 minutes; prose sets nothing', async () => {
   expect(minutesOf('150')).toBe(150 * 60000)
   expect(minutesOf('unas 2–3 horas')).toBeUndefined()
+})
+
+const SPAWN = { description: 'Run checks', prompt: 'p', subagentType: 'agent-skills:check-runner', background: true } as never
+
+test('several waits make one main card; the process with the latest end gives the estimate; prefix stripped', async ($, on) => {
+  const saved: Record<string, unknown> = { 'wait-samples': [100_000, 180_000, 240_000].map(durationMs => ({ summary: 'Run the bench', durationMs, at: 1 })) }
+  const clock = engine(on, saved)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn(SPAWN)
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(90_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.findAll({ type: 'Text', text: /Claude · esperando/ })).toHaveLength(1)
+  expect(await ui.find({ type: 'Text', text: /esperando a check-runner · Run the bench en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /agent-skills:/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the band draws no wait card where the Agentes pane is placed; Desktop keeps it', async ($, on) => {
+  const clock = engine(on)
+  on('ui.panes', () => ({ value: [{ id: 'agents', title: 'Agentes · 1', isShown: true, hasFocus: false, isPlaced: true }] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(1000)
+  const vscode = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(await vscode.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
+  await vscode.unmount()
+  const desktop = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await desktop.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
+  await desktop.unmount()
+})
+
+test('the pane title counts the cards it shows', async ($, on) => {
+  const clock = engine(on)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  const titles: string[] = []
+  on('ui.open', (_, e) => {
+    titles.push(e.title)
+    return { value: { isPlaced: true } }
+  })
+  on('session.surfaces', () => ({ value: ['vscode'] }) as never)
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn(SPAWN)
+  await $.turn.complete(done)
+  await clock.advance(1000)
+  expect(titles[0]).toBe('Agentes · 1')
+  // The turn ended: the main card joins the running agent.
+  expect(titles.at(-1)).toBe('Agentes · 2')
 })

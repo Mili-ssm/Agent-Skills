@@ -83,7 +83,7 @@ export function waitLabel(kind: WaitKind, input: Record<string, unknown>): strin
 /** The agent a wait names: its type (`Explore`), else its description. */
 const agentName = (input: Record<string, unknown>): string => {
   const text = (name: string): string => (typeof input[name] === 'string' ? (input[name] as string).trim() : '')
-  return clip(text('subagent_type') || text('description') || 'agente', 60)
+  return clip((text('subagent_type').replace(/^[\w-]+:/, '') || text('description') || 'agente').trim(), 60)
 }
 
 /** Elapsed over the estimate, held under 100% until the work is done; undefined with no estimate. */
@@ -317,8 +317,6 @@ export async function resume($: EngineInterface): Promise<void> {
   await syncTick($)
 }
 
-const KIND_NAME: Record<WaitKind, string> = { shell: 'bash', monitor: 'monitor', agent: 'agente' }
-
 /**
  * The main agent's wait as runs the agent card draws (label "Claude · esperando", the wait as its mission and live
  * call, the estimate as its percentage): empty while a turn runs or nothing is waited on. Never writes.
@@ -332,32 +330,39 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const now = await $.clock.now()
   const model = await $.session.model().catch(() => '')
   const agents = list.filter(task => task.kind === 'agent')
-  // What an agent wait says: the one agent's name, else how many.
-  const agentDetail = agents.length === 1 ? `esperando a ${agents[0]?.name ?? agents[0]?.label}` : `esperando a ${agents.length} agentes`
-  return list.map(task => {
-    // Waiting on an agent: its own card carries the estimate.
-    const elapsed = Math.max(0, now - task.startedAt)
-    const fraction = task.kind === 'agent' ? undefined : progressOf(elapsed, task.etaMs)
-    const isOverdue = fraction !== undefined && task.etaMs !== undefined && elapsed >= task.etaMs
-    return {
-      id: `wait-${task.id}`,
-      toolUseId: `wait-${task.id}`,
+  const procs = list.filter(task => task.kind !== 'agent')
+  // What the wait says: the agents (one by name, else how many), then the processes the same way.
+  const agentPart = agents.length === 0 ? '' : agents.length === 1 ? `a ${agents[0]?.name ?? agents[0]?.label}` : `a ${agents.length} agentes`
+  const procPart = procs.length === 0 ? '' : procs.length === 1 ? `${procs[0]?.label} en segundo plano` : `${procs.length} procesos`
+  const detail = agentPart === '' ? `esperando ${procPart}` : `esperando ${agentPart}${procPart === '' ? '' : ` · ${procPart}`}`
+  // The process that ends the wait (latest estimated end) gives the estimate; agents carry their own cards' estimates.
+  const endOf = (task: WaitTask): number => task.startedAt + (task.etaMs ?? 0)
+  const driver = procs.reduce<WaitTask | undefined>((best, task) => (best === undefined || endOf(task) > endOf(best) ? task : best), undefined)
+  const earliest = Math.min(...list.map(task => task.startedAt))
+  const elapsed = Math.max(0, now - (driver?.startedAt ?? earliest))
+  const fraction = driver === undefined ? undefined : progressOf(elapsed, driver.etaMs)
+  const isOverdue = fraction !== undefined && driver?.etaMs !== undefined && elapsed >= driver.etaMs
+  const mission = driver?.label ?? agents[0]?.name ?? agents[0]?.label ?? detail
+  return [
+    {
+      id: 'wait-main',
+      toolUseId: 'wait-main',
       type: 'Claude · esperando',
-      description: task.label,
-      mission: task.label,
+      description: mission,
+      mission,
       model,
       status: 'running',
-      startedAt: task.startedAt,
-      current: [{ id: task.id, kind: 'other', label: task.kind === 'agent' ? agentDetail : `${KIND_NAME[task.kind]} · en segundo plano`, status: 'running' }],
+      startedAt: earliest,
+      current: [{ id: 'wait-main', kind: 'other', label: detail, status: 'running' }],
       recent: [],
       counts: {},
       ...(fraction === undefined ? {} : { estimate: Math.round(fraction * 100) }),
-      ...(task.etaSource === undefined || task.kind === 'agent' ? {} : { etaSource: task.etaSource }),
+      ...(driver?.etaSource === undefined ? {} : { etaSource: driver.etaSource }),
       ...(isOverdue ? { isOverdue } : {}),
-      // No estimate at all: the empty track keeps the card's shape (a wait on an agent has none, its own card has it).
-      ...(fraction === undefined && task.kind !== 'agent' ? { isTrackOnly: true } : {}),
-    }
-  })
+      // No estimate at all: the empty track keeps the card's shape (a wait on agents has none, their own cards have it).
+      ...(fraction === undefined ? { isTrackOnly: true } : {}),
+    },
+  ]
 }
 
 /** For `/agents-debug`: what the wait card would draw from, so a missing card can be explained. */
