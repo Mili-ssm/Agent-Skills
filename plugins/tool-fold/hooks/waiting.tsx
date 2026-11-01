@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { AgentRun, EtaSource, TurnCard, WaitKind, WaitTask } from '../types'
-import { commandOf, describeStep, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
+import type { AgentRun, EtaSource, WaitKind, WaitTask } from '../types'
+import { commandOf, formatDuration, describeStep, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
 import {
   REESTIMATE_GAP_MS,
   WAIT_SAMPLES_KEY,
@@ -17,6 +17,7 @@ import {
   MAX_PERCENT,
   OVERDUE_GRACE_MS,
 } from './estimates'
+import { hasDoingPhrase, isCycleBusy, mainInfo } from './cycle'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
@@ -26,8 +27,11 @@ const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 // Waits that ended with `completed`, kept for LINGER_MS so their card shows full and green. Drawn by the clock, swept on the tick.
 const lingering = atom({ plugin: 'tool-fold', key: 'lingeringWaits' } as const, [])
 
-// The main turn the main card follows (null while idle). Written from events, read by the card.
-const turnCard = atom({ plugin: 'tool-fold', key: 'turnCard' } as const, null)
+// The interaction cycle (cycle.ts writes it; the same key is declared there, as the scan wants each file's own atoms, with the same default).
+const cycleAtom = atom(
+  { plugin: 'tool-fold', key: 'cycle' } as const,
+  { byModel: {}, startedAt: null, endedAt: null, activeMs: 0, busySince: null, prompt: '', doing: null, conclusion: null, calls: 0, skills: 0, agents: 0 },
+  { shape: 'cycle-1' })
 
 type Lingered = WaitTask & { endedAt: number }
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
@@ -117,9 +121,9 @@ let turnStartedAt = 0
 let ticker: { cancel: () => void } | undefined
 
 /** Runs the clock while anything is waited on; stops it otherwise. */
-async function syncTick($: EngineInterface): Promise<void> {
+export async function syncTick($: EngineInterface): Promise<void> {
   const all = await read($, waits)
-  const isShown = all.length > 0 || (await read($, lingering)).length > 0 || (await read($, turnCard)) !== null
+  const isShown = all.length > 0 || (await read($, lingering)).length > 0 || (await isCycleBusy($))
   if (isShown && ticker === undefined) {
     ticker = $.clock.every(1000, () => {
       void update($, waitTick, n => n + 1)
@@ -306,12 +310,6 @@ async function sweep($: EngineInterface): Promise<void> {
     await syncTick($)
     await retitleDock($).catch(() => undefined)
   }
-  const turn = (await read($, turnCard)) as TurnCard | null
-  if (turn?.endedAt !== undefined && now - turn.endedAt >= LINGER_MS) {
-    await update($, turnCard, () => null)
-    await syncTick($)
-    await retitleDock($).catch(() => undefined)
-  }
   const stale: string[] = []
   for (const task of all) {
     if (task.owner !== undefined && isStale(task, now) && !(await isAgentRunning($, task.owner))) {
@@ -396,13 +394,6 @@ export async function onNotification($: EngineInterface, text: string): Promise<
   }
 }
 
-/** A main-loop call starts: the main card's detail line names it. Never throws. */
-export async function onMainCall($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<void> {
-  const step = describeStep(tool, input)
-  const call = clip(step.detail ?? step.label, 120)
-  await update($, turnCard, (turn: TurnCard | null) => (turn === null || turn.endedAt !== undefined ? turn : { ...turn, call }))
-}
-
 /** The main loop's turn starts (it is not waiting any more) or ends (it is, if work remains); a background agent's end ends its wait. */
 export async function onTurn(
   $: EngineInterface,
@@ -410,7 +401,6 @@ export async function onTurn(
   phase: 'start' | 'end',
   reason = 'answer',
   answer = '',
-  prompt = '',
 ): Promise<void> {
   if (agentId !== undefined) {
     if (phase === 'end') {
@@ -422,22 +412,11 @@ export async function onTurn(
   await update($, idleAt, () => (phase === 'end' ? now : null))
   if (phase === 'start') {
     turnStartedAt = now
-    const text = prompt.replace(/\s+/g, ' ').trim()
-    await update($, turnCard, () => ({ startedAt: now, prompt: clip(text, 200) }) as TurnCard)
-  } else {
-    const turn = (await read($, turnCard)) as TurnCard | null
-    const isBackground = (await read($, waits)).some(task => task.owner === undefined)
-    if (turn !== null) {
-      // Background work takes the card over (blue); a turn that ended otherwise than by answering leaves at once.
-      await update($, turnCard, () => (reason === 'answer' && !isBackground ? { ...turn, endedAt: now } : null))
-    }
-    if (answer.trim() !== '') {
-      void messageEta($, answer, turnStartedAt).catch(error => $.ui.log(`tool-fold: message estimate: ${String(error)}`, { to: 'debug' }))
-    }
+  } else if (answer.trim() !== '') {
+    void messageEta($, answer, turnStartedAt).catch(error => $.ui.log(`tool-fold: message estimate: ${String(error)}`, { to: 'debug' }))
   }
   await syncTick($)
 }
-
 
 /**
  * A subagent that parked on its background command is woken by the command's end (`backgroundWakesOwner`): the
@@ -465,18 +444,25 @@ export async function resume($: EngineInterface): Promise<void> {
   await syncTick($)
 }
 
-/** The main card while a main turn runs (orange) or just ended (green, lingering); empty with no turn. Never writes. */
-async function turnRuns($: EngineInterface, now: number, model: string): Promise<AgentRun[]> {
-  const turn = (await read($, turnCard)) as TurnCard | null
-  if (turn === null || (turn.endedAt !== undefined && now - turn.endedAt >= LINGER_MS)) {
+/**
+ * The main card with no background wait: orange while the cycle works (Haiku's phrase, else the latest call, else the
+ * prompt), green once it is idle, until the owner's next prompt. Empty before any work. Never writes.
+ */
+async function cycleRuns($: EngineInterface, now: number, model: string): Promise<AgentRun[]> {
+  const cycle = await read($, cycleAtom)
+  if (cycle.startedAt === null) {
     return []
   }
-  const mission = turn.call ?? (turn.prompt === '' ? 'trabajando' : turn.prompt)
-  const base = { id: 'wait-main', toolUseId: 'wait-main', type: 'Claude · trabajando', description: mission, mission, model, startedAt: turn.startedAt, current: [], recent: [], counts: {} }
-  if (turn.endedAt !== undefined) {
-    return [{ ...base, status: 'done', durationMs: turn.endedAt - turn.startedAt, isLingering: true, isWorking: true }]
+  const isBusy = cycle.busySince !== null
+  const elapsedMs = Math.max(0, (isBusy ? now : (cycle.endedAt ?? now)) - cycle.startedAt)
+  const phrase = isBusy ? (cycle.doing ?? (cycle.prompt === '' ? null : cycle.prompt)) : cycle.conclusion
+  const main = await mainInfo($, cycle, now, formatDuration, phrase, isBusy ? '▸' : '✓')
+  const mission = phrase ?? (isBusy ? 'trabajando' : '')
+  const base = { id: 'wait-main', toolUseId: 'wait-main', type: isBusy ? 'Claude · trabajando' : 'Claude · listo', description: mission, mission, model, startedAt: cycle.startedAt, elapsedMs, main, current: [], recent: [], counts: {} }
+  if (!isBusy) {
+    return [{ ...base, status: 'done', durationMs: elapsedMs, isLingering: true, isWorking: true }]
   }
-  // No time inference while a turn works: the empty track only keeps the layout of the other states.
+  // No time inference while the cycle works: the empty track only keeps the layout of the other states.
   return [{ ...base, status: 'running', isWorking: true, isTrackOnly: true }]
 }
 
@@ -492,30 +478,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const now = await $.clock.now()
   const model = await $.session.model().catch(() => '')
   if (list.length === 0) {
-    // The last wait just completed: its card stays full and green until LINGER_MS passes.
-    const done = (await read($, lingering) as Lingered[]).filter(task => task.owner === undefined && now - task.endedAt < LINGER_MS)
-    const first = done[0]
-    if (first === undefined) {
-      return turnRuns($, now, model)
-    }
-    const mission = done.length === 1 ? first.label : `${done.length} tareas en segundo plano`
-    return [
-      {
-        id: 'wait-main',
-        toolUseId: 'wait-main',
-        type: 'Claude · esperando',
-        description: mission,
-        mission,
-        model,
-        status: 'done',
-        startedAt: Math.min(...done.map(task => task.startedAt)),
-        durationMs: Math.max(...done.map(task => task.endedAt)) - Math.min(...done.map(task => task.startedAt)),
-        current: [],
-        recent: [],
-        counts: {},
-        isLingering: true,
-      },
-    ]
+    return cycleRuns($, now, model)
   }
   const agents = list.filter(task => task.kind === 'agent')
   const procs = list.filter(task => task.kind !== 'agent')
@@ -532,6 +495,10 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const fraction = driver === undefined ? undefined : progressOf(elapsed, driver.etaMs)
   const isOverdue = fraction !== undefined && driver?.etaMs !== undefined && elapsed > driver.etaMs + OVERDUE_GRACE_MS
   const mission = driver?.label ?? agents[0]?.name ?? agents[0]?.label ?? detail
+  const cycle = await read($, cycleAtom)
+  // Waiting on a process, a raw call label is no phrase: the process label shows until Haiku has said something.
+  const phrase = (hasDoingPhrase() ? cycle.doing : null) ?? cycle.conclusion
+  const main = await mainInfo($, cycle, now, formatDuration, phrase, '▸')
   return [
     {
       id: 'wait-main',
@@ -543,6 +510,8 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
       model,
       status: 'running',
       startedAt: earliest,
+      ...(cycle.startedAt === null ? {} : { elapsedMs: Math.max(0, now - cycle.startedAt) }),
+      main,
       current: [{ id: 'wait-main', kind: 'other', label: detail, status: 'running' }],
       recent: [],
       counts: {},

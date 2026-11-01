@@ -217,7 +217,7 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   const pane = await $.ui.mount(PANE as never)
   expect((await pane.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
   // A call reads by what it does alone, without the command.
-  expect((await pane.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
+  expect((await pane.find({ type: 'Text', text: /^✓ Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
   expect(await pane.find({ type: 'Text', text: /cargo bench/ })).toBeUndefined()
   await pane.unmount()
   // The chat shows a running agent nothing while the pane holds it.
@@ -232,9 +232,11 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   await lingering.unmount()
   expect(panes).not.toContain('close agents')
   await clock.advance(5000)
-  expect(panes.at(-1)).toBe('close agents')
+  // The main card stays (done, until the owner's next prompt), so the pane stays up with it alone.
+  expect(panes).not.toContain('close agents')
   const gone = await $.ui.mount(PANE as never)
   expect(await gone.find({ type: 'Text', text: /^100%$/ })).toBeUndefined()
+  expect(await gone.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
   await gone.unmount()
   const ended = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
   expect((await ended.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
@@ -473,7 +475,7 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   expect(opened).toEqual([])
   const desktop = await band('desktop')
   expect((await desktop.find({ type: 'Text', text: /^performance-analyst$/ }))?.text).toBe('performance-analyst')
-  expect((await desktop.find({ type: 'Text', text: /Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
+  expect((await desktop.find({ type: 'Text', text: /^✓ Benchmark/ }))?.text).toBe('✓ Benchmark the codec')
   await desktop.unmount()
 
   // VS Code draws like Desktop: no pane opens on its own, the band holds the agent.
@@ -485,8 +487,8 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   const { text } = await $.command.run({ command: 'agents-debug' } as never)
   expect(text).toContain('surfaces: desktop, vscode')
   expect(text).toContain('runs: 1 running of 1')
-  expect(text).toMatch(/desktop survey=false running=1 drew 1 cards; beneath /)
-  expect(text).toMatch(/vscode survey=false running=1 drew 1 cards/)
+  expect(text).toMatch(/desktop survey=false running=2 drew 2 cards; beneath /)
+  expect(text).toMatch(/vscode survey=false running=2 drew 2 cards/)
 })
 
 test('the model dot takes the color of its family, dim for others', () => {

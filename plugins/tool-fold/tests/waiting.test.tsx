@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 import { formatRemaining, remainingOf } from '../hooks/agents'
 import { SIMILARITY_MIN, similarity, statedDuration } from '../hooks/estimates'
+import { agentDots, formatContext } from '../hooks/cycle'
 import { cleanPhrase, estimateKey, minutesOf, progressOf, waitLabel } from '../hooks/waiting'
 
 // The band above the prompt as a surface mounts it.
@@ -109,12 +110,14 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
 
   // The work ends: the notification clears the card.
   await $.prompt.submit(notice('b1', 'completed') as never)
-  // A completed wait lingers 5 s: full green line, 100%, then it goes.
+  // The wait is gone and the cycle is idle: the card stays as the done one, green, until the next prompt.
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect((await ui.find({ type: 'Text', text: /^100%$/ }))?.props.color).toBe('success')
+  expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('success')
   await ui.unmount()
-  await clock.advance(5000)
+  await clock.advance(60_000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /esperando/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -271,7 +274,12 @@ test('the main agent card comes first, stands out, and shows the time left', asy
 /** A model.complete stub answering `text`, recording the prompts. */
 const haiku = (on: Parameters<Parameters<typeof test>[1]>[1], text: string, prompts: string[] = []) =>
   on('model.complete', (_, e) => {
-    prompts.push(String((e as { prompt?: string }).prompt))
+    const prompt = String((e as { prompt?: string }).prompt)
+    // The cycle's own phrase calls (what Claude does now, the conclusion) are not the estimate calls these tests answer and count.
+    if (prompt.includes('<latest_actions>') || prompt.includes('<answer>')) {
+      return { value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    }
+    prompts.push(prompt)
     return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
 
@@ -447,7 +455,11 @@ test('past the estimate Haiku is asked again with the elapsed time, throttled to
   const prompts: string[] = []
   let answer = 'minutos: 1'
   on('model.complete', (_, e) => {
-    prompts.push(String((e as { prompt?: string }).prompt))
+    const prompt = String((e as { prompt?: string }).prompt)
+    // The cycle's own phrase calls (what Claude does now, the conclusion) are not the estimate calls these tests count.
+    if (!prompt.includes('<latest_actions>') && !prompt.includes('<answer>')) {
+      prompts.push(prompt)
+    }
     return { value: { isAnswered: true, text: answer, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   await $.turn.start({ text: 'go', turnId: 't1' })
@@ -866,7 +878,7 @@ test('a woken background agent keeps its spawn time: the orange card counts the 
   expect(Number(percent)).toBeGreaterThanOrEqual(90)
 })
 
-test('the main card while a turn runs: orange with no estimate, blue with background work, green linger at the end, then hidden', async ($, on) => {
+test('the main card while a turn runs: orange with no estimate, blue with background work; done it stays green until the next prompt', async ($, on) => {
   const saved: Record<string, unknown> = {}
   const clock = engine(on, saved)
   const prompts: string[] = []
@@ -882,23 +894,114 @@ test('the main card while a turn runs: orange with no estimate, blue with backgr
   expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('claude')
   expect(await ui.find({ type: 'Text', text: /Refactor the parser module/ })).toBeDefined()
   await ui.unmount()
-  // The latest main-loop call becomes the detail.
+  // The latest call becomes the detail until Haiku says something.
   await $.tool.call({ tool: 'Read', file_path: '/src/lexer.ts' } as never)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /lexer\.ts/ })).toBeDefined()
   await ui.unmount()
-  // The turn ends with nothing in the background: 5 s green with a check, then nothing.
+  // The turn ends with nothing in the background: once Claude is idle the card turns green and stays.
   await clock.advance(30_000)
   await $.turn.complete({ ...done, turnId: 't1' })
+  await clock.advance(2000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^✓$/ })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('success')
   await ui.unmount()
   expect(saved['turn-samples']).toBeUndefined()
-  await clock.advance(6000)
+  await clock.advance(600_000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  expect(await ui.find({ type: 'Text', text: /Claude ·/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
+  // The header time stopped when Claude went idle.
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 30s')
   await ui.unmount()
+  // The owner's next prompt starts a new cycle: working again, from zero.
+  await $.prompt.submit({ text: 'Now the lexer', wait: false, origin: { kind: 'composer' } } as never)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · trabajando/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 0s')
+  await ui.unmount()
+})
+
+const USAGE = (model: string, input: number) => ({ model, input_tokens: input, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 })
+
+test('the header time spans the whole request: across the turn and the wait', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, 'minutos: 10')
+  await $.prompt.submit({ text: 'Run the benchmarks', wait: false, origin: { kind: 'composer' } } as never)
+  await $.turn.start({ text: 'Run the benchmarks', turnId: 't1' })
+  await clock.advance(60_000)
+  await $.tool.call(BENCH)
+  await $.turn.complete(done)
+  await clock.advance(192_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
+  // 60 s working + 192 s waiting since the prompt, not the wait's own 192 s.
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 4m 12s')
+  await ui.unmount()
+})
+
+test('the stats line: context first with icon and color, calls, skills, cycle agents with model dots, session; Haiku\'s phrase is the activity', async ($, on) => {
+  const clock = engine(on)
+  on('session.usage', () => ({ value: { startedAt: 0, rateLimits: [], context: { window: 200000, tokens: 26000, percent: 13 } } }) as never)
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    const text = prompt.includes('<latest_actions>') ? 'Revisa los hooks del plugin' : prompt.includes('<answer>') ? 'Todo listo y probado' : 'none'
+    return { value: { isAnswered: true, text, usage: USAGE('claude-haiku-5-5', 10) } } as never
+  })
+  const models = ['claude-sonnet-5-5', 'claude-haiku-5-5']
+  let spawned = 0
+  on('agent.spawn', () => ({ model: models[spawned] ?? 'x', agentId: `a${++spawned}` }) as never)
+  await $.prompt.submit({ text: 'Review the hooks', wait: false, origin: { kind: 'composer' } } as never)
+  await $.turn.start({ text: 'Review the hooks', turnId: 't1' })
+  await $.tool.call({ tool: 'Skill', skill: 'qa-review' } as never)
+  for (const id of ['tu1', 'tu2']) {
+    await $.tool.call({ tool: 'Agent', description: 'x' } as never)
+    await $.agent.spawn({ ...SPAWN_FG, tool_use_id: id } as never)
+  }
+  await clock.advance(12_000)
+  const texts = async (): Promise<string[]> => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+    const all = (await ui.findAll({ type: 'Text' })).map(item => item.text)
+    await ui.unmount()
+    return all
+  }
+  // Working: Haiku's phrase replaces the raw call label, stats as above.
+  let all = await texts()
+  expect(all).toContain('  ▸ Revisa los hooks del plugin')
+  expect(all.some(text => /Agent x|qa-review/.test(text))).toBe(false)
+  expect(all.join('')).toContain('◔ 13% · 3 calls · 1 skill · ●● 2 agents')
+  // Done: the conclusion, the session total with its tokens, and the dots stay (agents used in the whole request).
+  await $.turn.complete({ ...done, turnId: 't1', answer: 'All reviewed', usage: USAGE('claude-opus-5-5', 7_000_000) } as never)
+  await clock.advance(2000)
+  all = await texts()
+  expect(all).toContain('  ✓ Todo listo y probado')
+  expect(all.join('')).toContain('◔ 13% · 3 calls · 1 skill · ●● 2 agents · Σ 12s · 7.0M')
+  // The context icon is its own text, colored by use.
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect((await ui.find({ type: 'Text', text: /^◔ 13%$/ }))?.props.color).toBe('#3fb950')
+  // (the main card's own model dot comes first, then the stats line's, then the agent cards')
+  expect((await ui.findAll({ type: 'Text', text: /^●$/ })).map(dot => dot.props.color).slice(1, 3)).toEqual(['#f778ba', '#39c5cf'])
+  // The only agent count outside the stats line is the divider's (cards shown).
+  expect(all.filter(text => /agent/i.test(text) && !text.includes('Σ') && !/^── Agentes/.test(text) && !/^\s*agents?$|^ \d+ agents?$/.test(text))).toEqual([])
+  await ui.unmount()
+})
+
+test('context icon by quarters and color by use; agent dots by family', () => {
+  const at = (percent: number | undefined) => formatContext(percent)
+  expect(at(undefined)).toBeNull()
+  expect(at(Number.NaN)).toBeNull()
+  expect([0, 12, 12.5, 37, 37.5, 62, 62.5, 87, 87.5, 100].map(p => at(p)?.icon).join('')).toBe('○○◔◔◑◑◕◕●●')
+  const GREEN = '#3fb950'
+  const AMBER = '#e3b341'
+  const RED = '#f85149'
+  expect([0, 49.9].map(p => at(p)?.color)).toEqual([GREEN, GREEN])
+  expect([50, 65, 80].map(p => at(p)?.color)).toEqual([AMBER, AMBER, AMBER])
+  expect([80.1, 95, 100, 140].map(p => at(p)?.color)).toEqual([RED, RED, RED, RED])
+  expect(at(13.4)?.text).toBe('◔ 13%')
+  expect(at(140)?.text).toBe('● 100%')
+  expect(agentDots({ agentModels: ['claude-haiku-5-5', 'claude-opus-5-5', 'mystery', 'claude-haiku-5-5'] })).toEqual(['#a371f7', '#39c5cf', undefined])
 })
 
 test('with background work the blue card replaces the working one in the same place', async ($, on) => {

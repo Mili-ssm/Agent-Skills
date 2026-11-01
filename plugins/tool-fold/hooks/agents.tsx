@@ -1,7 +1,7 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
-import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
+import type { AgentRun, AgentRunStatus, MainInfo, Step, StepKind } from '../types'
 import {
   AGENT_SAMPLES_KEY,
   REESTIMATE_GAP_MS,
@@ -17,6 +17,7 @@ import {
   MAX_PERCENT,
   OVERDUE_GRACE_MS,
 } from './estimates'
+import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
@@ -543,7 +544,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
   const isRunning = run.status === 'running'
   const isLingering = run.isLingering === true
   const color = STATE_COLOR[stateOf(run)].theme
-  const elapsed = formatDuration(run.durationMs ?? now - run.startedAt)
+  const elapsed = formatDuration(run.elapsedMs ?? run.durationMs ?? now - run.startedAt)
   const estimate = estimateOf(run, now)
   const left = remainingOf(now - run.startedAt, estimate)
   // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
@@ -682,6 +683,7 @@ export const registerAgents: Register = (on, options) => {
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
     await onAgentSpawn($, e, started).catch(() => undefined)
+    await onCycleSpawn($, started.model).catch(() => undefined)
     if (started.deny !== undefined || started.agentId === undefined) {
       return started
     }
@@ -1106,6 +1108,34 @@ function glyph(ui: Elements, step: Step, frame: string) {
   return <Text color={color}>{step.status === 'running' ? frame : step.status === 'failed' ? '✗' : '✓'} </Text>
 }
 
+/** The main card's dim stats line: context share (icon and color by use), calls, skills, agents with one dot per model family, session. */
+function statsRow(ui: Elements, info: MainInfo) {
+  const { Box, Text } = ui
+  const before = [info.calls > 0 ? plural(info.calls, 'call') : '', info.skills > 0 ? plural(info.skills, 'skill') : ''].filter(Boolean)
+  const after = [info.session ?? ''].filter(Boolean)
+  const agentText = info.agents > 0 ? plural(info.agents, 'agent') : ''
+  const lead = [...before, ...(info.agents > 0 && info.dots.length > 0 ? [] : agentText === '' ? [] : [agentText])]
+  const text = (key: string, value: string) => <Text key={key} dimColor>{value}</Text>
+  const parts = [
+    info.ctx === null ? null : <Text key="ctx" color={info.ctx.color}>{info.ctx.text}</Text>,
+    lead.length === 0 ? null : text('lead', `${info.ctx === null ? '' : ' · '}${lead.join(' · ')}`),
+    ...(info.agents > 0 && info.dots.length > 0
+      ? [
+          text('sep', info.ctx === null && lead.length === 0 ? '' : ' · '),
+          ...info.dots.map((color, i) => (color === undefined ? <Text key={`d${i}`} dimColor>●</Text> : <Text key={`d${i}`} color={color}>●</Text>)),
+          text('agents', ` ${agentText}`),
+        ]
+      : []),
+    after.length === 0 ? null : text('after', `${info.ctx === null && lead.length === 0 && agentText === '' ? '' : ' · '}${after.join(' · ')}`),
+  ]
+  return (
+    <Box key="stats" flexDirection="row" minWidth={0} overflow="hidden">
+      <Text dimColor>{'  '}</Text>
+      {parts}
+    </Box>
+  )
+}
+
 /** A running agent's live card: header, progress line, then its live call or mission. The chat and the pane draw the same one. */
 function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxChars: number) {
   const { Box, Text } = ui
@@ -1124,8 +1154,9 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
       {runHeader(ui, run, now)}
       <Text dimColor wrap="truncate">
         {running === undefined || isWaitCard(run) ? '  ' : glyph(ui, running, frame)}
-        {detail}
+        {run.main?.activity === undefined ? detail : clip(run.main.activity, maxChars - 2)}
       </Text>
+      {run.main === undefined ? null : statsRow(ui, run.main)}
     </Box>
   )
 }

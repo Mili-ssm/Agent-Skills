@@ -1,6 +1,6 @@
 # Mods on each surface: field notes
 
-What the mods (`tool-fold`, `usage-band`, `plan-progress`) do on the Desktop app, VS Code and the terminal, learned by trying; findings that failed are kept too.
+What the mods (`tool-fold`, `plan-progress`; `usage-band` merged into `tool-fold`, ADR 0016, its findings below keep the old name) do on the Desktop app, VS Code and the terminal, learned by trying; findings that failed are kept too.
 
 Status labels:
 
@@ -35,7 +35,7 @@ Add a row whenever a surface surprises us: what was tried, what happened, why (o
 |---|---|---|---|
 | `ToolUse` / `ToolResult` rows | yes | yes | yes, `$.ui.log` rows drawn as dim lines prefixed with the plugin name (observed) |
 | `Pane` | docked in fullscreen, inline otherwise (documented) | inline, above the prompt, in the narrow panel (observed) | docked in a column right of the chat, titled with the pane `title` (observed) |
-| `AbovePrompt` | yes (documented) | **not raised** (documented) | yes: the usage-band card draws (observed, PR #28) |
+| `AbovePrompt` | yes (documented) | **not raised** (documented) | yes: the usage-band card (now tool-fold's main card) draws (observed, PR #28) |
 | Status line (`$.ui.status`) | bottom line | bottom line | a small footer line; usage-band leaves it empty when Desktop is the only surface (PR #28) |
 | `CommandOutput` | text | text | text; `Svg` is available (PR #28) |
 
