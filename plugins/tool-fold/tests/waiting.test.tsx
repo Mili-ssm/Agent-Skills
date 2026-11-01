@@ -73,6 +73,10 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   // No sample yet: the elapsed time sits by the model, no percentage on the right.
   expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 12s')
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
+  await ui.unmount()
+  // VS Code (the surface some app panels report) carries the main agent's card in its band too.
+  ui = await $.ui.mount({ ...BAND, surface: 'vscode' })
+  expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   // The clock moves the card.
   await clock.advance(3000)
   expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 15s')

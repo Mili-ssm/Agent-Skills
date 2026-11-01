@@ -645,10 +645,13 @@ export const registerAgents: Register = (on, options) => {
   // stay empty while they run). Desktop does not tell the engine when the person closes its docked pane (`ui.close`
   // never comes, `$.ui.panes()` still says shown), so the band never waits on the pane; `/agents-dock` adds it.
   // The band is shared: other mods' cards stack below, from `next(e)`.
+  // VS Code (also the surface some app panels report) draws subagents on their chat rows, so its band carries only the
+  // main agent's wait card, which has no row; the terminal band draws no agents.
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const running = await runningWithWait($, e.props.hasSurvey)
+    const running =
+      e.surface === 'vscode' ? (e.props.hasSurvey ? [] : await waitingRuns($)) : await runningWithWait($, e.props.hasSurvey)
     const seen = `${new Date().toISOString().slice(11, 19)} ${e.surface} survey=${e.props.hasSurvey} running=${running.length}`
-    if (e.surface !== 'desktop' || e.props.hasSurvey || running.length === 0) {
+    if (e.surface === 'terminal' || e.props.hasSurvey || running.length === 0) {
       const rest = await next(e)
       traceBand(`${seen} passed; beneath ${beneath(next.trace)}`)
       return rest
