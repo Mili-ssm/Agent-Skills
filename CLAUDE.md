@@ -46,6 +46,7 @@ Run only the cases a change can move, because a full two-sided suite costs about
 | A worker's body | its `offload-*` cases |
 | `user-config/offload-policy.md` | every `offload-*-with-policy` |
 | Skill bodies, references, commands | no suite covers them: read one trace |
+| Only `scripts/port.py` or the ports, Claude files unchanged | no eval (owner, 2026-11): the Claude plugin is what the suites measure |
 
 1. Run the new version at `--runs 2`, Sonnet as the main model (the owner's main conversation runs Sonnet or Opus; a Haiku main conversation measures Haiku's routing, not theirs).
 2. Compare with the last result recorded for that case in an ADR. A case that is not 2/2 (fired, or silent for `neg-*`), or falls below its record, reruns at 6 runs on both sides (`main` checked out in a worktree), same flags.

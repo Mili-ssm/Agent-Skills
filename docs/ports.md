@@ -54,13 +54,15 @@ Then add [`user-config/offload-policy.codex.md`](../user-config/offload-policy.c
 
 ## Models
 
-| Claude | Copilot | Codex |
-|---|---|---|
-| `haiku` | `claude-haiku-5.5` | `gpt-6-luna` (fast, affordable) |
-| `sonnet` | `claude-sonnet-5.5` | `gpt-6.1-terra` (balanced, between luna and sol) |
-| `opus` | `claude-opus-5.5` | `gpt-6.1-sol` (workhorse; owner's choice as Opus's equal) |
+Copilot runs the same Claude models: model and effort pass through (`haiku` → `claude-haiku-5.5`, `sonnet` → `claude-sonnet-5.5`, `opus` → `claude-opus-5.5`). Codex maps the (model, effort) pair together (owner, 2026-11; cost-optimized equivalences):
 
-As of 2026-11 (`codex-rs/models-manager/models.json`); `gpt-6-astra` (frontier) is not mapped; change `MODEL_MAP` in `scripts/port.py` when the tools' model lists change. Copilot falls back to the session model when a listed model is unavailable.
+| Claude model | low | medium | high | xhigh | max |
+|---|---|---|---|---|---|
+| `haiku` | `gpt-6-luna` low | `gpt-6-luna` medium | `gpt-6-luna` high | `gpt-6-luna` xhigh | `gpt-6-luna` max |
+| `sonnet` | `gpt-6-luna` high | `gpt-6.1-terra` low | `gpt-6.1-terra` medium | `gpt-6.1-terra` high | `gpt-6.1-terra` xhigh |
+| `opus` | `gpt-6.1-sol` low | `gpt-6.1-sol` medium | `gpt-6.1-sol` high | `gpt-6-astra` low | `gpt-6-astra` medium |
+
+Opus high stays on sol because astra costs more. As of 2026-11 (`codex-rs/models-manager/models.json`); change `CODEX_PAIRS` in `scripts/port.py` when the tools' model lists change. A pair missing from the table fails `port.py --check`. Copilot falls back to the session model when a listed model is unavailable.
 
 ## Limits
 

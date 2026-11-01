@@ -252,4 +252,4 @@ It prints each file's headings and declarations with line ranges, computed by a 
 Use only these tools: read files, search file contents, find files by name, shell commands, edit files, create files, use skills. Claude Code enforces this list; Codex does not, so it is your rule.
 '''
 model = "gpt-6.1-terra"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "low"
