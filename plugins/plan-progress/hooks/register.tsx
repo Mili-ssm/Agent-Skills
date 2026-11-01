@@ -84,22 +84,15 @@ export function isFinished(plan: Plan): boolean {
 }
 
 /** Equal segments of the progress line. */
-const SEGMENTS = 20
-const GAP = 2
 
-/** The progress line as SVG: `SEGMENTS` equal segments with 2px gaps, the first `round(done/total * SEGMENTS)` filled. */
-export function progressSvg(done: number, total: number, width: number, height: number, color: string): string {
-  const filled = total === 0 ? 0 : Math.round((done / total) * SEGMENTS)
-  const segment = (width - GAP * (SEGMENTS - 1)) / SEGMENTS
-  const radius = height / 2
-  let rects = ''
-  for (let index = 0; index < SEGMENTS; index += 1) {
-    const x = (index * (segment + GAP)).toFixed(2)
-    const isDone = index < filled
-    const fill = isDone ? `fill="${color}"` : 'fill="#888" fill-opacity="0.25"'
-    rects += `<rect class="${isDone ? 'done' : 'track'}" x="${x}" y="0" width="${segment.toFixed(2)}" height="${height}" rx="${radius}" ${fill}/>`
-  }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${rects}</svg>`
+/** The progress line as SVG, 2px high: a 1px track centred under a 2px fill for done/total, left to right. */
+export function progressSvg(done: number, total: number, width: number, color: string): string {
+  const fill = total === 0 ? 0 : (width * done) / total
+  const bar = fill > 0 ? `<rect class="done" x="0" y="0" width="${fill.toFixed(2)}" height="2" rx="1" fill="${color}"/>` : ''
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="2" viewBox="0 0 ${width} 2">` +
+    `<rect class="track" x="0" y="0.5" width="${width}" height="1" fill="#888" fill-opacity="0.35"/>${bar}</svg>`
+  )
 }
 
 /** True when the path is inside one of the plan folders. */
@@ -300,7 +293,7 @@ export const register: Register = on => {
             {counts}
           </Box>
           <Svg
-            source={progressSvg(current.done, current.total, width, 3, hex)}
+            source={progressSvg(current.done, current.total, width, hex)}
             alt={`${current.done} of ${current.total} steps done`}
             width={width}
             height={3}
