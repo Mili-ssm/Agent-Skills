@@ -453,7 +453,7 @@ test('on Desktop, running agents draw in the band above the prompt and open no p
   expect(text).toContain('surfaces: desktop')
   expect(text).toContain('runs: 1 running of 1')
   expect(text).toMatch(/desktop survey=false running=1 drew 1 cards; beneath /)
-  expect(text).toMatch(/vscode survey=false running=1 passed/)
+  expect(text).toMatch(/vscode survey=false running=0 passed/)
 })
 
 test('the model dot takes the color of its family, dim for others', () => {
