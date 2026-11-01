@@ -83,7 +83,6 @@ export function isFinished(plan: Plan): boolean {
   return plan.total > 0 && plan.done === plan.total
 }
 
-/** Equal segments of the progress line. */
 
 /** The progress line as SVG, 2px high: a 1px track centred under a 2px fill for done/total, left to right. */
 export function progressSvg(done: number, total: number, width: number, color: string): string {
