@@ -57,10 +57,10 @@ Then add [`user-config/offload-policy.codex.md`](../user-config/offload-policy.c
 | Claude | Copilot | Codex |
 |---|---|---|
 | `haiku` | `claude-haiku-5.5` | `gpt-6-luna` (fast, affordable) |
-| `sonnet` | `claude-sonnet-5.5` | `gpt-6.1-sol` (default) |
-| `opus` | `claude-opus-5.5` | `gpt-6-astra` (frontier) |
+| `sonnet` | `claude-sonnet-5.5` | `gpt-6.1-terra` (balanced, between luna and sol) |
+| `opus` | `claude-opus-5.5` | `gpt-6.1-sol` (workhorse; owner's choice as Opus's equal) |
 
-As of 2026-10; change `MODEL_MAP` in `scripts/port.py` when the tools' model lists change. Copilot falls back to the session model when a listed model is unavailable.
+As of 2026-11 (`codex-rs/models-manager/models.json`); `gpt-6-astra` (frontier) is not mapped; change `MODEL_MAP` in `scripts/port.py` when the tools' model lists change. Copilot falls back to the session model when a listed model is unavailable.
 
 ## Limits
 
