@@ -543,7 +543,7 @@ test('a finished agent is remembered apart from waits and gives a similar one it
   expect((await pane.find({ type: 'Text', text: /^⟲$/ }))?.props.dimColor).toBe(true)
   await pane.unmount()
   // Past the typical time it says so, and stays under 100%.
-  await clock.advance(60_000)
+  await clock.advance(71_000)
   const late = await paneOf($)
   expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈99% · más de lo previsto')
   await late.unmount()

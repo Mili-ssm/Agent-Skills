@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, retitleDock, startAgentCall, wakeAgentRun } from './agents'
-import { PHRASE_TOKENS, onAgentWoken, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
+import { PHRASE_TOKENS, onAgentWoken, onMainCall, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
 const UNTOUCHED = new Set(['AskUserQuestion'])
@@ -277,6 +277,9 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const agentId = e.agentId
     const input = e as Record<string, unknown>
+    if (agentId === undefined) {
+      await onMainCall($, e.tool, input).catch(() => undefined)
+    }
     const step = agentId === undefined ? undefined : await startAgentCall($, agentId, e.tool, e.tool_use_id, input)
     const result = await next(e)
     await onToolCall($, e, result).catch(() => undefined)
@@ -310,7 +313,7 @@ export const register: Register = (on, options) => {
 
   // The main loop works again: nothing is waited on idle any more.
   on('turn.start', async ($, e, next) => {
-    await onTurn($, e.agentId, 'start').catch(() => undefined)
+    await onTurn($, e.agentId, 'start', 'answer', '', e.text).catch(() => undefined)
     // A subagent parked on its background command starts a turn when the command ends.
     if (e.agentId !== undefined) {
       await wakeAgentRun($, e.agentId).catch(() => undefined)

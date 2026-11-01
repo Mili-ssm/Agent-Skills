@@ -281,7 +281,7 @@ test('with a description Haiku writes no label; a guessed estimate draws the lin
   const clock = engine(on)
   const prompts: string[] = []
   haiku(on, 'minutos: 4', prompts)
-  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
   await clock.advance(120_000)
@@ -336,18 +336,18 @@ test('past the estimate the card says so', async ($, on) => {
   await ui.unmount()
 })
 
-test('within 10 s of the estimate the card is not overdue; 15 s past it is', async ($, on) => {
+test('within 15 s of the estimate the card is not overdue; past it is', async ($, on) => {
   const clock = engine(on)
   haiku(on, 'minutos: 1')
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
-  await clock.advance(65_000)
+  await clock.advance(70_000)
   let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /≈99% · <1 min/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
   await ui.unmount()
-  await clock.advance(10_000)
+  await clock.advance(6_000)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /≈99% · más de lo previsto/ })).toBeDefined()
   await ui.unmount()
@@ -381,7 +381,7 @@ test('similar past runs give the estimate and the ⟲ icon; unrelated ones are i
   })
   const prompts: string[] = []
   haiku(on, 'none', prompts)
-  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call({ ...BENCH, description: 'Run cargo bench release' })
   await $.turn.complete(done)
   await clock.advance(75_000)
@@ -409,7 +409,7 @@ test('Haiku gets the text and the similar runs (top five, most similar first) in
   })
   const prompts: string[] = []
   haiku(on, 'minutos: 2', prompts)
-  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
   await clock.advance(60_000)
@@ -431,7 +431,7 @@ test('with a stated duration Haiku sees it and its answer shows ✦; without sim
   const clock = engine(on)
   const prompts: string[] = []
   haiku(on, 'minutos: 6', prompts)
-  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call({ tool: 'Bash', command: 'sleep 300', description: 'Wait for the deploy', run_in_background: true } as never)
   await $.turn.complete(done)
   await clock.advance(1000)
@@ -495,7 +495,7 @@ test("Claude's own estimate from its message overrides similar runs and shows �
   const clock = engine(on, { 'wait-samples': [sample('Run the bench', 180_000)] })
   const prompts: string[] = []
   haiku(on, '150', prompts)
-  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(withAnswer('Lanzado. Calculo unas 2–3 horas.'))
   await clock.advance(75 * 60_000)
@@ -611,6 +611,9 @@ test('a subagent that ends its turn with a background process keeps its card, wa
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /^check-runner$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /esperando · sleep 240 en segundo plano/ })).toBeDefined()
+  // Waiting on its process, the card swaps the runner's icon for the sleep icon.
+  expect(await ui.find({ type: 'Text', text: /^◷$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^▶$/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeUndefined()
   await ui.unmount()
   // The main agent has no wait of its own.
@@ -861,4 +864,68 @@ test('a woken background agent keeps its spawn time: the orange card counts the 
   expect(texts.some(text => /\b3m/.test(text) || /3 min/.test(text))).toBe(true)
   const percent = texts.map(text => /≈(\d+)%/.exec(text)?.[1]).find(value => value !== undefined)
   expect(Number(percent)).toBeGreaterThanOrEqual(90)
+})
+
+test('the main card while a turn runs: orange with a Haiku estimate, blue with background work, green linger at the end, then hidden', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = engine(on, saved)
+  const prompts: string[] = []
+  haiku(on, 'minutos: 2', prompts)
+  await $.turn.start({ text: 'Refactor the parser module', turnId: 't1' })
+  expect(prompts).toHaveLength(1)
+  expect(prompts[0]).toContain('<tarea>Refactor the parser module</tarea>')
+  await clock.advance(60_000)
+  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const name = await ui.find({ type: 'Text', text: /Claude · trabajando/ })
+  expect(name).toBeDefined()
+  // 60 s of 2 min: 50%, orange, with the prompt as detail until a call arrives.
+  expect(await ui.find({ type: 'Text', text: /≈50% · ~1 min/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('claude')
+  expect(await ui.find({ type: 'Text', text: /Refactor the parser module/ })).toBeDefined()
+  await ui.unmount()
+  // The latest main-loop call becomes the detail.
+  await $.tool.call({ tool: 'Read', file_path: '/src/lexer.ts' } as never)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /lexer\.ts/ })).toBeDefined()
+  await ui.unmount()
+  // The turn ends with nothing in the background: 5 s green at 100%, then nothing.
+  await clock.advance(30_000)
+  await $.turn.complete({ ...done, turnId: 't1' })
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^100%$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('success')
+  await ui.unmount()
+  expect((saved['turn-samples'] as { summary: string; durationMs: number }[]).map(item => item.durationMs)).toEqual([90_000])
+  await clock.advance(6000)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude ·/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('with background work the blue card replaces the working one in the same place', async ($, on) => {
+  const clock = engine(on)
+  haiku(on, 'minutos: 2')
+  await $.turn.start({ text: 'Run the benchmarks', turnId: 't1' })
+  await $.tool.call(BENCH)
+  await clock.advance(5000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · en segundo plano/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · trabajando/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('suggestion')
+  await ui.unmount()
+  await $.turn.complete(done)
+  const after = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await after.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
+  expect(await after.find({ type: 'Text', text: /^100%$/ })).toBeUndefined()
+  await after.unmount()
+})
+
+test('a turn shorter than 20 s is not remembered', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  const clock = engine(on, saved)
+  haiku(on, 'none')
+  await $.turn.start({ text: 'Quick question', turnId: 't1' })
+  await clock.advance(5000)
+  await $.turn.complete(done)
+  expect(saved['turn-samples']).toBeUndefined()
 })

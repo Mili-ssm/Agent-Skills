@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
-import type { AgentRun, EtaSource, WaitKind, WaitTask } from '../types'
-import { commandOf, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
+import type { AgentRun, EtaSource, TurnCard, WaitKind, WaitTask } from '../types'
+import { commandOf, describeStep, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
 import {
   REESTIMATE_GAP_MS,
+  TURN_SAMPLES_KEY,
   WAIT_SAMPLES_KEY,
   askMinutes,
   loadSamples,
@@ -25,6 +26,9 @@ const waits = atom({ plugin: 'tool-fold', key: 'waits' } as const, [], { shape: 
 const idleAt = atom({ plugin: 'tool-fold', key: 'idleAt' } as const, null)
 // Waits that ended with `completed`, kept for LINGER_MS so their card shows full and green. Drawn by the clock, swept on the tick.
 const lingering = atom({ plugin: 'tool-fold', key: 'lingeringWaits' } as const, [])
+
+// The main turn the main card follows (null while idle). Written from events, read by the card.
+const turnCard = atom({ plugin: 'tool-fold', key: 'turnCard' } as const, null)
 
 type Lingered = WaitTask & { endedAt: number }
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
@@ -116,7 +120,7 @@ let ticker: { cancel: () => void } | undefined
 /** Runs the clock while anything is waited on; stops it otherwise. */
 async function syncTick($: EngineInterface): Promise<void> {
   const all = await read($, waits)
-  const isShown = all.length > 0 || (await read($, lingering)).length > 0
+  const isShown = all.length > 0 || (await read($, lingering)).length > 0 || (await read($, turnCard)) !== null
   if (isShown && ticker === undefined) {
     ticker = $.clock.every(1000, () => {
       void update($, waitTick, n => n + 1)
@@ -303,6 +307,12 @@ async function sweep($: EngineInterface): Promise<void> {
     await syncTick($)
     await retitleDock($).catch(() => undefined)
   }
+  const turn = (await read($, turnCard)) as TurnCard | null
+  if (turn?.endedAt !== undefined && now - turn.endedAt >= LINGER_MS) {
+    await update($, turnCard, () => null)
+    await syncTick($)
+    await retitleDock($).catch(() => undefined)
+  }
   const stale: string[] = []
   for (const task of all) {
     if (task.owner !== undefined && isStale(task, now) && !(await isAgentRunning($, task.owner))) {
@@ -387,6 +397,23 @@ export async function onNotification($: EngineInterface, text: string): Promise<
   }
 }
 
+/** Haiku's minutes for the main turn (the prompt and similar past turns together). Fire and forget: a miss leaves the deterministic value. */
+async function askTurn($: EngineInterface, prompt: string, startedAt: number): Promise<void> {
+  const similar = similarRuns(await loadSamples($, TURN_SAMPLES_KEY), prompt)
+  const etaMs = await askMinutes($, { text: prompt, similar })
+  if (etaMs !== undefined) {
+    const etaSource = sourceOfAsk(undefined, similar)
+    await update($, turnCard, (turn: TurnCard | null) => (turn === null || turn.startedAt !== startedAt ? turn : { ...turn, etaMs, etaSource }))
+  }
+}
+
+/** A main-loop call starts: the main card's detail line names it. Never throws. */
+export async function onMainCall($: EngineInterface, tool: string, input: Record<string, unknown>): Promise<void> {
+  const step = describeStep(tool, input)
+  const call = clip(step.detail ?? step.label, 120)
+  await update($, turnCard, (turn: TurnCard | null) => (turn === null || turn.endedAt !== undefined ? turn : { ...turn, call }))
+}
+
 /** The main loop's turn starts (it is not waiting any more) or ends (it is, if work remains); a background agent's end ends its wait. */
 export async function onTurn(
   $: EngineInterface,
@@ -394,6 +421,7 @@ export async function onTurn(
   phase: 'start' | 'end',
   reason = 'answer',
   answer = '',
+  prompt = '',
 ): Promise<void> {
   if (agentId !== undefined) {
     if (phase === 'end') {
@@ -403,14 +431,34 @@ export async function onTurn(
   }
   const now = await $.clock.now()
   await update($, idleAt, () => (phase === 'end' ? now : null))
-  await syncTick($)
   if (phase === 'start') {
     turnStartedAt = now
+    const text = prompt.replace(/\s+/g, ' ').trim()
+    const similarEta = similarMedian(await loadSamples($, TURN_SAMPLES_KEY), text)
+    const card: TurnCard = {
+      startedAt: now,
+      prompt: clip(text, 200),
+      ...(similarEta === undefined ? {} : { etaMs: similarEta, etaSource: 'similar' as const }),
+    }
+    await update($, turnCard, () => card)
+    if (text !== '') {
+      void askTurn($, clip(text, 1500), now).catch(error => $.ui.log(`tool-fold: turn estimate: ${String(error)}`, { to: 'debug' }))
+    }
   } else {
+    const turn = (await read($, turnCard)) as TurnCard | null
+    const isBackground = (await read($, waits)).some(task => task.owner === undefined)
+    if (turn !== null) {
+      if (reason === 'answer') {
+        await recordSample($, TURN_SAMPLES_KEY, turn.prompt, now - turn.startedAt, now)
+      }
+      // Background work takes the card over (blue); a turn that ended otherwise than by answering leaves at once.
+      await update($, turnCard, () => (reason === 'answer' && !isBackground ? { ...turn, endedAt: now } : null))
+    }
     if (answer.trim() !== '') {
       void messageEta($, answer, turnStartedAt).catch(error => $.ui.log(`tool-fold: message estimate: ${String(error)}`, { to: 'debug' }))
     }
   }
+  await syncTick($)
 }
 
 
@@ -440,6 +488,30 @@ export async function resume($: EngineInterface): Promise<void> {
   await syncTick($)
 }
 
+/** The main card while a main turn runs (orange) or just ended (green, lingering); empty with no turn. Never writes. */
+async function turnRuns($: EngineInterface, now: number, model: string): Promise<AgentRun[]> {
+  const turn = (await read($, turnCard)) as TurnCard | null
+  if (turn === null || (turn.endedAt !== undefined && now - turn.endedAt >= LINGER_MS)) {
+    return []
+  }
+  const mission = turn.call ?? (turn.prompt === '' ? 'trabajando' : turn.prompt)
+  const base = { id: 'wait-main', toolUseId: 'wait-main', type: 'Claude · trabajando', description: mission, mission, model, startedAt: turn.startedAt, current: [], recent: [], counts: {} }
+  if (turn.endedAt !== undefined) {
+    return [{ ...base, status: 'done', durationMs: turn.endedAt - turn.startedAt, isLingering: true, isWorking: true }]
+  }
+  const fraction = progressOf(Math.max(0, now - turn.startedAt), turn.etaMs)
+  return [
+    {
+      ...base,
+      status: 'running',
+      isWorking: true,
+      ...(fraction === undefined ? { isTrackOnly: true } : { estimate: Math.round(fraction * 100) }),
+      ...(turn.etaSource === undefined || fraction === undefined ? {} : { etaSource: turn.etaSource }),
+      ...(turn.etaMs !== undefined && now - turn.startedAt > turn.etaMs + OVERDUE_GRACE_MS ? { isOverdue: true } : {}),
+    },
+  ]
+}
+
 /**
  * The main agent's wait as runs the agent card draws (label "Claude · esperando" idle, "Claude · en segundo plano" while a turn runs, the wait as its mission and live
  * call, the estimate as its percentage): empty when nothing is waited on; labelled by whether the main loop is idle. Never writes.
@@ -456,7 +528,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
     const done = (await read($, lingering) as Lingered[]).filter(task => task.owner === undefined && now - task.endedAt < LINGER_MS)
     const first = done[0]
     if (first === undefined) {
-      return []
+      return turnRuns($, now, model)
     }
     const mission = done.length === 1 ? first.label : `${done.length} tareas en segundo plano`
     return [

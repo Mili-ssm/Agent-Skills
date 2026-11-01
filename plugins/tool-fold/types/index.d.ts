@@ -43,6 +43,8 @@ export type AgentRun = {
   endedAt?: number
   /** Drawn only: the card of work that just ended well (100%, green). */
   isLingering?: boolean
+  /** Drawn only: the main agent's card while a main turn runs (orange, not the blue wait card). */
+  isWorking?: boolean
   /** Calls still running, oldest first. */
   current: Step[]
   /** The last two finished calls: the card shows the newest two of these and the live ones. */
@@ -169,8 +171,23 @@ declare module 'claude-code' {
       waitTick: number
       /** Waits that completed in the last few seconds: their card lingers full and green. */
       lingeringWaits: (WaitTask & { endedAt: number })[]
+      /** The main turn the main card follows; null while idle. */
+      turnCard: TurnCard | null
       /** True while the "Agentes" pane is placed: running agents draw there, one line each in the chat. */
       docked: boolean
     }
   }
+}
+
+/** The main turn the main card follows: from the prompt to the answer, then lingering a moment. */
+export type TurnCard = {
+  startedAt: number
+  /** The owner's prompt, clipped: what the estimate is asked about and the card's detail until a call arrives. */
+  prompt: string
+  /** The latest main-loop call, as a subagent card names a call. */
+  call?: string
+  etaMs?: number
+  etaSource?: EtaSource
+  /** Clock time the turn ended with nothing in the background: the card lingers green from here. */
+  endedAt?: number
 }
