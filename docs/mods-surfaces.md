@@ -82,6 +82,7 @@ Hypotheses still open for the missing agent band, to check with `/agents-debug`:
 | `next.trace` lists each link beneath with its plugin, tier and outcome (`returned`, `passed`, `caught`, `skipped`...) | documented |
 | Hooks of the same event nest by tier (`prepend`, `user`, `append`, `builtin`, `core`); same-tier order is not documented | documented |
 | Reading an atom while drawing subscribes the instance: a later write redraws it | documented |
+| Background work: `tool.call` answers `backgroundTaskId` (Bash) or `taskId` (Monitor); its end is a `prompt.submit` with `origin.kind` `task-notification` whose task id and status are typed only at render (`UserMessageTask`), so tool-fold's waiting card reads `<task-id>`/`<status>` from the text; an unreadable one clears every wait | unverified live |
 
 ## Test kit gaps
 

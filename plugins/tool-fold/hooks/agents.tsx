@@ -2,6 +2,7 @@ import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, TextProps } from 'claude-code'
 
 import type { AgentRun, AgentRunStatus, Step, StepKind } from '../types'
+import { onAgentSpawn, resume, stackCard } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -453,6 +454,7 @@ export const registerAgents: Register = (on, options) => {
   // Record each spawn after the engine resolved its model and id.
   on('agent.spawn', async ($, e, next) => {
     const started = await next(e)
+    await onAgentSpawn($, e, started).catch(() => undefined)
     if (started.deny !== undefined || started.agentId === undefined) {
       return started
     }
@@ -515,6 +517,7 @@ export const registerAgents: Register = (on, options) => {
     await $.command.register({ name: 'agents-dock', description: 'Show running agents in the "Agentes" pane' })
     await $.command.register({ name: 'agents-debug', description: 'tool-fold: what the agent band and pane see here' })
     await syncTick($)
+    await resume($).catch(() => undefined)
     if ((await read($, runs)).some(run => run.status === 'running')) {
       await openDockUnlessDesktop($)
     }
@@ -563,7 +566,7 @@ export const registerAgents: Register = (on, options) => {
     if (e.surface !== 'desktop' || e.props.hasSurvey || running.length === 0) {
       const rest = await next(e)
       traceBand(`${seen} passed; beneath ${beneath(next.trace)}`)
-      return rest
+      return stackCard($, e, rest)
     }
     const { Box, Text } = $.ui.resolve(e)
     await read($, clock)
@@ -575,7 +578,7 @@ export const registerAgents: Register = (on, options) => {
     return (
       <Box flexDirection="column" minWidth={0} overflow="hidden">
         {running.map(run => liveCard({ Box, Text }, run, now, frame, running.length > 3, maxChars))}
-        {rest}
+        {await stackCard($, e, rest)}
       </Box>
     )
   }).catch(($, e, next) => {

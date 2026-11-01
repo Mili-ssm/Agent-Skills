@@ -3,6 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, startAgentCall } from './agents'
+import { onNotification, onToolCall, onTurn } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
 const UNTOUCHED = new Set(['AskUserQuestion'])
@@ -276,6 +277,7 @@ export const register: Register = (on, options) => {
     const input = e as Record<string, unknown>
     const step = agentId === undefined ? undefined : await startAgentCall($, agentId, e.tool, e.tool_use_id, input)
     const result = await next(e)
+    await onToolCall($, e, result).catch(() => undefined)
     const status = result.deny !== undefined || result.isError === true ? 'failed' : 'done'
     if (agentId !== undefined && step !== undefined) {
       await endAgentCall($, agentId, step, e.tool, input, status).catch(() => undefined)
@@ -295,9 +297,26 @@ export const register: Register = (on, options) => {
       await applySteps($, [{ close: true }])
     }
     await endAgentTurn($, e.agentId, e.reason, e.durationMs)
+    await onTurn($, e.agentId, 'end', e.reason).catch(() => undefined)
 
     return result
   })
+
+  // The main loop works again: nothing is waited on idle any more.
+  on('turn.start', async ($, e, next) => {
+    await onTurn($, e.agentId, 'start').catch(() => undefined)
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  // A background task's notification says which task ended, and how.
+  on('prompt.submit', async ($, e, next) => {
+    if (e.origin.kind === 'task-notification') {
+      await onNotification($, e.text).catch(() => undefined)
+    }
+
+    return next(e)
+  }).catch(($, e, next) => next(e))
 
   // A call's row: alone, one folded line; in a group, the first row draws the group and the rest
   // show only while it is unfolded. Each line's arrow unfolds the engine's own row under it.
