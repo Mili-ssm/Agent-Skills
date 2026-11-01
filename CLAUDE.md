@@ -51,6 +51,7 @@ Run only the cases a change can move, because a full two-sided suite costs about
 2. Compare with the last result recorded for that case in an ADR. A case that is not 2/2 (fired, or silent for `neg-*`), or falls below its record, reruns at 6 runs on both sides (`main` checked out in a worktree), same flags.
 3. A drop of 2 or more of 6 reverts that item; record every number either way.
 
+## ADRs (`docs/adr/`)
 
 - Line 3: `Status: accepted · Date: YYYY-MM-DD`, plus `· Supersedes NNNN`, `· Amends NNNN` or `· Amended by NNNN`. Sections: Context, Decision, Alternatives, Consequences, Revisit if.
 - Never rewrite an accepted Decision: append `## Review YYYY-MM-DD` (or `## Measurement YYYY-MM-DD`) and update both Status lines.
