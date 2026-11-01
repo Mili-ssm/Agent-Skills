@@ -664,8 +664,11 @@ export const registerAgents: Register = (on, options) => {
     const rest = await next(e)
     traceBand(`${seen} drew ${running.length} cards; beneath ${beneath(next.trace)}`)
     return (
-      <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
-        {running.map(run => liveCard({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, run, now, frame, maxChars))}
+      // The engine's node (other mods' cards) may not sit under a Box with minWidth: only the cards' box shrinks.
+      <Box flexDirection="column" gap={1}>
+        <Box flexDirection="column" gap={1} minWidth={0} overflow="hidden">
+          {running.map(run => liveCard({ Box, Text, ...(e.surface === 'terminal' ? {} : { Svg }) }, run, now, frame, maxChars))}
+        </Box>
         {rest}
       </Box>
     )
