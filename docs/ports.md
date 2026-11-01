@@ -58,11 +58,11 @@ Copilot runs the same Claude models: model and effort pass through (`haiku` → 
 
 | Claude model | low | medium | high | xhigh | max |
 |---|---|---|---|---|---|
-| `haiku` | `gpt-6-luna` low | `gpt-6-luna` medium | `gpt-6-luna` high | `gpt-6-luna` xhigh | `gpt-6-luna` max |
+| `haiku` | `gpt-6-luna` low | `gpt-6-luna` medium | `gpt-6-luna` medium | `gpt-6-luna` high | `gpt-6-luna` xhigh |
 | `sonnet` | `gpt-6-luna` high | `gpt-6.1-terra` low | `gpt-6.1-terra` medium | `gpt-6.1-terra` high | `gpt-6.1-terra` xhigh |
-| `opus` | `gpt-6.1-sol` low | `gpt-6.1-sol` medium | `gpt-6.1-sol` high | `gpt-6-astra` low | `gpt-6-astra` medium |
+| `opus` | `gpt-6.1-terra` high | `gpt-6.1-sol` low | `gpt-6.1-sol` medium | `gpt-6.1-sol` high | `gpt-6.1-sol` xhigh |
 
-Opus high stays on sol because astra costs more. As of 2026-11 (`codex-rs/models-manager/models.json`); change `CODEX_PAIRS` in `scripts/port.py` when the tools' model lists change. A pair missing from the table fails `port.py --check`. Copilot falls back to the session model when a listed model is unavailable.
+Each Claude pair maps to the cheapest Codex pair that matches or beats it (luna ×1 cost, terra ×2, sol ×5); `gpt-6-astra` has no Claude equivalent and is never mapped. As of 2026-11 (`codex-rs/models-manager/models.json`); change `CODEX_PAIRS` in `scripts/port.py` when the tools' model lists change. A pair missing from the table fails `port.py --check`. Copilot falls back to the session model when a listed model is unavailable.
 
 ## Limits
 
