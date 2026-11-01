@@ -191,7 +191,7 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
   on('turn.complete', () => ({ text: '' }))
-  mock.clock(on)
+  const clock = mock.clock(on)
   const panes: string[] = []
   on('ui.open', (_, e) => {
     panes.push(`open ${e.id}`)
@@ -226,7 +226,16 @@ test('while the Agentes pane is placed, running agents live there only; the chat
   await chat.unmount()
 
   await $.turn.complete({ agentId: 'a1', answer: 'done', durationMs: 60000, isAborted: false, turnId: 't1', reason: 'answer' })
-  expect(panes).toEqual(['open agents', 'close agents'])
+  // It lingers 5 s, full and green, then the pane closes.
+  const lingering = await $.ui.mount(PANE as never)
+  expect((await lingering.find({ type: 'Text', text: /^100%$/ }))?.props.color).toBe('success')
+  await lingering.unmount()
+  expect(panes).not.toContain('close agents')
+  await clock.advance(5000)
+  expect(panes.at(-1)).toBe('close agents')
+  const gone = await $.ui.mount(PANE as never)
+  expect(await gone.find({ type: 'Text', text: /^100%$/ })).toBeUndefined()
+  await gone.unmount()
   const ended = await $.ui.mount({ ...ROW, surface: 'vscode', props: { ...ROW.props, isRunning: false } })
   expect((await ended.find({ type: 'Text', text: /1 command/ }))?.text).toBe('  1 call · 1 command')
   await ended.unmount()
@@ -426,9 +435,9 @@ test('remembered durations: a reference line for Haiku, and time-based progress 
   expect(median([480_000, 300_000, 600_000])).toBe(480_000)
   expect(median([])).toBeUndefined()
   const watcher = { startedAt: 0, isOpenEnded: true, typical: { ms: 600_000, of: 4 } }
-  // 6 of a usual 10 minutes; never past 95 while it runs.
+  // 6 of a usual 10 minutes; never past 99 while it runs.
   expect(estimateOf(watcher, 360_000)).toBe(60)
-  expect(estimateOf(watcher, 900_000)).toBe(95)
+  expect(estimateOf(watcher, 900_000)).toBe(99)
   // Without a reference an open-ended mission shows nothing; Haiku's reading wins when there is one.
   expect(estimateOf({ startedAt: 0, isOpenEnded: true }, 360_000)).toBeUndefined()
   expect(estimateOf({ startedAt: 0, estimate: 40, typical: { ms: 600_000, of: 4 } }, 360_000)).toBe(40)
@@ -536,7 +545,7 @@ test('a finished agent is remembered apart from waits and gives a similar one it
   // Past the typical time it says so, and stays under 100%.
   await clock.advance(60_000)
   const late = await paneOf($)
-  expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈95% · más de lo previsto')
+  expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈99% · más de lo previsto')
   await late.unmount()
   // Haiku saw the brief and the similar run together (it gave no minutes: the median stands).
   const asked = prompts.filter(prompt => prompt.includes('<tareas_parecidas>') && !prompt.includes('<estimacion_anterior>') && prompt.includes('Find session creation code'))
