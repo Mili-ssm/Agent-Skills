@@ -46,7 +46,7 @@ const CONCLUSION_PROMPT =
 // Agent states that mean work is still going on; an idle teammate or a finished agent does not count.
 
 // Dot color per model family, the same palette as the agent cards; any other model stays dim.
-const FAMILY_COLOR: Record<string, string> = { opus: '#a371f7', sonnet: '#f778ba', haiku: '#39c5cf', fable: '#e3b341' }
+const FAMILY_COLOR: Record<string, string> = { opus: '#9478d8', sonnet: '#d97aaa', haiku: '#46b0b8', fable: '#cba14a' }
 
 /** Model family for grouping: `claude-haiku-5-5` → `haiku`. */
 export function family(model: string): string {
