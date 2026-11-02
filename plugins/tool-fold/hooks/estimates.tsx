@@ -1,6 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
 import type { WaitSample } from '../types'
+import type { PlanState } from './plan'
 
 // Finished work remembered across sessions ($.store, a local file), newest last. Each kind of work has its own key
 // (processes `wait-samples`, subagents `agent-samples`), so their summaries never mix.
@@ -131,7 +132,7 @@ export const PROGRESS_CHARS = 600
  * Fields a re-estimated item carries besides the types' (`types/index.d.ts` is not extended here): the ask counter that
  * drops stale answers, how many of the 50% / 80% re-asks were done, and the percent anchor (`at` is elapsed ms).
  */
-export type ReaskFields = { askSeq?: number; reaskStep?: number; anchor?: Anchor; /** Drawn only: ms to the estimated end, so the card's time left agrees with its bar. */ etaLeftMs?: number }
+export type ReaskFields = { /** The step plan of a long agent (see plan.tsx). */ plan?: PlanState; askSeq?: number; reaskStep?: number; anchor?: Anchor; /** Drawn only: ms to the estimated end, so the card's time left agrees with its bar. */ etaLeftMs?: number }
 
 /** Where the percent stood (`pct`) when the estimate last changed, `at` ms into the run: it never goes back from there. */
 export type Anchor = { at: number; pct: number }
@@ -221,7 +222,7 @@ export function settleEstimate(kind: ReaskKind, currentMs: number, totalMs: numb
 // The latest re-estimates (item, variant, old, Haiku's remaining, proposed total, elapsed), newest last, for `/agents-debug`.
 export const reestimateLog: string[] = []
 const LOG_KEPT = 10
-const logReestimate = (line: string): void => {
+export const logReestimate = (line: string): void => {
   reestimateLog.push(line)
   reestimateLog.splice(0, Math.max(0, reestimateLog.length - LOG_KEPT))
 }

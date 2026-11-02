@@ -651,7 +651,7 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
       // Its last background process completed: the waiting card stays full and green for a moment.
       const done = ended.filter(task => task.owner === run.id && now - task.endedAt < LINGER_MS)
       if (done.length > 0) {
-        const { estimate: _e, etaMs: _m, etaSource: _s, todo: _t, isOpenEnded: _o, ...own } = run
+        const { estimate: _e, etaMs: _m, etaSource: _s, todo: _t, isOpenEnded: _o, plan: _p, ...own } = run
         cards.push({
           ...own,
           id: `wait-agent-${run.id}`,
@@ -672,7 +672,7 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
     const left = leftOf(driverElapsed, driver.etaMs)
     const fraction = progressOf(driverElapsed, driver.etaMs, (driver as Task).anchor)
     const detail = procs.length === 1 ? `esperando · ${driver.label} en segundo plano` : `esperando · ${procs.length} procesos`
-    const { estimate: _estimate, etaMs: _etaMs, etaSource: _etaSource, todo: _todo, isOpenEnded: _open, ...own } = run
+    const { estimate: _estimate, etaMs: _etaMs, etaSource: _etaSource, todo: _todo, isOpenEnded: _open, plan: _plan, ...own } = run
     cards.push({
       ...own,
       id: `wait-agent-${run.id}`,

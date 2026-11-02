@@ -24,6 +24,7 @@ import {
   OVERDUE_GRACE_MS,
 } from './estimates'
 import type { ReaskFields } from './estimates'
+import { PLAN_ENABLED, applyCount, applyOverdue, askPlan, askStepCount, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
@@ -353,7 +354,16 @@ async function lookUpSimilar($: EngineInterface, id: string, type: string, descr
         // A re-estimate asked since (askSeq moved on) is newer than this answer: drop it.
         .then(async etaMs => {
           const at = await $.clock.now()
-          return etaMs === undefined ? undefined : patch($, id, run => (run.askSeq === 1 ? withEta(run, etaMs, sourceOfAsk(stated, similar), at) : run))
+          if (etaMs === undefined) {
+            return undefined
+          }
+          let askSeq: number | undefined
+          await patch($, id, run => {
+            askSeq = run.askSeq
+            return run.askSeq === 1 ? withEta(run, etaMs, sourceOfAsk(stated, similar), at) : run
+          })
+          // A long first answer gets a step plan.
+          return shouldPlan(askSeq, etaMs) ? startPlan($, id, etaMs, `${summary}\n${brief}`) : undefined
         })
         .catch(error => $.ui.log(`tool-fold: agent estimate: ${String(error)}`, { to: 'debug' }))
     }
@@ -407,6 +417,13 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
     // A run never asked (a workflow agent with no brief, or one from before this field existed) counts from its start.
     const asked = run.etaAskedAt ?? run.startedAt
     const elapsedMs = now - run.startedAt
+    // A run with a step plan has its own schedule (plan.tsx); this one skips it.
+    if (PLAN_ENABLED && run.plan !== undefined) {
+      if (run.status === 'running' && !reasking.has(run.id)) {
+        await checkPlan($, run, now)
+      }
+      continue
+    }
     if (run.status !== 'running' || previousMs === undefined || reasking.has(run.id)) {
       continue
     }
@@ -445,6 +462,65 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
       .catch(error => $.ui.log(`tool-fold: agent re-estimate: ${String(error)}`, { to: 'debug' }))
       .finally(() => reasking.delete(run.id))
   }
+}
+
+/** One tick of a run with a step plan: asks the step count (50% / 80% of the step) or, overdue, the step's remaining minutes. Fire and forget. */
+async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: number): Promise<void> {
+  const { plan } = run
+  const elapsedMs = now - run.startedAt
+  const due = plan === undefined ? undefined : nextPlanCheck(plan, elapsedMs, now)
+  if (plan === undefined || due === undefined) {
+    return
+  }
+  reasking.add(run.id)
+  const seq = plan.seq + 1
+  await patch($, run.id, item => (item.plan === undefined ? item : { ...item, plan: { ...item.plan, askedAt: now, seq, fired: due.fired } }))
+  const mission = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
+  const intoStep = elapsedMs - plan.stepAt
+  const asking: Promise<((current: NonNullable<typeof plan>) => ReturnType<typeof applyCount>) | undefined> =
+    due.kind === 'overdue'
+      ? askMinutes($, {
+          text: `${mission}\nPaso actual: ${plan.steps[plan.done]?.title ?? ''}`,
+          similar: [],
+          again: { elapsedMs: intoStep, previousMs: plan.stepEstMs, kind: 'overdue' },
+          id: run.id,
+        }).then(total => (total === undefined ? undefined : current => applyOverdue(current, total - intoStep, elapsedMs)))
+      : askStepCount($, { mission, plan, elapsedMs, progress: progressText(run, now), id: run.id }).then(count =>
+          count === undefined ? undefined : current => applyCount(current, count, elapsedMs, now),
+        )
+  void asking
+    .then(apply =>
+      apply === undefined
+        ? undefined
+        : patch($, run.id, item => {
+            const current = item.plan
+            if (current === undefined || current.seq !== seq || item.status !== 'running') {
+              return item
+            }
+            const next = apply(current)
+            logPlanCheck(run.id, due.kind, current, next)
+            return next === undefined ? item : { ...item, plan: next, etaMs: Math.round(planEndAt(next)) }
+          }),
+    )
+    .catch(error => $.ui.log(`tool-fold: plan check: ${String(error)}`, { to: 'debug' }))
+    .finally(() => reasking.delete(run.id))
+}
+
+/** Builds the step plan of a long agent (one Haiku call); silent fallback to the plain estimate when the reply is not a valid plan. */
+async function startPlan($: EngineInterface, id: string, etaMs: number, text: string): Promise<void> {
+  const parsed = await askPlan($, { text, totalMs: etaMs, id })
+  if (parsed === undefined) {
+    return
+  }
+  const now = await $.clock.now()
+  await patch($, id, item => {
+    // Only a still-running run on its first estimate, with no task list of its own.
+    if (item.status !== 'running' || item.todo !== undefined || item.plan !== undefined || item.askSeq !== 1 || item.etaMs === undefined) {
+      return item
+    }
+    const plan = newPlan(parsed, item.etaMs, estimateOf(item, now) ?? 0, now)
+    return { ...item, plan, etaMs: Math.round(planEndAt(plan)) }
+  })
 }
 
 /** True while this subagent's turn runs (false once it ended, or for an agent this mod never saw). */
@@ -605,9 +681,14 @@ function progressLine(ui: Elements, run: AgentRun, now: number) {
  * time against how long its type usually takes, worked out as it draws (no model call), capped at 99.
  */
 export function estimateOf(
-  run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt' | 'etaMs'> & Pick<ReaskFields, 'anchor'>,
+  run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt' | 'etaMs'> & Pick<ReaskFields, 'anchor' | 'plan'>,
   now: number,
 ): number | undefined {
+  // A step plan (long agents): the bar is step time over plan time.
+  const view = planView(run, now)
+  if (view !== undefined) {
+    return view.percent
+  }
   // The estimate in minutes (similar runs, Haiku, Claude's message): elapsed over it, held under 99, never back past the anchor.
   if (run.etaMs !== undefined && run.etaMs > 0) {
     return percentAt(now - run.startedAt, run.etaMs, run.anchor)
@@ -631,6 +712,7 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
   const estimate = estimateOf(run, now)
   const etaLeft = run.etaLeftMs ?? (run.etaMs !== undefined && run.etaMs > 0 ? Math.max(0, run.etaMs - (now - run.startedAt)) : undefined)
   const left = remainingOf(now - run.startedAt, estimate, etaLeft)
+  const plan = isRunning ? planView(run, now) : undefined
   // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
   const datum =
     isLingering
@@ -639,7 +721,9 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
         : '100%'
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
-      : isRunning && estimate !== undefined
+      : plan !== undefined
+        ? `${plan.text} · ${plan.isWrappingUp ? 'finalizando' : `${formatRemaining(plan.leftMs)}${run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS ? ' · más de lo previsto' : ''}`}`
+        : isRunning && estimate !== undefined
         ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
   return (
@@ -986,10 +1070,12 @@ export async function endAgentCall(
   input: Record<string, unknown>,
   status: Step['status'],
 ): Promise<void> {
-  const plan = status === 'done' ? planChange(tool, input) : undefined
+  const change = status === 'done' ? planChange(tool, input) : undefined
   const endedAt = await $.clock.now()
-  await patch($, agentId, run => ({
+  await patch($, agentId, ({ plan: ownPlan, ...run }) => ({
     ...run,
+    // The agent's own task list wins over a step plan: a call that changes it drops the plan.
+    ...(change === undefined && ownPlan !== undefined ? { plan: ownPlan } : {}),
     // The call as the pane last named it (its words may have arrived after it started), and how long it took.
     history: [
       ...(run.history ?? []),
@@ -999,7 +1085,7 @@ export async function endAgentCall(
         ok: status === 'done',
       },
     ].slice(-HISTORY),
-    ...(plan === undefined ? {} : { todo: plan(run.todo) }),
+    ...(change === undefined ? {} : { todo: change(run.todo) }),
     current: run.current.filter(item => item.id !== step.id),
     recent: [...run.recent, { ...(run.current.find(item => item.id === step.id) ?? step), status }].slice(-2),
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
