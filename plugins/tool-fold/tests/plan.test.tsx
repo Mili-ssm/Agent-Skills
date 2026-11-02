@@ -1,20 +1,23 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { estimateOf, scriptOf } from '../hooks/agents'
+import { activitySummary, estimateOf, recentCalls, scriptOf } from '../hooks/agents'
 import { phraseOf } from '../hooks/waiting'
 import {
   PLAN_ENABLED,
   PLAN_MIN_MS,
   applyCount,
+  applyLeft,
   applyOverdue,
+  applyStep,
+  askStepCheck,
   callPointsAhead,
   newPlan,
   nextPlanCheck,
   parsePlan,
+  parseStepReply,
   planBar,
   planView,
   shouldPlan,
-  stepsLine,
 } from '../hooks/plan'
 import type { PlanState } from '../hooks/plan'
 
@@ -37,12 +40,76 @@ test('parsePlan accepts 3 to 6 numbered lines with minutes and nothing else', ()
   expect(parsePlan('**1. A — 2 min**\n\n2. **B** — 3 min\n\n3. C — 1 min')?.map(step => step.title)).toEqual(['A', 'B', 'C'])
 })
 
-test('a new plan adds up to the estimate and `pasos: N` reads the first line only', () => {
+test('a new plan adds up to the estimate', () => {
   const plan = fresh()
   expect(plan.steps.reduce((sum, step) => sum + step.estMs, 0)).toBe(10 * MIN)
   expect(plan.stepEndAt).toBe(2 * MIN)
-  expect(stepsLine('pasos: 3\nporque')).toBe(3)
-  expect(stepsLine('hay 3')).toBeUndefined()
+})
+
+test('parseStepReply reads paso and falta by key, in any order, with bold, ~ and min around', () => {
+  expect(parseStepReply('paso: 3\nfalta: 4', 5)).toEqual({ step: 3, leftMin: 4 })
+  expect(parseStepReply('**paso:** 2\n**falta:** ~3 min', 5)).toEqual({ step: 2, leftMin: 3 })
+  expect(parseStepReply('falta: ~3 min', 5)).toEqual({ leftMin: 3 })
+  expect(parseStepReply('paso: 2', 5)).toEqual({ step: 2 })
+  expect(parseStepReply('falta: 7\npaso: 4', 5)).toEqual({ step: 4, leftMin: 7 })
+  expect(parseStepReply('\n\nPaso: 1\nFalta: 2,5 minutos', 5)).toEqual({ step: 1, leftMin: 2.5 })
+  // Out of range steps give no step; prose gives nothing; only the first 3 lines count.
+  expect(parseStepReply('paso: 9\nfalta: 2', 5)).toEqual({ leftMin: 2 })
+  expect(parseStepReply('paso: 0\nfalta: 2', 5)).toEqual({ leftMin: 2 })
+  expect(parseStepReply('creo que va por el tres', 5)).toEqual({})
+  expect(parseStepReply('a\nb\nc\npaso: 2', 5)).toEqual({})
+})
+
+test('applyStep advances at most one step per check, only if calls were added, and never goes back (G1, G2)', () => {
+  const plan = fresh()
+  // Haiku says step 4 from done 0: only +1.
+  const one = applyStep(plan, 4, 3 * MIN, 3 * MIN, true)
+  expect(one?.done).toBe(1)
+  expect(one?.steps.map(step => step.realMs)).toEqual([3 * MIN, undefined, undefined, undefined])
+  // No new calls: no advance, whatever Haiku says.
+  expect(applyStep(plan, 3, 3 * MIN, 3 * MIN, false)).toBeUndefined()
+  // The same step, or an earlier one, changes nothing.
+  expect(applyStep(plan, 1, 3 * MIN, 3 * MIN, true)).toBeUndefined()
+  expect(applyStep(one as PlanState, 1, 4 * MIN, 4 * MIN, true)).toBeUndefined()
+  expect(applyStep(one as PlanState, 2, 4 * MIN, 4 * MIN, true)).toBeUndefined()
+  expect(applyStep(one as PlanState, 3, 4 * MIN, 4 * MIN, true)?.done).toBe(2)
+})
+
+test('applyLeft clamps to 0.5 min .. 3x the estimate, blends 50/50, shortens at most 30%, and the bar never drops (G3, G4)', () => {
+  const plan = fresh()
+  // Step 1: 2 min estimate, 1 min in, 1 min remaining. Haiku says 3 min: blend (1 + 3) / 2 = 2 min left.
+  const longer = applyLeft(plan, 3, MIN)
+  expect(longer.stepEndAt).toBe(MIN + 2 * MIN)
+  expect(longer.stepEstMs).toBe(3 * MIN)
+  // A huge answer is clamped to 3x the estimate (6 min): blend (1 + 6) / 2.
+  expect(applyLeft(plan, 500, MIN).stepEndAt).toBe(MIN + 3.5 * MIN)
+  // A tiny answer: remaining 1 min, asked 0.5 min (the floor), blend 0.75 min: 30% rule holds at 0.7 min.
+  expect(applyLeft(plan, 0, MIN).stepEndAt).toBe(MIN + 45_000)
+  const shrink = applyLeft({ ...plan, stepEndAt: 10 * MIN, stepEstMs: 10 * MIN }, 1, MIN)
+  expect(shrink.stepEndAt).toBe(MIN + 6.3 * MIN)
+  // The bar never drops when falta grows; the anchor is the bar shown before.
+  expect(longer.anchor).toBe(planBar(plan, MIN))
+  expect(planBar(longer, MIN)).toBeGreaterThanOrEqual(planBar(plan, MIN))
+  // fired follows the new end like an overdue update: 1 min into a 3 min step is 33%.
+  expect(longer.fired).toBe(0)
+  // Overdue (no time left): the answer extends it from now.
+  expect(applyLeft(plan, 2, 3 * MIN).stepEndAt).toBe(3 * MIN + MIN)
+})
+
+test('activitySummary counts since the start and since the step began; recentCalls keeps 8, newest last', () => {
+  const run = { counts: { read: 5, list: 1, search: 2, edit: 4, run: 3 }, created: 1, testRuns: 2 }
+  const plan = { ...fresh(), countsAtStep: { reads: 6, edits: 1, created: 0, commands: 1, tests: 0, calls: 8 } }
+  expect(activitySummary(run, fresh())).toBe(
+    'desde el inicio: 8 lecturas, 3 ediciones, 1 creados, 3 comandos, 2 pruebas\ndesde el paso actual: 8 lecturas, 3 ediciones, 1 creados, 3 comandos, 2 pruebas',
+  )
+  expect(activitySummary(run, plan)).toBe(
+    'desde el inicio: 8 lecturas, 3 ediciones, 1 creados, 3 comandos, 2 pruebas\ndesde el paso actual: 2 lecturas, 2 ediciones, 1 creados, 2 comandos, 2 pruebas',
+  )
+  const history = Array.from({ length: 10 }, (_, i) => ({ what: `llamada ${i}`, ms: 2000, ok: i !== 9 }))
+  const lines = recentCalls({ history }, 0).split('\n')
+  expect(lines).toHaveLength(8)
+  expect(lines[0]).toContain('llamada 2')
+  expect(lines[7]).toMatch(/✗ llamada 9$/)
 })
 
 test('the bar never goes back when the factor changes or a step runs overdue', () => {
@@ -132,6 +199,9 @@ const SPAWN = {
   fork: false,
 } as const
 
+/** What the mock Haiku answers to a plan check; a test sets it. */
+const checkReply = { text: 'paso: 2\nfalta: 3' }
+
 function engine(on: Parameters<Parameters<typeof test>[1]>[1], planReply: string, prompts: string[]) {
   on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
   on('tool.call', () => ({ result: 'ok' }))
@@ -144,7 +214,7 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], planReply: string
   on('model.complete', (_, e) => {
     const prompt = String((e as { prompt?: string }).prompt)
     prompts.push(prompt)
-    const text = prompt.includes('<duracion_total>') ? planReply : prompt.includes('<tareas_parecidas>') ? 'minutos: 10' : prompt.includes('<pasos>') ? 'pasos: 2' : '?'
+    const text = prompt.includes('<duracion_total>') ? planReply : prompt.includes('<tareas_parecidas>') ? 'minutos: 10' : prompt.includes('<pasos>') ? checkReply.text : '?'
     return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   return mock.clock(on)
@@ -165,12 +235,15 @@ test('a long agent card shows x/y pasos with the time left, and a step check mov
   expect((await pane.find({ type: 'Text', text: /^Leer el código$/ }))?.props).toMatchObject({ dimColor: true, size: 'footnote' })
   expect((await pane.find({ type: 'Text', text: /^· ~10 min$/ }))?.props.bold).toBe(true)
   await pane.unmount()
-  // Step 1 lasts 2 min: the check at 1 min asks the count and Haiku says 2 are done.
+  // Step 1 lasts 2 min: the check at 1 min asks; a call came in, Haiku says step 2: one step done.
+  checkReply.text = 'paso: 2\nfalta: 3'
+  await $.tool.call(readCall('c1'))
+  await settle()
   await clock.advance(60_000)
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(prompts.some(prompt => prompt.includes('<pasos>'))).toBe(true)
   const later = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
-  expect(await later.find({ type: 'Text', text: /^2\/4 / })).toBeDefined()
+  expect(await later.find({ type: 'Text', text: /^1\/4 / })).toBeDefined()
   expect(await later.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   await later.unmount()
 })
@@ -230,7 +303,7 @@ function plannedEngine(on: Parameters<Parameters<typeof test>[1]>[1], phrases: s
       const text = phrases.shift() ?? ''
       return { value: { isAnswered: text !== '', text, usage } }
     }
-    const text = prompt.includes('<duracion_total>') ? LONG : prompt.includes('<tareas_parecidas>') ? 'minutos: 42' : prompt.includes('<pasos>') ? 'pasos: 0' : '?'
+    const text = prompt.includes('<duracion_total>') ? LONG : prompt.includes('<tareas_parecidas>') ? 'minutos: 42' : prompt.includes('<pasos>') ? checkReply.text : '?'
     return { value: { isAnswered: true, text, usage } }
   })
   return mock.clock(on)
@@ -383,7 +456,7 @@ test('thinking: a planned run hints one count check per thinking episode and tel
   await clock.advance(61_000)
   await settle()
   expect(countChecks(prompts)).toBe(1)
-  expect(prompts.filter(prompt => prompt.includes('<pasos>')).pop()).toMatch(/Ahora: pensando desde hace \d+s \(sin herramientas\)/)
+  expect(prompts.filter(prompt => prompt.includes('<pasos>')).pop()).toMatch(/<pensando>pensando desde hace \d+s \(sin herramientas\)<\/pensando>/)
   // Same episode: no second check 1 min later, a new episode (a call, then thinking) asks again.
   await clock.advance(61_000)
   await settle()
@@ -393,4 +466,139 @@ test('thinking: a planned run hints one count check per thinking episode and tel
   await clock.advance(61_000)
   await settle()
   expect(countChecks(prompts)).toBe(2)
+})
+
+// --- Replays (diagnosis 2026-11-02): a 5-step plan of 120/15/10/5/5 min, a call every 20 s with a thinking gap each. ---
+
+const FIVE = '1. Leer el código — 120 min\n2. Escribir el cambio — 15 min\n3. Probar — 10 min\n4. Corregir — 5 min\n5. Informar — 5 min'
+
+/** A 5-step run whose Haiku answers plan checks with `answer(prompt)`; `prompts` collects the check prompts. */
+function replayEngine(on: Parameters<Parameters<typeof test>[1]>[1], answer: (prompt: string) => string, prompts: string[]) {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    if (prompt.includes('<paso_anterior>')) {
+      prompts.push(prompt)
+    }
+    const text = prompt.includes('<duracion_total>')
+      ? FIVE
+      : prompt.includes('<tareas_parecidas>')
+        ? 'minutos: 155'
+        : prompt.includes('<paso_anterior>')
+          ? answer(prompt)
+          : '?'
+    return { value: { isAnswered: true, text, usage } }
+  })
+  return mock.clock(on)
+}
+
+/** The plan's count as the card shows it (`N/5`), or undefined. */
+async function shownCount($: Parameters<Parameters<typeof test>[1]>[0]): Promise<number | undefined> {
+  const pane = await paneOf($)
+  const head = await pane.find({ type: 'Text', text: /^\d\/5 / })
+  await pane.unmount()
+  const found = /^(\d)\/5 /.exec(head?.text ?? '')?.[1]
+  return found === undefined ? undefined : Number(found)
+}
+
+test('replay: a truthful Haiku follows the work to step 3 of 5 or later, one step per check', async ($, on) => {
+  const prompts: string[] = []
+  let calls = 0
+  // The agent changes phase every 10 calls (~3 min): a truthful reader says so.
+  const clock = replayEngine(on, () => `paso: ${Math.min(5, 1 + Math.floor(calls / 10))}\nfalta: 3`, prompts)
+  await start($, clock)
+  for (let i = 0; i < 48; i += 1) {
+    calls += 1
+    await $.tool.call(readCall(`r${i}`))
+    await settle()
+    await clock.advance(20_000)
+    await settle()
+  }
+  expect(prompts.length).toBeGreaterThan(3)
+  const count = (await shownCount($)) ?? 0
+  expect(count).toBeGreaterThanOrEqual(3)
+  expect(count).toBeLessThanOrEqual(prompts.length)
+})
+
+test('replay: frozen activity (no new calls, clock +10 min) never moves the step, whatever Haiku says', async ($, on) => {
+  const prompts: string[] = []
+  const clock = replayEngine(on, () => 'paso: 5\nfalta: 1', prompts)
+  await start($, clock)
+  for (let i = 0; i < 6; i += 1) {
+    await clock.advance(MIN + 5000)
+    await settle()
+  }
+  expect(prompts.length).toBeGreaterThan(0)
+  expect(await shownCount($)).toBe(0)
+  // One call arrives: the next check may advance by one step, not to 5; then it freezes again.
+  await $.tool.call(readCall('f1'))
+  await settle()
+  await clock.advance(MIN + 5000)
+  await settle()
+  expect(await shownCount($)).toBe(1)
+  for (let i = 0; i < 6; i += 1) {
+    await clock.advance(MIN + 5000)
+    await settle()
+  }
+  expect(await shownCount($)).toBe(1)
+})
+
+const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+/** A bare engine whose only call is `model.complete`, answered by `reply`. */
+const askerOf = (reply: (ask: { prompt: string; maxTokens: number }) => string) =>
+  ({ model: { complete: async (ask: { prompt: string; maxTokens: number }) => ({ isAnswered: true, text: reply(ask), usage: USAGE }) } }) as never
+
+test('the calendar prior is labelled reference: 2/23 and 22/23 give the same step when Haiku echoes the previous one', async () => {
+  const prompts: string[] = []
+  const $ = askerOf(ask => {
+    prompts.push(ask.prompt)
+    return `paso: ${/<paso_anterior>(\d+)<\/paso_anterior>/.exec(ask.prompt)?.[1] ?? '1'}\nfalta: 4`
+  })
+  const plan = newPlan(parsePlan(GOOD) ?? [], 23 * MIN, 0, 0)
+  const ask = (elapsedMs: number) => askStepCheck($, { mission: 'Migrar', plan, elapsedMs, activity: 'desde el inicio: 1 lecturas, 0 ediciones, 0 creados, 0 comandos, 0 pruebas', calls: '- 1s ✓ Read a.md', id: 'a1' })
+  const early = await ask(2 * MIN)
+  const late = await ask(22 * MIN)
+  expect(early).toEqual(late)
+  expect(prompts[0]).toContain('van 2 min de 23 min (solo referencia, no es una prueba)')
+  expect(prompts[1]).toContain('van 22 min de 23 min (solo referencia, no es una prueba)')
+  expect(prompts[0]).toContain('<paso_anterior>1</paso_anterior>')
+  // Same evidence, same answer: the applied step does not depend on the calendar.
+  expect(applyStep(plan, early?.step ?? 0, 2 * MIN, 0, true)).toEqual(applyStep(plan, late?.step ?? 0, 2 * MIN, 0, true))
+})
+
+test('the check prompt carries the plan with real and current minutes, the thinking state and a 40 token limit', async () => {
+  let seen: { prompt: string; maxTokens: number } = { prompt: '', maxTokens: 0 }
+  const $ = askerOf(ask => {
+    seen = ask
+    return 'paso: 2\nfalta: 3'
+  })
+  const done = applyCount(fresh(), 1, 3 * MIN, 3 * MIN) as PlanState
+  const out = await askStepCheck($, { mission: 'Migrar', plan: done, elapsedMs: 5 * MIN, activity: 'A', calls: '- B', thinking: 'pensando desde hace 20s (sin herramientas)', id: 'a1' })
+  expect(out).toEqual({ step: 2, leftMin: 3 })
+  expect(seen.maxTokens).toBe(40)
+  expect(seen.prompt).toMatch(/1\. Leer el código · previsto 2 min · real 3 min\n2\. Escribir el cambio · previsto \S+ min · en curso 2 min\n3\. Probarlo · previsto/)
+  expect(seen.prompt).toContain('<paso_anterior>2</paso_anterior>')
+  expect(seen.prompt).toContain('<pensando>pensando desde hace 20s (sin herramientas)</pensando>')
+  const quiet = await askStepCheck($, { mission: 'Migrar', plan: done, elapsedMs: 5 * MIN, activity: 'A', calls: '- B', id: 'a1' })
+  expect(quiet).toBeDefined()
+  expect(seen.prompt).not.toContain('<pensando>')
+})
+
+test('a falta that keeps growing never lowers the bar', () => {
+  let plan = fresh()
+  let last = planBar(plan, 0)
+  for (let elapsed = MIN; elapsed <= 12 * MIN; elapsed += MIN) {
+    plan = applyLeft(plan, 3 * (elapsed / MIN), elapsed)
+    const bar = planBar(plan, elapsed)
+    expect(bar).toBeGreaterThanOrEqual(last)
+    last = bar
+  }
 })

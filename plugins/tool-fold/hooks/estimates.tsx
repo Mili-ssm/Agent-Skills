@@ -132,7 +132,7 @@ export const PROGRESS_CHARS = 600
  * Fields a re-estimated item carries besides the types' (`types/index.d.ts` is not extended here): the ask counter that
  * drops stale answers, how many of the 50% / 80% re-asks were done, and the percent anchor (`at` is elapsed ms).
  */
-export type ReaskFields = { /** The step plan of a long agent (see plan.tsx). */ plan?: PlanState; askSeq?: number; reaskStep?: number; anchor?: Anchor; /** Drawn only: ms to the estimated end, so the card's time left agrees with its bar. */ etaLeftMs?: number; /** Clock time its last call ended (the thinking indicator counts from it). */ lastCallEndedAt?: number; /** The `lastCallEndedAt` whose thinking episode already hinted the plan. */ thinkHintedFor?: number }
+export type ReaskFields = { /** The step plan of a long agent (see plan.tsx). */ plan?: PlanState; askSeq?: number; reaskStep?: number; anchor?: Anchor; /** Drawn only: ms to the estimated end, so the card's time left agrees with its bar. */ etaLeftMs?: number; /** Clock time its last call ended (the thinking indicator counts from it). */ lastCallEndedAt?: number; /** The `lastCallEndedAt` whose thinking episode already hinted the plan. */ thinkHintedFor?: number; /** Finished `Write` calls (files created) and test-command runs, for the plan check's activity summary. */ created?: number; testRuns?: number }
 
 /** Where the percent stood (`pct`) when the estimate last changed, `at` ms into the run: it never goes back from there. */
 export type Anchor = { at: number; pct: number }
