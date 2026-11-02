@@ -60,12 +60,12 @@ test('parseStepReply reads paso and falta by key, in any order, with bold, ~ and
   expect(parseStepReply('a\nb\nc\npaso: 2', 5)).toEqual({})
 })
 
-test('applyStep advances at most one step per check, only if calls were added, and never goes back (G1, G2)', () => {
+test('applyStep accepts jumps, advances only if calls were added, and never goes back', () => {
   const plan = fresh()
-  // Haiku says step 4 from done 0: only +1.
-  const one = applyStep(plan, 4, 3 * MIN, 3 * MIN, true)
+  // Haiku says step 4 from done 0: three steps done at once (fast steps are accepted).
+  expect(applyStep(plan, 4, 3 * MIN, 3 * MIN, true)?.done).toBe(3)
+  const one = applyStep(plan, 2, 3 * MIN, 3 * MIN, true)
   expect(one?.done).toBe(1)
-  expect(one?.steps.map(step => step.realMs)).toEqual([3 * MIN, undefined, undefined, undefined])
   // No new calls: no advance, whatever Haiku says.
   expect(applyStep(plan, 3, 3 * MIN, 3 * MIN, false)).toBeUndefined()
   // The same step, or an earlier one, changes nothing.
@@ -538,17 +538,17 @@ test('replay: frozen activity (no new calls, clock +10 min) never moves the step
   }
   expect(prompts.length).toBeGreaterThan(0)
   expect(await shownCount($)).toBe(0)
-  // One call arrives: the next check may advance by one step, not to 5; then it freezes again.
+  // One call arrives: the next check takes Haiku's step (jumps are accepted), then it freezes again.
   await $.tool.call(readCall('f1'))
   await settle()
   await clock.advance(MIN + 5000)
   await settle()
-  expect(await shownCount($)).toBe(1)
+  expect(await shownCount($)).toBe(4)
   for (let i = 0; i < 6; i += 1) {
     await clock.advance(MIN + 5000)
     await settle()
   }
-  expect(await shownCount($)).toBe(1)
+  expect(await shownCount($)).toBe(4)
 })
 
 const USAGE = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }

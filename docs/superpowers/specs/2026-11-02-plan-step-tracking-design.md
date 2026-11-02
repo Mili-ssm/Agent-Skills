@@ -37,7 +37,7 @@ Instruction first; rules: `paso` = step whose kind of work best matches `<activi
 ## Guards (pre-mortem, 2026-11-02) — required
 | # | Guard |
 |---|---|
-| G1 | Advance at most +1 step per check, and only if the history grew since the last check |
+| G1 | Advance only if the history grew since the last check. (The +1-per-check cap was dropped by the owner on 2026-11-03 to accept fast steps; it may return.) |
 | G2 | Skipped steps (if any) stay out of the factor |
 | G3 | `falta` clamped to [0.5 min, 3× step estimate], blended 50/50 with the previous value, never shortening more than 30% per check |
 | G4 | On every `falta` apply: anchor = current bar first, then update the step estimate and the 50/80% `fired` like an overdue update |
