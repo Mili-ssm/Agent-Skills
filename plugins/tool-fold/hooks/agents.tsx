@@ -339,6 +339,15 @@ async function rememberedDurations($: EngineInterface, type: string): Promise<nu
 
 // Calls kept per agent for the estimate's history, newest last.
 const HISTORY = 40
+
+/** A running agent with no call in progress this long after its last call ended is thinking. */
+export const THINKING_AFTER_MS = 10_000
+
+/** When the agent's thinking began (its last call's end), or undefined: not running, a call in progress, no call yet, or under THINKING_AFTER_MS. */
+export function thinkingSince(run: AgentRun & ReaskFields, now: number): number | undefined {
+  const ended = run.lastCallEndedAt
+  return run.status === 'running' && run.current.length === 0 && ended !== undefined && now - ended > THINKING_AFTER_MS ? ended : undefined
+}
 // How far one estimate may fall below the last: a new reading, not a jump back.
 const MAX_DROP = 10
 // Characters of a proportional font (VS Code, Desktop) per cell `bodyColumns` counts, measured on the owner's panel.
@@ -415,7 +424,7 @@ export function realPercent(run: Pick<AgentRun, 'todo' | 'estimate'>): number | 
 }
 
 /** What the agent did so far, for `<progreso>`: its task list, then the newest calls that fit PROGRESS_CHARS. */
-export function progressText(run: AgentRun, now: number): string {
+export function progressText(run: AgentRun & ReaskFields, now: number): string {
   const head = run.todo !== undefined && run.todo.total > 0 ? `Tareas: ${run.todo.done}/${run.todo.total}\n` : ''
   // One short line per call: a long first line must never empty the list.
   const oneLine = (text: string): string => clip(text.replace(/\s+/g, ' ').trim(), 120)
@@ -430,7 +439,9 @@ export function progressText(run: AgentRun, now: number): string {
     kept.push(line)
     size += line.length + 1
   }
-  return `${head}${kept.join('\n')}`.trim()
+  const since = thinkingSince(run, now)
+  const thinking = since === undefined ? '' : `Ahora: pensando desde hace ${formatDuration(now - since)} (sin herramientas)`
+  return `${head}${kept.join('\n')}${kept.length === 0 ? '' : '\n'}${thinking}`.trim()
 }
 
 /**
@@ -448,6 +459,13 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
     // A run with a step plan has its own schedule (plan.tsx); this one skips it.
     if (PLAN_ENABLED && run.plan !== undefined) {
       if (run.status === 'running' && !reasking.has(run.id)) {
+        // Thinking after a run of calls usually means a phase ended: hint once per episode (here, never in a draw).
+        const since = thinkingSince(run, now)
+        if (since !== undefined && run.thinkHintedFor !== since) {
+          await patch($, run.id, item => (item.plan === undefined ? item : { ...item, thinkHintedFor: since, plan: { ...item.plan, hintAt: now } }))
+          await checkPlan($, { ...run, thinkHintedFor: since, plan: { ...run.plan, hintAt: now } }, now)
+          continue
+        }
         await checkPlan($, run, now)
       }
       continue
@@ -1122,6 +1140,7 @@ export async function endAgentCall(
   const endedAt = await $.clock.now()
   await patch($, agentId, ({ plan: ownPlan, ...run }) => ({
     ...run,
+    lastCallEndedAt: endedAt,
     // The agent's own task list wins over a step plan: a call that changes it drops the plan.
     ...(change === undefined && ownPlan !== undefined ? { plan: ownPlan } : {}),
     // The call as the pane last named it (its words may have arrived after it started), and how long it took.
@@ -1522,16 +1541,19 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
   const running = [...run.recent, ...run.current].slice(-1)[0]
   // Line 3: the live call (a few words on what it does), else the mission; the wait card adds what it waits on.
   const call = running === undefined ? undefined : clip(running.detail ?? running.label, maxChars - 6)
+  const since = isWaitCard(run) || isMainCard(run) ? undefined : thinkingSince(run, now)
   const detail = isWaitCard(run)
     ? clip(waitLine(run.mission, call), maxChars - 2)
-    : (call ?? clip(run.mission ?? run.description, maxChars - 2))
+    : since !== undefined
+      ? `◐ pensando… ${formatDuration(now - since)}`
+      : (call ?? clip(run.mission ?? run.description, maxChars - 2))
   return (
     // One borderless card per agent. Stretched by the pane, not sized: minWidth 0 lets it shrink below a long
     // header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" minWidth={0} overflow="hidden">
       {runHeader(ui, run, now)}
       <Text dimColor wrap="truncate">
-        {running === undefined || isWaitCard(run) ? '  ' : glyph(ui, running, frame)}
+        {running === undefined || isWaitCard(run) || since !== undefined ? '  ' : glyph(ui, running, frame)}
         {run.main?.activity === undefined ? detail : clip(run.main.activity, maxChars - 2)}
       </Text>
       {run.main === undefined ? null : statsRow(ui, run.main)}
