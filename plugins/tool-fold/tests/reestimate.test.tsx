@@ -226,3 +226,8 @@ test('an agent whose estimate is stated is re-asked only once overdue', async ($
   expect(again).toHaveLength(1)
   expect(again[0]).toContain('ya superó su estimación anterior')
 })
+
+test('a re-ask reply that keeps writing after the minutes line still counts (first line only)', async () => {
+  const again = { elapsedMs: 10 * MIN, previousMs: 5 * MIN, kind: 'overdue' as const }
+  expect(await askMinutes(fake('minutos: 60\n(minutos restantes, número entero)'), { text: 't', similar: [], again, id: 'x' })).toBe(70 * MIN)
+})

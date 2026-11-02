@@ -276,13 +276,16 @@ export async function askMinutes($: EngineInterface, ask: MinutesAsk): Promise<n
     prompt = `${head}\n\n${data}<estimacion_anterior>${fmtMin(again.previousMs)}</estimacion_anterior>${TRAILER}`
   }
   const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 20, timeoutMs: 15000 })
-  const ms = reply.isAnswered && (reply.usage?.output_tokens ?? 0) < 20 ? minutesLine(reply.text) : undefined
+  // Only the first line counts: Haiku often keeps writing after `minutos: N` (and hits maxTokens), which once dropped
+  // every re-ask and froze cards at 99%. A complete first line is a complete answer.
+  const firstLine = reply.text.trim().split('\n')[0] ?? ''
+  const ms = reply.isAnswered ? minutesLine(firstLine) : undefined
   if (again === undefined) {
     return ms
   }
   if (ms === undefined) {
     // A failed re-ask is logged too, so a card stuck at 99% shows why in `/agents-debug`.
-    logReestimate(`${ask.id ?? '?'} ${again.kind} failed: ${reply.isAnswered ? `reply "${reply.text.slice(0, 40)}"` : 'no answer'} elapsed=${fmtMin(again.elapsedMs)}`)
+    logReestimate(`${ask.id ?? '?'} ${again.kind} failed: ${reply.isAnswered ? `reply ${JSON.stringify(reply.text.slice(0, 60))}` : 'no answer'} elapsed=${fmtMin(again.elapsedMs)}`)
     return undefined
   }
   const total = Math.min(again.elapsedMs + ms, MAX_ESTIMATE_MIN * 60000)
