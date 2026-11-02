@@ -891,7 +891,13 @@ export async function startAgentCall(
   }
   const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running', startedAt: await $.clock.now() }
   await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
-  if (step.kind === 'run' && step.detail === undefined && typeof input.command === 'string') {
+  if (
+    step.kind === 'run' &&
+    typeof input.command === 'string' &&
+    (step.detail === undefined || isUselessDescription(step.detail, input.command)) &&
+    !asked.has(step.id)
+  ) {
+    asked.add(step.id)
     void describeCommand($, agentId, step.id, input.command).catch(error =>
       $.ui.log(`tool-fold: command: ${String(error)}`, { to: 'debug' }),
     )
@@ -923,12 +929,28 @@ export async function endAgentCall(
     ].slice(-HISTORY),
     ...(plan === undefined ? {} : { todo: plan(run.todo) }),
     current: run.current.filter(item => item.id !== step.id),
-    recent: [...run.recent, { ...step, status }].slice(-2),
+    recent: [...run.recent, { ...(run.current.find(item => item.id === step.id) ?? step), status }].slice(-2),
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
     failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
     ...(status === 'done' ? touched(run, step, input) : {}),
   }))
   await requestEstimate($, agentId)
+}
+
+// Calls Haiku was already asked about, by tool_use_id: one call per call.
+const asked = new Set<string>()
+
+/** A description that only echoes the command ("Run rm -rf x; …"): it starts with Run/Execute/Ejecutar, has shell syntax, or mostly overlaps the command. */
+export function isUselessDescription(description: string, command: string): boolean {
+  const text = description.trim()
+  const echoed = /^(?:run|execute|ejecutar?)\s+(\S+)/i.exec(text)?.[1]
+  if ((echoed !== undefined && command.includes(echoed)) || /;|&&|\||\$|\/|(^|\s)--/.test(text)) {
+    return true
+  }
+  const words = (value: string): string[] => value.toLowerCase().match(/[\p{L}\p{N}_.-]+/gu) ?? []
+  const own = words(text)
+  const used = new Set(words(command))
+  return own.length > 0 && own.filter(word => used.has(word)).length / own.length >= 0.6
 }
 
 /** Asks Haiku what a command without the model's description does, and shows it under the call. */
@@ -1177,6 +1199,15 @@ function statsRow(ui: Elements, info: MainInfo) {
   )
 }
 
+/** The wait card's line 3: the mission and what it waits on, once when one repeats the other. */
+function waitLine(mission: string | undefined, call: string | undefined): string {
+  if (mission === undefined || mission === '' || call === undefined) {
+    return mission ?? call ?? ''
+  }
+  const [m, c] = [mission.toLowerCase(), call.toLowerCase()]
+  return c.includes(m) ? call : m.includes(c) ? mission : `${mission} · ${call}`
+}
+
 /** A running agent's live card: header, progress line, then its live call or mission. The chat and the pane draw the same one. */
 function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxChars: number) {
   const { Box, Text } = ui
@@ -1186,7 +1217,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
   // Line 3: the live call (a few words on what it does), else the mission; the wait card adds what it waits on.
   const call = running === undefined ? undefined : clip(running.detail ?? running.label, maxChars - 6)
   const detail = isWaitCard(run)
-    ? clip([run.mission, call].filter(Boolean).join(' · '), maxChars - 2)
+    ? clip(waitLine(run.mission, call), maxChars - 2)
     : (call ?? clip(run.mission ?? run.description, maxChars - 2))
   return (
     // One borderless card per agent. Stretched by the pane, not sized: minWidth 0 lets it shrink below a long

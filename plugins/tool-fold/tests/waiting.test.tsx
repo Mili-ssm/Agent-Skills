@@ -1092,3 +1092,29 @@ test('an engine-listed agent this mod lost is adopted as a main wait (blue); whe
   expect(after).toContain('settling=false')
   expect(after).toContain('waits: none')
 })
+
+test('the main card waiting on one agent names it once', async ($, on) => {
+  const clock = engine(on, {})
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('model.complete', () => ({
+    value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } },
+  }))
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn({
+    tool_use_id: 'tu1',
+    prompt: 'Build it',
+    description: 'Build it',
+    subagentType: 'agent-skills:implementer',
+    provider: { plugin: 'engine', tier: 'core' },
+    parentModel: 'claude-opus-5-5',
+    background: true,
+    fork: false,
+  } as never)
+  await $.turn.complete(done)
+  await clock.advance(2000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const texts = (await ui.findAll({ type: 'Text' })).map(item => item.text)
+  expect(texts.filter(text => /esperando a implementer/.test(text))).toEqual(['  esperando a implementer'])
+  expect(texts.some(text => /implementer · esperando/.test(text))).toBe(false)
+  await ui.unmount()
+})
