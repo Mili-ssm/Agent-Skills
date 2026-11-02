@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { WaitSample } from '../types'
 
-import { MAX_PERCENT, OVERDUE_GRACE_MS, REESTIMATE_GAP_MS, logReestimate } from './estimates'
+import { MAX_PERCENT, OVERDUE_GRACE_MS, REESTIMATE_GAP_MS, logReestimate, wordsOf } from './estimates'
 
 // Step-based progress for long agent cards. Isolated: agents.tsx calls it behind `PLAN_ENABLED`; rollback is that constant
 // set to false, or deleting this file and its call sites. Every function here is pure or asks Haiku; none writes state.
@@ -19,7 +19,7 @@ const TITLE_CHARS = 80
 const CHECK_FRACTIONS = [0.5, 0.8] as const
 // Two checks are never closer than this, and a step goes at most this long without a step-count check.
 const CHECK_GAP_MS = 60_000
-const CHECK_MAX_MS = 20 * 60_000
+const CHECK_MAX_MS = 5 * 60_000
 const FACTOR_MIN = 0.5
 const FACTOR_MAX = 3
 
@@ -49,6 +49,8 @@ export type PlanState = {
   anchor: number
   /** Clock time of the latest check of any kind / of the latest step-count check. */
   askedAt: number
+  /** Clock time a call's words last pointed at a later step: the next tick asks the count (see `callPointsAhead`). */
+  hintAt?: number
   countAt: number
   /** The latest check's number, so an older answer is dropped. */
   seq: number
@@ -178,8 +180,8 @@ export function applyOverdue(plan: PlanState, remainingMs: number, elapsedMs: nu
 
 /**
  * Whether the plan is checked now, and how: `overdue` (the step is past its estimate plus the grace: ask its remaining
- * minutes) or `progress` (50% / 80% of the step's estimated duration, or 20 min without a count: ask how many steps are
- * done). None once every step is done. Never closer than 1 min to the last check (30 s when overdue).
+ * minutes) or `progress` (50% / 80% of the step's estimated duration, or 5 min without a count: ask how many steps are
+ * done), also when a call hinted a later step (`hintAt`). None once every step is done. Never closer than 1 min to the last check (30 s when overdue).
  */
 export function nextPlanCheck(plan: PlanState, elapsedMs: number, now: number): { kind: 'progress' | 'overdue'; fired: number } | undefined {
   // Every step done: no more checks, only the run's end closes it.
@@ -200,7 +202,24 @@ export function nextPlanCheck(plan: PlanState, elapsedMs: number, now: number): 
   if (plan.fired < 1 && into >= plan.stepEstMs * half) {
     return { kind: 'progress', fired: 1 }
   }
-  return now - plan.countAt >= CHECK_MAX_MS ? { kind: 'progress', fired: plan.fired } : undefined
+  // A call that reads like a later step, or 5 min without a count.
+  const isHinted = plan.hintAt !== undefined && plan.hintAt > plan.askedAt
+  return isHinted || now - plan.countAt >= CHECK_MAX_MS ? { kind: 'progress', fired: plan.fired } : undefined
+}
+
+/**
+ * True when a call's text (its description, or Haiku's reading of the command) shares more words with a later step's
+ * title than with the current one's: a free hint that the agent moved on, which Haiku then confirms. Never decides alone.
+ */
+export function callPointsAhead(plan: PlanState, text: string): boolean {
+  if (plan.done >= plan.steps.length - 1) {
+    return false
+  }
+  const words = wordsOf(text)
+  const shared = (title: string): number => [...wordsOf(title)].filter(word => words.has(word)).length
+  const now = shared(plan.steps[plan.done]?.title ?? '')
+  const ahead = Math.max(...plan.steps.slice(plan.done + 1).map(step => shared(step.title)))
+  return ahead >= 1 && ahead > now
 }
 
 const fmtMin = (ms: number): string => `${Math.round((ms / 60000) * 10) / 10} min`

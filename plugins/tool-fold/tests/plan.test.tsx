@@ -6,6 +6,7 @@ import {
   PLAN_MIN_MS,
   applyCount,
   applyOverdue,
+  callPointsAhead,
   newPlan,
   nextPlanCheck,
   parsePlan,
@@ -83,7 +84,7 @@ test('done may reach y/y while running: "finalizando", never 0 min, bar under 10
   expect(nextPlanCheck(plan, 60 * MIN, 60 * MIN)).toBeUndefined()
 })
 
-test('checks come at 50% and 80% of the step, 1 min apart, and at most 20 min apart', () => {
+test('checks come at 50% and 80% of the step, 1 min apart, and at most 5 min apart', () => {
   const plan = fresh()
   // Step 1 lasts 2 min: 50% is 1 min, 80% 1.6 min.
   expect(nextPlanCheck(plan, 50_000, 50_000)).toBeUndefined()
@@ -93,10 +94,10 @@ test('checks come at 50% and 80% of the step, 1 min apart, and at most 20 min ap
   // Overdue: estimate + 15 s.
   expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 0 }, 2 * MIN + 14_000, 2 * MIN + 14_000)).toBeUndefined()
   expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 0 }, 2 * MIN + 15_000, 2 * MIN + 15_000)).toEqual({ kind: 'overdue', fired: 2 })
-  // A long step with both checks done still gets one every 20 min.
+  // A long step with both checks done still gets one every 5 min.
   const long = { ...plan, stepEndAt: 90 * MIN, stepEstMs: 90 * MIN, fired: 2, countAt: 0, askedAt: 0 }
-  expect(nextPlanCheck(long, 19 * MIN, 19 * MIN)).toBeUndefined()
-  expect(nextPlanCheck(long, 20 * MIN, 20 * MIN)).toEqual({ kind: 'progress', fired: 2 })
+  expect(nextPlanCheck(long, 4 * MIN, 4 * MIN)).toBeUndefined()
+  expect(nextPlanCheck(long, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 2 })
 })
 
 test('a plan only switches on from the first answer and when it is longer than the threshold', () => {
@@ -190,4 +191,16 @@ test('a long step title is cut with … in the header; the share stays apart', (
   expect(view?.step).toBe('Leer la conversión v7…')
   expect(view?.step?.length).toBeLessThanOrEqual(22)
   expect(view?.stepPct).toBe('25%')
+})
+
+test('a call that reads like a later step hints a count check; the 5 min ceiling still asks without hints', () => {
+  const plan = newPlan([{ title: 'Leer el esquema actual', minutes: 30 }, { title: 'Escribir los scripts de migración', minutes: 10 }, { title: 'Informar', minutes: 2 }], 42 * 60_000, 0, 0)
+  expect(callPointsAhead(plan, 'Escribe el script de migración de usuarios')).toBe(true)
+  expect(callPointsAhead(plan, 'Lee el esquema actual de la tabla')).toBe(false)
+  expect(callPointsAhead(plan, 'Run sed -n 1,6p samples.txt')).toBe(false)
+  // 2 min into a 30 min step: no check yet; a hint after the last ask makes one.
+  expect(nextPlanCheck(plan, 2 * 60_000, 2 * 60_000)).toBeUndefined()
+  expect(nextPlanCheck({ ...plan, hintAt: 2 * 60_000 }, 2 * 60_000, 2 * 60_000)).toMatchObject({ kind: 'progress' })
+  // No hint: 5 min without a count asks anyway (was 20).
+  expect(nextPlanCheck(plan, 5 * 60_000, 5 * 60_000)).toMatchObject({ kind: 'progress' })
 })
