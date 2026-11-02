@@ -325,3 +325,16 @@ test('scriptOf tells inline bodies, script files and plain commands apart', () =
   expect(scriptOf('bash scripts/run.sh')).toEqual({ file: 'run.sh' })
   expect(scriptOf('cargo test')).toBeUndefined()
 })
+
+test('a plan card never says "más de lo previsto", even past the run estimate', async ($, on) => {
+  const clock = engine(on, GOOD, [])
+  await $.agent.spawn(SPAWN)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  // The 10 min plan is long overdue.
+  await clock.advance(15 * MIN)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
+  expect(await pane.find({ type: 'Text', text: /^\d\/4 / })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
+  await pane.unmount()
+})
