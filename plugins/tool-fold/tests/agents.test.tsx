@@ -59,8 +59,8 @@ test('icons follow the agent type, with or without the plugin prefix', () => {
 })
 
 test('state colors: running orange, waiting blue, completed green, failed and stopped red', () => {
-  expect(STATE_COLOR.running).toEqual({ hex: '#d97757', theme: 'claude' })
-  expect(STATE_COLOR.waiting.hex).toBe('#58a6ff')
+  expect(STATE_COLOR.running).toEqual({ hex: '#c76f52', theme: '#c76f52' })
+  expect(STATE_COLOR.waiting.hex).toBe('#4f8fd8')
   expect(STATE_COLOR.completed).toEqual({ hex: '#3fb950', theme: 'success' })
   expect(STATE_COLOR.failed.theme).toBe('error')
   expect(stateOf({ id: 'a1', status: 'running' })).toBe('running')
@@ -277,13 +277,13 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
     terminal: await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'terminal', props: PANE_PROPS } as never),
   }
   const svg = await surfaces.vscode.find({ type: 'Svg' })
-  expect(String(svg?.props.source)).toContain('fill="#d97757"')
+  expect(String(svg?.props.source)).toContain('fill="#c76f52"')
   expect(String(svg?.props.source)).toContain('fill-opacity="0.45"')
   expect(svg?.props.height).toBe(2)
   expect(svg?.props.width).toBeUndefined()
-  expect((await surfaces.vscode.find({ type: 'Text', text: /%/ }))?.props.color).toBe('claude')
+  expect((await surfaces.vscode.find({ type: 'Text', text: /%/ }))?.props.color).toBe('#c76f52')
   expect(await surfaces.terminal.find({ type: 'Svg' })).toBeUndefined()
-  expect((await surfaces.terminal.find({ type: 'Text', text: /^▰/ }))?.props.color).toBe('claude')
+  expect((await surfaces.terminal.find({ type: 'Text', text: /^▰/ }))?.props.color).toBe('#c76f52')
   await surfaces.vscode.unmount()
   await surfaces.terminal.unmount()
   await clock.advance(30_000)
@@ -589,15 +589,19 @@ test('an agent past its estimate asks Haiku again with the elapsed time, at most
   await $.agent.spawn({ ...SPAWN, background: true })
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(prompts.filter(prompt => prompt.includes('<tareas_parecidas>'))).toHaveLength(1)
-  await clock.advance(61_000)
+  await clock.advance(74_000)
   const asks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
-  // Overdue at 60 s but the last ask (spawn) was under 30 s before only until 30 s: the re-ask comes at once.
+  // Overdue at 60 s, plus the 15 s grace: not asked yet at 74 s.
+  expect(asks()).toHaveLength(0)
+  await clock.advance(2000)
   expect(asks()).toHaveLength(1)
-  expect(asks()[0]).toContain('<ya_transcurrido>1 min</ya_transcurrido>')
-  // Haiku answered 1 minute again (not more than elapsed): rejected, and the next ask waits 30 s.
-  await clock.advance(20_000)
+  expect(asks()[0]).toContain('<ya_transcurrido>1,3 min</ya_transcurrido>'.replace(',', '.'))
+  // Haiku answered 1 minute (below elapsed): the total becomes max(1, 76 x 1.25, 76 s + 2 min) = 196 s, so no more asks until it is overdue again.
+  await clock.advance(60_000)
   expect(asks()).toHaveLength(1)
-  await clock.advance(15_000)
+  const { text } = await $.command.run({ command: 'agents-debug' } as never)
+  expect(text).toContain('a1 old=1 min new=3.3 min')
+  await clock.advance(100_000)
   expect(asks()).toHaveLength(2)
 })
 
