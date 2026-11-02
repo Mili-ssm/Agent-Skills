@@ -959,6 +959,7 @@ export const registerAgents: Register = (on, options) => {
       `engine agents: ${engine.map(item => `${item.id} ${item.status} ${item.type}`).join('; ') || 'none'}`,
       ...list.map(run => `  run ${run.id} ${run.status} background=${run.background === true} ${run.type}`),
       ...(await waitDebug($)),
+      `translations: ok=${translationStats.ok} retried=${translationStats.retried} failed=${translationStats.failed} cached=${translationStats.cached}`,
       're-estimates (newest last):',
       ...(reestimateLog.length === 0 ? ['  none yet'] : reestimateLog.map(line => `  ${line}`)),
       'band draws (newest last):',
@@ -1061,7 +1062,10 @@ export async function startAgentCall(
   }
   const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running', startedAt: await $.clock.now() }
   await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
-  await hintPlan($, agentId, step.detail ?? step.label, step.startedAt ?? 0)
+  // Only a Bash call's own description is Spanish-or-natural text to match on; a useless one waits for its translation.
+  if (step.kind === 'run' && step.detail !== undefined && !isUselessDescription(step.detail, typeof input.command === 'string' ? input.command : '')) {
+    await hintPlan($, agentId, step.detail, step.startedAt ?? 0)
+  }
   if (
     step.kind === 'run' &&
     typeof input.command === 'string' &&
@@ -1126,21 +1130,56 @@ export function isUselessDescription(description: string, command: string): bool
   return own.length > 0 && own.filter(word => used.has(word)).length / own.length >= 0.6
 }
 
-/** Asks Haiku what a command without the model's description does, and shows it under the call. */
+// Translations by exact command text (bounded, reset on reload), and how they went, for `/agents-debug`.
+const TRANSLATION_CACHE_MAX = 200
+const TRANSLATION_RETRY_MS = 5000
+const translations = new Map<string, string>()
+const translationStats = { ok: 0, retried: 0, failed: 0, cached: 0 }
+
+/** One Haiku try at a command's phrase: '' when unanswered, cut, empty or failed. */
+async function askCommand($: EngineInterface, command: string): Promise<string> {
+  const reply = await $.model
+    .complete({
+      model: 'haiku',
+      prompt: `${COMMAND_PROMPT}<comando>${command.slice(0, 1500)}</comando>`,
+      maxTokens: PHRASE_TOKENS,
+      timeoutMs: 15000,
+    })
+    .catch(() => undefined)
+  return reply === undefined ? '' : phraseOf(reply)
+}
+
+/**
+ * Asks Haiku what a command without the model's description does, and shows it under the call. One retry ~5 s
+ * later; a command already translated gets its phrase at once. When both tries fail the plan is hinted directly:
+ * words are only ever matched on Spanish natural text, never on the raw command.
+ */
 async function describeCommand($: EngineInterface, agentId: string, stepId: string, command: string): Promise<void> {
-  const reply = await $.model.complete({
-    model: 'haiku',
-    prompt: `${COMMAND_PROMPT}<comando>${command.slice(0, 1500)}</comando>`,
-    maxTokens: PHRASE_TOKENS,
-    timeoutMs: 15000,
-  })
-  const text = phraseOf(reply)
+  let text = translations.get(command) ?? ''
   if (text !== '') {
-    const detail = clip(text, 120)
-    const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
-    await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
-    await hintPlan($, agentId, detail, await $.clock.now())
+    translationStats.cached += 1
+  } else {
+    text = await askCommand($, command)
+    if (text === '') {
+      translationStats.retried += 1
+      await new Promise<void>(resolve => $.clock.after(TRANSLATION_RETRY_MS, resolve))
+      text = await askCommand($, command)
+    }
+    if (text === '') {
+      translationStats.failed += 1
+      await hintPlanNow($, agentId, await $.clock.now())
+      return
+    }
+    translationStats.ok += 1
+    if (translations.size >= TRANSLATION_CACHE_MAX) {
+      translations.delete(translations.keys().next().value as string)
+    }
+    translations.set(command, text)
   }
+  const detail = clip(text, 120)
+  const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
+  await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
+  await hintPlan($, agentId, detail, await $.clock.now())
 }
 
 /** A call's words point at a later plan step: mark it, so the next tick asks Haiku the count (1 min apart at most). */
@@ -1150,6 +1189,14 @@ async function hintPlan($: EngineInterface, agentId: string, text: string, at: n
     return
   }
   await patch($, agentId, run => (run.plan !== undefined && run.status === 'running' && callPointsAhead(run.plan, text) ? { ...run, plan: { ...run.plan, hintAt: at } } : run))
+}
+
+/** No words to match (the translation failed): ask the count directly on the next tick, still 1 min apart at most. */
+async function hintPlanNow($: EngineInterface, agentId: string, at: number): Promise<void> {
+  if (!PLAN_ENABLED) {
+    return
+  }
+  await patch($, agentId, run => (run.plan !== undefined && run.status === 'running' ? { ...run, plan: { ...run.plan, hintAt: at } } : run))
 }
 
 /**
