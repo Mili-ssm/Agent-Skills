@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
 import { estimateOf } from '../hooks/agents'
+import { phraseOf } from '../hooks/waiting'
 import {
   PLAN_ENABLED,
   PLAN_MIN_MS,
@@ -296,4 +297,11 @@ test('a Read call and a raw Bash label never hint a count check', async ($, on) 
   await clock.advance(61_000)
   await settle()
   expect(countChecks(prompts)).toBe(0)
+})
+
+test('a phrase reply cut by maxTokens still gives its first line when that line ended', () => {
+  const cut = { output_tokens: 80 }
+  expect(phraseOf({ isAnswered: true, text: 'Ejecuta un script de Python que mide memoria\nEl script importa tracemalloc y…', usage: cut })).toBe('Ejecuta un script de Python que mide memoria')
+  expect(phraseOf({ isAnswered: true, text: 'Ejecuta un script de Python que mide la memoria de cada conv', usage: cut })).toBe('')
+  expect(phraseOf({ isAnswered: false, text: 'x\ny', usage: cut })).toBe('')
 })
