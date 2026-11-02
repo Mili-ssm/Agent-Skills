@@ -550,7 +550,7 @@ test('a finished agent is remembered apart from waits and gives a similar one it
   expect((await late.find({ type: 'Text', text: /%/ }))?.text).toBe('≈99% · más de lo previsto')
   await late.unmount()
   // Haiku saw the brief and the similar run together (it gave no minutes: the median stands).
-  const asked = prompts.filter(prompt => prompt.includes('<tareas_parecidas>') && !prompt.includes('<estimacion_anterior>') && prompt.includes('Find session creation code'))
+  const asked = prompts.filter(prompt => prompt.includes('<tareas_parecidas>') && !prompt.includes('<ya_transcurrido>') && prompt.includes('Find session creation code'))
   expect(asked).toHaveLength(1)
   expect(asked[0]).toContain('1. Explore: Find session creation — 1.5 min')
 })
@@ -567,42 +567,39 @@ test('Haiku gets the brief and the similar runs in one call and its minutes are 
 
   await $.agent.spawn({ ...SPAWN, background: true })
   await new Promise(resolve => setTimeout(resolve, 20))
-  await clock.advance(30_000)
+  // Just before the 50% re-ask.
+  await clock.advance(29_000)
   const asks = prompts.filter(prompt => prompt.includes('<tareas_parecidas>'))
   expect(asks).toHaveLength(1)
   expect(asks[0]).toContain('Find where sessions are created')
   expect(asks[0]).toContain('1. Explore: Find session creation paths — 10 min')
   expect(asks[0]).not.toContain('migrate the database')
-  // Haiku's 1 minute replaced the 10 of the similar run: 30 s is 50%.
+  // Haiku's 1 minute replaced the 10 of the similar run: 29 s is 48%.
   const pane = await paneOf($)
-  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toMatch(/^≈50%/)
+  expect((await pane.find({ type: 'Text', text: /%/ }))?.text).toMatch(/^≈48%/)
   expect(await pane.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
   await pane.unmount()
   await $.turn.complete({ agentId: 'a1', answer: '', durationMs: 5000, isAborted: false, turnId: 't1', reason: 'error' })
   expect(saved['agent-samples']).toHaveLength(2)
 })
 
-test('an agent past its estimate asks Haiku again with the elapsed time, at most every 30 s', async ($, on) => {
+test('an agent at 50% of its estimate asks Haiku for the minutes that remain; the answer is damped and blended', async ($, on) => {
   const prompts: string[] = []
   const clock = memoryEngine(on, {}, prompts, 'minutos: 1')
-  // The first ask has no similar run: it still answers 1 minute; later asks answer 3 minutes.
   await $.agent.spawn({ ...SPAWN, background: true })
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(prompts.filter(prompt => prompt.includes('<tareas_parecidas>'))).toHaveLength(1)
-  await clock.advance(74_000)
-  const asks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
-  // Overdue at 60 s, plus the 15 s grace: not asked yet at 74 s.
-  expect(asks()).toHaveLength(0)
+  const again = () => prompts.filter(prompt => prompt.includes('<ya_transcurrido>'))
+  await clock.advance(29_000)
+  expect(again()).toHaveLength(0)
   await clock.advance(2000)
-  expect(asks()).toHaveLength(1)
-  expect(asks()[0]).toContain('<ya_transcurrido>1,3 min</ya_transcurrido>'.replace(',', '.'))
-  // Haiku answered 1 minute (below elapsed): the total becomes max(1, 76 x 1.25, 76 s + 2 min) = 196 s, so no more asks until it is overdue again.
-  await clock.advance(60_000)
-  expect(asks()).toHaveLength(1)
+  expect(again()).toHaveLength(1)
+  // No task list nor %-estimate: no real percent, so no <porcentaje>; the answer is the minutes that REMAIN.
+  expect(again()[0]).not.toContain('<porcentaje>')
+  expect(again()[0]).toContain('<ya_transcurrido>0.5 min</ya_transcurrido>')
+  // 30 s + 1 min = 90 s differs 50% from 60 s: blended 75 s.
   const { text } = await $.command.run({ command: 'agents-debug' } as never)
-  expect(text).toContain('a1 old=1 min new=3.3 min')
-  await clock.advance(100_000)
-  expect(asks()).toHaveLength(2)
+  expect(text).toContain('a1 progress old=1 min haiku-remaining=1 min total=1.5 min')
 })
 
 test('the agent task list still wins over the similar-agent estimate', async ($, on) => {
