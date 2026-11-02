@@ -294,8 +294,12 @@ test('a Read call and a raw Bash label never hint a count check', async ($, on) 
   await $.tool.call(bash('echo Escribir los scripts de migración', 'x2'))
   await settle()
   expect(commandsOf(prompts)).toHaveLength(1)
-  await clock.advance(61_000)
-  await settle()
+  // A call every 5 s for over a minute: never thinking, so nothing hints either.
+  for (let i = 0; i < 13; i += 1) {
+    await clock.advance(5000)
+    await $.tool.call({ tool: 'Read', file_path: `otra${i}.md`, agentId: 'a1', tool_use_id: `y${i}` } as never)
+    await settle()
+  }
   expect(countChecks(prompts)).toBe(0)
 })
 
@@ -337,4 +341,56 @@ test('a plan card never says "más de lo previsto", even past the run estimate',
   expect(await pane.find({ type: 'Text', text: /^\d\/4 / })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
   await pane.unmount()
+})
+
+const readCall = (id: string) => ({ tool: 'Read', file_path: `/tmp/${id}.md`, agentId: 'a1', tool_use_id: id }) as never
+const paneOf = ($: Parameters<Parameters<typeof test>[1]>[0]) =>
+  $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
+
+test('thinking: the card says pensando… after 10 s with no call, a new call replaces it, no calls yet shows none', async ($, on) => {
+  const clock = plannedEngine(on, [], [])
+  await start($, clock)
+  // Never made a call: the usual detail, however long it waits.
+  await clock.advance(30_000)
+  const idle = await paneOf($)
+  expect(await idle.find({ type: 'Text', text: /pensando/ })).toBeUndefined()
+  await idle.unmount()
+  await $.tool.call(readCall('t1'))
+  await settle()
+  await clock.advance(9000)
+  const soon = await paneOf($)
+  expect(await soon.find({ type: 'Text', text: /pensando/ })).toBeUndefined()
+  await soon.unmount()
+  await clock.advance(3000)
+  await settle()
+  const thinking = await paneOf($)
+  expect((await thinking.find({ type: 'Text', text: /pensando/ }))?.text).toMatch(/^ *◐ pensando… 1\ds$/)
+  await thinking.unmount()
+  await $.tool.call(readCall('t2'))
+  await settle()
+  const after = await paneOf($)
+  expect(await after.find({ type: 'Text', text: /pensando/ })).toBeUndefined()
+  await after.unmount()
+})
+
+test('thinking: a planned run hints one count check per thinking episode and tells Haiku it is thinking', async ($, on) => {
+  const prompts: string[] = []
+  const clock = plannedEngine(on, [], prompts)
+  await start($, clock)
+  await $.tool.call(readCall('t1'))
+  await settle()
+  // Past 10 s of thinking the tick hints; the 1 min gap since the plan's start already passed.
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBe(1)
+  expect(prompts.filter(prompt => prompt.includes('<pasos>')).pop()).toMatch(/Ahora: pensando desde hace \d+s \(sin herramientas\)/)
+  // Same episode: no second check 1 min later, a new episode (a call, then thinking) asks again.
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBe(1)
+  await $.tool.call(readCall('t2'))
+  await settle()
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBe(2)
 })
