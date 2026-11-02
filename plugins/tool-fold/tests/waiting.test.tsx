@@ -91,7 +91,7 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   expect(await ui.find({ type: 'Text', text: /bash · en segundo plano/ })).toBeDefined()
   expect(await ui.findAll({ type: 'Text', text: /Run the bench/ })).toHaveLength(1)
   // No sample yet: the elapsed time sits by the model, no percentage on the right.
-  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 12s')
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('opus-5-5 · 1m 12s')
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   await ui.unmount()
   // VS Code (the surface some app panels report) carries the main agent's card in its band too.
@@ -99,7 +99,7 @@ test('the main agent card shows once the turn ends, counts up, and goes with the
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   // The clock moves the card.
   await clock.advance(3000)
-  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 15s')
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('opus-5-5 · 1m 15s')
   await ui.unmount()
 
   // The pane lists it as it lists any running agent.
@@ -131,7 +131,7 @@ test('a recorded sample gives the estimate and the progress', async ($, on) => {
   await clock.advance(90_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 30s')
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('opus-5-5 · 1m 30s')
   await ui.unmount()
 
   // It finishes after 4 minutes: the duration joins the samples.
@@ -229,7 +229,8 @@ test('formatRemaining and remainingOf', () => {
   expect(formatRemaining(120 * 60_000)).toBe('~2 h')
   // elapsed × (1 − p) / p; none without an estimate or at 5% and under.
   expect(remainingOf(120_000, 40)).toBe('~3 min')
-  expect(remainingOf(120_000, 5)).toBeUndefined()
+  expect(remainingOf(120_000, 5)).toBe('~38 min')
+  expect(remainingOf(120_000, 0.5)).toBeUndefined()
   expect(remainingOf(120_000, undefined)).toBeUndefined()
 })
 
@@ -913,14 +914,14 @@ test('the main card while a turn runs: orange with no estimate, blue with backgr
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
   // The header time stopped when Claude went idle.
-  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 1m 30s')
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('opus-5-5 · 1m 30s')
   await ui.unmount()
   // The owner's next prompt starts a new cycle: working again, from zero.
   await $.prompt.submit({ text: 'Now the lexer', wait: false, origin: { kind: 'composer' } } as never)
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /Claude · trabajando/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 0s')
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('opus-5-5 · 0s')
   await ui.unmount()
 })
 
@@ -938,7 +939,7 @@ test('the header time spans the whole request: across the turn and the wait', as
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · esperando/ })).toBeDefined()
   // 60 s working + 192 s waiting since the prompt, not the wait's own 192 s.
-  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('● opus-5-5 · 4m 12s')
+  expect((await ui.find({ type: 'Text', text: /opus-5-5/ }))?.text).toBe('opus-5-5 · 4m 12s')
   await ui.unmount()
 })
 
@@ -987,7 +988,7 @@ test('the stats line: context first with icon and color, calls, skills, cycle ag
   expect(await ui.find({ type: 'Box', props: { justifyContent: 'space-between' } })).toBeDefined()
   expect((await ui.find({ type: 'Text', text: /^◔ 13%$/ }))?.props.color).toBe('#5f9e6e')
   // (the main card's own model dot comes first, then the stats line's, then the agent cards')
-  expect((await ui.findAll({ type: 'Text', text: /^●$/ })).map(dot => dot.props.color).slice(1, 3)).toEqual(['#f778ba', '#39c5cf'])
+  expect((await ui.findAll({ type: 'Text', text: /^●$/ })).map(dot => dot.props.color).slice(1, 3)).toEqual(['#d97aaa', '#46b0b8'])
   // The only agent count outside the stats line is the divider's (cards shown).
   expect(all.filter(text => /agent/i.test(text) && !text.includes('Σ') && !/^── Agentes/.test(text) && !/^\s*agents?$|^ \d+ agents?$/.test(text))).toEqual([])
   await ui.unmount()
@@ -1006,7 +1007,7 @@ test('context icon by quarters and color by use; agent dots by family', () => {
   expect([80.1, 95, 100, 140].map(p => at(p)?.color)).toEqual([RED, RED, RED, RED])
   expect(at(13.4)?.text).toBe('◔ 13%')
   expect(at(140)?.text).toBe('● 100%')
-  expect(agentDots({ agentModels: ['claude-haiku-5-5', 'claude-opus-5-5', 'mystery', 'claude-haiku-5-5'] })).toEqual(['#a371f7', '#39c5cf', undefined])
+  expect(agentDots({ agentModels: ['claude-haiku-5-5', 'claude-opus-5-5', 'mystery', 'claude-haiku-5-5'] })).toEqual(['#9478d8', '#46b0b8', undefined])
 })
 
 test('with background work the blue card replaces the working one in the same place', async ($, on) => {

@@ -54,10 +54,10 @@ export const family = (model: string): string =>
 
 /** Dot color per family (the model name stays dim). */
 export const FAMILY_COLOR: Record<string, string> = {
-  opus: '#a371f7',
-  sonnet: '#f778ba',
-  haiku: '#39c5cf',
-  fable: '#e3b341',
+  opus: '#9478d8',
+  sonnet: '#d97aaa',
+  haiku: '#46b0b8',
+  fable: '#cba14a',
 }
 
 /** The model dot's color: its family's, else the dim theme color. */
@@ -92,7 +92,8 @@ export const formatRemaining = (ms: number): string => {
 
 /** Time left from elapsed time and the estimated percent; undefined with no estimate or one under 5% (too unreliable). */
 export function remainingOf(elapsedMs: number, percent: number | undefined): string | undefined {
-  if (percent === undefined || percent <= 5 || percent >= 100) {
+  // From 1%: under 5% the datum shows `?` instead of `≈` (rough), the time left still helps.
+  if (percent === undefined || percent < 1 || percent >= 100) {
     return undefined
   }
   return formatRemaining((Math.max(0, elapsedMs) * (100 - percent)) / percent)
@@ -569,7 +570,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
-        ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
+        ? `${estimate < 5 ? '?' : '≈'}${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
@@ -579,8 +580,10 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
         <Text weight="bold" dimColor={run.status === 'done'}>
           {agentName(run)}
         </Text>
+        {/* The dot outside the dim text: the same color as the stats line's dots. */}
+        <Text color={dotColor(run.model)}>●</Text>
         <Text dimColor>
-          <Text color={dotColor(run.model)}>●</Text> {shortModel(run.model)} · {elapsed}
+          {shortModel(run.model)} · {elapsed}
         </Text>
         <Box flexGrow={1} />
         {datum !== '' && run.etaSource !== undefined && run.todo === undefined ? <Text dimColor>{ETA_ICON[run.etaSource]}</Text> : null}
