@@ -204,3 +204,96 @@ test('a call that reads like a later step hints a count check; the 5 min ceiling
   // No hint: 5 min without a count asks anyway (was 20).
   expect(nextPlanCheck(plan, 5 * 60_000, 5 * 60_000)).toMatchObject({ kind: 'progress' })
 })
+
+// --- Call hints: word matching only ever runs on Spanish natural text. ---
+
+// A 42 min plan whose first step is 30 min long: only a hint can make a count check in the first minutes.
+const LONG = '1. Leer el esquema actual — 30 min\n2. Escribir los scripts de migración — 10 min\n3. Informar — 2 min'
+const settle = () => new Promise(resolve => setTimeout(resolve, 20))
+
+/** A planned run whose Haiku answers command prompts with `phrases` in turn ('' = unanswered); `prompts` collects every prompt. */
+function plannedEngine(on: Parameters<Parameters<typeof test>[1]>[1], phrases: string[], prompts: string[]) {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    prompts.push(prompt)
+    const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    if (/<comando>/.test(prompt)) {
+      const text = phrases.shift() ?? ''
+      return { value: { isAnswered: text !== '', text, usage } }
+    }
+    const text = prompt.includes('<duracion_total>') ? LONG : prompt.includes('<tareas_parecidas>') ? 'minutos: 42' : prompt.includes('<pasos>') ? 'pasos: 0' : '?'
+    return { value: { isAnswered: true, text, usage } }
+  })
+  return mock.clock(on)
+}
+
+const bash = (command: string, id: string) => ({ tool: 'Bash', command, agentId: 'a1', tool_use_id: id }) as never
+const commandsOf = (prompts: string[]) => prompts.filter(prompt => prompt.includes('<comando>'))
+const countChecks = (prompts: string[]) => prompts.filter(prompt => prompt.includes('<pasos>')).length
+
+async function start($: Parameters<Parameters<typeof test>[1]>[0], clock: { advance(ms: number): Promise<void> }) {
+  await $.agent.spawn(SPAWN)
+  await settle()
+  await clock.advance(10_000)
+  await settle()
+}
+
+test('a failed translation is retried once ~5 s later and its phrase then hints by words', async ($, on) => {
+  const prompts: string[] = []
+  const clock = plannedEngine(on, ['', 'Escribe los scripts de migración'], prompts)
+  await start($, clock)
+  await $.tool.call(bash('node retry-me.js', 'r1'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(1)
+  await clock.advance(5000)
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(2)
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBeGreaterThan(0)
+  expect((await $.command.run({ command: 'agents-debug' } as never)).text).toMatch(/translations: ok=[1-9]\d* retried=[1-9]\d* failed=\d+ cached=\d+/)
+})
+
+test('two failed tries hint the plan directly; a cached command asks Haiku no second time', async ($, on) => {
+  const prompts: string[] = []
+  const clock = plannedEngine(on, ['', '', 'Lee el esquema actual'], prompts)
+  await start($, clock)
+  await $.tool.call(bash('node fail-me.js', 'f1'))
+  await settle()
+  await clock.advance(5000)
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(2)
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBeGreaterThan(0)
+  await $.tool.call(bash('node cache-me.js', 'c1'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(3)
+  await $.tool.call(bash('node cache-me.js', 'c2'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(3)
+  expect((await $.command.run({ command: 'agents-debug' } as never)).text).toMatch(/failed=[1-9]\d* cached=[1-9]/)
+})
+
+test('a Read call and a raw Bash label never hint a count check', async ($, on) => {
+  const prompts: string[] = []
+  // The raw command and file name share words with step 2, but only a translation may be matched; this one matches step 1.
+  const clock = plannedEngine(on, ['Lee el esquema actual'], prompts)
+  await start($, clock)
+  await $.tool.call({ tool: 'Read', file_path: 'Escribir_los_scripts_de_migración.md', agentId: 'a1', tool_use_id: 'x1' } as never)
+  await settle()
+  await $.tool.call(bash('echo Escribir los scripts de migración', 'x2'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(1)
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBe(0)
+})
