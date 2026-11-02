@@ -5,6 +5,7 @@ import type { AgentRun, AgentRunStatus, MainInfo, Step, StepKind } from '../type
 import {
   AGENT_SAMPLES_KEY,
   REESTIMATE_GAP_MS,
+  reestimateLog,
   askMinutes,
   loadSamples,
   median,
@@ -360,7 +361,7 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
     const previousMs = run.etaMs
     const asked = run.etaAskedAt
     const elapsedMs = now - run.startedAt
-    if (run.status !== 'running' || previousMs === undefined || asked === undefined || reasking.has(run.id) || elapsedMs < previousMs || now - asked < REESTIMATE_GAP_MS) {
+    if (run.status !== 'running' || previousMs === undefined || asked === undefined || reasking.has(run.id) || elapsedMs < previousMs + OVERDUE_GRACE_MS || now - asked < REESTIMATE_GAP_MS) {
       continue
     }
     reasking.add(run.id)
@@ -372,6 +373,7 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
           text: `${summary}${run.mission === undefined ? '' : `\n${run.mission}`}`,
           similar: similarRuns(samples, summary),
           again: { elapsedMs, previousMs },
+          id: run.id,
         }),
       )
       .then(etaMs => (etaMs === undefined ? undefined : patch($, run.id, item => ({ ...item, etaMs, etaSource: item.etaSource ?? 'guess' }))))
@@ -434,8 +436,9 @@ export type CardState = 'running' | 'waiting' | 'completed' | 'idle' | 'failed'
 
 /** Color per state: `hex` for the Svg line, `theme` for text and the terminal. */
 export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
-  running: { hex: '#d97757', theme: 'claude' },
-  waiting: { hex: '#58a6ff', theme: 'suggestion' },
+  // Explicit hex for text too: theme keys (`claude`, `suggestion`) change color with the owner's theme.
+  running: { hex: '#c76f52', theme: '#c76f52' },
+  waiting: { hex: '#4f8fd8', theme: '#4f8fd8' },
   completed: { hex: '#3fb950', theme: 'success' },
   // Claude's 'listo' card stays until the next prompt: grey, so a finished request does not draw the eye.
   // The line in a dark, muted green (green, not grey), quieter than the context's (#5f9e6e); the diamond and ✓ keep the success green.
@@ -791,6 +794,8 @@ export const registerAgents: Register = (on, options) => {
       `engine agents: ${engine.map(item => `${item.id} ${item.status} ${item.type}`).join('; ') || 'none'}`,
       ...list.map(run => `  run ${run.id} ${run.status} background=${run.background === true} ${run.type}`),
       ...(await waitDebug($)),
+      're-estimates (newest last):',
+      ...(reestimateLog.length === 0 ? ['  none yet'] : reestimateLog.map(line => `  ${line}`)),
       'band draws (newest last):',
       ...(bandTrace.length === 0 ? ['  none yet'] : bandTrace.map(line => `  ${line}`)),
     ]

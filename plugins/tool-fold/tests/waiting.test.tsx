@@ -44,7 +44,7 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], saved: Record<str
     return { value: undefined }
   })
   on('tool.call', (_, e) => ({
-    result: e.tool === 'Bash' ? { stdout: '', stderr: '', interrupted: false, backgroundTaskId: 'b1', ...bashExtra } : { taskId: 'm1', timeoutMs: 0 },
+    result: e.tool === 'Bash' ? { stdout: '', stderr: '', interrupted: false, backgroundTaskId: String((e as { command?: unknown }).command).includes('sleep 600') ? 'b2' : 'b1', ...bashExtra } : { taskId: 'm1', timeoutMs: 0 },
   }))
   on('turn.start', (_, e) => ({ turnId: e.turnId }))
   on('turn.complete', () => ({ text: '' }))
@@ -264,17 +264,17 @@ test('the main agent card comes first, stands out, and shows the time left', asy
     const name = await ui.find({ type: 'Text', text: /Claude · esperando/ })
     expect(name?.props.weight).toBe('bold')
     expect(name?.text).toBe('Claude · esperando')
-    expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('suggestion')
+    expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#4f8fd8')
     // 50% at 90 s: 90 s left.
     expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
     // The wait is blue, its thin line too.
-    expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('#58a6ff')
+    expect(String((await ui.find({ type: 'Svg' }))?.props.source)).toContain('#4f8fd8')
     await ui.unmount()
   }
 })
 
 /** A model.complete stub answering `text`, recording the prompts. */
-const haiku = (on: Parameters<Parameters<typeof test>[1]>[1], text: string, prompts: string[] = []) =>
+const haiku = (on: Parameters<Parameters<typeof test>[1]>[1], text: string, prompts: string[] = [], reestimates = true) =>
   on('model.complete', (_, e) => {
     const prompt = String((e as { prompt?: string }).prompt)
     // The cycle's own phrase calls (what Claude does now, the conclusion) are not the estimate calls these tests answer and count.
@@ -282,6 +282,9 @@ const haiku = (on: Parameters<Parameters<typeof test>[1]>[1], text: string, prom
       return { value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
     }
     prompts.push(prompt)
+    if (!reestimates && prompt.includes('<estimacion_anterior>')) {
+      return { value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    }
     return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
 
@@ -336,7 +339,7 @@ test('a recorded median wins over the guess', async ($, on) => {
 
 test('past the estimate the card says so', async ($, on) => {
   const clock = engine(on)
-  haiku(on, 'minutos: 1')
+  haiku(on, 'minutos: 1', [], false)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
@@ -348,7 +351,7 @@ test('past the estimate the card says so', async ($, on) => {
 
 test('within 15 s of the estimate the card is not overdue; past it is', async ($, on) => {
   const clock = engine(on)
-  haiku(on, 'minutos: 1')
+  haiku(on, 'minutos: 1', [], false)
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
@@ -468,29 +471,67 @@ test('past the estimate Haiku is asked again with the elapsed time, throttled to
   await $.tool.call(BENCH)
   await $.turn.complete(done)
   const reasks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
-  await clock.advance(59_000)
+  await clock.advance(70_000)
   expect(reasks()).toHaveLength(0)
-  // Overdue at 60 s, 60 s after the first ask: asked at once; the answer (1 min) is not more than elapsed.
+  // Overdue at 60 s plus the 15 s grace: asked at the first tick past it; 1 min is below elapsed, so the total becomes max(1, 75 x 1.25, 75 s + 2 min) = 195 s.
   answer = 'minutos: 1'
-  await clock.advance(2000)
+  await clock.advance(6000)
   expect(reasks()).toHaveLength(1)
-  expect(reasks()[0]).toContain('<ya_transcurrido>1 min</ya_transcurrido>')
+  expect(reasks()[0]).toContain('<ya_transcurrido>1.3 min</ya_transcurrido>')
   expect(reasks()[0]).toContain('<estimacion_anterior>1 min</estimacion_anterior>')
-  // Under 30 s since that ask: no new one.
-  answer = 'minutos: 5'
-  await clock.advance(25_000)
-  expect(reasks()).toHaveLength(1)
-  // 30 s passed: asked again; 5 minutes is the new total.
-  await clock.advance(5000)
-  expect(reasks()).toHaveLength(2)
   await clock.advance(1000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /≈\d+%/ })).toBeDefined()
-  // No more asks while it is within the new estimate.
-  await clock.advance(60_000)
-  expect(reasks()).toHaveLength(2)
   await ui.unmount()
+  // No more asks while it is within the new estimate (195 s + 15 s).
+  await clock.advance(100_000)
+  expect(reasks()).toHaveLength(1)
+  // Overdue again: asked again, at most every 30 s.
+  answer = 'minutos: 10'
+  await clock.advance(40_000)
+  expect(reasks()).toHaveLength(2)
+  const { text } = await $.command.run({ command: 'agents-debug' } as never)
+  expect(text).toContain('re-estimates')
+  expect(text).toContain('old=1 min new=3.3 min')
+})
+
+test('waiting card: icon, datum and line share the blue hex; two owned processes: the latest-ending one gives the estimate; an overdue owned wait is re-estimated past the grace', async ($, on) => {
+  const clock = engine(on)
+  const prompts: string[] = []
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('ui.open', () => ({ value: { isPlaced: false } }))
+  on('ui.panes', () => ({ value: [] }) as never)
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    if (prompt.includes('<latest_actions>') || prompt.includes('<answer>')) {
+      return { value: { isAnswered: false, text: '', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    }
+    prompts.push(prompt)
+    return { value: { isAnswered: true, text: prompt.includes('sleep 600') ? 'minutos: 10' : 'minutos: 1', usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.agent.spawn({ description: 'Run checks', prompt: 'p', subagentType: 'agent-skills:check-runner', background: false } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 60', description: 'short', run_in_background: true, agentId: 'a1' } as never)
+  await $.tool.call({ tool: 'Bash', command: 'sleep 600', description: 'long', run_in_background: true, agentId: 'a1' } as never)
+  await $.turn.complete({ ...done, agentId: 'a1' })
+  await clock.advance(30_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /esperando · 2 procesos/ })).toBeDefined()
+  // The 600 s process ends last: 30 s of 600 s is 5%, not the short one's 50%.
+  const datum = await ui.find({ type: 'Text', text: /≈5%/ })
+  expect(datum).toBeDefined()
+  expect(datum?.props.color).toBe('#4f8fd8')
+  expect((await ui.find({ type: 'Text', text: /^◷$/ }))?.props.color).toBe('#4f8fd8')
+  expect((await ui.findAll({ type: 'Svg' })).some(svg => String(svg.props.source).includes('#4f8fd8'))).toBe(true)
+  await ui.unmount()
+  // The short wait is overdue at 60 s; the first ask comes at the first tick past the 15 s grace.
+  const reasks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
+  await clock.advance(44_000)
+  expect(reasks()).toHaveLength(0)
+  await clock.advance(2000)
+  expect(reasks().length).toBeGreaterThan(0)
 })
 
 test('a Haiku guess shows the ? icon', async ($, on) => {
@@ -893,7 +934,7 @@ test('the main card while a turn runs: orange with no estimate, blue with backgr
   expect(name).toBeDefined()
   // No time inference: no percentage, orange, with the prompt as detail until a call arrives.
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('claude')
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#c76f52')
   expect(await ui.find({ type: 'Text', text: /Refactor the parser module/ })).toBeDefined()
   await ui.unmount()
   // The latest call becomes the detail until Haiku says something.
@@ -1020,7 +1061,7 @@ test('with background work the blue card replaces the working one in the same pl
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · en segundo plano/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Claude · trabajando/ })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('suggestion')
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#4f8fd8')
   await ui.unmount()
   await $.turn.complete(done)
   const after = await $.ui.mount({ ...BAND, surface: 'desktop' })

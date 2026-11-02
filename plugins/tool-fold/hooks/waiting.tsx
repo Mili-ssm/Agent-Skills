@@ -179,7 +179,7 @@ async function askWait($: EngineInterface, task: WaitTask, statedMs: number | un
     const samples = await loadSamples($, WAIT_SAMPLES_KEY)
     const similar = similarRuns(samples, task.label)
     const text = task.subject === undefined || task.subject === task.label ? task.label : `${task.label}\n${task.subject}`
-    const etaMs = await askMinutes($, { text, ...(statedMs === undefined ? {} : { statedMs }), similar, ...(again === undefined ? {} : { again }) })
+    const etaMs = await askMinutes($, { text, ...(statedMs === undefined ? {} : { statedMs }), similar, ...(again === undefined ? {} : { again, id: task.id }) })
     if (etaMs !== undefined) {
       const etaSource = sourceOfAsk(statedMs, similar)
       await update($, waits, all =>
@@ -324,7 +324,7 @@ async function sweep($: EngineInterface): Promise<void> {
       continue
     }
     const elapsedMs = now - task.startedAt
-    if (elapsedMs >= etaMs && now - task.askedAt >= REESTIMATE_GAP_MS) {
+    if (elapsedMs >= etaMs + OVERDUE_GRACE_MS && now - task.askedAt >= REESTIMATE_GAP_MS) {
       await update($, waits, list => list.map(item => (item.id === task.id ? { ...item, askedAt: now } : item)))
       void askWait($, task, undefined, { elapsedMs, previousMs: etaMs }).catch(error => $.ui.log(`tool-fold: wait re-estimate: ${String(error)}`, { to: 'debug' }))
     }

@@ -115,7 +115,13 @@ export type MinutesAsk = {
   similar: readonly WaitSample[]
   /** A re-estimate: how long the work already took and what was said it would take. */
   again?: { elapsedMs: number; previousMs: number }
+  /** The item's id, for the re-estimate log. */
+  id?: string
 }
+
+// The latest re-estimates (item, old, new, elapsed), newest last, for `/agents-debug`.
+export const reestimateLog: string[] = []
+const LOG_KEPT = 10
 
 const fmtMin = (ms: number): string => `${Math.round((ms / 60000) * 10) / 10} min`
 
@@ -146,7 +152,15 @@ export async function askMinutes($: EngineInterface, ask: MinutesAsk): Promise<n
     return undefined
   }
   const ms = minutesLine(reply.text)
-  return ms !== undefined && (ask.again === undefined || ms > ask.again.elapsedMs) ? ms : undefined
+  if (ms === undefined || ask.again === undefined) {
+    return ms
+  }
+  // An answer at or below the elapsed time cannot be the total: the estimate lands in the future so the card leaves overdue.
+  const { elapsedMs, previousMs } = ask.again
+  const total = ms > elapsedMs ? ms : Math.max(ms, elapsedMs * 1.25, elapsedMs + 120_000)
+  reestimateLog.push(`${ask.id ?? '?'} old=${fmtMin(previousMs)} new=${fmtMin(total)} (haiku ${fmtMin(ms)}) elapsed=${fmtMin(elapsedMs)}`)
+  reestimateLog.splice(0, Math.max(0, reestimateLog.length - LOG_KEPT))
+  return total
 }
 
 const NUM = String.raw`(\d+(?:[.,]\d+)?)`
