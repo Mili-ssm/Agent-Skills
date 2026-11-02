@@ -49,6 +49,7 @@ Add a row whenever a surface surprises us: what was tried, what happened, why (o
 | VS Code does not shrink a `Box` inside a row: a long child wraps under the prefix, which split lines right after `└`. Fix: one `Text` per line with nested glyph `Text`s, pre-clipped to the width | observed | #27 |
 | Desktop's font turns `▇▁` glyph bars into blocks. Fix: draw the bars as `Svg` images on Desktop | observed | #28 |
 | Desktop draws `Box` `borderStyle: 'round'` with theme colors (`claude`, `success`), `Text` `weight`, `italic`, `size: 'footnote'` and `tabular` | observed | #28 |
+| VS Code wraps sibling `Text`s after a `flexGrow` spacer onto separate lines, ignores `Text` `size` and a nested `bold={false}`. Fix: one `Text` with nested spans, plain outside, `bold` opted in per span, `dimColor` for subtle parts, pre-clipped | observed | #91, #92, #93 |
 | Desktop sizes a row `Box` to its content: `justifyContent: 'space-between'` did not push the usage-band `Σ` to the right edge | observed | #29 |
 | Adding `width: '100%'` on that row and `flexGrow: 1` on its left group was followed by `Σ` not showing at all. Cause not isolated: the reinstall may have reset the session total, which hides `Σ` on a first cycle. Reverted | observed, cause **open** | #30, reverted in #31 |
 
