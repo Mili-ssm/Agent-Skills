@@ -133,6 +133,8 @@ export function busyMs(cycle: Cycle, now: number): number {
 const openTurns = new Set<string>()
 let settling: Timer | undefined
 let lastTurnEnd: number | undefined
+// Which event last changed the cycle, for `/agents-debug`.
+let lastChange = 'none'
 // The main loop's last answer in this cycle, which Haiku sums up once Claude is idle.
 let lastAnswer = ''
 // The live description: the owner's request, the latest calls, when Haiku last described them, calls since then,
@@ -196,6 +198,18 @@ async function requestDescription($: EngineInterface): Promise<void> {
   void describe($)
 }
 
+/** True for the main loop or an agent `$.agent.list()` names; the engine's own forks (compaction, memory) are in no list. */
+async function isListedLoop($: EngineInterface, agentId: string | undefined): Promise<boolean> {
+  if (agentId === undefined) {
+    return true
+  }
+  try {
+    return (await $.agent.list()).some(agent => agent.id === agentId)
+  } catch {
+    return true
+  }
+}
+
 /** True while an agent still works. A failed lookup counts as none. */
 async function agentsWorking($: EngineInterface): Promise<boolean> {
   try {
@@ -228,7 +242,14 @@ async function conclude($: EngineInterface, answer: string): Promise<string | nu
  */
 async function settle($: EngineInterface): Promise<void> {
   settling = undefined
-  if (openTurns.size > 0 || (await agentsWorking($))) {
+  if (openTurns.size > 0) {
+    return
+  }
+  if (await agentsWorking($)) {
+    // Nothing else will trigger this check when the agent ends quietly: look again.
+    settling = $.clock.after(SETTLE_MS * 2, () => {
+      void settle($)
+    })
     return
   }
   const cycle = await read($, cycleAtom)
@@ -239,6 +260,7 @@ async function settle($: EngineInterface): Promise<void> {
   const closed: Cycle = { ...cycle, activeMs: busyMs(cycle, end), busySince: null, endedAt: end, doing: null }
   resetDescription()
   await update($, sessionAtom, before => ({ ...before, durationMs: before.durationMs + (closed.activeMs - cycle.activeMs) }))
+  lastChange = `settled at ${new Date(end).toISOString().slice(11, 19)}`
   await update($, cycleAtom, () => closed)
   await syncTick($)
   const conclusion = lastAnswer === '' ? null : await conclude($, lastAnswer)
@@ -256,6 +278,7 @@ async function markBusy($: EngineInterface): Promise<void> {
     return
   }
   const now = await $.clock.now()
+  lastChange = `busy by event at ${new Date(now).toISOString().slice(11, 19)}`
   await update($, cycleAtom, before => ({ ...before, startedAt: before.startedAt ?? now, busySince: now, endedAt: null, conclusion: null }))
   resetDescription()
   await syncTick($)
@@ -269,6 +292,7 @@ export async function onPersonPrompt($: EngineInterface, text: string): Promise<
   const cycle = await read($, cycleAtom)
   const closed = cycle.busySince === null ? cycle : { ...cycle, activeMs: busyMs(cycle, now) }
   await update($, sessionAtom, before => ({ ...before, durationMs: before.durationMs + (closed.activeMs - cycle.activeMs) }))
+  lastChange = `owner prompt at ${new Date(now).toISOString().slice(11, 19)}`
   await update($, cycleAtom, () => ({ ...EMPTY_CYCLE, startedAt: now, busySince: now, prompt: clip(text, 200) }))
   lastAnswer = ''
   request = text
@@ -278,7 +302,10 @@ export async function onPersonPrompt($: EngineInterface, text: string): Promise<
 }
 
 /** A call of the main loop or of an agent: counted, and Haiku describes the work now and then. */
-export async function onCycleCall($: EngineInterface, e: { tool: string }): Promise<void> {
+export async function onCycleCall($: EngineInterface, e: { tool: string; agentId?: string }): Promise<void> {
+  if (!(await isListedLoop($, e.agentId))) {
+    return
+  }
   await markBusy($)
   await update($, cycleAtom, before => ({
     ...before,
@@ -301,7 +328,17 @@ export async function onCycleSpawn($: EngineInterface, model: unknown): Promise<
 }
 
 /** Any turn starting means Claude works. A turn with no cycle open opens one (the prompt text is the request then). */
-export async function onCycleTurnStart($: EngineInterface, turnId: string, text: string, isMain: boolean): Promise<void> {
+export async function onCycleTurnStart(
+  $: EngineInterface,
+  turnId: string,
+  text: string,
+  isMain: boolean,
+  agentId?: string,
+): Promise<void> {
+  // A fork of the engine (compaction, memory) is no work of the owner's: it never opens or keeps a cycle.
+  if (!(await isListedLoop($, agentId))) {
+    return
+  }
   openTurns.add(turnId)
   const wasIdle = (await read($, cycleAtom)).busySince === null
   await markBusy($)
@@ -320,6 +357,9 @@ export async function onCycleTurnEnd(
   e: { turnId: string; agentId?: string; answer: string; usage?: TurnUsage },
 ): Promise<void> {
   openTurns.delete(e.turnId)
+  if (!(await isListedLoop($, e.agentId))) {
+    return
+  }
   lastTurnEnd = await $.clock.now()
   if (e.agentId === undefined && e.answer.trim() !== '') {
     lastAnswer = e.answer
@@ -340,6 +380,24 @@ export async function onCycleTurnEnd(
 /** True once `doing` holds Haiku's phrase rather than a raw call label. */
 export function hasDoingPhrase(): boolean {
   return isDescribed
+}
+
+/** The cycle as the card should show it: closed at the main loop's idle time when nothing works, whatever its busy flag. */
+export async function effectiveCycle($: EngineInterface, cycle: Cycle, idleAt: number | null): Promise<Cycle> {
+  if (cycle.busySince === null || idleAt === null || (cycle.startedAt !== null && idleAt < cycle.startedAt) || (await agentsWorking($))) {
+    return cycle
+  }
+  return { ...cycle, activeMs: busyMs(cycle, idleAt), busySince: null, endedAt: idleAt, doing: null }
+}
+
+/** For `/agents-debug`: the cycle's state. */
+export async function cycleDebug($: EngineInterface): Promise<string[]> {
+  const cycle = await read($, cycleAtom)
+  const at = (ms: number | null): string => (ms === null ? 'null' : new Date(ms).toISOString().slice(11, 19))
+  return [
+    `cycle: busySince=${at(cycle.busySince)} startedAt=${at(cycle.startedAt)} endedAt=${at(cycle.endedAt)} openTurns=${openTurns.size} settling=${settling !== undefined}`,
+    `cycle last change: ${lastChange}`,
+  ]
 }
 
 /** True while the cycle's clock runs (Claude works); the card ticks only then. */

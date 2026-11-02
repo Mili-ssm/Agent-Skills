@@ -313,7 +313,7 @@ export const register: Register = (on, options) => {
 
   // The main loop works again: nothing is waited on idle any more.
   on('turn.start', async ($, e, next) => {
-    await onCycleTurnStart($, e.turnId, e.text, e.agentId === undefined).catch(() => undefined)
+    await onCycleTurnStart($, e.turnId, e.text, e.agentId === undefined, e.agentId).catch(() => undefined)
     await onTurn($, e.agentId, 'start').catch(() => undefined)
     // A subagent parked on its background command starts a turn when the command ends.
     if (e.agentId !== undefined) {
