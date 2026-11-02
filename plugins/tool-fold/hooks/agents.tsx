@@ -4,8 +4,13 @@ import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderEle
 import type { AgentRun, AgentRunStatus, MainInfo, Step, StepKind } from '../types'
 import {
   AGENT_SAMPLES_KEY,
-  REESTIMATE_GAP_MS,
+  PROGRESS_CHARS,
+  nextReask,
+  percentAt,
+  reanchor,
   reestimateLog,
+  settleEstimate,
+  stepFor,
   askMinutes,
   loadSamples,
   median,
@@ -18,6 +23,7 @@ import {
   MAX_PERCENT,
   OVERDUE_GRACE_MS,
 } from './estimates'
+import type { ReaskFields } from './estimates'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
@@ -92,12 +98,13 @@ export const formatRemaining = (ms: number): string => {
 }
 
 /** Time left from elapsed time and the estimated percent; undefined with no estimate or one under 5% (too unreliable). */
-export function remainingOf(elapsedMs: number, percent: number | undefined): string | undefined {
+export function remainingOf(elapsedMs: number, percent: number | undefined, etaLeftMs?: number): string | undefined {
   // From 1%: under 5% the time left is rough, so it reads `?40 min` instead of `~40 min`.
   if (percent === undefined || percent < 1 || percent >= 100) {
     return undefined
   }
-  const left = formatRemaining((Math.max(0, elapsedMs) * (100 - percent)) / percent)
+  // With an estimated end, the time to it (the bar's own end, which an anchored percent no longer gives by elapsed / percent).
+  const left = formatRemaining(etaLeftMs ?? (Math.max(0, elapsedMs) * (100 - percent)) / percent)
   return percent < 5 ? `?${left.replace(/^~/, '')}` : left
 }
 
@@ -338,12 +345,16 @@ async function lookUpSimilar($: EngineInterface, id: string, type: string, descr
     await patch($, id, run => ({
       ...run,
       ...(found === undefined ? {} : { etaMs: found, etaSource: stated === undefined ? ('similar' as const) : ('stated' as const) }),
-      ...(brief === undefined ? {} : { etaAskedAt: now }),
+      ...(brief === undefined ? {} : { etaAskedAt: now, askSeq: 1, reaskStep: 0 }),
     }))
     // After the card is up; the spawn does not wait for Haiku. A workflow's agents pass no brief: no call.
     if (brief !== undefined) {
       void askMinutes($, { text: `${summary}\n${brief}`, ...(stated === undefined ? {} : { statedMs: stated }), similar })
-        .then(etaMs => (etaMs === undefined ? undefined : patch($, id, run => ({ ...run, etaMs, etaSource: sourceOfAsk(stated, similar) }))))
+        // A re-estimate asked since (askSeq moved on) is newer than this answer: drop it.
+        .then(async etaMs => {
+          const at = await $.clock.now()
+          return etaMs === undefined ? undefined : patch($, id, run => (run.askSeq === 1 ? withEta(run, etaMs, sourceOfAsk(stated, similar), at) : run))
+        })
         .catch(error => $.ui.log(`tool-fold: agent estimate: ${String(error)}`, { to: 'debug' }))
     }
   } catch (error) {
@@ -351,32 +362,85 @@ async function lookUpSimilar($: EngineInterface, id: string, type: string, descr
   }
 }
 
+/** The run with a new estimate: its anchor keeps the percent from going back (elapsed ms are measured from the spawn). */
+function withEta(run: AgentRun & ReaskFields, etaMs: number, etaSource: AgentRun['etaSource'], now: number): AgentRun & ReaskFields {
+  const anchor = reanchor(run, etaMs, now - run.startedAt)
+  return { ...run, etaMs, ...(etaSource === undefined ? {} : { etaSource }), ...(anchor === undefined ? {} : { anchor }) }
+}
+
 // Agents with a re-estimate in flight.
 const reasking = new Set<string>()
 
-/** Each clock tick: a running agent past its estimate gets Haiku's new total, at most every 30 s. Fire and forget. */
+/** The percent from real progress (task list, else Haiku's %-estimator); undefined when there is none (elapsed / estimate is not progress). */
+export function realPercent(run: Pick<AgentRun, 'todo' | 'estimate'>): number | undefined {
+  return run.todo !== undefined && run.todo.total > 0 ? Math.round((run.todo.done / run.todo.total) * 100) : run.estimate
+}
+
+/** What the agent did so far, for `<progreso>`: its task list, then the newest calls that fit PROGRESS_CHARS. */
+export function progressText(run: AgentRun, now: number): string {
+  const head = run.todo !== undefined && run.todo.total > 0 ? `Tareas: ${run.todo.done}/${run.todo.total}\n` : ''
+  // One short line per call: a long first line must never empty the list.
+  const oneLine = (text: string): string => clip(text.replace(/\s+/g, ' ').trim(), 120)
+  const lines = (run.history ?? []).map(call => oneLine(`- ${formatDuration(call.ms)} ${call.ok ? '✓' : '✗'} ${call.what}`))
+  const live = run.current.map(step => oneLine(`- en curso (${formatDuration(now - (step.startedAt ?? now))}): ${step.detail ?? step.label}`))
+  const kept: string[] = []
+  let size = head.length
+  for (const line of [...live, ...lines.reverse()]) {
+    if (size + line.length + 1 > PROGRESS_CHARS) {
+      break
+    }
+    kept.push(line)
+    size += line.length + 1
+  }
+  return `${head}${kept.join('\n')}`.trim()
+}
+
+/**
+ * Each clock tick: a running agent is asked for its remaining minutes at 50% and 80% of its estimate, periodically after
+ * that, and when overdue (see `nextReask`); the schedule lives on the run, written here and never from a draw.
+ * Fire and forget.
+ */
 async function reestimateAgents($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
-  for (const run of await read($, runs)) {
+  for (const run of (await read($, runs)) as (AgentRun & ReaskFields)[]) {
     const previousMs = run.etaMs
     const asked = run.etaAskedAt
     const elapsedMs = now - run.startedAt
-    if (run.status !== 'running' || previousMs === undefined || asked === undefined || reasking.has(run.id) || elapsedMs < previousMs + OVERDUE_GRACE_MS || now - asked < REESTIMATE_GAP_MS) {
+    if (run.status !== 'running' || previousMs === undefined || asked === undefined || reasking.has(run.id)) {
+      continue
+    }
+    const due = nextReask({ elapsedMs, etaMs: previousMs, ...(run.etaSource === undefined ? {} : { source: run.etaSource }), lastAskAt: asked, ...(run.reaskStep === undefined ? {} : { step: run.reaskStep }) }, now)
+    if (due === undefined) {
       continue
     }
     reasking.add(run.id)
-    await patch($, run.id, item => ({ ...item, etaAskedAt: now }))
+    const seq = (run.askSeq ?? 1) + 1
+    await patch($, run.id, item => ({ ...item, etaAskedAt: now, askSeq: seq, reaskStep: due.step }))
     const summary = agentSummary(run.type, run.description)
     void loadSamples($, AGENT_SAMPLES_KEY)
       .then(samples =>
         askMinutes($, {
-          text: `${summary}${run.mission === undefined ? '' : `\n${run.mission}`}`,
+          text: `${summary}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`,
           similar: similarRuns(samples, summary),
-          again: { elapsedMs, previousMs },
+          again: { elapsedMs, previousMs, kind: due.kind, ...(realPercent(run) === undefined ? {} : { percent: realPercent(run) }) },
+          ...(due.kind === 'overdue' ? {} : { progress: progressText(run, now) }),
           id: run.id,
         }),
       )
-      .then(etaMs => (etaMs === undefined ? undefined : patch($, run.id, item => ({ ...item, etaMs, etaSource: item.etaSource ?? 'guess' }))))
+      .then(total =>
+        total === undefined
+          ? undefined
+          : patch($, run.id, item => {
+              const current = item.etaMs
+              const isStale = item.askSeq !== seq || current === undefined
+              // Stated and message estimates only move when overdue.
+              const isFixed = due.kind !== 'overdue' && (item.etaSource === 'stated' || item.etaSource === 'message')
+              const etaMs = isStale || isFixed ? undefined : settleEstimate(due.kind, current, total, elapsedMs)
+              return etaMs === undefined
+                ? item
+                : { ...withEta(item, etaMs, item.etaSource ?? 'guess', now), reaskStep: stepFor(elapsedMs, etaMs) }
+            }),
+      )
       .catch(error => $.ui.log(`tool-fold: agent re-estimate: ${String(error)}`, { to: 'debug' }))
       .finally(() => reasking.delete(run.id))
   }
@@ -540,12 +604,12 @@ function progressLine(ui: Elements, run: AgentRun, now: number) {
  * time against how long its type usually takes, worked out as it draws (no model call), capped at 99.
  */
 export function estimateOf(
-  run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt' | 'etaMs'>,
+  run: Pick<AgentRun, 'estimate' | 'isOpenEnded' | 'typical' | 'startedAt' | 'etaMs'> & Pick<ReaskFields, 'anchor'>,
   now: number,
 ): number | undefined {
-  // Similar past agents measured this kind of work: elapsed over their median, held under 100%.
+  // The estimate in minutes (similar runs, Haiku, Claude's message): elapsed over it, held under 99, never back past the anchor.
   if (run.etaMs !== undefined && run.etaMs > 0) {
-    return Math.min(MAX_PERCENT, Math.max(0, Math.round(((now - run.startedAt) / run.etaMs) * 100)))
+    return percentAt(now - run.startedAt, run.etaMs, run.anchor)
   }
   if (run.estimate !== undefined) {
     return run.estimate
@@ -557,14 +621,15 @@ export function estimateOf(
 }
 
 /** `⌕ ux-reviewer ● sonnet-5-5 ... ≈60% · ~3 min`, then the thin progress line: the rows every card opens with. */
-function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mark?: string) {
+function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label?: string, mark?: string) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
   const isLingering = run.isLingering === true
   const color = STATE_COLOR[stateOf(run)].theme
   const elapsed = formatDuration(run.elapsedMs ?? run.durationMs ?? now - run.startedAt)
   const estimate = estimateOf(run, now)
-  const left = remainingOf(now - run.startedAt, estimate)
+  const etaLeft = run.etaLeftMs ?? (run.etaMs !== undefined && run.etaMs > 0 ? Math.max(0, run.etaMs - (now - run.startedAt)) : undefined)
+  const left = remainingOf(now - run.startedAt, estimate, etaLeft)
   // The right datum: its task list when it keeps one, else the estimate; empty with neither (the elapsed time sits by the model).
   const datum =
     isLingering
@@ -610,7 +675,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
 let tick: { cancel: () => void } | undefined
 
 /** Applies `fn` to the run with this agent id; never throws (a tool call must not fail on it). */
-async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun) => AgentRun): Promise<void> {
+async function patch($: EngineInterface, agentId: string, fn: (run: AgentRun & ReaskFields) => AgentRun & ReaskFields): Promise<void> {
   try {
     const list = await update($, runs, all => all.map(run => (run.id === agentId ? fn(run) : run)))
     await mirror($, list, agentId)

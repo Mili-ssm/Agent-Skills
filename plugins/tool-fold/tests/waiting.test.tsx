@@ -297,12 +297,13 @@ test('with a description Haiku writes no label; a guessed estimate draws the lin
   await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
-  await clock.advance(120_000)
+  // Just before the 50% re-ask (2 of 4 minutes) so the first estimate alone is asked.
+  await clock.advance(119_000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(prompts).toHaveLength(1)
   expect(prompts[0]).not.toContain('descripcion:')
   expect(await ui.find({ type: 'Text', text: /Run the bench/ })).toBeDefined()
-  // 2 of 4 minutes: 50%, 2 min left.
+  // 119 s of 4 minutes: 50%, 2 min left.
   expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
   expect(await ui.find({ type: 'Svg' })).toBeDefined()
   await ui.unmount()
@@ -425,7 +426,8 @@ test('Haiku gets the text and the similar runs (top five, most similar first) in
   await $.turn.start({ text: '', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
-  await clock.advance(60_000)
+  // Just before the 50% re-ask of Haiku's 2 minutes.
+  await clock.advance(59_000)
   expect(prompts).toHaveLength(1)
   expect(prompts[0]).toContain('Run the bench')
   expect(prompts[0]).toContain('cargo bench --release')
@@ -434,8 +436,8 @@ test('Haiku gets the text and the similar runs (top five, most similar first) in
   expect(listed[0]).toBe('1. Run the bench — 3 min')
   expect(prompts[0]).not.toContain('Deploy the docs site')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
-  // Haiku's 2 minutes replace the 3 of the similar run: 60 s is 50%.
-  expect(await ui.find({ type: 'Text', text: /≈50%/ })).toBeDefined()
+  // Haiku's 2 minutes replace the 3 of the similar run: 59 s is 49%.
+  expect(await ui.find({ type: 'Text', text: /≈49%/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /^⟲$/ })).toBeDefined()
   await ui.unmount()
 })
@@ -455,7 +457,7 @@ test('with a stated duration Haiku sees it and its answer shows ✦; without sim
   await ui.unmount()
 })
 
-test('past the estimate Haiku is asked again with the elapsed time, throttled to 30 s, and must answer more than elapsed', async ($, on) => {
+test('past the estimate Haiku is asked again for the minutes that remain, throttled to 30 s; the total is elapsed + remaining', async ($, on) => {
   const clock = engine(on)
   const prompts: string[] = []
   let answer = 'minutos: 1'
@@ -465,27 +467,30 @@ test('past the estimate Haiku is asked again with the elapsed time, throttled to
     if (!prompt.includes('<latest_actions>') && !prompt.includes('<answer>')) {
       prompts.push(prompt)
     }
-    return { value: { isAnswered: true, text: answer, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+    // The 50% / 80% re-asks (a wait has no progress) get no answer here: this test follows the overdue ones.
+    const isProgress = prompt.includes('sin información de avance')
+    return { value: { isAnswered: !isProgress, text: answer, usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
   })
   await $.turn.start({ text: 'go', turnId: 't1' })
   await $.tool.call(BENCH)
   await $.turn.complete(done)
-  const reasks = () => prompts.filter(prompt => prompt.includes('<estimacion_anterior>'))
+  const reasks = () => prompts.filter(prompt => prompt.includes('ya superó su estimación anterior'))
   await clock.advance(70_000)
   expect(reasks()).toHaveLength(0)
-  // Overdue at 60 s plus the 15 s grace: asked at the first tick past it; 1 min is below elapsed, so the total becomes max(1, 75 x 1.25, 75 s + 2 min) = 195 s.
-  answer = 'minutos: 1'
+  // Overdue at 60 s plus the 15 s grace: the first overdue ask is not held by the throttle; the 1 min Haiku answers remains, so the total is 75 s + 60 s.
   await clock.advance(6000)
   expect(reasks()).toHaveLength(1)
-  expect(reasks()[0]).toContain('<ya_transcurrido>1.3 min</ya_transcurrido>')
+  expect(reasks()[0]).toContain('lleva 1.3 min')
+  expect(reasks()[0]).toContain('(1 min)')
   expect(reasks()[0]).toContain('<estimacion_anterior>1 min</estimacion_anterior>')
+  expect(reasks()[0]).not.toContain('<porcentaje>')
   await clock.advance(1000)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: /≈\d+%/ })).toBeDefined()
   await ui.unmount()
-  // No more asks while it is within the new estimate (195 s + 15 s).
-  await clock.advance(100_000)
+  // No more overdue asks while it is within the new estimate (135 s + 15 s).
+  await clock.advance(60_000)
   expect(reasks()).toHaveLength(1)
   // Overdue again: asked again, at most every 30 s.
   answer = 'minutos: 10'
@@ -493,7 +498,7 @@ test('past the estimate Haiku is asked again with the elapsed time, throttled to
   expect(reasks()).toHaveLength(2)
   const { text } = await $.command.run({ command: 'agents-debug' } as never)
   expect(text).toContain('re-estimates')
-  expect(text).toContain('old=1 min new=3.3 min')
+  expect(text).toContain('overdue old=1 min haiku-remaining=1 min total=2.3 min')
 })
 
 test('waiting card: icon, datum and line share the blue hex; two owned processes: the latest-ending one gives the estimate; an overdue owned wait is re-estimated past the grace', async ($, on) => {

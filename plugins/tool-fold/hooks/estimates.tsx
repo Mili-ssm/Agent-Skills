@@ -106,6 +106,9 @@ export function minutesLine(reply: string): number | undefined {
 export const sourceOfAsk = (statedMs: number | undefined, similar: readonly WaitSample[]): 'stated' | 'similar' | 'guess' =>
   statedMs !== undefined ? 'stated' : similar.length > 0 ? 'similar' : 'guess'
 
+/** Why a running item is asked again: progress (50% / 80% of the estimate), periodic (long runs), overdue (past the estimate). */
+export type ReaskKind = 'progress' | 'periodic' | 'overdue'
+
 export type MinutesAsk = {
   /** The description, command or brief of the work. */
   text: string
@@ -113,52 +116,171 @@ export type MinutesAsk = {
   statedMs?: number
   /** Similar finished runs (top five), or none. */
   similar: readonly WaitSample[]
-  /** A re-estimate: how long the work already took and what was said it would take. */
-  again?: { elapsedMs: number; previousMs: number }
+  /** A re-estimate: how long the work already took, what was said it would take, which variant and, only when it comes from real progress (a task list, the %-estimator; never elapsed / estimate), the percent. */
+  again?: { elapsedMs: number; previousMs: number; kind: ReaskKind; percent?: number }
+  /** What the work did so far (an agent's task list and recent calls); never a wait's output. Cut to PROGRESS_CHARS. */
+  progress?: string
   /** The item's id, for the re-estimate log. */
   id?: string
 }
 
-// The latest re-estimates (item, old, new, elapsed), newest last, for `/agents-debug`.
+// Characters of `<progreso>`, apart from the 1500 of `<tarea>`.
+export const PROGRESS_CHARS = 600
+
+/**
+ * Fields a re-estimated item carries besides the types' (`types/index.d.ts` is not extended here): the ask counter that
+ * drops stale answers, how many of the 50% / 80% re-asks were done, and the percent anchor (`at` is elapsed ms).
+ */
+export type ReaskFields = { askSeq?: number; reaskStep?: number; anchor?: Anchor; /** Drawn only: ms to the estimated end, so the card's time left agrees with its bar. */ etaLeftMs?: number }
+
+/** Where the percent stood (`pct`) when the estimate last changed, `at` ms into the run: it never goes back from there. */
+export type Anchor = { at: number; pct: number }
+
+/**
+ * The percent a running item shows, 0 to 99: elapsed over the estimate, or, after the estimate changed, a line from the
+ * anchor's percent to 99 at the new end, so a longer estimate never lowers it.
+ */
+export function percentAt(elapsedMs: number, etaMs: number, anchor?: Anchor): number {
+  if (anchor === undefined) {
+    return Math.min(MAX_PERCENT, Math.max(0, Math.round((Math.max(0, elapsedMs) / etaMs) * 100)))
+  }
+  const span = etaMs - anchor.at
+  const fraction = span <= 0 ? 1 : Math.min(1, Math.max(0, (elapsedMs - anchor.at) / span))
+  return Math.min(MAX_PERCENT, Math.max(0, Math.round(anchor.pct + (MAX_PERCENT - anchor.pct) * fraction)))
+}
+
+/** The anchor to store when an item's estimate becomes `nextMs` at `elapsedMs`: the percent shown now, or the old anchor if unchanged. */
+export function reanchor(prev: { etaMs?: number; anchor?: Anchor }, nextMs: number, elapsedMs: number): Anchor | undefined {
+  if (prev.etaMs === undefined || prev.etaMs <= 0 || nextMs === prev.etaMs) {
+    return prev.anchor
+  }
+  return { at: elapsedMs, pct: percentAt(elapsedMs, prev.etaMs, prev.anchor) }
+}
+
+// Re-ask schedule: fractions of the current estimate (by elapsed time, never by percent), then every tenth of it within bounds.
+const REASK_FRACTIONS = [0.5, 0.8] as const
+const PERIODIC_MIN_MS = 5 * 60_000
+const PERIODIC_MAX_MS = 20 * 60_000
+// A progress or periodic answer within this share of the current total is noise.
+const DAMPING_MIN = 0.2
+
+/** Elapsed ms between periodic re-asks: a tenth of the estimate, 5 to 20 minutes. */
+export const periodicGapMs = (etaMs: number): number => Math.min(PERIODIC_MAX_MS, Math.max(PERIODIC_MIN_MS, etaMs / 10))
+
+/** How many of the 50% / 80% re-asks an estimate of `etaMs` has already passed at `elapsedMs` (0, 1 or 2). */
+export const stepFor = (elapsedMs: number, etaMs: number): number => REASK_FRACTIONS.filter(fraction => elapsedMs >= etaMs * fraction).length
+
+/**
+ * Whether a running item is asked again now, and how. Called from the tick, never from a draw. `lastAskAt` is the clock
+ * time of its latest ask (the first one counts); `step` how many 50% / 80% re-asks went out. Stated and message
+ * estimates are only re-asked once overdue.
+ */
+export function nextReask(
+  item: { elapsedMs: number; etaMs: number; source?: string; lastAskAt: number; step?: number },
+  now: number,
+): { kind: ReaskKind; step: number } | undefined {
+  const step = item.step ?? 0
+  // The first overdue ask (the first tick past the grace) is never held by the throttle; later ones are, every 30 s.
+  const isOverdue = item.elapsedMs >= item.etaMs + OVERDUE_GRACE_MS
+  const isFirstOverdue = isOverdue && item.lastAskAt < now - (item.elapsedMs - item.etaMs - OVERDUE_GRACE_MS)
+  if (now - item.lastAskAt < REESTIMATE_GAP_MS && !isFirstOverdue) {
+    return undefined
+  }
+  if (isOverdue) {
+    return { kind: 'overdue', step }
+  }
+  if (item.source === 'stated' || item.source === 'message') {
+    return undefined
+  }
+  const [half, late] = REASK_FRACTIONS
+  if (step < 2 && item.elapsedMs >= item.etaMs * late) {
+    return { kind: 'progress', step: 2 }
+  }
+  if (step < 1 && item.elapsedMs >= item.etaMs * half) {
+    return { kind: 'progress', step: 1 }
+  }
+  return now - item.lastAskAt >= periodicGapMs(item.etaMs) ? { kind: 'periodic', step } : undefined
+}
+
+/**
+ * The estimate to store after a re-ask answered `totalMs` (elapsed + Haiku's remaining) for an item now at `currentMs`:
+ * an overdue answer only lengthens; a progress or periodic one counts if it differs 20% or more, blended 50/50 with
+ * the current total (it may go down). Undefined when the answer is ignored.
+ */
+export function settleEstimate(kind: ReaskKind, currentMs: number, totalMs: number, elapsedMs: number): number | undefined {
+  if (kind === 'overdue') {
+    return totalMs > currentMs ? totalMs : undefined
+  }
+  if (Math.abs(totalMs - currentMs) / currentMs < DAMPING_MIN) {
+    return undefined
+  }
+  const blended = Math.round((currentMs + totalMs) / 2)
+  return blended > elapsedMs ? blended : undefined
+}
+
+// The latest re-estimates (item, variant, old, Haiku's remaining, proposed total, elapsed), newest last, for `/agents-debug`.
 export const reestimateLog: string[] = []
 const LOG_KEPT = 10
 
+// Closes every re-ask prompt, after the data.
+const TRAILER = '\n\nResponde solo con la línea minutos: N (minutos restantes, número entero).'
+
 const fmtMin = (ms: number): string => `${Math.round((ms / 60000) * 10) / 10} min`
+
+const HEAD_OVERDUE = (previous: string, elapsed: string): string =>
+  `Una tarea en segundo plano de un agente de programación ya superó su estimación anterior (${previous}) y lleva ${elapsed}. ` +
+  'La estimación anterior fue demasiado baja: no la repitas. Estima cuántos minutos FALTAN a partir de ahora, sin contar lo ya transcurrido. ' +
+  'Usa tareas_parecidas. Responde solo con esta línea:\nminutos: N\n' +
+  '<example>Con 12 min transcurridos y estimación anterior de 8 min, la respuesta es:\nminutos: 5</example>'
+
+// A black box (a background shell, or an agent with no real percent): no percent, only the clock and the references.
+const HEAD_BLIND = (elapsed: string): string =>
+  `Una tarea en segundo plano (sin información de avance) lleva ${elapsed}. ` +
+  'Estima cuántos minutos FALTAN para terminar, sin contar lo ya transcurrido. ' +
+  'Tu mejor referencia son tareas_parecidas y, si hay, duracion_indicada y <progreso>; sin tareas_parecidas, parte de la estimación anterior. Responde solo con esta línea:\nminutos: N\n' +
+  '<example>Con 6 min transcurridos, la respuesta es:\nminutos: 7</example>'
+
+const HEAD_PROGRESS = (elapsed: string, percent: number): string =>
+  `Una tarea en segundo plano de un agente de programación lleva ${elapsed} y va por ${percent}%. ` +
+  'Estima cuántos minutos FALTAN para terminar, sin contar lo ya transcurrido. ' +
+  'Si el porcentaje es mayor que 0, FALTAN ≈ transcurrido × (100 − porcentaje) / porcentaje; corrígelo con tareas_parecidas y <progreso> (tareas y llamadas recientes). Con 0%, usa tareas_parecidas. ' +
+  'La estimación anterior es solo una pista. Responde solo con esta línea:\nminutos: N\n' +
+  '<example>Con 6 min transcurridos y 40%, la respuesta es:\nminutos: 9</example>'
 
 /**
  * Asks Haiku (one call) for the minutes a piece of work takes: it sees the text and the similar past runs together.
- * Reads `minutos: N` strictly; a re-estimate must also be longer than the elapsed time. Undefined when it does not answer well.
+ * Reads `minutos: N` strictly. A first ask answers the total; a re-ask (`again`) answers the minutes that REMAIN, in the
+ * progress / periodic or the overdue wording, and the total returned is elapsed + remaining (capped). Undefined when it does not answer well.
  */
 export async function askMinutes($: EngineInterface, ask: MinutesAsk): Promise<number | undefined> {
   const runs = ask.similar.length === 0 ? 'none' : `\n${ask.similar.map((run, index) => `${index + 1}. ${run.summary} — ${fmtMin(run.durationMs)}`).join('\n')}`
-  const reply = await $.model.complete({
-    model: 'haiku',
-    prompt:
-      `<tarea>${ask.text.slice(0, 1500)}</tarea>\n` +
-      (ask.statedMs === undefined ? '' : `<duracion_indicada>${fmtMin(ask.statedMs)}</duracion_indicada>\n`) +
-      `<tareas_parecidas>${runs}</tareas_parecidas>\n` +
-      (ask.again === undefined
-        ? ''
-        : `<ya_transcurrido>${fmtMin(ask.again.elapsedMs)}</ya_transcurrido>\n<estimacion_anterior>${fmtMin(ask.again.previousMs)}</estimacion_anterior>\n`) +
-      '\nUna tarea en segundo plano de un agente de programación ejecuta lo de arriba. ' +
-      (ask.again === undefined
-        ? 'Estima cuántos minutos tardará en total.'
-        : 'Ya pasó la estimación anterior: estima cuántos minutos durará en total, contando lo ya transcurrido (más que lo transcurrido).') +
-      ' Responde solo con esta línea:\nminutos: N\n<example>minutos: 4</example>',
-    maxTokens: 20,
-    timeoutMs: 15000,
-  })
+  const { again } = ask
+  const data =
+    `<tarea>${ask.text.slice(0, 1500)}</tarea>\n` +
+    (ask.statedMs === undefined ? '' : `<duracion_indicada>${fmtMin(ask.statedMs)}</duracion_indicada>\n`) +
+    `<tareas_parecidas>${runs}</tareas_parecidas>\n` +
+    (again === undefined ? '' : `<ya_transcurrido>${fmtMin(again.elapsedMs)}</ya_transcurrido>\n`) +
+    (again?.kind === 'overdue' || again?.percent === undefined ? '' : `<porcentaje>${again.percent}%</porcentaje>\n`) +
+    (ask.progress === undefined || ask.progress === '' ? '' : `<progreso>${ask.progress.slice(0, PROGRESS_CHARS)}</progreso>\n`)
+  let prompt: string
+  if (again === undefined) {
+    prompt = `${data}\nUna tarea en segundo plano de un agente de programación ejecuta lo de arriba. Estima cuántos minutos tardará en total. Responde solo con esta línea:\nminutos: N\n<example>minutos: 4</example>`
+  } else if (again.kind === 'overdue') {
+    prompt = `${HEAD_OVERDUE(fmtMin(again.previousMs), fmtMin(again.elapsedMs))}\n\n${data}<estimacion_anterior>${fmtMin(again.previousMs)}</estimacion_anterior>${TRAILER}`
+  } else {
+    const head = again.percent === undefined ? HEAD_BLIND(fmtMin(again.elapsedMs)) : HEAD_PROGRESS(fmtMin(again.elapsedMs), again.percent)
+    prompt = `${head}\n\n${data}<estimacion_anterior>${fmtMin(again.previousMs)}</estimacion_anterior>${TRAILER}`
+  }
+  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 20, timeoutMs: 15000 })
   if (!reply.isAnswered || (reply.usage?.output_tokens ?? 0) >= 20) {
     return undefined
   }
   const ms = minutesLine(reply.text)
-  if (ms === undefined || ask.again === undefined) {
+  if (ms === undefined || again === undefined) {
     return ms
   }
-  // An answer at or below the elapsed time cannot be the total: the estimate lands in the future so the card leaves overdue.
-  const { elapsedMs, previousMs } = ask.again
-  const total = ms > elapsedMs ? ms : Math.max(ms, elapsedMs * 1.25, elapsedMs + 120_000)
-  reestimateLog.push(`${ask.id ?? '?'} old=${fmtMin(previousMs)} new=${fmtMin(total)} (haiku ${fmtMin(ms)}) elapsed=${fmtMin(elapsedMs)}`)
+  const total = Math.min(again.elapsedMs + ms, MAX_ESTIMATE_MIN * 60000)
+  reestimateLog.push(`${ask.id ?? '?'} ${again.kind} old=${fmtMin(again.previousMs)} haiku-remaining=${fmtMin(ms)} total=${fmtMin(total)} elapsed=${fmtMin(again.elapsedMs)}`)
   reestimateLog.splice(0, Math.max(0, reestimateLog.length - LOG_KEPT))
   return total
 }

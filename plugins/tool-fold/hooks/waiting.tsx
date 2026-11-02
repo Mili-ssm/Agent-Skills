@@ -4,9 +4,13 @@ import type { EngineInterface } from 'claude-code'
 import type { AgentRun, EtaSource, WaitKind, WaitTask } from '../types'
 import { commandOf, formatDuration, describeStep, isAgentRunning, isBackgroundAgent, isTrackedRun, retitleDock } from './agents'
 import {
-  REESTIMATE_GAP_MS,
   WAIT_SAMPLES_KEY,
   askMinutes,
+  nextReask,
+  percentAt,
+  reanchor,
+  settleEstimate,
+  stepFor,
   loadSamples,
   recordSample,
   similarMedian,
@@ -17,6 +21,7 @@ import {
   MAX_PERCENT,
   OVERDUE_GRACE_MS,
 } from './estimates'
+import type { Anchor, ReaskFields, ReaskKind } from './estimates'
 import { cycleDebug, effectiveCycle, hasDoingPhrase, isCycleBusy, mainInfo } from './cycle'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
@@ -34,6 +39,8 @@ const cycleAtom = atom(
   { shape: 'cycle-1' })
 
 type Lingered = WaitTask & { endedAt: number }
+// A wait with the re-estimate schedule kept on it (see estimates.tsx).
+type Task = WaitTask & ReaskFields
 // Bumped each second while the card shows, so its elapsed time moves (the render itself never writes).
 const waitTick = atom({ plugin: 'tool-fold', key: 'waitTick' } as const, 0)
 
@@ -111,10 +118,20 @@ const agentName = (input: Record<string, unknown>): string => {
   return clip((text('subagent_type').replace(/^[\w-]+:/, '') || text('description') || 'agente').trim(), 60)
 }
 
-/** Elapsed over the estimate, held under 100% until the work is done; undefined with no estimate. */
-export function progressOf(elapsedMs: number, etaMs: number | undefined): number | undefined {
-  return etaMs === undefined || etaMs <= 0 ? undefined : Math.min(MAX_PROGRESS, Math.max(0, elapsedMs / etaMs))
+/**
+ * Elapsed over the estimate, held under 100% until the work is done; undefined with no estimate. After the estimate
+ * changed, the line runs from the anchor's percent to the end, so the percent never goes back.
+ */
+export function progressOf(elapsedMs: number, etaMs: number | undefined, anchor?: Anchor): number | undefined {
+  if (etaMs === undefined || etaMs <= 0) {
+    return undefined
+  }
+  return anchor === undefined ? Math.min(MAX_PROGRESS, Math.max(0, elapsedMs / etaMs)) : percentAt(elapsedMs, etaMs, anchor) / 100
 }
+
+/** Ms to the estimated end (0 once past it); undefined with no estimate. */
+const leftOf = (elapsedMs: number, etaMs: number | undefined): number | undefined =>
+  etaMs === undefined || etaMs <= 0 ? undefined : Math.max(0, etaMs - elapsedMs)
 
 // Module state, reset by a reload (session.start starts it again): the one-second redraw while the card shows.
 let turnStartedAt = 0
@@ -142,7 +159,16 @@ const LABEL_EXAMPLE = 'descripcion: Ejecuta el benchmark del parser\n'
 
 /** Gives waits Claude's own estimate (its message), which beats whatever else they have. */
 async function setEta($: EngineInterface, ids: readonly string[], etaMs: number, source: EtaSource): Promise<void> {
-  await update($, waits, all => all.map(task => (ids.includes(task.id) ? { ...task, etaMs, etaSource: source } : task)))
+  const now = await $.clock.now()
+  await update($, waits, all =>
+    all.map((task: Task) => {
+      if (!ids.includes(task.id)) {
+        return task
+      }
+      const anchor = reanchor(task, etaMs, now - task.startedAt)
+      return { ...task, etaMs, etaSource: source, ...(anchor === undefined ? {} : { anchor }) }
+    }),
+  )
 }
 
 /** Fills in a wait's label with one Haiku call. Fire and forget: a miss leaves the wait as it was. */
@@ -167,10 +193,17 @@ async function guess($: EngineInterface, id: string, subject: string): Promise<v
 const asking = new Set<string>()
 
 /**
- * Haiku's minutes for a wait (text and similar runs together), at launch or, with `again`, when it ran past the
- * estimate. Its answer is the estimate unless Claude's own message already set one. Fire and forget.
+ * Haiku's minutes for a wait (text and similar runs together), at launch or, with `again`, as a re-estimate (its remaining
+ * minutes, in the progress / periodic or the overdue wording). Its answer is the estimate unless Claude's own message
+ * already set one, a newer ask went out meanwhile (`seq`), or a re-estimate is damped away. Fire and forget.
  */
-async function askWait($: EngineInterface, task: WaitTask, statedMs: number | undefined, again?: { elapsedMs: number; previousMs: number }): Promise<void> {
+async function askWait(
+  $: EngineInterface,
+  task: Task,
+  statedMs: number | undefined,
+  seq: number,
+  again?: { elapsedMs: number; previousMs: number; kind: ReaskKind },
+): Promise<void> {
   if (asking.has(task.id)) {
     return
   }
@@ -179,20 +212,35 @@ async function askWait($: EngineInterface, task: WaitTask, statedMs: number | un
     const samples = await loadSamples($, WAIT_SAMPLES_KEY)
     const similar = similarRuns(samples, task.label)
     const text = task.subject === undefined || task.subject === task.label ? task.label : `${task.label}\n${task.subject}`
-    const etaMs = await askMinutes($, { text, ...(statedMs === undefined ? {} : { statedMs }), similar, ...(again === undefined ? {} : { again, id: task.id }) })
-    if (etaMs !== undefined) {
-      const etaSource = sourceOfAsk(statedMs, similar)
-      await update($, waits, all =>
-        all.map(item =>
-          item.id !== task.id || (again === undefined && item.etaSource === 'message')
-            ? item
-            : { ...item, etaMs, etaSource: again === undefined ? etaSource : (item.etaSource ?? etaSource) },
-        ),
-      )
+    const answer = await askMinutes($, { text, ...(statedMs === undefined ? {} : { statedMs }), similar, ...(again === undefined ? {} : { again, id: task.id }) })
+    if (answer === undefined) {
+      return
     }
+    const etaSource = sourceOfAsk(statedMs, similar)
+    const now = await $.clock.now()
+    await update($, waits, all =>
+      all.map((item: Task) => {
+        if (item.id !== task.id || (item.askSeq ?? 1) !== seq) {
+          return item
+        }
+        if (again === undefined) {
+          return item.etaSource === 'message' ? item : withEta(item, answer, etaSource, now)
+        }
+        // Stated and message estimates only move when overdue.
+        const isFixed = again.kind !== 'overdue' && (item.etaSource === 'stated' || item.etaSource === 'message')
+        const etaMs = isFixed || item.etaMs === undefined ? undefined : settleEstimate(again.kind, item.etaMs, answer, again.elapsedMs)
+        return etaMs === undefined ? item : { ...withEta(item, etaMs, item.etaSource ?? etaSource, now), reaskStep: stepFor(again.elapsedMs, etaMs) }
+      }),
+    )
   } finally {
     asking.delete(task.id)
   }
+}
+
+/** The wait with a new estimate; its anchor keeps the percent from going back. */
+function withEta(task: Task, etaMs: number, etaSource: EtaSource, now: number): Task {
+  const anchor = reanchor(task, etaMs, now - task.startedAt)
+  return { ...task, etaMs, etaSource, ...(anchor === undefined ? {} : { anchor }) }
 }
 
 // Claude's last message, read once per turn end for a duration it states for the running work.
@@ -230,7 +278,7 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
     const startedAt = await $.clock.now()
     const subject = command !== '' ? command : description
     const isAsked = kind !== 'agent' && subject.trim() !== ''
-    const task: WaitTask = {
+    const task: Task = {
       id,
       kind,
       key,
@@ -240,6 +288,7 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
       ...(isAsked ? { subject: clip(subject, 500), askedAt: startedAt } : {}),
       startedAt,
       ...(etaMs === undefined ? {} : { etaMs, etaSource: stated === undefined ? ('similar' as const) : ('stated' as const) }),
+      ...(isAsked ? { askSeq: 1, reaskStep: 0 } : {}),
     }
     await update($, waits, all => [...all.filter(item => item.id !== id), task])
     await syncTick($)
@@ -248,7 +297,7 @@ async function begin($: EngineInterface, id: string, kind: WaitKind, input: Reco
       void guess($, id, subject).catch(error => $.ui.log(`tool-fold: wait guess: ${String(error)}`, { to: 'debug' }))
     }
     if (isAsked) {
-      void askWait($, task, stated).catch(error => $.ui.log(`tool-fold: wait estimate: ${String(error)}`, { to: 'debug' }))
+      void askWait($, task, stated, 1).catch(error => $.ui.log(`tool-fold: wait estimate: ${String(error)}`, { to: 'debug' }))
     }
   } catch (error) {
     $.ui.log(`tool-fold: wait: ${String(error)}`, { to: 'debug' })
@@ -318,15 +367,17 @@ async function sweep($: EngineInterface): Promise<void> {
   }
   await drop($, stale)
   await adoptListed($)
-  for (const task of all) {
+  for (const task of all as Task[]) {
     const etaMs = task.etaMs
     if (stale.includes(task.id) || etaMs === undefined || task.askedAt === undefined || asking.has(task.id)) {
       continue
     }
     const elapsedMs = now - task.startedAt
-    if (elapsedMs >= etaMs + OVERDUE_GRACE_MS && now - task.askedAt >= REESTIMATE_GAP_MS) {
-      await update($, waits, list => list.map(item => (item.id === task.id ? { ...item, askedAt: now } : item)))
-      void askWait($, task, undefined, { elapsedMs, previousMs: etaMs }).catch(error => $.ui.log(`tool-fold: wait re-estimate: ${String(error)}`, { to: 'debug' }))
+    const due = nextReask({ elapsedMs, etaMs, ...(task.etaSource === undefined ? {} : { source: task.etaSource }), lastAskAt: task.askedAt, ...(task.reaskStep === undefined ? {} : { step: task.reaskStep }) }, now)
+    if (due !== undefined) {
+      const seq = (task.askSeq ?? 1) + 1
+      await update($, waits, list => list.map((item: Task) => (item.id === task.id ? { ...item, askedAt: now, askSeq: seq, reaskStep: due.step } : item)))
+      void askWait($, task, undefined, seq, { elapsedMs, previousMs: etaMs, kind: due.kind }).catch(error => $.ui.log(`tool-fold: wait re-estimate: ${String(error)}`, { to: 'debug' }))
     }
   }
 }
@@ -508,7 +559,7 @@ async function cycleRuns($: EngineInterface, now: number, model: string): Promis
  * The main agent's wait as runs the agent card draws (label "Claude · esperando" idle, "Claude · en segundo plano" while a turn runs, the wait as its mission and live
  * call, the estimate as its percentage): empty when nothing is waited on; labelled by whether the main loop is idle. Never writes.
  */
-export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
+export async function waitingRuns($: EngineInterface): Promise<(AgentRun & ReaskFields)[]> {
   const [everything, idle] = await Promise.all([read($, waits), read($, idleAt)])
   // A subagent's waits are its own card's (see `agentWaitRuns`).
   const list = everything.filter(task => task.owner === undefined)
@@ -530,7 +581,8 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
   const driver = procs.reduce<WaitTask | undefined>((best, task) => (best === undefined || endOf(task) > endOf(best) ? task : best), undefined)
   const earliest = Math.min(...list.map(task => task.startedAt))
   const elapsed = Math.max(0, now - (driver?.startedAt ?? earliest))
-  const fraction = driver === undefined ? undefined : progressOf(elapsed, driver.etaMs)
+  const fraction = driver === undefined ? undefined : progressOf(elapsed, driver.etaMs, (driver as Task).anchor)
+  const left = leftOf(elapsed, driver?.etaMs)
   const isOverdue = fraction !== undefined && driver?.etaMs !== undefined && elapsed > driver.etaMs + OVERDUE_GRACE_MS
   const mission = driver?.label ?? agents[0]?.name ?? agents[0]?.label ?? detail
   const cycle = await read($, cycleAtom)
@@ -554,6 +606,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
       recent: [],
       counts: {},
       ...(fraction === undefined ? {} : { estimate: Math.round(fraction * 100) }),
+      ...(left === undefined ? {} : { etaLeftMs: left }),
       ...(driver?.etaSource === undefined ? {} : { etaSource: driver.etaSource }),
       ...(isOverdue ? { isOverdue } : {}),
       // No estimate at all: the empty track keeps the card's shape (a wait on agents has none, their own cards have it).
@@ -567,7 +620,7 @@ export async function waitingRuns($: EngineInterface): Promise<AgentRun[]> {
  * name and model, in the waiting state, with the process's estimate. Empty for a still-running agent (its own card
  * shows). Never writes.
  */
-export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRun[]): Promise<AgentRun[]> {
+export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRun[]): Promise<(AgentRun & ReaskFields)[]> {
   const owned = (await read($, waits)).filter(task => task.owner !== undefined)
   const ended = (await read($, lingering) as Lingered[]).filter(task => task.owner !== undefined)
   if (owned.length === 0 && ended.length === 0) {
@@ -575,7 +628,7 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
   }
   await read($, waitTick)
   const now = await $.clock.now()
-  const cards: AgentRun[] = []
+  const cards: (AgentRun & ReaskFields)[] = []
   for (const run of agents) {
     const procs = owned.filter(task => task.owner === run.id)
     if (run.status === 'running') {
@@ -602,7 +655,9 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
     const endOf = (task: WaitTask): number => task.startedAt + (task.etaMs ?? 0)
     const driver = procs.reduce((best, task) => (endOf(task) > endOf(best) ? task : best))
     const elapsed = Math.max(0, now - run.startedAt)
-    const fraction = progressOf(Math.max(0, now - driver.startedAt), driver.etaMs)
+    const driverElapsed = Math.max(0, now - driver.startedAt)
+    const left = leftOf(driverElapsed, driver.etaMs)
+    const fraction = progressOf(driverElapsed, driver.etaMs, (driver as Task).anchor)
     const detail = procs.length === 1 ? `esperando · ${driver.label} en segundo plano` : `esperando · ${procs.length} procesos`
     const { estimate: _estimate, etaMs: _etaMs, etaSource: _etaSource, todo: _todo, isOpenEnded: _open, ...own } = run
     cards.push({
@@ -615,6 +670,7 @@ export async function agentWaitRuns($: EngineInterface, agents: readonly AgentRu
       recent: [],
       counts: {},
       ...(fraction === undefined ? { isTrackOnly: true } : { estimate: Math.round(fraction * 100) }),
+      ...(left === undefined ? {} : { etaLeftMs: left }),
       ...(driver.etaSource === undefined ? {} : { etaSource: driver.etaSource }),
       ...(fraction !== undefined && driver.etaMs !== undefined && now - driver.startedAt > driver.etaMs + OVERDUE_GRACE_MS ? { isOverdue: true } : {}),
     })
