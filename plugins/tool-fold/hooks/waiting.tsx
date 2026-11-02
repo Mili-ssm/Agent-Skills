@@ -80,9 +80,17 @@ type Reply = { isAnswered: boolean; text: string; usage?: { output_tokens?: numb
 /** True when the reply used all of `maxTokens`: it was probably cut mid-word. */
 const isCut = (reply: Reply, maxTokens: number): boolean => (reply.usage?.output_tokens ?? 0) >= maxTokens
 
-/** The usable phrase of a Haiku reply: '' when it is unanswered, cut by `maxTokens` or thinking aloud. */
+/**
+ * The usable phrase of a Haiku reply: '' when it is unanswered or thinking aloud. A reply cut by `maxTokens` still
+ * gives its first line when that line ended before the cut: Haiku often writes the phrase, then explains the command
+ * below it, which once dropped every translation of a long script.
+ */
 export function phraseOf(reply: Reply, maxTokens = PHRASE_TOKENS): string {
-  return reply.isAnswered && !isCut(reply, maxTokens) ? cleanPhrase(reply.text) : ''
+  if (!reply.isAnswered) {
+    return ''
+  }
+  const isWholeFirstLine = /\S[^\n]*\n/.test(reply.text.trimStart())
+  return isCut(reply, maxTokens) && !isWholeFirstLine ? '' : cleanPhrase(reply.text)
 }
 
 /** Minutes in a reply: a bare number (`12`, `3,5`) as milliseconds; undefined for anything else, prose included. */

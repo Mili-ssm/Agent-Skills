@@ -281,7 +281,8 @@ const COMMAND_PROMPT =
   '`until grep -q complete run.log; do sleep 30; done` → Espera a que run.log diga complete\n' +
   '`sed -n 1,80p src/main.rs` → Muestra las líneas 1-80 de main.rs\n' +
   '`git diff --stat HEAD~3` → Resume los cambios de 3 commits\n' +
-  'Tu respuesta entera es la frase, sin comillas ni punto final.\n\n'
+  "`python3 - <<'E'` seguido de un script que mide memoria → Ejecuta un script de Python que mide memoria\n" +
+  'Para un script largo, nombra solo su acción principal. Tu respuesta entera es una línea de 3 a 10 palabras, sin comillas, explicaciones ni punto final.\n\n'
 // Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
 // How Haiku estimates an agent's progress: the fixed rules as the system prompt, the agent's data as
 // the message. No phase scale: agents differ too much (a watcher has no phases); the rules cover the
