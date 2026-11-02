@@ -24,7 +24,7 @@ import {
   OVERDUE_GRACE_MS,
 } from './estimates'
 import type { ReaskFields } from './estimates'
-import { PLAN_ENABLED, applyCount, applyOverdue, askPlan, askStepCount, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan } from './plan'
+import { callPointsAhead, PLAN_ENABLED, applyCount, applyOverdue, askPlan, askStepCount, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
@@ -1061,6 +1061,7 @@ export async function startAgentCall(
   }
   const step: Step = { id: toolUseId, ...describeStep(tool, input), status: 'running', startedAt: await $.clock.now() }
   await patch($, agentId, run => ({ ...run, current: [...run.current, step] }))
+  await hintPlan($, agentId, step.detail ?? step.label, step.startedAt ?? 0)
   if (
     step.kind === 'run' &&
     typeof input.command === 'string' &&
@@ -1138,7 +1139,17 @@ async function describeCommand($: EngineInterface, agentId: string, stepId: stri
     const detail = clip(text, 120)
     const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
     await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
+    await hintPlan($, agentId, detail, await $.clock.now())
   }
+}
+
+/** A call's words point at a later plan step: mark it, so the next tick asks Haiku the count (1 min apart at most). */
+async function hintPlan($: EngineInterface, agentId: string, text: string, at: number): Promise<void> {
+  const run = PLAN_ENABLED ? (await read($, runs)).find(item => item.id === agentId) : undefined
+  if (run?.plan === undefined || run.status !== 'running' || !callPointsAhead(run.plan, text)) {
+    return
+  }
+  await patch($, agentId, run => (run.plan !== undefined && run.status === 'running' && callPointsAhead(run.plan, text) ? { ...run, plan: { ...run.plan, hintAt: at } } : run))
 }
 
 /**
