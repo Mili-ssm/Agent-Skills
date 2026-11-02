@@ -264,7 +264,7 @@ test('the main agent card comes first, stands out, and shows the time left', asy
     const name = await ui.find({ type: 'Text', text: /Claude · esperando/ })
     expect(name?.props.weight).toBe('bold')
     expect(name?.text).toBe('Claude · esperando')
-    expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#4f8fd8')
+    expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#6ba3e6')
     // 50% at 90 s: 90 s left.
     expect(await ui.find({ type: 'Text', text: /≈50% · ~2 min/ })).toBeDefined()
     // The wait is blue, its thin line too.
@@ -522,8 +522,8 @@ test('waiting card: icon, datum and line share the blue hex; two owned processes
   // The 600 s process ends last: 30 s of 600 s is 5%, not the short one's 50%.
   const datum = await ui.find({ type: 'Text', text: /≈5%/ })
   expect(datum).toBeDefined()
-  expect(datum?.props.color).toBe('#4f8fd8')
-  expect((await ui.find({ type: 'Text', text: /^◷$/ }))?.props.color).toBe('#4f8fd8')
+  expect(datum?.props.color).toBe('#6ba3e6')
+  expect((await ui.find({ type: 'Text', text: /^◷$/ }))?.props.color).toBe('#6ba3e6')
   expect((await ui.findAll({ type: 'Svg' })).some(svg => String(svg.props.source).includes('#4f8fd8'))).toBe(true)
   await ui.unmount()
   // The short wait is overdue at 60 s; the first ask comes at the first tick past the 15 s grace.
@@ -934,7 +934,7 @@ test('the main card while a turn runs: orange with no estimate, blue with backgr
   expect(name).toBeDefined()
   // No time inference: no percentage, orange, with the prompt as detail until a call arrives.
   expect(await ui.find({ type: 'Text', text: /≈/ })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#c76f52')
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#d8836a')
   expect(await ui.find({ type: 'Text', text: /Refactor the parser module/ })).toBeDefined()
   await ui.unmount()
   // The latest call becomes the detail until Haiku says something.
@@ -1061,7 +1061,7 @@ test('with background work the blue card replaces the working one in the same pl
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   expect(await ui.find({ type: 'Text', text: /Claude · en segundo plano/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Claude · trabajando/ })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#4f8fd8')
+  expect((await ui.find({ type: 'Text', text: /^◆$/ }))?.props.color).toBe('#6ba3e6')
   await ui.unmount()
   await $.turn.complete(done)
   const after = await $.ui.mount({ ...BAND, surface: 'desktop' })
