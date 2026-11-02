@@ -489,6 +489,19 @@ export async function onAgentWoken($: EngineInterface, agentId: string, text: st
   }
 }
 
+/** The main loop's wait on this agent ends well: the agent handed back. Never throws. */
+export async function endAgentWait($: EngineInterface, agentId: string): Promise<void> {
+  await finish($, agentId, true)
+}
+
+/** Drops every wait this subagent owns: it handed back, so nothing of its own is still waited on. Never throws. */
+export async function dropOwnedWaits($: EngineInterface, agentId: string): Promise<void> {
+  const owned = (await read($, waits)).filter(task => task.owner === agentId).map(task => task.id)
+  if (owned.length > 0) {
+    await drop($, owned).catch(() => undefined)
+  }
+}
+
 /** True while a background process launched by this subagent is still waited on. */
 export async function hasOwnedWaits($: EngineInterface, agentId: string): Promise<boolean> {
   return (await read($, waits)).some(task => task.owner === agentId)

@@ -1164,3 +1164,17 @@ test('the main card waiting on one agent names it once', async ($, on) => {
   expect(texts.some(text => /implementer · esperando/.test(text))).toBe(false)
   await ui.unmount()
 })
+
+test('a background agent that handed back ends as done although the engine lists it waiting and its own shell never reported', async ($, on) => {
+  await backgroundAgent($, on, () => 'waiting', { backgroundWakesOwner: true, backgroundEndsWithFinalResponse: true })
+  await $.tool.call({ tool: 'Bash', command: 'sleep 150', description: 'sleep 150', run_in_background: true, agentId: 'a1' } as never)
+  // Parked on its shell: still running (the existing behaviour).
+  await $.turn.complete({ ...done, agentId: 'a1', turnId: 's1' })
+  expect(await runsLine($)).toEqual(['runs: 1 running of 1', '  run a1 running background=true agent-skills:check-runner'])
+  // It hands back; the shell's notice never arrives and the engine keeps listing it as waiting (resumable).
+  await $.turn.start({ text: 'continue', turnId: 's2', agentId: 'a1' })
+  await $.tool.call({ tool: 'SubagentHandback', agentId: 'a1' } as never)
+  await $.turn.complete({ ...done, agentId: 'a1', turnId: 's2' })
+  expect(await runsLine($)).toEqual(['runs: 0 running of 1', '  run a1 done background=true agent-skills:check-runner'])
+  expect(await waitsOf($)).toBe('waits: none')
+})

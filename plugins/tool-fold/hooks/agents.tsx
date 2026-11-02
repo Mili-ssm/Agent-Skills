@@ -25,7 +25,7 @@ import {
 } from './estimates'
 import type { ReaskFields } from './estimates'
 import { onCycleSpawn } from './cycle'
-import { PHRASE_TOKENS, agentWaitRuns, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
+import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -709,6 +709,7 @@ async function syncTick($: EngineInterface): Promise<void> {
         }
       })
       void reestimateAgents($).catch(error => $.ui.log(`tool-fold: re-estimate: ${String(error)}`, { to: 'debug' }))
+      void settleHandedBack($)
     })
   } else if (!isRunning && tick !== undefined) {
     tick.cancel()
@@ -1141,6 +1142,34 @@ export async function isBackgroundAgent($: EngineInterface, agentId: string): Pr
   return (await read($, runs)).some(run => run.id === agentId && run.background === true)
 }
 
+/**
+ * True when the subagent's last finished call was its hand-back: its task is over. The engine still lists such an
+ * agent as `waiting` (it can be resumed), which once kept its card running for hours. A wake starts new calls.
+ */
+const hasHandedBack = (run: AgentRun): boolean => (run.history?.at(-1)?.what ?? run.recent.at(-1)?.label ?? '').includes('SubagentHandback')
+
+/**
+ * Each clock tick: a running background agent that handed back and is no longer running in the engine ends as done
+ * (its turn end was read as parked, or arrived before this fix). Never throws.
+ */
+async function settleHandedBack($: EngineInterface): Promise<void> {
+  try {
+    const stuck = (await read($, runs)).filter(run => run.status === 'running' && run.current.length === 0 && hasHandedBack(run))
+    if (stuck.length === 0) {
+      return
+    }
+    const engine = await $.agent.list().catch(() => undefined)
+    for (const run of stuck) {
+      if (engine?.some(info => info.id === run.id && info.status === 'running') !== true) {
+        await endAgentTurn($, run.id, 'answer', 0)
+        await endAgentWait($, run.id)
+      }
+    }
+  } catch (error) {
+    $.ui.log(`tool-fold: settle: ${String(error)}`, { to: 'debug' })
+  }
+}
+
 /** True when the engine says the agent's loop is parked on work it owns: its turn ended but it is not finished. */
 async function isParked($: EngineInterface, agentId: string): Promise<boolean> {
   const list = await $.agent.list().catch(() => [])
@@ -1178,7 +1207,10 @@ export async function endAgentTurn(
   if (agentId === undefined) {
     return true
   }
-  if (reason === 'answer' && (await isBackgroundAgent($, agentId)) && (await isParked($, agentId))) {
+  const handedBack = (await read($, runs)).some(run => run.id === agentId && hasHandedBack(run))
+  if (handedBack) {
+    await dropOwnedWaits($, agentId)
+  } else if (reason === 'answer' && (await isBackgroundAgent($, agentId)) && (await isParked($, agentId))) {
     return false
   }
   const status: AgentRunStatus = reason === 'answer' ? 'done' : reason === 'aborted' ? 'aborted' : 'failed'
