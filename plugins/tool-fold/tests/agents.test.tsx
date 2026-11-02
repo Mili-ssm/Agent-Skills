@@ -59,7 +59,7 @@ test('icons follow the agent type, with or without the plugin prefix', () => {
 })
 
 test('state colors: running orange, waiting blue, completed green, failed and stopped red', () => {
-  expect(STATE_COLOR.running).toEqual({ hex: '#c76f52', theme: '#c76f52' })
+  expect(STATE_COLOR.running).toEqual({ hex: '#c76f52', theme: '#d8836a' })
   expect(STATE_COLOR.waiting.hex).toBe('#4f8fd8')
   expect(STATE_COLOR.completed).toEqual({ hex: '#3fb950', theme: 'success' })
   expect(STATE_COLOR.failed.theme).toBe('error')
@@ -281,9 +281,9 @@ test('an agent without a task list gets a Haiku estimate in the pane', async ($,
   expect(String(svg?.props.source)).toContain('fill-opacity="0.45"')
   expect(svg?.props.height).toBe(2)
   expect(svg?.props.width).toBeUndefined()
-  expect((await surfaces.vscode.find({ type: 'Text', text: /%/ }))?.props.color).toBe('#c76f52')
+  expect((await surfaces.vscode.find({ type: 'Text', text: /%/ }))?.props.color).toBe('#d8836a')
   expect(await surfaces.terminal.find({ type: 'Svg' })).toBeUndefined()
-  expect((await surfaces.terminal.find({ type: 'Text', text: /^▰/ }))?.props.color).toBe('#c76f52')
+  expect((await surfaces.terminal.find({ type: 'Text', text: /^▰/ }))?.props.color).toBe('#d8836a')
   await surfaces.vscode.unmount()
   await surfaces.terminal.unmount()
   await clock.advance(30_000)

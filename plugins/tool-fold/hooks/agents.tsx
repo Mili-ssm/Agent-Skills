@@ -436,9 +436,9 @@ export type CardState = 'running' | 'waiting' | 'completed' | 'idle' | 'failed'
 
 /** Color per state: `hex` for the Svg line, `theme` for text and the terminal. */
 export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
-  // Explicit hex for text too: theme keys (`claude`, `suggestion`) change color with the owner's theme.
-  running: { hex: '#c76f52', theme: '#c76f52' },
-  waiting: { hex: '#4f8fd8', theme: '#4f8fd8' },
+  // Text a shade lighter than the line so percent and time stand out; explicit hex because theme keys (`claude`, `suggestion`) change color with the owner's theme.
+  running: { hex: '#c76f52', theme: '#d8836a' },
+  waiting: { hex: '#4f8fd8', theme: '#6ba3e6' },
   completed: { hex: '#3fb950', theme: 'success' },
   // Claude's 'listo' card stays until the next prompt: grey, so a finished request does not draw the eye.
   // The line in a dark, muted green (green, not grey), quieter than the context's (#5f9e6e); the diamond and ✓ keep the success green.
