@@ -575,15 +575,6 @@ export type Elements = {
 /** What an agent card shows by state: running, waiting (the main agent's wait), completed, failed or killed. */
 export type CardState = 'running' | 'waiting' | 'completed' | 'idle' | 'failed'
 
-/** The tone of a plan step's share: the state's hue, paler, so it reads apart from the agent's own figures. */
-export const STEP_TONE: Record<CardState, string> = {
-  running: '#e8b3a1',
-  waiting: '#a9c9f2',
-  completed: '#8fd19e',
-  idle: '#7fae8a',
-  failed: '#f59a95',
-}
-
 /** Color per state: `hex` for the Svg line, `theme` for text and the terminal. */
 export const STATE_COLOR: Record<CardState, { hex: string; theme: string }> = {
   // Text a shade lighter than the line so percent and time stand out; explicit hex because theme keys (`claude`, `suggestion`) change color with the owner's theme.
@@ -756,17 +747,15 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
           </Text>
         ) : (
           // `1/6 Medir memoria 40% · ~43 min` as ONE Text with nested spans: sibling Texts wrap onto their own lines on
-          // vscode (docs/mods-surfaces.md). The step and its share are not bold; the share takes the step tone, so it
-          // reads as the step's, not the agent's.
-          <Text color={color} bold tabular wrap="truncate">
-            {plan.count}{' '}
-            <Text color={color} bold={false} size="footnote">
+          // vscode (docs/mods-surfaces.md). vscode ignores a nested bold={false} and `size`, so the outer span is plain:
+          // count and time bold, the step title dim and small where supported, its share in the same color undimmed.
+          <Text color={color} tabular wrap="truncate">
+            <Text bold>{plan.count}</Text>{' '}
+            <Text dimColor size="footnote">
               {plan.step}
             </Text>{' '}
-            <Text color={STEP_TONE[stateOf(run)]} bold={false}>
-              {plan.stepPct}
-            </Text>{' '}
-            {datum.slice(plan.count.length + 1)}
+            {plan.stepPct}{' '}
+            <Text bold>{datum.slice(plan.count.length + 1)}</Text>
           </Text>
         )}
       </Box>
