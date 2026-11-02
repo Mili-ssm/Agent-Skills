@@ -100,12 +100,16 @@ export function planBar(plan: PlanState, elapsedMs: number): number {
 /** Ms to the plan's end: what remains of the current step (none once overdue) plus the scaled steps after it. */
 export const planLeftMs = (plan: PlanState, elapsedMs: number): number => Math.max(0, plan.stepEndAt - elapsedMs) + restMs(plan)
 
+/** Room for a step title in the card header: surfaces wrap rather than cut, so the cut (with …) is done here. */
+export const STEP_TITLE_CHARS = 22
+const clipTitle = (title: string): string => (title.length <= STEP_TITLE_CHARS ? title : `${title.slice(0, STEP_TITLE_CHARS - 1).trimEnd()}…`)
+
 /** What a card with a plan shows; undefined without one or with `enabled` false. */
 export function planView(
   run: { plan?: PlanState; startedAt: number },
   now: number,
   enabled: boolean = PLAN_ENABLED,
-): { percent: number; text: string; count: string; step?: string; isWrappingUp: boolean; leftMs: number; shown: number; total: number } | undefined {
+): { percent: number; text: string; count: string; step?: string; stepPct?: string; isWrappingUp: boolean; leftMs: number; shown: number; total: number } | undefined {
   const { plan } = run
   if (!enabled || plan === undefined) {
     return undefined
@@ -119,7 +123,12 @@ export function planView(
     text: `${plan.done}/${total} pasos`,
     count: `${plan.done}/${total}`,
     // The current step and how far into its estimate it is (no new call: the title is the plan's, the share is time).
-    ...(isLast ? {} : { step: `${plan.steps[plan.done]?.title ?? ''} ${Math.round(clamp(((elapsed - plan.stepAt) / Math.max(1, plan.stepEstMs)) * 100, 0, 99))}%`.trim() }),
+    ...(isLast
+      ? {}
+      : {
+          step: clipTitle(plan.steps[plan.done]?.title ?? ''),
+          stepPct: `${Math.round(clamp(((elapsed - plan.stepAt) / Math.max(1, plan.stepEstMs)) * 100, 0, 99))}%`,
+        }),
     isWrappingUp: isLast,
     leftMs: isLast ? 0 : planLeftMs(plan, elapsed),
     shown: plan.done,

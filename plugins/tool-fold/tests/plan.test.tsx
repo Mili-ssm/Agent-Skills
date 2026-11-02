@@ -155,10 +155,10 @@ test('a long agent card shows x/y pasos with the time left, and a step check mov
   await new Promise(resolve => setTimeout(resolve, 20))
   await clock.advance(10_000)
   const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
-  // `0/4 <step> N% · ~10 min`: the count and time bold, the current step small and the only part cut with ….
+  // `0/4 <step> N% · ~10 min`: count, share and time bold; the step title small, cut with … past STEP_TITLE_CHARS.
   expect((await pane.find({ type: 'Text', text: /^0\/4$/ }))?.props.bold).toBe(true)
-  const step = await pane.find({ type: 'Text', text: /^\S.* \d+%$/ })
-  expect(step?.props).toMatchObject({ size: 'footnote', wrap: 'truncate' })
+  expect((await pane.find({ type: 'Text', text: /^Leer el código$/ }))?.props.size).toBe('footnote')
+  expect((await pane.find({ type: 'Text', text: /^\d+%$/ }))?.props.bold).toBe(true)
   expect((await pane.find({ type: 'Text', text: /^· ~10 min$/ }))).toBeDefined()
   await pane.unmount()
   // Step 1 lasts 2 min: the check at 1 min asks the count and Haiku says 2 are done.
@@ -180,4 +180,12 @@ test('an invalid plan reply falls back silently to the plain percent', async ($,
   expect(await pane.find({ type: 'Text', text: /^\d\/\d$/ })).toBeUndefined()
   expect(await pane.find({ type: 'Text', text: /≈\d+%/ })).toBeDefined()
   await pane.unmount()
+})
+
+test('a long step title is cut with … in the header; the share stays apart', () => {
+  const plan = newPlan([{ title: 'Leer la conversión v7.4-pre completa con calma', minutes: 4 }, { title: 'Informar', minutes: 1 }, { title: 'Fin', minutes: 1 }], 6 * 60_000, 0, 0)
+  const view = planView({ plan, startedAt: 0 }, 60_000, true)
+  expect(view?.step).toBe('Leer la conversión v7…')
+  expect(view?.step?.length).toBeLessThanOrEqual(22)
+  expect(view?.stepPct).toBe('25%')
 })
