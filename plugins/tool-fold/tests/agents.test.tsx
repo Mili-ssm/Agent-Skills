@@ -623,3 +623,49 @@ test('the agent task list still wins over the similar-agent estimate', async ($,
   expect(await pane.find({ type: 'Text', text: /^⟲$/ })).toBeUndefined()
   await pane.unmount()
 })
+
+test('a "Run <command>" description asks Haiku for a label; a good description is kept without a call', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  mock.clock(on)
+  const commands: string[] = []
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    const command = /<comando>(.*)<\/comando>/s.exec(prompt)?.[1]
+    if (command !== undefined) {
+      commands.push(command)
+    }
+    return {
+      value: {
+        isAnswered: true,
+        text: command === undefined ? 'Busca sesiones' : 'Borra los resultados anteriores',
+        usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+    }
+  })
+  const pane = async () => {
+    const ui = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'desktop', props: PANE_PROPS } as never)
+    return ui
+  }
+
+  await $.agent.spawn(SPAWN)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  await $.tool.call({ tool: 'Bash', command: 'cargo test -p viewer', description: 'Run the viewer tests', agentId: 'a1', tool_use_id: 'c0' } as never)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(commands).toEqual([])
+
+  await $.tool.call({
+    tool: 'Bash',
+    command: 'rm -rf target/r4-rss/dbg; target/release/examples/density_spike',
+    description: 'Run rm -rf target/r4-rss/dbg; target/release/examples/density_spike',
+    agentId: 'a1',
+    tool_use_id: 'c1',
+  } as never)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  expect(commands).toHaveLength(1)
+  const ui = await pane()
+  expect(await ui.find({ type: 'Text', text: /Borra los resultados anteriores/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /rm -rf/ })).toBeUndefined()
+  await ui.unmount()
+})
