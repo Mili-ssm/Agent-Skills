@@ -221,6 +221,10 @@ export function settleEstimate(kind: ReaskKind, currentMs: number, totalMs: numb
 // The latest re-estimates (item, variant, old, Haiku's remaining, proposed total, elapsed), newest last, for `/agents-debug`.
 export const reestimateLog: string[] = []
 const LOG_KEPT = 10
+const logReestimate = (line: string): void => {
+  reestimateLog.push(line)
+  reestimateLog.splice(0, Math.max(0, reestimateLog.length - LOG_KEPT))
+}
 
 // Closes every re-ask prompt, after the data.
 const TRAILER = '\n\nResponde solo con la línea minutos: N (minutos restantes, número entero).'
@@ -272,16 +276,17 @@ export async function askMinutes($: EngineInterface, ask: MinutesAsk): Promise<n
     prompt = `${head}\n\n${data}<estimacion_anterior>${fmtMin(again.previousMs)}</estimacion_anterior>${TRAILER}`
   }
   const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 20, timeoutMs: 15000 })
-  if (!reply.isAnswered || (reply.usage?.output_tokens ?? 0) >= 20) {
-    return undefined
-  }
-  const ms = minutesLine(reply.text)
-  if (ms === undefined || again === undefined) {
+  const ms = reply.isAnswered && (reply.usage?.output_tokens ?? 0) < 20 ? minutesLine(reply.text) : undefined
+  if (again === undefined) {
     return ms
   }
+  if (ms === undefined) {
+    // A failed re-ask is logged too, so a card stuck at 99% shows why in `/agents-debug`.
+    logReestimate(`${ask.id ?? '?'} ${again.kind} failed: ${reply.isAnswered ? `reply "${reply.text.slice(0, 40)}"` : 'no answer'} elapsed=${fmtMin(again.elapsedMs)}`)
+    return undefined
+  }
   const total = Math.min(again.elapsedMs + ms, MAX_ESTIMATE_MIN * 60000)
-  reestimateLog.push(`${ask.id ?? '?'} ${again.kind} old=${fmtMin(again.previousMs)} haiku-remaining=${fmtMin(ms)} total=${fmtMin(total)} elapsed=${fmtMin(again.elapsedMs)}`)
-  reestimateLog.splice(0, Math.max(0, reestimateLog.length - LOG_KEPT))
+  logReestimate(`${ask.id ?? '?'} ${again.kind} old=${fmtMin(again.previousMs)} haiku-remaining=${fmtMin(ms)} total=${fmtMin(total)} elapsed=${fmtMin(again.elapsedMs)}`)
   return total
 }
 
