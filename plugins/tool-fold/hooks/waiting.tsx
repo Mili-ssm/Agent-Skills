@@ -17,7 +17,7 @@ import {
   MAX_PERCENT,
   OVERDUE_GRACE_MS,
 } from './estimates'
-import { hasDoingPhrase, isCycleBusy, mainInfo } from './cycle'
+import { cycleDebug, effectiveCycle, hasDoingPhrase, isCycleBusy, mainInfo } from './cycle'
 
 // The background work the main loop launched and still waits on, oldest first. Written from events, read by the card.
 // Bump the shape tag when WaitTask's fields change: an older stored list is then read as empty.
@@ -449,7 +449,8 @@ export async function resume($: EngineInterface): Promise<void> {
  * prompt), green once it is idle, until the owner's next prompt. Empty before any work. Never writes.
  */
 async function cycleRuns($: EngineInterface, now: number, model: string): Promise<AgentRun[]> {
-  const cycle = await read($, cycleAtom)
+  // Idle main loop, no wait and no agent working: done, whatever the cycle's busy flag says.
+  const cycle = await effectiveCycle($, await read($, cycleAtom), await read($, idleAt))
   if (cycle.startedAt === null) {
     return []
   }
@@ -589,6 +590,7 @@ export async function waitDebug($: EngineInterface): Promise<string[]> {
   const [list, idle] = await Promise.all([read($, waits), read($, idleAt)])
   return [
     `main loop idle since: ${idle === null ? 'not idle' : new Date(idle).toISOString().slice(11, 19)}`,
+    ...(await cycleDebug($)),
     `waits: ${list.length === 0 ? 'none' : list.map(task => `${task.kind} ${task.id}`).join('; ')}`,
   ]
 }
