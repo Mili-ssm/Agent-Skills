@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
-import type { AgentStatus, EngineInterface, PromptOrigin, Timer, TurnUsage } from 'claude-code'
+import type { EngineInterface, PromptOrigin, Timer, TurnUsage } from 'claude-code'
 
 import type { Cycle, MainInfo, Tally, Usage } from '../types'
+import { hasRunningAgents } from './agents'
 import { PHRASE_TOKENS, phraseOf, syncTick } from './waiting'
 
 // The interaction cycle (moved here from the usage-band mod, ADR 0016): from the owner's prompt to the next one.
@@ -43,7 +44,6 @@ const CONCLUSION_PROMPT =
   '<example>Tests pass after fixing the null check</example>\n' +
   '<example>No encontré la causa; falta un log del fallo</example>'
 // Agent states that mean work is still going on; an idle teammate or a finished agent does not count.
-const WORKING: ReadonlySet<AgentStatus> = new Set(['pending', 'running', 'waiting'])
 
 // Dot color per model family, the same palette as the agent cards; any other model stays dim.
 const FAMILY_COLOR: Record<string, string> = { opus: '#a371f7', sonnet: '#f778ba', haiku: '#39c5cf', fable: '#e3b341' }
@@ -210,13 +210,9 @@ async function isListedLoop($: EngineInterface, agentId: string | undefined): Pr
   }
 }
 
-/** True while an agent still works. A failed lookup counts as none. */
+/** True while a run this mod tracks is running (background agents included). Engine entries it does not know never count. */
 async function agentsWorking($: EngineInterface): Promise<boolean> {
-  try {
-    return (await $.agent.list()).some(agent => WORKING.has(agent.status))
-  } catch {
-    return false
-  }
+  return hasRunningAgents($)
 }
 
 /** The answer's conclusion in a few words from Haiku, in the answer's language; null when it gives none. */

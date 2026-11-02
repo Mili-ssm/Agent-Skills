@@ -972,6 +972,9 @@ test('the stats line: context first with icon and color, calls, skills, cycle ag
   expect(all).toContain('  ▸ Revisa los hooks del plugin')
   expect(all.some(text => /Agent x|qa-review/.test(text))).toBe(false)
   expect(all.join('')).toContain('◔ 13%    3 calls · 1 skill · ●● 2 agents')
+  for (const id of ['a1', 'a2']) {
+    await $.turn.complete({ ...done, agentId: id, turnId: `s-${id}` })
+  }
   // Done: the conclusion, the session total with its tokens, and the dots stay (agents used in the whole request).
   await $.turn.complete({ ...done, turnId: 't1', answer: 'All reviewed', usage: USAGE('claude-opus-5-5', 7_000_000) } as never)
   await clock.advance(2000)
@@ -1058,4 +1061,32 @@ test('the main card is listo once the main loop is idle, with no settle timer, a
   await ui.unmount()
   const out = await $.command.run({ command: 'agents-debug', args: '', origin: { kind: 'composer' } } as never)
   expect(JSON.stringify(out)).toContain('cycle: busySince=')
+})
+
+test('an engine-listed agent this mod lost is adopted as a main wait (blue); when the engine stops listing it the card is listo and the cycle ended', async ($, on) => {
+  const clock = engine(on, {}, { backgroundTaskId: undefined })
+  haiku(on, 'none')
+  let listed = true
+  on('agent.list', () => ({ value: listed ? [{ id: 'ghost', description: 'Long bench', type: 'agent-skills:check-runner', status: 'running' }] : [] }) as never)
+  on('ui.panes', () => ({ value: [] }) as never)
+  await $.prompt.submit({ text: 'hola', wait: false, origin: { kind: 'composer' } } as never)
+  await $.turn.start({ text: 'hola', turnId: 't1' })
+  await clock.advance(10_000)
+  await $.turn.complete({ ...done, turnId: 't1', answer: 'ok' })
+  await clock.advance(20_000)
+  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · (esperando|en segundo plano)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Claude · trabajando/ })).toBeUndefined()
+  await ui.unmount()
+  expect(await waitsOf($)).toBe('waits: agent ghost')
+  const out = (await $.command.run({ command: 'agents-debug', args: '', origin: { kind: 'composer' } } as never)).text
+  expect(out).toContain('engine agents: ghost running agent-skills:check-runner')
+  listed = false
+  await clock.advance(3000)
+  ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Claude · listo/ })).toBeDefined()
+  await ui.unmount()
+  const after = (await $.command.run({ command: 'agents-debug', args: '', origin: { kind: 'composer' } } as never)).text
+  expect(after).toContain('settling=false')
+  expect(after).toContain('waits: none')
 })

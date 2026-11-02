@@ -383,6 +383,16 @@ export async function isAgentRunning($: EngineInterface, agentId: string): Promi
   return (await read($, runs)).some(run => run.id === agentId && run.status === 'running')
 }
 
+/** True when a run of this agent exists, running or not. */
+export async function isTrackedRun($: EngineInterface, agentId: string): Promise<boolean> {
+  return (await read($, runs)).some(run => run.id === agentId)
+}
+
+/** True while any run this mod tracks is running. */
+export async function hasRunningAgents($: EngineInterface): Promise<boolean> {
+  return (await read($, runs)).some(run => run.status === 'running')
+}
+
 /** The agent type without its plugin prefix: `agent-skills:researcher` → `researcher`. */
 const agentName = (run: AgentRun): string => run.type.replace(/^[\w-]+:/, '')
 
@@ -768,11 +778,13 @@ export const registerAgents: Register = (on, options) => {
     const surfaces = await $.session.surfaces().catch(error => [`error ${String(error)}`])
     const panes = await $.ui.panes().catch(() => [])
     const list = await read($, runs)
+    const engine = await $.agent.list().catch(() => [])
     const lines = [
       `surfaces: ${surfaces.join(', ') || 'none'}`,
       `panes: ${panes.map(pane => `${pane.id} shown=${pane.isShown} placed=${pane.isPlaced}`).join('; ') || 'none'}`,
       `docked: ${await read($, docked)}`,
       `runs: ${list.filter(run => run.status === 'running').length} running of ${list.length}`,
+      `engine agents: ${engine.map(item => `${item.id} ${item.status} ${item.type}`).join('; ') || 'none'}`,
       ...list.map(run => `  run ${run.id} ${run.status} background=${run.background === true} ${run.type}`),
       ...(await waitDebug($)),
       'band draws (newest last):',
