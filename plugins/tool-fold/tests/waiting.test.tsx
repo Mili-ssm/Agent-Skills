@@ -230,6 +230,7 @@ test('formatRemaining and remainingOf', () => {
   // elapsed × (1 − p) / p; none without an estimate or at 5% and under.
   expect(remainingOf(120_000, 40)).toBe('~3 min')
   expect(remainingOf(120_000, 5)).toBe('~38 min')
+  expect(remainingOf(120_000, 3)).toBe('?1 h 5 min')
   expect(remainingOf(120_000, 0.5)).toBeUndefined()
   expect(remainingOf(120_000, undefined)).toBeUndefined()
 })
