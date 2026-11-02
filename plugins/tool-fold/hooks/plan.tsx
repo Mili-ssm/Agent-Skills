@@ -207,12 +207,13 @@ export function applyOverdue(plan: PlanState, remainingMs: number, elapsedMs: nu
 }
 
 /**
- * The plan after Haiku named step `step` (1-based) as the current one; undefined when it does not advance. G1: at most
- * +1 step per check, and only when calls were added since the last check (`historyGrew`); the count never decreases.
- * G2: one step finishes at a time, so no skipped step ever enters the factor. The caller stamps `countsAtStep` (G7).
+ * The plan after Haiku named step `step` (1-based) as the current one; undefined when it does not advance. It advances
+ * only when calls were added since the last check (`historyGrew`), and the count never decreases. Jumps of several steps
+ * are accepted (fast steps happen; owner, 2026-11-03: the +1 cap of G1 may come back later); `applyCount` splits the time
+ * across them. The caller stamps `countsAtStep` (G7).
  */
 export function applyStep(plan: PlanState, step: number, elapsedMs: number, now: number, historyGrew: boolean): PlanState | undefined {
-  const done = Math.min(step - 1, plan.done + 1)
+  const done = step - 1
   if (!historyGrew || done <= plan.done) {
     return undefined
   }
