@@ -750,7 +750,8 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : plan !== undefined
-        ? `${plan.count} · ${plan.isWrappingUp ? 'finalizando' : `${formatRemaining(plan.leftMs)}${run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS ? ' · más de lo previsto' : ''}`}`
+        ? // A plan never says "más de lo previsto": an overdue step is re-estimated instead, and the longer label broke the header line.
+          `${plan.count} · ${plan.isWrappingUp ? 'finalizando' : formatRemaining(plan.leftMs)}`
         : isRunning && estimate !== undefined
         ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
