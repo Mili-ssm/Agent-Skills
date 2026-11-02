@@ -92,11 +92,12 @@ export const formatRemaining = (ms: number): string => {
 
 /** Time left from elapsed time and the estimated percent; undefined with no estimate or one under 5% (too unreliable). */
 export function remainingOf(elapsedMs: number, percent: number | undefined): string | undefined {
-  // From 1%: under 5% the datum shows `?` instead of `≈` (rough), the time left still helps.
+  // From 1%: under 5% the time left is rough, so it reads `?40 min` instead of `~40 min`.
   if (percent === undefined || percent < 1 || percent >= 100) {
     return undefined
   }
-  return formatRemaining((Math.max(0, elapsedMs) * (100 - percent)) / percent)
+  const left = formatRemaining((Math.max(0, elapsedMs) * (100 - percent)) / percent)
+  return percent < 5 ? `?${left.replace(/^~/, '')}` : left
 }
 
 // A subagent parked on its background process: a clock in the slot of its type icon.
@@ -570,7 +571,7 @@ function runHeader(ui: Elements, run: AgentRun, now: number, label?: string, mar
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : isRunning && estimate !== undefined
-        ? `${estimate < 5 ? '?' : '≈'}${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
+        ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
   return (
     <Box key={`${run.id}-head`} flexDirection="column">
