@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface } from 'claude-code'
 
 import type { AgentRun, EtaSource, WaitKind, WaitTask } from '../types'
-import { commandOf, formatDuration, describeStep, isAgentRunning, isBackgroundAgent, retitleDock } from './agents'
+import { commandOf, formatDuration, describeStep, isAgentRunning, isBackgroundAgent, isTrackedRun, retitleDock } from './agents'
 import {
   REESTIMATE_GAP_MS,
   WAIT_SAMPLES_KEY,
@@ -317,6 +317,7 @@ async function sweep($: EngineInterface): Promise<void> {
     }
   }
   await drop($, stale)
+  await adoptListed($)
   for (const task of all) {
     const etaMs = task.etaMs
     if (stale.includes(task.id) || etaMs === undefined || task.askedAt === undefined || asking.has(task.id)) {
@@ -415,6 +416,9 @@ export async function onTurn(
   } else if (answer.trim() !== '') {
     void messageEta($, answer, turnStartedAt).catch(error => $.ui.log(`tool-fold: message estimate: ${String(error)}`, { to: 'debug' }))
   }
+  if (phase === 'end') {
+    await adoptListed($)
+  }
   await syncTick($)
 }
 
@@ -439,8 +443,41 @@ export async function hasOwnedWaits($: EngineInterface, agentId: string): Promis
   return (await read($, waits)).some(task => task.owner === agentId)
 }
 
+const LISTED_WORKING: ReadonlySet<string> = new Set(['pending', 'running', 'waiting'])
+
+/**
+ * Background work the engine lists for the main loop that this mod lost track of (a reload dropped its wait) becomes
+ * a main wait; it ends when the engine stops listing it, teaching no sample. Engine forks are in no list. Called from
+ * events and the clock tick, never from render. Never throws.
+ */
+export async function adoptListed($: EngineInterface): Promise<void> {
+  try {
+    const listed = await $.agent.list()
+    const working = listed.filter(info => LISTED_WORKING.has(info.status) && info.parentId === undefined)
+    const known = await read($, waits)
+    const gone = known.filter(task => task.isAdopted === true && !working.some(info => info.id === task.id)).map(task => task.id)
+    await drop($, gone)
+    const now = await $.clock.now()
+    const fresh: WaitTask[] = []
+    for (const info of working) {
+      if (known.some(task => task.id === info.id) || (await isTrackedRun($, info.id))) {
+        continue
+      }
+      const input = { description: info.description, subagent_type: info.type }
+      fresh.push({ id: info.id, kind: 'agent', key: estimateKey('agent', input), label: waitLabel('agent', input), name: agentName(input), isAdopted: true, startedAt: now })
+    }
+    if (fresh.length > 0) {
+      await update($, waits, all => [...all, ...fresh])
+      await syncTick($)
+    }
+  } catch {
+    // A failed lookup adopts and drops nothing.
+  }
+}
+
 /** Takes the redraw clock up again after a reload, which drops the timer. */
 export async function resume($: EngineInterface): Promise<void> {
+  await adoptListed($)
   await syncTick($)
 }
 

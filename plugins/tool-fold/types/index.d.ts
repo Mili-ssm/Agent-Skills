@@ -106,6 +106,8 @@ export type WaitTask = {
   owner?: string
   /** An agent's type, else its description: what the card names when it waits on this one agent. */
   name?: string
+  /** True when the engine listed the agent and this mod had no record of its launch (a reload lost it): ends when the engine stops listing it. */
+  isAdopted?: true
   /** Clock time it launched, for the elapsed time. */
   startedAt: number
   /** The text Haiku estimates from (command, else description), kept for the re-estimate. */
