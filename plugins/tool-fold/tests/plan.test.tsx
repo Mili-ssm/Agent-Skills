@@ -156,11 +156,12 @@ test('a long agent card shows x/y pasos with the time left, and a step check mov
   await clock.advance(10_000)
   const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
   // `0/4 <step> N% · ~10 min`: count, share and time bold; the step title small, cut with … past STEP_TITLE_CHARS.
-  // One Text with nested spans (sibling Texts wrap on vscode): the share is not bold and takes the paler step tone.
+  // One Text with nested spans (sibling Texts wrap on vscode): count and time bold, the step title dim, the share plain.
   const head = await pane.find({ type: 'Text', text: /^0\/4 Leer el código \d+% · ~10 min$/ })
-  expect(head?.props.bold).toBe(true)
-  const share = await pane.find({ type: 'Text', text: /^\d+%$/ })
-  expect(share?.props).toMatchObject({ bold: false, color: '#e8b3a1' })
+  expect(head?.props.bold).toBeUndefined()
+  expect((await pane.find({ type: 'Text', text: /^0\/4$/ }))?.props.bold).toBe(true)
+  expect((await pane.find({ type: 'Text', text: /^Leer el código$/ }))?.props).toMatchObject({ dimColor: true, size: 'footnote' })
+  expect((await pane.find({ type: 'Text', text: /^· ~10 min$/ }))?.props.bold).toBe(true)
   await pane.unmount()
   // Step 1 lasts 2 min: the check at 1 min asks the count and Haiku says 2 are done.
   await clock.advance(60_000)
