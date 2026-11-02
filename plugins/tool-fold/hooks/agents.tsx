@@ -275,14 +275,41 @@ const MISSION_PROMPT =
 
 // Asks Haiku what a shell command does, for a call that came without the model's own description.
 const COMMAND_PROMPT =
-  'Di en una frase muy corta, en español llano, la acción concreta que ejecuta el comando de terminal de abajo: ' +
-  'qué programa corre y sobre qué, no para qué lo quiere el agente. Ejemplos:\n' +
-  '`cargo test -p viewer_format` → Ejecuta los tests de viewer_format\n' +
+  'Di en español llano, en una sola línea de 3 a 10 palabras, qué hace el comando de terminal de abajo: el efecto observable sobre archivos, datos o el proyecto, nunca la intención ni el porqué. ' +
+  'Empieza por el verbo del efecto (lee, edita, reescribe, prueba, mide, compila, espera, busca), no por "ejecuta". ' +
+  'Ignora los envoltorios: heredocs de python o bash, `cd x &&`, `time`, `sleep`, `2>&1`, tuberías; describe lo que consiguen. ' +
+  'Describe solo lo que se ve en el comando; si el código está cortado, describe la parte visible. Ejemplos:\n' +
+  '`cargo test -p viewer_format` → Prueba viewer_format\n' +
   '`until grep -q complete run.log; do sleep 30; done` → Espera a que run.log diga complete\n' +
-  '`sed -n 1,80p src/main.rs` → Muestra las líneas 1-80 de main.rs\n' +
+  '`sed -n 1,80p src/main.rs` → Lee las líneas 1-80 de main.rs\n' +
   '`git diff --stat HEAD~3` → Resume los cambios de 3 commits\n' +
-  "`python3 - <<'E'` seguido de un script que mide memoria → Ejecuta un script de Python que mide memoria\n" +
-  'Para un script largo, nombra solo su acción principal. Tu respuesta entera es una línea de 3 a 10 palabras, sin comillas, explicaciones ni punto final.\n\n'
+  '`cd crates/bench && time cargo bench | tail -20` → Mide el tiempo del bench\n' +
+  "`python3 - <<'E'` con un script que reescribe node_job.rs para añadir un umbral → Reescribe node_job.rs para añadir un umbral\n" +
+  "`python3 - <<'E'` con un script que cuenta bytes de cada tabla → Mide el tamaño bruto de cada tabla\n" +
+  'Responde solo con esa línea, sin comillas, explicaciones ni punto final.\n\n'
+
+const INTERPRETER = /^(python[\d.]*|node|bash|sh|ruby|perl|deno|bun)$/
+const INLINE_FLAG: Record<string, RegExp> = { python: /^-[a-zA-Z]*c$/, bash: /^-[a-zA-Z]*c$/, sh: /^-[a-zA-Z]*c$/, node: /^-[a-zA-Z]*e$/, ruby: /^-[a-zA-Z]*e$/, perl: /^-[a-zA-Z]*e$/ }
+
+/** A command that runs an interpreter: with an inline body (heredoc, -c, -e) or on a script file. Undefined for anything else. */
+export function scriptOf(command: string): { inline: true } | { file: string } | undefined {
+  const head = command.split(/\n/)[0] ?? ''
+  const words = head.replace(/^\s*(?:cd\s+\S+\s*(?:&&|;)\s*)*/, '').trim().split(/\s+/)
+  while (words[0] !== undefined && (words[0] === 'time' || /^\w+=\S*$/.test(words[0]))) {
+    words.shift()
+  }
+  const name = (words[0] ?? '').split('/').pop() ?? ''
+  if (!INTERPRETER.test(name)) {
+    return undefined
+  }
+  const flag = INLINE_FLAG[name.replace(/[\d.]+$/, '')]
+  if (command.includes('<<') || words.some(word => flag?.test(word) === true)) {
+    return { inline: true }
+  }
+  const file = words.slice(1).find(word => !word.startsWith('-') && word !== '')
+  return file === undefined ? undefined : { file: file.replace(/^['"]|['"]$/g, '').split('/').pop() ?? file }
+}
+
 // Asks Haiku how far an agent with no task list is, from its mission and what it did so far.
 // How Haiku estimates an agent's progress: the fixed rules as the system prompt, the agent's data as
 // the message. No phase scale: agents differ too much (a watcher has no phases); the rules cover the
@@ -1137,12 +1164,17 @@ const TRANSLATION_RETRY_MS = 5000
 const translations = new Map<string, string>()
 const translationStats = { ok: 0, retried: 0, failed: 0, cached: 0 }
 
+/** Over 1500 chars: the first 1000 and the last 450, so the end of a long script is not lost. */
+function clipCommand(command: string): string {
+  return command.length > 1500 ? `${command.slice(0, 1000)}\n…\n${command.slice(-450)}` : command
+}
+
 /** One Haiku try at a command's phrase: '' when unanswered, cut, empty or failed. */
 async function askCommand($: EngineInterface, command: string): Promise<string> {
   const reply = await $.model
     .complete({
       model: 'haiku',
-      prompt: `${COMMAND_PROMPT}<comando>${command.slice(0, 1500)}</comando>`,
+      prompt: `${COMMAND_PROMPT}<comando>${clipCommand(command)}</comando>`,
       maxTokens: PHRASE_TOKENS,
       timeoutMs: 15000,
     })
@@ -1156,6 +1188,13 @@ async function askCommand($: EngineInterface, command: string): Promise<string> 
  * words are only ever matched on Spanish natural text, never on the raw command.
  */
 async function describeCommand($: EngineInterface, agentId: string, stepId: string, command: string): Promise<void> {
+  const script = scriptOf(command)
+  if (script !== undefined && 'file' in script) {
+    const detail = clip(`Ejecuta ${script.file}`, 120)
+    await showDetail($, agentId, stepId, detail)
+    await hintPlan($, agentId, detail, await $.clock.now())
+    return
+  }
   let text = translations.get(command) ?? ''
   if (text !== '') {
     translationStats.cached += 1
@@ -1177,10 +1216,14 @@ async function describeCommand($: EngineInterface, agentId: string, stepId: stri
     }
     translations.set(command, text)
   }
-  const detail = clip(text, 120)
+  // The phrase is what the plan matches on; the "Script:" tag is only for display.
+  await showDetail($, agentId, stepId, script === undefined ? clip(text, 120) : clip(`Script: ${text.charAt(0).toLowerCase()}${text.slice(1)}`, 120))
+  await hintPlan($, agentId, clip(text, 120), await $.clock.now())
+}
+
+async function showDetail($: EngineInterface, agentId: string, stepId: string, detail: string): Promise<void> {
   const withDetail = (steps: Step[]) => steps.map(item => (item.id === stepId ? { ...item, detail } : item))
   await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
-  await hintPlan($, agentId, detail, await $.clock.now())
 }
 
 /** A call's words point at a later plan step: mark it, so the next tick asks Haiku the count (1 min apart at most). */

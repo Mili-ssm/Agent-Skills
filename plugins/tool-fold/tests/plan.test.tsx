@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { estimateOf } from '../hooks/agents'
+import { estimateOf, scriptOf } from '../hooks/agents'
 import { phraseOf } from '../hooks/waiting'
 import {
   PLAN_ENABLED,
@@ -251,7 +251,7 @@ test('a failed translation is retried once ~5 s later and its phrase then hints 
   const prompts: string[] = []
   const clock = plannedEngine(on, ['', 'Escribe los scripts de migración'], prompts)
   await start($, clock)
-  await $.tool.call(bash('node retry-me.js', 'r1'))
+  await $.tool.call(bash('cargo run --bin retry-me', 'r1'))
   await settle()
   expect(commandsOf(prompts)).toHaveLength(1)
   await clock.advance(5000)
@@ -267,7 +267,7 @@ test('two failed tries hint the plan directly; a cached command asks Haiku no se
   const prompts: string[] = []
   const clock = plannedEngine(on, ['', '', 'Lee el esquema actual'], prompts)
   await start($, clock)
-  await $.tool.call(bash('node fail-me.js', 'f1'))
+  await $.tool.call(bash('cargo run --bin fail-me', 'f1'))
   await settle()
   await clock.advance(5000)
   await settle()
@@ -275,10 +275,10 @@ test('two failed tries hint the plan directly; a cached command asks Haiku no se
   await clock.advance(61_000)
   await settle()
   expect(countChecks(prompts)).toBeGreaterThan(0)
-  await $.tool.call(bash('node cache-me.js', 'c1'))
+  await $.tool.call(bash('cargo run --bin cache-me', 'c1'))
   await settle()
   expect(commandsOf(prompts)).toHaveLength(3)
-  await $.tool.call(bash('node cache-me.js', 'c2'))
+  await $.tool.call(bash('cargo run --bin cache-me', 'c2'))
   await settle()
   expect(commandsOf(prompts)).toHaveLength(3)
   expect((await $.command.run({ command: 'agents-debug' } as never)).text).toMatch(/failed=[1-9]\d* cached=[1-9]/)
@@ -304,4 +304,24 @@ test('a phrase reply cut by maxTokens still gives its first line when that line 
   expect(phraseOf({ isAnswered: true, text: 'Ejecuta un script de Python que mide memoria\nEl script importa tracemalloc y…', usage: cut })).toBe('Ejecuta un script de Python que mide memoria')
   expect(phraseOf({ isAnswered: true, text: 'Ejecuta un script de Python que mide la memoria de cada conv', usage: cut })).toBe('')
   expect(phraseOf({ isAnswered: false, text: 'x\ny', usage: cut })).toBe('')
+})
+
+test('a heredoc script hints the plan with the untagged phrase', async ($, on) => {
+  const prompts: string[] = []
+  const clock = plannedEngine(on, ['Escribe los scripts de migración'], prompts)
+  await start($, clock)
+  await $.tool.call(bash("python3 - <<'E'\nprint(1)\nE", 'h1'))
+  await settle()
+  expect(commandsOf(prompts)).toHaveLength(1)
+  await clock.advance(61_000)
+  await settle()
+  expect(countChecks(prompts)).toBeGreaterThan(0)
+})
+
+test('scriptOf tells inline bodies, script files and plain commands apart', () => {
+  expect(scriptOf("python3 - <<'E'\nx\nE")).toEqual({ inline: true })
+  expect(scriptOf('cd a && node -e "1"')).toEqual({ inline: true })
+  expect(scriptOf('python3 fix.py args')).toEqual({ file: 'fix.py' })
+  expect(scriptOf('bash scripts/run.sh')).toEqual({ file: 'run.sh' })
+  expect(scriptOf('cargo test')).toBeUndefined()
 })

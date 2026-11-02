@@ -670,3 +670,45 @@ test('a "Run <command>" description asks Haiku for a label; a good description i
   expect(await ui.find({ type: 'Text', text: /rm -rf/ })).toBeUndefined()
   await ui.unmount()
 })
+
+test('script commands: tagged phrase, file runs without Haiku, long commands keep head and tail, plain gets no tag', async ($, on) => {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  mock.clock(on)
+  const commands: string[] = []
+  on('model.complete', (_, e) => {
+    const command = /<comando>(.*)<\/comando>/s.exec(String((e as { prompt?: string }).prompt))?.[1]
+    if (command !== undefined) {
+      commands.push(command)
+    }
+    return {
+      value: {
+        isAnswered: true,
+        text: command?.includes('node_job') ? 'Reescribe node_job.rs' : command?.startsWith('cargo') ? 'Prueba el visor' : 'Lee los datos',
+        usage: { input_tokens: 1, output_tokens: 1, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
+      },
+    }
+  })
+  const call = async (command: string, id: string) => {
+    await $.tool.call({ tool: 'Bash', command, agentId: 'a1', tool_use_id: id } as never)
+    await new Promise(resolve => setTimeout(resolve, 20))
+  }
+  await $.agent.spawn(SPAWN)
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const ui = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'desktop', props: PANE_PROPS } as never)
+
+  await call("python3 - <<'E'\nopen('node_job.rs')\nE", 's1')
+  expect(await ui.find({ type: 'Text', text: /Script: reescribe node_job\.rs/ })).toBeDefined()
+  await call('cargo test', 's2')
+  expect(await ui.find({ type: 'Text', text: /Prueba el visor/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Script: prueba/ })).toBeUndefined()
+  expect(commands).toHaveLength(2)
+  await call('python3 fix.py --all', 's3')
+  expect(commands).toHaveLength(2)
+  expect(await ui.find({ type: 'Text', text: /Ejecuta fix\.py/ })).toBeDefined()
+  const long = `echo ${'a'.repeat(3000)}`
+  await call(long, 's4')
+  expect(commands[2]).toBe(`${long.slice(0, 1000)}\n…\n${long.slice(-450)}`)
+  await ui.unmount()
+})
