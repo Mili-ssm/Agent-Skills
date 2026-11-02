@@ -105,7 +105,7 @@ export function planView(
   run: { plan?: PlanState; startedAt: number },
   now: number,
   enabled: boolean = PLAN_ENABLED,
-): { percent: number; text: string; isWrappingUp: boolean; leftMs: number; shown: number; total: number } | undefined {
+): { percent: number; text: string; count: string; step?: string; isWrappingUp: boolean; leftMs: number; shown: number; total: number } | undefined {
   const { plan } = run
   if (!enabled || plan === undefined) {
     return undefined
@@ -117,6 +117,9 @@ export function planView(
   return {
     percent: planBar(plan, elapsed),
     text: `${plan.done}/${total} pasos`,
+    count: `${plan.done}/${total}`,
+    // The current step and how far into its estimate it is (no new call: the title is the plan's, the share is time).
+    ...(isLast ? {} : { step: `${plan.steps[plan.done]?.title ?? ''} ${Math.round(clamp(((elapsed - plan.stepAt) / Math.max(1, plan.stepEstMs)) * 100, 0, 99))}%`.trim() }),
     isWrappingUp: isLast,
     leftMs: isLast ? 0 : planLeftMs(plan, elapsed),
     shown: plan.done,

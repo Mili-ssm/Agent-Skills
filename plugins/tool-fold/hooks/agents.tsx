@@ -722,7 +722,7 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
       : run.todo !== undefined && run.todo.total > 0
       ? `${run.todo.done}/${run.todo.total}`
       : plan !== undefined
-        ? `${plan.text} · ${plan.isWrappingUp ? 'finalizando' : `${formatRemaining(plan.leftMs)}${run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS ? ' · más de lo previsto' : ''}`}`
+        ? `${plan.count} · ${plan.isWrappingUp ? 'finalizando' : `${formatRemaining(plan.leftMs)}${run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS ? ' · más de lo previsto' : ''}`}`
         : isRunning && estimate !== undefined
         ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
@@ -741,9 +741,26 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
         </Text>
         <Box flexGrow={1} />
         {datum !== '' && run.etaSource !== undefined && run.todo === undefined ? <Text dimColor>{ETA_ICON[run.etaSource]}</Text> : null}
-        <Text color={color} bold tabular>
-          {datum}
-        </Text>
+        {plan?.step === undefined || run.todo !== undefined || isLingering ? (
+          <Text color={color} bold tabular>
+            {datum}
+          </Text>
+        ) : (
+          <>
+            {/* `1/6 Medir memoria 40% · ~43 min`: the step title, small, is the one part that is cut with … when room runs out. */}
+            <Text color={color} bold tabular>
+              {plan.count}
+            </Text>
+            <Box flexShrink={1} minWidth={0}>
+              <Text color={color} size="footnote" wrap="truncate">
+                {plan.step}
+              </Text>
+            </Box>
+            <Text color={color} bold tabular>
+              {datum.slice(plan.count.length + 1)}
+            </Text>
+          </>
+        )}
       </Box>
       {progressLine(ui, run, now)}
       {label === undefined ? null : (
