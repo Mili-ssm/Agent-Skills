@@ -404,9 +404,10 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   for (const run of (await read($, runs)) as (AgentRun & ReaskFields)[]) {
     const previousMs = run.etaMs
-    const asked = run.etaAskedAt
+    // A run never asked (a workflow agent with no brief, or one from before this field existed) counts from its start.
+    const asked = run.etaAskedAt ?? run.startedAt
     const elapsedMs = now - run.startedAt
-    if (run.status !== 'running' || previousMs === undefined || asked === undefined || reasking.has(run.id)) {
+    if (run.status !== 'running' || previousMs === undefined || reasking.has(run.id)) {
       continue
     }
     const due = nextReask({ elapsedMs, etaMs: previousMs, ...(run.etaSource === undefined ? {} : { source: run.etaSource }), lastAskAt: asked, ...(run.reaskStep === undefined ? {} : { step: run.reaskStep }) }, now)
