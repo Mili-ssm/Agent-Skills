@@ -32,6 +32,7 @@ test('parsePlan accepts 3 to 6 numbered lines with minutes and nothing else', ()
   expect(parsePlan(`Aquí va:\n${GOOD}`)).toBeUndefined()
   expect(parsePlan('1. A — 2 min\n3. B — 3 min\n4. C — 1 min')).toBeUndefined()
   expect(parsePlan('1. A — 0 min\n2. B — 3 min\n3. C — 1 min')).toBeUndefined()
+  expect(parsePlan('**1. A — 2 min**\n\n2. **B** — 3 min\n\n3. C — 1 min')?.map(step => step.title)).toEqual(['A', 'B', 'C'])
 })
 
 test('a new plan adds up to the estimate and `pasos: N` reads the first line only', () => {

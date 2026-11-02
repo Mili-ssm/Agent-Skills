@@ -1,5 +1,7 @@
 import type { EngineInterface } from 'claude-code'
 
+import type { WaitSample } from '../types'
+
 import { MAX_PERCENT, OVERDUE_GRACE_MS, REESTIMATE_GAP_MS, logReestimate } from './estimates'
 
 // Step-based progress for long agent cards. Isolated: agents.tsx calls it behind `PLAN_ENABLED`; rollback is that constant
@@ -58,7 +60,7 @@ export const shouldPlan = (askSeq: number | undefined, etaMs: number, enabled: b
 
 /** The steps of a plan reply: one `N. <title> — M min` line each, 3 to 6, numbered in order; undefined for anything else (a cut reply included). */
 export function parsePlan(reply: string): { title: string; minutes: number }[] | undefined {
-  const lines = reply.split('\n').map(line => line.trim()).filter(line => line !== '')
+  const lines = reply.replaceAll('**', '').split('\n').map(line => line.trim()).filter(line => line !== '')
   if (lines.length < MIN_STEPS || lines.length > MAX_STEPS) {
     return undefined
   }
@@ -192,12 +194,16 @@ export function nextPlanCheck(plan: PlanState, elapsedMs: number, now: number): 
 const fmtMin = (ms: number): string => `${Math.round((ms / 60000) * 10) / 10} min`
 
 /** Asks Haiku (one call) to split the work into 3 to 6 steps with minutes; undefined (and logged) when the reply is not a valid plan. */
-export async function askPlan($: EngineInterface, ask: { text: string; totalMs: number; id: string }): Promise<{ title: string; minutes: number }[] | undefined> {
+export async function askPlan($: EngineInterface, ask: { text: string; totalMs: number; id: string; similar: readonly WaitSample[] }): Promise<{ title: string; minutes: number }[] | undefined> {
+  const runs = ask.similar.length === 0 ? 'none' : `\n${ask.similar.map((run, index) => `${index + 1}. ${run.summary} — ${fmtMin(run.durationMs)}`).join('\n')}`
   const prompt =
     'Divide en 3 a 6 pasos, en orden, el trabajo de un agente de programación y estima los minutos de cada paso; la suma debe ser parecida a duracion_total. ' +
-    'Responde solo con una línea por paso, con el formato N. <título corto> — M min, sin texto extra.\n' +
-    '<example>Con la tarea "migrar la base de datos" y 12 min en total, la respuesta es:\n1. Leer el esquema actual — 2 min\n2. Escribir la migración — 5 min\n3. Probarla con datos reales — 4 min\n4. Documentar el cambio — 1 min</example>\n\n' +
-    `<tarea>${ask.text.slice(0, 1500)}</tarea>\n<duracion_total>${fmtMin(ask.totalMs)}</duracion_total>`
+    'Si hay tareas_parecidas, imita su reparto de tiempo. ' +
+    'Cada paso es una fase con resultado visible (leer, planificar, editar, probar, informar), no un archivo ni un comando; omite las fases que la tarea no necesita. ' +
+    'Responde solo con una línea por paso, con el formato N. <título de hasta 6 palabras> — M min, sin texto extra ni negritas.\n' +
+    '<example>Con la tarea "corregir el error de paginación" y 6 min en total, la respuesta es:\n1. Localizar la causa — 2 min\n2. Corregir y probar — 3 min\n3. Informar del resultado — 1 min</example>\n' +
+    '<example>Con la tarea "migrar la base de datos" y 25 min en total, la respuesta es:\n1. Leer el esquema actual — 3 min\n2. Planificar la migración — 3 min\n3. Escribir los scripts — 8 min\n4. Probar con datos reales — 9 min\n5. Informar — 2 min</example>\n\n' +
+    `<tarea>${ask.text.slice(0, 1500)}</tarea>\n<duracion_total>${fmtMin(ask.totalMs)}</duracion_total>\n<tareas_parecidas>${runs}</tareas_parecidas>`
   const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 200, timeoutMs: 15000 })
   const steps = reply.isAnswered ? parsePlan(reply.text) : undefined
   logReestimate(
@@ -215,8 +221,12 @@ export async function askStepCount(
 ): Promise<number | undefined> {
   const { plan } = ask
   const prompt =
-    'Un agente de programación sigue un plan de pasos en orden. Según su misión y su actividad reciente, cuenta cuántos pasos están terminados (los primeros N del plan). Responde solo con esta línea:\npasos: N\n' +
-    '<example>Con un plan de 4 pasos y el agente ya probando lo que construyó en el paso 3, la respuesta es:\npasos: 3</example>\n\n' +
+    'Un agente de programación sigue un plan de pasos en orden. Según su misión y su actividad reciente, cuenta cuántos pasos están terminados (los primeros N del plan). ' +
+    'Un paso está terminado solo si su resultado ya existe y el agente ya trabaja en el siguiente; el paso en curso no cuenta. ' +
+    'El tiempo transcurrido no prueba nada: cuenta solo lo que muestra <progreso> (llamadas recientes del agente). ' +
+    'Con duda, o sin <progreso>, repite pasos_terminados_antes. Responde solo con esta línea:\npasos: N\n' +
+    '<example>Con un plan de 4 pasos, 1 terminado antes y el agente aún editando los archivos del paso 2, la respuesta es:\npasos: 1</example>\n' +
+    '<example>Con un plan de 5 pasos y el agente ya ejecutando las pruebas que cubren lo escrito en el paso 3, la respuesta es:\npasos: 3</example>\n\n' +
     `<mision>${ask.mission.slice(0, 1500)}</mision>\n` +
     `<pasos>\n${plan.steps.map((step, index) => `${index + 1}. ${step.title}`).join('\n')}\n</pasos>\n` +
     `<ya_transcurrido>${fmtMin(ask.elapsedMs)}</ya_transcurrido>\n` +

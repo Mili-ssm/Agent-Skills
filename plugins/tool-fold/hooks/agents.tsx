@@ -1,7 +1,7 @@
 import { atom, memberOf, read, update } from 'claude-code'
 import type { BoxProps, ElementConstructor, EngineInterface, Register, RenderElement, RenderSurface, SvgProps, TextProps } from 'claude-code'
 
-import type { AgentRun, AgentRunStatus, MainInfo, Step, StepKind } from '../types'
+import type { AgentRun, AgentRunStatus, MainInfo, Step, StepKind, WaitSample } from '../types'
 import {
   AGENT_SAMPLES_KEY,
   PROGRESS_CHARS,
@@ -363,7 +363,7 @@ async function lookUpSimilar($: EngineInterface, id: string, type: string, descr
             return run.askSeq === 1 ? withEta(run, etaMs, sourceOfAsk(stated, similar), at) : run
           })
           // A long first answer gets a step plan.
-          return shouldPlan(askSeq, etaMs) ? startPlan($, id, etaMs, `${summary}\n${brief}`) : undefined
+          return shouldPlan(askSeq, etaMs) ? startPlan($, id, etaMs, `${summary}\n${brief}`, similar) : undefined
         })
         .catch(error => $.ui.log(`tool-fold: agent estimate: ${String(error)}`, { to: 'debug' }))
     }
@@ -507,8 +507,8 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
 }
 
 /** Builds the step plan of a long agent (one Haiku call); silent fallback to the plain estimate when the reply is not a valid plan. */
-async function startPlan($: EngineInterface, id: string, etaMs: number, text: string): Promise<void> {
-  const parsed = await askPlan($, { text, totalMs: etaMs, id })
+async function startPlan($: EngineInterface, id: string, etaMs: number, text: string, similar: readonly WaitSample[]): Promise<void> {
+  const parsed = await askPlan($, { text, totalMs: etaMs, id, similar })
   if (parsed === undefined) {
     return
   }
