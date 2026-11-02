@@ -22,9 +22,11 @@ import {
   LINGER_MS,
   MAX_PERCENT,
   OVERDUE_GRACE_MS,
+  logReestimate,
 } from './estimates'
 import type { ReaskFields } from './estimates'
-import { callPointsAhead, PLAN_ENABLED, applyCount, applyOverdue, askPlan, askStepCount, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan } from './plan'
+import { callPointsAhead, PLAN_ENABLED, applyLeft, applyStep, askPlan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan } from './plan'
+import type { PlanState } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
@@ -510,7 +512,49 @@ async function reestimateAgents($: EngineInterface): Promise<void> {
   }
 }
 
-/** One tick of a run with a step plan: asks the step count (50% / 80% of the step) or, overdue, the step's remaining minutes. Fire and forget. */
+// A command that runs tests, by its text.
+const TEST_COMMAND = /\b(?:test|pytest|cargo test|bun test|jest|vitest)/i
+/** Whether a Bash command runs tests. */
+export const isTestCommand = (command: string): boolean => TEST_COMMAND.test(command)
+
+/** What the run did so far, as the plan check counts it (G7: the "since the current step" part is a difference from a snapshot). */
+export function activityCounts(run: Pick<AgentRun, 'counts'> & ReaskFields): Record<string, number> {
+  const n = (kind: StepKind): number => run.counts[kind] ?? 0
+  const created = run.created ?? 0
+  return {
+    reads: n('read') + n('list') + n('search'),
+    edits: Math.max(0, n('edit') - created),
+    created,
+    commands: n('run'),
+    tests: run.testRuns ?? 0,
+    calls: Object.values(run.counts).reduce((sum, count) => sum + (count ?? 0), 0),
+  }
+}
+
+const activityLine = (c: Record<string, number>): string =>
+  `${c.reads ?? 0} lecturas, ${c.edits ?? 0} ediciones, ${c.created ?? 0} creados, ${c.commands ?? 0} comandos, ${c.tests ?? 0} pruebas`
+
+/** The `<actividad>` block: counts since the start and since the current step began (the plan's `countsAtStep` snapshot). */
+export function activitySummary(run: Pick<AgentRun, 'counts'> & ReaskFields, plan: PlanState): string {
+  const now = activityCounts(run)
+  const before = plan.countsAtStep ?? {}
+  const since = Object.fromEntries(Object.entries(now).map(([key, value]) => [key, Math.max(0, value - (before[key] ?? 0))]))
+  return `desde el inicio: ${activityLine(now)}\ndesde el paso actual: ${activityLine(since)}`
+}
+
+/** The `<llamadas>` block: the last 8 finished calls, newest last (the translated text when there is one). */
+export function recentCalls(run: Pick<AgentRun, 'history'>, _now: number): string {
+  return (run.history ?? [])
+    .slice(-8)
+    .map(call => `- ${formatDuration(call.ms)} ${call.ok ? '✓' : '✗'} ${clip(call.what.replace(/\s+/g, ' ').trim(), 120)}`)
+    .join('\n')
+}
+
+/**
+ * One tick of a run with a step plan: asks Haiku the current step and the minutes left in it (50% / 80% of the step,
+ * hints, 5 min ceiling, or overdue). The step moves at most +1 and only if calls were added since the last check (G1);
+ * the count is applied before `falta`, which then belongs to the new current step (G5). Fire and forget.
+ */
 async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: number): Promise<void> {
   const { plan } = run
   const elapsedMs = now - run.startedAt
@@ -520,32 +564,40 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
   }
   reasking.add(run.id)
   const seq = plan.seq + 1
-  await patch($, run.id, item => (item.plan === undefined ? item : { ...item, plan: { ...item.plan, askedAt: now, seq, fired: due.fired } }))
+  const calls = activityCounts(run).calls ?? 0
+  const historyGrew = calls > (plan.callsAtCheck ?? 0)
+  await patch($, run.id, item => (item.plan === undefined ? item : { ...item, plan: { ...item.plan, askedAt: now, seq, fired: due.fired, callsAtCheck: calls } }))
   const mission = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
-  const intoStep = elapsedMs - plan.stepAt
-  const asking: Promise<((current: NonNullable<typeof plan>) => ReturnType<typeof applyCount>) | undefined> =
-    due.kind === 'overdue'
-      ? askMinutes($, {
-          text: `${mission}\nPaso actual: ${plan.steps[plan.done]?.title ?? ''}`,
-          similar: [],
-          again: { elapsedMs: intoStep, previousMs: plan.stepEstMs, kind: 'overdue' },
-          id: run.id,
-        }).then(total => (total === undefined ? undefined : current => applyOverdue(current, total - intoStep, elapsedMs)))
-      : askStepCount($, { mission, plan, elapsedMs, progress: progressText(run, now), id: run.id }).then(count =>
-          count === undefined ? undefined : current => applyCount(current, count, elapsedMs, now),
-        )
-  void asking
-    .then(apply =>
-      apply === undefined
+  const since = thinkingSince(run, now)
+  void askStepCheck($, {
+    mission,
+    plan,
+    elapsedMs,
+    activity: activitySummary(run, plan),
+    calls: recentCalls(run, now),
+    ...(since === undefined ? {} : { thinking: `pensando desde hace ${formatDuration(now - since)} (sin herramientas)` }),
+    id: run.id,
+  })
+    .then(answer =>
+      answer === undefined
         ? undefined
         : patch($, run.id, item => {
             const current = item.plan
             if (current === undefined || current.seq !== seq || item.status !== 'running') {
               return item
             }
-            const next = apply(current)
-            logPlanCheck(run.id, due.kind, current, next)
-            return next === undefined ? item : { ...item, plan: next, etaMs: Math.round(planEndAt(next)) }
+            let next = answer.step === undefined ? undefined : applyStep(current, answer.step, elapsedMs, now, historyGrew)
+            if (next !== undefined) {
+              next = { ...next, countsAtStep: activityCounts(item) }
+            }
+            if (answer.step !== undefined && next === undefined) {
+              logReestimate(`${run.id} plan step ${answer.step} ignored (done=${current.done}/${current.steps.length}${historyGrew ? '' : ', no new calls'})`)
+            }
+            // `falta` is about the step Haiku named: it applies only when that is the step the plan now has.
+            const isSameStep = answer.step === undefined || answer.step === (next ?? current).done + 1
+            const timed = answer.leftMin === undefined || !isSameStep ? next : applyLeft(next ?? current, answer.leftMin, elapsedMs)
+            logPlanCheck(run.id, due.kind, current, timed)
+            return timed === undefined ? item : { ...item, plan: timed, etaMs: Math.round(planEndAt(timed)) }
           }),
     )
     .catch(error => $.ui.log(`tool-fold: plan check: ${String(error)}`, { to: 'debug' }))
@@ -1156,6 +1208,8 @@ export async function endAgentCall(
     current: run.current.filter(item => item.id !== step.id),
     recent: [...run.recent, { ...(run.current.find(item => item.id === step.id) ?? step), status }].slice(-2),
     counts: { ...run.counts, [step.kind]: (run.counts[step.kind] ?? 0) + 1 },
+    ...(status === 'done' && tool === 'Write' ? { created: (run.created ?? 0) + 1 } : {}),
+    ...(tool === 'Bash' && typeof input.command === 'string' && isTestCommand(input.command) ? { testRuns: (run.testRuns ?? 0) + 1 } : {}),
     failures: (run.failures ?? 0) + (status === 'failed' ? 1 : 0),
     ...(status === 'done' ? touched(run, step, input) : {}),
   }))

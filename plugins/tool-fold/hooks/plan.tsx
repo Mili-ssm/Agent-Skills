@@ -54,6 +54,10 @@ export type PlanState = {
   countAt: number
   /** The latest check's number, so an older answer is dropped. */
   seq: number
+  /** The run's activity counts when the current step began (G7): the "since the current step" summary is the difference. */
+  countsAtStep?: Record<string, number>
+  /** Calls the run had finished at the latest check (G1: a step only advances if calls were added since). */
+  callsAtCheck?: number
 }
 
 /** Whether a first estimate switches a plan on: only the first answer (`askSeq` 1) and only when it is long. */
@@ -78,10 +82,34 @@ export function parsePlan(reply: string): { title: string; minutes: number }[] |
   return steps
 }
 
-/** The line `pasos: N` (first line only), as a count; undefined for anything else. */
-export function stepsLine(reply: string): number | undefined {
-  const found = /^\s*pasos:\s*(\d{1,2})\s*$/i.exec(reply.trim().split('\n')[0] ?? '')?.[1]
-  return found === undefined ? undefined : Number.parseInt(found, 10)
+/**
+ * Haiku's reply to a plan check: `paso: N` and `falta: M`, each found by key over the first 3 non-empty lines (bold, `~`
+ * and `min` ignored, any order). `step` only when 1 <= N <= total; each part is absent when it does not read.
+ */
+export function parseStepReply(text: string, total: number): { step?: number; leftMin?: number } {
+  const lines = text
+    .replaceAll('**', '')
+    .replaceAll('~', '')
+    .replace(/\bmin(?:utos?)?\b\.?/gi, '')
+    .split('\n')
+    .map(line => line.trim())
+    .filter(line => line !== '')
+    .slice(0, 3)
+  const read = (key: string): string | undefined => {
+    for (const line of lines) {
+      const found = new RegExp(`^${key}\\s*:\\s*(\\d+(?:[.,]\\d+)?)\\b`, 'i').exec(line)?.[1]
+      if (found !== undefined) {
+        return found.replace(',', '.')
+      }
+    }
+    return undefined
+  }
+  const step = Number.parseInt(read('paso') ?? '', 10)
+  const left = Number.parseFloat(read('falta') ?? '')
+  return {
+    ...(step >= 1 && step <= total ? { step } : {}),
+    ...(Number.isFinite(left) ? { leftMin: left } : {}),
+  }
 }
 
 const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value))
@@ -179,6 +207,34 @@ export function applyOverdue(plan: PlanState, remainingMs: number, elapsedMs: nu
 }
 
 /**
+ * The plan after Haiku named step `step` (1-based) as the current one; undefined when it does not advance. G1: at most
+ * +1 step per check, and only when calls were added since the last check (`historyGrew`); the count never decreases.
+ * G2: one step finishes at a time, so no skipped step ever enters the factor. The caller stamps `countsAtStep` (G7).
+ */
+export function applyStep(plan: PlanState, step: number, elapsedMs: number, now: number, historyGrew: boolean): PlanState | undefined {
+  const done = Math.min(step - 1, plan.done + 1)
+  if (!historyGrew || done <= plan.done) {
+    return undefined
+  }
+  return applyCount(plan, done, elapsedMs, now)
+}
+
+/**
+ * The plan with the current step's end moved by Haiku's `leftMin`. G3: clamped to 0.5 min .. 3x the step estimate,
+ * blended 50/50 with the remaining time, never shortening it more than 30% per check. G4: the anchor is the bar shown
+ * first; then the step estimate and the 50% / 80% `fired` follow the new end, as in `applyOverdue`.
+ */
+export function applyLeft(plan: PlanState, leftMin: number, elapsedMs: number): PlanState {
+  const remaining = Math.max(0, plan.stepEndAt - elapsedMs)
+  const asked = clamp(leftMin * 60_000, 30_000, Math.max(30_000, 3 * plan.stepEstMs))
+  const blended = Math.max((remaining + asked) / 2, remaining * 0.7)
+  const stepEndAt = elapsedMs + Math.round(blended)
+  const stepEstMs = Math.max(1000, stepEndAt - plan.stepAt)
+  const fired = CHECK_FRACTIONS.filter(fraction => elapsedMs - plan.stepAt >= stepEstMs * fraction).length
+  return { ...plan, stepEndAt, stepEstMs, fired, anchor: planBar(plan, elapsedMs) }
+}
+
+/**
  * Whether the plan is checked now, and how: `overdue` (the step is past its estimate plus the grace: ask its remaining
  * minutes) or `progress` (50% / 80% of the step's estimated duration, or 5 min without a count: ask how many steps are
  * done), also when a call hinted a later step (`hintAt`). None once every step is done. Never closer than 1 min to the last check (30 s when overdue).
@@ -245,32 +301,47 @@ export async function askPlan($: EngineInterface, ask: { text: string; totalMs: 
   return steps
 }
 
-/** Asks Haiku how many steps are done (`pasos: N`, first line only); undefined (and logged) when it does not answer well. */
-export async function askStepCount(
+/** Asks Haiku (one call) for the current step and the minutes left in it (`paso: N`, `falta: M`); undefined (and logged) when neither reads. */
+export async function askStepCheck(
   $: EngineInterface,
-  ask: { mission: string; plan: PlanState; elapsedMs: number; progress: string; id: string },
-): Promise<number | undefined> {
+  ask: { mission: string; plan: PlanState; elapsedMs: number; activity: string; calls: string; thinking?: string; id: string },
+): Promise<{ step?: number; leftMin?: number } | undefined> {
   const { plan } = ask
-  const prompt =
-    'Un agente de programación sigue un plan de pasos en orden. Según su misión y su actividad reciente, cuenta cuántos pasos están terminados (los primeros N del plan). ' +
-    'Un paso está terminado solo si su resultado ya existe y el agente ya trabaja en el siguiente; el paso en curso no cuenta. ' +
-    'El tiempo transcurrido no prueba nada: cuenta solo lo que muestra <progreso> (llamadas recientes del agente). ' +
-    'Con duda, o sin <progreso>, repite pasos_terminados_antes. Responde solo con esta línea:\npasos: N\n' +
-    '<example>Con un plan de 4 pasos, 1 terminado antes y el agente aún editando los archivos del paso 2, la respuesta es:\npasos: 1</example>\n' +
-    '<example>Con un plan de 5 pasos y el agente ya ejecutando las pruebas que cubren lo escrito en el paso 3, la respuesta es:\npasos: 3</example>\n\n' +
-    `<mision>${ask.mission.slice(0, 1500)}</mision>\n` +
-    `<pasos>\n${plan.steps.map((step, index) => `${index + 1}. ${step.title}`).join('\n')}\n</pasos>\n` +
-    `<ya_transcurrido>${fmtMin(ask.elapsedMs)}</ya_transcurrido>\n` +
-    `<pasos_terminados_antes>${plan.done}</pasos_terminados_antes>\n` +
-    (ask.progress === '' ? '' : `<progreso>${ask.progress}</progreso>\n`) +
-    '\nResponde solo con la línea pasos: N (número entero).'
-  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 20, timeoutMs: 15000 })
-  const count = reply.isAnswered ? stepsLine(reply.text) : undefined
-  if (count === undefined || count > plan.steps.length) {
-    logReestimate(`${ask.id} plan check failed: ${reply.isAnswered ? `reply ${JSON.stringify(reply.text.slice(0, 60))}` : 'no answer'} elapsed=${fmtMin(ask.elapsedMs)}`)
-    return undefined
+  const total = plan.steps.length
+  const into = ask.elapsedMs - plan.stepAt
+  const lineOf = (step: PlanStep, index: number): string => {
+    if (index < plan.done) {
+      return `${index + 1}. ${step.title} · previsto ${fmtMin(step.estMs)} · real ${fmtMin(step.realMs ?? 0)}`
+    }
+    if (index === plan.done) {
+      return `${index + 1}. ${step.title} · previsto ${fmtMin(plan.stepEstMs)} · en curso ${fmtMin(into)}`
+    }
+    return `${index + 1}. ${step.title} · previsto ${fmtMin(step.estMs * plan.factor)}`
   }
-  return count
+  const prompt =
+    'Un agente de programación sigue un plan de pasos en orden. Indica en qué paso está ahora y cuántos minutos le faltan para terminarlo. Responde solo con dos líneas, sin nada más:\npaso: N\nfalta: M\n\n' +
+    'Reglas:\n' +
+    '- paso es el número (desde 1) del paso cuyo tipo de trabajo describe mejor lo que muestran <actividad> y <llamadas>. Un paso ya es el actual en cuanto empezó su tipo de trabajo; no esperes a que acabe el anterior. Nunca devuelvas un número menor que <paso_anterior>.\n' +
+    '- Si <paso_anterior> aún encaja con la actividad, repítelo; si la actividad ya es de otro paso, avanza, aunque sea por poco.\n' +
+    '- falta son minutos enteros desde ahora hasta acabar ese paso, según el trabajo que queda, no según el plan. Si está casi terminado o ya pasó de lo previsto, responde el tiempo real que ves que queda (mínimo 1), no 0.\n' +
+    '- <referencia_calendario> es solo referencia, no es una prueba: no decide el paso.\n\n' +
+    '<example>El agente lleva 6 pasos; hasta ahora leyó y editó módulos del paso 3 y acaba de lanzar las pruebas que lo cubren, con un solo fallo pendiente. Respuesta:\npaso: 3\nfalta: 2</example>\n' +
+    '<example>Plan de 4 pasos; el agente acaba de crear los archivos nuevos del paso 4 y aún no ha ejecutado nada, y el paso suele durar bastante. Respuesta:\npaso: 4\nfalta: 9</example>\n' +
+    '<example>Plan de 5 pasos; sigue leyendo código del paso 2, ya pasó de lo previsto y no ha editado nada. Respuesta:\npaso: 2\nfalta: 6</example>\n\n' +
+    `<mision>${ask.mission.slice(0, 1500)}</mision>\n` +
+    `<pasos>\n${plan.steps.map(lineOf).join('\n')}\n</pasos>\n` +
+    `<paso_anterior>${Math.min(plan.done + 1, total)}</paso_anterior>\n` +
+    `<actividad>\n${ask.activity}\n</actividad>\n` +
+    `<referencia_calendario>según el calendario van ${fmtMin(ask.elapsedMs)} de ${fmtMin(planEndAt(plan))} (solo referencia, no es una prueba)</referencia_calendario>\n` +
+    `<llamadas>\n${ask.calls}\n</llamadas>\n` +
+    (ask.thinking === undefined ? '' : `<pensando>${ask.thinking}</pensando>\n`) +
+    '\nResponde solo con las dos líneas paso: N y falta: M.'
+  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 40, timeoutMs: 15000 })
+  const parsed = reply.isAnswered ? parseStepReply(reply.text, total) : {}
+  if (parsed.step === undefined || parsed.leftMin === undefined) {
+    logReestimate(`${ask.id} plan check ${parsed.step === undefined && parsed.leftMin === undefined ? 'failed' : 'partial'}: ${reply.isAnswered ? `reply ${JSON.stringify(reply.text.slice(0, 60))}` : 'no answer'} elapsed=${fmtMin(ask.elapsedMs)}`)
+  }
+  return parsed.step === undefined && parsed.leftMin === undefined ? undefined : parsed
 }
 
 /** Log line of an applied (or ignored) plan check, for `/agents-debug`. */
