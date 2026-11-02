@@ -747,15 +747,16 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
           </Text>
         ) : (
           <>
-            {/* `1/6 Medir memoria 40% · ~43 min`: the step title, small, is the one part that is cut with … when room runs out. */}
+            {/* `1/6 Medir memoria 40% · ~43 min`: the title small and pre-cut (a wrapping Box stacks the row on vscode); the step share bold. */}
             <Text color={color} bold tabular>
               {plan.count}
             </Text>
-            <Box flexShrink={1} minWidth={0}>
-              <Text color={color} size="footnote" wrap="truncate">
-                {plan.step}
-              </Text>
-            </Box>
+            <Text color={color} size="footnote" wrap="truncate">
+              {plan.step}
+            </Text>
+            <Text color={color} bold tabular>
+              {plan.stepPct}
+            </Text>
             <Text color={color} bold tabular>
               {datum.slice(plan.count.length + 1)}
             </Text>
