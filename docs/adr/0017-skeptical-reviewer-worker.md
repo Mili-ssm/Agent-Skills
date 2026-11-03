@@ -44,3 +44,14 @@ Measured numbers for the two cases exist (record them in `## Measurement YYYY-MM
 | Quality case misses the seeded point in ≥ 2/6 runs, or > 2 findings on the clean file | Raise effort or re-plan |
 | More than 2 dispatches per change in a trace | Tighten the trigger floor |
 | `researcher` on Codex returns without searching | Pin it to its own Codex pair |
+
+## Measurement 2026-11-03
+
+`--model sonnet --runs 3`, after the rename and eval fixes:
+
+| Case | Result |
+|---|---|
+| `offload-skeptical-reviewer-quality` (dispatch asked) | 0.94; delegated 3/3, point-found 3/3, hedged 3/3, no-verdict 3/3, clean-file 2/3 |
+| `offload-skeptical-reviewer-with-policy` (dispatch left to the policy) | 0.00; delegated 0/3 |
+
+The reviewer works when dispatched; a Sonnet main conversation does not dispatch it on its own from the policy row, as with `implementer` (ADR 0012 Measurement). Kill criterion "with-policy dispatch ≤ 1/3" met: proactive use is re-planned (a hook or Stop-time reminder), not reverted, because the agent itself measures well. Earlier run before the fixes (2 runs): with-policy 0/2; quality 0.50, its `clean-file` fixture had a real bug and `hedged` judged the main answer, both fixed.
