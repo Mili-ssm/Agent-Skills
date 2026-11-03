@@ -46,11 +46,12 @@ COPILOT_MODELS = {
 # Cost-optimized equivalences; Opus high stays on sol because astra costs more. If one agent needs an
 # exception, add a per-agent override here; none exists yet. A pair missing here is an error in --check.
 CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
-    # Cheapest Codex pair that matches or beats each Claude pair (owner, 2026-11): luna slightly above Haiku (x1
+    # Cheapest Codex pair that matches or beats each Claude pair, except Haiku medium below (owner, 2026-11): luna slightly above Haiku (x1
     # cost), terra between luna and sol and the most cost-efficient (x2), sol above Opus (x5); astra has no Claude
-    # equivalent and is never mapped. Haiku medium stays medium: low effort made Haiku stop early (ADR 0014).
+    # equivalent and is never mapped. Haiku medium maps to luna low (owner 2026-11-03, ADR 0017): global change, it
+    # also moves researcher to luna low; ADR 0014 early-stop risk (low effort stopping early) is watched.
     ("haiku", "low"): ("gpt-6-luna", "low"),
-    ("haiku", "medium"): ("gpt-6-luna", "medium"),
+    ("haiku", "medium"): ("gpt-6-luna", "low"),
     ("haiku", "high"): ("gpt-6-luna", "medium"),
     ("haiku", "xhigh"): ("gpt-6-luna", "high"),
     ("haiku", "max"): ("gpt-6-luna", "xhigh"),

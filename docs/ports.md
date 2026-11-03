@@ -58,7 +58,7 @@ Copilot runs the same Claude models: model and effort pass through (`haiku` → 
 
 | Claude model | low | medium | high | xhigh | max |
 |---|---|---|---|---|---|
-| `haiku` | `gpt-6-luna` low | `gpt-6-luna` medium | `gpt-6-luna` medium | `gpt-6-luna` high | `gpt-6-luna` xhigh |
+| `haiku` | `gpt-6-luna` low | `gpt-6-luna` low | `gpt-6-luna` medium | `gpt-6-luna` high | `gpt-6-luna` xhigh |
 | `sonnet` | `gpt-6-luna` high | `gpt-6.1-terra` low | `gpt-6.1-terra` medium | `gpt-6.1-terra` high | `gpt-6.1-terra` xhigh |
 | `opus` | `gpt-6.1-terra` high | `gpt-6.1-sol` low | `gpt-6.1-sol` medium | `gpt-6.1-sol` high | `gpt-6.1-sol` xhigh |
 

@@ -1,6 +1,6 @@
 # 0014 Prompt engineering skill and cheap navigation
 
-Status: accepted · Date: 2026-10-30 · Amends 0007
+Status: accepted · Date: 2026-10-30 · Amends 0007 · Amended by 0017
 
 ## Context
 
@@ -65,3 +65,7 @@ The `prompt-engineering` trigger case stays below 2/3, a near-miss starts firing
 ## Review 2026-10-30
 
 Effort per Haiku worker, recorded because the research above says `low` stops early: `researcher` moved to `medium` (commit `6af1a32`) because at `low` it skipped searches and stopped early. `check-runner` and `summarizer` stay `low`: their offload cases scored 3/3 at `low` (Measurement above) and each runs one command or reads one file. `Explore` (user scope) stays `low`, unmeasured; revisit if it returns before its search is done.
+
+## Review 2026-11-03
+
+The Codex pair (haiku, medium) maps to (gpt-6-luna, low) (owner, ADR 0017), so the Codex port of `researcher` now runs luna at `low`, the effort this ADR found to stop early on Haiku. Accepted because luna is above Haiku; unmeasured on Codex. Revisit if a Codex `researcher` trace returns without searching: give it its own pair.
