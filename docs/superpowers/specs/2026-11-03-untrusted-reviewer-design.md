@@ -55,3 +55,9 @@ Frontmatter: haiku · medium · tools Read, Grep, Glob, Bash, Skill · disallowe
 
 ## Kill criteria
 Any `neg-*` drops ≥ 2/6 vs its record → revert the description commit; `with-policy` dispatch ≤ 1/3 with a Sonnet main → re-plan (hook or Stop reminder); seeded-defect bug missed ≥ 2/6 or > 2 false positives on the clean file → raise effort or re-plan; > 2 dispatches per change in a trace → tighten trigger; `researcher` on Codex returns without searching → pin it to its own Codex pair.
+
+## Owner refinement (2026-11-03) — overrides the sections above where they differ
+- Focus is **quality of what is about to be delivered**, not an exhaustive bug hunt: it is the early alert that triggers rework before owners or users find the weak spots, since tests usually cover correctness. First look for improvable points: needless complexity, a better data structure, a design, programming, visual or UX/UI pattern that applies or is violated, poor organization (files, sections, modules), unclear names or text. Obvious bugs still count, listed with the rest.
+- Ordering: findings ranked by how much the delivery would improve, then confidence. Nit cap stays.
+- Seeded eval becomes a seeded-quality case: a working module with one clear improvable point (e.g. a list scanned in a loop where a set/dict fits, or a needless class) plus a clean file; pass if the point is found with evidence and ≤ 2 findings on the clean file.
+- Evals (owner): only the new agent's cases — `offload/untrusted-reviewer-with-policy` and the seeded-quality case — not the existing `neg-*` or other `*-with-policy` suites, because no existing agent or description changes. The policy file gains one row, so the existing `*-with-policy` cases are updated verbatim but not re-run; recorded as an owner exception to N6 in the ADR with its kill criterion (any routing oddity in traces → run the `neg-*` suite).
