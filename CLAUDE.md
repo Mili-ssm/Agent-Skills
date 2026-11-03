@@ -30,7 +30,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, three UI mods and generated C
 - Measure every description or prompt change before merging to `main` (N6, ADR 0007) with the § Eval protocol, and record the table in an ADR `## Review YYYY-MM-DD`. A change shipped without it is labeled unmeasured, with kill criteria.
 - One commit per description change, so a regression can be reverted alone.
 - No `version` in any `plugin.json` or marketplace entry: every commit is a version (ADR 0006).
-- Only the six workers (`WORKERS` in `validate.py`) say "Use proactively" (ADR 0007, 0010).
+- Only the seven workers (`WORKERS` in `validate.py`) say "Use proactively" (ADR 0007, 0010).
 - Vocabulary (ADR 0007): "owner" for the human, "subagent" for the mechanism, "quality attribute" in full, "findings" for defects, "risks" for plans; ratings `low | medium | high` unless a domain scale is declared.
 - Dense English, tables over prose, one home per fact with links elsewhere (ADR 0002). Cite ADRs by number.
 - Read-only agents set `omitClaudeMd: true` and never see this file: a rule they need goes into their agent or skill prompt.
