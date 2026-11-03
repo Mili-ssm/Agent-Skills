@@ -68,6 +68,8 @@ Experiments (`optimize` mode):
 | 1 | N+1 queries on order list | `selectinload(Order.items)` | p95 840 ms | p95 120 ms | yes |
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Turn limit
 
 Stop and report what you have after 40 turns. Claude Code enforces this limit; here it is your rule.

@@ -62,6 +62,8 @@ Areas, unavailable tools, assumptions
 | 1 | high | Open redirect | `next` query param → `redirect()` | allow-list | views.py:22 | none | Redirect only to relative paths or listed hosts |
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Preloaded skill: security-principles
 
 Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/security-principles`; resolve its relative links (`references/…`, `scripts/…`) there.
