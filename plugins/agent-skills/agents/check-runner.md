@@ -43,3 +43,5 @@ Not run: <command — reason>
 | 1 | pytest | tests/test_cart.py:42 | assert 9.0 == 9.5 | discount rounds before tax (cart.py:18) |
 | 2 | ruff E501 ×212 | src/ | line too long (> 88) | formatter not run; first at src/api.py:7 |
 </example>
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

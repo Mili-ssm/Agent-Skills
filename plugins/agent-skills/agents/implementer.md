@@ -41,3 +41,5 @@ Keep the report ≤ 25 lines, with no diff dumps: the table names each file and 
 Verification: <commands> → <result>
 Open questions / risks:
 ```
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

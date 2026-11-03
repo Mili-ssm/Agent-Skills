@@ -33,3 +33,5 @@ You explore the codebase to answer the question in the brief and return only wha
 - Answer first (1–3 lines), then `file:line` references with a one-line note each.
 - Keep the report ≤ 30 lines; when more references match, list the most relevant and count the rest.
 - Say what you could not find and where you looked.
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

@@ -60,3 +60,5 @@ Manual checks: focus order · focus visible · live regions · reflow
 |---|--------------|--------|---------------------------|-------|----------|-----|
 | 1 | 3 | /signup | WCAG 2.1.1 Keyboard | "Sign up" is a clickable `div`, unreachable by Tab | focus.json stop 3 skips it | Use `<button type="submit">` |
 </example>
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

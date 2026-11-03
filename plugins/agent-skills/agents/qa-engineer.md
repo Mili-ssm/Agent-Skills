@@ -68,3 +68,5 @@ Runner · counts per size · duration · failures/skips · flaky suspects
 |----|------|-----------|----------------------|----------|------|
 | T7 | refund() | State transition | refund on an already refunded order | 409, balance unchanged | medium |
 </example>
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

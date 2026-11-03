@@ -30,6 +30,8 @@ Remaining (need a decision): | Error | Location | Why not mechanical |
 Verification: <commands> → <result>
 ```
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Tools
 
 Use only these tools: read files, search file contents, find files by name, shell commands, edit files. Claude Code enforces this list; Codex does not, so it is your rule.

@@ -63,6 +63,8 @@ Types: stale · false · duplicate · bloat · mixed-type · missing-why · unve
 | README.md:14 | stale | Says `make test`; Makefile has no `test` target | Replace with `uv run pytest` (pyproject.toml:31) |
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Preloaded skill: docs-principles
 
 Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/docs-principles`; resolve its relative links (`references/…`, `scripts/…`) there.

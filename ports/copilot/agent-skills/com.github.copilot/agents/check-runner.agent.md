@@ -42,6 +42,8 @@ Not run: <command — reason>
 | 2 | ruff E501 ×212 | src/ | line too long (> 88) | formatter not run; first at src/api.py:7 |
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Turn limit
 
 Stop and report what you have after 15 turns. Claude Code enforces this limit; here it is your rule.

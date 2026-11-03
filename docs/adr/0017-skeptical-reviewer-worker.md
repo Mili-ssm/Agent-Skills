@@ -55,3 +55,19 @@ Measured numbers for the two cases exist (record them in `## Measurement YYYY-MM
 | `offload-skeptical-reviewer-with-policy` (dispatch left to the policy) | 0.00; delegated 0/3 |
 
 The reviewer works when dispatched; a Sonnet main conversation does not dispatch it on its own from the policy row, as with `implementer` (ADR 0012 Measurement). Kill criterion "with-policy dispatch ≤ 1/3" met: proactive use is re-planned (a hook or Stop-time reminder), not reverted, because the agent itself measures well. Earlier run before the fixes (2 runs): with-policy 0/2; quality 0.50, its `clean-file` fixture had a real bug and `hedged` judged the main answer, both fixed.
+
+## Measurement 2026-11-04
+
+Owner's simpler rule (before the final answer, whenever the project changed since the last review; closing "Before you reply" line), then every agent reports in English. Sonnet main.
+
+| Case | Baseline (2 runs, before) | Turn-end rule (3 runs) | + English (runs) |
+|---|---|---|---|
+| `offload-skeptical-reviewer-with-policy` | 0/2 | 1/3 | 1/3 + 1/3 = **2/6** |
+| `offload-skeptical-reviewer-quality` | 2/2 | 3/3 | 3/3 |
+| `neg-*` (5 cases) | 10/10 silent | 15/15 silent | not re-run (no description change) |
+| `offload-check-runner-with-policy` | 2/2 | 3/3 | 2/3, rerun 6/6 |
+| `offload-ui-verifier-with-policy` | 2/2 | 3/3 | 2/3 (judge), rerun 6/6 |
+| `offload-summarizer-with-policy` · `-extract-` | 2/2 · 2/2 | 3/3 · 3/3 | 3/3 · 3/3 |
+| `offload-implementer-with-policy` | 0.17 | 0.17 | 0.17 (owner: fires constantly in real use) |
+
+Full baseline the same day (2 runs): 17 trigger cases match their records (`architecture-principles` 0/2, `performance-analyst` 0/2, `docs-principles`, `pre-mortem`, `security-principles` 1/2; the rest 2/2); no regression from adding the worker. Proactive dispatch moved 0 → 2/6 with wording only; hooks were declined by the owner and remain the next lever if it stays low in real use.

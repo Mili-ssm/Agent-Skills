@@ -51,6 +51,8 @@ Payments retry at most 4 times with exponential backoff: 2 s, 4 s, 8 s, 16 s.
 ~~~~
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Tools
 
 Use only these tools: read files, search file contents, find files by name, shell commands. Claude Code enforces this list; Codex does not, so it is your rule.

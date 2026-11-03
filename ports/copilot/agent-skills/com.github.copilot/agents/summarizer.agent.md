@@ -57,6 +57,8 @@ Payments retry at most 4 times with exponential backoff: 2 s, 4 s, 8 s, 16 s.
 ~~~~
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Turn limit
 
 Stop and report what you have after 12 turns. Claude Code enforces this limit; here it is your rule.

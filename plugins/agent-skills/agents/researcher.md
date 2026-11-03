@@ -39,3 +39,5 @@ The output contract of the preloaded `web-research` skill, including its word ca
 |---|-------|--------------|------|--------------|------------|
 | 1 | htmx skips swapping 4xx/5xx responses by default | htmx.org/docs/#response-handling | 1 | htmx 2.x | high |
 </example>
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

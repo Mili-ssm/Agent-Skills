@@ -77,3 +77,5 @@ Console: TypeError: Cannot read properties of null (reading 'closest') at static
 Not verified: JS-disabled mode; login (no test account in the brief)
 Artifacts: /tmp/tmp.Xk3/ (screenshots, server.log)
 </example>
+
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.

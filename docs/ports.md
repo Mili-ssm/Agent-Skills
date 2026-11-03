@@ -2,39 +2,11 @@
 
 `agent-skills` is written for Claude Code. `scripts/port.py` generates equivalent copies for GitHub Copilot CLI and OpenAI Codex under `ports/` (ADR 0015). The mods (`tool-fold`, `plan-progress`) are Claude-only and are not listed for other tools.
 
-> Generated files: never edit `ports/`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json` or `user-config/offload-policy.{copilot,codex}.md` by hand. Change the Claude source, then run `python3 scripts/port.py`; `scripts/validate.py` fails while they are stale.
+> Generated files: never edit `ports/`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json` or `user-config/{offload-policy,routing}.{copilot,codex}.md` or the README block between the `recommended-prompt` markers by hand. Change the Claude source, then run `python3 scripts/port.py`; `scripts/validate.py` fails while they are stale.
 
 ## Install
 
-### GitHub Copilot CLI
-
-```bash
-copilot plugin marketplace add Mili-ssm/Agent-Skills
-```
-
-```bash
-copilot plugin install agent-skills@mili-ssm
-```
-
-Then add the offload table to your user instructions: copy [`user-config/offload-policy.copilot.md`](../user-config/offload-policy.copilot.md) into `~/.copilot/copilot-instructions.md` (or `$COPILOT_HOME/copilot-instructions.md`).
-
-### OpenAI Codex
-
-```bash
-codex plugin marketplace add Mili-ssm/Agent-Skills
-```
-
-```bash
-codex plugin install agent-skills@mili-ssm
-```
-
-Codex plugins cannot carry agents, so copy the role files from the installed plugin:
-
-```bash
-mkdir -p ~/.codex/agents && cp ~/.codex/plugins/cache/mili-ssm/agent-skills/local/agents/*.toml ~/.codex/agents/
-```
-
-Then add [`user-config/offload-policy.codex.md`](../user-config/offload-policy.codex.md) to `~/.codex/AGENTS.md`. Repeat the copy after each plugin update.
+Install steps for Copilot CLI and Codex are in the [README](../README.md#install); the recommended prompt (offload table and routing) is in [its section](../README.md#recommended-prompt).
 
 ## What maps to what
 

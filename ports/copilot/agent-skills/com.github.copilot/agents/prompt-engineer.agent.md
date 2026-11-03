@@ -52,6 +52,8 @@ Keep the report ≤ 60 lines, because it lands in the main conversation's contex
 | 1 | agents/fixer.md:3 | Offload trigger (skills-and-agents.md · measured) | Description lacks "Use when"; the main model never delegates | "… Use after a change when lint, type or test errors need mechanical fixes." | Offload case: delegated ≥ 2/3 |
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Preloaded skill: prompt-engineering
 
 Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugins/mili-ssm/agent-skills/skills/prompt-engineering`; resolve its relative links (`references/…`, `scripts/…`) there.

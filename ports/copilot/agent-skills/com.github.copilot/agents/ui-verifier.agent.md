@@ -76,6 +76,8 @@ Not verified: JS-disabled mode; login (no test account in the brief)
 Artifacts: /tmp/tmp.Xk3/ (screenshots, server.log)
 </example>
 
+Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+
 ## Turn limit
 
 Stop and report what you have after 30 turns. Claude Code enforces this limit; here it is your rule.
