@@ -39,7 +39,7 @@ SKILL_MAX_LINES = 150
 AGENT_MAX_LINES = 120
 # Cheap offload workers (ADR 0010): the only agents that may say "Use proactively"; each sets maxTurns and
 # has a row in commands/offload.md. `Explore` is a user-scope agent (user-agents/), so it is not listed.
-WORKERS = {"check-runner", "summarizer", "researcher", "implementer", "fixer", "ui-verifier", "untrusted-reviewer"}
+WORKERS = {"check-runner", "summarizer", "researcher", "implementer", "fixer", "ui-verifier", "skeptical-reviewer"}
 # Tools a "Read-only" agent must neither hold nor leave unblocked (N7).
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit"}
 # Accepted trigger openings for descriptions (N2).

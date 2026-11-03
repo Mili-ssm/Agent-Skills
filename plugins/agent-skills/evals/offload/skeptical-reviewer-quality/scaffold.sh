@@ -17,8 +17,8 @@ def unique_ids(events):
 PY
 cat > labels.py <<'PY'
 def label(name, count):
-    """Return "<name>: <count>" with the name stripped and title-cased."""
-    return f"{name.strip().title()}: {count}"
+    """Return "<name>: <count>"."""
+    return f"{name}: {count}"
 PY
 cat > tests/test_dedupe.py <<'PY'
 import sys, pathlib, unittest
@@ -40,7 +40,7 @@ from labels import label
 
 class LabelTest(unittest.TestCase):
     def test_label(self):
-        self.assertEqual(label("  open issues ", 4), "Open Issues: 4")
+        self.assertEqual(label("open issues", 4), "open issues: 4")
 
 if __name__ == "__main__":
     unittest.main()

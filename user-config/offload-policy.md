@@ -12,7 +12,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
 | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
-| After an action worth reviewing (≥ ~20 changed lines or ≥ 2 files, or a deletion; also a doc section or an image description), in the background with the checks; triage every finding yourself, verify medium/high ones, and re-run it once after fixing the same files | `agent-skills:untrusted-reviewer` |
+| After an action worth reviewing (≥ ~20 changed lines or ≥ 2 files, or a deletion; also a doc section or an image description), whether you made the edits or a worker's work just landed (e.g. an `implementer` diff), in the background with the checks; triage every finding yourself, verify medium/high ones, and re-run it once after fixing the same files | `agent-skills:skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 

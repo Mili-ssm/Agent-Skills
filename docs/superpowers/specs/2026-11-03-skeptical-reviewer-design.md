@@ -1,9 +1,11 @@
-# untrusted-reviewer: cheap after-action reviewer
+# skeptical-reviewer: cheap after-action reviewer
+
+> Renamed 2026-11-03 from `untrusted-reviewer` to `skeptical-reviewer` (see ADR 0017).
 
 Status: proposed · Date: 2026-11-03
 
 ## Intent
-The complement of `pre-mortem`: pre-mortem stress-tests plans before work (Opus); `untrusted-reviewer` reviews each reviewable action during the work (cheapest model), so the main model and its workers correct themselves step by step before delivering. Its report is untrusted by design: the main model triages every finding, verifies it itself or re-asks, and re-runs the reviewer after a fix.
+The complement of `pre-mortem`: pre-mortem stress-tests plans before work (Opus); `skeptical-reviewer` reviews each reviewable action during the work (cheapest model), so the main model and its workers correct themselves step by step before delivering. Its report is untrusted by design: the main model triages every finding, verifies it itself or re-asks, and re-runs the reviewer after a fix.
 
 ## Goals · non-goals · anti-goals
 - Goals: flag likely defects in what an action just changed — code (bugs, leaks, needless complexity, smells, missed optimizations), docs (owner's style rules, organization, spelling), file/folder layout against the project's conventions, image descriptions against the image and context; in hedged wording.
@@ -20,7 +22,7 @@ The complement of `pre-mortem`: pre-mortem stress-tests plans before work (Opus)
 A, reusing existing skills on demand (owner: supplementary skills only if they complement and do not overlap). No new skill in this change.
 
 ## Decisions
-- Name `untrusted-reviewer`; read-only (Read, Grep, Glob, Bash for read-only commands; Skill for on-demand loading); `omitClaudeMd: true` like other read-only agents.
+- Name `skeptical-reviewer`; read-only (Read, Grep, Glob, Bash for read-only commands; Skill for on-demand loading); `omitClaudeMd: true` like other read-only agents.
 - Model Haiku, effort medium. Codex: the global pair (haiku, medium) becomes (gpt-6-luna, low) (owner, 2026-11-03; it also moves `researcher`'s Codex port to luna low, accepted).
 - Seventh worker: `WORKERS` in `validate.py`, "Use proactively", `maxTurns`, row in `commands/offload.md`, row in `user-config/offload-policy.md`; ADR amending 0007 and 0012.
 - Trigger: after an action that can and should be reviewed (several files created, a function or module written or changed, a doc section written, a deletion, an image described), not after trivial edits; dispatched in parallel with the checks; re-dispatched after the main model changes the same files again; stop after 2 rounds on the same change or when only nits remain.
@@ -44,7 +46,7 @@ Frontmatter: haiku · medium · tools Read, Grep, Glob, Bash, Skill · disallowe
 | # | Amendment |
 |---|---|
 | A1 | Trigger floor: ≥ ~20 changed lines or ≥ 2 files, or any deletion (keeps `neg-tdd-green`-style single-function steps out) |
-| A2 | Evals: `offload/untrusted-reviewer-with-policy` (dispatch after a ~60-line module) and a seeded-defect case (1 real bug + 1 clean file; bug found, ≤ 2 findings on the clean file) |
+| A2 | Evals: `offload/skeptical-reviewer-with-policy` (dispatch after a ~60-line module) and a seeded-defect case (1 real bug + 1 clean file; bug found, ≤ 2 findings on the clean file) |
 | A3 | Brief carries the round number and already-rejected findings; the reviewer stops at round 2 |
 | A4 | A report about files changed after dispatch is stale: drop it, or re-dispatch once if under round 2 |
 | A5 | Confidence uses `low | medium | high`; the main model verifies medium and high, skims low |
@@ -60,4 +62,4 @@ Any `neg-*` drops ≥ 2/6 vs its record → revert the description commit; `with
 - Focus is **quality of what is about to be delivered**, not an exhaustive bug hunt: it is the early alert that triggers rework before owners or users find the weak spots, since tests usually cover correctness. First look for improvable points: needless complexity, a better data structure, a design, programming, visual or UX/UI pattern that applies or is violated, poor organization (files, sections, modules), unclear names or text. Obvious bugs still count, listed with the rest.
 - Ordering: findings ranked by how much the delivery would improve, then confidence. Nit cap stays.
 - Seeded eval becomes a seeded-quality case: a working module with one clear improvable point (e.g. a list scanned in a loop where a set/dict fits, or a needless class) plus a clean file; pass if the point is found with evidence and ≤ 2 findings on the clean file.
-- Evals (owner): only the new agent's cases — `offload/untrusted-reviewer-with-policy` and the seeded-quality case — not the existing `neg-*` or other `*-with-policy` suites, because no existing agent or description changes. The policy file gains one row, so the existing `*-with-policy` cases are updated verbatim but not re-run; recorded as an owner exception to N6 in the ADR with its kill criterion (any routing oddity in traces → run the `neg-*` suite).
+- Evals (owner): only the new agent's cases — `offload/skeptical-reviewer-with-policy` and the seeded-quality case — not the existing `neg-*` or other `*-with-policy` suites, because no existing agent or description changes. The policy file gains one row, so the existing `*-with-policy` cases are updated verbatim but not re-run; recorded as an owner exception to N6 in the ADR with its kill criterion (any routing oddity in traces → run the `neg-*` suite).
