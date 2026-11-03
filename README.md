@@ -16,6 +16,9 @@ Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirement
 
 ## Install
 
+<details>
+<summary>Claude Code</summary>
+
 | Where | How |
 |---|---|
 | Local session | `/plugin install agent-skills --marketplace Mili-ssm/Agent-Skills` |
@@ -25,6 +28,44 @@ Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirement
 | VS Code extension | Install from a shell at user scope (above): the extension runs Claude Code on the same `~/.claude` config |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
 | A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="tool-fold plan-progress"` in the environment |
+
+</details>
+
+<details>
+<summary>GitHub Copilot CLI</summary>
+
+```bash
+copilot plugin marketplace add Mili-ssm/Agent-Skills
+```
+
+```bash
+copilot plugin install agent-skills@mili-ssm
+```
+
+Then add the prompt from [Recommended prompt](#recommended-prompt) (its GitHub Copilot CLI section) to `~/.copilot/copilot-instructions.md` (or `$COPILOT_HOME/copilot-instructions.md`); the files are also [`offload-policy.copilot.md`](user-config/offload-policy.copilot.md) and [`routing.copilot.md`](user-config/routing.copilot.md).
+
+</details>
+
+<details>
+<summary>OpenAI Codex</summary>
+
+```bash
+codex plugin marketplace add Mili-ssm/Agent-Skills
+```
+
+```bash
+codex plugin install agent-skills@mili-ssm
+```
+
+Codex plugins cannot carry agents, so copy the role files from the installed plugin:
+
+```bash
+mkdir -p ~/.codex/agents && cp ~/.codex/plugins/cache/mili-ssm/agent-skills/local/agents/*.toml ~/.codex/agents/
+```
+
+Then add the prompt from [Recommended prompt](#recommended-prompt) (its OpenAI Codex section) to `~/.codex/AGENTS.md`; the files are also [`offload-policy.codex.md`](user-config/offload-policy.codex.md) and [`routing.codex.md`](user-config/routing.codex.md). Repeat the role-file copy after each plugin update.
+
+</details>
 
 ## Offload setup (ADR 0010)
 
@@ -41,9 +82,185 @@ Then add the offload table to `~/.claude/CLAUDE.md`: copy it from [`user-config/
 
 The cloud script can write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
 
+## Recommended prompt
+
+Paste the block for your tool into your `CLAUDE.md`, `AGENTS.md` or Copilot instructions: it holds the offload table and the routing table (which skill, agent or command for which need). Sources: [`offload-policy.md`](user-config/offload-policy.md), [`routing.md`](user-config/routing.md).
+
+<!-- BEGIN generated: recommended-prompt -->
+
+<details>
+<summary>Claude Code</summary>
+
+````markdown
+## Offload policy (main conversation only)
+
+Delegate before pulling large sources, logs or command output into this context, because every token here is the most expensive one. Subagents cannot dispatch subagents: they do this work themselves.
+
+| Situation | Delegate to |
+|---|---|
+| Searching or reading more than 3 files, or an unfamiliar codebase | `Explore` |
+| Running tests, lint, typecheck, a build or another long read-only command (in the background while you keep working) | `agent-skills:check-runner` |
+| Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `agent-skills:summarizer` |
+| Any web search or web page | `agent-skills:researcher`, one per question, in parallel |
+| Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `agent-skills:implementer`: write its brief, then review its diff instead of writing the code yourself |
+| Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
+| Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
+| Before executing any plan, spec or design | `agent-skills:pre-mortem` |
+| After an action worth reviewing (≥ ~20 changed lines or ≥ 2 files, or a deletion; also a doc section or an image description), whether you made the edits or a worker's work just landed (e.g. an `implementer` diff), in the background with the checks; triage every finding yourself, verify medium/high ones, and re-run it once after fixing the same files | `agent-skills:skeptical-reviewer` |
+
+Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+
+A worker sees none of this conversation, so its brief carries everything it needs:
+
+1. **Goal** and acceptance criteria it can check itself.
+2. **Scope**: the paths it owns, and what it must not touch.
+3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
+4. **Checks**: the commands that prove the result.
+5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
+6. **Report**: format and max length.
+
+State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
+
+## Routing: which skill, agent or command for which need
+
+Pick by the need; Superpowers entries are skills of the [Superpowers](https://github.com/obra/superpowers) plugin. Commands never auto-trigger: run them when the need appears.
+
+| Need | Use |
+|---|---|
+| Recover or clarify intent, requirements, implicit decisions | `intent-elicitation` skill; `agent-skills:consistency-auditor` (`/agent-skills:consistency-audit`) for contradictions and stale decisions |
+| Plan a feature | `/agent-skills:brief <feature>` (`feature-briefing` skill), or Superpowers `brainstorming` then `writing-plans`; then `agent-skills:pre-mortem` (`/agent-skills:premortem`) before executing |
+| Blast radius of a significant change, migration, rollback | `change-impact` skill |
+| Fix a defect | Superpowers `systematic-debugging`, then `test-driven-development` |
+| Execute a plan | `agent-skills:implementer` per task, `agent-skills:check-runner` to verify, `agent-skills:skeptical-reviewer` after the changes land |
+| Architecture, security, performance | `/agent-skills:arch-review`, `/agent-skills:security-audit`, `/agent-skills:perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
+| Tests and docs | `/agent-skills:qa-review`, `/agent-skills:doc-audit`; skills `qa-principles`, `docs-principles` |
+| Facts from outside the repository | `/agent-skills:research <questions>` (`web-research` skill) |
+| API contracts | `api-design` skill |
+| Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
+| UX and UI | `ux-principles` skill; `/agent-skills:ux-design` for a new feature, `/agent-skills:ux-review <url>` for an audit, `agent-skills:ui-verifier` for a changed page |
+| Decisions, refactoring, releases | `decision-records`, `refactoring`, `release-hygiene` skills |
+| Force a worker for a task | `/agent-skills:offload <task>` |
+````
+
+</details>
+
+<details>
+<summary>GitHub Copilot CLI</summary>
+
+````markdown
+## Offload policy (main conversation only)
+
+Delegate before pulling large sources, logs or command output into this context, because every token here is the most expensive one. Subagents cannot dispatch subagents: they do this work themselves.
+
+| Situation | Delegate to |
+|---|---|
+| Searching or reading more than 3 files, or an unfamiliar codebase | `explore` (built-in agent) |
+| Running tests, lint, typecheck, a build or another long read-only command (in the background while you keep working) | `check-runner` |
+| Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `summarizer` |
+| Any web search or web page | `researcher`, one per question, in parallel |
+| Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `implementer`: write its brief, then review its diff instead of writing the code yourself |
+| Mechanical lint/type/test fixes after a change | `fixer` |
+| Verifying a changed web UI in a browser | `ui-verifier` |
+| Before executing any plan, spec or design | `pre-mortem` |
+| After an action worth reviewing (≥ ~20 changed lines or ≥ 2 files, or a deletion; also a doc section or an image description), whether you made the edits or a worker's work just landed (e.g. an `implementer` diff), in the background with the checks; triage every finding yourself, verify medium/high ones, and re-run it once after fixing the same files | `skeptical-reviewer` |
+
+Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+
+A worker sees none of this conversation, so its brief carries everything it needs:
+
+1. **Goal** and acceptance criteria it can check itself.
+2. **Scope**: the paths it owns, and what it must not touch.
+3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
+4. **Checks**: the commands that prove the result.
+5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
+6. **Report**: format and max length.
+
+State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
+
+## Routing: which skill, agent or command for which need
+
+Pick by the need; Superpowers entries are skills of the [Superpowers](https://github.com/obra/superpowers) plugin. Commands never auto-trigger: run them when the need appears.
+
+| Need | Use |
+|---|---|
+| Recover or clarify intent, requirements, implicit decisions | `intent-elicitation` skill; `consistency-auditor` (`/consistency-audit`) for contradictions and stale decisions |
+| Plan a feature | `/brief <feature>` (`feature-briefing` skill), or Superpowers `brainstorming` then `writing-plans`; then `pre-mortem` (`/premortem`) before executing |
+| Blast radius of a significant change, migration, rollback | `change-impact` skill |
+| Fix a defect | Superpowers `systematic-debugging`, then `test-driven-development` |
+| Execute a plan | `implementer` per task, `check-runner` to verify, `skeptical-reviewer` after the changes land |
+| Architecture, security, performance | `/arch-review`, `/security-audit`, `/perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
+| Tests and docs | `/qa-review`, `/doc-audit`; skills `qa-principles`, `docs-principles` |
+| Facts from outside the repository | `/research <questions>` (`web-research` skill) |
+| API contracts | `api-design` skill |
+| Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
+| UX and UI | `ux-principles` skill; `/ux-design` for a new feature, `/ux-review <url>` for an audit, `ui-verifier` for a changed page |
+| Decisions, refactoring, releases | `decision-records`, `refactoring`, `release-hygiene` skills |
+| Force a worker for a task | `/offload <task>` |
+````
+
+</details>
+
+<details>
+<summary>OpenAI Codex</summary>
+
+````markdown
+## Offload policy (main conversation only)
+
+Delegate before pulling large sources, logs or command output into this context, because every token here is the most expensive one. Subagents cannot dispatch subagents: they do this work themselves.
+
+| Situation | Delegate to |
+|---|---|
+| Searching or reading more than 3 files, or an unfamiliar codebase | `explorer` (built-in role) |
+| Running tests, lint, typecheck, a build or another long read-only command (in the background while you keep working) | `check-runner` |
+| Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `summarizer` |
+| Any web search or web page | `researcher`, one per question, in parallel |
+| Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `implementer`: write its brief, then review its diff instead of writing the code yourself |
+| Mechanical lint/type/test fixes after a change | `fixer` |
+| Verifying a changed web UI in a browser | `ui-verifier` |
+| Before executing any plan, spec or design | `pre-mortem` |
+| After an action worth reviewing (≥ ~20 changed lines or ≥ 2 files, or a deletion; also a doc section or an image description), whether you made the edits or a worker's work just landed (e.g. an `implementer` diff), in the background with the checks; triage every finding yourself, verify medium/high ones, and re-run it once after fixing the same files | `skeptical-reviewer` |
+
+Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+
+A worker sees none of this conversation, so its brief carries everything it needs:
+
+1. **Goal** and acceptance criteria it can check itself.
+2. **Scope**: the paths it owns, and what it must not touch.
+3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
+4. **Checks**: the commands that prove the result.
+5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
+6. **Report**: format and max length.
+
+State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
+
+## Routing: which skill, agent or command for which need
+
+Pick by the need; Superpowers entries are skills of the [Superpowers](https://github.com/obra/superpowers) plugin. Commands never auto-trigger: run them when the need appears.
+
+| Need | Use |
+|---|---|
+| Recover or clarify intent, requirements, implicit decisions | `intent-elicitation` skill; `consistency-auditor` (`/agent-skills:consistency-audit`) for contradictions and stale decisions |
+| Plan a feature | `/agent-skills:brief <feature>` (`feature-briefing` skill), or Superpowers `brainstorming` then `writing-plans`; then `pre-mortem` (`/agent-skills:premortem`) before executing |
+| Blast radius of a significant change, migration, rollback | `change-impact` skill |
+| Fix a defect | Superpowers `systematic-debugging`, then `test-driven-development` |
+| Execute a plan | `implementer` per task, `check-runner` to verify, `skeptical-reviewer` after the changes land |
+| Architecture, security, performance | `/agent-skills:arch-review`, `/agent-skills:security-audit`, `/agent-skills:perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
+| Tests and docs | `/agent-skills:qa-review`, `/agent-skills:doc-audit`; skills `qa-principles`, `docs-principles` |
+| Facts from outside the repository | `/agent-skills:research <questions>` (`web-research` skill) |
+| API contracts | `api-design` skill |
+| Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
+| UX and UI | `ux-principles` skill; `/agent-skills:ux-design` for a new feature, `/agent-skills:ux-review <url>` for an audit, `ui-verifier` for a changed page |
+| Decisions, refactoring, releases | `decision-records`, `refactoring`, `release-hygiene` skills |
+| Force a worker for a task | `/agent-skills:offload <task>` |
+````
+
+</details>
+
+<!-- END generated: recommended-prompt -->
+
 ## Other tools (Copilot, Codex)
 
-`agent-skills` also installs in GitHub Copilot CLI and OpenAI Codex from generated copies under `ports/`; the mods stay Claude-only. Install steps, what maps to what and the limits: [docs/ports.md](docs/ports.md) (ADR 0015).
+`agent-skills` also installs in GitHub Copilot CLI and OpenAI Codex from generated copies under `ports/`; the mods stay Claude-only. Install steps are in [Install](#install); what maps to what and the limits: [docs/ports.md](docs/ports.md) (ADR 0015).
 
 ## Update
 
