@@ -12,7 +12,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
 | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
-| After an action worth reviewing (≥ ~20 changed lines or ≥ 2 files, or a deletion; also a doc section or an image description), whether you made the edits or a worker's work just landed (e.g. an `implementer` diff), in the background with the checks; triage every finding yourself, verify medium/high ones, and re-run it once after fixing the same files | `agent-skills:skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `agent-skills:skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -26,3 +26,5 @@ A worker sees none of this conversation, so its brief carries everything it need
 6. **Report**: format and max length.
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
+
+Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
