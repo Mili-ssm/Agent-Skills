@@ -63,7 +63,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 |---|---|---|
 | Commands `/agent-skills:<name>` | You type one; they never auto-trigger | A specialist review or workflow when you decide |
 | Skills | Their description matches the task, a bonus that can stay silent; force one with its command | Methods and knowledge applied while you work |
-| Workers | The [offload policy](user-config/offload-policy.md) is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier` (plus user-scope `Explore`) |
+| Workers | The [offload policy](user-config/offload-policy.md) is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification, after-action review and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier`, `untrusted-reviewer` (plus user-scope `Explore`) |
 | Superpowers | Its own triggers | Process: brainstorming, plans, TDD, debugging, review. This plugin adds the specialist lenses |
 
 ### Agents (fresh context, return a report)
@@ -78,6 +78,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | sonnet | no |
 | `security-reviewer` | Source→sink review, threat model | security-principles | opus | no |
 | `pre-mortem` | Attack a plan before execution | — | opus | no |
+| `untrusted-reviewer` | Review a finished action (code, docs, layout, deletion, image description); hedged findings ranked by improvement, to be verified by the caller | — | haiku | no |
 | `researcher` | Offloaded web research, one question, cited | web-research | haiku | no |
 | `check-runner` | Run tests/lint/typecheck/build or another long read-only command; return failures, the result or the last lines verbatim | — | haiku | no |
 | `summarizer` | Read long logs/docs/PDFs/diffs/source; answer one question, outline with line ranges, or extract verbatim | — | haiku | no |
