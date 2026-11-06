@@ -49,28 +49,59 @@ export const median = (values: readonly number[]): number | undefined => {
   return sorted.length % 2 === 1 ? sorted[middle] : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2)
 }
 
-/** The samples under a store key (anything of another shape is dropped). */
+// A stored `steps` list is believed only in this shape; anything else is dropped and the entry kept (M8).
+const MAX_STORED_STEPS = 12
+const isStepTimes = (value: unknown): value is NonNullable<WaitSample['steps']> =>
+  Array.isArray(value) &&
+  value.length > 0 &&
+  value.length <= MAX_STORED_STEPS &&
+  value.every(
+    step =>
+      typeof step === 'object' &&
+      step !== null &&
+      typeof step.title === 'string' &&
+      Number.isFinite(step.estMs) &&
+      Number.isFinite(step.ms) &&
+      step.ms >= 0,
+  )
+
+/** The samples under a store key (anything of another shape is dropped; each entry is a clean copy, an invalid `steps` field removed). */
 export async function loadSamples($: EngineInterface, key: string): Promise<WaitSample[]> {
   const value = await $.store.get(key).catch(() => undefined)
   return Array.isArray(value)
-    ? value.filter(
-        (item): item is WaitSample =>
-          typeof item === 'object' &&
-          item !== null &&
-          typeof item.summary === 'string' &&
-          typeof item.durationMs === 'number' &&
-          item.durationMs >= MIN_SAMPLE_MS,
-      )
+    ? value
+        .filter(
+          (item): item is WaitSample =>
+            typeof item === 'object' &&
+            item !== null &&
+            typeof item.summary === 'string' &&
+            typeof item.durationMs === 'number' &&
+            item.durationMs >= MIN_SAMPLE_MS,
+        )
+        .map(item => ({
+          summary: item.summary,
+          durationMs: item.durationMs,
+          at: item.at,
+          ...(isStepTimes(item.steps) ? { steps: item.steps.map(step => ({ title: step.title, estMs: step.estMs, ms: step.ms })) } : {}),
+        }))
     : []
 }
 
-/** Remembers a finished run's summary and duration under `key` (runs under MIN_SAMPLE_MS teach nothing). */
-export async function recordSample($: EngineInterface, key: string, summary: string, durationMs: number, at: number): Promise<void> {
+/** Remembers a finished run's summary and duration under `key` (runs under MIN_SAMPLE_MS teach nothing), with its steps when a planned run reached its last one. */
+export async function recordSample(
+  $: EngineInterface,
+  key: string,
+  summary: string,
+  durationMs: number,
+  at: number,
+  steps?: WaitSample['steps'],
+): Promise<void> {
   if (durationMs < MIN_SAMPLE_MS) {
     return
   }
   const list = await loadSamples($, key)
-  await $.store.set(key, [...list, { summary, durationMs, at }].slice(-REMEMBERED)).catch(() => undefined)
+  const sample: WaitSample = { summary, durationMs, at, ...(steps === undefined || !isStepTimes(steps) ? {} : { steps }) }
+  await $.store.set(key, [...list, sample].slice(-REMEMBERED)).catch(() => undefined)
 }
 
 /** The median duration of the stored summaries similar enough to `summary`; undefined when none is. */

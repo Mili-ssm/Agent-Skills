@@ -326,6 +326,23 @@ test('without a description Haiku names the wait and, in its own call, estimates
   await ui.unmount()
 })
 
+test('a long thinking reply still names the wait from its whole descripcion line (2026-11-06)', async ($, on) => {
+  const clock = engine(on)
+  on('model.complete', (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    // output_tokens counts the thinking and reached the real cap, but the descripcion line ended before the cut.
+    const text = prompt.includes('<tareas_parecidas>') ? 'minutos: 10' : `descripcion: Escribe el script de prueba\n${'El script prepara los datos y '.repeat(12)}y`
+    return { value: { isAnswered: true, text, usage: { input_tokens: 0, output_tokens: 80 + 2048, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } }
+  })
+  await $.turn.start({ text: 'go', turnId: 't1' })
+  await $.tool.call(RAW)
+  await $.turn.complete(done)
+  await clock.advance(300_000)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /Escribe el script de prueba/ })).toBeDefined()
+  await ui.unmount()
+})
+
 test('a recorded median wins over the guess', async ($, on) => {
   const clock = engine(on, { 'wait-samples': [{ summary: 'Run the bench', durationMs: 180_000, at: 1 }] })
   haiku(on, '60')

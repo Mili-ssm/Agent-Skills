@@ -77,8 +77,22 @@ export const PHRASE_TOKENS = 80
 
 type Reply = { isAnswered: boolean; text: string; usage?: { output_tokens?: number } }
 
-/** True when the reply used all of `maxTokens`: it was probably cut mid-word. */
-const isCut = (reply: Reply, maxTokens: number): boolean => (reply.usage?.output_tokens ?? 0) >= maxTokens
+/**
+ * Tokens the host adds to `maxTokens` for a model that keeps thinking on (current Haiku), read from the host's
+ * `$.model.complete` (2026-11): `output_tokens` then counts the thinking too, so it alone says nothing about the text.
+ */
+const THINKING_BUDGET = 2048
+
+/**
+ * True when the reply was probably cut mid-word: it reached its real cap (`maxTokens` plus the thinking budget), or its
+ * own text is long enough to have used `maxTokens` (2.5 characters a token: code-dense text runs below 3; a
+ * valid phrase, at most 24 words, stays well under it). Comparing `output_tokens` with
+ * `maxTokens` alone dropped whole one-line answers whenever Haiku thought (14 of 22 translations, 2026-11-06).
+ */
+export const isCut = (reply: Reply, maxTokens: number): boolean => {
+  const used = reply.usage?.output_tokens ?? 0
+  return used >= maxTokens + THINKING_BUDGET || (used >= maxTokens && reply.text.length >= maxTokens * 2.5)
+}
 
 /**
  * The usable phrase of a Haiku reply: '' when it is unanswered or thinking aloud. A reply cut by `maxTokens` still
@@ -187,10 +201,16 @@ async function guess($: EngineInterface, id: string, subject: string): Promise<v
     maxTokens: PHRASE_TOKENS,
     timeoutMs: 15000,
   })
-  if (!reply.isAnswered || isCut(reply, PHRASE_TOKENS)) {
+  if (!reply.isAnswered) {
     return
   }
-  const line = reply.text.split('\n').map(part => part.trim()).find(part => part.toLowerCase().startsWith('descripcion:'))
+  // A cut reply still gives its `descripcion:` line when a newline closed it (the cut fell after it), as `phraseOf` does.
+  const lines = reply.text.split('\n')
+  const at = lines.findIndex(part => part.trim().toLowerCase().startsWith('descripcion:'))
+  if (at < 0 || (isCut(reply, PHRASE_TOKENS) && at === lines.length - 1)) {
+    return
+  }
+  const line = lines[at]?.trim()
   const label = cleanPhrase(line?.slice('descripcion:'.length) ?? '')
   if (label !== '') {
     await update($, waits, all => all.map(task => (task.id === id ? { ...task, label: clip(label, 120), isLabelGuessed: true } : task)))

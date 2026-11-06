@@ -3,7 +3,7 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { GroupCall, ToolRun } from '../types'
 import { isPersonPrompt, onCycleCall, onCycleTurnEnd, onCycleTurnStart, onPersonPrompt } from './cycle'
-import { agentCard, endAgentCall, endAgentTurn, isAgentLive, registerAgents, retitleDock, startAgentCall, wakeAgentRun } from './agents'
+import { agentCard, endAgentCall, endAgentTurn, isAgentLive, noteAgentText, registerAgents, retitleDock, startAgentCall, wakeAgentRun } from './agents'
 import { PHRASE_TOKENS, onAgentWoken, onNotification, onToolCall, onTurn, phraseOf } from './waiting'
 
 // Calls drawn as the engine draws them, which also end a run: a question is the person's turn.
@@ -268,6 +268,9 @@ export const register: Register = (on, options) => {
       await applySteps($, [{ close: true }])
     } else if (e.agentId === undefined && e.door === 'response') {
       await applySteps($, runSteps(e.message.content))
+    } else if (e.agentId !== undefined && e.door === 'response') {
+      // A subagent's own words: what its step check shows Haiku as a claim (unverified live that they arrive with `agentId`).
+      await noteAgentText($, e.agentId, e.message.content).catch(() => undefined)
     }
 
     return kept
