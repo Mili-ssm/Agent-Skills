@@ -172,14 +172,16 @@ export const planLeftMs = (plan: PlanState, elapsedMs: number): number => Math.m
 
 /** Room for a step title in the card header: surfaces wrap rather than cut, so the cut (with …) is done here. */
 export const STEP_TITLE_CHARS = 26
-const clipTitle = (title: string): string => (title.length <= STEP_TITLE_CHARS ? title : `${title.slice(0, STEP_TITLE_CHARS - 1).trimEnd()}…`)
+/** The most a step title may take when the header has room: a little more than the default, never the whole line. */
+export const STEP_TITLE_MAX_CHARS = 38
+export const clipTitle = (title: string, chars: number = STEP_TITLE_CHARS): string => (title.length <= chars ? title : `${title.slice(0, chars - 1).trimEnd()}…`)
 
 /** What a card with a plan shows: the whole-run percent (the bar's), the current step's title and the time left; undefined without a plan or with `enabled` false. */
 export function planView(
   run: { plan?: PlanState; startedAt: number },
   now: number,
   enabled: boolean = PLAN_ENABLED,
-): { percent: number; step?: string; isWrappingUp: boolean; leftMs: number } | undefined {
+): { percent: number; step?: string; title?: string; isWrappingUp: boolean; leftMs: number } | undefined {
   const { plan } = run
   if (!enabled || plan === undefined) {
     return undefined
@@ -189,7 +191,8 @@ export function planView(
   const isLast = plan.done >= plan.steps.length
   return {
     percent: planBar(plan, elapsed),
-    ...(isLast ? {} : { step: clipTitle(plan.steps[plan.done]?.title ?? '') }),
+    // `step` is cut to the default room; `title` is whole, for a header that knows its width (`stepTitleChars`).
+    ...(isLast ? {} : { step: clipTitle(plan.steps[plan.done]?.title ?? ''), title: plan.steps[plan.done]?.title ?? '' }),
     isWrappingUp: isLast,
     leftMs: isLast ? 0 : planLeftMs(plan, elapsed),
   }
