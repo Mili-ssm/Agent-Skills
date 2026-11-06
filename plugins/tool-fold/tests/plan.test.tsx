@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { activitySummary, estimateOf, recentCalls, scriptOf } from '../hooks/agents'
+import { activitySummary, estimateOf, recentCalls, scriptOf, stepTitleChars } from '../hooks/agents'
 import { phraseOf } from '../hooks/waiting'
 import {
   PLAN_ENABLED,
@@ -876,7 +876,23 @@ test('the header ends in the time left even with a 40-character step title (A7)'
   planReply.text = '1. Leer la conversión completa del repositorio entero — 2 min\n2. Escribir — 5 min\n3. Probar — 3 min'
   await start($, clock)
   const head = await headerOf($)
+  // A 60-column vscode pane has no spare room: the default 26.
   expect(head).toMatch(/^Leer la conversión comple… \d+% · ~\d+ min$/)
+  // An 80-column one gives the title a little more, never all of it, and keeps the time.
+  const wide = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: { ...PANE_PROPS, bodyColumns: 80 } } as never)
+  const wideHead = (await wide.find({ type: 'Text', text: /\d+% · ~\d+ min$/ }))?.text
+  await wide.unmount()
+  expect(wideHead).toMatch(/^Leer la conversión completa del repos… \d+% · ~\d+ min$/)
+})
+
+test('the step title takes a little of the free room: never under 26, never over 38, 26 without a width', () => {
+  expect(stepTitleChars(undefined, 'x'.repeat(40))).toBe(26)
+  // Narrow: the default.
+  expect(stepTitleChars(50, 'x'.repeat(40))).toBe(26)
+  // Some room: what is left less a margin of 10.
+  expect(stepTitleChars(80, 'x'.repeat(40))).toBe(30)
+  // Wide: capped.
+  expect(stepTitleChars(200, 'x'.repeat(40))).toBe(38)
 })
 
 test('a replan whose reply does not parse keeps the plan', async ($, on) => {

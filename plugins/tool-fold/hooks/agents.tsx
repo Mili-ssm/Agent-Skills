@@ -25,7 +25,7 @@ import {
   logReestimate,
 } from './estimates'
 import type { ReaskFields } from './estimates'
-import { callPointsAhead, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplan } from './plan'
+import { STEP_TITLE_CHARS, STEP_TITLE_MAX_CHARS, callPointsAhead, clipTitle, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplan } from './plan'
 import type { PlanState } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
@@ -876,7 +876,18 @@ export function estimateOf(
 }
 
 /** `⌕ ux-reviewer ● sonnet-5-5 ... ≈60% · ~3 min`, then the thin progress line: the rows every card opens with. */
-function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label?: string, mark?: string) {
+/**
+ * Room for the step title in a header line of `maxChars`: what the other parts leave, less a margin (proportional fonts
+ * and the title's smaller size make `maxChars` approximate; the owner asked for a little more room, not all of it), between the default and `STEP_TITLE_MAX_CHARS`.
+ */
+export function stepTitleChars(maxChars: number | undefined, fixed: string): number {
+  if (maxChars === undefined) {
+    return STEP_TITLE_CHARS
+  }
+  return Math.min(STEP_TITLE_MAX_CHARS, Math.max(STEP_TITLE_CHARS, maxChars - fixed.length - 10))
+}
+
+function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label?: string, mark?: string, maxChars?: number) {
   const { Box, Text } = ui
   const isRunning = run.status === 'running'
   const isLingering = run.isLingering === true
@@ -925,7 +936,7 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
           // the step title dim and small where supported, the whole-run percent and the time bold.
           <Text color={color} tabular wrap="truncate">
             <Text dimColor size="footnote">
-              {plan.step}
+              {plan.title === undefined ? plan.step : clipTitle(plan.title, stepTitleChars(maxChars, `${mark ?? ''} ◆ ${agentName(run)} ● ${shortModel(run.model)} · ${elapsed} ? ${datum}`))}
             </Text>{' '}
             <Text bold>{datum}</Text>
           </Text>
@@ -1678,7 +1689,7 @@ function liveCard(ui: Elements, run: AgentRun, now: number, frame: string, maxCh
     // One borderless card per agent. Stretched by the pane, not sized: minWidth 0 lets it shrink below a long
     // header, and what does not fit is clipped inside.
     <Box key={run.id} flexDirection="column" minWidth={0} overflow="hidden">
-      {runHeader(ui, run, now)}
+      {runHeader(ui, run, now, undefined, undefined, maxChars)}
       <Text dimColor wrap="truncate">
         {running === undefined || isWaitCard(run) || since !== undefined ? '  ' : glyph(ui, running, frame)}
         {run.main?.activity === undefined ? detail : clip(run.main.activity, maxChars - 2)}
