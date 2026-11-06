@@ -77,8 +77,21 @@ export const PHRASE_TOKENS = 80
 
 type Reply = { isAnswered: boolean; text: string; usage?: { output_tokens?: number } }
 
-/** True when the reply used all of `maxTokens`: it was probably cut mid-word. */
-const isCut = (reply: Reply, maxTokens: number): boolean => (reply.usage?.output_tokens ?? 0) >= maxTokens
+/**
+ * Tokens the host adds to `maxTokens` for a model that keeps thinking on (current Haiku), read from the host's
+ * `$.model.complete` (2026-11): `output_tokens` then counts the thinking too, so it alone says nothing about the text.
+ */
+const THINKING_BUDGET = 2048
+
+/**
+ * True when the reply was probably cut mid-word: it reached its real cap (`maxTokens` plus the thinking budget), or its
+ * own text is long enough to have used `maxTokens` (about 3 characters a token). Comparing `output_tokens` with
+ * `maxTokens` alone dropped whole one-line answers whenever Haiku thought (14 of 22 translations, 2026-11-06).
+ */
+export const isCut = (reply: Reply, maxTokens: number): boolean => {
+  const used = reply.usage?.output_tokens ?? 0
+  return used >= maxTokens + THINKING_BUDGET || (used >= maxTokens && reply.text.length >= maxTokens * 3)
+}
 
 /**
  * The usable phrase of a Haiku reply: '' when it is unanswered or thinking aloud. A reply cut by `maxTokens` still

@@ -391,10 +391,20 @@ test('a Read call and a raw Bash label never hint a count check', async ($, on) 
 })
 
 test('a phrase reply cut by maxTokens still gives its first line when that line ended', () => {
-  const cut = { output_tokens: 80 }
+  // A cut is the reply reaching its real cap: maxTokens plus the 2048 thinking tokens the host adds for thinking models.
+  const cut = { output_tokens: 80 + 2048 }
   expect(phraseOf({ isAnswered: true, text: 'Ejecuta un script de Python que mide memoria\nEl script importa tracemalloc y…', usage: cut })).toBe('Ejecuta un script de Python que mide memoria')
   expect(phraseOf({ isAnswered: true, text: 'Ejecuta un script de Python que mide la memoria de cada conv', usage: cut })).toBe('')
   expect(phraseOf({ isAnswered: false, text: 'x\ny', usage: cut })).toBe('')
+  // Without thinking, a text that itself used the 80 tokens (about 3 chars each) is cut too.
+  expect(phraseOf({ isAnswered: true, text: `Reescribe ${'el módulo de pruebas '.repeat(13)}y`, usage: { output_tokens: 80 } })).toBe('')
+})
+
+test('a one-line phrase is kept when output_tokens counts the thinking (2026-11-06: 14 of 22 translations lost)', () => {
+  // The host keeps thinking on for current Haiku and output_tokens includes it: 412 tokens used, a whole 8-word answer.
+  const thought = { output_tokens: 412 }
+  expect(phraseOf({ isAnswered: true, text: 'Reescribe browser_focus_mode.js para comprobar el segmento activo', usage: thought })).toBe('Reescribe browser_focus_mode.js para comprobar el segmento activo')
+  expect(phraseOf({ isAnswered: true, text: 'Prueba el contraste del modo foco', usage: { output_tokens: 80 } })).toBe('Prueba el contraste del modo foco')
 })
 
 test('a heredoc script hints the plan with the untagged phrase', async ($, on) => {

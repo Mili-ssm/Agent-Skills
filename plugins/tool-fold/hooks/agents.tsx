@@ -28,7 +28,7 @@ import type { ReaskFields } from './estimates'
 import { STEP_TITLE_CHARS, STEP_TITLE_MAX_CHARS, callPointsAhead, clipTitle, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplan } from './plan'
 import type { PlanState } from './plan'
 import { onCycleSpawn } from './cycle'
-import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
+import { PHRASE_TOKENS, agentWaitRuns, isCut, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
 
 // Keep the list bounded: a long session can spawn hundreds of agents.
 const MAX_RUNS = 100
@@ -1142,7 +1142,7 @@ export const registerAgents: Register = (on, options) => {
       `engine agents: ${engine.map(item => `${item.id} ${item.status} ${item.type}`).join('; ') || 'none'}`,
       ...list.map(run => `  run ${run.id} ${run.status} background=${run.background === true} ${run.type}`),
       ...(await waitDebug($)),
-      `translations: ok=${translationStats.ok} retried=${translationStats.retried} failed=${translationStats.failed} cached=${translationStats.cached}`,
+      `translations: ok=${translationStats.ok} retried=${translationStats.retried} failed=${translationStats.failed} cached=${translationStats.cached}${translationFails.size === 0 ? '' : ` · tries failed: ${[...translationFails].map(([why, n]) => `${why}=${n}`).join(' ')}`}`,
       're-estimates (newest last):',
       ...(reestimateLog.length === 0 ? ['  none yet'] : reestimateLog.map(line => `  ${line}`)),
       'band draws (newest last):',
@@ -1321,6 +1321,11 @@ const TRANSLATION_CACHE_MAX = 200
 const TRANSLATION_RETRY_MS = 5000
 const translations = new Map<string, string>()
 const translationStats = { ok: 0, retried: 0, failed: 0, cached: 0 }
+// Why tries failed (`unanswered:<reason>`, `cut`, `filtered`, `error`), for `/agents-debug`: the next fix starts from evidence.
+const translationFails = new Map<string, number>()
+const countFail = (why: string): void => {
+  translationFails.set(why, (translationFails.get(why) ?? 0) + 1)
+}
 
 /** Over 1500 chars: the first 1000 and the last 450, so the end of a long script is not lost. */
 function clipCommand(command: string): string {
@@ -1337,7 +1342,15 @@ async function askCommand($: EngineInterface, command: string): Promise<string> 
       timeoutMs: 15000,
     })
     .catch(() => undefined)
-  return reply === undefined ? '' : phraseOf(reply)
+  if (reply === undefined) {
+    countFail('error')
+    return ''
+  }
+  const text = phraseOf(reply)
+  if (text === '') {
+    countFail(!reply.isAnswered ? `unanswered:${String((reply as { reason?: unknown }).reason ?? '?')}` : isCut(reply, PHRASE_TOKENS) ? 'cut' : 'filtered')
+  }
+  return text
 }
 
 /**
