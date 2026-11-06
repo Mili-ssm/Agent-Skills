@@ -16,7 +16,7 @@
 - The bar/percent never goes back (`anchor`); answers older than the plan's `seq` are dropped.
 - Haiku only; replan `maxTokens` 250, `timeoutMs` 15000; at most one replan in flight per run.
 - `MAX_TOTAL_STEPS` = 8 (plan build still 3–6).
-- `STEP_TITLE_CHARS` 22 → 32.
+- `STEP_TITLE_CHARS` 22 → 26 (A7).
 - Prompt text in Spanish, code/comments in English; no line numbers stored in the repo.
 - Checks before commit (repo root): `claude plugin validate plugins/tool-fold`, `claude plugin test plugins/tool-fold`, `tsc -p plugins/tool-fold`, `python3 scripts/validate.py`.
 
@@ -71,3 +71,20 @@
 - [ ] **Step 3:** In `checkPlan`, after the check's `patch` applies, if `shouldReplan(due.kind, plan.fired, due.fired, advanced)` and no replan is in flight for the run (module `Set`), stamp `replanSeq = plan.seq`, call `askReplan`, and apply with `applyReplan` only if the run is running and `item.plan.seq === replanSeq`; then `etaMs = planEndAt(...)`. In `runHeader`, plan datum = `${percent}% · ${isWrappingUp ? 'finalizando' : formatRemaining(leftMs)}`, title span before it when `step` exists; keep one `Text` with nested spans (vscode wrap, see comment there).
 - [ ] **Step 4:** All tool-fold tests pass, `tsc` clean, `claude plugin validate plugins/tool-fold`, `python3 scripts/validate.py`.
 - [ ] **Step 5:** README plan paragraph: header format, 50/80/95% checks, replan trigger/inputs/`fixed`, `ninguno`, max 8 steps, cost. Commit `feat(tool-fold): plan cards show the whole-run percent and replan pending steps`.
+
+---
+
+## Amendments (pre-mortem 2026-11-06) — required, override the tasks above where they differ
+
+| # | Risk | Amendment | Owner task · test |
+|---|---|---|---|
+| A1 | Replan storm on a stuck step: `applyLeft` with `falta: 1` and 0 remaining moves the end ~30 s, overdue refires, `shouldReplan('overdue')` always true | `PlanState.replannedDone?: number`: a replan **without a step change** runs at most once per `done` value (an advance always may replan) | T1/T2 · stuck step, overdue checks answering `falta: 1` for 10 min → exactly 1 `<historial>` prompt |
+| A2 | Factor applied twice when a `fixed` step becomes current (`applyCount` sets `stepEstMs = estMs × factor`) | One helper `scaledMs(step: PlanStep, factor: number): number` used by `restMs`, `applyCount` and `askStepCheck`'s pending lines | T1 · replan, then advance with factor 2 → `stepEstMs` equals the fixed `estMs` |
+| A3 | `checkPlan`'s closure `plan` is the pre-check state (old `seq`, old `done`) | Capture the plan the check's `patch` updater produced (outer variable), ask the replan from it after the patch resolves; apply guard: `item.plan.seq === replanSeq && item.plan.done === asked.done` | T2 · check advances 1→2, Haiku's step 3 becomes the next pending step (no duplicate of step 2) |
+| A4 | Haiku's minutes make the percent jump up (short round numbers, early `ninguno`) | `applyReplan` scales the new pending minutes so their sum stays within 0.5–2× the old `restMs`; `ninguno` accepted only when at most 1 step was pending, else treated as a failed parse | T1 · halving the rest → `planBar` rises ≤ 15 points; `ninguno` with 3 pending → plan kept |
+| A5 | Anchor computed at ask time, answer arrives up to 15 s later → bar can drop | `applyReplan` takes the elapsed ms read from `$.clock.now()` when the answer is applied | T2 · answer delayed 15 s → shown percent not below the pre-answer value |
+| A6 | Haiku numbers from 1 → strict parse always fails | `parseReplan` accepts a consecutive list starting at `from` **or at 1** (renumbered), logs which | T1 · `'1. A — 2 min\n2. B — 1 min'` with `from` 3 → 2 steps |
+| A7 | vscode header clips the time left (`wrap="truncate"`) | `STEP_TITLE_CHARS` = 26 (not 32) | T2 · header test with a 40-char title ends in `· ~N min` |
+| A8 | `invalid plan reply falls back` test becomes vacuous without `N/M` | Assert the plain `≈N%` card and that no step title appears | T2 |
+
+Kill criteria (record in README limits if hit): replans > 2 × steps per run, or > 30% replan parse failures, in the first 10 real runs → set `REPLAN_ENABLED` false (new constant in `plan.tsx`, default true) and fix; any replan lowering the shown percent or raising it > 15 points; vscode header losing the time left.
