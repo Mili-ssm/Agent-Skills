@@ -707,3 +707,187 @@ test('a falta that keeps growing never lowers the bar', () => {
     last = bar
   }
 })
+
+// --- Replan wiring: a separate Haiku call after an applied check. ---
+
+const REPLAN_OK = '3. Probar y corregir — 4 min\n4. Informar — 1 min'
+const replanReply: { text: string; gate?: Promise<void> } = { text: REPLAN_OK }
+const planReply = { text: GOOD }
+
+/** A GOOD-plan run (10 min, 4 steps): plan checks answer `checkReply`, replan prompts (`<historial>`) answer `replanReply`; `kinds` logs C (check) and H (replan) in order. */
+function replanEngine(on: Parameters<Parameters<typeof test>[1]>[1], prompts: string[], kinds: string[] = []) {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', async (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    if (prompt.includes('<historial>')) {
+      prompts.push(prompt)
+      kinds.push('H')
+      await replanReply.gate
+      return { value: { isAnswered: true, text: replanReply.text, usage } }
+    }
+    if (prompt.includes('<pasos>')) {
+      prompts.push(prompt)
+      kinds.push('C')
+    }
+    const text = prompt.includes('<duracion_total>') ? planReply.text : prompt.includes('<tareas_parecidas>') ? 'minutos: 10' : prompt.includes('<pasos>') ? checkReply.text : '?'
+    return { value: { isAnswered: true, text, usage } }
+  })
+  return mock.clock(on)
+}
+
+/** Resets the shared replies; a test sets what it needs. */
+function resetReplies() {
+  checkReply.text = 'paso: 2\nfalta: 3'
+  replanReply.text = REPLAN_OK
+  replanReply.gate = undefined
+  planReply.text = GOOD
+}
+
+/** The plan header text of the first running card (`<step> N% · ~T`), or undefined. */
+async function headerOf($: Parameters<Parameters<typeof test>[1]>[0]): Promise<string | undefined> {
+  const pane = await paneOf($)
+  const head = await pane.find({ type: 'Text', text: /\d+% · (~\d+ min|<1 min|finalizando)$/ })
+  await pane.unmount()
+  return head?.text
+}
+
+/** Advances in 30 s hops (a check per hop at most), settling after each. */
+async function run(clock: { advance(ms: number): Promise<void> }, ms: number) {
+  for (let spent = 0; spent < ms; spent += 30_000) {
+    await clock.advance(30_000)
+    await settle()
+  }
+}
+
+test('a stuck step is replanned once: 50% and 80% checks never, the 95% check once, overdue checks answering falta 1 not again (A1)', async ($, on) => {
+  resetReplies()
+  const prompts: string[] = []
+  const kinds: string[] = []
+  const clock = replanEngine(on, prompts, kinds)
+  checkReply.text = 'paso: 1\nfalta: 1'
+  await start($, clock)
+  await $.tool.call(readCall('s1'))
+  await run(clock, 10 * MIN)
+  const order = kinds.join('')
+  expect(order).toMatch(/^CCH/)
+  expect(order.split('H')).toHaveLength(2)
+  expect(prompts.filter(prompt => prompt.includes('<historial>'))[0]).toMatch(/<historial>\n- \S+ ✓ Read s1\.md\n<\/historial>/)
+})
+
+test('a step change replans from the plan the check produced: the next pending step follows the current one, no duplicate (A3)', async ($, on) => {
+  resetReplies()
+  const prompts: string[] = []
+  const kinds: string[] = []
+  const clock = replanEngine(on, prompts, kinds)
+  await start($, clock)
+  await $.tool.call(readCall('c1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  expect(kinds.join('')).toBe('CH')
+  const replan = prompts.find(prompt => prompt.includes('<historial>')) ?? ''
+  expect(replan).toContain('<paso_actual>2. Escribir el cambio')
+  expect(replan).toMatch(/<pasos_hechos>\n1\. Leer el código · previsto 2 min · real 1 min\n<\/pasos_hechos>/)
+  expect(replan).toMatch(/<pasos_pendientes>\n3\. Probarlo · previsto \S+ min\n4\. Documentar/)
+  expect(await headerOf($)).toMatch(/^Escribir el cambio \d+% · /)
+  // The next step shown is the replanned one.
+  checkReply.text = 'paso: 3\nfalta: 2'
+  await $.tool.call(readCall('c2'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(await headerOf($)).toMatch(/^Probar y corregir \d+% · /)
+})
+
+test('a replan answer that arrives after the step moved again is dropped (seq)', async ($, on) => {
+  resetReplies()
+  const prompts: string[] = []
+  const kinds: string[] = []
+  const clock = replanEngine(on, prompts, kinds)
+  let release: () => void = () => undefined
+  replanReply.gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  await start($, clock)
+  await $.tool.call(readCall('d1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  expect(kinds.join('')).toBe('CH')
+  // While the replan waits, another check advances the step to 3.
+  checkReply.text = 'paso: 3\nfalta: 2'
+  await $.tool.call(readCall('d2'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(kinds.filter(kind => kind === 'H')).toHaveLength(1)
+  replanReply.text = '3. Zeta — 4 min'
+  release()
+  await settle()
+  await settle()
+  // The late answer is dropped: the step after "Probarlo" is still the plan's own "Documentar", not "Zeta".
+  replanReply.text = 'ninguno'
+  checkReply.text = 'paso: 4\nfalta: 1'
+  await $.tool.call(readCall('d3'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(await headerOf($)).toMatch(/^Documentar \d+% · /)
+})
+
+test('a replan answer 15 s late never lowers the shown percent (A5)', async ($, on) => {
+  resetReplies()
+  const clock = replanEngine(on, [])
+  let release: () => void = () => undefined
+  replanReply.gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  replanReply.text = '3. Probar — 0.2 min'
+  await start($, clock)
+  await $.tool.call(readCall('l1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  await clock.advance(15_000)
+  await settle()
+  const before = Number(/(\d+)% /.exec((await headerOf($)) ?? '')?.[1])
+  release()
+  await settle()
+  await settle()
+  const after = Number(/(\d+)% /.exec((await headerOf($)) ?? '')?.[1])
+  expect(before).toBeGreaterThan(0)
+  expect(after).toBeGreaterThanOrEqual(before)
+})
+
+test('the header ends in the time left even with a 40-character step title (A7)', async ($, on) => {
+  resetReplies()
+  const clock = replanEngine(on, [])
+  planReply.text = '1. Leer la conversión completa del repositorio entero — 2 min\n2. Escribir — 5 min\n3. Probar — 3 min'
+  await start($, clock)
+  const head = await headerOf($)
+  expect(head).toMatch(/^Leer la conversión comple… \d+% · ~\d+ min$/)
+})
+
+test('a replan whose reply does not parse keeps the plan', async ($, on) => {
+  resetReplies()
+  const kinds: string[] = []
+  const clock = replanEngine(on, [], kinds)
+  replanReply.text = 'creo que quedan dos pasos'
+  await start($, clock)
+  await $.tool.call(readCall('k1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  expect(kinds.join('')).toBe('CH')
+  checkReply.text = 'paso: 3\nfalta: 2'
+  await $.tool.call(readCall('k2'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(await headerOf($)).toMatch(/^Probarlo \d+% · /)
+})
+
