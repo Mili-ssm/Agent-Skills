@@ -6,23 +6,33 @@ import {
   PLAN_ENABLED,
   PLAN_MIN_MS,
   applyCount,
+  applyDone,
   applyLeft,
   applyOverdue,
   applyReplan,
   applyStep,
+  askDone,
+  askPlan,
   askReplan,
   askStepCheck,
   callPointsAhead,
+  growOverdue,
+  isGrounded,
   newPlan,
   nextPlanCheck,
+  nextProgressCheck,
+  overdueGapMs,
   parsePlan,
   parseReplan,
   parseStepReply,
+  parseVerdict,
   planBar,
+  planLeftMs,
   restMs,
   planView,
   shouldPlan,
   shouldReplan,
+  stepTimes,
 } from '../hooks/plan'
 import type { PlanState } from '../hooks/plan'
 
@@ -135,14 +145,16 @@ test('the bar never goes back when the factor changes or a step runs overdue', (
   expect(applyOverdue(plan, 1000, 5 * MIN)).toBeUndefined()
 })
 
-test('a count that jumps splits the time evenly and the factor stays in 0.5 to 3', () => {
+test('a count that jumps splits the time evenly and the factor stays in 1 to 3 (v3: it never shortens the rest)', () => {
   const plan = fresh()
   // Steps 1-2 (7 min estimated) done in 7 min at once: 3.5 min each, factor 1.
   const jump = applyCount(plan, 2, 7 * MIN, 0)
   expect(jump?.steps.map(step => step.realMs)).toEqual([3.5 * MIN, 3.5 * MIN, undefined, undefined])
   expect(jump?.factor).toBe(1)
   expect(applyCount(plan, 2, 60 * MIN, 0)?.factor).toBe(3)
-  expect(applyCount(plan, 1, 10_000, 0)?.factor).toBe(0.5)
+  // v2 floored at 0.5; a fast step now leaves the rest as planned.
+  expect(applyCount(plan, 1, 10_000, 0)?.factor).toBe(1)
+  expect(restMs(applyCount(plan, 1, 10_000, 0) as PlanState)).toBe(plan.steps.slice(2).reduce((sum, step) => sum + step.estMs, 0))
   // The count only grows.
   expect(applyCount(jump as PlanState, 2, 8 * MIN, 0)).toBeUndefined()
   expect(applyCount(jump as PlanState, 1, 8 * MIN, 0)).toBeUndefined()
@@ -157,26 +169,26 @@ test('done may reach y/y while running: "finalizando", never 0 min, bar under 10
   expect(nextPlanCheck(plan, 60 * MIN, 60 * MIN)).toBeUndefined()
 })
 
-test('checks come at 50%, 80% and 95% of the step, 1 min apart, and at most 5 min apart', () => {
+test('v2 schedule (removed with the wiring): checks come at 50%, 80% and 95% of the step, 1 min apart, and at most 5 min apart', () => {
   // A 10 min first step: 50% is 5 min, 80% 8 min, 95% 9.5 min.
   const plan = { ...fresh(), stepEndAt: 10 * MIN, stepEstMs: 10 * MIN }
-  expect(nextPlanCheck(plan, 4 * MIN, 4 * MIN)).toBeUndefined()
-  expect(nextPlanCheck(plan, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 1 })
-  expect(nextPlanCheck({ ...plan, fired: 1, askedAt: 5 * MIN, countAt: 5 * MIN }, 7.9 * MIN, 7.9 * MIN)).toBeUndefined()
-  expect(nextPlanCheck({ ...plan, fired: 1, askedAt: 5 * MIN, countAt: 5 * MIN }, 8 * MIN, 8 * MIN)).toEqual({ kind: 'progress', fired: 2 })
-  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 8 * MIN, countAt: 8 * MIN }, 9.4 * MIN, 9.4 * MIN)).toBeUndefined()
-  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 8 * MIN, countAt: 8 * MIN }, 9.5 * MIN, 9.5 * MIN)).toEqual({ kind: 'progress', fired: 3 })
+  expect(nextProgressCheck(plan, 4 * MIN, 4 * MIN)).toBeUndefined()
+  expect(nextProgressCheck(plan, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 1 })
+  expect(nextProgressCheck({ ...plan, fired: 1, askedAt: 5 * MIN, countAt: 5 * MIN }, 7.9 * MIN, 7.9 * MIN)).toBeUndefined()
+  expect(nextProgressCheck({ ...plan, fired: 1, askedAt: 5 * MIN, countAt: 5 * MIN }, 8 * MIN, 8 * MIN)).toEqual({ kind: 'progress', fired: 2 })
+  expect(nextProgressCheck({ ...plan, fired: 2, askedAt: 8 * MIN, countAt: 8 * MIN }, 9.4 * MIN, 9.4 * MIN)).toBeUndefined()
+  expect(nextProgressCheck({ ...plan, fired: 2, askedAt: 8 * MIN, countAt: 8 * MIN }, 9.5 * MIN, 9.5 * MIN)).toEqual({ kind: 'progress', fired: 3 })
   // Two fractions reached at once (a long gap) count as the later one.
-  expect(nextPlanCheck({ ...plan, askedAt: 0, countAt: 0 }, 9.6 * MIN, 9.6 * MIN)).toEqual({ kind: 'progress', fired: 3 })
+  expect(nextProgressCheck({ ...plan, askedAt: 0, countAt: 0 }, 9.6 * MIN, 9.6 * MIN)).toEqual({ kind: 'progress', fired: 3 })
   // Never closer than 1 min to the last check.
-  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 9.2 * MIN, countAt: 9.2 * MIN }, 9.6 * MIN, 9.6 * MIN)).toBeUndefined()
+  expect(nextProgressCheck({ ...plan, fired: 2, askedAt: 9.2 * MIN, countAt: 9.2 * MIN }, 9.6 * MIN, 9.6 * MIN)).toBeUndefined()
   // Overdue: estimate + 15 s.
-  expect(nextPlanCheck({ ...plan, fired: 3, askedAt: 0, countAt: 10 * MIN }, 10 * MIN + 14_000, 10 * MIN + 14_000)).toBeUndefined()
-  expect(nextPlanCheck({ ...plan, fired: 3, askedAt: 0, countAt: 10 * MIN }, 10 * MIN + 15_000, 10 * MIN + 15_000)).toEqual({ kind: 'overdue', fired: 3 })
+  expect(nextProgressCheck({ ...plan, fired: 3, askedAt: 0, countAt: 10 * MIN }, 10 * MIN + 14_000, 10 * MIN + 14_000)).toBeUndefined()
+  expect(nextProgressCheck({ ...plan, fired: 3, askedAt: 0, countAt: 10 * MIN }, 10 * MIN + 15_000, 10 * MIN + 15_000)).toEqual({ kind: 'overdue', fired: 3 })
   // A long step with every check done still gets one every 5 min.
   const long = { ...plan, stepEndAt: 90 * MIN, stepEstMs: 90 * MIN, fired: 3, countAt: 0, askedAt: 0 }
-  expect(nextPlanCheck(long, 4 * MIN, 4 * MIN)).toBeUndefined()
-  expect(nextPlanCheck(long, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 3 })
+  expect(nextProgressCheck(long, 4 * MIN, 4 * MIN)).toBeUndefined()
+  expect(nextProgressCheck(long, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 3 })
 })
 
 test('a plan only switches on from the first answer and when it is longer than the threshold', () => {
@@ -194,6 +206,205 @@ test('PLAN_ENABLED false leaves today\'s behaviour: no plan view, no plan switch
   expect(planView(run, 3 * MIN)).toBeDefined()
   // With the plan on, estimateOf reads the plan's bar.
   expect(estimateOf(run, 3 * MIN)).toBe(planView(run, 3 * MIN)?.percent)
+})
+
+// --- v3 pure logic: Haiku judges "done?", code owns the time. ---
+
+const CRIT = '1. Leer el código — 2 min — listo cuando: se leyeron los archivos\n2. Escribir el cambio — 5 min — listo cuando: se editó el módulo\n3. Probarlo — 2 min — listo cuando: las pruebas pasaron\n4. Documentar — 1 min'
+const critPlan = (): PlanState => newPlan(parsePlan(CRIT) ?? [], 10 * MIN, 0, 0)
+
+test('parsePlan and parseReplan read an optional "listo cuando" criterion, cut at 100 characters', () => {
+  const steps = parsePlan(CRIT)
+  expect(steps?.map(step => step.criterion)).toEqual(['se leyeron los archivos', 'se editó el módulo', 'las pruebas pasaron', undefined])
+  expect(steps?.map(step => step.minutes)).toEqual([2, 5, 2, 1])
+  // Without criteria the format of v2 still reads.
+  expect(parsePlan(GOOD)?.every(step => step.criterion === undefined)).toBe(true)
+  const long = parsePlan(`1. A — 1 min — listo cuando: ${'x'.repeat(150)}\n2. B — 1 min\n3. C — 1 min`)
+  expect(long?.[0]?.criterion).toHaveLength(100)
+  expect(parsePlan('1. A — 1 min — listo cuando:\n2. B — 1 min\n3. C — 1 min')).toBeUndefined()
+  expect(parseReplan('3. Probar — 4 min — listo cuando: pasaron las pruebas\n4. Informar — 1 min', 3, 6)).toEqual([
+    { title: 'Probar', minutes: 4, criterion: 'pasaron las pruebas' },
+    { title: 'Informar', minutes: 1 },
+  ])
+  expect(parseReplan('ninguno', 3, 6)).toEqual([])
+  // The criterion reaches the plan's steps.
+  expect(critPlan().steps.map(step => step.criterion)).toEqual(['se leyeron los archivos', 'se editó el módulo', 'las pruebas pasaron', undefined])
+})
+
+test('parseVerdict reads evidencia and terminado by key over the first 4 lines, in any order, bold ignored', () => {
+  expect(parseVerdict('evidencia: ✓ Ejecuta las pruebas\nterminado: sí')).toEqual({ done: true, evidence: '✓ Ejecuta las pruebas' })
+  expect(parseVerdict('**evidencia:** Edita a.ts\n**terminado:** Sí')).toEqual({ done: true, evidence: 'Edita a.ts' })
+  expect(parseVerdict('terminado: no\nevidencia: ninguna')).toEqual({ done: false, evidence: 'ninguna' })
+  expect(parseVerdict('Terminado: SI.')).toEqual({ done: true })
+  expect(parseVerdict('terminado: yes')).toEqual({ done: true })
+  expect(parseVerdict('evidencia: algo')).toEqual({ evidence: 'algo' })
+  // Garbage, an unreadable verdict, or a verdict after the fourth line give no verdict.
+  expect(parseVerdict('creo que ya terminó')).toEqual({})
+  expect(parseVerdict('terminado: quizá')).toEqual({})
+  expect(parseVerdict('a\nb\nc\nd\nterminado: sí')).toEqual({})
+  expect(parseVerdict('')).toEqual({})
+})
+
+test('isGrounded: evidence needs a word shared with the calls; ninguna or empty never is (M3)', () => {
+  const calls = '- 2s ✓ Ejecuta las pruebas del parser\n- 1s ✓ Edita parser.ts'
+  expect(isGrounded('✓ Ejecuta las pruebas del parser', calls)).toBe(true)
+  expect(isGrounded('Edita parser.ts', calls)).toBe(true)
+  expect(isGrounded('ninguna', calls)).toBe(false)
+  expect(isGrounded('Ninguna.', calls)).toBe(false)
+  expect(isGrounded('', calls)).toBe(false)
+  expect(isGrounded(undefined, calls)).toBe(false)
+  // The agent's announced plan shares no word with the calls.
+  expect(isGrounded('leeré, implementaré y probaré todo', calls)).toBe(false)
+})
+
+test('nextPlanCheck: overdue backoff 30/60/120/240 s, event needs a hint and 60 s, ceiling at 5 min, none when all done', () => {
+  const plan = { ...fresh(), stepEndAt: 2 * MIN, askedAt: 0 }
+  // Not overdue yet, no hint, under the ceiling.
+  expect(nextPlanCheck(plan, MIN, MIN)).toBeUndefined()
+  expect(nextPlanCheck(plan, 2 * MIN + 14_000, 2 * MIN + 14_000)).toBeUndefined()
+  expect(nextPlanCheck(plan, 2 * MIN + 15_000, 2 * MIN + 15_000)).toEqual({ kind: 'overdue' })
+  // The gap follows the overdue checks so far: 30 s, 60 s, 120 s, 240 s, then 240 s.
+  expect([0, 1, 2, 3, 4, 9].map(overdueGapMs)).toEqual([30_000, 60_000, 120_000, 240_000, 240_000, 240_000])
+  const late = 10 * MIN
+  for (const [checks, gap] of [[0, 30_000], [1, 60_000], [2, 120_000], [3, 240_000], [6, 240_000]] as const) {
+    const asked = { ...plan, overdueChecks: checks, askedAt: late }
+    expect(nextPlanCheck({ ...asked, hintAt: undefined }, late + gap - 1000, late + gap - 1000)).toBeUndefined()
+    expect(nextPlanCheck(asked, late + gap, late + gap)).toEqual({ kind: 'overdue' })
+  }
+  // Event: a hint after the last check, and at least 1 min after it.
+  const open = { ...plan, stepEndAt: 30 * MIN, askedAt: 0 }
+  expect(nextPlanCheck({ ...open, hintAt: 10_000 }, 59_000, 59_000)).toBeUndefined()
+  expect(nextPlanCheck({ ...open, hintAt: 10_000 }, MIN, MIN)).toEqual({ kind: 'event' })
+  // A hint older than the last check does not count.
+  expect(nextPlanCheck({ ...open, askedAt: 20_000, hintAt: 10_000 }, 2 * MIN, 2 * MIN)).toBeUndefined()
+  // Ceiling: 5 min without a check.
+  expect(nextPlanCheck(open, 4.9 * MIN, 4.9 * MIN)).toBeUndefined()
+  expect(nextPlanCheck(open, 5 * MIN, 5 * MIN)).toEqual({ kind: 'ceiling' })
+  // Every step done: nothing, whatever the clock says.
+  const finished = applyCount(fresh(), 4, 8 * MIN, 8 * MIN) as PlanState
+  expect(nextPlanCheck({ ...finished, hintAt: 9 * MIN }, 60 * MIN, 60 * MIN)).toBeUndefined()
+})
+
+test('growOverdue: the end moves to max(1 min, half the time in the step) from now, the percent never drops, the counter grows', () => {
+  const plan = fresh()
+  // 2 min step overdue at 2:15: half the 135 s in the step is 67.5 s, over the 1 min floor.
+  const first = growOverdue(plan, 2 * MIN + 15_000)
+  expect(first.stepEndAt).toBe(2 * MIN + 15_000 + 67_500)
+  expect(first.overdueChecks).toBe(1)
+  expect(first.stepEstMs).toBe(first.stepEndAt - first.stepAt)
+  // Short time in the step: the 1 min floor.
+  expect(growOverdue({ ...plan, stepEndAt: 20_000 }, 40_000).stepEndAt).toBe(40_000 + MIN)
+  // Long time in the step: half of it.
+  const long = growOverdue({ ...plan, stepEndAt: 2 * MIN }, 20 * MIN)
+  expect(long.stepEndAt).toBe(30 * MIN)
+  expect(growOverdue(long, 30 * MIN + 20_000).overdueChecks).toBe(2)
+  // The percent holds across every growth.
+  let grown = plan
+  let last = planBar(plan, 0)
+  for (let elapsed = 2 * MIN + 15_000; elapsed < 40 * MIN; elapsed += 3 * MIN) {
+    grown = growOverdue(grown, elapsed)
+    expect(planBar(grown, elapsed)).toBeGreaterThanOrEqual(last)
+    last = planBar(grown, elapsed)
+    // The time left is never the "~1 min" floor of a stalled step once the step has run long.
+    if (elapsed > 10 * MIN) {
+      expect(planLeftMs(grown, elapsed)).toBeGreaterThan(MIN)
+    }
+  }
+})
+
+test('applyDone advances exactly one step, only with new calls (G1), hints the next check, resets the overdue counter', () => {
+  const plan = { ...fresh(), overdueChecks: 3 }
+  expect(applyDone(plan, 3 * MIN, 3 * MIN, false)).toBeUndefined()
+  const next = applyDone(plan, 3 * MIN, 3 * MIN, true)
+  expect(next?.done).toBe(1)
+  expect(next?.overdueChecks).toBe(0)
+  expect(next?.hintAt).toBe(3 * MIN)
+  expect(next?.advancedAt).toBe(3 * MIN)
+  expect(next?.steps[0]?.realMs).toBe(3 * MIN)
+  expect(next?.stepAt).toBe(3 * MIN)
+  // One verdict, one step: the next verdict advances once more.
+  expect(applyDone(next as PlanState, 4 * MIN, 4 * MIN, true)?.done).toBe(2)
+  // The hint set after an advance makes the next check due once the 1 min gap passes (catch-up of a fast step).
+  const hinted = { ...(next as PlanState), askedAt: 3 * MIN - 1000 }
+  expect(nextPlanCheck({ ...hinted, stepEndAt: 30 * MIN }, 3 * MIN + 58_000, 3 * MIN + 58_000)).toBeUndefined()
+  expect(nextPlanCheck({ ...hinted, stepEndAt: 30 * MIN }, 3 * MIN + 59_000, 3 * MIN + 59_000)).toEqual({ kind: 'event' })
+  // Nothing past the last step.
+  expect(applyDone(applyCount(fresh(), 4, 8 * MIN, 8 * MIN) as PlanState, 9 * MIN, 9 * MIN, true)).toBeUndefined()
+  // Percent never goes back.
+  expect(planBar(next as PlanState, 3 * MIN)).toBeGreaterThanOrEqual(planBar(plan, 3 * MIN))
+})
+
+test('a step finished in half its estimate leaves the rest as planned (factor 1), a slow one lengthens it', () => {
+  const plan = fresh()
+  const fast = applyDone(plan, MIN, MIN, true) as PlanState
+  expect(fast.factor).toBe(1)
+  expect(restMs(fast)).toBe(restMs(plan) - plan.steps[1]!.estMs)
+  const slow = applyDone(plan, 4 * MIN, 4 * MIN, true) as PlanState
+  expect(slow.factor).toBe(2)
+  expect(slow.stepEstMs).toBe(plan.steps[1]!.estMs * 2)
+})
+
+test('stepTimes lists finished steps with real ms, the current one up to the end, and leaves unstarted ones out', () => {
+  const plan = applyDone(fresh(), 3 * MIN, 3 * MIN, true) as PlanState
+  expect(stepTimes(plan, 9 * MIN)).toEqual([
+    { title: 'Leer el código', estMs: 2 * MIN, ms: 3 * MIN },
+    { title: 'Escribir el cambio', estMs: 5 * MIN, ms: 6 * MIN },
+  ])
+  const all = applyCount(fresh(), 4, 8 * MIN, 8 * MIN) as PlanState
+  expect(stepTimes(all, 9 * MIN)).toHaveLength(4)
+})
+
+test('callPointsAhead matches a later step by its criterion words too', () => {
+  const plan = critPlan()
+  expect(callPointsAhead(plan, 'Ejecuta las pruebas del parser')).toBe(true)
+  expect(callPointsAhead(plan, 'Lee los archivos del módulo')).toBe(false)
+})
+
+test('askDone: evidence-first prompt without the previous step or the calendar, said only when given, 120 tokens', async () => {
+  let seen: { prompt: string; maxTokens: number; timeoutMs?: number } = { prompt: '', maxTokens: 0 }
+  const $ = askerOf(ask => {
+    seen = ask as typeof seen
+    return 'evidencia: ✓ Read a.md\nterminado: sí'
+  })
+  const plan = critPlan()
+  const out = await askDone($, { mission: 'Migrar', plan, elapsedMs: 3 * MIN, activity: 'A', calls: '- 1s ✓ Read a.md', id: 'a1' })
+  expect(out).toEqual({ done: true, evidence: '✓ Read a.md' })
+  expect(seen.maxTokens).toBe(120)
+  expect(seen.timeoutMs).toBe(15000)
+  expect(seen.prompt.startsWith('Un agente de programación')).toBe(true)
+  expect(seen.prompt).not.toContain('<paso_anterior>')
+  expect(seen.prompt).not.toContain('calendario')
+  expect(seen.prompt).not.toMatch(/falta:|paso: N/)
+  expect(seen.prompt).not.toContain('<dice_el_agente>\n')
+  expect(seen.prompt).toContain('<paso_actual>1. Leer el código · listo cuando: se leyeron los archivos</paso_actual>')
+  expect(seen.prompt).toContain('<paso_siguiente>2. Escribir el cambio · listo cuando: se editó el módulo</paso_siguiente>')
+  expect(seen.prompt).toContain('terminado: sí</example>')
+  expect(seen.prompt).toContain('terminado: no</example>')
+  expect(seen.prompt).not.toContain('<pensando>')
+  await askDone($, { mission: 'Migrar', plan, elapsedMs: 3 * MIN, activity: 'A', calls: '- B', said: 'Voy a editar', thinking: 'pensando desde hace 20s (sin herramientas)', id: 'a1' })
+  expect(seen.prompt).toContain('<dice_el_agente>\nVoy a editar\n</dice_el_agente>')
+  expect(seen.prompt).toContain('<pensando>pensando desde hace 20s (sin herramientas)</pensando>')
+  // Unreadable and unanswered replies give undefined.
+  expect(await askDone(askerOf(() => 'no sé'), { mission: 'M', plan, elapsedMs: 0, activity: 'A', calls: '-', id: 'a1' })).toBeUndefined()
+})
+
+test('askPlan asks for criteria a call can show, 400 tokens, and shows the real steps of similar runs', async () => {
+  let seen: { prompt: string; maxTokens: number } = { prompt: '', maxTokens: 0 }
+  const $ = askerOf(ask => {
+    seen = ask
+    return CRIT
+  })
+  const similar = [
+    { summary: 'implementer: Migrar servicios', durationMs: 14 * MIN, at: 1, steps: [{ title: 'Leer', estMs: MIN, ms: 2 * MIN }, { title: 'Implementar', estMs: 5 * MIN, ms: 6 * MIN }, { title: 'Probar', estMs: 3 * MIN, ms: 5 * MIN }, { title: 'Informar', estMs: MIN, ms: MIN }] },
+    { summary: 'implementer: Otra cosa', durationMs: 5 * MIN, at: 2 },
+  ]
+  const out = await askPlan($, { text: 'Migrar', totalMs: 12 * MIN, id: 'a1', similar })
+  expect(out?.map(step => step.criterion)).toEqual(['se leyeron los archivos', 'se editó el módulo', 'las pruebas pasaron', undefined])
+  expect(seen.maxTokens).toBe(400)
+  expect(seen.prompt).toContain('listo cuando')
+  expect(seen.prompt).toContain('1. implementer: Migrar servicios — 14 min (pasos reales: Leer 2 · Implementar 6 · Probar 5 · Informar 1)')
+  expect(seen.prompt).toContain('2. implementer: Otra cosa — 5 min</tareas_parecidas>')
+  expect(seen.prompt).toMatch(/<example>[^]*listo cuando[^]*<\/example>/)
 })
 
 // --- Integration: a long agent's card says `<step> N% · ~time`. ---
@@ -281,16 +492,16 @@ test('a long step title is cut with … in the header, at 26 characters', () => 
   expect(view).not.toHaveProperty('count')
 })
 
-test('a call that reads like a later step hints a count check; the 5 min ceiling still asks without hints', () => {
+test('v2 schedule: a call that reads like a later step hints a count check; the 5 min ceiling still asks without hints', () => {
   const plan = newPlan([{ title: 'Leer el esquema actual', minutes: 30 }, { title: 'Escribir los scripts de migración', minutes: 10 }, { title: 'Informar', minutes: 2 }], 42 * 60_000, 0, 0)
   expect(callPointsAhead(plan, 'Escribe el script de migración de usuarios')).toBe(true)
   expect(callPointsAhead(plan, 'Lee el esquema actual de la tabla')).toBe(false)
   expect(callPointsAhead(plan, 'Run sed -n 1,6p samples.txt')).toBe(false)
   // 2 min into a 30 min step: no check yet; a hint after the last ask makes one.
-  expect(nextPlanCheck(plan, 2 * 60_000, 2 * 60_000)).toBeUndefined()
-  expect(nextPlanCheck({ ...plan, hintAt: 2 * 60_000 }, 2 * 60_000, 2 * 60_000)).toMatchObject({ kind: 'progress' })
+  expect(nextProgressCheck(plan, 2 * 60_000, 2 * 60_000)).toBeUndefined()
+  expect(nextProgressCheck({ ...plan, hintAt: 2 * 60_000 }, 2 * 60_000, 2 * 60_000)).toMatchObject({ kind: 'progress' })
   // No hint: 5 min without a count asks anyway (was 20).
-  expect(nextPlanCheck(plan, 5 * 60_000, 5 * 60_000)).toMatchObject({ kind: 'progress' })
+  expect(nextProgressCheck(plan, 5 * 60_000, 5 * 60_000)).toMatchObject({ kind: 'progress' })
 })
 
 // --- Call hints: word matching only ever runs on Spanish natural text. ---
@@ -642,38 +853,32 @@ test('parseReplan reads the steps after the current one, ninguno, and a list res
   expect(parseReplan('1. A — 2 min\n3. B — 1 min', 3, 6)).toBeUndefined()
 })
 
-test('applyReplan keeps done and current steps, marks the new ones fixed and never scales them with the factor (A2)', () => {
+test('applyReplan keeps done and current steps and preserves the old pending sum: the split changes, the total does not', () => {
   const plan = applyCount(fresh(), 1, 3 * MIN, 3 * MIN) as PlanState
-  const out = applyReplan(plan, [{ title: 'Probar', minutes: 3 }, { title: 'Informar', minutes: 1 }], 3 * MIN)
+  const oldSum = plan.steps.slice(2).reduce((sum, step) => sum + step.estMs, 0)
+  const out = applyReplan(plan, [{ title: 'Probar', minutes: 3, criterion: 'las pruebas pasaron' }, { title: 'Informar', minutes: 1 }], 3 * MIN)
   expect(out.steps.slice(0, 2)).toEqual(plan.steps.slice(0, 2))
-  expect(out.steps.slice(2).map(step => step.fixed)).toEqual([true, true])
   expect(out.steps.map(step => step.title)).toEqual(['Leer el código', 'Escribir el cambio', 'Probar', 'Informar'])
-  // The 3 min + 1 min replied sum to the old rest scaled by the factor (3 min x 1.5): kept as replied, no second scaling.
-  const doubled = applyCount({ ...out, factor: 2 }, 2, 6 * MIN, 6 * MIN) as PlanState
-  expect(doubled.stepEstMs).toBe(out.steps[2]?.estMs)
-  const scaled = { ...out, factor: 2 }
-  expect(restMs(scaled)).toBe((out.steps[2]?.estMs ?? 0) + (out.steps[3]?.estMs ?? 0))
+  // The criterion is kept, `fixed` is gone, and 3:1 of the old 3 min sum.
+  expect(out.steps[2]).toEqual({ title: 'Probar', estMs: 0.75 * oldSum, criterion: 'las pruebas pasaron' })
+  expect(out.steps.map(step => step.fixed)).toEqual([undefined, undefined, undefined, undefined])
+  expect(out.steps.slice(2).reduce((sum, step) => sum + step.estMs, 0)).toBe(oldSum)
+  // The factor still applies once to what remains.
+  expect(restMs(out)).toBe(restMs(plan))
 })
 
-test('applyReplan: the bar never goes down, rises at most 15 points when the rest halves, and ninguno needs at most one pending step (A4)', () => {
+test('applyReplan: the percent never goes down, a long or short reply cannot move the total, [] and a last current step return the same object', () => {
   const plan = applyCount(fresh(), 1, 2 * MIN, 2 * MIN) as PlanState
   const before = planBar(plan, 4 * MIN)
-  // Steps after the current one were 2 + 1 min x factor 1; Haiku says half of that.
-  const halved = applyReplan(plan, [{ title: 'Probar', minutes: 1 }, { title: 'Informar', minutes: 0.5 }], 4 * MIN)
-  expect(planBar(halved, 4 * MIN)).toBeGreaterThanOrEqual(before)
-  expect(planBar(halved, 4 * MIN) - before).toBeLessThanOrEqual(15)
-  // A reply far below the old rest is raised to half of it; far above is cut to twice.
-  expect(restMs(applyReplan(plan, [{ title: 'Probar', minutes: 0.1 }], 4 * MIN))).toBe(restMs(plan) / 2)
-  expect(restMs(applyReplan(plan, [{ title: 'Probar', minutes: 100 }], 4 * MIN))).toBe(restMs(plan) * 2)
-  // A longer plan lowers the percent, but the anchor holds it.
+  for (const minutes of [0.1, 100]) {
+    const out = applyReplan(plan, [{ title: 'Probar', minutes }], 4 * MIN)
+    expect(restMs(out)).toBe(restMs(plan))
+    expect(planBar(out, 4 * MIN)).toBeGreaterThanOrEqual(before)
+  }
   const longer = applyReplan(plan, [{ title: 'Probar', minutes: 9 }, { title: 'Informar', minutes: 3 }], 4 * MIN)
   expect(planBar(longer, 4 * MIN)).toBeGreaterThanOrEqual(before)
-  // ninguno with 2 pending steps is not believed; with at most one it drops them.
+  // ninguno keeps the plan; with the last step current there is nothing to rewrite.
   expect(applyReplan(plan, [], 4 * MIN)).toBe(plan)
-  const last = applyCount(fresh(), 2, 5 * MIN, 5 * MIN) as PlanState
-  expect(applyReplan(last, [], 5 * MIN).steps).toHaveLength(3)
-  expect(applyReplan(plan, [], 4 * MIN).steps).toHaveLength(4)
-  // With the last step current there is no rest to clamp against: new steps are not added.
   const final = applyCount(fresh(), 3, 6 * MIN, 6 * MIN) as PlanState
   expect(applyReplan(final, [{ title: 'Extra', minutes: 30 }], 6 * MIN)).toBe(final)
   // The total never passes 8 steps.
@@ -681,16 +886,17 @@ test('applyReplan: the bar never goes down, rises at most 15 points when the res
   expect(applyReplan(plan, many, 4 * MIN).steps).toHaveLength(8)
 })
 
-test('shouldReplan: on a step change, overdue, or the check that fired the 95% fraction; not at 50% / 80% or on hints after it', () => {
-  expect(shouldReplan('progress', 0, 1, false)).toBe(false)
-  expect(shouldReplan('progress', 1, 2, false)).toBe(false)
-  expect(shouldReplan('progress', 2, 3, false)).toBe(true)
-  expect(shouldReplan('progress', 3, 3, false)).toBe(false)
-  expect(shouldReplan('overdue', 3, 3, false)).toBe(true)
-  expect(shouldReplan('progress', 0, 1, true)).toBe(true)
+test('shouldReplan: only after an advance and only when a step follows the new current one', () => {
+  const plan = fresh()
+  expect(shouldReplan(plan, true)).toBe(true)
+  expect(shouldReplan(plan, false)).toBe(false)
+  expect(shouldReplan(applyCount(plan, 2, 5 * MIN, 0) as PlanState, true)).toBe(true)
+  // Current step is the last one (done + 1 === length): nothing follows.
+  expect(shouldReplan(applyCount(plan, 3, 6 * MIN, 0) as PlanState, true)).toBe(false)
+  expect(shouldReplan(applyCount(plan, 4, 8 * MIN, 0) as PlanState, true)).toBe(false)
 })
 
-test('askReplan sends the history and the steps done, in the replan prompt, with 250 tokens', async () => {
+test('askReplan sends the history, the steps done and the criteria, says minutes are a split, with 400 tokens', async () => {
   let seen: { prompt: string; maxTokens: number; timeoutMs?: number } = { prompt: '', maxTokens: 0 }
   const $ = askerOf(ask => {
     seen = ask as typeof seen
@@ -699,11 +905,12 @@ test('askReplan sends the history and the steps done, in the replan prompt, with
   const plan = applyCount(fresh(), 1, 3 * MIN, 3 * MIN) as PlanState
   const out = await askReplan($, { mission: 'Migrar', plan, elapsedMs: 4 * MIN, history: '- 2s ✓ Read a.md', id: 'a1' })
   expect(out).toHaveLength(2)
-  expect(seen.maxTokens).toBe(250)
+  expect(seen.maxTokens).toBe(400)
+  expect(seen.prompt).toContain('reparto')
   expect(seen.prompt).toContain('<historial>\n- 2s ✓ Read a.md\n</historial>')
   expect(seen.prompt).toMatch(/<pasos_hechos>\n1\. Leer el código · previsto 2 min · real 3 min\n<\/pasos_hechos>/)
   expect(seen.prompt).toContain('<paso_actual>2. Escribir el cambio')
-  expect(seen.prompt).toMatch(/<pasos_pendientes>\n3\. Probarlo · previsto .* min\n4\. Documentar/)
+  expect(seen.prompt).toMatch(/<pasos_pendientes>\n3\. Probarlo · reparto .* min\n4\. Documentar/)
   expect(seen.prompt.startsWith('Un agente de programación')).toBe(true)
   expect(seen.prompt).toContain('<example>')
   expect(seen.prompt).toContain('ninguno</example>')
@@ -810,7 +1017,7 @@ test('a step change replans from the plan the check produced: the next pending s
   const replan = prompts.find(prompt => prompt.includes('<historial>')) ?? ''
   expect(replan).toContain('<paso_actual>2. Escribir el cambio')
   expect(replan).toMatch(/<pasos_hechos>\n1\. Leer el código · previsto 2 min · real 1 min\n<\/pasos_hechos>/)
-  expect(replan).toMatch(/<pasos_pendientes>\n3\. Probarlo · previsto \S+ min\n4\. Documentar/)
+  expect(replan).toMatch(/<pasos_pendientes>\n3\. Probarlo · reparto \S+ min\n4\. Documentar/)
   expect(await headerOf($)).toMatch(/^Escribir el cambio \d+% · /)
   // The next step shown is the replanned one.
   checkReply.text = 'paso: 3\nfalta: 2'

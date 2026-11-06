@@ -61,6 +61,8 @@ export type AgentRun = {
   todo?: { done: number; total: number; completed: string[] }
   /** Its finished calls, newest last (bounded): what each did, how long it took, whether it worked. */
   history?: { what: string; ms: number; ok: boolean }[]
+  /** The agent's last text blocks (newest last, 3 at most, 300 chars each): a claim for the step check, never proof. */
+  said?: { text: string; at: number }[]
   /** Distinct files its edits touched, for the finished card's count. */
   files?: string[]
   /** Skills it used, by name. */
@@ -124,7 +126,13 @@ export type WaitTask = {
 export type EtaSource = 'stated' | 'message' | 'similar' | 'guess'
 
 /** One finished wait, remembered across sessions: its label and how long it took. */
-export type WaitSample = { summary: string; durationMs: number; at: number }
+export type WaitSample = {
+  summary: string
+  durationMs: number
+  at: number
+  /** A planned agent run that reached its last step: each step's planned and real ms (absent on older entries and on runs that ended early). */
+  steps?: { title: string; estMs: number; ms: number }[]
+}
 
 /** One call of a group, in the order the model made them. */
 export type GroupCall = {

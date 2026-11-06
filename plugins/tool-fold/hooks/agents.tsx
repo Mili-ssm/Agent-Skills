@@ -25,7 +25,7 @@ import {
   logReestimate,
 } from './estimates'
 import type { ReaskFields } from './estimates'
-import { STEP_TITLE_CHARS, STEP_TITLE_MAX_CHARS, callPointsAhead, clipTitle, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplan } from './plan'
+import { STEP_TITLE_CHARS, STEP_TITLE_MAX_CHARS, callPointsAhead, clipTitle, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplanLegacy as applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheckLegacy as logPlanCheck, newPlan, nextProgressCheck as nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplanLegacy as shouldReplan } from './plan'
 import type { PlanState } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, isCut, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
@@ -618,7 +618,7 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
       const { plan: applied, advanced } = outcome
       // A stuck step is replanned once per `done` (A1): its overdue checks would otherwise ask every 30 s.
       // With every step done there is no current step to replan after.
-      if (REPLAN_ENABLED && applied !== undefined && applied.done < applied.steps.length && shouldReplan(due.kind, plan.fired, due.fired, advanced) && (advanced || applied.replannedDone !== applied.done)) {
+      if (REPLAN_ENABLED && applied !== undefined && applied.done < applied.steps.length && shouldReplan(due.kind, plan.fired ?? 0, due.fired, advanced) && (advanced || applied.replannedDone !== applied.done)) {
         void replanPending($, run.id, mission, applied, advanced)
       }
     })
