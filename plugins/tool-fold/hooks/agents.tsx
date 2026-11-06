@@ -821,7 +821,7 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
       ? `${run.todo.done}/${run.todo.total}`
       : plan !== undefined
         ? // A plan never says "más de lo previsto": an overdue step is re-estimated instead, and the longer label broke the header line.
-          `${plan.count} · ${plan.isWrappingUp ? 'finalizando' : formatRemaining(plan.leftMs)}`
+          `${plan.percent}% · ${plan.isWrappingUp ? 'finalizando' : formatRemaining(plan.leftMs)}`
         : isRunning && estimate !== undefined
         ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
@@ -845,16 +845,14 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
             {datum}
           </Text>
         ) : (
-          // `1/6 Medir memoria 40% · ~43 min` as ONE Text with nested spans: sibling Texts wrap onto their own lines on
+          // `Medir memoria 40% · ~43 min` as ONE Text with nested spans: sibling Texts wrap onto their own lines on
           // vscode (docs/mods-surfaces.md). vscode ignores a nested bold={false} and `size`, so the outer span is plain:
-          // count and time bold, the step title dim and small where supported, its share in the same color undimmed.
+          // the step title dim and small where supported, the whole-run percent and the time bold.
           <Text color={color} tabular wrap="truncate">
-            <Text bold>{plan.count}</Text>{' '}
             <Text dimColor size="footnote">
               {plan.step}
             </Text>{' '}
-            {plan.stepPct}{' '}
-            <Text bold>{datum.slice(plan.count.length + 1)}</Text>
+            <Text bold>{datum}</Text>
           </Text>
         )}
       </Box>

@@ -9,14 +9,18 @@ import { MAX_PERCENT, OVERDUE_GRACE_MS, REESTIMATE_GAP_MS, logReestimate, wordsO
 
 /** The one switch: false and the cards behave exactly as before this module. */
 export const PLAN_ENABLED = true
+/** Kill switch for the replan call only: false keeps the plan and its checks, but pending steps are never rewritten. */
+export const REPLAN_ENABLED = true
 /** An agent whose first estimate is longer than this gets a step plan (may become 10 min). */
 export const PLAN_MIN_MS = 5 * 60_000
 const MIN_STEPS = 3
 const MAX_STEPS = 6
+/** Steps of a plan after replans may add some; the first build stays 3 to 6. */
+export const MAX_TOTAL_STEPS = 8
 const MAX_STEP_MIN = 24 * 60
 const TITLE_CHARS = 80
 // The current step is checked at these fractions of its estimated duration.
-const CHECK_FRACTIONS = [0.5, 0.8] as const
+export const CHECK_FRACTIONS = [0.5, 0.8, 0.95] as const
 // Two checks are never closer than this, and a step goes at most this long without a step-count check.
 const CHECK_GAP_MS = 60_000
 const CHECK_MAX_MS = 5 * 60_000
@@ -29,6 +33,8 @@ export type PlanStep = {
   estMs: number
   /** Real duration once finished. */
   realMs?: number
+  /** Minutes come from a replan (already informed by real times): the factor does not scale them again. */
+  fixed?: boolean
 }
 
 /** The plan stored on a run. Times `...At` of the run are elapsed ms (since the spawn); `askedAt`/`countAt` are clock times. */
@@ -41,9 +47,9 @@ export type PlanState = {
   /** When the current step began / is expected to end. */
   stepAt: number
   stepEndAt: number
-  /** The current step's estimated duration when it began (or was lengthened), the base of its 50% / 80% checks. */
+  /** The current step's estimated duration when it began (or was lengthened), the base of its 50% / 80% / 95% checks. */
   stepEstMs: number
-  /** How many of the 50% / 80% checks the current step has had (0 to 2). */
+  /** How many of the 50% / 80% / 95% checks the current step has had (0 to 3). */
   fired: number
   /** The bar never shows less than this percent. */
   anchor: number
@@ -58,6 +64,10 @@ export type PlanState = {
   countsAtStep?: Record<string, number>
   /** Calls the run had finished at the latest check (G1: a step only advances if calls were added since). */
   callsAtCheck?: number
+  /** The `seq` a replan was asked at: its answer applies only while the plan is still at it. */
+  replanSeq?: number
+  /** The `done` a replan without a step change was asked at: a stuck step is replanned once, not at every overdue check. */
+  replannedDone?: number
 }
 
 /** Whether a first estimate switches a plan on: only the first answer (`askSeq` 1) and only when it is long. */
@@ -112,10 +122,42 @@ export function parseStepReply(text: string, total: number): { step?: number; le
   }
 }
 
+/**
+ * The lines of a replan reply: `ninguno` alone gives []; else 1 to `max` lines in `parsePlan`'s format, numbered
+ * consecutively from `from` (the 1-based number after the current step) or from 1 (Haiku often restarts at 1; the
+ * caller renumbers). Anything else, `ninguno` mixed with lines included, is undefined.
+ */
+export function parseReplan(reply: string, from: number, max: number): { title: string; minutes: number }[] | undefined {
+  if (reply.replaceAll('**', '').trim().toLowerCase() === 'ninguno') {
+    return []
+  }
+  const lines = reply.replaceAll('**', '').split('\n').map(line => line.trim()).filter(line => line !== '')
+  if (lines.length < 1 || lines.length > max) {
+    return undefined
+  }
+  const first = Number.parseInt(/^(\d+)[.)]/.exec(lines[0] ?? '')?.[1] ?? '', 10)
+  if (first !== from && first !== 1) {
+    return undefined
+  }
+  const steps: { title: string; minutes: number }[] = []
+  for (const [index, line] of lines.entries()) {
+    const found = /^(\d+)[.)]\s+(.{1,120}?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*min\.?$/i.exec(line)
+    const minutes = Number.parseFloat((found?.[3] ?? '').replace(',', '.'))
+    if (found === null || Number.parseInt(found[1] ?? '', 10) !== first + index || !(minutes > 0) || minutes > MAX_STEP_MIN) {
+      return undefined
+    }
+    steps.push({ title: (found[2] ?? '').slice(0, TITLE_CHARS), minutes })
+  }
+  return steps
+}
+
 const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value))
 
-/** Time of the steps still to run after the current one, scaled by the factor. */
-export const restMs = (plan: PlanState): number => plan.steps.slice(plan.done + 1).reduce((sum, step) => sum + step.estMs, 0) * plan.factor
+/** A step's duration to plan with: replanned (`fixed`) minutes stay, the others follow the factor. One home, so no path scales a fixed step twice. */
+export const scaledMs = (step: PlanStep, factor: number): number => (step.fixed === true ? step.estMs : step.estMs * factor)
+
+/** Time of the steps still to run after the current one, scaled by the factor (replanned steps unscaled). */
+export const restMs = (plan: PlanState): number => plan.steps.slice(plan.done + 1).reduce((sum, step) => sum + scaledMs(step, plan.factor), 0)
 
 /** Elapsed ms at which the plan expects to end. */
 export const planEndAt = (plan: PlanState): number => plan.stepEndAt + restMs(plan)
@@ -131,38 +173,27 @@ export function planBar(plan: PlanState, elapsedMs: number): number {
 export const planLeftMs = (plan: PlanState, elapsedMs: number): number => Math.max(0, plan.stepEndAt - elapsedMs) + restMs(plan)
 
 /** Room for a step title in the card header: surfaces wrap rather than cut, so the cut (with …) is done here. */
-export const STEP_TITLE_CHARS = 22
+export const STEP_TITLE_CHARS = 26
 const clipTitle = (title: string): string => (title.length <= STEP_TITLE_CHARS ? title : `${title.slice(0, STEP_TITLE_CHARS - 1).trimEnd()}…`)
 
-/** What a card with a plan shows; undefined without one or with `enabled` false. */
+/** What a card with a plan shows: the whole-run percent (the bar's), the current step's title and the time left; undefined without a plan or with `enabled` false. */
 export function planView(
   run: { plan?: PlanState; startedAt: number },
   now: number,
   enabled: boolean = PLAN_ENABLED,
-): { percent: number; text: string; count: string; step?: string; stepPct?: string; isWrappingUp: boolean; leftMs: number; shown: number; total: number } | undefined {
+): { percent: number; step?: string; isWrappingUp: boolean; leftMs: number } | undefined {
   const { plan } = run
   if (!enabled || plan === undefined) {
     return undefined
   }
   const elapsed = now - run.startedAt
-  const total = plan.steps.length
   // All steps done while the run still runs: no time left to state, only that it is wrapping up (the bar stays under 100%).
-  const isLast = plan.done >= total
+  const isLast = plan.done >= plan.steps.length
   return {
     percent: planBar(plan, elapsed),
-    text: `${plan.done}/${total} pasos`,
-    count: `${plan.done}/${total}`,
-    // The current step and how far into its estimate it is (no new call: the title is the plan's, the share is time).
-    ...(isLast
-      ? {}
-      : {
-          step: clipTitle(plan.steps[plan.done]?.title ?? ''),
-          stepPct: `${Math.round(clamp(((elapsed - plan.stepAt) / Math.max(1, plan.stepEstMs)) * 100, 0, 99))}%`,
-        }),
+    ...(isLast ? {} : { step: clipTitle(plan.steps[plan.done]?.title ?? '') }),
     isWrappingUp: isLast,
     leftMs: isLast ? 0 : planLeftMs(plan, elapsed),
-    shown: plan.done,
-    total,
   }
 }
 
@@ -191,7 +222,8 @@ export function applyCount(plan: PlanState, count: number, elapsedMs: number, no
   const estimated = finished.reduce((sum, step) => sum + step.estMs, 0)
   const factor = estimated <= 0 ? 1 : clamp(real / estimated, FACTOR_MIN, FACTOR_MAX)
   // With every step done there is no current step: it ends where it is.
-  const stepEstMs = Math.round((steps[done]?.estMs ?? 0) * factor)
+  const next = steps[done]
+  const stepEstMs = next === undefined ? 0 : Math.round(scaledMs(next, factor))
   return { ...plan, steps, factor, done, stepAt: elapsedMs, stepEstMs, stepEndAt: elapsedMs + stepEstMs, fired: 0, anchor: planBar(plan, elapsedMs), countAt: now }
 }
 
@@ -223,7 +255,7 @@ export function applyStep(plan: PlanState, step: number, elapsedMs: number, now:
 /**
  * The plan with the current step's end moved by Haiku's `leftMin`. G3: clamped to 0.5 min .. 3x the step estimate,
  * blended 50/50 with the remaining time, never shortening it more than 30% per check. G4: the anchor is the bar shown
- * first; then the step estimate and the 50% / 80% `fired` follow the new end, as in `applyOverdue`.
+ * first; then the step estimate and the 50% / 80% / 95% `fired` follow the new end, as in `applyOverdue`.
  */
 export function applyLeft(plan: PlanState, leftMin: number, elapsedMs: number): PlanState {
   const remaining = Math.max(0, plan.stepEndAt - elapsedMs)
@@ -236,8 +268,35 @@ export function applyLeft(plan: PlanState, leftMin: number, elapsedMs: number): 
 }
 
 /**
+ * The plan with its pending steps (those after the current one) replaced by a replan's `steps`, marked `fixed`; done
+ * and current steps stay. The caller reads `elapsedMs` when the answer arrives, so the anchor is the bar shown now.
+ * The new minutes are scaled so they add up to 0.5 to 2 times the old rest: a short round answer cannot make the
+ * percent jump. `[]` (no step after the current one) is believed only when at most one step was pending; otherwise
+ * the plan is returned unchanged (the same object), like a reply that did not parse.
+ */
+export function applyReplan(plan: PlanState, steps: readonly { title: string; minutes: number }[], elapsedMs: number): PlanState {
+  const pending = plan.steps.length - plan.done - 1
+  if (steps.length === 0 && pending > 1) {
+    return plan
+  }
+  const fresh = steps.slice(0, Math.max(0, MAX_TOTAL_STEPS - plan.done - 1))
+  const wanted = fresh.reduce((sum, step) => sum + step.minutes * 60_000, 0)
+  const old = restMs(plan)
+  const scale = old <= 0 || wanted <= 0 ? 1 : clamp(wanted, old * 0.5, old * 2) / wanted
+  const replaced = fresh.map(step => ({ title: step.title, estMs: Math.max(1000, Math.round(step.minutes * 60_000 * scale)), fixed: true }))
+  return { ...plan, steps: [...plan.steps.slice(0, plan.done + 1), ...replaced], anchor: planBar(plan, elapsedMs) }
+}
+
+/**
+ * Whether a check that was just applied also replans the pending steps: when the step advanced, when it was overdue, or
+ * when this check is the one that fired the last fraction (95%). A 50% / 80% check, or a hint after the 95% one, does not (cost).
+ */
+export const shouldReplan = (kind: 'progress' | 'overdue', firedBefore: number, firedNow: number, advanced: boolean): boolean =>
+  advanced || kind === 'overdue' || (firedBefore < CHECK_FRACTIONS.length && firedNow === CHECK_FRACTIONS.length)
+
+/**
  * Whether the plan is checked now, and how: `overdue` (the step is past its estimate plus the grace: ask its remaining
- * minutes) or `progress` (50% / 80% of the step's estimated duration, or 5 min without a count: ask how many steps are
+ * minutes) or `progress` (50% / 80% / 95% of the step's estimated duration, or 5 min without a count: ask how many steps are
  * done), also when a call hinted a later step (`hintAt`). None once every step is done. Never closer than 1 min to the last check (30 s when overdue).
  */
 export function nextPlanCheck(plan: PlanState, elapsedMs: number, now: number): { kind: 'progress' | 'overdue'; fired: number } | undefined {
@@ -252,12 +311,11 @@ export function nextPlanCheck(plan: PlanState, elapsedMs: number, now: number): 
     return undefined
   }
   const into = elapsedMs - plan.stepAt
-  const [half, late] = CHECK_FRACTIONS
-  if (plan.fired < 2 && into >= plan.stepEstMs * late) {
-    return { kind: 'progress', fired: 2 }
-  }
-  if (plan.fired < 1 && into >= plan.stepEstMs * half) {
-    return { kind: 'progress', fired: 1 }
+  // The latest fraction reached that has not fired yet; reaching two at once (a long gap) counts as the later one.
+  for (let index = CHECK_FRACTIONS.length - 1; index >= 0; index -= 1) {
+    if (plan.fired <= index && into >= plan.stepEstMs * (CHECK_FRACTIONS[index] ?? 1)) {
+      return { kind: 'progress', fired: index + 1 }
+    }
   }
   // A call that reads like a later step, or 5 min without a count.
   const isHinted = plan.hintAt !== undefined && plan.hintAt > plan.askedAt
@@ -317,7 +375,7 @@ export async function askStepCheck(
     if (index === plan.done) {
       return `${index + 1}. ${step.title} · previsto ${fmtMin(plan.stepEstMs)} · en curso ${fmtMin(into)}`
     }
-    return `${index + 1}. ${step.title} · previsto ${fmtMin(step.estMs * plan.factor)}`
+    return `${index + 1}. ${step.title} · previsto ${fmtMin(scaledMs(step, plan.factor))}`
   }
   const prompt =
     'Un agente de programación sigue un plan de pasos en orden. Indica en qué paso está ahora y cuántos minutos le faltan para terminarlo. Responde solo con dos líneas, sin nada más:\npaso: N\nfalta: M\n\n' +
@@ -343,6 +401,44 @@ export async function askStepCheck(
     logReestimate(`${ask.id} plan check ${parsed.step === undefined && parsed.leftMin === undefined ? 'failed' : 'partial'}: ${reply.isAnswered ? `reply ${JSON.stringify(reply.text.slice(0, 60))}` : 'no answer'} elapsed=${fmtMin(ask.elapsedMs)}`)
   }
   return parsed.step === undefined && parsed.leftMin === undefined ? undefined : parsed
+}
+
+/** Asks Haiku (one call) for the steps after the current one, from the steps done, the run's history and the plan so far; undefined (and logged) when the reply does not parse. */
+export async function askReplan(
+  $: EngineInterface,
+  ask: { mission: string; plan: PlanState; elapsedMs: number; history: string; id: string },
+): Promise<{ title: string; minutes: number }[] | undefined> {
+  const { plan } = ask
+  const into = ask.elapsedMs - plan.stepAt
+  const done = plan.steps
+    .slice(0, plan.done)
+    .map((step, index) => `${index + 1}. ${step.title} · previsto ${fmtMin(step.estMs)} · real ${fmtMin(step.realMs ?? 0)}`)
+  const current = plan.steps[plan.done]
+  const pending = plan.steps.slice(plan.done + 1).map((step, index) => `${plan.done + index + 2}. ${step.title} · previsto ${fmtMin(scaledMs(step, plan.factor))}`)
+  const max = MAX_TOTAL_STEPS - plan.done - 1
+  const prompt =
+    'Un agente de programación sigue un plan de pasos. Reescribe solo los pasos que faltan después del paso actual, según lo que muestra <historial> y lo que tardaron los pasos hechos. ' +
+    `Responde solo con una línea por paso, con el formato N. <título de hasta 6 palabras> — M min, numeradas desde ${plan.done + 2}, sin texto extra ni negritas.\n\n` +
+    'Reglas:\n' +
+    `- Como máximo ${max} líneas. Si el paso actual es el último, responde solo la palabra ninguno.\n` +
+    '- Cada paso es una fase con resultado visible (leer, editar, probar, informar), no un archivo ni un comando.\n' +
+    '- Los minutos son lo que crees que tardará cada paso, según el ritmo real de los pasos hechos; <pasos_pendientes> es solo referencia: corrígelo si el historial lo contradice. No repitas el paso actual ni pasos ya hechos.\n\n' +
+    '<example>El paso actual es el 2 de 4 (corregir el error) y quedan por hacer probar e informar. Respuesta:\n3. Probar con los casos reales — 4 min\n4. Informar del resultado — 1 min</example>\n' +
+    '<example>El paso actual es informar y es el último. Respuesta:\nninguno</example>\n\n' +
+    `<mision>${ask.mission.slice(0, 1500)}</mision>\n` +
+    `<pasos_hechos>\n${done.length === 0 ? 'ninguno' : done.join('\n')}\n</pasos_hechos>\n` +
+    `<paso_actual>${plan.done + 1}. ${current?.title ?? ''} · previsto ${fmtMin(plan.stepEstMs)} · llevas ${fmtMin(into)} · quedan ${fmtMin(Math.max(0, plan.stepEndAt - ask.elapsedMs))}</paso_actual>\n` +
+    `<pasos_pendientes>\n${pending.length === 0 ? 'ninguno' : pending.join('\n')}\n</pasos_pendientes>\n` +
+    `<historial>\n${ask.history}\n</historial>\n` +
+    '\nResponde solo con las líneas N. título — M min, o la palabra ninguno si el paso actual es el último.'
+  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 250, timeoutMs: 15000 })
+  const steps = reply.isAnswered ? parseReplan(reply.text, plan.done + 2, max) : undefined
+  logReestimate(
+    steps === undefined
+      ? `${ask.id} plan replan failed: ${reply.isAnswered ? `reply ${JSON.stringify(reply.text.slice(0, 60))}` : 'no answer'}`
+      : `${ask.id} plan replan ok steps=${steps.length}${steps.length > 0 && !new RegExp(`^\\s*\\**${plan.done + 2}[.)]`).test(reply.text) ? ' renumbered' : ''}`,
+  )
+  return steps
 }
 
 /** Log line of an applied (or ignored) plan check, for `/agents-debug`. */
