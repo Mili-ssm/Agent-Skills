@@ -478,7 +478,10 @@ test('a failed translation is retried once ~5 s later and its phrase then hints 
   await clock.advance(61_000)
   await settle()
   expect(countChecks(prompts)).toBeGreaterThan(0)
-  expect((await $.command.run({ command: 'agents-debug' } as never)).text).toMatch(/translations: ok=[1-9]\d* retried=[1-9]\d* failed=\d+ cached=\d+/)
+  const debug = (await $.command.run({ command: 'agents-debug' } as never)).text
+  expect(debug).toMatch(/translations: ok=[1-9]\d* retried=[1-9]\d* failed=\d+ cached=\d+/)
+  // The failed first try says why, so the next fix starts from evidence.
+  expect(debug).toMatch(/tries failed: (filtered|unanswered:[^ =]+)=1/)
 })
 
 test('two failed tries hint the plan directly; a cached command asks Haiku no second time', async ($, on) => {
