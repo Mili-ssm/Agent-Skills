@@ -123,7 +123,7 @@ export function parseStepReply(text: string, total: number): { step?: number; le
 /**
  * The lines of a replan reply: `ninguno` alone gives []; else 1 to `max` lines in `parsePlan`'s format, numbered
  * consecutively from `from` (the 1-based number after the current step) or from 1 (Haiku often restarts at 1; the
- * numbers are dropped, only the order counts). `ninguno` may carry case and a final period. Anything else, `ninguno` mixed with lines included, is undefined.
+ * numbers are not kept, the steps take their places in order). `ninguno` may carry case and a final period. Anything else, `ninguno` mixed with lines included, is undefined.
  */
 export function parseReplan(reply: string, from: number, max: number): { title: string; minutes: number }[] | undefined {
   if (/^ninguno\.?$/i.test(reply.replaceAll('**', '').trim())) {

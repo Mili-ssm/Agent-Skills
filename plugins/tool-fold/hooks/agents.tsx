@@ -554,7 +554,7 @@ export const recentCalls = (run: Pick<AgentRun, 'history'>, _now: number): strin
 
 // Runs whose replan call is in flight: at most one each, so a slow answer is never overlapped by a second ask.
 const replanning = new Set<string>()
-// Runs whose step advanced while their replan was in flight: that answer is dropped (stale), so one more replan follows.
+// Runs whose step advanced while their replan was in flight: that answer no longer fits the step (dropped by `done`), so one more replan follows.
 const replanAgain = new Set<string>()
 
 /**
@@ -668,11 +668,13 @@ async function replanPending($: EngineInterface, id: string, mission: string, as
     $.ui.log(`tool-fold: plan replan: ${String(error)}`, { to: 'debug' })
   } finally {
     replanning.delete(id)
-  }
-  if (replanAgain.delete(id)) {
-    const run = ((await read($, runs)) as (AgentRun & ReaskFields)[]).find(item => item.id === id)
-    if (REPLAN_ENABLED && run?.status === 'running' && run.plan !== undefined && run.plan.done < run.plan.steps.length) {
-      await replanPending($, id, mission, run.plan, true)
+    // In `finally`: the early returns above (stale or unreadable answer) must not leave a pending retry behind.
+    if (replanAgain.delete(id)) {
+      const run = ((await read($, runs)) as (AgentRun & ReaskFields)[]).find(item => item.id === id)
+      if (REPLAN_ENABLED && run?.status === 'running' && run.plan !== undefined && run.plan.done < run.plan.steps.length) {
+        const fresh = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
+        await replanPending($, id, fresh, run.plan, true)
+      }
     }
   }
 }
