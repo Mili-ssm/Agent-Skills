@@ -81,7 +81,8 @@ export const shouldPlan = (askSeq: number | undefined, etaMs: number, enabled: b
 export type ParsedStep = { title: string; minutes: number; criterion?: string }
 
 // `N. <title> — M min`, optionally `— listo cuando: <criterion>`; the dash may be em, en or a hyphen.
-const STEP_LINE = /^(\d+)[.)]\s+(.{1,120}?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*min\.?(?:\s+[—–-]\s+listo cuando\s*:\s*(.+?))?$/i
+// `min`, `min.`, `minuto(s)`: Haiku writes the Spanish word often enough that one such line must not void the plan.
+const STEP_LINE = /^(\d+)[.)]\s+(.{1,120}?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*min(?:\.|utos?)?(?:\s+[—–-]\s+listo cuando\s*:\s*(.+?))?$/i
 
 /** The line's number and step, or undefined when it does not read. */
 function parseStepLine(line: string): { number: number; step: ParsedStep } | undefined {
@@ -129,7 +130,8 @@ export function parseVerdict(text: string): { done?: boolean; evidence?: string 
   let done: boolean | undefined
   let evidence: string | undefined
   for (const line of lines) {
-    const verdict = /^terminado\s*:\s*(s[ií]|yes|no)\s*[.!]?$/i.exec(line)?.[1]
+    // The word only: a reason or a mark after it (`sí (se editó parser.ts)`, `no ✓`) does not void the verdict.
+    const verdict = /^terminado\s*:\s*(s[ií]|yes|no)(?![\p{L}\d])/iu.exec(line)?.[1]
     if (verdict !== undefined && done === undefined) {
       done = verdict.toLowerCase() !== 'no'
     }
@@ -270,7 +272,11 @@ export function applyDone(plan: PlanState, elapsedMs: number, now: number, histo
   return next === undefined ? undefined : { ...next, overdueChecks: 0, hintAt: now, advancedAt: now }
 }
 
-/** Ms an overdue step waits before it is asked again: 30 s, 1, 2, then 4 min, by how many overdue checks it has had. */
+/**
+ * Ms an overdue step waits before it is asked again: 30 s, 1, 2, then 4 min, by how many overdue checks it has had.
+ * After a growth the step's new end plus the grace (at least 75 s away) comes first, so in practice the 2 and 4 min
+ * entries are the ones that bind; the short ones only matter when a check left the end where it was.
+ */
 export const overdueGapMs = (checks: number): number => OVERDUE_GAPS_MS[clamp(Math.floor(checks), 0, OVERDUE_GAPS_MS.length - 1)] ?? 240_000
 
 /**
@@ -406,7 +412,7 @@ export async function askDone(
     'Un agente de programación sigue un plan de pasos en orden. Decide si el paso actual ya está terminado, según lo que muestran <llamadas> y <actividad>. ' +
     'Responde solo con dos líneas, la evidencia primero:\nevidencia: <cita corta de <llamadas>, o de <dice_el_agente> si <llamadas> la respalda, o ninguna>\nterminado: sí|no\n\n' +
     'Reglas:\n' +
-    '- terminado es sí solo si una llamada de <llamadas> cumple lo que dice "listo cuando" del paso actual, o si el agente ya hace el trabajo propio del paso siguiente (entonces el actual acabó).\n' +
+    '- terminado es sí solo si puedes citar en evidencia una llamada de <llamadas> que cumple lo que dice "listo cuando" del paso actual, o que ya es trabajo propio de <paso_siguiente> (entonces el actual acabó). Sin esa cita, terminado es no.\n' +
     '- <dice_el_agente> es lo que el agente afirma, no una prueba. Un plan anunciado ("leeré, editaré y probaré") no es evidencia.\n' +
     '- Si dudas o no hay evidencia, responde no. No des minutos ni números.\n\n' +
     '<example>Paso actual: Editar el módulo · listo cuando: se editó el archivo y se ejecutaron las pruebas. <llamadas> termina con "✓ Edita parser.ts" y "✓ Ejecuta las pruebas del parser". Respuesta:\nevidencia: ✓ Ejecuta las pruebas del parser\nterminado: sí</example>\n' +

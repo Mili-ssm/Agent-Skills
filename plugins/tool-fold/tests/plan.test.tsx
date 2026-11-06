@@ -42,6 +42,8 @@ test('parsePlan accepts 3 to 6 numbered lines with minutes and nothing else', ()
   expect(parsePlan('1. A — 2 min\n2. B — 3,5 min\n3. C - 1 min')).toHaveLength(3)
   // Too few, too many, a cut last line, prose, a wrong number.
   expect(parsePlan('1. A — 2 min\n2. B — 3 min')).toBeUndefined()
+  // Review 2026-11-06: the Spanish word for minutes must not void the plan.
+  expect(parsePlan('1. A — 2 minutos\n2. B — 3 minuto\n3. C — 1 min.')?.map(step => step.minutes)).toEqual([2, 3, 1])
   expect(parsePlan(Array.from({ length: 7 }, (_, i) => `${i + 1}. P — 1 min`).join('\n'))).toBeUndefined()
   expect(parsePlan('1. A — 2 min\n2. B — 3 min\n3. C — 1 min\n4. Docu')).toBeUndefined()
   expect(parsePlan(`Aquí va:\n${GOOD}`)).toBeUndefined()
@@ -152,6 +154,10 @@ test('parseVerdict reads evidencia and terminado by key over the first 4 lines, 
   expect(parseVerdict('evidencia: ✓ Ejecuta las pruebas\nterminado: sí')).toEqual({ done: true, evidence: '✓ Ejecuta las pruebas' })
   expect(parseVerdict('**evidencia:** Edita a.ts\n**terminado:** Sí')).toEqual({ done: true, evidence: 'Edita a.ts' })
   expect(parseVerdict('terminado: no\nevidencia: ninguna')).toEqual({ done: false, evidence: 'ninguna' })
+  // Review 2026-11-06: a reason or a mark after the word does not void the verdict; a longer word is not a verdict.
+  expect(parseVerdict('evidencia: ✓ Edita parser.ts\nterminado: sí (se editó parser.ts)').done).toBe(true)
+  expect(parseVerdict('terminado: no ✓').done).toBe(false)
+  expect(parseVerdict('terminado: nosé').done).toBeUndefined()
   expect(parseVerdict('Terminado: SI.')).toEqual({ done: true })
   expect(parseVerdict('terminado: yes')).toEqual({ done: true })
   expect(parseVerdict('evidencia: algo')).toEqual({ evidence: 'algo' })

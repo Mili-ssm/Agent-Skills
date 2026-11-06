@@ -1452,7 +1452,8 @@ export async function noteAgentText($: EngineInterface, agentId: string, content
     const block = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
     return block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '' ? [block.text.trim().slice(0, SAID_CHARS)] : []
   })
-  if (texts.length === 0) {
+  // Every subagent text block lands here: an agent this mod does not run a card for costs no store write.
+  if (texts.length === 0 || !(await isAgentRunning($, agentId))) {
     return
   }
   const at = await $.clock.now()
