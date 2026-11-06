@@ -8,16 +8,21 @@ import {
   applyCount,
   applyLeft,
   applyOverdue,
+  applyReplan,
   applyStep,
+  askReplan,
   askStepCheck,
   callPointsAhead,
   newPlan,
   nextPlanCheck,
   parsePlan,
+  parseReplan,
   parseStepReply,
   planBar,
+  restMs,
   planView,
   shouldPlan,
+  shouldReplan,
 } from '../hooks/plan'
 import type { PlanState } from '../hooks/plan'
 
@@ -147,25 +152,31 @@ test('done may reach y/y while running: "finalizando", never 0 min, bar under 10
   const plan = applyCount(fresh(), 9, 8 * MIN, 0) as PlanState
   expect(plan.done).toBe(4)
   const view = planView({ plan, startedAt: 0 }, 9 * MIN)
-  expect(view).toMatchObject({ text: '4/4 pasos', isWrappingUp: true, leftMs: 0 })
+  expect(view).toMatchObject({ isWrappingUp: true, leftMs: 0 })
   expect(view?.percent).toBe(99)
   expect(nextPlanCheck(plan, 60 * MIN, 60 * MIN)).toBeUndefined()
 })
 
-test('checks come at 50% and 80% of the step, 1 min apart, and at most 5 min apart', () => {
-  const plan = fresh()
-  // Step 1 lasts 2 min: 50% is 1 min, 80% 1.6 min.
-  expect(nextPlanCheck(plan, 50_000, 50_000)).toBeUndefined()
-  expect(nextPlanCheck(plan, MIN, MIN)).toEqual({ kind: 'progress', fired: 1 })
-  expect(nextPlanCheck({ ...plan, fired: 1, askedAt: MIN }, 1.6 * MIN, 1.6 * MIN)).toBeUndefined()
-  expect(nextPlanCheck({ ...plan, fired: 1, askedAt: MIN }, 2 * MIN, 2 * MIN)).toEqual({ kind: 'progress', fired: 2 })
+test('checks come at 50%, 80% and 95% of the step, 1 min apart, and at most 5 min apart', () => {
+  // A 10 min first step: 50% is 5 min, 80% 8 min, 95% 9.5 min.
+  const plan = { ...fresh(), stepEndAt: 10 * MIN, stepEstMs: 10 * MIN }
+  expect(nextPlanCheck(plan, 4 * MIN, 4 * MIN)).toBeUndefined()
+  expect(nextPlanCheck(plan, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 1 })
+  expect(nextPlanCheck({ ...plan, fired: 1, askedAt: 5 * MIN, countAt: 5 * MIN }, 7.9 * MIN, 7.9 * MIN)).toBeUndefined()
+  expect(nextPlanCheck({ ...plan, fired: 1, askedAt: 5 * MIN, countAt: 5 * MIN }, 8 * MIN, 8 * MIN)).toEqual({ kind: 'progress', fired: 2 })
+  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 8 * MIN, countAt: 8 * MIN }, 9.4 * MIN, 9.4 * MIN)).toBeUndefined()
+  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 8 * MIN, countAt: 8 * MIN }, 9.5 * MIN, 9.5 * MIN)).toEqual({ kind: 'progress', fired: 3 })
+  // Two fractions reached at once (a long gap) count as the later one.
+  expect(nextPlanCheck({ ...plan, askedAt: 0, countAt: 0 }, 9.6 * MIN, 9.6 * MIN)).toEqual({ kind: 'progress', fired: 3 })
+  // Never closer than 1 min to the last check.
+  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 9.2 * MIN, countAt: 9.2 * MIN }, 9.6 * MIN, 9.6 * MIN)).toBeUndefined()
   // Overdue: estimate + 15 s.
-  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 0 }, 2 * MIN + 14_000, 2 * MIN + 14_000)).toBeUndefined()
-  expect(nextPlanCheck({ ...plan, fired: 2, askedAt: 0 }, 2 * MIN + 15_000, 2 * MIN + 15_000)).toEqual({ kind: 'overdue', fired: 2 })
-  // A long step with both checks done still gets one every 5 min.
-  const long = { ...plan, stepEndAt: 90 * MIN, stepEstMs: 90 * MIN, fired: 2, countAt: 0, askedAt: 0 }
+  expect(nextPlanCheck({ ...plan, fired: 3, askedAt: 0, countAt: 10 * MIN }, 10 * MIN + 14_000, 10 * MIN + 14_000)).toBeUndefined()
+  expect(nextPlanCheck({ ...plan, fired: 3, askedAt: 0, countAt: 10 * MIN }, 10 * MIN + 15_000, 10 * MIN + 15_000)).toEqual({ kind: 'overdue', fired: 3 })
+  // A long step with every check done still gets one every 5 min.
+  const long = { ...plan, stepEndAt: 90 * MIN, stepEstMs: 90 * MIN, fired: 3, countAt: 0, askedAt: 0 }
   expect(nextPlanCheck(long, 4 * MIN, 4 * MIN)).toBeUndefined()
-  expect(nextPlanCheck(long, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 2 })
+  expect(nextPlanCheck(long, 5 * MIN, 5 * MIN)).toEqual({ kind: 'progress', fired: 3 })
 })
 
 test('a plan only switches on from the first answer and when it is longer than the threshold', () => {
@@ -185,7 +196,7 @@ test('PLAN_ENABLED false leaves today\'s behaviour: no plan view, no plan switch
   expect(estimateOf(run, 3 * MIN)).toBe(planView(run, 3 * MIN)?.percent)
 })
 
-// --- Integration: a long agent's card says `x/y pasos`. ---
+// --- Integration: a long agent's card says `<step> N% · ~time`. ---
 
 const PANE_PROPS = { title: 'Agentes', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: { offset: 0, bodyRows: 12 }, view: {} }
 const SPAWN = {
@@ -220,20 +231,20 @@ function engine(on: Parameters<Parameters<typeof test>[1]>[1], planReply: string
   return mock.clock(on)
 }
 
-test('a long agent card shows x/y pasos with the time left, and a step check moves it', async ($, on) => {
+test('a long agent card shows the step, the whole-run percent and the time left, and a step check moves it', async ($, on) => {
   const prompts: string[] = []
   const clock = engine(on, GOOD, prompts)
   await $.agent.spawn(SPAWN)
   await new Promise(resolve => setTimeout(resolve, 20))
   await clock.advance(10_000)
   const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
-  // `0/4 <step> N% · ~10 min`: count, share and time bold; the step title small, cut with … past STEP_TITLE_CHARS.
-  // One Text with nested spans (sibling Texts wrap on vscode): count and time bold, the step title dim, the share plain.
-  const head = await pane.find({ type: 'Text', text: /^0\/4 Leer el código \d+% · ~10 min$/ })
+  // `<step> N% · ~10 min`: the step title small, cut with … past STEP_TITLE_CHARS, no X/Y count.
+  // One Text with nested spans (sibling Texts wrap on vscode): percent and time bold, the step title dim.
+  const head = await pane.find({ type: 'Text', text: /^Leer el código \d+% · ~10 min$/ })
   expect(head?.props.bold).toBeUndefined()
-  expect((await pane.find({ type: 'Text', text: /^0\/4$/ }))?.props.bold).toBe(true)
+  expect(await pane.find({ type: 'Text', text: /^\d\/\d/ })).toBeUndefined()
+  expect((await pane.find({ type: 'Text', text: /^\d+% · ~10 min$/ }))?.props.bold).toBe(true)
   expect((await pane.find({ type: 'Text', text: /^Leer el código$/ }))?.props).toMatchObject({ dimColor: true, size: 'footnote' })
-  expect((await pane.find({ type: 'Text', text: /^· ~10 min$/ }))?.props.bold).toBe(true)
   await pane.unmount()
   // Step 1 lasts 2 min: the check at 1 min asks; a call came in, Haiku says step 2: one step done.
   checkReply.text = 'paso: 2\nfalta: 3'
@@ -243,7 +254,7 @@ test('a long agent card shows x/y pasos with the time left, and a step check mov
   await new Promise(resolve => setTimeout(resolve, 20))
   expect(prompts.some(prompt => prompt.includes('<pasos>'))).toBe(true)
   const later = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
-  expect(await later.find({ type: 'Text', text: /^1\/4 / })).toBeDefined()
+  expect(await later.find({ type: 'Text', text: /^Escribir el cambio \d+% · / })).toBeDefined()
   expect(await later.find({ type: 'Text', text: /≈/ })).toBeUndefined()
   await later.unmount()
 })
@@ -254,17 +265,20 @@ test('an invalid plan reply falls back silently to the plain percent', async ($,
   await new Promise(resolve => setTimeout(resolve, 20))
   await clock.advance(30_000)
   const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
-  expect(await pane.find({ type: 'Text', text: /^\d\/\d / })).toBeUndefined()
+  // The plain card: `≈N%`, and no step title (or plan percent) in front of the datum.
   expect(await pane.find({ type: 'Text', text: /≈\d+%/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /^(?!≈).*\d+% · / })).toBeUndefined()
+  expect(await pane.find({ type: 'Text', text: /Leer el código|Escribir el cambio/ })).toBeUndefined()
   await pane.unmount()
 })
 
-test('a long step title is cut with … in the header; the share stays apart', () => {
+test('a long step title is cut with … in the header, at 26 characters', () => {
   const plan = newPlan([{ title: 'Leer la conversión v7.4-pre completa con calma', minutes: 4 }, { title: 'Informar', minutes: 1 }, { title: 'Fin', minutes: 1 }], 6 * 60_000, 0, 0)
   const view = planView({ plan, startedAt: 0 }, 60_000, true)
-  expect(view?.step).toBe('Leer la conversión v7…')
-  expect(view?.step?.length).toBeLessThanOrEqual(22)
-  expect(view?.stepPct).toBe('25%')
+  expect(view?.step).toBe('Leer la conversión v7.4-p…')
+  expect(view?.step?.length).toBeLessThanOrEqual(26)
+  expect(view).not.toHaveProperty('stepPct')
+  expect(view).not.toHaveProperty('count')
 })
 
 test('a call that reads like a later step hints a count check; the 5 min ceiling still asks without hints', () => {
@@ -411,7 +425,7 @@ test('a plan card never says "más de lo previsto", even past the run estimate',
   await clock.advance(15 * MIN)
   await new Promise(resolve => setTimeout(resolve, 20))
   const pane = await $.ui.mount({ plugin: 'tool-fold', component: 'Pane', requestId: 'agents', surface: 'vscode', props: PANE_PROPS } as never)
-  expect(await pane.find({ type: 'Text', text: /^\d\/4 / })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /\d+% · (~\d+ min|finalizando)$/ })).toBeDefined()
   expect(await pane.find({ type: 'Text', text: /más de lo previsto/ })).toBeUndefined()
   await pane.unmount()
 })
@@ -500,13 +514,19 @@ function replayEngine(on: Parameters<Parameters<typeof test>[1]>[1], answer: (pr
   return mock.clock(on)
 }
 
-/** The plan's count as the card shows it (`N/5`), or undefined. */
+const FIVE_TITLES = ['Leer el código', 'Escribir el cambio', 'Probar', 'Corregir', 'Informar']
+
+/** Steps done as the card shows them: the index of the shown step title (5 when every step is done), or undefined. */
 async function shownCount($: Parameters<Parameters<typeof test>[1]>[0]): Promise<number | undefined> {
   const pane = await paneOf($)
-  const head = await pane.find({ type: 'Text', text: /^\d\/5 / })
+  const head = await pane.find({ type: 'Text', text: new RegExp(`^(${FIVE_TITLES.join('|')}) \\d+% · `) })
+  const wrapping = await pane.find({ type: 'Text', text: /^\d+% · finalizando$/ })
   await pane.unmount()
-  const found = /^(\d)\/5 /.exec(head?.text ?? '')?.[1]
-  return found === undefined ? undefined : Number(found)
+  if (wrapping !== undefined) {
+    return FIVE_TITLES.length
+  }
+  const index = FIVE_TITLES.findIndex(title => (head?.text ?? '').startsWith(`${title} `))
+  return index < 0 ? undefined : index
 }
 
 test('replay: a truthful Haiku follows the work to step 3 of 5 or later, one step per check', async ($, on) => {
@@ -592,6 +612,95 @@ test('the check prompt carries the plan with real and current minutes, the think
   expect(seen.prompt).not.toContain('<pensando>')
 })
 
+test('parseReplan reads the steps after the current one, ninguno, and a list restarted at 1', () => {
+  expect(parseReplan('3. Probar — 4 min\n4. Informar — 1 min', 3, 6)).toEqual([
+    { title: 'Probar', minutes: 4 },
+    { title: 'Informar', minutes: 1 },
+  ])
+  expect(parseReplan('ninguno', 3, 6)).toEqual([])
+  expect(parseReplan('**Ninguno.**', 3, 6)).toEqual([])
+  expect(parseReplan(' **Ninguno** \n', 3, 6)).toEqual([])
+  // Numbering that is neither `from` nor 1, a gap, too many lines, ninguno with lines, prose.
+  expect(parseReplan('3. Probar — 4 min\n4. Informar — 1 min', 2, 6)).toBeUndefined()
+  expect(parseReplan('3. Probar — 4 min\n5. Informar — 1 min', 3, 6)).toBeUndefined()
+  expect(parseReplan('3. A — 1 min\n4. B — 1 min\n5. C — 1 min', 3, 2)).toBeUndefined()
+  expect(parseReplan('ninguno\n3. X — 1 min', 3, 6)).toBeUndefined()
+  expect(parseReplan('Quedan estos:\n3. X — 1 min', 3, 6)).toBeUndefined()
+  expect(parseReplan('', 3, 6)).toBeUndefined()
+  // A6: Haiku numbers from 1.
+  expect(parseReplan('1. A — 2 min\n2. B — 1 min', 3, 6)).toHaveLength(2)
+  expect(parseReplan('1. A — 2 min\n3. B — 1 min', 3, 6)).toBeUndefined()
+})
+
+test('applyReplan keeps done and current steps, marks the new ones fixed and never scales them with the factor (A2)', () => {
+  const plan = applyCount(fresh(), 1, 3 * MIN, 3 * MIN) as PlanState
+  const out = applyReplan(plan, [{ title: 'Probar', minutes: 3 }, { title: 'Informar', minutes: 1 }], 3 * MIN)
+  expect(out.steps.slice(0, 2)).toEqual(plan.steps.slice(0, 2))
+  expect(out.steps.slice(2).map(step => step.fixed)).toEqual([true, true])
+  expect(out.steps.map(step => step.title)).toEqual(['Leer el código', 'Escribir el cambio', 'Probar', 'Informar'])
+  // The 3 min + 1 min replied sum to the old rest scaled by the factor (3 min x 1.5): kept as replied, no second scaling.
+  const doubled = applyCount({ ...out, factor: 2 }, 2, 6 * MIN, 6 * MIN) as PlanState
+  expect(doubled.stepEstMs).toBe(out.steps[2]?.estMs)
+  const scaled = { ...out, factor: 2 }
+  expect(restMs(scaled)).toBe((out.steps[2]?.estMs ?? 0) + (out.steps[3]?.estMs ?? 0))
+})
+
+test('applyReplan: the bar never goes down, rises at most 15 points when the rest halves, and ninguno needs at most one pending step (A4)', () => {
+  const plan = applyCount(fresh(), 1, 2 * MIN, 2 * MIN) as PlanState
+  const before = planBar(plan, 4 * MIN)
+  // Steps after the current one were 2 + 1 min x factor 1; Haiku says half of that.
+  const halved = applyReplan(plan, [{ title: 'Probar', minutes: 1 }, { title: 'Informar', minutes: 0.5 }], 4 * MIN)
+  expect(planBar(halved, 4 * MIN)).toBeGreaterThanOrEqual(before)
+  expect(planBar(halved, 4 * MIN) - before).toBeLessThanOrEqual(15)
+  // A reply far below the old rest is raised to half of it; far above is cut to twice.
+  expect(restMs(applyReplan(plan, [{ title: 'Probar', minutes: 0.1 }], 4 * MIN))).toBe(restMs(plan) / 2)
+  expect(restMs(applyReplan(plan, [{ title: 'Probar', minutes: 100 }], 4 * MIN))).toBe(restMs(plan) * 2)
+  // A longer plan lowers the percent, but the anchor holds it.
+  const longer = applyReplan(plan, [{ title: 'Probar', minutes: 9 }, { title: 'Informar', minutes: 3 }], 4 * MIN)
+  expect(planBar(longer, 4 * MIN)).toBeGreaterThanOrEqual(before)
+  // ninguno with 2 pending steps is not believed; with at most one it drops them.
+  expect(applyReplan(plan, [], 4 * MIN)).toBe(plan)
+  const last = applyCount(fresh(), 2, 5 * MIN, 5 * MIN) as PlanState
+  expect(applyReplan(last, [], 5 * MIN).steps).toHaveLength(3)
+  expect(applyReplan(plan, [], 4 * MIN).steps).toHaveLength(4)
+  // With the last step current there is no rest to clamp against: new steps are not added.
+  const final = applyCount(fresh(), 3, 6 * MIN, 6 * MIN) as PlanState
+  expect(applyReplan(final, [{ title: 'Extra', minutes: 30 }], 6 * MIN)).toBe(final)
+  // The total never passes 8 steps.
+  const many = Array.from({ length: 12 }, (_, i) => ({ title: `P${i}`, minutes: 1 }))
+  expect(applyReplan(plan, many, 4 * MIN).steps).toHaveLength(8)
+})
+
+test('shouldReplan: on a step change, overdue, or the check that fired the 95% fraction; not at 50% / 80% or on hints after it', () => {
+  expect(shouldReplan('progress', 0, 1, false)).toBe(false)
+  expect(shouldReplan('progress', 1, 2, false)).toBe(false)
+  expect(shouldReplan('progress', 2, 3, false)).toBe(true)
+  expect(shouldReplan('progress', 3, 3, false)).toBe(false)
+  expect(shouldReplan('overdue', 3, 3, false)).toBe(true)
+  expect(shouldReplan('progress', 0, 1, true)).toBe(true)
+})
+
+test('askReplan sends the history and the steps done, in the replan prompt, with 250 tokens', async () => {
+  let seen: { prompt: string; maxTokens: number; timeoutMs?: number } = { prompt: '', maxTokens: 0 }
+  const $ = askerOf(ask => {
+    seen = ask as typeof seen
+    return '3. Probar — 4 min\n4. Informar — 1 min'
+  })
+  const plan = applyCount(fresh(), 1, 3 * MIN, 3 * MIN) as PlanState
+  const out = await askReplan($, { mission: 'Migrar', plan, elapsedMs: 4 * MIN, history: '- 2s ✓ Read a.md', id: 'a1' })
+  expect(out).toHaveLength(2)
+  expect(seen.maxTokens).toBe(250)
+  expect(seen.prompt).toContain('<historial>\n- 2s ✓ Read a.md\n</historial>')
+  expect(seen.prompt).toMatch(/<pasos_hechos>\n1\. Leer el código · previsto 2 min · real 3 min\n<\/pasos_hechos>/)
+  expect(seen.prompt).toContain('<paso_actual>2. Escribir el cambio')
+  expect(seen.prompt).toMatch(/<pasos_pendientes>\n3\. Probarlo · previsto .* min\n4\. Documentar/)
+  expect(seen.prompt.startsWith('Un agente de programación')).toBe(true)
+  expect(seen.prompt).toContain('<example>')
+  expect(seen.prompt).toContain('ninguno</example>')
+  const bad = await askReplan(askerOf(() => 'no sé') , { mission: 'Migrar', plan, elapsedMs: 4 * MIN, history: '', id: 'a1' })
+  expect(bad).toBeUndefined()
+})
+
 test('a falta that keeps growing never lowers the bar', () => {
   let plan = fresh()
   let last = planBar(plan, 0)
@@ -602,3 +711,189 @@ test('a falta that keeps growing never lowers the bar', () => {
     last = bar
   }
 })
+
+// --- Replan wiring: a separate Haiku call after an applied check. ---
+
+const REPLAN_OK = '3. Probar y corregir — 4 min\n4. Informar — 1 min'
+const replanReply: { text: string; gate?: Promise<void> } = { text: REPLAN_OK }
+const planReply = { text: GOOD }
+
+/** A GOOD-plan run (10 min, 4 steps): plan checks answer `checkReply`, replan prompts (`<historial>`) answer `replanReply`; `kinds` logs C (check) and H (replan) in order. */
+function replanEngine(on: Parameters<Parameters<typeof test>[1]>[1], prompts: string[], kinds: string[] = []) {
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'a1' }))
+  on('tool.call', () => ({ result: 'ok' }))
+  on('turn.complete', () => ({ text: '' }))
+  on('store.get', () => ({ value: undefined }))
+  on('store.set', () => ({ value: undefined }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.close', () => ({ value: undefined }))
+  on('ui.log', () => ({ value: undefined }))
+  on('model.complete', async (_, e) => {
+    const prompt = String((e as { prompt?: string }).prompt)
+    const usage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 }
+    if (prompt.includes('<historial>')) {
+      prompts.push(prompt)
+      kinds.push('H')
+      await replanReply.gate
+      return { value: { isAnswered: true, text: replanReply.text, usage } }
+    }
+    if (prompt.includes('<pasos>')) {
+      prompts.push(prompt)
+      kinds.push('C')
+    }
+    const text = prompt.includes('<duracion_total>') ? planReply.text : prompt.includes('<tareas_parecidas>') ? 'minutos: 10' : prompt.includes('<pasos>') ? checkReply.text : '?'
+    return { value: { isAnswered: true, text, usage } }
+  })
+  return mock.clock(on)
+}
+
+/** Resets the shared replies; a test sets what it needs. */
+function resetReplies() {
+  checkReply.text = 'paso: 2\nfalta: 3'
+  replanReply.text = REPLAN_OK
+  replanReply.gate = undefined
+  planReply.text = GOOD
+}
+
+/** The plan header text of the first running card (`<step> N% · ~T`), or undefined. */
+async function headerOf($: Parameters<Parameters<typeof test>[1]>[0]): Promise<string | undefined> {
+  const pane = await paneOf($)
+  const head = await pane.find({ type: 'Text', text: /\d+% · (~\d+ min|<1 min|finalizando)$/ })
+  await pane.unmount()
+  return head?.text
+}
+
+/** Advances in 30 s hops (a check per hop at most), settling after each. */
+async function run(clock: { advance(ms: number): Promise<void> }, ms: number) {
+  for (let spent = 0; spent < ms; spent += 30_000) {
+    await clock.advance(30_000)
+    await settle()
+  }
+}
+
+test('a stuck step is replanned once: 50% and 80% checks never, the 95% check once, overdue checks answering falta 1 not again (A1)', async ($, on) => {
+  resetReplies()
+  const prompts: string[] = []
+  const kinds: string[] = []
+  const clock = replanEngine(on, prompts, kinds)
+  checkReply.text = 'paso: 1\nfalta: 1'
+  await start($, clock)
+  await $.tool.call(readCall('s1'))
+  await run(clock, 10 * MIN)
+  const order = kinds.join('')
+  expect(order).toMatch(/^CCH/)
+  expect(order.split('H')).toHaveLength(2)
+  expect(prompts.filter(prompt => prompt.includes('<historial>'))[0]).toMatch(/<historial>\n- \S+ ✓ Read s1\.md\n<\/historial>/)
+})
+
+test('a step change replans from the plan the check produced: the next pending step follows the current one, no duplicate (A3)', async ($, on) => {
+  resetReplies()
+  const prompts: string[] = []
+  const kinds: string[] = []
+  const clock = replanEngine(on, prompts, kinds)
+  await start($, clock)
+  await $.tool.call(readCall('c1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  expect(kinds.join('')).toBe('CH')
+  const replan = prompts.find(prompt => prompt.includes('<historial>')) ?? ''
+  expect(replan).toContain('<paso_actual>2. Escribir el cambio')
+  expect(replan).toMatch(/<pasos_hechos>\n1\. Leer el código · previsto 2 min · real 1 min\n<\/pasos_hechos>/)
+  expect(replan).toMatch(/<pasos_pendientes>\n3\. Probarlo · previsto \S+ min\n4\. Documentar/)
+  expect(await headerOf($)).toMatch(/^Escribir el cambio \d+% · /)
+  // The next step shown is the replanned one.
+  checkReply.text = 'paso: 3\nfalta: 2'
+  await $.tool.call(readCall('c2'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(await headerOf($)).toMatch(/^Probar y corregir \d+% · /)
+})
+
+test('a replan answer that arrives after the step moved again is dropped (seq)', async ($, on) => {
+  resetReplies()
+  const prompts: string[] = []
+  const kinds: string[] = []
+  const clock = replanEngine(on, prompts, kinds)
+  let release: () => void = () => undefined
+  replanReply.gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  await start($, clock)
+  await $.tool.call(readCall('d1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  expect(kinds.join('')).toBe('CH')
+  // While the replan waits, another check advances the step to 3.
+  checkReply.text = 'paso: 3\nfalta: 2'
+  await $.tool.call(readCall('d2'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(kinds.filter(kind => kind === 'H')).toHaveLength(1)
+  replanReply.text = '3. Zeta — 4 min'
+  release()
+  await settle()
+  await settle()
+  // The advance that landed while the replan was in flight gets its own replan once the first one ends.
+  expect(kinds.filter(kind => kind === 'H')).toHaveLength(2)
+  // The late answer is dropped: the step after "Probarlo" is still the plan's own "Documentar", not "Zeta".
+  replanReply.text = 'ninguno'
+  checkReply.text = 'paso: 4\nfalta: 1'
+  await $.tool.call(readCall('d3'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(await headerOf($)).toMatch(/^Documentar \d+% · /)
+})
+
+test('a replan answer 15 s late never lowers the shown percent (A5)', async ($, on) => {
+  resetReplies()
+  const clock = replanEngine(on, [])
+  let release: () => void = () => undefined
+  replanReply.gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  replanReply.text = '3. Probar — 0.2 min'
+  await start($, clock)
+  await $.tool.call(readCall('l1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  await clock.advance(15_000)
+  await settle()
+  const before = Number(/(\d+)% /.exec((await headerOf($)) ?? '')?.[1])
+  release()
+  await settle()
+  await settle()
+  const after = Number(/(\d+)% /.exec((await headerOf($)) ?? '')?.[1])
+  expect(before).toBeGreaterThan(0)
+  expect(after).toBeGreaterThanOrEqual(before)
+})
+
+test('the header ends in the time left even with a 40-character step title (A7)', async ($, on) => {
+  resetReplies()
+  const clock = replanEngine(on, [])
+  planReply.text = '1. Leer la conversión completa del repositorio entero — 2 min\n2. Escribir — 5 min\n3. Probar — 3 min'
+  await start($, clock)
+  const head = await headerOf($)
+  expect(head).toMatch(/^Leer la conversión comple… \d+% · ~\d+ min$/)
+})
+
+test('a replan whose reply does not parse keeps the plan', async ($, on) => {
+  resetReplies()
+  const kinds: string[] = []
+  const clock = replanEngine(on, [], kinds)
+  replanReply.text = 'creo que quedan dos pasos'
+  await start($, clock)
+  await $.tool.call(readCall('k1'))
+  await settle()
+  await clock.advance(60_000)
+  await settle()
+  expect(kinds.join('')).toBe('CH')
+  checkReply.text = 'paso: 3\nfalta: 2'
+  await $.tool.call(readCall('k2'))
+  await settle()
+  await run(clock, 4 * MIN)
+  expect(await headerOf($)).toMatch(/^Probarlo \d+% · /)
+})
+

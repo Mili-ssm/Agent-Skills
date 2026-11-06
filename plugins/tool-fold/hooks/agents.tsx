@@ -25,7 +25,7 @@ import {
   logReestimate,
 } from './estimates'
 import type { ReaskFields } from './estimates'
-import { callPointsAhead, PLAN_ENABLED, applyLeft, applyStep, askPlan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan } from './plan'
+import { callPointsAhead, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplan } from './plan'
 import type { PlanState } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
@@ -542,18 +542,26 @@ export function activitySummary(run: Pick<AgentRun, 'counts'> & ReaskFields, pla
   return `desde el inicio: ${activityLine(now)}\ndesde el paso actual: ${activityLine(since)}`
 }
 
-/** The `<llamadas>` block: the last 8 finished calls, newest last (the translated text when there is one). */
-export function recentCalls(run: Pick<AgentRun, 'history'>, _now: number): string {
-  return (run.history ?? [])
-    .slice(-8)
+/** The last `limit` finished calls as `- 2s ✓ what` lines, newest last (the translated text when there is one). */
+const callLines = (run: Pick<AgentRun, 'history'>, limit: number): string =>
+  (run.history ?? [])
+    .slice(-limit)
     .map(call => `- ${formatDuration(call.ms)} ${call.ok ? '✓' : '✗'} ${clip(call.what.replace(/\s+/g, ' ').trim(), 120)}`)
     .join('\n')
-}
+
+/** The `<llamadas>` block: the last 8 finished calls. */
+export const recentCalls = (run: Pick<AgentRun, 'history'>, _now: number): string => callLines(run, 8)
+
+// Runs whose replan call is in flight: at most one each, so a slow answer is never overlapped by a second ask.
+const replanning = new Set<string>()
+// Runs whose step advanced while their replan was in flight: that answer no longer fits the step (dropped by `done`), so one more replan follows.
+const replanAgain = new Set<string>()
 
 /**
- * One tick of a run with a step plan: asks Haiku the current step and the minutes left in it (50% / 80% of the step,
+ * One tick of a run with a step plan: asks Haiku the current step and the minutes left in it (50% / 80% / 95% of the step,
  * hints, 5 min ceiling, or overdue). The step moves at most +1 and only if calls were added since the last check (G1);
- * the count is applied before `falta`, which then belongs to the new current step (G5). Fire and forget.
+ * the count is applied before `falta`, which then belongs to the new current step (G5). An applied check may then replan
+ * the pending steps (`replanPending`). Fire and forget.
  */
 async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: number): Promise<void> {
   const { plan } = run
@@ -569,6 +577,8 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
   await patch($, run.id, item => (item.plan === undefined ? item : { ...item, plan: { ...item.plan, askedAt: now, seq, fired: due.fired, callsAtCheck: calls } }))
   const mission = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
   const since = thinkingSince(run, now)
+  // What the applied check produced (A3): the replan starts from this plan, not from the pre-check `plan` above.
+  const outcome: { plan?: PlanState; advanced: boolean } = { advanced: false }
   void askStepCheck($, {
     mission,
     plan,
@@ -597,11 +607,76 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
             const isSameStep = answer.step === undefined || answer.step === (next ?? current).done + 1
             const timed = answer.leftMin === undefined || !isSameStep ? next : applyLeft(next ?? current, answer.leftMin, elapsedMs)
             logPlanCheck(run.id, due.kind, current, timed)
+            outcome.plan = timed
+            outcome.advanced = timed !== undefined && timed.done > current.done
             return timed === undefined ? item : { ...item, plan: timed, etaMs: Math.round(planEndAt(timed)) }
           }),
     )
     .catch(error => $.ui.log(`tool-fold: plan check: ${String(error)}`, { to: 'debug' }))
-    .finally(() => reasking.delete(run.id))
+    .finally(() => {
+      reasking.delete(run.id)
+      const { plan: applied, advanced } = outcome
+      // A stuck step is replanned once per `done` (A1): its overdue checks would otherwise ask every 30 s.
+      // With every step done there is no current step to replan after.
+      if (REPLAN_ENABLED && applied !== undefined && applied.done < applied.steps.length && shouldReplan(due.kind, plan.fired, due.fired, advanced) && (advanced || applied.replannedDone !== applied.done)) {
+        void replanPending($, run.id, mission, applied, advanced)
+      }
+    })
+}
+
+/**
+ * Rewrites the pending steps of a run after an applied check (own Haiku call, at most one in flight per run). The answer
+ * applies only if no later check moved the plan since (`seq`) and the step is still the one asked about (A3); the elapsed
+ * time for the anchor is read when it arrives (A5), since the call can take 15 s.
+ */
+async function replanPending($: EngineInterface, id: string, mission: string, asked: PlanState, advanced: boolean): Promise<void> {
+  if (replanning.has(id)) {
+    if (advanced) {
+      replanAgain.add(id)
+    }
+    return
+  }
+  replanning.add(id)
+  try {
+    const stamped: { run?: AgentRun & ReaskFields } = {}
+    await patch($, id, item => {
+      const current = item.plan
+      if (current === undefined || current.seq !== asked.seq || item.status !== 'running') {
+        return item
+      }
+      stamped.run = item
+      return advanced ? item : { ...item, plan: { ...current, replannedDone: current.done } }
+    })
+    if (stamped.run === undefined) {
+      return
+    }
+    const startedAt = stamped.run.startedAt
+    const steps = await askReplan($, { mission, plan: asked, elapsedMs: (await $.clock.now()) - startedAt, history: callLines(stamped.run, 40), id })
+    if (steps === undefined) {
+      return
+    }
+    const nowMs = await $.clock.now()
+    await patch($, id, item => {
+      const current = item.plan
+      if (current === undefined || item.status !== 'running' || current.seq !== asked.seq || current.done !== asked.done) {
+        return item
+      }
+      const next = applyReplan(current, steps, nowMs - item.startedAt)
+      return next === current ? item : { ...item, plan: next, etaMs: Math.round(planEndAt(next)) }
+    })
+  } catch (error) {
+    $.ui.log(`tool-fold: plan replan: ${String(error)}`, { to: 'debug' })
+  } finally {
+    replanning.delete(id)
+    // In `finally`: the early returns above (stale or unreadable answer) must not leave a pending retry behind.
+    if (replanAgain.delete(id)) {
+      const run = ((await read($, runs)) as (AgentRun & ReaskFields)[]).find(item => item.id === id)
+      if (REPLAN_ENABLED && run?.status === 'running' && run.plan !== undefined && run.plan.done < run.plan.steps.length) {
+        const fresh = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
+        await replanPending($, id, fresh, run.plan, true)
+      }
+    }
+  }
 }
 
 /** Builds the step plan of a long agent (one Haiku call); silent fallback to the plain estimate when the reply is not a valid plan. */
@@ -821,7 +896,7 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
       ? `${run.todo.done}/${run.todo.total}`
       : plan !== undefined
         ? // A plan never says "más de lo previsto": an overdue step is re-estimated instead, and the longer label broke the header line.
-          `${plan.count} · ${plan.isWrappingUp ? 'finalizando' : formatRemaining(plan.leftMs)}`
+          `${plan.percent}% · ${plan.isWrappingUp ? 'finalizando' : formatRemaining(plan.leftMs)}`
         : isRunning && estimate !== undefined
         ? `≈${estimate}%${run.isOverdue === true || (run.etaMs !== undefined && now - run.startedAt > run.etaMs + OVERDUE_GRACE_MS) ? ' · más de lo previsto' : left === undefined ? '' : ` · ${left}`}`
         : ''
@@ -845,16 +920,14 @@ function runHeader(ui: Elements, run: AgentRun & ReaskFields, now: number, label
             {datum}
           </Text>
         ) : (
-          // `1/6 Medir memoria 40% · ~43 min` as ONE Text with nested spans: sibling Texts wrap onto their own lines on
+          // `Medir memoria 40% · ~43 min` as ONE Text with nested spans: sibling Texts wrap onto their own lines on
           // vscode (docs/mods-surfaces.md). vscode ignores a nested bold={false} and `size`, so the outer span is plain:
-          // count and time bold, the step title dim and small where supported, its share in the same color undimmed.
+          // the step title dim and small where supported, the whole-run percent and the time bold.
           <Text color={color} tabular wrap="truncate">
-            <Text bold>{plan.count}</Text>{' '}
             <Text dimColor size="footnote">
               {plan.step}
             </Text>{' '}
-            {plan.stepPct}{' '}
-            <Text bold>{datum.slice(plan.count.length + 1)}</Text>
+            <Text bold>{datum}</Text>
           </Text>
         )}
       </Box>
