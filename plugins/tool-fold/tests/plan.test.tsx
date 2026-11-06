@@ -43,7 +43,8 @@ test('parsePlan accepts 3 to 6 numbered lines with minutes and nothing else', ()
   // Too few, too many, a cut last line, prose, a wrong number.
   expect(parsePlan('1. A — 2 min\n2. B — 3 min')).toBeUndefined()
   // Review 2026-11-06: the Spanish word for minutes must not void the plan.
-  expect(parsePlan('1. A — 2 minutos\n2. B — 3 minuto\n3. C — 1 min.')?.map(step => step.minutes)).toEqual([2, 3, 1])
+  expect(parsePlan('1. A — 2 minutos\n2. B — 3 minuto.\n3. C — 1 min.')?.map(step => step.minutes)).toEqual([2, 3, 1])
+  expect(parsePlan('1. A — 2 minutos.\n2. B — 3 min\n3. C — 1 min')).toHaveLength(3)
   expect(parsePlan(Array.from({ length: 7 }, (_, i) => `${i + 1}. P — 1 min`).join('\n'))).toBeUndefined()
   expect(parsePlan('1. A — 2 min\n2. B — 3 min\n3. C — 1 min\n4. Docu')).toBeUndefined()
   expect(parsePlan(`Aquí va:\n${GOOD}`)).toBeUndefined()

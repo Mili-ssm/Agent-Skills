@@ -82,7 +82,7 @@ export type ParsedStep = { title: string; minutes: number; criterion?: string }
 
 // `N. <title> — M min`, optionally `— listo cuando: <criterion>`; the dash may be em, en or a hyphen.
 // `min`, `min.`, `minuto(s)`: Haiku writes the Spanish word often enough that one such line must not void the plan.
-const STEP_LINE = /^(\d+)[.)]\s+(.{1,120}?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*min(?:\.|utos?)?(?:\s+[—–-]\s+listo cuando\s*:\s*(.+?))?$/i
+const STEP_LINE = /^(\d+)[.)]\s+(.{1,120}?)\s+[—–-]\s+(\d+(?:[.,]\d+)?)\s*min(?:utos?)?\.?(?:\s+[—–-]\s+listo cuando\s*:\s*(.+?))?$/i
 
 /** The line's number and step, or undefined when it does not read. */
 function parseStepLine(line: string): { number: number; step: ParsedStep } | undefined {
@@ -274,8 +274,8 @@ export function applyDone(plan: PlanState, elapsedMs: number, now: number, histo
 
 /**
  * Ms an overdue step waits before it is asked again: 30 s, 1, 2, then 4 min, by how many overdue checks it has had.
- * After a growth the step's new end plus the grace (at least 75 s away) comes first, so in practice the 2 and 4 min
- * entries are the ones that bind; the short ones only matter when a check left the end where it was.
+ * Every overdue check grows the step, and its new end plus the grace is at least 75 s away: only the first gap (30 s)
+ * ever binds before that, then the 2 and 4 min entries do.
  */
 export const overdueGapMs = (checks: number): number => OVERDUE_GAPS_MS[clamp(Math.floor(checks), 0, OVERDUE_GAPS_MS.length - 1)] ?? 240_000
 
