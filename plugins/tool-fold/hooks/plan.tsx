@@ -2,7 +2,7 @@ import type { EngineInterface } from 'claude-code'
 
 import type { WaitSample } from '../types'
 
-import { MAX_PERCENT, OVERDUE_GRACE_MS, REESTIMATE_GAP_MS, logReestimate, wordsOf } from './estimates'
+import { MAX_PERCENT, OVERDUE_GRACE_MS, logReestimate, wordsOf } from './estimates'
 
 // Step-based progress for long agent cards. Isolated: agents.tsx calls it behind `PLAN_ENABLED`; rollback is that constant
 // set to false, or deleting this file and its call sites. Every function here is pure or asks Haiku; none writes state.
@@ -41,8 +41,6 @@ export type PlanStep = {
   realMs?: number
   /** What a tool call can show when the step is done ("listo cuando"): the yes/no check judges against it. */
   criterion?: string
-  /** v2 plans only (replanned minutes were not scaled by the factor); nothing sets it in v3. */
-  fixed?: boolean
 }
 
 /** The plan stored on a run. Times `...At` of the run are elapsed ms (since the spawn); `askedAt` is a clock time. */
@@ -73,10 +71,6 @@ export type PlanState = {
   overdueChecks?: number
   /** Clock time of the latest advance, so a replan right after another is skipped (M7). */
   advancedAt?: number
-  /** v2 plans only: nothing sets these in v3. */
-  fired?: number
-  countAt?: number
-  replannedDone?: number
 }
 
 /** Whether a first estimate switches a plan on: only the first answer (`askSeq` 1) and only when it is long. */
@@ -489,148 +483,3 @@ export const logPlanCheck = (
   logReestimate(
     `${id} plan check ${kind} terminado=${verdict?.done === undefined ? '?' : verdict.done ? 'sí' : 'no'} evidencia=${JSON.stringify((verdict?.evidence ?? '').slice(0, 60))} said=${said} → ${outcome} step=${Math.min(plan.done + 1, plan.steps.length)}/${plan.steps.length} factor=${plan.factor.toFixed(2)}${extra}`,
   )
-
-// ---------------------------------------------------------------------------------------------------------------------
-// v2 wiring, kept only so the pure-logic commit still builds; the wiring commit deletes everything below this line.
-// ---------------------------------------------------------------------------------------------------------------------
-
-export const CHECK_FRACTIONS = [0.5, 0.8, 0.95] as const
-
-export const scaledMs = (step: PlanStep, factor: number): number => (step.fixed === true ? step.estMs : step.estMs * factor)
-
-export function parseStepReply(text: string, total: number): { step?: number; leftMin?: number } {
-  const lines = text
-    .replaceAll('**', '')
-    .replaceAll('~', '')
-    .replace(/\bmin(?:utos?)?\b\.?/gi, '')
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line !== '')
-    .slice(0, 3)
-  const read = (key: string): string | undefined => {
-    for (const line of lines) {
-      const found = new RegExp(`^${key}\\s*:\\s*(\\d+(?:[.,]\\d+)?)\\b`, 'i').exec(line)?.[1]
-      if (found !== undefined) {
-        return found.replace(',', '.')
-      }
-    }
-    return undefined
-  }
-  const step = Number.parseInt(read('paso') ?? '', 10)
-  const left = Number.parseFloat(read('falta') ?? '')
-  return {
-    ...(step >= 1 && step <= total ? { step } : {}),
-    ...(Number.isFinite(left) ? { leftMin: left } : {}),
-  }
-}
-
-export function applyOverdue(plan: PlanState, remainingMs: number, elapsedMs: number): PlanState | undefined {
-  const stepEndAt = elapsedMs + remainingMs
-  if (stepEndAt <= plan.stepEndAt) {
-    return undefined
-  }
-  const stepEstMs = stepEndAt - plan.stepAt
-  const fired = CHECK_FRACTIONS.filter(fraction => elapsedMs - plan.stepAt >= stepEstMs * fraction).length
-  return { ...plan, stepEndAt, stepEstMs, fired, anchor: planBar(plan, elapsedMs) }
-}
-
-export function applyStep(plan: PlanState, step: number, elapsedMs: number, now: number, historyGrew: boolean): PlanState | undefined {
-  const done = step - 1
-  if (!historyGrew || done <= plan.done) {
-    return undefined
-  }
-  const next = applyCount(plan, done, elapsedMs, now)
-  return next === undefined ? undefined : { ...next, fired: 0, countAt: now }
-}
-
-export function applyLeft(plan: PlanState, leftMin: number, elapsedMs: number): PlanState {
-  const remaining = Math.max(0, plan.stepEndAt - elapsedMs)
-  const asked = clamp(leftMin * 60_000, 30_000, Math.max(30_000, 3 * plan.stepEstMs))
-  const blended = Math.max((remaining + asked) / 2, remaining * 0.7)
-  const stepEndAt = elapsedMs + Math.round(blended)
-  const stepEstMs = Math.max(1000, stepEndAt - plan.stepAt)
-  const fired = CHECK_FRACTIONS.filter(fraction => elapsedMs - plan.stepAt >= stepEstMs * fraction).length
-  return { ...plan, stepEndAt, stepEstMs, fired, anchor: planBar(plan, elapsedMs) }
-}
-
-export function applyReplanLegacy(plan: PlanState, steps: readonly { title: string; minutes: number }[], elapsedMs: number): PlanState {
-  const pending = plan.steps.length - plan.done - 1
-  if ((steps.length === 0 && pending > 1) || (steps.length > 0 && pending <= 0)) {
-    return plan
-  }
-  const fresh = steps.slice(0, Math.max(0, MAX_TOTAL_STEPS - plan.done - 1))
-  const wanted = fresh.reduce((sum, step) => sum + step.minutes * 60_000, 0)
-  const old = restMs(plan)
-  const scale = old <= 0 || wanted <= 0 ? 1 : clamp(wanted, old * 0.5, old * 2) / wanted
-  const replaced = fresh.map(step => ({ title: step.title, estMs: Math.max(1000, Math.round(step.minutes * 60_000 * scale)), fixed: true }))
-  return { ...plan, steps: [...plan.steps.slice(0, plan.done + 1), ...replaced], anchor: planBar(plan, elapsedMs) }
-}
-
-export const shouldReplanLegacy = (kind: 'progress' | 'overdue', firedBefore: number, firedNow: number, advanced: boolean): boolean =>
-  advanced || kind === 'overdue' || (firedBefore < CHECK_FRACTIONS.length && firedNow === CHECK_FRACTIONS.length)
-
-export function nextProgressCheck(plan: PlanState, elapsedMs: number, now: number): { kind: 'progress' | 'overdue'; fired: number } | undefined {
-  const fired = plan.fired ?? 0
-  if (plan.done >= plan.steps.length || now - plan.askedAt < REESTIMATE_GAP_MS) {
-    return undefined
-  }
-  if (elapsedMs >= plan.stepEndAt + OVERDUE_GRACE_MS) {
-    return { kind: 'overdue', fired }
-  }
-  if (now - plan.askedAt < CHECK_GAP_MS) {
-    return undefined
-  }
-  const into = elapsedMs - plan.stepAt
-  for (let index = CHECK_FRACTIONS.length - 1; index >= 0; index -= 1) {
-    if (fired <= index && into >= plan.stepEstMs * (CHECK_FRACTIONS[index] ?? 1)) {
-      return { kind: 'progress', fired: index + 1 }
-    }
-  }
-  const isHinted = plan.hintAt !== undefined && plan.hintAt > plan.askedAt
-  return isHinted || now - (plan.countAt ?? plan.askedAt) >= CHECK_MAX_MS ? { kind: 'progress', fired } : undefined
-}
-
-export async function askStepCheck(
-  $: EngineInterface,
-  ask: { mission: string; plan: PlanState; elapsedMs: number; activity: string; calls: string; thinking?: string; id: string },
-): Promise<{ step?: number; leftMin?: number } | undefined> {
-  const { plan } = ask
-  const total = plan.steps.length
-  const into = ask.elapsedMs - plan.stepAt
-  const lineOf = (step: PlanStep, index: number): string => {
-    if (index < plan.done) {
-      return `${index + 1}. ${step.title} · previsto ${fmtMin(step.estMs)} · real ${fmtMin(step.realMs ?? 0)}`
-    }
-    if (index === plan.done) {
-      return `${index + 1}. ${step.title} · previsto ${fmtMin(plan.stepEstMs)} · en curso ${fmtMin(into)}`
-    }
-    return `${index + 1}. ${step.title} · previsto ${fmtMin(scaledMs(step, plan.factor))}`
-  }
-  const prompt =
-    'Un agente de programación sigue un plan de pasos en orden. Indica en qué paso está ahora y cuántos minutos le faltan para terminarlo. Responde solo con dos líneas, sin nada más:\npaso: N\nfalta: M\n\n' +
-    'Reglas:\n' +
-    '- paso es el número (desde 1) del paso cuyo tipo de trabajo describe mejor lo que muestran <actividad> y <llamadas>. Un paso ya es el actual en cuanto empezó su tipo de trabajo; no esperes a que acabe el anterior. Nunca devuelvas un número menor que <paso_anterior>.\n' +
-    '- Si <paso_anterior> aún encaja con la actividad, repítelo; si la actividad ya es de otro paso, avanza, aunque sea por poco.\n' +
-    '- falta son minutos enteros desde ahora hasta acabar ese paso, según el trabajo que queda, no según el plan. Si está casi terminado o ya pasó de lo previsto, responde el tiempo real que ves que queda (mínimo 1), no 0.\n' +
-    '- <referencia_calendario> es solo referencia, no es una prueba: no decide el paso.\n\n' +
-    '<example>El agente lleva 6 pasos; hasta ahora leyó y editó módulos del paso 3 y acaba de lanzar las pruebas que lo cubren, con un solo fallo pendiente. Respuesta:\npaso: 3\nfalta: 2</example>\n' +
-    '<example>Plan de 4 pasos; el agente acaba de crear los archivos nuevos del paso 4 y aún no ha ejecutado nada, y el paso suele durar bastante. Respuesta:\npaso: 4\nfalta: 9</example>\n' +
-    '<example>Plan de 5 pasos; sigue leyendo código del paso 2, ya pasó de lo previsto y no ha editado nada. Respuesta:\npaso: 2\nfalta: 6</example>\n\n' +
-    `<mision>${ask.mission.slice(0, 1500)}</mision>\n` +
-    `<pasos>\n${plan.steps.map(lineOf).join('\n')}\n</pasos>\n` +
-    `<paso_anterior>${Math.min(plan.done + 1, total)}</paso_anterior>\n` +
-    `<actividad>\n${ask.activity}\n</actividad>\n` +
-    `<referencia_calendario>según el calendario van ${fmtMin(ask.elapsedMs)} de ${fmtMin(planEndAt(plan))} (solo referencia, no es una prueba)</referencia_calendario>\n` +
-    `<llamadas>\n${ask.calls}\n</llamadas>\n` +
-    (ask.thinking === undefined ? '' : `<pensando>${ask.thinking}</pensando>\n`) +
-    '\nResponde solo con las dos líneas paso: N y falta: M.'
-  const reply = await $.model.complete({ model: 'haiku', prompt, maxTokens: 40, timeoutMs: 15000 })
-  const parsed = reply.isAnswered ? parseStepReply(reply.text, total) : {}
-  if (parsed.step === undefined || parsed.leftMin === undefined) {
-    logReestimate(`${ask.id} plan check ${parsed.step === undefined && parsed.leftMin === undefined ? 'failed' : 'partial'}: ${reply.isAnswered ? `reply ${JSON.stringify(reply.text.slice(0, 60))}` : 'no answer'} elapsed=${fmtMin(ask.elapsedMs)}`)
-  }
-  return parsed.step === undefined && parsed.leftMin === undefined ? undefined : parsed
-}
-
-export const logPlanCheckLegacy = (id: string, kind: string, from: PlanState, to: PlanState | undefined): void =>
-  logReestimate(`${id} plan ${kind} ${to === undefined ? `kept done=${from.done}/${from.steps.length}` : `ok done=${from.done}→${to.done}/${to.steps.length}`} factor=${(to ?? from).factor.toFixed(2)}`)

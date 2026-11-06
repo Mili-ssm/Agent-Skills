@@ -25,7 +25,7 @@ import {
   logReestimate,
 } from './estimates'
 import type { ReaskFields } from './estimates'
-import { STEP_TITLE_CHARS, STEP_TITLE_MAX_CHARS, callPointsAhead, clipTitle, PLAN_ENABLED, REPLAN_ENABLED, applyLeft, applyReplanLegacy as applyReplan, applyStep, askPlan, askReplan, askStepCheck, logPlanCheckLegacy as logPlanCheck, newPlan, nextProgressCheck as nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplanLegacy as shouldReplan } from './plan'
+import { STEP_TITLE_CHARS, STEP_TITLE_MAX_CHARS, callPointsAhead, clipTitle, PLAN_ENABLED, REPLAN_ENABLED, REPLAN_MIN_GAP_MS, applyDone, applyReplan, askDone, askPlan, askReplan, growOverdue, isGrounded, logPlanCheck, newPlan, nextPlanCheck, planEndAt, planView, shouldPlan, shouldReplan, stepTimes } from './plan'
 import type { PlanState } from './plan'
 import { onCycleSpawn } from './cycle'
 import { PHRASE_TOKENS, agentWaitRuns, isCut, dropOwnedWaits, endAgentWait, hasOwnedWaits, onAgentSpawn, phraseOf, resume, waitDebug, waitingRuns } from './waiting'
@@ -557,11 +557,14 @@ const replanning = new Set<string>()
 // Runs whose step advanced while their replan was in flight: that answer no longer fits the step (dropped by `done`), so one more replan follows.
 const replanAgain = new Set<string>()
 
+/** The agent's last text blocks as the `<dice_el_agente>` block reads them (a claim, never proof). */
+const saidText = (run: Pick<AgentRun, 'said'>): string => (run.said ?? []).map(item => item.text.replace(/\s+/g, ' ').trim()).join('\n')
+
 /**
- * One tick of a run with a step plan: asks Haiku the current step and the minutes left in it (50% / 80% / 95% of the step,
- * hints, 5 min ceiling, or overdue). The step moves at most +1 and only if calls were added since the last check (G1);
- * the count is applied before `falta`, which then belongs to the new current step (G5). An applied check may then replan
- * the pending steps (`replanPending`). Fire and forget.
+ * One tick of a run with a step plan: when `nextPlanCheck` says so (overdue with backoff, an event hint, or the 5 min
+ * ceiling), asks Haiku only whether the current step is done. A grounded `sí` with calls added since the last check
+ * (G1) advances exactly one step; an overdue check that did not advance grows the step in code, whatever the answer
+ * (also when the call failed or timed out, M1). An advance may then replan the pending steps (`replanPending`). Fire and forget.
  */
 async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: number): Promise<void> {
   const { plan } = run
@@ -574,53 +577,84 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
   const seq = plan.seq + 1
   const calls = activityCounts(run).calls ?? 0
   const historyGrew = calls > (plan.callsAtCheck ?? 0)
-  await patch($, run.id, item => (item.plan === undefined ? item : { ...item, plan: { ...item.plan, askedAt: now, seq, fired: due.fired, callsAtCheck: calls } }))
+  await patch($, run.id, item => (item.plan === undefined ? item : { ...item, plan: { ...item.plan, askedAt: now, seq, callsAtCheck: calls } }))
   const mission = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
   const since = thinkingSince(run, now)
+  const callsText = recentCalls(run, now)
+  const said = saidText(run)
+  const saidCount = run.said?.length ?? 0
   // What the applied check produced (A3): the replan starts from this plan, not from the pre-check `plan` above.
-  const outcome: { plan?: PlanState; advanced: boolean } = { advanced: false }
-  void askStepCheck($, {
+  const outcome: { plan?: PlanState; advanced: boolean; previousAdvanceAt?: number; at: number; isApplied: boolean } = { advanced: false, at: now, isApplied: false }
+  const apply = async (verdict: { done?: boolean; evidence?: string } | undefined): Promise<void> => {
+    const at = await $.clock.now()
+    outcome.isApplied = true
+    await patch($, run.id, item => {
+      const current = item.plan
+      if (current === undefined || current.seq !== seq || item.status !== 'running') {
+        return item
+      }
+      const elapsedAt = at - item.startedAt
+      // M3: a `sí` whose evidence is `ninguna` or shares no word with the calls is the agent's announced plan, not work done.
+      const isProven = verdict?.done === true && isGrounded(verdict.evidence, callsText)
+      const done = isProven ? applyDone(current, elapsedAt, at, historyGrew) : undefined
+      let next: PlanState | undefined
+      let result: 'advanced' | 'kept' | 'grown' = 'kept'
+      let extra = ''
+      if (done !== undefined) {
+        next = { ...done, countsAtStep: activityCounts(item) }
+        result = 'advanced'
+        const finished = current.steps[current.done]
+        extra = ` dwell="${finished?.title ?? ''}" real=${formatDuration(elapsedAt - current.stepAt)} planned=${formatDuration(current.stepEstMs)}`
+        outcome.previousAdvanceAt = current.advancedAt
+      } else {
+        if (verdict?.done === true) {
+          extra = ` plan step ${current.done + 1} kept: ${!historyGrew ? 'no new calls' : 'evidence not in the calls'}`
+        }
+        // Time is the code's: an overdue step that was not found done grows, whatever Haiku answered (or failed to).
+        if (due.kind === 'overdue') {
+          next = growOverdue(current, elapsedAt)
+          result = 'grown'
+        }
+      }
+      logPlanCheck(run.id, due.kind, verdict, result, next ?? current, saidCount, extra)
+      outcome.plan = next
+      outcome.advanced = result === 'advanced'
+      outcome.at = at
+      return next === undefined ? item : { ...item, plan: next, etaMs: Math.round(planEndAt(next)) }
+    })
+  }
+  void askDone($, {
     mission,
     plan,
     elapsedMs,
     activity: activitySummary(run, plan),
-    calls: recentCalls(run, now),
+    calls: callsText,
+    ...(said === '' ? {} : { said }),
     ...(since === undefined ? {} : { thinking: `pensando desde hace ${formatDuration(now - since)} (sin herramientas)` }),
     id: run.id,
   })
-    .then(answer =>
-      answer === undefined
-        ? undefined
-        : patch($, run.id, item => {
-            const current = item.plan
-            if (current === undefined || current.seq !== seq || item.status !== 'running') {
-              return item
-            }
-            let next = answer.step === undefined ? undefined : applyStep(current, answer.step, elapsedMs, now, historyGrew)
-            if (next !== undefined) {
-              next = { ...next, countsAtStep: activityCounts(item) }
-            }
-            if (answer.step !== undefined && next === undefined) {
-              logReestimate(`${run.id} plan step ${answer.step} ignored (done=${current.done}/${current.steps.length}${historyGrew ? '' : ', no new calls'})`)
-            }
-            // `falta` is about the step Haiku named: it applies only when that is the step the plan now has.
-            const isSameStep = answer.step === undefined || answer.step === (next ?? current).done + 1
-            const timed = answer.leftMin === undefined || !isSameStep ? next : applyLeft(next ?? current, answer.leftMin, elapsedMs)
-            logPlanCheck(run.id, due.kind, current, timed)
-            outcome.plan = timed
-            outcome.advanced = timed !== undefined && timed.done > current.done
-            return timed === undefined ? item : { ...item, plan: timed, etaMs: Math.round(planEndAt(timed)) }
-          }),
-    )
-    .catch(error => $.ui.log(`tool-fold: plan check: ${String(error)}`, { to: 'debug' }))
+    .then(apply)
+    .catch(async error => {
+      $.ui.log(`tool-fold: plan check: ${String(error)}`, { to: 'debug' })
+      // M1: a thrown or timed-out call on an overdue step still grows it; a failure of `apply` itself is not retried.
+      if (due.kind === 'overdue' && !outcome.isApplied) {
+        await apply(undefined).catch(() => undefined)
+      }
+    })
     .finally(() => {
       reasking.delete(run.id)
       const { plan: applied, advanced } = outcome
-      // A stuck step is replanned once per `done` (A1): its overdue checks would otherwise ask every 30 s.
-      // With every step done there is no current step to replan after.
-      if (REPLAN_ENABLED && applied !== undefined && applied.done < applied.steps.length && shouldReplan(due.kind, plan.fired ?? 0, due.fired, advanced) && (advanced || applied.replannedDone !== applied.done)) {
-        void replanPending($, run.id, mission, applied, advanced)
+      if (!REPLAN_ENABLED || !advanced || applied === undefined || !shouldReplan(applied, advanced)) {
+        return
       }
+      // M7: an advance right after another skips the replan (fast steps would replan every minute), unless one is in flight:
+      // that answer is dropped by `done`, so the retry (`replanAgain`) must still be queued.
+      const isTooSoon = outcome.previousAdvanceAt !== undefined && outcome.at - outcome.previousAdvanceAt < REPLAN_MIN_GAP_MS
+      if (isTooSoon && !replanning.has(run.id)) {
+        logReestimate(`${run.id} plan replan skipped: previous advance ${formatDuration(outcome.at - (outcome.previousAdvanceAt ?? 0))} ago`)
+        return
+      }
+      void replanPending($, run.id, mission, applied)
     })
 }
 
@@ -629,11 +663,9 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
  * applies only if no later check moved the plan since (`seq`) and the step is still the one asked about (A3); the elapsed
  * time for the anchor is read when it arrives (A5), since the call can take 15 s.
  */
-async function replanPending($: EngineInterface, id: string, mission: string, asked: PlanState, advanced: boolean): Promise<void> {
+async function replanPending($: EngineInterface, id: string, mission: string, asked: PlanState): Promise<void> {
   if (replanning.has(id)) {
-    if (advanced) {
-      replanAgain.add(id)
-    }
+    replanAgain.add(id)
     return
   }
   replanning.add(id)
@@ -645,7 +677,7 @@ async function replanPending($: EngineInterface, id: string, mission: string, as
         return item
       }
       stamped.run = item
-      return advanced ? item : { ...item, plan: { ...current, replannedDone: current.done } }
+      return item
     })
     if (stamped.run === undefined) {
       return
@@ -671,9 +703,9 @@ async function replanPending($: EngineInterface, id: string, mission: string, as
     // In `finally`: the early returns above (stale or unreadable answer) must not leave a pending retry behind.
     if (replanAgain.delete(id)) {
       const run = ((await read($, runs)) as (AgentRun & ReaskFields)[]).find(item => item.id === id)
-      if (REPLAN_ENABLED && run?.status === 'running' && run.plan !== undefined && run.plan.done < run.plan.steps.length) {
+      if (REPLAN_ENABLED && run?.status === 'running' && run.plan !== undefined && shouldReplan(run.plan, true)) {
         const fresh = `${agentSummary(run.type, run.description)}${run.mission === undefined ? '' : `\n${run.mission.replace(/\s+/g, ' ').trim()}`}`
-        await replanPending($, id, fresh, run.plan, true)
+        await replanPending($, id, fresh, run.plan)
       }
     }
   }
@@ -1397,7 +1429,7 @@ async function showDetail($: EngineInterface, agentId: string, stepId: string, d
   await patch($, agentId, run => ({ ...run, current: withDetail(run.current), recent: withDetail(run.recent) }))
 }
 
-/** A call's words point at a later plan step: mark it, so the next tick asks Haiku the count (1 min apart at most). */
+/** A call's words point at a later plan step: mark it, so the next tick may ask Haiku whether the step is done (1 min apart at most). */
 async function hintPlan($: EngineInterface, agentId: string, text: string, at: number): Promise<void> {
   const run = PLAN_ENABLED ? (await read($, runs)).find(item => item.id === agentId) : undefined
   if (run?.plan === undefined || run.status !== 'running' || !callPointsAhead(run.plan, text)) {
@@ -1406,7 +1438,36 @@ async function hintPlan($: EngineInterface, agentId: string, text: string, at: n
   await patch($, agentId, run => (run.plan !== undefined && run.status === 'running' && callPointsAhead(run.plan, text) ? { ...run, plan: { ...run.plan, hintAt: at } } : run))
 }
 
-/** No words to match (the translation failed): ask the count directly on the next tick, still 1 min apart at most. */
+// The agent's last text blocks kept per run, and how much of each.
+const SAID_KEPT = 3
+const SAID_CHARS = 300
+
+/**
+ * A tracked subagent's reply arrived: its text blocks become `said` (the last 3, 300 characters each), what the step
+ * check shows Haiku as the agent's own claim. Text whose words point at a later step (title or criterion) also hints a
+ * check. Main-loop text and text of an agent this mod does not track never get here or are dropped. Never throws.
+ */
+export async function noteAgentText($: EngineInterface, agentId: string, content: readonly unknown[]): Promise<void> {
+  const texts = content.flatMap(item => {
+    const block = typeof item === 'object' && item !== null ? (item as Record<string, unknown>) : {}
+    return block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '' ? [block.text.trim().slice(0, SAID_CHARS)] : []
+  })
+  if (texts.length === 0) {
+    return
+  }
+  const at = await $.clock.now()
+  await patch($, agentId, run => {
+    if (run.status !== 'running') {
+      return run
+    }
+    const said = [...(run.said ?? []), ...texts.map(text => ({ text, at }))].slice(-SAID_KEPT)
+    const { plan } = run
+    const isAhead = PLAN_ENABLED && plan !== undefined && texts.some(text => callPointsAhead(plan, text))
+    return { ...run, said, ...(isAhead && plan !== undefined ? { plan: { ...plan, hintAt: at } } : {}) }
+  })
+}
+
+/** No words to match (the translation failed): check directly on the next tick, still 1 min apart at most. */
 async function hintPlanNow($: EngineInterface, agentId: string, at: number): Promise<void> {
   if (!PLAN_ENABLED) {
     return
@@ -1606,7 +1667,10 @@ export async function endAgentTurn(
   if (status === 'done' && type !== undefined && !(await hasOwnedWaits($, agentId))) {
     const past = await rememberedDurations($, type)
     await $.store.set(durationsKey(type), [...past, total].slice(-REMEMBERED)).catch(() => undefined)
-    await recordSample($, AGENT_SAMPLES_KEY, agentSummary(type, ended?.description ?? ''), total, await $.clock.now())
+    // M4: a planned run that ended before its last step has step times that would teach a wrong split; store them only from the last step on.
+    const plan = ended?.plan
+    const steps = plan !== undefined && plan.done >= plan.steps.length - 1 ? stepTimes(plan, total) : []
+    await recordSample($, AGENT_SAMPLES_KEY, agentSummary(type, ended?.description ?? ''), total, await $.clock.now(), steps.length === 0 ? undefined : steps)
   }
   await syncTick($)
   await closeDockWhenIdle($)
