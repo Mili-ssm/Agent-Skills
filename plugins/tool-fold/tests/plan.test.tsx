@@ -618,6 +618,7 @@ test('parseReplan reads the steps after the current one, ninguno, and a list res
     { title: 'Informar', minutes: 1 },
   ])
   expect(parseReplan('ninguno', 3, 6)).toEqual([])
+  expect(parseReplan('**Ninguno.**', 3, 6)).toEqual([])
   expect(parseReplan(' **Ninguno** \n', 3, 6)).toEqual([])
   // Numbering that is neither `from` nor 1, a gap, too many lines, ninguno with lines, prose.
   expect(parseReplan('3. Probar — 4 min\n4. Informar — 1 min', 2, 6)).toBeUndefined()
@@ -662,6 +663,9 @@ test('applyReplan: the bar never goes down, rises at most 15 points when the res
   const last = applyCount(fresh(), 2, 5 * MIN, 5 * MIN) as PlanState
   expect(applyReplan(last, [], 5 * MIN).steps).toHaveLength(3)
   expect(applyReplan(plan, [], 4 * MIN).steps).toHaveLength(4)
+  // With the last step current there is no rest to clamp against: new steps are not added.
+  const final = applyCount(fresh(), 3, 6 * MIN, 6 * MIN) as PlanState
+  expect(applyReplan(final, [{ title: 'Extra', minutes: 30 }], 6 * MIN)).toBe(final)
   // The total never passes 8 steps.
   const many = Array.from({ length: 12 }, (_, i) => ({ title: `P${i}`, minutes: 1 }))
   expect(applyReplan(plan, many, 4 * MIN).steps).toHaveLength(8)
@@ -831,6 +835,8 @@ test('a replan answer that arrives after the step moved again is dropped (seq)',
   release()
   await settle()
   await settle()
+  // The advance that landed while the replan was in flight gets its own replan once the first one ends.
+  expect(kinds.filter(kind => kind === 'H')).toHaveLength(2)
   // The late answer is dropped: the step after "Probarlo" is still the plan's own "Documentar", not "Zeta".
   replanReply.text = 'ninguno'
   checkReply.text = 'paso: 4\nfalta: 1'

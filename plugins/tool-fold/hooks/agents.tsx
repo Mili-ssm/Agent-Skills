@@ -554,6 +554,8 @@ export const recentCalls = (run: Pick<AgentRun, 'history'>, _now: number): strin
 
 // Runs whose replan call is in flight: at most one each, so a slow answer is never overlapped by a second ask.
 const replanning = new Set<string>()
+// Runs whose step advanced while their replan was in flight: that answer is dropped (stale), so one more replan follows.
+const replanAgain = new Set<string>()
 
 /**
  * One tick of a run with a step plan: asks Haiku the current step and the minutes left in it (50% / 80% / 95% of the step,
@@ -629,6 +631,9 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
  */
 async function replanPending($: EngineInterface, id: string, mission: string, asked: PlanState, advanced: boolean): Promise<void> {
   if (replanning.has(id)) {
+    if (advanced) {
+      replanAgain.add(id)
+    }
     return
   }
   replanning.add(id)
@@ -640,7 +645,7 @@ async function replanPending($: EngineInterface, id: string, mission: string, as
         return item
       }
       stamped.run = item
-      return { ...item, plan: { ...current, replanSeq: asked.seq, ...(advanced ? {} : { replannedDone: current.done }) } }
+      return advanced ? item : { ...item, plan: { ...current, replannedDone: current.done } }
     })
     if (stamped.run === undefined) {
       return
@@ -663,6 +668,12 @@ async function replanPending($: EngineInterface, id: string, mission: string, as
     $.ui.log(`tool-fold: plan replan: ${String(error)}`, { to: 'debug' })
   } finally {
     replanning.delete(id)
+  }
+  if (replanAgain.delete(id)) {
+    const run = ((await read($, runs)) as (AgentRun & ReaskFields)[]).find(item => item.id === id)
+    if (REPLAN_ENABLED && run?.status === 'running' && run.plan !== undefined && run.plan.done < run.plan.steps.length) {
+      await replanPending($, id, mission, run.plan, true)
+    }
   }
 }
 

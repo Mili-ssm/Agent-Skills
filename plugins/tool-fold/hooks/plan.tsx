@@ -64,8 +64,6 @@ export type PlanState = {
   countsAtStep?: Record<string, number>
   /** Calls the run had finished at the latest check (G1: a step only advances if calls were added since). */
   callsAtCheck?: number
-  /** The `seq` a replan was asked at: its answer applies only while the plan is still at it. */
-  replanSeq?: number
   /** The `done` a replan without a step change was asked at: a stuck step is replanned once, not at every overdue check. */
   replannedDone?: number
 }
@@ -125,10 +123,10 @@ export function parseStepReply(text: string, total: number): { step?: number; le
 /**
  * The lines of a replan reply: `ninguno` alone gives []; else 1 to `max` lines in `parsePlan`'s format, numbered
  * consecutively from `from` (the 1-based number after the current step) or from 1 (Haiku often restarts at 1; the
- * caller renumbers). Anything else, `ninguno` mixed with lines included, is undefined.
+ * numbers are dropped, only the order counts). `ninguno` may carry case and a final period. Anything else, `ninguno` mixed with lines included, is undefined.
  */
 export function parseReplan(reply: string, from: number, max: number): { title: string; minutes: number }[] | undefined {
-  if (reply.replaceAll('**', '').trim().toLowerCase() === 'ninguno') {
+  if (/^ninguno\.?$/i.test(reply.replaceAll('**', '').trim())) {
     return []
   }
   const lines = reply.replaceAll('**', '').split('\n').map(line => line.trim()).filter(line => line !== '')
@@ -276,7 +274,8 @@ export function applyLeft(plan: PlanState, leftMin: number, elapsedMs: number): 
  */
 export function applyReplan(plan: PlanState, steps: readonly { title: string; minutes: number }[], elapsedMs: number): PlanState {
   const pending = plan.steps.length - plan.done - 1
-  if (steps.length === 0 && pending > 1) {
+  // `[]` drops at most one pending step; with none pending there is no rest to clamp new steps against, so they are not added.
+  if ((steps.length === 0 && pending > 1) || (steps.length > 0 && pending <= 0)) {
     return plan
   }
   const fresh = steps.slice(0, Math.max(0, MAX_TOTAL_STEPS - plan.done - 1))
