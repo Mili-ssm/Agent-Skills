@@ -558,8 +558,8 @@ const replanning = new Set<string>()
 /**
  * One tick of a run with a step plan: asks Haiku the current step and the minutes left in it (50% / 80% / 95% of the step,
  * hints, 5 min ceiling, or overdue). The step moves at most +1 and only if calls were added since the last check (G1);
- * the count is applied before `falta`, which then belongs to the new current step (G5). An applied check may then replan the
- pending steps (`replanPending`). Fire and forget.
+ * the count is applied before `falta`, which then belongs to the new current step (G5). An applied check may then replan
+ * the pending steps (`replanPending`). Fire and forget.
  */
 async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: number): Promise<void> {
   const { plan } = run
@@ -615,7 +615,8 @@ async function checkPlan($: EngineInterface, run: AgentRun & ReaskFields, now: n
       reasking.delete(run.id)
       const { plan: applied, advanced } = outcome
       // A stuck step is replanned once per `done` (A1): its overdue checks would otherwise ask every 30 s.
-      if (REPLAN_ENABLED && applied !== undefined && shouldReplan(due.kind, plan.fired, due.fired, advanced) && (advanced || applied.replannedDone !== applied.done)) {
+      // With every step done there is no current step to replan after.
+      if (REPLAN_ENABLED && applied !== undefined && applied.done < applied.steps.length && shouldReplan(due.kind, plan.fired, due.fired, advanced) && (advanced || applied.replannedDone !== applied.done)) {
         void replanPending($, run.id, mission, applied, advanced)
       }
     })
