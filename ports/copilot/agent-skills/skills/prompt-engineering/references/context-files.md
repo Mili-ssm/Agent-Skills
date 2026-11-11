@@ -2,7 +2,7 @@
 
 ## Evidence
 
-*Evaluating AGENTS.md* (Gloaguen et al., ETH Zürich / LogicStar, ICLR 2026, arXiv:2602.11988): context files tended to **lower** task success and raised cost > 20%; LLM-generated files did worse than developer-written ones; files helped mainly when they supplied information the agent could not discover. The authors recommend minimal requirements only.
+*Evaluating AGENTS.md* (Gloaguen et al., ETH Zürich / LogicStar, arXiv:2602.11988 v3, a preprint; four agents, two Python benchmarks): context files did **not significantly change** task success (LLM-generated slightly lower, developer-written slightly higher) and raised cost: 20–23% for LLM-generated files, up to 19% for developer-written ones. Developer-written files did better than LLM-generated ones (about 4 points, p = 0.038, one of four tests); with the repository's other documentation removed, generated files helped. The authors recommend minimal requirements only.
 
 ## Include
 

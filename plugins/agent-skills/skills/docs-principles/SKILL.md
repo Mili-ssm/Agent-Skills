@@ -5,7 +5,7 @@ description: Checklists for accurate, dense repository documentation - Diátaxis
 
 # Documentation Principles
 
-**Core rule:** every sentence carries information that is not cheaper to get elsewhere (code, types, `--help`, git history). Bloat costs reader attention and LLM tokens, and measurably lowers agent task success.
+**Core rule:** every sentence carries information that is not cheaper to get elsewhere (code, types, `--help`, git history). Bloat costs reader attention and LLM tokens: in one study, context files raised an agent's cost per task by about 20% without raising its success (`prompt-engineering`, `context-files.md`).
 
 ## Principles
 
