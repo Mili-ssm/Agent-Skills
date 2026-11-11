@@ -73,3 +73,14 @@ In the session that produced this ADR, three fresh-context fact-checks against l
 ## Revisit if
 
 A model generation changes (every figure above is for Claude 5.5), a kill criterion above is met, the owner starts seeing long or costly specialist runs (then add `maxTurns`), or `fact-checker` is dispatched often enough to deserve a policy row.
+
+## Review 2026-11-12
+
+Owner decision the same day, after reading the Haiku 5.5 effort guidance (`low`: "in long agent prompts, the model is more likely to skip a search, stop early, or skip a check"; `high` "suits knowledge work, longer agent tasks, and strict instruction following"):
+
+| Agent | Effort | Reason | Cost and kill criterion |
+|---|---|---|---|
+| `summarizer` | `low` → `medium` | Its job is searching long material, where a skipped search returns a silent "not found" | Anthropic measured more than twice the output tokens from `low` to `medium`; one prompt line now forbids preamble, recap and narration, which does not bound thinking. Reports noticeably slower or costlier with no better answers → back to `low` |
+| `skeptical-reviewer` | `medium` → `high` | Review is knowledge work with a strict report format, and it is the last reading before delivery | No vendor figure for `medium` → `high`. Same criterion → back to `medium` |
+
+This replaces the Alternatives row "Haiku workers from `low` to `medium`" for `summarizer`; `check-runner` stays at `low` and `researcher` at `medium`. Both changes are unmeasured: the protocol names `offload-summarizer*` and `offload-skeptical-reviewer*`. Codex ports: Haiku `high` maps to `gpt-6-luna` `medium`; Haiku `medium` and `low` both map to `gpt-6-luna` `low`, so the `summarizer` port is unchanged.

@@ -75,3 +75,5 @@ Full baseline the same day (2 runs): 17 trigger cases match their records (`arch
 ## Review 2026-11-12
 
 The Decision's trigger floor ("at least ~20 changed lines or 2 files") was replaced on 2026-11-04 by the owner's simpler rule (whatever changed since the last review; Measurement 2026-11-04), which the policy states. The `/agent-skills:offload` row still carried the floor and now states the same rule (ADR 0018). Vendor data read 2026-11-12 (ADR 0018) supports keeping Haiku for a report the caller verifies, and shows why it is not the only gate for defects.
+
+The same day the owner raised `skeptical-reviewer` from effort `medium` to `high` (ADR 0018 Review 2026-11-12); its Codex port moves from `gpt-6-luna` `low` to `medium`.
