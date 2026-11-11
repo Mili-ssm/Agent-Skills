@@ -14,6 +14,7 @@ Pick by the need; Superpowers entries are skills of the [Superpowers](https://gi
 | Architecture, security, performance | `/arch-review`, `/security-audit`, `/perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
 | Tests and docs | `/qa-review`, `/doc-audit`; skills `qa-principles`, `docs-principles` |
 | Facts from outside the repository | `/research <questions>` (`web-research` skill) |
+| Check a text against the sources it cites | `/fact-check <document> <sources>` (`fact-checker`) |
 | API contracts | `api-design` skill |
 | Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
 | UX and UI | `ux-principles` skill; `/ux-design` for a new feature, `/ux-review <url>` for an audit, `ui-verifier` for a changed page |

@@ -12,6 +12,7 @@ Pick by the need; Superpowers entries are skills of the [Superpowers](https://gi
 | Architecture, security, performance | `/agent-skills:arch-review`, `/agent-skills:security-audit`, `/agent-skills:perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
 | Tests and docs | `/agent-skills:qa-review`, `/agent-skills:doc-audit`; skills `qa-principles`, `docs-principles` |
 | Facts from outside the repository | `/agent-skills:research <questions>` (`web-research` skill) |
+| Check a text against the sources it cites | `/agent-skills:fact-check <document> <sources>` (`agent-skills:fact-checker`) |
 | API contracts | `api-design` skill |
 | Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
 | UX and UI | `ux-principles` skill; `/agent-skills:ux-design` for a new feature, `/agent-skills:ux-review <url>` for an audit, `agent-skills:ui-verifier` for a changed page |
