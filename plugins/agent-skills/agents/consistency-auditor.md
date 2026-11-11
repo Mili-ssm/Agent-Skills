@@ -4,7 +4,7 @@ description: Forensic analyst that reconstructs intent from code, docs, ADRs, te
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: sonnet
-effort: medium
+effort: high
 omitClaudeMd: true
 skills:
   - decision-records

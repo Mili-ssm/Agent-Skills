@@ -20,7 +20,7 @@ Pick the worker by the task and send it a self-contained brief with the row's fi
 | A bounded implementation task with clear acceptance | `implementer` | task, owned files, checks, acceptance criteria, constraints |
 | Mechanical lint/type/test fixes after a change | `fixer` | checks, files in scope, behavior that must not change |
 | Verify a changed web UI in a browser | `ui-verifier` | URL or start command, flows with acceptance criteria, viewports |
-| Review an action just finished (≥ ~20 changed lines or ≥ 2 files, a deletion, a doc section, an image description) | `skeptical-reviewer` | paths or diff, intent, owner rules that apply, what is already verified, round (1 or 2), findings already rejected |
+| Review what changed in the project since its last review (code, docs, files, a deletion, an image description) | `skeptical-reviewer` | paths or diff, intent, owner rules that apply, what is already verified, round (1 or 2), findings already rejected |
 
 - Long runs go in the background, so this conversation keeps working until the result arrives.
 - Independent tasks (for example one researcher per question) run in parallel in one message; dependent steps run in order, for example implementer, then check-runner, then fixer.
