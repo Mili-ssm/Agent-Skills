@@ -1,6 +1,6 @@
 # 0017 Skeptical after-action reviewer, Codex pair for Haiku medium
 
-Status: accepted · Date: 2026-11-03 · Amends 0007, 0010, 0012, 0014
+Status: accepted · Date: 2026-11-03 · Amends 0007, 0010, 0012, 0014 · Amended by 0018
 
 ## Context
 
@@ -71,3 +71,7 @@ Owner's simpler rule (before the final answer, whenever the project changed sinc
 | `offload-implementer-with-policy` | 0.17 | 0.17 | 0.17 (owner: fires constantly in real use) |
 
 Full baseline the same day (2 runs): 17 trigger cases match their records (`architecture-principles` 0/2, `performance-analyst` 0/2, `docs-principles`, `pre-mortem`, `security-principles` 1/2; the rest 2/2); no regression from adding the worker. Proactive dispatch moved 0 → 2/6 with wording only; hooks were declined by the owner and remain the next lever if it stays low in real use.
+
+## Review 2026-11-12
+
+The Decision's trigger floor ("at least ~20 changed lines or 2 files") was replaced on 2026-11-04 by the owner's simpler rule (whatever changed since the last review; Measurement 2026-11-04), which the policy states. The `/agent-skills:offload` row still carried the floor and now states the same rule (ADR 0018). Vendor data read 2026-11-12 (ADR 0018) supports keeping Haiku for a report the caller verifies, and shows why it is not the only gate for defects.
