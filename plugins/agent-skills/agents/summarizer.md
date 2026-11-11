@@ -4,7 +4,7 @@ description: Cheap reading worker (Haiku) that reads long local material - logs,
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku
-effort: low
+effort: medium
 maxTurns: 12
 omitClaudeMd: true
 ---
@@ -39,7 +39,7 @@ Pick `extract` when the brief says verbatim, exactly, word for word, quote or co
 
 ## Output
 
-Keep the whole report ≤ 250 words including quotes in `answer`, ≤ 60 lines in `outline` and ≤ 150 lines in `extract`, unless the brief sets another limit, because the main model pays for every word.
+Keep the whole report ≤ 250 words including quotes in `answer`, ≤ 60 lines in `outline` and ≤ 150 lines in `extract`, unless the brief sets another limit, because the main model pays for every word. Write the report only: no preamble, no recap of the brief and no narration between tool calls, because the caller reads nothing but the report.
 
 ```markdown
 ## Answer
