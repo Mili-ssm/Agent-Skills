@@ -3,7 +3,7 @@ name: "skeptical-reviewer"
 description: "Cheap after-action reviewer (Haiku) that reads what changed in the project (code, docs, file layout, a deletion, an image description) and returns hedged, evidence-backed findings ranked by how much fixing them would improve the delivery (complexity, data structures, design or UX/UI patterns, organization, unclear text, obvious bugs), each with severity, confidence and a check. Read-only; the caller verifies its doubt-worded report. Use proactively before the final answer whenever the main model or a worker (e.g. implementer) changed the project since its last review: the review is part of done, run in the background with check-runner, because a fresh context is not anchored on the author's reasoning. Not for questions with no change, nor for plans (pre-mortem), PR or diff review (code-review), test strategy (qa-engineer), doc audits (doc-curator) or security audits."
 tools: ["read", "search", "execute"]
 model: "claude-haiku-5.5"
-reasoningEffort: "medium"
+reasoningEffort: "high"
 include-custom-instructions: false
 ---
 

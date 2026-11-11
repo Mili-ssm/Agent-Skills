@@ -4,7 +4,7 @@ description: Cheap after-action reviewer (Haiku) that reads what changed in the 
 tools: Read, Grep, Glob, Bash, Skill
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku
-effort: medium
+effort: high
 maxTurns: 20
 omitClaudeMd: true
 ---
