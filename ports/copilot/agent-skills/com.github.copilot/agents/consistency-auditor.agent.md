@@ -3,7 +3,7 @@ name: "consistency-auditor"
 description: "Forensic analyst that reconstructs intent from code, docs, ADRs, tests and git history and returns contradictions, ambiguities, stale or implicit decisions (rubric-rated) plus prioritized questions for the owner. Read-only. It only reads and reconstructs intent and decisions and never edits docs (`doc-curator` fixes and compresses docs). Use before an intent-elicitation interview, when onboarding onto existing code, or before planning a feature or change."
 tools: ["read", "search", "execute"]
 model: "claude-sonnet-5.5"
-reasoningEffort: "medium"
+reasoningEffort: "high"
 include-custom-instructions: false
 ---
 

@@ -27,3 +27,7 @@ Context files that restate discoverable information lower agent success and rais
 ## Revisit if
 
 Owner prefers Spanish content, or trigger evals (ADR 0007) regress after a density change.
+
+## Review 2026-11-12
+
+The Context sentence on *Evaluating AGENTS.md* is stronger than the paper (arXiv:2602.11988 v3, a preprint): context files did not significantly change task success and raised cost by 20–23% (LLM-generated) or up to 19% (developer-written). The Decision stands on the cost finding; `context-files.md` now states the result (ADR 0018).

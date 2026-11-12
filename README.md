@@ -137,6 +137,7 @@ Pick by the need; Superpowers entries are skills of the [Superpowers](https://gi
 | Architecture, security, performance | `/agent-skills:arch-review`, `/agent-skills:security-audit`, `/agent-skills:perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
 | Tests and docs | `/agent-skills:qa-review`, `/agent-skills:doc-audit`; skills `qa-principles`, `docs-principles` |
 | Facts from outside the repository | `/agent-skills:research <questions>` (`web-research` skill) |
+| Check a text against the sources it cites | `/agent-skills:fact-check <document> <sources>` (`agent-skills:fact-checker`) |
 | API contracts | `api-design` skill |
 | Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
 | UX and UI | `ux-principles` skill; `/agent-skills:ux-design` for a new feature, `/agent-skills:ux-review <url>` for an audit, `agent-skills:ui-verifier` for a changed page |
@@ -195,6 +196,7 @@ Pick by the need; Superpowers entries are skills of the [Superpowers](https://gi
 | Architecture, security, performance | `/arch-review`, `/security-audit`, `/perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
 | Tests and docs | `/qa-review`, `/doc-audit`; skills `qa-principles`, `docs-principles` |
 | Facts from outside the repository | `/research <questions>` (`web-research` skill) |
+| Check a text against the sources it cites | `/fact-check <document> <sources>` (`fact-checker`) |
 | API contracts | `api-design` skill |
 | Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
 | UX and UI | `ux-principles` skill; `/ux-design` for a new feature, `/ux-review <url>` for an audit, `ui-verifier` for a changed page |
@@ -253,6 +255,7 @@ Pick by the need; Superpowers entries are skills of the [Superpowers](https://gi
 | Architecture, security, performance | `/agent-skills:arch-review`, `/agent-skills:security-audit`, `/agent-skills:perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
 | Tests and docs | `/agent-skills:qa-review`, `/agent-skills:doc-audit`; skills `qa-principles`, `docs-principles` |
 | Facts from outside the repository | `/agent-skills:research <questions>` (`web-research` skill) |
+| Check a text against the sources it cites | `/agent-skills:fact-check <document> <sources>` (`fact-checker`) |
 | API contracts | `api-design` skill |
 | Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
 | UX and UI | `ux-principles` skill; `/agent-skills:ux-design` for a new feature, `/agent-skills:ux-review <url>` for an audit, `ui-verifier` for a changed page |
@@ -295,8 +298,9 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 |---|---|---|---|---|
 | `architect` | Assess/review/propose architecture | architecture-principles, decision-records | opus | no |
 | `qa-engineer` | Test strategy, gaps, case design, flaky tests, mutation | qa-principles | sonnet | when asked |
-| `ux-reviewer` | Usability + accessibility audit with screenshots/axe | ux-principles | sonnet | no |
-| `doc-curator` | Verify and compress docs and prompts | docs-principles, decision-records, prompt-engineering | sonnet | when asked |
+| `ux-reviewer` | Design consultant: visual quality, usability and accessibility audit with screenshots/axe, or a critique of a spec before it is built | ux-principles | sonnet | no |
+| `doc-curator` | Documentation specialist: verify docs against code, organize and compress them | docs-principles, decision-records, prompt-engineering | sonnet | when asked |
+| `fact-checker` | Check the claims of a text against the sources it cites: one verdict per claim with the source passage and a replacement | — | sonnet | no |
 | `prompt-engineer` | Review prompts, skills, agents, tool descriptions and CLAUDE.md for LLM behavior; rewrites with the check that measures each | prompt-engineering | sonnet | no |
 | `consistency-auditor` | Infer intent; find contradictions, stale/implicit decisions | decision-records | sonnet | no |
 | `security-reviewer` | Source→sink review, threat model | security-principles | opus | no |
@@ -307,7 +311,7 @@ No pinned version (ADR 0006): every commit on the default branch is a new versio
 | `summarizer` | Read long logs/docs/PDFs/diffs/source; answer one question, outline with line ranges, or extract verbatim | — | haiku | no |
 | `implementer` | Apply one bounded plan task with acceptance | — | sonnet | yes |
 | `fixer` | Loop on mechanical lint/type/test fixes | — | sonnet | yes |
-| `ui-verifier` | Verify a changed web UI in a browser (Playwright): pass/fail per flow, desktop and mobile | — | sonnet | no |
+| `ui-verifier` | QA engineer for interfaces: verify that a changed web UI works in a browser (Playwright), pass/fail per flow, desktop and mobile | — | sonnet | no |
 | `performance-analyst` | Measure, profile, optimize | — | sonnet | when asked |
 
 ### Skills
@@ -343,6 +347,7 @@ Every skill is also invocable as `/agent-skills:<skill>`. Specialist agents get 
 | `/agent-skills:security-audit [mode] [scope]` | `security-reviewer` |
 | `/agent-skills:doc-audit [audit\|apply] [paths]` | `doc-curator` |
 | `/agent-skills:prompt-review [paths] [models] [symptom]` | `prompt-engineer` |
+| `/agent-skills:fact-check [document or claims] [sources]` | `fact-checker` |
 | `/agent-skills:consistency-audit [mode] [scope]` | `consistency-auditor` |
 | `/agent-skills:premortem [plan]` | `pre-mortem` |
 | `/agent-skills:perf-review [optimize] <target>` | `performance-analyst` |
