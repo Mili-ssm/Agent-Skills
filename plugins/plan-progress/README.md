@@ -5,6 +5,7 @@ Opt-in mod of the [`mili-ssm` marketplace](../../README.md), installed apart fro
 ## What it shows
 
 - Only while a plan exists (`docs/superpowers/plans/`, `docs/plans/`, `plans/`): a borderless card above the prompt: title, `5/10`, percent, then a progress bar (glyphs in the terminal, a thin SVG line elsewhere: 1px faded track and 2px fill in the same color) and, when the plan changes, a short Haiku description of what remains `▶ finish the login route and its tests` (until it arrives, or if it fails, the active task `▶ Task 3 · 2/4`); toast per finished task. No status line
+- Two plan shapes: several headings each owning checkboxes (Superpowers; every checkbox is a step, the card counts steps) or a task list (top-level checkboxes are tasks, nested ones the subtasks of the task above them; the card counts tasks, so the total ignores subtasks, and a task without subtasks shows no own `n/m`). Two or more headings with checkboxes pick the first; otherwise the second
 - `/plan-progress [path|auto]`: pass a path to pin a plan, or `auto` to follow the newest
 
 ## Install
