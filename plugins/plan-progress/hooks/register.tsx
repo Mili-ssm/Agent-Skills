@@ -8,13 +8,13 @@ const COMMAND = 'plan-progress'
 // Folders where plans are written: Superpowers (current and older layouts), then a generic one.
 const PLAN_DIRS = ['docs/superpowers/plans', 'docs/plans', 'plans']
 // Bump the shape tag when Plan's fields change: an older stored plan is then read as absent.
-const plan = atom({ plugin: 'plan-progress', key: 'plan' } as const, null, { shape: 'plan-1' })
+const plan = atom({ plugin: 'plan-progress', key: 'plan' } as const, null, { shape: 'plan-2' })
 const pinned = atom({ plugin: 'plan-progress', key: 'pinned' } as const, null)
 // Haiku's words on what remains of the plan, for the plan state named by `key`.
 const remaining = atom({ plugin: 'plan-progress', key: 'remaining' } as const, null)
 // Haiku's instruction for the remaining-work line; it answers in the plan's own language.
-const REMAINING_PROMPT =
-  'Below is a plan and its unfinished tasks (done/total steps; the first one is the current task). In at most 16 ' +
+const remainingPrompt = (unit: Plan['unit']): string =>
+  `Below is a plan and its unfinished tasks (${unit === 'steps' ? 'done/total steps' : 'done/total subtasks, absent when none'}; the first one is the current task). In at most 16 ` +
   "words, in the same language as the plan, say what remains to be done. Reply with the phrase only, without " +
   'quotes or a final period.\n\n'
 
@@ -23,20 +23,100 @@ const CHECKBOX = /^\s*[-*] \[([ xX])\]/
 // `## Task 3: Title` / `### Step group`: a heading level 2-4 opens a task.
 const HEADING = /^#{2,4}\s+(.+?)\s*#*\s*$/
 
+/** The checkbox's text: the line without its list marker, on one line. */
+const BOX_TEXT = /^\s*[-*] \[[ xX]\]\s*/
+
+// Any list item, checkbox or not: `- text`, `* text`, `1. text`.
+const LIST_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/
+// Opening or closing line of a fenced code block.
+const FENCE = /^\s*(?:```|~~~)/
+
+/** Indentation width of a line, a tab counting as 4. */
+function indentOf(line: string): number {
+  return (/^\s*/.exec(line)?.[0] ?? '').replace(/\t/g, '    ').length
+}
+
+/** True when a task is complete: a ticked top-level checkbox (task list) or all its steps. */
+export function isTaskDone(task: PlanTask): boolean {
+  return task.ticked ?? task.done >= task.total
+}
+
 /**
- * Parses a plan's Markdown: each level 2-4 heading that has checkbox steps under it is a task.
- * Checkboxes before any heading go to an unnamed task. Pure, so it is unit-tested directly.
+ * Task-list shape: each top-level checkbox (the smallest indentation among all checkboxes) is a task; the deeper
+ * checkboxes after it are its subtasks. The plan counts tasks, not subtasks, so its total ignores subtask edits.
+ */
+function parseTaskList(path: string, title: string, lines: string[]): Plan {
+  // Checkboxes inside fenced code are examples, not tasks.
+  let fenced = false
+  const body = lines.filter(line => {
+    if (FENCE.test(line)) {
+      fenced = !fenced
+      return false
+    }
+    return !fenced
+  })
+  const boxes = body.filter(line => CHECKBOX.test(line))
+  if (boxes.length === 0) {
+    return { path, title, tasks: [], done: 0, total: 0, unit: 'tasks' }
+  }
+  const top = Math.min(...boxes.map(indentOf))
+  const tasks: PlanTask[] = []
+  let current: { task: PlanTask; level: number; subtasks: number; subtasksDone: number } | undefined
+  const close = (): void => {
+    if (current === undefined) {
+      return
+    }
+    const { task, subtasks, subtasksDone } = current
+    if (subtasks === 0) {
+      tasks.push({ ...task, done: task.ticked === true ? 1 : 0, total: 1, solo: true })
+    } else {
+      tasks.push({ ...task, done: task.ticked === true ? subtasks : subtasksDone, total: subtasks })
+    }
+  }
+  for (const line of body) {
+    const box = CHECKBOX.exec(line)
+    if (box === null) {
+      // A plain list item no deeper than the task above it ends that task: checkboxes nested under it are tasks of their own.
+      if (LIST_ITEM.test(line) && indentOf(line) <= (current?.level ?? top)) {
+        close()
+        current = undefined
+      }
+      continue
+    }
+    const ticked = box[1] !== ' '
+    const indent = indentOf(line)
+    // A checkbox no deeper than the task above it is a task too (its level is `top`, or deeper under a plain bullet).
+    if (current === undefined || indent <= current.level) {
+      close()
+      current = { task: { title: line.replace(BOX_TEXT, '').trim(), done: 0, total: 0, ticked }, level: indent, subtasks: 0, subtasksDone: 0 }
+    } else {
+      current.subtasks += 1
+      current.subtasksDone += ticked ? 1 : 0
+    }
+  }
+  close()
+  const done = tasks.filter(isTaskDone).length
+  return { path, title, tasks, done, total: tasks.length, unit: 'tasks' }
+}
+
+/**
+ * Parses a plan's Markdown. Two shapes: when two or more level 2-4 headings own checkboxes, each such heading is a
+ * task and every checkbox a step (Superpowers); otherwise each top-level checkbox is a task (task list).
+ * Checkboxes before any heading go to an unnamed task in the first shape. Pure, so it is unit-tested directly.
  */
 export function parsePlan(path: string, text: string): Plan {
   const title = /^#\s+(.+)$/m.exec(text)?.[1]?.trim() ?? path.split('/').pop() ?? path
   const tasks: PlanTask[] = []
   let current: PlanTask = { title: '(no heading)', done: 0, total: 0 }
+  let headed = 0
+  const lines = text.split('\n')
 
-  for (const line of text.split('\n')) {
+  for (const line of lines) {
     const heading = HEADING.exec(line)
     if (heading?.[1] !== undefined) {
       if (current.total > 0) {
         tasks.push(current)
+        headed += current.title === '(no heading)' ? 0 : 1
       }
       current = { title: heading[1], done: 0, total: 0 }
       continue
@@ -49,11 +129,15 @@ export function parsePlan(path: string, text: string): Plan {
   }
   if (current.total > 0) {
     tasks.push(current)
+    headed += current.title === '(no heading)' ? 0 : 1
+  }
+  if (headed < 2 && tasks.length > 0) {
+    return parseTaskList(path, title, lines)
   }
 
   const done = tasks.reduce((sum, task) => sum + task.done, 0)
   const total = tasks.reduce((sum, task) => sum + task.total, 0)
-  return { path, title, tasks, done, total }
+  return { path, title, tasks, done, total, unit: 'steps' }
 }
 
 /** `███████░░░░░░░` for done/total over `width` cells. */
@@ -75,7 +159,7 @@ export function truncate(text: string, max: number): string {
 
 /** The first unfinished task is the one in progress. */
 export function activeTask(plan: Plan): PlanTask | undefined {
-  return plan.tasks.find(task => task.done < task.total)
+  return plan.tasks.find(task => !isTaskDone(task))
 }
 
 /** True when every step of a plan with steps is done. */
@@ -144,7 +228,7 @@ function justFinished(previous: Plan | null, next: Plan | null): PlanTask[] {
   }
   return next.tasks.filter(task => {
     const before = previous.tasks.find(old => old.title === task.title)
-    return task.done === task.total && before !== undefined && before.done < before.total
+    return isTaskDone(task) && before !== undefined && !isTaskDone(before)
   })
 }
 
@@ -166,7 +250,9 @@ async function publish($: EngineInterface, next: Plan | null): Promise<PlanTask[
 
 /** The key of a plan state: Haiku's description is asked again only when it changes. */
 function remainingKey(plan: Plan): string {
-  return `${plan.path}:${plan.done}/${plan.total}`
+  // A task list's plan count ignores subtasks, so the active task's own count joins the key.
+  const active = plan.unit === 'tasks' ? activeTask(plan) : undefined
+  return `${plan.path}:${plan.done}/${plan.total}${active === undefined ? '' : `:${active.done}/${active.total}`}`
 }
 
 // The key last asked about, so a refresh without change does not ask Haiku again.
@@ -175,11 +261,14 @@ let asked: string | undefined
 /** Asks Haiku what remains and stores it; keeps the fallback line on a miss. Never throws. */
 async function describeRemaining($: EngineInterface, plan: Plan, key: string): Promise<void> {
   try {
-    const open = plan.tasks.filter(task => task.done < task.total)
-    const tasks = open.map((task, index) => `- ${index === 0 ? '(current) ' : ''}${task.title} ${task.done}/${task.total}`)
+    const open = plan.tasks.filter(task => !isTaskDone(task))
+    // A task without subtasks has no count of its own to show.
+    const tasks = open.map(
+      (task, index) => `- ${index === 0 ? '(current) ' : ''}${task.title}${task.solo === true ? '' : ` ${task.done}/${task.total}`}`,
+    )
     const reply = await $.model.complete({
       model: 'haiku',
-      prompt: `<plan>${plan.title}</plan>\n<unfinished_tasks>(done/total; the first is current)\n${tasks.join('\n')}</unfinished_tasks>\n\n${REMAINING_PROMPT}`,
+      prompt: `<plan>${plan.title}</plan>\n<unfinished_tasks>(done/total; the first is current)\n${tasks.join('\n')}</unfinished_tasks>\n\n${remainingPrompt(plan.unit)}`,
       maxTokens: PHRASE_TOKENS,
       timeoutMs: 15000,
     })
@@ -241,7 +330,7 @@ export const register: Register = on => {
       text:
         current === null
           ? `No plan found (looked in ${PLAN_DIRS.join(', ')}).`
-          : `Plan: ${current.path} (${current.done}/${current.total} steps).`,
+          : `Plan: ${current.path} (${current.done}/${current.total} ${current.unit}).`,
     }
   }).catch(($, e, next) => next(e))
 
@@ -296,7 +385,8 @@ export const register: Register = on => {
         <Text dimColor>▶ {truncate(text, room)}</Text>
       ) : active === undefined ? undefined : (
         <Text dimColor>
-          ▶ {truncate(active.title, room)} · {active.done}/{active.total}
+          ▶ {truncate(active.title, room)}
+          {active.solo === true ? '' : ` · ${active.done}/${active.total}`}
         </Text>
       )
 
@@ -306,7 +396,7 @@ export const register: Register = on => {
       const { Svg } = $.ui.resolve(e)
       const hex = finished ? '#3fb950' : '#d97757'
       // A wider markup than any slot, stretched (preserveAspectRatio none) with no width prop: the line fills the card.
-      const lineText = text !== undefined ? text : active === undefined ? undefined : `${active.title} · ${active.done}/${active.total}`
+      const lineText = text !== undefined ? text : active === undefined ? undefined : `${active.title}${active.solo === true ? '' : ` · ${active.done}/${active.total}`}`
       // The band is one tree shared by every mod: cards from the mods beneath (tool-fold's agents) go first, the plan
       // after them, so what is running reads before what is planned.
       return (
@@ -321,7 +411,7 @@ export const register: Register = on => {
           </Box>
           <Svg
             source={progressSvg(current.done, current.total, 4000, hex)}
-            alt={`${current.done} of ${current.total} steps done`}
+            alt={`${current.done} of ${current.total} ${current.unit} done`}
             height={2}
           />
           {lineText === undefined ? undefined : (

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { bar, cleanPhrase, glyphBar, isPlanPath, parsePlan, progressSvg } from '../hooks/register'
+import { activeTask, bar, cleanPhrase, glyphBar, isPlanPath, parsePlan, progressSvg } from '../hooks/register'
 
 // A plan in the shape Superpowers' writing-plans produces.
 const PLAN = `# Login with magic links
@@ -45,6 +45,57 @@ test('parsePlan counts steps per task and skips headings without steps', () => {
     'Task 3: Login route 0/1',
   ])
   expect([plan.done, plan.total]).toEqual([3, 6])
+})
+
+const row = (task: { title: string; done: number; total: number }): string => `${task.title} ${task.done}/${task.total}`
+
+test('parsePlan keeps the headings shape for a plan with two task headings', () => {
+  const plan = parsePlan('docs/plans/a.md', '# A\n### Task 1: Parser\n- [x] Step 1\n- [ ] Step 2\n### Task 2: Card\n- [ ] Step 1\n')
+  expect(plan.tasks.map(row)).toEqual(['Task 1: Parser 1/2', 'Task 2: Card 0/1'])
+  expect([plan.done, plan.total, plan.unit]).toEqual([1, 3, 'steps'])
+  expect(plan.tasks.every(task => task.solo === undefined && task.ticked === undefined)).toBe(true)
+})
+
+test('parsePlan reads a task list: top-level checkboxes are tasks, nested ones their subtasks', () => {
+  const plan = parsePlan(
+    'docs/plans/m.md',
+    '# Migration plan\n## Tasks\n- [x] Inventory the endpoints\n- [ ] Migrate the login\n  - [x] move the route\n  - [ ] port the tests\n- [ ] Remove the old client\n',
+  )
+  expect(plan.tasks.map(row)).toEqual(['Inventory the endpoints 1/1', 'Migrate the login 1/2', 'Remove the old client 0/1'])
+  expect([plan.done, plan.total, plan.unit]).toEqual([1, 3, 'tasks'])
+  const active = activeTask(plan)
+  expect([active?.title, active?.done, active?.total, active?.solo]).toEqual(['Migrate the login', 1, 2, undefined])
+  expect(plan.tasks[2]?.solo).toBe(true)
+})
+
+test('parsePlan task list: flat list, stale subtasks under a ticked task, indented top level, no heading', () => {
+  const flat = parsePlan('p.md', '- [x] one\n- [ ] two\n')
+  expect([flat.done, flat.total, flat.tasks.map(row)]).toEqual([1, 2, ['one 1/1', 'two 0/1']])
+
+  const stale = parsePlan('p.md', '- [x] one\n  - [ ] left over\n  - [x] other\n- [ ] two\n')
+  expect(stale.tasks.map(row)).toEqual(['one 2/2', 'two 0/1'])
+  expect([stale.done, stale.total]).toEqual([1, 2])
+
+  const nested = parsePlan('p.md', '# P\n1. Phase\n   - [x] a\n   - [ ] b\n     - [ ] sub\n\t- [ ] c\n')
+  // Top level is the smallest indentation (3), a tab counts as 4: `sub` and `c` are b's subtasks.
+  expect(nested.tasks.map(row)).toEqual(['a 1/1', 'b 0/2'])
+  expect(nested.total).toBe(2)
+
+  // Subtasks all ticked but the task itself not: still the current task.
+  const open = parsePlan('p.md', '- [ ] one\n  - [x] a\n- [ ] two\n')
+  expect(activeTask(open)?.title).toBe('one')
+  expect(open.done).toBe(0)
+
+  // A plain bullet at task level ends the task above it: the checkboxes under it are tasks, not its subtasks.
+  const plain = parsePlan('p.md', '- [x] one\n- Phase 2\n  - [ ] two\n  - [ ] three\n')
+  expect(plain.tasks.map(row)).toEqual(['one 1/1', 'two 0/1', 'three 0/1'])
+  expect([plain.done, plain.total]).toEqual([1, 3])
+  const deeper = parsePlan('p.md', '- [ ] root\n- Group\n  - [ ] g1\n  - Phase 2\n    - [ ] p2a\n')
+  expect(deeper.tasks.map(row)).toEqual(['root 0/1', 'g1 0/1', 'p2a 0/1'])
+
+  // Checkboxes inside fenced code are examples, not tasks.
+  const fenced = parsePlan('p.md', '- [ ] real\n```md\n- [ ] example\n  - [ ] nested\n```\n')
+  expect(fenced.tasks.map(row)).toEqual(['real 0/1'])
 })
 
 test('bar and isPlanPath', () => {
