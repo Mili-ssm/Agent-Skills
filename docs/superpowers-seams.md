@@ -1,15 +1,16 @@
 # Superpowers and agent-skills: overlaps and seams
 
-> Reference, not a decision. Nothing here changes an agent, skill, command or policy: each seam waits for the owner. The decided boundary lives in [requirements.md § Superpowers boundary](requirements.md#superpowers-boundary) (requirement R5). A seam the owner decides moves there or to an ADR, and its row leaves this file.
+> Reference, not a decision. Nothing here changes an agent, skill, command or policy: each open seam waits for the owner. The decided boundary lives in [requirements.md § Superpowers boundary](requirements.md#superpowers-boundary) (requirement R5). A decided seam is marked in the index with its ADR; its rows stay here as the evidence the decision rests on.
 
-As of 2026-11-15: Superpowers 7.0.2 (`22f0b463e7a5`), agent-skills `651e633`. [Recheck](#recheck-after-a-superpowers-update) after a Superpowers update: 6.4.2 → 7.0.2 already renamed files and changed scripts.
+As of 2026-11-15: Superpowers 7.0.2 (`22f0b463e7a5`), agent-skills `651e633`. [Recheck](#recheck-after-a-superpowers-update) after a Superpowers update: 6.4.2 → 7.0.2 already renamed files and changed scripts. Nine seams were decided on 2026-11-15 (ADR 0019): E1, E2, E3, P3, R1, R3, D2, D4, A1.
 
 ## Summary
 
+- **Decided seams keep their rows**: the tables describe the two plugins' texts, which did not change. The ruling for each decided seam is in ADR 0019 and in `user-config/routing.md`.
 - The two plugins rarely disagree on **intent**. They disagree on **action**: Superpowers puts the method in the main conversation and enforces it with gates and strong wording; agent-skills moves the work to named subagents with a fixed model and keeps the main conversation for decisions.
-- **Execution and general review have drifted from the declared boundary.** The boundary gives `executing-plans` and `requesting-code-review` to Superpowers; `user-config/routing.md` and `offload-policy.md` give both to `implementer` and `skeptical-reviewer` (seams E1, R1).
+- **Execution and general review had drifted from the declared boundary.** The boundary gave `executing-plans` and `requesting-code-review` to Superpowers while `user-config/routing.md` and `offload-policy.md` gave both to `implementer` and `skeptical-reviewer` (seams E1, R1). ADR 0019 rewrote the boundary.
 - **Planning is where agent-skills leans on Superpowers most, and where use falls short.** agent-skills has no plan writer and delegates to `writing-plans`, but the plan's hand-off leads into Superpowers execution, and 13 of the 22 sessions with three or more `implementer` dispatches had no plan activity (P3, [observed usage](#observed-usage)).
-- **Eleven of the 25 seams carry a conflict** ([index](#seam-index)). The ones that touch everyday work: parallel implementers (E1), who runs the proof of completion (R3), and mechanical fixes against the root-cause gate (D2).
+- **Eleven of the 25 seams carry a conflict** ([index](#seam-index)); eight of those are decided, and P1, A2 and A4 stay open. The ones that touch everyday work: parallel implementers (E1), who runs the proof of completion (R3), and mechanical fixes against the root-cause gate (D2).
 - **Complementary as written**: `brainstorming` with `intent-elicitation` (P2), `test-driven-development` with `qa-principles` (D3), `writing-skills` with `prompt-engineering` on process (A2).
 - **Only Superpowers has**: worktrees, the branch-finish menu, a resumable task ledger, spec-compliance review, a root-cause method. **Only agent-skills has**: cheap-model offload, specialist reviewers, `fact-checker`, `ui-verifier`, `pre-mortem`, ADRs and requirements, evals.
 
@@ -22,6 +23,7 @@ As of 2026-11-15: Superpowers 7.0.2 (`22f0b463e7a5`), agent-skills `651e633`. [R
 | `inferred` | Our reasoning from the two texts; not seen in a trace |
 | Boundary: agrees / drifted / silent | The seam matches a row of the declared boundary, contradicts it, or has no row |
 | SDD | The Superpowers skill `subagent-driven-development` |
+| Status: open / decided | Whether the owner has ruled on the seam, and in which ADR |
 
 Paths: Superpowers files are relative to its `skills/`; agent-skills files to `plugins/agent-skills/` unless they start with `user-config/` or `docs/`.
 
@@ -46,33 +48,33 @@ Paths: Superpowers files are relative to its `skills/`; agent-skills files to `p
 
 Kind: **conflict** (contradictory instructions), **double** (the same work done twice), **fit** (complementary as written), **coupling** (one depends on the other's format), **gap** (only one side covers it).
 
-| ID | Superpowers | agent-skills | Kind | Boundary |
-|---|---|---|---|---|
-| P1 | `brainstorming` | `feature-briefing` | fit, with one conflict at the hand-off | agrees |
-| P2 | `brainstorming` | `intent-elicitation`, `consistency-auditor` | fit | agrees |
-| P3 | `writing-plans` | no plan writer; ADR 0013 brief contract | conflict (plan detail, hand-off) | agrees on who writes the plan; silent on format and hand-off |
-| P4 | `writing-plans` self-review, SDD pre-flight | `pre-mortem` | double | agrees |
-| P5 | plan file format | `plan-progress` mod | coupling | silent |
-| P6 | design doc "Approaches" | `decision-records`, `change-impact` | double (decision in two places), gap | agrees |
-| E1 | SDD | `implementer`, routing "Execute a plan" | conflict | drifted |
-| E2 | `executing-plans` (inline) | offload row "more than ~20 changed lines" | conflict | drifted |
-| E3 | ledger, todos, `task-done` | none | gap | silent |
-| E4 | `dispatching-parallel-agents` | parallel briefs, `fixer` | double | silent |
-| E5 | `using-git-worktrees`, `finishing-a-development-branch` | `release-hygiene`; no worktree or finish step | gap, fit | silent |
-| R1 | `requesting-code-review`, SDD task reviewer | `skeptical-reviewer` | double, conflict (verdict form, rounds) | drifted |
-| R2 | `receiving-code-review` | triage line of the offload policy | fit | silent |
-| R3 | `verification-before-completion` | `check-runner`, "Before you reply" line | conflict | agrees, tension unstated |
-| R4 | one reviewer covering security, architecture, tests | `architect`, `security-reviewer`, `qa-engineer`, `ux-reviewer`, `doc-curator` | fit | agrees |
-| R5 | none | `fact-checker`, `ui-verifier` | gap | agrees |
-| D1 | `systematic-debugging` | `performance-analyst` | fit, with a shared trigger | agrees |
-| D2 | `systematic-debugging`, `test-driven-development` gates | `fixer` | conflict | silent |
-| D3 | `test-driven-development` | `qa-principles`, `qa-engineer` | fit | agrees |
-| D4 | `test-driven-development` "Always" | `refactoring`, `implementer` step 2 | conflict (strictness) | silent |
-| D5 | `condition-based-waiting.md`, `writing-good-tests.md` | `qa-engineer` flaky mode, `test-quality.md` | double (two rulebooks) | silent |
-| A1 | SessionStart hook, skill-first rule | offload and routing tables | conflict (order unstated) | silent |
-| A2 | `writing-skills` | `prompt-engineering`, `prompt-engineer`, ADR 0007 | fit on process, conflict on wording advice | agrees |
-| A3 | `diagnosing-superpowers` | none | gap | silent |
-| A4 | skills of 200 to 400 lines loaded into the main conversation | offload-first, N1 (`SKILL.md` ≤ 150 lines) | conflict (cost) | silent |
+| ID | Superpowers | agent-skills | Kind | Boundary | Status |
+|---|---|---|---|---|---|
+| P1 | `brainstorming` | `feature-briefing` | fit, with one conflict at the hand-off | agrees | open |
+| P2 | `brainstorming` | `intent-elicitation`, `consistency-auditor` | fit | agrees | open |
+| P3 | `writing-plans` | no plan writer; ADR 0013 brief contract | conflict (plan detail, hand-off) | agrees on who writes the plan; silent on format and hand-off | decided, ADR 0019 |
+| P4 | `writing-plans` self-review, SDD pre-flight | `pre-mortem` | double | agrees | open |
+| P5 | plan file format | `plan-progress` mod | coupling | silent | open |
+| P6 | design doc "Approaches" | `decision-records`, `change-impact` | double (decision in two places), gap | agrees | open |
+| E1 | SDD | `implementer`, routing "Execute a plan" | conflict | drifted | decided, ADR 0019 |
+| E2 | `executing-plans` (inline) | offload row "more than ~20 changed lines" | conflict | drifted | decided, ADR 0019 |
+| E3 | ledger, todos, `task-done` | none | gap | silent | decided, ADR 0019 |
+| E4 | `dispatching-parallel-agents` | parallel briefs, `fixer` | double | silent | open |
+| E5 | `using-git-worktrees`, `finishing-a-development-branch` | `release-hygiene`; no worktree or finish step | gap, fit | silent | open |
+| R1 | `requesting-code-review`, SDD task reviewer | `skeptical-reviewer` | double, conflict (verdict form, rounds) | drifted | decided, ADR 0019 |
+| R2 | `receiving-code-review` | triage line of the offload policy | fit | silent | open |
+| R3 | `verification-before-completion` | `check-runner`, "Before you reply" line | conflict | agrees, tension unstated | decided, ADR 0019 |
+| R4 | one reviewer covering security, architecture, tests | `architect`, `security-reviewer`, `qa-engineer`, `ux-reviewer`, `doc-curator` | fit | agrees | open |
+| R5 | none | `fact-checker`, `ui-verifier` | gap | agrees | open |
+| D1 | `systematic-debugging` | `performance-analyst` | fit, with a shared trigger | agrees | open |
+| D2 | `systematic-debugging`, `test-driven-development` gates | `fixer` | conflict | silent | decided, ADR 0019 |
+| D3 | `test-driven-development` | `qa-principles`, `qa-engineer` | fit | agrees | open |
+| D4 | `test-driven-development` "Always" | `refactoring`, `implementer` step 2 | conflict (strictness) | silent | decided, ADR 0019 |
+| D5 | `condition-based-waiting.md`, `writing-good-tests.md` | `qa-engineer` flaky mode, `test-quality.md` | double (two rulebooks) | silent | open |
+| A1 | SessionStart hook, skill-first rule | offload and routing tables | conflict (order unstated) | silent | decided, ADR 0019 |
+| A2 | `writing-skills` | `prompt-engineering`, `prompt-engineer`, ADR 0007 | fit on process, conflict on wording advice | agrees | open |
+| A3 | `diagnosing-superpowers` | none | gap | silent | open |
+| A4 | skills of 200 to 400 lines loaded into the main conversation | offload-first, N1 (`SKILL.md` ≤ 150 lines) | conflict (cost) | silent | open |
 
 ## Planning seams
 
@@ -143,6 +145,8 @@ Explicit hand-offs to Superpowers in this area: `observability` and `api-design`
 
 ## Where the declared boundary has drifted
 
+Resolved on 2026-11-15: the boundary table now follows ADR 0019. The table below records the drift as it was found, quoting the boundary rows of that date.
+
 | Boundary row | What the files do now |
 |---|---|
 | "`writing-plans` / `executing-plans`" owned by Superpowers; agent-skills adds `change-impact` and `pre-mortem` | `user-config/routing.md`: "Execute a plan" goes to `implementer` per task, `check-runner`, `skeptical-reviewer`. The offload row delegates plan tasks over ~20 changed lines |
@@ -192,16 +196,12 @@ Limits: the counts are a snapshot taken while the session that wrote this docume
 
 | # | Question | Seams |
 |---|---|---|
-| 1 | Who executes a plan: SDD, `implementer` rows, or SDD's controller loop with `implementer` as its subagent? | E1, E2, P3 |
-| 2 | Should the boundary table follow the current routing for execution and general review, or the routing return to the boundary? | E1, R1 |
-| 3 | Which plan format: the Superpowers template, a lighter task list, or the template with the execution method and folder supplied in advance? | P3, P5, E3 |
-| 4 | Is a subagent's PASS enough evidence for "done", and should a line say so? | R3 |
-| 5 | Should mechanical fixes be exempt from the root-cause gate in writing? | D2 |
-| 6 | How strict is test-first for code written by `implementer`? | D4 |
-| 7 | Is anything from the Superpowers task review worth adding to the `skeptical-reviewer` brief (spec compliance, confirming a fix)? | R1 |
-| 8 | Should a line state the order between the skill-first rule and the tables? | A1 |
-| 9 | Are worktrees and the branch-finish menu wanted in the agent-skills flow? | E5 |
-| 10 | Which Superpowers skills are worth their length in the main conversation? | A4 |
+| 1 | Does the plan loop run as ruled, with this plugin's agents in both roles? First plan run: read the trace against the kill criteria of ADR 0019 | ADR 0019 |
+| 2 | `feature-briefing` returns to its step 2 after `brainstorming`, whose text says to invoke `writing-plans` and no other skill: which exit holds? | P1 |
+| 3 | Are worktrees and the branch-finish menu wanted outside the plan loop? | E5 |
+| 4 | Which Superpowers skills are worth their length in the main conversation? | A4 |
+| 5 | Which wording standard applies to a skill written here when the two plugins' advice is opposite? | A2 |
+| 6 | Should a line order `systematic-debugging` and `performance-analyst` when code is slow? | D1 |
 
 ## Recheck after a Superpowers update
 

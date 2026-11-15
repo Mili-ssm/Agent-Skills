@@ -1,6 +1,6 @@
 # 0012 UI verification worker, worker commands through offload
 
-Status: accepted · Date: 2026-10-29 · Amends 0007, 0011 · Amended by 0017
+Status: accepted · Date: 2026-10-29 · Amends 0007, 0011 · Amended by 0017, 0021
 
 ## Context
 
@@ -50,3 +50,7 @@ Offload evals: Sonnet main and 3 runs per case unless noted; `ui-verifier` has 6
 
 - The first `ui-verifier` runs stopped as BLOCKED inside the eval's sandboxed Bash: a global Node Playwright without `NODE_PATH`, no `PLAYWRIGHT_BROWSERS_PATH`, and a read-only `$TMPDIR`. The agent now handles all three.
 - The implementer row now names the ~20-line threshold and the review step. A Sonnet main conversation still writes the code itself; delegating to a Sonnet worker would save it nothing.
+
+## Review 2026-11-15
+
+ADR 0021 extends the single copy to `user-config/routing.md`: the owner's user-level file is `offload-policy.md` and `routing.md` verbatim plus personal sections, and the review rows that existed only in that file now live in `routing.md`.

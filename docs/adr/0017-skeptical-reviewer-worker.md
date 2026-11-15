@@ -1,6 +1,6 @@
 # 0017 Skeptical after-action reviewer, Codex pair for Haiku medium
 
-Status: accepted · Date: 2026-11-03 · Amends 0007, 0010, 0012, 0014 · Amended by 0018
+Status: accepted · Date: 2026-11-03 · Amends 0007, 0010, 0012, 0014 · Amended by 0018, 0019
 
 ## Context
 
@@ -77,3 +77,9 @@ Full baseline the same day (2 runs): 17 trigger cases match their records (`arch
 The Decision's trigger floor ("at least ~20 changed lines or 2 files") was replaced on 2026-11-04 by the owner's simpler rule (whatever changed since the last review; Measurement 2026-11-04), which the policy states. The `/agent-skills:offload` row still carried the floor and now states the same rule (ADR 0018). Vendor data read 2026-11-12 (ADR 0018) supports keeping Haiku for a report the caller verifies, and shows why it is not the only gate for defects.
 
 The same day the owner raised `skeptical-reviewer` from effort `medium` to `high` (ADR 0018 Review 2026-11-12); its Codex port moves from `gpt-6-luna` `low` to `medium`.
+
+## Review 2026-11-15
+
+ADR 0019 makes `skeptical-reviewer` the task reviewer of the Superpowers plan loop and the reviewer after its last task; ADR 0021 moves the owner's review rows into `user-config/routing.md`.
+
+The kill criterion "More than 2 dispatches per change in a trace" no longer holds as written: one review per plan task and several narrow reviews per change are intended (owner, 2026-11-15). It now reads: more than one review with the same focus on the same change. In the 62 sessions measured, the reviewer was dispatched 496 times against 530 `implementer` dispatches.

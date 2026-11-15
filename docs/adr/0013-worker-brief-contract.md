@@ -1,6 +1,6 @@
 # 0013 Worker brief contract
 
-Status: accepted · Date: 2026-10-29
+Status: accepted · Date: 2026-10-29 · Amended by 0019
 
 ## Context
 
@@ -61,3 +61,7 @@ Brief graders stay at the baseline, or delegation in the offload cases drops bel
 ## Review 2026-10-30
 
 The prompt-authoring text that `docs-principles` held moved to `prompt-engineering` (ADR 0014); the brief contract is in its `references/skills-and-agents.md` § Worker briefs.
+
+## Review 2026-11-15
+
+Inside the Superpowers plan loop (ADR 0019) the brief points to the task brief file that the loop cuts from the plan and adds the six parts. It also asks for a local commit and a report file, because the loop builds its review package from them.

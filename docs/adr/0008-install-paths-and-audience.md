@@ -32,3 +32,7 @@ Others start using the plugin (add a license, pin versions per ADR 0006), or clo
 ## Review 2026-10-30
 
 Decision bullet 1 is amended by ADR 0011: the root is a marketplace only, and each plugin, `agent-skills` included, lives in `plugins/<name>/`.
+
+## Review 2026-11-15
+
+The repository is public on GitHub, on purpose (owner, 2026-11-15). The audience is still the owner alone: no license and no support for others. Adding a license is an open question in `docs/requirements.md`.

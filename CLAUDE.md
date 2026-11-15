@@ -1,13 +1,13 @@
 # Agent-Skills: maintainer notes
 
-Marketplace `mili-ssm`: the `agent-skills` plugin, three UI mods and generated Copilot/Codex ports. Developed mostly by Claude sessions; this file holds only what the code does not show. The offload table belongs in the user-level `~/.claude/CLAUDE.md` (source: `user-config/offload-policy.md`, ADR 0012), never here, because a second copy loads twice.
+Marketplace `mili-ssm`: the `agent-skills` plugin, two UI mods and generated Copilot/Codex ports. Developed mostly by Claude sessions; this file holds only what the code does not show. The offload table and the routing text belong in the user-level `~/.claude/CLAUDE.md` (sources: `user-config/offload-policy.md` and `user-config/routing.md`, ADR 0012, 0021), never here, because a second copy loads twice.
 
 ## Commands
 
 | When | Run |
 |---|---|
 | Before every commit (no CI or git hook enforces it, N5) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
-| After changing agents, skills, commands or `user-config/offload-policy.md` | `python3 scripts/port.py` (`--report` prints the mapping) |
+| After changing agents, skills, commands, `user-config/offload-policy.md` or `user-config/routing.md` | `python3 scripts/port.py` (`--report` prints the mapping) |
 | After changing a mod | `claude plugin validate plugins/<mod>`, `claude plugin test plugins/<mod>`; type-check with `tsc -p plugins/<mod>` after one `claude --plugin-dir plugins/<mod>` |
 | Measuring a description or prompt change | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<glob>'` (cases from § Eval protocol; one glob per invocation, `{a,b}` is not supported); offload cases add `--scaffold --allow-tools Bash Edit Write` and a sandbox |
 
@@ -21,13 +21,14 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, three UI mods and generated C
 |---|---|---|
 | Skill, agent or command | `plugins/agent-skills/{skills,agents,commands}/` | `port.py`; the README catalog row (validate.py checks names, model and preloads); the eval case when a description changes |
 | Offload table | `user-config/offload-policy.md` (single copy) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
+| Routing, plan loop and review rules | `user-config/routing.md` (single copy, ADR 0021) | `port.py`; no eval embeds it, so the ADR carries a kill criterion (N6) |
 | UI mod | `plugins/<mod>/` and its README | `docs/mods-surfaces.md` for anything a surface did unexpectedly |
 | Requirement | `docs/requirements.md` (keep IDs stable: `validate.py` cites them) | a flipped requirement needs an ADR |
 | Decision | new `docs/adr/NNNN-kebab-title.md` | ADR rules below |
 
 ## Rules the code does not show
 
-- Measure every description or prompt change before merging to `main` (N6, ADR 0007) with the § Eval protocol, and record the table in an ADR `## Review YYYY-MM-DD`. A change shipped without it is labeled unmeasured, with kill criteria.
+- Measure every change to a `description` or to `user-config/offload-policy.md` before merging to `main` (N6, ADR 0007, 0020) with the § Eval protocol, and record the table in an ADR `## Review YYYY-MM-DD`. Any other prompt change may ship labeled unmeasured, with kill criteria in its ADR.
 - One commit per description change, so a regression can be reverted alone.
 - No `version` in any `plugin.json` or marketplace entry: every commit is a version (ADR 0006).
 - Only the seven workers (`WORKERS` in `validate.py`) say "Use proactively" (ADR 0007, 0010).

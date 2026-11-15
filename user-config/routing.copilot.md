@@ -2,15 +2,15 @@
 
 ## Routing: which skill, agent or command for which need
 
-Pick by the need; Superpowers entries are skills of the [Superpowers](https://github.com/obra/superpowers) plugin. Commands never auto-trigger: run them when the need appears.
+Pick by the need; Superpowers entries are skills of the [Superpowers](https://github.com/obra/superpowers) plugin. Commands never auto-trigger: run them when the need appears. This table and the offload policy decide who does the work; a Superpowers skill loads when a row names it.
 
 | Need | Use |
 |---|---|
 | Recover or clarify intent, requirements, implicit decisions | `intent-elicitation` skill; `consistency-auditor` (`/consistency-audit`) for contradictions and stale decisions |
-| Plan a feature | `/brief <feature>` (`feature-briefing` skill), or Superpowers `brainstorming` then `writing-plans`; then `pre-mortem` (`/premortem`) before executing |
+| Plan a feature | `/brief <feature>` (`feature-briefing` skill), or Superpowers `brainstorming` (only while the design is open) then `writing-plans`; then `pre-mortem` (`/premortem`) before executing |
 | Blast radius of a significant change, migration, rollback | `change-impact` skill |
-| Fix a defect | Superpowers `systematic-debugging`, then `test-driven-development` |
-| Execute a plan | `implementer` per task, `check-runner` to verify, `skeptical-reviewer` after the changes land |
+| Fix a defect | Lint, type, format or import errors after a change: `fixer`, with no root-cause investigation. Any other defect, a test that fails on behavior, or the same error after 2 attempts: Superpowers `systematic-debugging`, then `test-driven-development` |
+| Execute a plan | A code plan with `### Task N` headings: Superpowers `subagent-driven-development` as the loop, with this plugin's agents (see "Plan loop" below). Any other plan or work: `implementer` per task with a six-part brief, `check-runner` to verify, `skeptical-reviewer` after the changes land |
 | Architecture, security, performance | `/arch-review`, `/security-audit`, `/perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
 | Tests and docs | `/qa-review`, `/doc-audit`; skills `qa-principles`, `docs-principles` |
 | Facts from outside the repository | `/research <questions>` (`web-research` skill) |
@@ -20,3 +20,26 @@ Pick by the need; Superpowers entries are skills of the [Superpowers](https://gi
 | UX and UI | `ux-principles` skill; `/ux-design` for a new feature, `/ux-review <url>` for an audit, `ui-verifier` for a changed page |
 | Decisions, refactoring, releases | `decision-records`, `refactoring`, `release-hygiene` skills |
 | Force a worker for a task | `/offload <task>` |
+
+### Plan loop
+
+The Superpowers `subagent-driven-development` skill supplies the loop: the order, the ledger and one task at a time. This plugin's agents fill both of its subagent roles, so where the skill's text differs from the lines below, the lines apply:
+
+- **Implementer**: `implementer`, dispatched with no model parameter: the agent file fixes its model, and this replaces the skill's rule to name a model at every dispatch. Its brief points to the task brief file, adds the six parts of a worker brief and says: follow the task's test-then-code steps, commit this task locally, and write the full report (commands run, failing and passing output) to the report path. That file is a deliverable, not a temporary file, and may be long; the reply stays short.
+- **Its result**: `DONE` with a non-empty "Open questions / risks" line counts as done with concerns; a stop for missing input counts as needing context; `BLOCKED — checkpoint` or `BLOCKED — turn budget` means the task is too big: split it.
+- **Task reviewer**: `skeptical-reviewer`, also with no model parameter, which replaces the skill's mid-tier floor for reviewers, after each task's commit. Its brief adds the text of the task and asks what is missing, extra or misunderstood against it.
+- **Verdicts are yours**: the reviewer returns doubts for you to verify, not a verdict, and your own spec and quality verdicts satisfy the skill's rule that both exist. A missing, extra or misunderstood item that you verified fails the spec check; a verified medium or high finding starts a fix round; low findings are deferred. You may reject a finding once you have verified it is wrong: record it in the ledger as a ruling.
+- **Fixes**: a fresh `implementer` per fix round, briefed with the findings you verified. Review round 1 follows the task commit and round 2 reviews the fixes; this replaces the skill's five-round cap. Confirm the fixes of round 2 from their report and a run of `check-runner`, with no third review. A finding still open then goes to the skill's breaker: park it with a ruling, or rule on the smallest change that unblocks the later tasks.
+- **End**: after the last task, several narrow `skeptical-reviewer` reviews in parallel replace the skill's whole-branch reviewer; they receive the deferred and parked lines of the ledger.
+
+### Reviews and proof of done
+
+| Situation | Do |
+|---|---|
+| Before a push, a pull request, a merge, a tag, or a commit on a branch that already has an upstream on the remote | `skeptical-reviewer` on `git status`, the staged diff and, for a pull request or merge, its file list; triage the findings before taking the step, because a step that looks done can be empty or partial. The exception is the implementer's task commits in the plan loop: review each one right after it |
+| Before closing a task you ran against a plan, a skill, a checklist or the project's done criteria | `skeptical-reviewer` as a process review: pass the rules that applied and the steps you took, each with its evidence, because the author's own checklist misses what it forgot |
+| A change with several parts | Several narrow reviews in parallel instead of one broad one, each with one focus and its own paths: the code, the diff or step itself, the docs against the code, architecture and organization |
+
+Review brief: what changed, the intent, the rules that apply, what is already verified, the round number and the findings already rejected. Stop after round 2: the offload rules to re-run the reviewer after fixing and before replying add no third round, so confirm the last fixes with `check-runner` and your own reading.
+
+A PASS from `check-runner` is evidence when its report names the command and the result; read its `Not run:` line. Before a commit you make yourself, a push or a pull request, rerun yourself the single command that proves the acceptance criterion (the task's named test, or the build) and keep only its summary line.
