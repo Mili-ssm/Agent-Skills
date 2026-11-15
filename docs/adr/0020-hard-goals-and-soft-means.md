@@ -33,4 +33,4 @@ The recorded trigger and offload figures were measured with Sonnet or Opus as th
 
 ## Revisit if
 
-An unmeasured change is reverted for regressing in use; or a goal turns out to be a means (a cheaper way reaches the same end).
+An unmeasured change is reverted for regressing in use; or the owner drops or rewrites a goal.

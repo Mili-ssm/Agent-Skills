@@ -16,7 +16,7 @@ The owner decided each row on 2026-11-15 (`intent-elicitation`). R5 now requires
 
 | Seam | Ruling |
 |---|---|
-| E1, E2, E3, P3 | An approved code plan runs in the `subagent-driven-development` loop: its order, its ledger, one task at a time. `implementer` is its implementer and commits each task locally |
+| E1, E2, E3, P3 | An approved code plan runs in the `subagent-driven-development` loop: its order, its ledger, one task at a time. `implementer` is its implementer and commits each task locally. `writing-plans` writes the plan; `brainstorming` comes first only while the design is open |
 | seam R1 | `skeptical-reviewer` reviews each task; its brief adds the task text (missing, extra, misunderstood). The main conversation forms the verdicts. Two review rounds per task. After the last task, narrow parallel `skeptical-reviewer` reviews replace the loop's whole-branch reviewer |
 | seam R3 | A `check-runner` PASS is evidence when it names the command and the result; the main conversation reruns the decisive check before a commit of its own, a push or a pull request |
 | D2 | Lint, type, format and import errors go to `fixer` with no root-cause investigation; the same error after 2 attempts, or a test failing on behavior, goes to `systematic-debugging` |
@@ -38,6 +38,7 @@ The owner decided each row on 2026-11-15 (`intent-elicitation`). R5 now requires
 ## Consequences
 
 - `routing.md` gains a "Plan loop" section of six bridging lines, loaded in every session. It ships unmeasured (N6).
+- This record holds one decision, how the two plugins fit, as one ruling per seam. A ruling that changes gets its own ADR that amends this one.
 - The loop expects verdicts, a report file and a commit per task; the lines say who supplies each. The reviewer stays advisory, so the main conversation decides "needs fixes".
 - Loading the skill costs about 4,900 tokens per plan execution.
 - Seams P1, P2, P4-P6, E4, E5, D1, D3, D5, A2-A4 and seams R2, R4 and R5 stay open or already fit.
@@ -47,6 +48,8 @@ The owner decided each row on 2026-11-15 (`intent-elicitation`). R5 now requires
 A Superpowers update changes the loop's scripts or prompts; or the owner reports worse results (G8).
 
 ### Kill criteria
+
+Proposed with this record; the owner has not set them.
 
 | Signal in a trace of a plan run | Action |
 |---|---|

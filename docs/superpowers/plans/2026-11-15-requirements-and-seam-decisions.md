@@ -18,6 +18,7 @@ Goal: record the owner's decisions of 2026-11-15 so that requirements, ADRs, the
 | 10 | The repository is the single source of the user-level rules: the review rows that exist only in the owner's CLAUDE.md move into `user-config/routing.md` (not into `offload-policy.md`) | R1, R3 |
 | 11 | The repository is public on purpose; ADR 0008 gets a review note; a license stays an open question | none |
 | 12 | No Superpowers skill is blocked in settings | none |
+| 13 | `brainstorming` precedes `writing-plans` only while the design is open (owner, earlier the same day, when approving the plan-rule changes) | P3 |
 
 Goals: G1 the main conversation decides and cheaper models read, run and write bounded code. G2 nothing is called done without evidence and a fresh-context review. G3 long work survives a compaction and the owner can see where it is. G4 intent is recovered before a broad change. G5 each specialist finding cites a principle and evidence. G6 documentation is dense: the why, no duplicates. G7 the two plugins give no contradictory instruction for one task. G8 current performance does not get worse.
 
@@ -26,9 +27,9 @@ Goals: G1 the main conversation decides and cheaper models read, run and write b
 | Finding | Outcome |
 |---|---|
 | The loop expects a commit, a report file, status words, two verdicts and up to five fix rounds that the two agents do not provide | Six bridging lines in `routing.md` "Plan loop" say who supplies each |
-| The skill tells the main conversation to name a model at every dispatch | Both role lines say "without a model override" |
+| The skill tells the main conversation to name a model at every dispatch | Both role lines say "no model parameter" |
 | `task-brief` needs `### Task N` headings | The "Execute a plan" row limits the loop to plans with those headings |
-| "Shared branch" was undefined | Written as "a branch that exists on the remote" |
+| "Shared branch" was undefined | Written as "a branch that already has an upstream on the remote" |
 | Seam IDs R1 and R3 collide with requirement IDs | ADRs write "seam R1", "seam R3" |
 | Deleting decided seam rows would drop evidence that pull request #113 carries | Rows stay; the index gains a Status column |
 | The routing change ships unmeasured | Kill criteria in ADR 0019; N6 reworded by ADR 0020 |
@@ -43,5 +44,5 @@ Goals: G1 the main conversation decides and cheaper models read, run and write b
 - [x] README and maintainer notes: boundary sentences, workflow diagram, mod count. Check: no sentence says Superpowers owns execution or general review.
 - [x] `docs/superpowers-seams.md`: decided seams are marked in the index with the ADR and keep their rows; summary and open questions updated. Check: 9 decided and 16 open rows; summary counts match.
 - [x] Proposal for the owner's user-level CLAUDE.md updated (outside this repository; the real file is not edited). Check: its offload section equals `user-config/offload-policy.md`.
-- [ ] Reviews: prompt review of `routing.md`, narrow reviews of the diff, a process review; findings triaged. Check: round 2 at most.
-- [ ] Commit, push and pull request based on `docs/superpowers-seams`; not merged. Check: `gh pr view --json files` matches `git diff --stat`.
+- [x] Reviews: prompt review of `routing.md`, narrow reviews of the diff, a process review; findings triaged. Check: round 2 at most. Outcome: prompt review 10 findings applied; fact-check about 95 claims, 2 corrected; consistency review 5 findings, 3 fixed and 2 rejected, round 2 clean; process review 6 fixed, 3 rejected.
+- [x] Commit, push and pull request based on `docs/superpowers-seams`; not merged. Check: `gh pr view --json files` matches `git diff --stat`.

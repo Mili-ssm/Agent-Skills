@@ -82,4 +82,4 @@ The same day the owner raised `skeptical-reviewer` from effort `medium` to `high
 
 ADR 0019 makes `skeptical-reviewer` the task reviewer of the Superpowers plan loop and the reviewer after its last task; ADR 0021 moves the owner's review rows into `user-config/routing.md`.
 
-The kill criterion "More than 2 dispatches per change in a trace" no longer holds as written: one review per plan task and several narrow reviews per change are intended (owner, 2026-11-15). It now reads: more than one review with the same focus on the same change. In the 62 sessions measured, the reviewer was dispatched 496 times against 530 `implementer` dispatches.
+The kill criterion "More than 2 dispatches per change in a trace" no longer holds as written: one review per plan task and several narrow reviews per change are intended (owner, 2026-11-15). No replacement criterion has been set by the owner; ADR 0021 proposes one for the review rows. In the 62 sessions measured, the reviewer was dispatched 496 times against 530 `implementer` dispatches.

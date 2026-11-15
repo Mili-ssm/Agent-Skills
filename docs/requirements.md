@@ -85,3 +85,5 @@ No routing row names `executing-plans`, `requesting-code-review` or `dispatching
 | Re-measure trigger and offload figures with the current main model | A measured text changes (ADR 0020) |
 | Declare that `plan-progress` depends on the Superpowers plan format | The mod next changes, or a Superpowers update changes the plan template (ADR 0011) |
 | Install the `Explore` override of `user-agents/` locally | The owner sees `Explore` run on the main model |
+
+The last two rows come from the 2026-11-15 audit and have not been put to the owner.

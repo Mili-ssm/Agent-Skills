@@ -31,9 +31,11 @@ By 2026-11-15 the owner's deployed file had grown apart from it: three review ro
 
 ## Revisit if
 
-`scripts/port.py` handles more source files; or the review rows need measuring, in which case they move into the text the evals embed.
+`scripts/port.py` handles more source files; or a review row is reverted under the kill criteria below.
 
 ### Kill criteria
+
+Proposed with this record; the owner has not set them.
 
 | Signal in a trace | Action |
 |---|---|
