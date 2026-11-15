@@ -35,6 +35,7 @@ Kind: functional (states a goal) or technical (a chosen means); hard or soft as 
 | R3 | Docs work shall remove every sentence that is derivable from code or duplicated elsewhere, while keeping rationale, constraints and gotchas. | G6 | functional, hard | — |
 | R4 | When intent is unclear, the plugin shall infer it from code and docs, interview the owner until each high-impact finding is resolved or explicitly deferred, and rate stale decisions with the staleness rubric; for projects, features and significant changes. | G4 | functional, hard | — |
 | R5 | Where this plugin and Superpowers cover the same task, the routing text shall name the one that applies and what the other contributes (table below, ADR 0019). | G7 | functional, hard; the table is technical, soft | A Superpowers update changes a skill the table names |
+| R6 | The model shall load this plugin's skills and dispatch its agents when the task matches, without the owner naming them; the skills that interview the owner and the two costliest agents, `architect` and `security-reviewer`, keep a narrower trigger (ADR 0022). | none stated | functional, soft (owner preference, 2026-11-15) | The owner makes it a goal, or unasked dispatches raise cost |
 
 ## Non-functional
 
@@ -85,5 +86,6 @@ No routing row names `executing-plans`, `requesting-code-review` or `dispatching
 | Re-measure trigger and offload figures with the current main model | A measured text changes (ADR 0020) |
 | Declare that `plan-progress` depends on the Superpowers plan format | The mod next changes, or a Superpowers update changes the plan template (ADR 0011) |
 | Install the `Explore` override of `user-agents/` locally | The owner sees `Explore` run on the main model |
+| Keep, reduce or retire the 14 user-only commands (N8): none was typed in 62 sessions | The next change to a command (ADR 0022) |
 
-The last two rows come from the 2026-11-15 audit and have not been put to the owner.
+The `plan-progress`, `Explore` and commands rows come from the 2026-11-15 audit and have not been put to the owner.
