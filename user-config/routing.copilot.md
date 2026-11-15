@@ -2,24 +2,19 @@
 
 ## Routing: which skill, agent or command for which need
 
-Pick by the need; Superpowers entries are skills of the [Superpowers](https://github.com/obra/superpowers) plugin. Commands never auto-trigger: run them when the need appears. This table and the offload policy decide who does the work; a Superpowers skill loads when a row names it.
+Use skills and agents on your own initiative: the owner rarely names one. When a row below matches the work in front of you, load the skill or dispatch the agent, and say in one line, the first time in a task, which one and why. Skip the knowledge skills and the specialists for a question you can answer from what you have read and for an edit under ~20 lines that touches no contract, schema or input handling. The offload policy and the review rows below keep their own triggers, and a row's own condition still applies. This table and the offload policy decide who does the work; a skill of the [Superpowers](https://github.com/obra/superpowers) plugin loads when a row names it. The owner's manual entries to the same skills and agents (slash commands in Claude Code) never auto-trigger, and you cannot run them.
 
 | Need | Use |
 |---|---|
-| Recover or clarify intent, requirements, implicit decisions | `intent-elicitation` skill; `consistency-auditor` (`/consistency-audit`) for contradictions and stale decisions |
-| Plan a feature | `/brief <feature>` (`feature-briefing` skill), or Superpowers `brainstorming` (only while the design is open) then `writing-plans`; then `pre-mortem` (`/premortem`) before executing |
+| Recover or clarify intent, requirements, implicit decisions | `intent-elicitation` skill, only while the intent is unclear, because it interviews the owner; `consistency-auditor` for contradictions and stale decisions |
+| Plan a feature | `feature-briefing` skill when the plan needs evidence from several sources, or Superpowers `brainstorming` (only while the design is open) then `writing-plans`; then `pre-mortem` before executing |
 | Blast radius of a significant change, migration, rollback | `change-impact` skill |
-| Fix a defect | Lint, type, format or import errors after a change: `fixer`, with no root-cause investigation. Any other defect, a test that fails on behavior, or the same error after 2 attempts: Superpowers `systematic-debugging`, then `test-driven-development` |
+| Fix a defect | Lint, type, format or import errors, or tests broken by a rename or refactor: `fixer`, with no root-cause investigation. Any other defect, a test that fails on behavior, or the same error after 2 attempts: Superpowers `systematic-debugging`, then `test-driven-development` |
 | Execute a plan | A code plan with `### Task N` headings: Superpowers `subagent-driven-development` as the loop, with this plugin's agents (see "Plan loop" below). Any other plan or work: `implementer` per task with a six-part brief, `check-runner` to verify, `skeptical-reviewer` after the changes land |
-| Architecture, security, performance | `/arch-review`, `/security-audit`, `/perf-review`; their skills `architecture-principles`, `security-principles`, `observability` load on their own |
-| Tests and docs | `/qa-review`, `/doc-audit`; skills `qa-principles`, `docs-principles` |
-| Facts from outside the repository | `/research <questions>` (`web-research` skill) |
-| Check a text against the sources it cites | `/fact-check <document> <sources>` (`fact-checker`) |
-| API contracts | `api-design` skill |
-| Prompts, skills, agent definitions, CLAUDE.md | `prompt-engineering` skill |
-| UX and UI | `ux-principles` skill; `/ux-design` for a new feature, `/ux-review <url>` for an audit, `ui-verifier` for a changed page |
-| Decisions, refactoring, releases | `decision-records`, `refactoring`, `release-hygiene` skills |
-| Force a worker for a task | `/offload <task>` |
+| Writing, changing or briefing work on one of these | Load the skill first: `api-design` (an endpoint, route, webhook, status code or error format); `security-principles` (code that takes user input, uploads, auth, redirects or secrets); `qa-principles` (choosing which test cases to write); `observability` (logging, metrics, health checks or alerts); `refactoring` (restructuring with behavior unchanged); `docs-principles` (a README or docs rewrite); `decision-records` (a decision to record); `release-hygiene` (a version, changelog entry or tag); `prompt-engineering` (a prompt, skill, agent definition or CLAUDE.md); `ux-principles` (a page, form or user flow); `architecture-principles` (module boundaries or coupling). `implementer` does not load skills, so put the few rules that apply into its brief, not the skill text |
+| A specialist question: an assessment that needs a fresh context, where a skill is for work you do yourself | The agent whose description matches: `architect` (the structure of a codebase, design or plan), `security-reviewer`, `performance-analyst` (something slow, or an optimization to verify), `qa-engineer` (test strategy or coverage gaps), `doc-curator` (a docs audit), `ux-reviewer` (how a UI looks and reads), `fact-checker` (a text against the sources it cites), `prompt-engineer` (a set of prompt files, or a trace). `architect` and `security-reviewer` cost the most: use them for work that spans several modules, or for a design, plan or security surface under review |
+| Full project assessment, when the owner asks to assess the whole project | `architect`, `qa-engineer`, `security-reviewer` and `doc-curator` in parallel |
+| Facts from outside the repository | `web-research` skill |
 
 ### Plan loop
 
@@ -37,8 +32,8 @@ The Superpowers `subagent-driven-development` skill supplies the loop: the order
 | Situation | Do |
 |---|---|
 | Before a push, a pull request, a merge, a tag, or a commit on a branch that already has an upstream on the remote | `skeptical-reviewer` on `git status`, the staged diff and, for a pull request or merge, its file list; triage the findings before taking the step, because a step that looks done can be empty or partial. The exception is the implementer's task commits in the plan loop: review each one right after it |
-| Before closing a task you ran against a plan, a skill, a checklist or the project's done criteria | `skeptical-reviewer` as a process review: pass the rules that applied and the steps you took, each with its evidence, because the author's own checklist misses what it forgot |
-| A change with several parts | Several narrow reviews in parallel instead of one broad one, each with one focus and its own paths: the code, the diff or step itself, the docs against the code, architecture and organization |
+| Before closing a task you ran against a plan, a skill, a checklist or the project's done criteria | `skeptical-reviewer` as a process review: pass the rules that applied and the steps you took, each with its evidence, and ask whether any step was skipped, misordered or claimed without evidence, because the author's own checklist misses what it forgot |
+| A change with several parts | Several narrow reviews in parallel instead of one broad one, because the reviewer is cheap but weak. Each has one focus, its own paths, a concrete question and what to look for: the code, the diff or step itself, the docs against the code, architecture and organization |
 
 Review brief: what changed, the intent, the rules that apply, what is already verified, the round number and the findings already rejected. Stop after round 2: the offload rules to re-run the reviewer after fixing and before replying add no third round, so confirm the last fixes with `check-runner` and your own reading.
 

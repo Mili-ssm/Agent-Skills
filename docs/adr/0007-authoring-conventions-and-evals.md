@@ -1,6 +1,6 @@
 # 0007 Anthropic authoring conventions, measured by evals
 
-Status: accepted · Date: 2026-10-27 · Amended by 0010, 0012, 0014, 0017, 0020
+Status: accepted · Date: 2026-10-27 · Amended by 0010, 0012, 0014, 0017, 0020, 0022
 
 ## Context
 
@@ -91,3 +91,5 @@ Targeted protocol (CLAUDE.md § Eval protocol) for the 2026-10-30 prompt review:
 ## Review 2026-11-15
 
 ADR 0020 narrows N6: a change to a `description` or to `user-config/offload-policy.md` is measured; any other prompt change may ship labeled unmeasured, with a kill criterion. The figures recorded here were measured with an earlier main model and stand as a baseline until a measured text changes.
+
+ADR 0022 changes "auto-triggering is a bonus": the owner wants skills and agents used without naming them (R6), and the routing text now says so. The descriptions and their measured figures are unchanged.
