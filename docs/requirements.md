@@ -39,6 +39,8 @@ Current as of 2026-10-30. Source: owner conversation and `intent-elicitation` in
 
 ## Superpowers boundary
 
+Evidence, drift from this table and the seams still open: [superpowers-seams.md](superpowers-seams.md).
+
 | Superpowers owns | This repo adds |
 |---|---|
 | `brainstorming` (new designs) | `intent-elicitation` + `consistency-auditor` (existing code/docs) |
