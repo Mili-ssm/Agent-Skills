@@ -51,3 +51,13 @@ Proposed with this record; the owner has not set them.
 | Over 10 sessions, loads of this plugin's skills exceed 1.2 per session (0.56 measured) with no better result | Narrow the knowledge-skill row |
 | A skill that interviews the owner starts on a task whose intent was clear, in 2 traces | Tighten its row |
 | After 10 multi-task sessions, the four unused knowledge skills are still never loaded before a matching brief | Move the brief rule into the offload policy, which needs its evals |
+
+## Review 2026-11-15
+
+The owner reviewed the 14 commands the same day and decided:
+
+- The commands stay as they are, as the owner's manual entry, although none was typed in 62 sessions. They cost no context, and removing them would change `validate.py` and `port.py`. The text of N8 is unchanged; its "Reopen when" cell records this decision.
+- Two rules lived only in the commands, so they never applied to a dispatch the model started. Both move into the specialist row of `routing.md`: every finding of a specialist is relayed, none dropped, in the owner's reply format, followed by the decisions it leaves to the owner; and `doc-curator`, `qa-engineer` and `performance-analyst` run in their read-only mode unless the owner asked for the edit.
+- `prompt-engineer` reviews a changed prompt, skill, agent definition or CLAUDE.md even when it is one file. This was the last rule that lived only in the owner's user-level file.
+
+Kill criterion, proposed with this note: a specialist's finding missing from the reply, or an edit mode started without the owner's request, in 2 traces → restate the rule in the offload policy, which needs its evals.

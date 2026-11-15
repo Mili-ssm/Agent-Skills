@@ -48,7 +48,7 @@ Kind: functional (states a goal) or technical (a chosen means); hard or soft as 
 | N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). | G8 | technical, soft | CI or a git hook is added |
 | N6 | Changes to a skill or agent `description` and to `user-config/offload-policy.md` are measured with `claude plugin eval` (trigger and no-trigger cases) against the previous version. Any other prompt change may ship labeled unmeasured, with a kill criterion in its ADR. | G8 | technical, soft | An unmeasured change is reverted for regressing in use |
 | N7 | Agents whose description says "Read-only" block Edit, Write and NotebookEdit via `disallowedTools`, not via prompt text. | G2 | technical, soft | The platform offers a stronger read-only mode |
-| N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. | G8 | technical, soft | Auto-triggering becomes reliable in trigger evals |
+| N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. | G8 | technical, soft | A command needs maintenance, or the owner starts typing them (kept unused, owner 2026-11-15, ADR 0022) |
 | N9 | Reading, checks, browser verification and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. | G1 | functional, hard; the model names are technical, soft | Model tiers or prices change |
 | N10 | A worker's brief carries what only the main conversation knows: goal and acceptance, scope and what not to touch, decisions with their reasons, checks, a stop rule, report bounds; tasks with open design are not delegated (ADR 0013). Measured on the `implementer` offload case. | G1, G8 | technical, soft | Subagents can see the conversation or ask the owner |
 | N11 | Navigation of long files costs no model tokens to compute: `outline.py` prints line ranges on demand and nothing stores line numbers; `summarizer` returns answers, outlines or verbatim extracts and `check-runner` runs any long read-only command, so raw text stays out of the main context (ADR 0014). | G1 | technical, soft | The harness provides outlines natively |
@@ -86,6 +86,5 @@ No routing row names `executing-plans`, `requesting-code-review` or `dispatching
 | Re-measure trigger and offload figures with the current main model | A measured text changes (ADR 0020) |
 | Declare that `plan-progress` depends on the Superpowers plan format | The mod next changes, or a Superpowers update changes the plan template (ADR 0011) |
 | Install the `Explore` override of `user-agents/` locally | The owner sees `Explore` run on the main model |
-| Keep, reduce or retire the 14 user-only commands (N8): none was typed in 62 sessions | The next change to a command (ADR 0022) |
 
-The `plan-progress`, `Explore` and commands rows come from the 2026-11-15 audit and have not been put to the owner.
+The `plan-progress` and `Explore` rows come from the 2026-11-15 audit and have not been put to the owner.
