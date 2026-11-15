@@ -1,6 +1,6 @@
 # 0007 Anthropic authoring conventions, measured by evals
 
-Status: accepted · Date: 2026-10-27 · Amended by 0010, 0012, 0014, 0017
+Status: accepted · Date: 2026-10-27 · Amended by 0010, 0012, 0014, 0017, 0020
 
 ## Context
 
@@ -87,3 +87,7 @@ Targeted protocol (CLAUDE.md § Eval protocol) for the 2026-10-30 prompt review:
 - No kill criterion fired and every case was unanimous, so no 6-run rerun against `main` was needed.
 - Not covered by any suite: `Explore` (user scope, not loaded by plugin evals), `fixer` (no trigger or offload case), skill bodies, references and commands.
 - `--case` takes one glob per invocation; `{a,b}` matched no case.
+
+## Review 2026-11-15
+
+ADR 0020 narrows N6: a change to a `description` or to `user-config/offload-policy.md` is measured; any other prompt change may ship labeled unmeasured, with a kill criterion. The figures recorded here were measured with an earlier main model and stand as a baseline until a measured text changes.
