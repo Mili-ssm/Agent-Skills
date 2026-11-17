@@ -2715,11 +2715,17 @@ def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
     return "expired" if m.valid_until is not None and m.valid_until < today else None
 
 
+def _unconfirmed(m: records.Memory) -> str:
+    """A web finding is unchecked until a second source confirms it."""
+    return ", web, unconfirmed" if m.origin == "web" else ""
+
+
 def _memory_line(m: records.Memory, today: datetime.date) -> str:
     dead = _memory_status(m, today)
     created = m.created.isoformat() if m.created else "undated"
     claim = " ".join(m.claim.split())  # a hand-edited tab or newline must not add a column
-    return f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{claim}"
+    return (f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+            f"{', ' + dead if dead else ''}]\t{claim}")
 
 
 def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
@@ -3329,7 +3335,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
             exclude_failed = True
     try:
         m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
-                                 context=args.context, valid_until=args.valid_until, sources=args.source)
+                                 context=args.context, valid_until=args.valid_until, sources=args.source,
+                                 origin=getattr(args, "origin", None))
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3836,7 +3843,8 @@ def cmd_memories(args: argparse.Namespace) -> int:
     for m in shown:
         dead = _memory_status(m, today)
         created = m.created.isoformat() if m.created else "undated"
-        print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
+        print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+              f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
     return 0
 
 
@@ -4141,7 +4149,8 @@ def _curate_new_since(args: argparse.Namespace) -> int:
         if last is not None:
             cutoff = max(cutoff, datetime.datetime.combine(last + datetime.timedelta(days=1), datetime.time.min).timestamp())
         today = datetime.date.today()
-        paths += [m.path for m in records.load_memories(memories, "global") if m.error is None and records.is_live(m, today)]
+        paths += [m.path for m in records.load_memories(memories, "global") if m.error is None and records.is_live(m, today)
+                  and m.origin is None]  # a pipeline's own writes must not start the next run
     if store is not None and store.is_dir():
         paths += [store / n.rel for n in discover_notes(store) if n.error is None]
     count = 0
@@ -5751,6 +5760,8 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--context")
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
+    remember_parser.add_argument("--origin", choices=records.ORIGINS,
+                                 help="where the claim came from when not a session: a web finding or a pipeline's write")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
