@@ -181,6 +181,16 @@ The agent's choices, all reversible, not ruled on by the owner: the command plus
 
 An idea the owner raised without making it a requirement: a conclusion that lists the conclusions it builds on, apart from its sources, so conclusions can be composed.
 
+Further ideas and requests of the owner (2026-11-17), with their state:
+
+| Idea | State |
+|---|---|
+| Low-confidence notes stay in the project first and move to the global scope in a later curation pass, to keep the global memory clean | To explore with real use. Writing already defaults to the project and `--global` is explicit; the idea would make "when in doubt, the project" the rule and promotion the only way up |
+| One query searches the global and the project memory at once | Built: `mem search` covers both and labels each block |
+| A curation pass is suggested after many memories were stored in a project or within one session, run by subagents so the main context stays clean, possibly in parallel | The session index announces a due pass at start; a reminder printed by `mem remember` when the threshold is passed within a session is to be added |
+| Skills hold the procedures for everything beyond a query or a simple write (curation, cleaning, syntheses) | Built: `memory-curation` and `memory-synthesis`; the start text covers only recall and writing |
+| Field research on comparable plugins: how they do it, what to take, what this one does better | Started 2026-11-17: five research passes (capture, curation and consolidation, retrieval and injection, storage and sync, evaluation); results go to a document in this repository |
+
 Not settled: which of the three means handles Spanish prompts; whether old unconfirmed memories rank lower; the thresholds of the bands; the sync repository.
 
 ## Evidence
