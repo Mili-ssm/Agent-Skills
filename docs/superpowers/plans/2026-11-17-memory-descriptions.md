@@ -2,7 +2,7 @@
 
 Four `description` changes proposed by the prompt audit of 2026-11-17 (`2026-11-17-memory-prompts-and-loop.md`, section Audit). Each is measured before and after and lands in its own commit, so one can be reverted alone (CLAUDE.md: N6, eval protocol). The owner asked for the tests on 2026-11-17.
 
-**Status:** in progress.
+**Status:** done 2026-11-17; all four changes kept.
 
 ## Rules
 
@@ -21,9 +21,25 @@ Four `description` changes proposed by the prompt audit of 2026-11-17 (`2026-11-
 
 ## Tasks
 
-- [ ] The two new cases, modeled on the existing trigger cases, each seen to run.
-- [ ] Changes 1 to 4, each: baseline, change, new run, table row below, own commit (or a recorded revert).
+- [x] The two new cases, modeled on the existing trigger cases, each seen to run.
+- [x] Changes 1 to 4, each: baseline, change, new run, table row below, own commit (or a recorded revert).
 
 ## Results
 
-Pending.
+Sonnet main model, `--ablation none`, temporary store and data folders under `target/`. Fired = the case's grader matched.
+
+| # | Case | Baseline | New | Decision |
+| --- | --- | --- | --- | --- |
+| 1 | `trigger/memory-synthesis` | 2/2 | 2/2 | kept |
+| 2 | `trigger/memory` | 2/2 | 2/2 | kept |
+| 2 | `routing/run_trials.py` (9 cases) | 9/9 | 9/9 | kept |
+| 3 | `trigger/memory-recorder-after-compaction` | 2/2 | 2/2 | kept |
+| 4 | `trigger/memory-curator-due` | 1/2, rerun at 6: 3/6 | 1/2, rerun at 6: 2/6 | kept (drop of 1 of 6, below the revert threshold) |
+
+Cost: about 1.6 USD for the `claude plugin eval` runs (reported by the tool, including the first runs of the new cases); the 18 routing sessions report no cost, estimated at most 3 USD. Running total stays under the 8 USD budget.
+
+Limits of the measurement:
+
+- The routing run for change 2 used the text before a punctuation fix (" -, and" became " - and"); the trigger case ran on the final text.
+- `memory-recorder-after-compaction` is not discriminating: the baseline already fires 2/2, mostly through the `memory` skill and `mem remember` (the grader accepts either), not through the `memory-recorder` agent. Bash is denied in the eval, so the session reports it could not write.
+- `memory-curator-due` is weak at baseline (3/6): a session-start notice inside the user prompt is a weaker signal than the real hook text. The change is not shown to help or hurt within this noise.
