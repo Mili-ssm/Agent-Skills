@@ -2293,14 +2293,64 @@ def log_usage(root: Path | None, entry: dict[str, Any], *, env: Mapping[str, str
         pass
 
 
+def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
+    try:
+        project = records.project_root(Path.cwd(), os.environ)
+    except OSError:
+        project = None
+    return [("project", records.project_dir(project) if project else None),
+            ("global", records.memories_root(os.environ, _optional_store(args)))]
+
+
+def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
+    if m.status != "active":
+        return m.status
+    return "expired" if m.valid_until is not None and m.valid_until < today else None
+
+
+def _memory_line(m: records.Memory, today: datetime.date) -> str:
+    dead = _memory_status(m, today)
+    created = m.created.isoformat() if m.created else "undated"
+    return f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{m.claim}"
+
+
+def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
+    facts = f"kind: {m.kind} \u00b7 observed {m.observed} \u00b7 status {m.status} \u00b7 created {m.created.isoformat() if m.created else 'undated'}"
+    if m.valid_until:
+        facts += f" \u00b7 valid until {m.valid_until.isoformat()}"
+    if m.context:
+        facts += f" \u00b7 context: {m.context}"
+    out = [f"== m:{m.handle} ({m.scope})", facts, "", "## Claim", m.claim]
+    if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
+        out += ["", m.body.rstrip("\n")]
+    return "\n".join(out)
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     if args.ranges and not args.outline:
         build_parser().error("--ranges needs --outline")
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return 2
-    blocks, shown, ok = show(args.root, args.paths, sections=args.section, outline=args.outline,
-                             ranges=args.ranges)
+    if any(a.startswith("m:") for a in args.paths):
+        blocks, shown, ok = [], [], True
+        for arg in args.paths:
+            if arg.startswith("m:"):
+                found = _find_memory(args, arg[2:])
+                if found is None:
+                    print(f"mem: no memory {arg}", file=sys.stderr)
+                    blocks.append(f"== {arg}\n(not found)")
+                    ok = False
+                else:
+                    blocks.append(_memory_block(found, args.section))
+                continue
+            b, sh, o = show(args.root, [arg], sections=args.section, outline=args.outline, ranges=args.ranges)
+            blocks += b
+            shown += sh
+            ok = ok and o
+    else:
+        blocks, shown, ok = show(args.root, args.paths, sections=args.section, outline=args.outline,
+                                 ranges=args.ranges)
     print("\n\n".join(blocks))
     if ok:
         log_usage(args.root, {"cmd": "show", "paths": list(dict.fromkeys(shown)), "sections": args.section or [],
@@ -2543,6 +2593,11 @@ def cmd_stats(args: argparse.Namespace) -> int:
     for kind in ("literature", "knowledge"):
         domains = collections.Counter(n.path.parent.name for n in notes if n.type == kind)
         lines += [f"{kind}/{domain}: {domains[domain]}" for domain in sorted(domains)]
+    today = datetime.date.today()
+    counts = [records.load_memories(folder, scope) for scope, folder in _memory_folders(args)]
+    if any(counts):
+        live = sum(records.is_live(m, today) for group in counts for m in group)
+        lines.insert(1, f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)")
     script = Path(__file__).resolve().read_text(encoding="utf-8")
     lines.append(f"orphans: {len(orphan_notes(root))}")
     lines += [f"topics: {topic_count}", f"characters: {chars}", f"tokens: {chars // 4}",
@@ -2563,25 +2618,54 @@ def cmd_search(args: argparse.Namespace) -> int:
         build_parser().error("query has no searchable words: use letters or digits")
     if args.links and args.offset:
         build_parser().error("--offset cannot be used with --links")
-    try:
-        corpus = build_corpus(args.root, type=args.type, topic=args.topic, kind=args.kind,
-                              status=args.status, confidence=args.confidence, level=args.level)
-        ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
-        linkeds = [linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks]
-    except (FrontmatterError, OSError) as exc:
-        print(f"mem: cannot search: {exc}", file=sys.stderr)
-        return 1
-    names = short_handles(args.root) if args.handles else {}
+    with_notes = args.scope != "memories"
     filters = {k: getattr(args, k) for k in ("type", "topic", "kind", "status", "confidence", "level")
                if getattr(args, k) is not None}
+    corpus = None
+    if with_notes:
+        try:
+            corpus = build_corpus(args.root, type=args.type, topic=args.topic, kind=args.kind,
+                                  status=args.status, confidence=args.confidence, level=args.level)
+            ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
+            linkeds = [linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks]
+        except (FrontmatterError, OSError) as exc:
+            print(f"mem: cannot search: {exc}", file=sys.stderr)
+            return 1
+    else:
+        ranks, linkeds = [[] for _ in queries], [[] for _ in queries]
+    names = short_handles(args.root) if args.handles and with_notes else {}
+    # memories stay out of any narrowed, paged or path-only note listing, unless they are all that was asked for
+    memories: list[tuple[str, list[records.Memory]]] = []
+    if args.scope != "notes" and not args.offset and not filters and (args.detail != "paths" or not with_notes):
+        today = datetime.date.today()
+        for scope, folder in _memory_folders(args):
+            loaded = records.load_memories(folder, scope)
+            for m in loaded:
+                if m.error is not None:
+                    print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
+            memories.append((scope, loaded))
     for query, ranked, linked in zip(queries, ranks, linkeds):
         result = ranked[args.offset:args.offset + args.limit]
         if args.also:
             print(f"== {query} ==")
-        if not result and not args.offset:
+        printed: list[str] = []
+        for scope, loaded in memories:
+            hits = records.match_memories(loaded, tokenize(query), today, tokenize=tokenize, limit=3,
+                                          include_dead=args.all_memories)
+            if not hits:
+                continue
+            if args.detail == "paths":
+                print("\n".join(f"m:{m.handle}" for m in hits))
+            else:
+                print(f"-- memories ({scope}) --")
+                print("\n".join(_memory_line(m, today) for m in hits))
+            printed += [f"m:{m.handle}" for m in hits]
+        if with_notes and printed and result:
+            print("-- notes --")
+        if not result and not printed and not args.offset:
             print("no matches", file=sys.stderr)
         terms = tokenize(query)
-        weights = term_idf(corpus, terms)
+        weights = term_idf(corpus, terms) if corpus is not None else {}
         for note, score in result:
             print("\n".join(format_hit(note, args.detail, score=score, terms=terms, weights=weights,
                                             name=names.get(note.rel))))
@@ -2590,9 +2674,11 @@ def cmd_search(args: argparse.Namespace) -> int:
         for note, score in linked:
             print("\n".join(format_hit(note, args.detail, score=score, terms=terms, weights=weights,
                                             name=names.get(note.rel))))
-        if not args.also:  # a footer names --offset, which applies to every query at once
+        if not args.also and with_notes:  # a footer names --offset, which applies to every query at once
             _page_footer(args.offset, len(result), len(ranked))
         extra = {"links": True, "linked": [note.rel for note, _ in linked]} if args.links else {}
+        if printed:
+            extra["memories"] = printed
         log_usage(args.root, {"cmd": "search", "query": query, "limit": args.limit,
                               "detail": args.detail, "filters": filters,
                               "results": [note.rel for note, _ in result], **extra})
@@ -2747,6 +2833,10 @@ def build_parser() -> argparse.ArgumentParser:
                                help="another query over the same corpus (repeatable); each list is headed `== <query> ==`")
     search_parser.add_argument("--links", action="store_true",
                                help="also list up to 10 notes linked to or from the first 10 printed results")
+    search_parser.add_argument("--scope", choices=("all", "notes", "memories"), default="all",
+                               help="what to search: notes and memories (default), only notes, only memories")
+    search_parser.add_argument("--all-memories", action="store_true",
+                               help="also match refuted, superseded and expired memories")
     search_parser.set_defaults(func=cmd_search)
     for filtered in (find_parser, search_parser):
         filtered.add_argument("--type", choices=INDEX_FOLDERS)
@@ -2851,6 +2941,9 @@ def main(argv: list[str] | None = None) -> int:
         args.root = root
         return args.func(args)
     root = resolve_root(args.root, os.environ)
+    if args.command == "search" and args.scope == "memories" and (root is None or not root.is_dir()):
+        args.root = None  # memories need no store; only a project or a global folder
+        return args.func(args)
     if root is None:
         print('mem: no store is set. Enable the memory plugin and set its "store" option, '
               "or pass --root <folder>, or set MEM_STORE.", file=sys.stderr)
