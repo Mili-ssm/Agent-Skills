@@ -102,14 +102,14 @@ def test_show_marks_a_part_whose_files_changed(proj, tmp_path, capsys):
     assert "possibly stale: its files changed" in capsys.readouterr().out.split("\n")[0]
 
 
-def test_unknown_name_or_part_exits_2_and_names_the_parts(proj, tmp_path, capsys):
+def test_unknown_name_or_part_exits_1_and_names_the_parts(proj, tmp_path, capsys):
     add(tmp_path)
     capsys.readouterr()
-    assert mem.main(["project-synthesis", "confirm", "p:organization#nope"]) == 2
+    assert mem.main(["project-synthesis", "confirm", "p:organization#nope"]) == 1
     assert "where-the-engine-lives" in capsys.readouterr().err
-    assert mem.main(["show", "p:organization#nope"]) == 2
+    assert mem.main(["show", "p:organization#nope"]) == 1
     assert "where-the-engine-lives" in capsys.readouterr().err
-    assert mem.main(["show", "p:nothing"]) == 2
+    assert mem.main(["show", "p:nothing"]) == 1
     assert "organization" in capsys.readouterr().err
 
 
@@ -253,6 +253,6 @@ def test_a_broken_file_does_not_hide_the_others_from_list_show_and_confirm(proj,
     assert "syntheses/plans.md" in captured.err
     assert mem.main(["show", "p:organization#where-the-engine-lives"]) == 0
     assert "The engine lives in src." in capsys.readouterr().out
-    assert mem.main(["show", "p:plans"]) == 2
+    assert mem.main(["show", "p:plans"]) == 1
     assert "syntheses/plans.md" in capsys.readouterr().err
     assert mem.main(["project-synthesis", "confirm", "p:organization#where-the-engine-lives"]) == 0

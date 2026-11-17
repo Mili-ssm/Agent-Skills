@@ -51,6 +51,10 @@ class ProjectSynthesisError(ValueError):
     pass
 
 
+class Unavailable(ProjectSynthesisError):
+    """A well-formed request for a name or part that does not exist or cannot be read (exit 1, like `show s:`)."""
+
+
 def folder(memory_dir: Path) -> Path:
     return memory_dir / syntheses.SYNTHESES_DIR
 
@@ -104,17 +108,15 @@ def _parse(path: Path) -> list[Part]:
 
 
 def load(memory_dir: Path) -> dict[str, list[Part]]:
-    """Name -> parts of every project synthesis that exists; a broken file raises ProjectSynthesisError. No git."""
-    found: dict[str, list[Part]] = {}
-    for name in NAMES:
-        path = folder(memory_dir) / f"{name}.md"
-        if path.is_file():
-            found[name] = _parse(path)
+    """Name -> parts of every project synthesis that exists; the first broken file raises ProjectSynthesisError."""
+    found, broken = load_each(memory_dir)
+    if broken:
+        raise ProjectSynthesisError(broken[0][1])
     return found
 
 
 def load_each(memory_dir: Path) -> tuple[dict[str, list[Part]], list[tuple[str, str]]]:
-    """Like `load`, but a broken file does not stop the rest: (name -> parts of the files that load,
+    """Name -> parts, but a broken file does not stop the rest: (name -> parts of the files that load,
     [(path under memory_dir, error message)] of the ones that do not). No git."""
     found: dict[str, list[Part]] = {}
     broken: list[tuple[str, str]] = []

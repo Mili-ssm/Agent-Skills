@@ -271,3 +271,10 @@ Run on 2026-11-17 with the harness of commit `a9939dc`, Sonnet. The writer wrote
 - Inferred: on this repository the stamp has nothing to protect, because agents check the files anyway. The low use (2 of 16 S sessions) is of the kind the second row of the decision rule counts for arm B (fewer than 8 of 16 sessions used the syntheses); that row was not triggered, since B was not run, but it suggests the session sentence alone does not lead sessions to read the syntheses.
 - Not measured: a project where searching is costly or misleading, and sessions that are asked to rely on the syntheses.
 - Cost: 16 sessions, 0.06 to 0.11 USD each, plus the writer.
+
+**Merged 2026-11-17 without the session sentence (owner).** The trials showed no measurable gain, so the decision rule applies: the commands merge, the session text does not name project syntheses. Polish done at the merge:
+
+1. `session_index` no longer appends `Project syntheses: …`; its text is byte-equal to the text without project syntheses (it still makes no git call).
+2. One exit-code rule, as `show` for `s:`/`m:`: a `p:` name or part not found, or a synthesis file that cannot be read when asked for by name, exits 1 (was 2); `list` with an unreadable file exits 1; usage errors exit 2; `curate` exits 0.
+3. `_project_synthesis_block` builds the stamp line with `project_syntheses._render_stamp`.
+4. `project_syntheses.load` wraps `load_each` and raises the first error, so the two cannot drift.

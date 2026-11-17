@@ -2787,7 +2787,7 @@ def _load_project_syntheses(memory_dir: Path, name: str | None = None) -> dict[s
     found, broken = project_syntheses.load_each(memory_dir)
     for path, error in broken:
         if name is not None and path == f"{project_syntheses.folder(Path()).as_posix()}/{name}.md":
-            raise project_syntheses.ProjectSynthesisError(f"{path} cannot be read: {error}")
+            raise project_syntheses.Unavailable(f"{path} cannot be read: {error}")
     return found
 
 
@@ -2797,15 +2797,15 @@ def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
     found = _load_project_syntheses(memory_dir, name)
     parts = found.get(name)
     if parts is None:
-        raise project_syntheses.ProjectSynthesisError(f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}")
+        raise project_syntheses.Unavailable(f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}")
     if handle is None:
         return "\n".join(_part_line(name, p, tree) for p in parts)
     part = next((p for p in parts if p.handle == handle), None)
     if part is None:
-        raise project_syntheses.ProjectSynthesisError(f"no part {handle!r} in {name}; parts that exist: {_existing_parts(found)}")
+        raise project_syntheses.Unavailable(f"no part {handle!r} in {name}; parts that exist: {_existing_parts(found)}")
     state = project_syntheses.describe(project_syntheses.freshness(tree, part.stamp))
     s = part.stamp
-    stamp = f"Covers: {', '.join(s.paths)} | updated {s.date.isoformat()} at {s.commit or project_syntheses.NO_COMMIT}"
+    stamp = project_syntheses._render_stamp(s.paths, s.date, s.commit)
     return f"== p:{name}#{part.handle} ({state})\n{part.heading}\n\n{part.body}\n{stamp}"
 
 
@@ -2851,7 +2851,7 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
         name, handle = _split_part_ref(args.part)
         found = _load_project_syntheses(memory_dir, name)
         if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
-            raise project_syntheses.ProjectSynthesisError(
+            raise project_syntheses.Unavailable(
                 f"no part {args.part!r}; parts that exist: {_existing_parts(found)}")
         project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
         print(f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}")
@@ -2861,7 +2861,7 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
         return 0
     except project_syntheses.ProjectSynthesisError as exc:
         print(f"mem: {exc}", file=sys.stderr)
-        return 2
+        return 1 if isinstance(exc, project_syntheses.Unavailable) else 2
 
 
 def cmd_show(args: argparse.Namespace) -> int:
@@ -2889,7 +2889,8 @@ def cmd_show(args: argparse.Namespace) -> int:
                 except project_syntheses.ProjectSynthesisError as exc:
                     print(f"mem: {exc}", file=sys.stderr)
                     blocks.append(f"== {arg}\n(not found)")
-                    ok, refused = False, True
+                    ok = False
+                    refused = refused or not isinstance(exc, project_syntheses.Unavailable)
                 continue
             if arg.startswith("s:"):
                 block = _synthesis_block(args, arg)
@@ -3044,11 +3045,6 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"This project: {len(mine)} memories.")
     if due:
         head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
-    existing = [n for n in project_syntheses.NAMES if project is not None
-                and (project_syntheses.folder(project) / f"{n}.md").is_file()]  # names only: no parsing, no git
-    if existing:
-        head.append(f"Project syntheses: {' '.join(f'p:{n}' for n in existing)} (read: mem show p:<name>; each part "
-                    "says whether its files changed since it was written).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if mine and limit > 0:
         rows = []

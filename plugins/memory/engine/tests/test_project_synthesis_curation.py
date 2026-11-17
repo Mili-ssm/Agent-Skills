@@ -93,40 +93,13 @@ def test_curate_does_not_ask_when_a_synthesis_exists(proj, tmp_path, capsys):
     assert run(capsys, "curate") == (0, "", "")
 
 
-SENTENCE = ("Project syntheses: {} (read: mem show p:<name>; each part says whether its files changed since it "
-            "was written).")
-
-
-def first_line(proj):
-    return mem.session_index(None, proj / ".memory", None, TODAY).split("\n")[0]
-
-
-def test_session_index_names_existing_syntheses_only(proj, tmp_path):
+def test_session_index_text_ignores_project_syntheses(proj, tmp_path):
     memories(proj, 2)
-    add(tmp_path, "pending", "Open work")
-    add(tmp_path, "organization")
-    line = first_line(proj)
-    assert line.endswith(" " + SENTENCE.format("p:organization p:pending"))
-    assert "This project: 2 memories." in line
-
-
-def test_session_index_names_them_in_a_project_without_memories(proj, tmp_path):
-    add(tmp_path, "plans", "Next")
-    assert first_line(proj) == mem._INDEX_HEAD + " " + SENTENCE.format("p:plans")
-
-
-def test_session_index_without_syntheses_is_unchanged(proj):
-    memories(proj, 2)
-    assert first_line(proj) == mem._INDEX_HEAD + " This project: 2 memories."
-    assert "Project syntheses" not in mem.session_index(None, proj / ".memory", None, TODAY, limit=5)
-
-
-def test_the_list_stays_within_its_1500_characters(proj, tmp_path):
-    memories(proj, 30)
+    before = mem.session_index(None, proj / ".memory", None, TODAY, limit=5)
     for name in ps.NAMES:
         add(tmp_path, name)
-    text = mem.session_index(None, proj / ".memory", None, TODAY, limit=30)
-    assert len(text) <= 1500 and "Project syntheses: p:organization p:plans p:pending p:conventions" in text
+    assert mem.session_index(None, proj / ".memory", None, TODAY, limit=5) == before
+    assert "Project syntheses" not in before
 
 
 def test_session_index_runs_no_git(proj, tmp_path, monkeypatch):
@@ -135,7 +108,7 @@ def test_session_index_runs_no_git(proj, tmp_path, monkeypatch):
     def fail(*a, **k):
         raise AssertionError("git was called")
     monkeypatch.setattr(ps.subprocess, "run", fail)
-    assert "p:organization" in first_line(proj)
+    assert mem.session_index(None, proj / ".memory", None, TODAY)
 
 
 UNREADABLE_HEAD = "-- project syntheses: unreadable --"
@@ -160,7 +133,7 @@ def test_session_index_survives_a_broken_file(proj):
     memories(proj, 2)
     (proj / ".memory" / "syntheses").mkdir(exist_ok=True)
     (proj / ".memory" / "syntheses" / "plans.md").write_text("garbage\n", encoding="utf-8")
-    assert first_line(proj).endswith(" " + SENTENCE.format("p:plans"))
+    assert "Project syntheses" not in mem.session_index(None, proj / ".memory", None, TODAY)
 
 
 def test_curate_checks_freshness_in_the_sessions_linked_worktree(proj, tmp_path, monkeypatch, capsys):
