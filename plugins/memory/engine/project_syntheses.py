@@ -245,7 +245,8 @@ def _names(out: subprocess.CompletedProcess, status: bool) -> list[str]:
 def freshness(worktree: Path, stamp: Stamp) -> str:
     if stamp.commit is None or _git(worktree, "cat-file", "-e", f"{stamp.commit}^{{commit}}") is None:
         return UNKNOWN
-    diff = _git(worktree, "diff", "--name-only", "-z", stamp.commit, "--", *stamp.paths)
+    # --no-relative: names relative to the toplevel, like status, even when the user sets diff.relative
+    diff = _git(worktree, "diff", "--no-relative", "--name-only", "-z", stamp.commit, "--", *stamp.paths)
     status = _git(worktree, "status", "--porcelain", "-z", "--untracked-files=all", "--", *stamp.paths)
     if diff is None or status is None:
         return UNKNOWN

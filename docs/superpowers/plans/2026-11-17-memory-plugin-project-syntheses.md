@@ -99,15 +99,15 @@ def describe(state: str) -> str
 - `describe` returns exactly: `fresh: its files are as they were when it was written`; `possibly stale: its files changed since it was written; check them before relying on it`; `unknown: not a git project or its commit is gone; check the files`.
 - A part is addressed by its exact handle (as `s:` parts are); there is no prefix matching.
 
-- [ ] **Step 1: Write the failing tests** (a `git_project` fixture: `git init`, one commit of `src/a.py` and `docs/p.md`, with `user.name`/`user.email` set by `-c`):
+- [x] **Step 1: Write the failing tests** (a `git_project` fixture: `git init`, one commit of `src/a.py` and `docs/p.md`, with `user.name`/`user.email` set by `-c`):
   - `test_first_part_creates_the_file_with_a_stamp`: after `write_part(..., "organization", "Where the engine lives", "Text.", ["src/"], date(2026, 11, 17))` the file's last line is `Covers: src/ | updated 2026-11-17 at <head_commit>` and `load` returns one part with handle `where-the-engine-lives`.
   - `test_same_heading_replaces_and_keeps_order`, `test_unknown_name_is_refused` (`"notes"` raises), `test_bad_paths_are_refused` (parametrized: `[]`, `["../x"]`, `["/etc"]`, `[""]`, `["a,b"]`, `["a|b"]`, `[".memory/x"]`, `["missing/"]`), `test_body_with_a_heading_or_a_stamp_is_refused`, `test_heading_without_letters_or_digits_is_refused`.
   - `test_fresh_then_changed_by_a_commit_then_fresh_after_confirm`: fresh; commit a change to `src/a.py` gives `CHANGED`; a commit touching only `docs/p.md` does not count; `confirm_part` gives `fresh` and leaves the body bytes equal.
   - `test_uncommitted_change_new_file_and_deleted_path_are_changed`, `test_a_branch_whose_files_differ_is_changed` (write on `main`, switch to a branch where `src/a.py` differs), `test_a_linked_worktree_stamps_its_own_head` (`git worktree add` on a branch one commit ahead; `worktree()` from inside it returns it, and a part written there is `fresh` there), `test_a_part_covering_the_root_stays_fresh_when_another_part_is_written`, `test_no_git_and_missing_commit_are_unknown` (a plain folder, whose stamp reads `at no-commit` and loads with `commit` None; a stamp with commit `0` * 12), `test_worktree_rule` (`MEM_PROJECT` set gives the project root; unset, a linked worktree's cwd gives that worktree; a plain folder gives the project root), `test_git_timeout_is_unknown` (monkeypatch `subprocess.run` to raise `subprocess.TimeoutExpired`), `test_describe_texts` (the three exact strings above).
-- [ ] **Step 2: Run them and see them fail** (`pytest plugins/memory/engine/tests/test_project_syntheses.py -q`: import error).
-- [ ] **Step 3: Implement the module.**
-- [ ] **Step 4: Run the whole suite; all pass.** Add row D25 to the design document.
-- [ ] **Step 5: Commit** `feat(memory): project synthesis format with a freshness stamp`.
+- [x] **Step 2: Run them and see them fail** (`pytest plugins/memory/engine/tests/test_project_syntheses.py -q`: import error).
+- [x] **Step 3: Implement the module.**
+- [x] **Step 4: Run the whole suite; all pass.** Add row D25 to the design document.
+- [x] **Step 5: Commit** `feat(memory): project synthesis format with a freshness stamp`.
 
 ### Task 2: Commands and reading
 

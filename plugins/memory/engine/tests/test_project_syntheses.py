@@ -213,6 +213,21 @@ def test_a_part_covering_the_root_of_a_subfolder_project_stays_fresh(tmp_path):
     assert ps.freshness(proj, stamp_of(mem)) == ps.CHANGED
 
 
+def test_a_tracked_memory_folder_is_ignored_under_diff_relative(tmp_path):
+    repo = tmp_path / "repo"
+    proj = repo / "proj"
+    (proj / "src").mkdir(parents=True)
+    (proj / "src" / "a.py").write_text("a\n")
+    git(repo, "init", "-q", "-b", "main")
+    git(repo, "config", "diff.relative", "true")  # makes --name-only names relative to the cwd
+    mem = proj / ".memory"
+    write(mem, proj, heading="Another", paths=["src/"])
+    commit(repo)  # .memory/ is tracked here
+    write(mem, proj, paths=["."])
+    write(mem, proj, heading="Another", body="Changed.", paths=["src/"])
+    assert ps.freshness(proj, stamp_of(mem)) == ps.FRESH
+
+
 def test_worktree_runs_git_through_the_timeout_helper(git_project, monkeypatch):
     seen = []
     real = subprocess.run
