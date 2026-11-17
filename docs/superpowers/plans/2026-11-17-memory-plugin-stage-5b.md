@@ -123,6 +123,16 @@ Read from the usage log two weeks after the plugin is installed:
 - Fewer than one `show s:` for every ten searches that printed a synthesis line: syntheses leave the search output.
 - Any lost link or stale-note report after a `unify` on real notes: `unify` is stopped and re-planned.
 
+## Change of rule by the owner (2026-11-17, while this stage was being built)
+
+Loose notes are written freely; joining a note to a synthesis is part of curation, not of writing. This replaces the synthesis-first refusal of Task 2 and of amendment A:
+
+- `mem new knowledge` on a covered topic writes the note and prints one line on stderr saying which synthesis covers the topic and that a curation pass can attach it. There is no exit 3 and no `--no-synthesis`.
+- `mem synthesis attach <note> s:<h>#<section>` records that an existing note is the recall of that part.
+- `mem curate --notes` lists the notes on a covered topic that are not part of the synthesis yet, beside the notes older than their part, the pairs to unify and the topics with many notes and no synthesis.
+- The one-call form (`mem synthesis add` with the note group) stays as an optional way.
+- Amendment E's first criterion changes to: two weeks after installing, fewer than half of the notes on covered topics attached after a curation pass means the attach step is not being done and the flow is revisited.
+
 ## Results
 
 Filled as tasks complete.
