@@ -74,4 +74,19 @@ Trial of stage 1 (ground truth by construction, on a copy of the store): 12 real
 
 ## Results
 
-Pending.
+### Stage W trial, 2026-11-18 (one run, Haiku at medium effort, `plugins/memory/evals/settle/run_trial.py`)
+
+Store copy: 55 active memories (global ones plus this project's, copied as global) and 40 derived records, one per base.
+
+| Type | Rows | Shown by the queue | Decisions | Grade |
+|---|---|---|---|---|
+| Paraphrase | 10 | 10 | 9 merge, 1 nothing | 9 acted |
+| Correction | 10 | 10 | 9 supersede, 1 nothing | 9 acted |
+| Valid version | 10 | 7 | 3 distinct, 4 nothing | 10 correct |
+| Unrelated look-alike | 10 | 5 | 5 distinct | 10 correct |
+
+Wrong actions 0 of 40 (limit 1); acted 18 of the 20 shown that should be acted on, 90% (limit 60%); unexpected pairs 0; cost 0.018 USD for 32 pairs in one session. One merged pair was checked in the record files: the base is superseded by the derived record, whose observed count is 2. **By the rule: adopt.**
+
+Limits: one run, so no variance; the derived records were written by the agent that built the feature, from real memories, and the paraphrases reuse the base's terms, so the 20 of 20 shown says little about look-alikes written in other words (the queue needs 0.6 containment); no pair of the trial had two new records. Not measured: the write-path trigger and the hooks in a real session (tested with a fake `claude` only). The option `auto_settle` stays off by default; kill criteria as in stage W.
+
+Stages 1b to 5: pending.
