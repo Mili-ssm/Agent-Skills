@@ -520,14 +520,22 @@ def _dash(values: Iterable[str]) -> str | None:
 _NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
 
 
+_SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
 def finding_problem(claim: str, quote: str) -> str | None:
-    """Why a finding says more than its quote: a number of the claim missing from the quote, or fewer than 70% of the
-    claim's content words in it. None when it is covered."""
+    """Why a finding says more than its quote or says the opposite: a number of the claim missing from the quote,
+    fewer than 70% of the claim's content words in it, or a negation or opposite present on only one side of the claim
+    and the sentence of the quote it rests on. None when it is covered."""
     wanted = set(_NUMBER.findall(normalize(claim)))
     if not wanted <= set(_NUMBER.findall(normalize(quote))):
         return "a number of the claim is not in its quote"
     if records.containment(mem.tokenize(claim), mem.tokenize(quote)) < MIN_FINDING_WORDS:
         return "the claim says more than its quote (under 70% of its content words are in it)"
+    claim_tokens = mem.tokenize(claim)
+    rests_on = max(_SENTENCE.split(quote.strip()), key=lambda s: records.containment(claim_tokens, mem.tokenize(s)))
+    if any(not any(c.isdigit() for c in w) for w in records.flagged_words(claim, rests_on)):
+        return "the claim and its quote differ by a negation or an opposite"
     return None
 
 
@@ -613,8 +621,9 @@ def plan_commands(verdicts: Mapping[str, Any], entries: Sequence[Mapping[str, An
 
 def apply(verdicts: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], pages: Mapping[str, str],
           sent: Iterable[str], mem_cmd: Sequence[str] = MEM_ENTRY, root: str | Path | None = None,
-          timeout: int = 120) -> dict[str, Any]:
-    """Run the planned commands, no shell, through `mem_cmd` (the repository's `bin/mem` by default).
+          timeout: int = 120, env: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Run the planned commands, no shell, through `mem_cmd` (the repository's `bin/mem` by default),
+    with `env` as their environment (the inherited one when None).
     Report: applied (argument lists), refused (rows with reasons), failed (argument list, exit code, stderr)."""
     plan = plan_commands(verdicts, entries, pages, sent)
     prefix = [*mem_cmd, *(["--root", str(root)] if root is not None else [])]
@@ -622,7 +631,8 @@ def apply(verdicts: Mapping[str, Any], entries: Sequence[Mapping[str, Any]], pag
     failed: list[dict[str, Any]] = []
     for args in plan.commands:
         try:
-            done = subprocess.run([*prefix, *args], shell=False, capture_output=True, text=True, timeout=timeout)
+            done = subprocess.run([*prefix, *args], shell=False, capture_output=True, text=True, timeout=timeout,
+                                  env=None if env is None else dict(env))
             code, err = done.returncode, done.stderr.strip()
         except (OSError, subprocess.TimeoutExpired) as exc:
             code, err = -1, f"{type(exc).__name__}: {exc}"

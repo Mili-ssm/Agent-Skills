@@ -474,6 +474,16 @@ def test_plan_counts_a_number_with_its_own_digits():
     assert rc.finding_problem("It reaches 28 BLEU on the task here", "It reaches 28.4 BLEU on the task here") is not None
 
 
+def test_a_finding_may_not_state_the_opposite_of_its_quote():
+    assert rc.finding_problem("The gadget survives ten thousand folding cycles",
+                              "The gadget does not survive ten thousand folding cycles") is not None
+    assert rc.finding_problem("The cache is enabled by default in every release",
+                              "The cache is disabled by default in every release") is not None
+    assert rc.finding_problem("The cache is enabled by default",
+                              "Caching is described below. The cache is enabled by default. It is never shared, and "
+                              "no entry is kept without a key.") is None
+
+
 # ---- step 6: apply to a temporary store ----
 
 @pytest.fixture
@@ -503,6 +513,16 @@ def test_apply_reports_a_failing_command(mem_env):
     verdicts = {"notes": [note_row(note="no-such-note")]}
     report = rc.apply(verdicts, entries, PAGES_FETCHED, ["no-such-note"], **mem_env)
     assert report["applied"] == [] and report["failed"][0]["code"] != 0 and "no note" in report["failed"][0]["stderr"]
+
+
+def test_apply_runs_mem_with_the_pinned_environment(mem_env, monkeypatch, tmp_path):
+    seen = []
+    monkeypatch.setattr(rc.subprocess, "run", lambda args, **kw: seen.append(kw) or type("R", (), {"returncode": 0, "stderr": ""})())
+    env = {"MEM_STORE": str(tmp_path), "PATH": "/usr/bin"}
+    page = {"http://p/1": "The gadget survives ten thousand folding cycles"}
+    rc.apply({"findings": [{"claim": "The gadget survives ten thousand folding cycles", "url": "http://p/1",
+                            "quote": "The gadget survives ten thousand folding cycles"}]}, ENTRIES, page, [HANDLE], env=env, **mem_env)
+    assert seen[0]["env"] == env
 
 
 def test_apply_runs_without_a_shell(mem_env, monkeypatch, tmp_path):

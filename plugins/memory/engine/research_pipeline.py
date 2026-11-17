@@ -100,9 +100,10 @@ def session_env() -> dict[str, str]:
 # ---- sessions ----
 
 def work_tools(work: Path) -> list[str]:
-    """Read and Write/Edit inside `work` only (`//` is an absolute path in a permission rule); no shell, no web."""
-    return ["--allowedTools", f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)",
-            "--disallowedTools", "Bash", "WebSearch", "WebFetch"]
+    """Only Read, Write and Edit exist (`--tools`, no MCP server), and the rules allow them inside `work` only
+    (`//` is an absolute path in a permission rule); no shell, no web."""
+    return ["--tools", "Read,Write,Edit", "--strict-mcp-config",
+            "--allowedTools", f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"]
 
 
 def file_cmd(claude: str, prompt: str, work: Path, settings: Path, max_budget: float) -> list[str]:
@@ -392,7 +393,8 @@ def report_text(question: str, run: Run, state: dict[str, Any]) -> str:
                                 and r["row"].get("note") == handle), "")
                     failed = any(f["args"][2:3] == [handle] for f in state.get("failed", []))
                     result = ("failed to write" if failed else
-                              "no source" + (f" ({why})" if why else "") if state.get("web_ran") else "not checked")
+                              "no source" + (f" ({why})" if why else "") if state.get("judged")
+                              else "not judged" if state.get("web_ran") else "not checked")
                     out.append(f"  | {handle} | {result} | |")
     dropped = state.get("dropped", [])
     if dropped:
@@ -474,7 +476,9 @@ def web_and_verdicts(run: Run, store: Path, claude: str, question: str, depth: s
         return
     verdicts = verdict_step(run, claude, question, web.items, checked.entries, settings)
     state["web_answer"] = verdicts["answer"] if isinstance(verdicts.get("answer"), str) else ""
-    applied = rc.apply(verdicts, checked.entries, checked.pages, state["sent"], mem_cmd=[str(sp.MEM)], root=store)
+    state["judged"] = True
+    applied = rc.apply(verdicts, checked.entries, checked.pages, state["sent"], mem_cmd=[str(sp.MEM)], root=store,
+                       env=mem_env(store))
     (run.folder / "apply.json").write_text(json.dumps(applied, ensure_ascii=False, indent=1))
     state.update(applied=applied["applied"], refused=applied["refused"], failed=applied["failed"])
     state["dropped"] += [f"verdict row {json.dumps(r['row'], ensure_ascii=False)[:120]}: {r['reason']}"
@@ -509,8 +513,9 @@ def self_check() -> int:
         assert cmd[cmd.index("--tools") + 1] == "WebSearch,WebFetch" and "--strict-mcp-config" in cmd
         assert "--plugin-dir" not in cmd and "--allowedTools" not in cmd
         cmd = file_cmd("claude", "prompt", tmp / "w", tmp / "s.json", 0.2)
-        allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--disallowedTools")]
-        assert all(t.startswith(("Read(", "Write(", "Edit(")) for t in allowed) and "Bash" in cmd
+        assert cmd[cmd.index("--tools") + 1] == "Read,Write,Edit" and "--strict-mcp-config" in cmd and "Bash" not in cmd
+        allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--allowedTools") + 4]
+        assert all(t.startswith(("Read(", "Write(", "Edit(")) for t in allowed)
     assert rc.parse_web_reply('```json\n[{"item": "q"}]\n```') == [{"item": "q"}] and rc.parse_web_reply("no") is None
     assert rc.select_passages("Alpha beta gamma are named here.\n\nUnrelated words only here.", "alpha beta")[0].startswith("Alpha")
     assert rc.finding_problem("It holds 5000 cycles", "It holds 4000 cycles in the lab") is not None

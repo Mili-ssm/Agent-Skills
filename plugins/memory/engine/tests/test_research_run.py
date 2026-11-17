@@ -28,7 +28,7 @@ FAKE = """#!/usr/bin/env python3
 import json, os, shutil, sys
 argv = sys.argv[1:]
 prompt = argv[1]
-kind = "web" if "--tools" in argv else "memory" if "need.json" in prompt else "verdict"
+kind = "web" if "WebSearch,WebFetch" in argv else "memory" if "need.json" in prompt else "verdict"
 mine = {k: v for k, v in os.environ.items() if k.startswith(("MEM_", "CLAUDE_PLUGIN"))}
 path = [p for p in os.environ.get("PATH", "").split(os.pathsep) if os.access(os.path.join(p, "mem"), os.X_OK)]
 with open(os.environ["FAKE_CALLS"], "a") as f:
@@ -167,8 +167,9 @@ def test_memory_session_has_no_shell_and_no_mem_variables(world):
     go(world, "attention", "--depth", "memory")
     (call,) = calls(world)
     argv = call["argv"]
-    allowed = argv[argv.index("--allowedTools") + 1:argv.index("--disallowedTools")]
-    assert all(t.startswith(("Read(", "Write(", "Edit(")) for t in allowed) and "Bash" in argv
+    allowed = argv[argv.index("--allowedTools") + 1:argv.index("--allowedTools") + 4]
+    assert all(t.startswith(("Read(", "Write(", "Edit(")) for t in allowed)
+    assert argv[argv.index("--tools") + 1] == "Read,Write,Edit" and "--strict-mcp-config" in argv and "Bash" not in argv
     assert call["env"] == {} and call["mem_on_path"] == []
 
 
@@ -330,6 +331,13 @@ def test_an_unusable_page_ends_without_a_verdict_session(world):
     web_rows(world, {"item": "c1", "url": "http://10.0.0.1/x", "stance": "supports", "source_kind": "official"})
     done = go(world)
     assert kinds(world) == ["memory", "web"] and "no web page could be used" in done.stdout
+
+
+def test_a_failed_verdict_step_says_not_judged(world):
+    need(world)
+    web_rows(world, supports(world))
+    done = go(world)
+    assert "no valid verdicts.json" in done.stdout and "not judged" in done.stdout and "no source" not in done.stdout
 
 
 # ---- budget ----
