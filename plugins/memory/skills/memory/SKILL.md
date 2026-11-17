@@ -66,6 +66,8 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
   - Both parts in one discovery: write two memories, the general rule with `--global` and the project's case without it. Global writing needs the owner's list of forbidden terms: without the list it stops (exit code 2; tell the owner, do not create the file yourself), and it refuses a text that contains a term (exit code 4): rewrite the claim in general terms, never work around the check.
 - Exit code 3 means a memory with exactly the same claim exists: run the `mem observe m:<handle>` it prints, which counts one more observation. Anything short of an exact copy is written and kept: related memories are listed, and sorting out near-duplicates and contradictions is a later curation pass, not yours to do while writing.
 - `mem show m:<handle>` reads a memory whole.
+- When a memory you used proved right, say so: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`. That is what keeps old memories trustworthy and stops a wrong one being written again.
+- Tidying up many memories (duplicates, contradictions, expired ones) is a curation pass: load the `memory-curation` skill.
 
 ## When a command refuses
 

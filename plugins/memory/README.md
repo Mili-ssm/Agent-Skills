@@ -31,6 +31,10 @@ Stages 1 and 2 of ADR 0023 (proposed); see the [stage plan](../../docs/superpowe
 
 Plugin options take effect in the next session: a `SessionStart` hook exports them to shell commands and writes them under `$XDG_CONFIG_HOME/agent-memory/`.
 
+## Curation
+
+`mem curate` lists what needs a decision (memories that say the same or the opposite, expired ones, ones seen several times, ones nobody confirmed); `mem merge`, `refute`, `distinct`, `supersede`, `forget`, `confirm` and `promote` carry a decision out, and `mem restore` undoes the last one on a memory. Nothing is deleted. The session start text says when a pass is due; the `memory-curation` skill holds the procedure and the `memory-curator` subagent proposes actions without applying them.
+
 ## Use
 
 `mem --help` lists the commands; the `memory` skill holds the recall and writing recipes.
