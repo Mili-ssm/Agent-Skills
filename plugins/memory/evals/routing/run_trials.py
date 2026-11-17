@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import trial_env  # noqa: E402
 
 PLUGIN = Path(__file__).resolve().parents[2]
 FIXTURE = PLUGIN / "engine" / "tests" / "fixtures" / "valid"
@@ -69,15 +70,18 @@ def tool_calls(stream: str) -> list[tuple[str, str]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--claude", required=True)
+    parser.add_argument("--claude")
+    parser.add_argument("--self-check", action="store_true", help="no model: prove the env stays under target/")
     parser.add_argument("--model", default="sonnet")
     parser.add_argument("--case", action="append", default=[])
     args = parser.parse_args()
+    if args.self_check:
+        return trial_env.self_check("mem-routing-")
+    if not args.claude:
+        parser.error("--claude is required")
     cases = [c for c in CASES if not args.case or c[0] in args.case]
-    work = Path(tempfile.mkdtemp(prefix="mem-routing-"))
-    env = {k: v for k, v in os.environ.items() if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT")}
-    env.update(XDG_CONFIG_HOME=str(work / "cfg"), MEM_DATA=str(work / "data"))
-    (work / "cfg" / "agent-memory").mkdir(parents=True)
+    work = trial_env.work_dir("mem-routing-")
+    env = trial_env.make_env(work)
     (work / "cfg" / "agent-memory" / "forbidden-terms").write_text(FORBIDDEN + "\n")
     store = work / "store"
     subprocess.run([str(PLUGIN / "bin" / "mem"), "init", str(store)], env=env, check=True, capture_output=True)
@@ -111,9 +115,10 @@ def main() -> int:
         failed += not ok
         print(f"{name:20} {str(got_project):8} {str(got_global):7} {str(got_auto):5} "
               f"{'pass' if ok else 'FAIL'}{' (forbidden term in the store)' if leaked else ''}")
-    for leftover in (Path.home() / ".claude" / "projects").glob("*" + "".join(c if c.isalnum() else "-" for c in work.name) + "*"):
-        shutil.rmtree(leftover, ignore_errors=True)
-    shutil.rmtree(work, ignore_errors=True)
+    if not failed:
+        trial_env.clean(work)
+    else:
+        print(f"work folder kept for inspection: {work}")
     print(f"{len(cases) - failed} of {len(cases)} passed")
     return 1 if failed else 0
 
