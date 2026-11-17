@@ -3032,6 +3032,11 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"This project: {len(mine)} memories.")
     if due:
         head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
+    existing = [n for n in project_syntheses.NAMES if project is not None
+                and (project_syntheses.folder(project) / f"{n}.md").is_file()]  # names only: no parsing, no git
+    if existing:
+        head.append(f"Project syntheses: {' '.join(f'p:{n}' for n in existing)} (read: mem show p:<name>; each part "
+                    "says whether its files changed since it was written).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if mine and limit > 0:
         rows = []
@@ -3841,6 +3846,47 @@ def _curate_notes(args: argparse.Namespace) -> int:
     return 0
 
 
+_PROJECT_SYNTHESIS_MIN_MEMORIES = 5
+
+
+def _curate_project_syntheses(scopes: Sequence[tuple[str, Path | None, list[records.Memory]]],
+                              today: datetime.date) -> list[str]:
+    """The two project synthesis blocks of `mem curate`: parts possibly stale, and none written yet."""
+    context = _project_synthesis_context_quiet()
+    if context is None:
+        return []
+    memory_dir, tree = context
+    try:
+        found = project_syntheses.load(memory_dir)
+    except project_syntheses.ProjectSynthesisError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return []
+    out: list[str] = []
+    states = [(name, part, project_syntheses.freshness(tree, part.stamp)) for name, parts in found.items()
+              for part in parts]
+    stale = [(name, part, state) for name, part, state in states if state != project_syntheses.FRESH]
+    if stale:
+        out.append("-- project syntheses: possibly stale --")
+        out += [f"p:{name}#{part.handle}\t{project_syntheses.describe(state)}" for name, part, state in stale]
+    active = sum(1 for scope, _, loaded in scopes if scope == "project"
+                 for m in loaded if m.error is None and records.is_live(m, today))
+    if not found and active >= _PROJECT_SYNTHESIS_MIN_MEMORIES:
+        out += ["-- project syntheses: none yet --",
+                f"{active} active memories and no project synthesis: organize them (see the memory-curation skill)."]
+    return out
+
+
+def _project_synthesis_context_quiet() -> tuple[Path, Path] | None:
+    """(memory folder, working tree) of the project the session is in; None outside a project, silently."""
+    try:
+        root = records.project_root(Path.cwd(), os.environ)
+    except OSError:
+        return None
+    if root is None:
+        return None
+    return records.project_dir(root), project_syntheses.worktree(Path.cwd(), root, os.environ)
+
+
 def cmd_curate(args: argparse.Namespace) -> int:
     if args.notes:
         return _curate_notes(args)
@@ -3896,6 +3942,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
+    if not args.is_global:
+        out += _curate_project_syntheses(scopes, today)
     if out:
         print("\n".join(out))
     return 0
