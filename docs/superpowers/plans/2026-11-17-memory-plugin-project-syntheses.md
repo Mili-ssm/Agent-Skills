@@ -27,9 +27,9 @@
 
 - Requires-python stays `>=3.12,<3.15`; no new dependency.
 - Project syntheses hold what is specific to the project: forbidden terms do not apply (they guard the global scope, D23); the secret check does (`_refuse_secret`, exit 4).
-- Every git call: `subprocess.run([...], cwd=project_root, capture_output=True, text=True, check=False, timeout=2)`; a failure, a timeout or a missing git gives the state `unknown`, never an error exit.
+- Every git call: `subprocess.run([...], cwd=worktree, capture_output=True, text=True, check=False, timeout=2)`; a failure, a timeout or a missing git gives the state `unknown`, never an error exit.
 - `mem show p:…`, `mem project-synthesis list` and `mem curate` are the only commands that run the freshness comparison; the session-start hook runs no extra git command.
-- Git runs in the working tree the session is in (`git rev-parse --show-toplevel` from the current directory), not in the main worktree, with `GIT_LITERAL_PATHSPECS=1` in its environment.
+- Two roots. `.memory/` sits at the main worktree's root (`records.project_root` / `records.project_dir`). Git, the stamp's commit, the path checks and the freshness comparison use the working tree the session is in: `project_syntheses.worktree()`, which is the project root when `MEM_PROJECT` is set (it names the project, and the tests set it), else `records._toplevel(cwd)`, else the project root. Git runs with `GIT_LITERAL_PATHSPECS=1` in git's environment. Passing `records.project_root` as the worktree would stamp the main worktree's HEAD while comparing a linked worktree's files.
 - The repository is public: no home paths, private repository names or note titles in code, tests, docs or commits.
 - The owner's standing rules are in [the stage plan](2026-11-17-memory-plugin.md#current-state-and-where-to-resume-2026-11-17), last paragraph of that section: the origin of the notes is never written to, and a merge into `main` needs the owner's word.
 - Vocabulary: "project synthesis" (the file), "part" (a `## ` section), "stamp" (the last line of a part), "freshness" (`fresh`, `changed`, `unknown`).
@@ -51,14 +51,14 @@ The command is one script; records and syntheses are separate modules …
 Covers: plugins/memory/engine/, plugins/memory/bin/ | updated 2026-11-17 at 9566ce4f8735
 ```
 
-The stamp is the last non-empty line of every part: `Covers: <path>[, <path>…] | updated <YYYY-MM-DD> at <12 hex digits or "no-commit">`. Paths are relative to the project root, use `/`, may be files or folders, and may not contain `,` or `|` nor point into `.memory/`. The tool writes the stamp; the body a model passes must not contain one.
+The stamp is the last non-empty line of every part: `Covers: <path>[, <path>…] | updated <YYYY-MM-DD> at <12 hex digits or "no-commit">`. Paths are relative to the project root, use `/`, may be files or folders that exist in the working tree when written, and may not contain `,` or `|` nor point into `.memory/`. The tool writes the stamp; the body a model passes must not contain one.
 
 ## Review Focus
 
 - A project that is not a git repository, or git missing: every command works and reports `unknown`.
 - A stamp's commit that no longer exists (rebase, shallow clone): `unknown`, not `fresh`.
 - A path in `Covers:` that was deleted or renamed: `changed`.
-- A path that leaves the project (`../x`, absolute), is empty, holds `,` or `|`, or is inside `.memory/`: refused at writing, exit 2.
+- A path that leaves the project (`../x`, absolute), is empty, holds `,` or `|`, is inside `.memory/`, or does not exist in the working tree: refused at writing, exit 2 (a typo would otherwise leave the part `changed` for good).
 - A session in a linked worktree or after a branch switch: the comparison is against the files in front of the agent, so a part written on another branch whose files differ here is `changed`.
 - A part covering `.`: writing another part (a change inside `.memory/`) does not make it `changed`.
 - A body that contains a `## ` heading or a `Covers:` line: refused at writing, exit 2, because it would split or mis-stamp the part.
@@ -70,7 +70,7 @@ The stamp is the last non-empty line of every part: `Covers: <path>[, <path>…]
 **Files:**
 - Create: `plugins/memory/engine/project_syntheses.py`
 - Test: `plugins/memory/engine/tests/test_project_syntheses.py`
-- Modify: `docs/superpowers/specs/2026-11-17-memory-plugin-design.md` (add row D25 above D24, wording of "Decisions already taken" in one row)
+- Modify: `docs/superpowers/specs/2026-11-17-memory-plugin-design.md` (in its section "Owner decisions and open choices", add row D25 above D24: this plan's "Decisions already taken" summarized in one row; no other row changes)
 
 **Interfaces (produces):**
 
@@ -83,15 +83,17 @@ class ProjectSynthesisError(ValueError): ...
 
 def folder(memory_dir: Path) -> Path                      # memory_dir / "syntheses"
 def load(memory_dir: Path) -> dict[str, list[Part]]       # name -> parts, only files that exist; a broken file raises
-def head_commit(project_root: Path) -> str | None         # 12 hex digits of HEAD, None without git
-def write_part(memory_dir: Path, project_root: Path, name: str, heading: str, body: str,
+def worktree(cwd: Path, project_root: Path, env: Mapping[str, str]) -> Path  # the rule in Global Constraints ("Two roots")
+def head_commit(worktree: Path) -> str | None             # first 12 hex digits of `git rev-parse HEAD`, None without git or commits
+                                                          # None is written as `no-commit` in the stamp and read back as None
+def write_part(memory_dir: Path, worktree: Path, name: str, heading: str, body: str,
                paths: Sequence[str], today: datetime.date) -> str   # creates the file or adds/replaces the part; returns its handle
-def confirm_part(memory_dir: Path, project_root: Path, name: str, handle: str, today: datetime.date) -> None  # new stamp, same text
+def confirm_part(memory_dir: Path, worktree: Path, name: str, handle: str, today: datetime.date) -> None  # new stamp, same text
 def freshness(worktree: Path, stamp: Stamp) -> str          # FRESH | CHANGED | UNKNOWN
 def describe(state: str) -> str
 ```
 
-- A part's handle is its heading lower-cased with runs of non-alphanumerics turned into `-`; `write_part` with a heading whose handle exists replaces that part (keeping its place), else appends.
+- A part's handle is `syntheses.section_handle(heading)` (the rule `s:` parts use: lower case, accents dropped, runs of other characters as one `-`); a heading whose handle is empty is refused; `write_part` with a heading whose handle exists replaces that part (keeping its place), else appends.
 - Reuse `syntheses._scan` for headings outside code fences and `syntheses._write` for the atomic write; do not change `syntheses.py`.
 - `freshness`: `unknown` when `stamp.commit` is None, when `git cat-file -e <commit>^{commit}` fails, or on any git failure or timeout. Else `changed` when `git diff --name-only <commit> -- <paths>` (the commit against the files on disk, so commits, branch switches and uncommitted edits all count) or `git status --porcelain --untracked-files=all -- <paths>` (new files) names any file outside `.memory/`, or when a covered path does not exist; else `fresh`.
 - `describe` returns exactly: `fresh: its files are as they were when it was written`; `possibly stale: its files changed since it was written; check them before relying on it`; `unknown: not a git project or its commit is gone; check the files`.
@@ -99,9 +101,9 @@ def describe(state: str) -> str
 
 - [ ] **Step 1: Write the failing tests** (a `git_project` fixture: `git init`, one commit of `src/a.py` and `docs/p.md`, with `user.name`/`user.email` set by `-c`):
   - `test_first_part_creates_the_file_with_a_stamp`: after `write_part(..., "organization", "Where the engine lives", "Text.", ["src/"], date(2026, 11, 17))` the file's last line is `Covers: src/ | updated 2026-11-17 at <head_commit>` and `load` returns one part with handle `where-the-engine-lives`.
-  - `test_same_heading_replaces_and_keeps_order`, `test_unknown_name_is_refused` (`"notes"` raises), `test_bad_paths_are_refused` (parametrized: `[]`, `["../x"]`, `["/etc"]`, `[""]`, `["a,b"]`, `["a|b"]`, `[".memory/x"]`), `test_body_with_a_heading_or_a_stamp_is_refused`.
+  - `test_same_heading_replaces_and_keeps_order`, `test_unknown_name_is_refused` (`"notes"` raises), `test_bad_paths_are_refused` (parametrized: `[]`, `["../x"]`, `["/etc"]`, `[""]`, `["a,b"]`, `["a|b"]`, `[".memory/x"]`, `["missing/"]`), `test_body_with_a_heading_or_a_stamp_is_refused`, `test_heading_without_letters_or_digits_is_refused`.
   - `test_fresh_then_changed_by_a_commit_then_fresh_after_confirm`: fresh; commit a change to `src/a.py` gives `CHANGED`; a commit touching only `docs/p.md` does not count; `confirm_part` gives `fresh` and leaves the body bytes equal.
-  - `test_uncommitted_change_new_file_and_deleted_path_are_changed`, `test_a_branch_whose_files_differ_is_changed` (write on `main`, switch to a branch where `src/a.py` differs), `test_a_part_covering_the_root_stays_fresh_when_another_part_is_written`, `test_no_git_and_missing_commit_are_unknown` (a plain folder; a stamp with commit `0` * 12), `test_git_timeout_is_unknown` (monkeypatch `subprocess.run` to raise `subprocess.TimeoutExpired`), `test_describe_texts` (the three exact strings above).
+  - `test_uncommitted_change_new_file_and_deleted_path_are_changed`, `test_a_branch_whose_files_differ_is_changed` (write on `main`, switch to a branch where `src/a.py` differs), `test_a_linked_worktree_stamps_its_own_head` (`git worktree add` on a branch one commit ahead; `worktree()` from inside it returns it, and a part written there is `fresh` there), `test_a_part_covering_the_root_stays_fresh_when_another_part_is_written`, `test_no_git_and_missing_commit_are_unknown` (a plain folder, whose stamp reads `at no-commit` and loads with `commit` None; a stamp with commit `0` * 12), `test_worktree_rule` (`MEM_PROJECT` set gives the project root; unset, a linked worktree's cwd gives that worktree; a plain folder gives the project root), `test_git_timeout_is_unknown` (monkeypatch `subprocess.run` to raise `subprocess.TimeoutExpired`), `test_describe_texts` (the three exact strings above).
 - [ ] **Step 2: Run them and see them fail** (`pytest plugins/memory/engine/tests/test_project_syntheses.py -q`: import error).
 - [ ] **Step 3: Implement the module.**
 - [ ] **Step 4: Run the whole suite; all pass.** Add row D25 to the design document.
@@ -125,7 +127,7 @@ def describe(state: str) -> str
 | `mem show p:<name>#<handle>` | `== p:<name>#<handle> (<describe text>)`, then the part's heading, body and stamp |
 
 - A separate command, because `mem synthesis add` already takes `s:HANDLE --section` and needs a writable store, and `--project` already means a registered project's name in `show` and `search`.
-- The `.memory/` folder comes from the existing `records.project_root` / `records.project_dir`; outside a project the command exits 2 with `mem: not inside a project`.
+- Arguments, here and in Task 3: `root = records.project_root(Path.cwd(), os.environ)`; `memory_dir = records.project_dir(root)`; `worktree = project_syntheses.worktree(Path.cwd(), root, os.environ)`. Never pass `root` where `worktree` is asked. Outside a project (`root` None) the command exits 2 with `mem: not inside a project`.
 - Neither the command nor `mem show p:…` needs a store: `main` must not refuse them when none resolves, and they never write to one. `mem show` given both `p:` handles and others still needs the store for the others.
 - `add` runs `_refuse_secret` on the body (exit 4); it does not run `_check_terms`.
 - An unknown name or part exits 2 and names the parts that exist.
@@ -166,6 +168,7 @@ def describe(state: str) -> str
 
 **Design, fixed before any run:**
 
+- Environment: as the recall trial, plus `XDG_DATA_HOME` pointed at a temporary folder, so no session reads the owner's default store or writes to its global memories (the recall trial leaves it set).
 - Project under test: a copy of this repository at the branch's commit, in a temporary folder with its own `git init` and one commit (a real project, because a toy one made an earlier recall trial meaningless). Left out of the copy, because they hold the answers: `CLAUDE.md`, `docs/superpowers/plans/`, `plugins/memory/evals/`.
 - Questions: the script holds 8 candidate questions in Spanish whose answer is a path that takes several steps to find (which file a behaviour is decided in, reached through a caller, not a name to grep). A pilot runs each twice without syntheses; the 4 with the highest median tool calls are the orientation cases, and the pilot stops the experiment when fewer than 4 have a median of 4 calls or more (the measure could not show a saving).
 - Syntheses: written once by one headless Sonnet session told to load `memory-curation` and organize the project; kept in the temporary folder, part count reported. The script then adds one part of its own that names the two files the staleness cases move, so those cases do not depend on what the writer chose.
@@ -204,6 +207,18 @@ Reported beside the action, without changing it: tokens per arm, and S1 minus S2
 | The staleness cases could pass without the stamp | A second arm with the same stale text reported as fresh; the old path fails the answer |
 | The decision rule left outcomes uncovered | Ordered rows, the last one catching the rest |
 | Commas, bars and git pathspec magic in paths | Refused, and literal pathspecs |
+
+## Review against the code, 2026-11-17
+
+Every helper the plan reuses exists (`syntheses._scan`, `_write`, `section_handle`; `records.project_root`, `project_dir`; `mem._refuse_secret`, `_NO_STORE_NEEDED`); `records.load_memories` reads `.memory/*.md` without recursion, so `.memory/syntheses/` does not leak into memories; the design lists D14 onward newest first, so D25 goes above D24.
+
+| Gap found | Change |
+| --- | --- |
+| `write_part(memory_dir, project_root, …)` invited passing `records.project_root`, the main worktree, while freshness compares the session's worktree: a part written in a linked worktree would read `changed` at once | A `worktree()` helper that also honours `MEM_PROJECT`; the functions take `worktree`; Task 2 states each argument; tests in a linked worktree |
+| The stamp's `no-commit` had no mapping to `Stamp.commit` | Stated in the interface and tested |
+| The handle rule restated `section_handle` without its accent folding | Reuse `section_handle`; an empty handle is refused |
+| A path that does not exist was accepted at writing and then read `changed` forever | Refused at writing |
+| Task 4's model script leaves `XDG_DATA_HOME` set, so trial sessions could write to the owner's real store | `XDG_DATA_HOME` pointed at a temporary folder |
 
 ## Not in this experiment
 
