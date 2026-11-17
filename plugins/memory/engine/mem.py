@@ -37,10 +37,10 @@ import project_syntheses
 import records
 import syntheses
 
-_WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources", "import")
-_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
+_WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
+_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memories", "curate", "session-index", "signal", "projects",
+                    "distinct", "restore", "memory", "memories", "curate", "session-index", "signal", "projects",
                     "project-synthesis")
 
 
@@ -2100,11 +2100,12 @@ def _with_changed_listings(originals: dict[Path, bytes], listings: Mapping[Path,
     return {**{p: b for p, b in listings.items() if p.read_bytes() != b}, **originals}
 
 
-def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: Mapping[Path, Path] | None = None) -> None:
+def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: Mapping[Path, Path] | None = None,
+               group: str | None = None) -> None:
     """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
     and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since.
     `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
-    group = uuid.uuid4().hex
+    group = group or uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
         for path, before in originals.items():
@@ -3447,6 +3448,78 @@ def cmd_supersede(args: argparse.Namespace) -> int:
     return _two(args, args.old, args.new, "supersede", apply)
 
 
+def cmd_memory(args: argparse.Namespace) -> int:
+    """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
+    if args.claim is None and args.context is None and args.body_file is None:
+        build_parser().error("memory edit needs --claim, --context or --body-file")
+    claim = " ".join(args.claim.split()) if args.claim is not None else None
+    context = " ".join(args.context.split()) if args.context is not None else None
+    try:
+        body = _read_body(args.body_file) if args.body_file else None
+    except NewNoteError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    if claim is not None and not claim:
+        print("mem: the claim is empty.", file=sys.stderr)
+        return 2
+    texts = [t for t in (claim, context, body) if t]
+    if _refuse_secret(texts):
+        return 4
+    found = _memory_of(args, [args.handle])
+    if found is None:
+        return 2
+    m = found[0]
+    if m.status != "active":
+        print(f"mem: m:{m.handle} is {m.status}: run mem restore m:{m.handle} to bring it back before editing it.",
+              file=sys.stderr)
+        return 2
+    if m.scope == "global" and texts:
+        if refused := _check_terms(texts, m.kind, getattr(args, "owner_approved", False)):
+            return refused
+    log = m.path.parent / records.CURATION_LOG
+    log_before = log.read_bytes() if log.exists() else None
+    try:
+        original = m.path.read_bytes()
+        what = []
+        changes: dict[str, Any] = {}
+        if claim is not None:
+            if not args.shrink:
+                syntheses._guard_shrink(m.claim, claim, sentences=False)
+            changes["claim"] = claim
+            what.append("claim")
+        if context is not None:
+            changes["context"] = context or None
+            what.append("context")
+        if body is not None:
+            if not args.shrink:
+                syntheses._guard_shrink(m.body.strip("\n"), body.strip("\n"))
+            changes["body"] = body
+            what.append("body")
+        updating = False
+        try:
+            records.log_before(m, "edit")
+            if m.path.read_bytes() != original:
+                raise ValueError(f"{m.path.name} changed since it was read, so nothing was written: run the command again")
+            updating = True
+            records.update(m, datetime.date.today(), **changes)
+        except BaseException:  # any failure leaves the memory and its log as they were
+            if updating and m.path.read_bytes() != original:
+                _swap_file(m.path, original)
+            if log_before is None:
+                log.unlink(missing_ok=True)
+            else:
+                log.write_bytes(log_before)
+            raise
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    if m.scope == "project":
+        _register_project(records.project_root(Path.cwd(), os.environ))
+    print(f"m:{m.handle}\tedited {', '.join(what)}")
+    log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    return 0
+
+
 def cmd_merge(args: argparse.Namespace) -> int:
     def apply(found, today):
         keep, drop = found
@@ -3537,6 +3610,12 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
         return 2
     syn = syntheses.Synthesis(path, handle)
     entry = records.last_log_entry(syn)
+    rel = f"{syntheses.SYNTHESES_DIR}/{path.name}"
+    group = records.last_log_entry(_StoreLog(root / "note", rel))  # a rename or remove logs its files as a group
+    if group is not None and group.get("group") and (entry is None or _sha(path.read_bytes()) == group.get("after")):
+        # the file is as the group's action left it (or has no own entry): the group is the newest change; when
+        # the file differs, a change came after the group and its own entry is the one to undo
+        return _restore_group(root, rel, group, f"s:{handle}")
     if entry is None:
         print(f"mem: no logged text for s:{handle}: nothing to restore", file=sys.stderr)
         return 2
@@ -3559,7 +3638,7 @@ class _StoreLog:
     handle: str
 
 
-def _restore_group(root: Path, rel: str, entry: dict) -> int:
+def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) -> int:
     """Undo every file of the unify, rename or distinct that logged `entry`, or none: refused when any changed since.
 
     A README listing that changed since is left alone (not a refusal) and rebuilt by `apply_index`; one that is
@@ -3611,7 +3690,7 @@ def _restore_group(root: Path, rel: str, entry: dict) -> int:
     except (OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{_handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
+    print(f"{label or _handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
           f"({len(members)} files)")
     log_usage(root, {"cmd": "restore", "scope": "note"})
     return 0
@@ -4193,6 +4272,156 @@ def _attach(args: argparse.Namespace) -> int:
     return 0
 
 
+def _part_of_notes(root: Path, ref: str) -> list[tuple[Path, str]]:
+    """(path, text) of each note whose `part_of` is `ref` (`<synthesis>#<section>`), sorted by path."""
+    found = []
+    for _, path in _note_files(root):
+        try:
+            text = path.read_bytes().decode("utf-8")
+            meta = split_frontmatter(text)[0]
+        except (OSError, UnicodeDecodeError, FrontmatterError):
+            continue
+        if isinstance(meta, dict) and meta.get("part_of") == ref:
+            found.append((path, text))
+    return sorted(found)
+
+
+def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], action: str) -> None:
+    """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes."""
+    group = uuid.uuid4().hex
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+        for path, (old, new) in changes.items():
+            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                     "before": old.decode("utf-8"), "after": _sha(new)}
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]) -> None:
+    """Log the undo with `write_log`, then swap each file from its old bytes to its new ones; a file that is not as
+    it was read, or any failure, puts every file and `log` back as they were."""
+    log_before = log.read_bytes() if log.exists() else None
+    write_log()
+    swapped: list[Path] = []
+    try:
+        for path, (old, _) in changes.items():
+            if path.read_bytes() != old:
+                raise ValueError(f"{path.name} changed since it was read, so nothing was written: run the command again")
+        for path, (_, new) in changes.items():
+            _swap_file(path, new)
+            swapped.append(path)
+    except BaseException:
+        for path in swapped:
+            _swap_file(path, changes[path][0])
+        if log_before is None:
+            log.unlink(missing_ok=True)
+        else:
+            log.write_bytes(log_before)
+        raise
+
+
+def _structure(args: argparse.Namespace) -> int:
+    """`mem synthesis rename | remove | detach | topics`: one line per changed record, errors on stderr with exit 2."""
+    root = args.root.resolve()
+    action = args.synthesis_command
+    today = datetime.date.today()
+    folder = root / syntheses.SYNTHESES_DIR
+    try:
+        if action == "rename" and _refuse_secret([args.heading]):
+            return 4
+        if action == "rename" and (refused := _check_terms([args.heading], "synthesis", getattr(args, "owner_approved", False))):
+            return refused
+        changes: dict[Path, tuple[bytes, bytes]] = {}
+        lines: list[str] = []
+        if action == "detach":
+            found = resolve_note(root, args.note)
+            if isinstance(found, list):
+                _ambiguous(args.note, found)
+                return 2
+            if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+                raise ValueError(f"no note {args.note}")
+            rel = found.relative_to(root).as_posix()
+            original = found.read_bytes()
+            text = original.decode("utf-8")
+            meta = split_frontmatter(text)[0]
+            part = meta.get("part_of") if isinstance(meta, dict) else None
+            if not isinstance(part, str):
+                raise ValueError(f"{_handle(rel)} is not part of a synthesis")
+            changes[found] = (original, _detached(text, rel).encode("utf-8"))
+            lines.append(f"{_handle(rel)}\tdetached from s:{part}")
+            log = root / records.CURATION_LOG
+            write_log = lambda: _log_note(root, found, rel, "detach")  # noqa: E731
+        else:
+            handle, section = syntheses.split_ref(args.target)
+            path = syntheses.path_of(folder, handle)
+            if path is None or not path.is_file():
+                raise ValueError(f"no synthesis named {args.target}")
+            if action == "topics" and section is not None:
+                raise ValueError("topics takes s:<handle>")
+            if action != "topics" and section is None:
+                raise ValueError(f"{action} takes s:<handle>#<section handle>")
+            if action == "topics":
+                topics = list(dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip()))
+                known = load_topics(root)
+                if not topics:
+                    raise ValueError("at least one topic is required")
+                for t in topics:
+                    if t not in known:
+                        raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+                for other in syntheses.load(folder):
+                    if other.error is None and other.handle != handle and (clash := [t for t in topics if t in other.topics]):
+                        raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}")
+                old, new = syntheses.with_topics(path, topics, today)
+                changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
+                lines.append(f"s:{handle}\ttopics {', '.join(topics)}")
+                log = folder / records.CURATION_LOG
+                write_log = lambda: records.log_before(syntheses.Synthesis(path, handle), "topics")  # noqa: E731
+            else:
+                ref = f"{handle}#{section}"
+                notes = _part_of_notes(root, ref)
+                if action == "rename":
+                    old, new, new_section = syntheses.renamed_section(path, section, args.heading, today)
+                    lines.append(f"s:{handle}#{new_section}\trenamed from {section}")
+                    edit = lambda text, rel: _renamed_part_of(text, rel, f"{handle}#{new_section}")  # noqa: E731
+                    lines += [f"{_handle(p.relative_to(root).as_posix())}\tpart of s:{handle}#{new_section}" for p, _ in notes]
+                else:
+                    old, new = syntheses.without_section(path, section, today)
+                    lines.append(f"s:{handle}#{section}\tremoved")
+                    edit = _detached  # noqa: E731
+                    lines += [f"{_handle(p.relative_to(root).as_posix())}\tdetached from s:{ref}" for p, _ in notes]
+                changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
+                for note, text in notes:
+                    changes[note] = (text.encode("utf-8"), edit(text, note.relative_to(root).as_posix()).encode("utf-8"))
+                log = root / records.CURATION_LOG
+                write_log = lambda: _log_group_ahead(root, changes, action)  # noqa: E731
+        locked = [p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)]
+        if locked:
+            raise ValueError(f"not writable: {', '.join(locked)}")
+        _write_logged_changes(changes, log, write_log)
+    except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print("\n".join(lines))
+    log_usage(root, {"cmd": "synthesis", "action": action})
+    return 0
+
+
+def _detached(text: str, rel: str) -> str:
+    """The note's text without `part_of` and `part_of_hash`."""
+    return _set_field(_set_field(_lf(text, rel), "part_of", None), "part_of_hash", None)
+
+
+def _renamed_part_of(text: str, rel: str, part_of: str) -> str:
+    """The note's text with `part_of` set to `part_of`; `part_of_hash` stays, so a stale note stays listed."""
+    return _set_field(_lf(text, rel), "part_of", part_of)
+
+
+def _lf(text: str, rel: str) -> str:
+    if "\r" in text:
+        raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
+    return text
+
+
 def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str, body: str,
                    today: datetime.date) -> str:
     """The section and the knowledge note that summarizes it, both or neither; returns the note's path."""
@@ -4252,6 +4481,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return 0
     if action == "attach":
         return _attach(args)
+    if action in ("rename", "remove", "detach", "topics"):
+        return _structure(args)
     note_group = [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level] \
         if action == "add" else []
     one_call = any(note_group)
@@ -4408,6 +4639,142 @@ def cmd_rename(args: argparse.Namespace) -> int:
         return 1
     print(path.relative_to(args.root.resolve()).as_posix())
     print(f"rewrote {links} links in {files} files", file=sys.stderr)
+    return 0
+
+
+# --- note edit -----------------------------------------------------------------
+
+
+def _section_span(text: str, heading: str) -> tuple[list[str], int, int]:
+    """The note's lines and the index of the `## heading` line and of the line that ends its text."""
+    lines, heads = syntheses._scan(text)
+    want = " ".join(heading.removeprefix("## ").split())
+    hits = [k for k, (_, h) in enumerate(heads) if " ".join(h.split()) == want]
+    if not hits:
+        raise ValueError(f"no section '## {want}' in the note")
+    if len(hits) > 1:
+        raise ValueError(f"the heading '## {want}' is repeated in the note: edit it by hand")
+    k = hits[0]
+    return lines, heads[k][0], heads[k + 1][0] if k + 1 < len(heads) else len(lines)
+
+
+def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section: str | None, body: str | None,
+                      claim: str | None, topics: list[str] | None, shrink: bool,
+                      today: datetime.date) -> tuple[str, list[str]]:
+    """The note's text with the section text, the claim and the topics replaced (every other byte stays), and what
+    changed; ValueError when a change is refused."""
+    what = []
+    if section is not None:
+        lines, head, end = _section_span(text, section)
+        new = syntheses._clean(body or "")
+        if not new:
+            raise ValueError("the section text is empty")
+        syntheses._check_body(new)
+        if not shrink:
+            syntheses._guard_shrink("\n".join(lines[head + 1:end]).strip("\n"), new)
+        lines[head + 1:end] = ["", *new.split("\n"), ""]
+        text = "\n".join(lines)
+        what.append("section " + " ".join(section.removeprefix("## ").split()))
+    if claim is not None:
+        if not isinstance(meta.get("claim"), str):
+            raise ValueError("the note has no claim: only a knowledge note does")
+        if not claim:
+            raise ValueError("the claim is empty")
+        if not shrink:
+            syntheses._guard_shrink(meta["claim"], claim, sentences=False)
+        text = _set_field(text, "claim", claim)
+        what.append("claim")
+    if topics is not None:
+        if not topics:
+            raise ValueError("at least one topic is required")
+        for t in topics:
+            if t not in known:
+                raise ValueError(f"unknown topic '{t}': use an id from topics.yaml")
+            domain = path.parent.name
+            if path.parent.parent.name in ("literature", "knowledge") and root_of(known, t) != domain:
+                raise ValueError(f"topic '{t}' belongs to the domain {root_of(known, t)}, not to {domain}, "
+                                 "where the note lives")
+            if missing := [a for a in ancestors(known, t) if a not in topics]:
+                raise ValueError(f"topic '{t}' needs its ancestor '{missing[0]}' in the list too")
+        text = _set_field(text, "topics", topics)
+        what.append("topics")
+    if "updated" in meta:
+        text = _set_field(text, "updated", today.isoformat())
+    return text, what
+
+
+def _swap_file(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def cmd_note(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    if args.section is None and args.claim is None and args.topics is None:
+        build_parser().error("note edit needs --section, --claim or --topics")
+    if (args.section is None) != (args.body_file is None):
+        build_parser().error("--section and --body-file go together")
+    claim = " ".join(args.claim.split()) if args.claim is not None else None
+    topics = list(dict.fromkeys(t.strip() for t in args.topics.split(",") if t.strip())) \
+        if args.topics is not None else None
+    try:
+        body = _read_body(args.body_file) if args.body_file else None
+        texts = [args.section or "", body or "", claim or "", *(topics or [])]
+        if _refuse_secret(texts):
+            return 4
+        if refused := _check_terms(texts, "note", getattr(args, "owner_approved", False)):
+            return refused
+        found = resolve_note(root, args.note)
+        if isinstance(found, list):
+            _ambiguous(args.note, found)
+            return 2
+        if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+            raise ValueError(f"no note {args.note}")
+        rel = found.relative_to(root).as_posix()
+        original = found.read_bytes()
+        text = original.decode("utf-8")
+        if "\r" in text:
+            raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
+        meta = split_frontmatter(text)[0]
+        if not isinstance(meta, dict):
+            raise ValueError(f"{rel} has no frontmatter mapping")
+        today = datetime.date.today()
+        new, what = _edited_note_text(text, found, meta, load_topics(root), section=args.section, body=body,
+                                      claim=claim, topics=topics, shrink=args.shrink, today=today)
+        group = uuid.uuid4().hex
+        listings = _index_files(root)
+        log = root / records.CURATION_LOG
+        log_before = log.read_bytes() if log.exists() else None
+        entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "action": "note-edit", "handle": rel, "group": group, "before": text,
+                 "after": _sha(new.encode("utf-8"))}
+        with log.open("a", encoding="utf-8", newline="") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        swapped = False
+        try:
+            if found.read_bytes() != original:
+                raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
+            _swap_file(found, new.encode("utf-8"))
+            swapped = True
+            apply_index(root)
+        except BaseException:  # any failure leaves the note, the listings and the log as they were
+            if swapped:
+                _swap_file(found, original)
+                for path, data in listings.items():
+                    if path.read_bytes() != data:
+                        _swap_file(path, data)
+            if log_before is None:
+                log.unlink(missing_ok=True)
+            else:
+                log.write_bytes(log_before)
+            raise
+        _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
+    except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{_handle(rel)}\tedited {', '.join(what)}")
+    log_usage(root, {"cmd": "note", "action": "edit"})
     return 0
 
 
@@ -4964,6 +5331,18 @@ def build_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument("note", metavar="NOTE")
     rename_parser.add_argument("new_stem", metavar="NEW-STEM", help="the new file name without .md")
     rename_parser.set_defaults(func=cmd_rename)
+    note_parser = sub.add_parser("note", help="change a note through mem, never by editing its file")
+    note_sub = note_parser.add_subparsers(dest="note_command", required=True)
+    note_edit = note_sub.add_parser("edit", help="replace the text of one section, the claim or the topics of a note")
+    note_edit.add_argument("note", metavar="NOTE", help="a path or a handle, as in mem show")
+    note_edit.add_argument("--section", metavar="HEADING", help="the `## ` heading whose text is replaced")
+    note_edit.add_argument("--body-file", metavar="PATH", help="the new section text; - reads standard input")
+    note_edit.add_argument("--claim", metavar="TEXT", help="the new frontmatter claim (one sentence)")
+    note_edit.add_argument("--topics", metavar="A,B", help="the new topic ids: in topics.yaml, in the note's domain")
+    note_edit.add_argument("--shrink", action="store_true",
+                           help="accept a text that drops over 20%% of the words, a sentence or a link")
+    note_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    note_parser.set_defaults(func=cmd_note)
     import_parser = sub.add_parser("import", help="copy the notes of another folder of notes into the store; the source is never changed")
     import_parser.add_argument("source", metavar="SOURCE", help="the folder to read (literature/, knowledge/, research/, topics.yaml)")
     import_parser.add_argument("--dry-run", action="store_true", help="change nothing; print the report a real run would")
@@ -5109,7 +5488,17 @@ def build_parser() -> argparse.ArgumentParser:
     syn_attach = synthesis_sub.add_parser("attach", help="make a knowledge note the short recall of a section")
     syn_attach.add_argument("note", metavar="NOTE")
     syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
-    for syn_cmd in (syn_new, syn_add, syn_edit, syn_append):
+    syn_rename = synthesis_sub.add_parser("rename", help="rename a section's heading; its notes follow")
+    syn_rename.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_rename.add_argument("heading", metavar="NEW_HEADING")
+    syn_remove = synthesis_sub.add_parser("remove", help="take a section out; its notes lose part_of")
+    syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
+    syn_detach.add_argument("note", metavar="NOTE")
+    syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
+    syn_topics.add_argument("target", metavar="s:HANDLE")
+    syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")
+    for syn_cmd in (syn_new, syn_add, syn_edit, syn_append, syn_rename):
         syn_cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
@@ -5136,6 +5525,19 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = sub.add_parser("init", help="make a folder a writable store (default: the default store)")
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)
+    memory_parser = sub.add_parser("memory", help="change a memory through mem, never by editing its file")
+    memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
+    memory_edit = memory_sub.add_parser("edit", help="replace the claim, the context or the body of a memory")
+    memory_edit.add_argument("handle", metavar="m:HANDLE")
+    memory_edit.add_argument("--claim", metavar="TEXT", help="the new claim (one sentence)")
+    memory_edit.add_argument("--context", metavar="TEXT", help="the new context; an empty text removes it")
+    memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
+    memory_edit.add_argument("--shrink", action="store_true",
+                             help="accept a text that drops over 20%% of the words, a sentence or a link")
+    memory_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    memory_edit.add_argument("--global", dest="is_global", action="store_true",
+                             help="edit the global memory when the handle exists in both scopes")
+    memory_parser.set_defaults(func=cmd_memory)
     return parser
 
 

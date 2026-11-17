@@ -31,7 +31,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | Block of the queue | Actions |
 |---|---|
 | notes on a topic that has a synthesis, not yet part of it | Add what the note says to the right part (`mem synthesis append` or `add`, the note among its sources), then `mem synthesis attach <note> s:<h>#<section>`. Not about that subject: leave it |
-| notes older than their section | Rewrite the note from its part (`mem show s:<h>#<section>`), keeping it short |
+| notes older than their section | Rewrite the note from its part (`mem show s:<h>#<section>`), keeping it short, with `mem note edit <note> --section <heading> --body-file -` |
 | notes that say the same or the opposite? | The same: write one text that keeps every source link and every "does not apply when" of both, then `mem unify <keep> <other> --body-file -`. Opposites or different things: `mem distinct <a> <b>`, or leave and say so |
 | topics with 8 notes or more and no synthesis | Worth a long document? Load the `memory-synthesis` skill. Not worth it: leave |
 
@@ -55,6 +55,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 - Never merge or supersede across scopes: a project memory and a global one stay two records.
 - `mem forget` is for what stopped being true or useful. For something that was wrong from the start, `mem refute` with the reason: the reason is what stops it being written again.
 - A decision or a constraint does not go stale by age: the queue never lists them as unconfirmed, and you do not forget one because it is old.
+- A memory or note that is wrong in a detail, not as a whole: `mem memory edit m:<h> --claim "…"` or `mem note edit <note> --claim "…"`. A retired memory is restored before it is edited.
 - Undo: `mem restore m:<handle>` puts a memory back as it was before the last action on it; run it again to go back one more step.
 
 ## Report

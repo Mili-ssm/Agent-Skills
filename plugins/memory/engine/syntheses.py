@@ -349,11 +349,13 @@ def _sentences(text: str) -> list[str]:
     return [s for s in found if len(s.split()) >= 6]
 
 
-def _guard_shrink(old: str, new: str) -> None:
+def _guard_shrink(old: str, new: str, *, sentences: bool = True) -> None:
+    """Refuse a text that drops over 20% of the words, a link or, when `sentences`, a sentence of the old one
+    (a one-sentence field such as a claim is checked without the sentence rule)."""
     dropped = max(word_count(old) - word_count(new), 0)
     lost = list(dict.fromkeys(t for t in _links(old) if t not in set(_links(new))))
     kept = set(_sentences(new))
-    gone = [s for s in dict.fromkeys(_sentences(old)) if s not in kept]
+    gone = [s for s in dict.fromkeys(_sentences(old)) if s not in kept] if sentences else []
     if lost or gone or word_count(new) < SHRINK_RATIO * word_count(old):
         parts = [f"{n} {name}" for n, name in ((dropped, "words"), (len(gone), "sentences")) if n]
         if lost:
@@ -410,6 +412,72 @@ def append_section(path: Path, section: str, text: str, today: datetime.date, *,
     if store is not None and section != SUMMARY and (problems := validate_section(new, store)):
         raise ValueError("; ".join(problems))
     _replace(path, syn, target, new, today, "append")
+
+
+def _section_lines(path: Path, section: str) -> tuple[str, list[str], list[tuple[int, str]], int]:
+    """(file text, its lines, its headings, index in the headings of `section`) from one read of the file."""
+    old = _read(path)
+    syn = load_one(path)
+    if syn.error:
+        raise ValueError(f"{path.name}: {syn.error}")
+    lines, heads = _scan(old)
+    found = [n for n, (_, h) in enumerate(heads) if section_handle(h) == section]
+    if not found:
+        raise ValueError(f"no section {section!r} in s:{syn.handle}")
+    if len(found) > 1:
+        raise ValueError(f"the handle {section!r} is repeated in s:{syn.handle}: rename one heading by hand")
+    if section == SUMMARY:
+        raise ValueError("the summary cannot be renamed or removed")
+    return old, lines, heads, found[0]
+
+
+def renamed_section(path: Path, section: str, heading: str, today: datetime.date) -> tuple[str, str, str]:
+    """(old file text, new file text, new section handle) with the section's heading replaced; the text stays."""
+    old, lines, heads, n = _section_lines(path, section)
+    heading = " ".join(heading.split())
+    handle = section_handle(heading)
+    if not handle:
+        raise ValueError("the heading has no letters or digits")
+    if handle == SUMMARY or (handle != section and any(section_handle(h) == handle for _, h in heads)):
+        raise ValueError(f"a section with the handle {handle!r} already exists")
+    i = heads[n][0]
+    lines[i] = f"## {heading}" + ("\r" if lines[i].endswith("\r") else "")
+    return old, _bump("\n".join(lines), today), handle
+
+
+def without_section(path: Path, section: str, today: datetime.date) -> tuple[str, str]:
+    """(old file text, new file text) with the section's heading and text taken out; every other byte stays."""
+    old, lines, heads, n = _section_lines(path, section)
+    end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+    del lines[heads[n][0]:end]
+    if n + 1 == len(heads):  # the last one: the file ends with the text before it and one newline
+        while len(lines) > 1 and lines[-1] == "" and lines[-2] == "":
+            lines.pop()
+    return old, _bump("\n".join(lines), today)
+
+
+def with_topics(path: Path, topics: Sequence[str], today: datetime.date) -> tuple[str, str]:
+    """(old file text, new file text) with the frontmatter's `topics` replaced; every other byte stays."""
+    old = _read(path)
+    syn = load_one(path)
+    if syn.error:
+        raise ValueError(f"{path.name}: {syn.error}")
+    m = _FRONTMATTER.match(old)
+    if "\r" in m.group(0):
+        raise ValueError(f"{path.name} has CRLF line ends: convert it to LF first")
+    lines = m.group(1).split("\n")
+    start = next((i for i, ln in enumerate(lines) if re.match(r"topics:", ln)), None)
+    if start is None:
+        raise ValueError(f"{path.name} has no topics field")
+    end = start + 1
+    while end < len(lines) and re.match(r"(\s|- )", lines[end]):
+        end += 1
+    rendered = yaml.safe_dump(list(topics), allow_unicode=True, default_flow_style=True, width=10**6).split("\n")[0]
+    lines[start:end] = [f"topics: {rendered}"]
+    new = _bump("---\n" + "\n".join(lines) + "\n---\n" + old[m.end():], today)
+    if (meta := yaml.safe_load(_FRONTMATTER.match(new).group(1))).get("topics") != list(topics):
+        raise ValueError(f"cannot rewrite the topics of {path.name}: edit its frontmatter by hand ({meta.get('topics')!r})")
+    return old, new
 
 
 def match_sections(syntheses: Sequence[Synthesis], query_tokens: Sequence[str], *,
