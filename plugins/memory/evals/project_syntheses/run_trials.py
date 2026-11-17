@@ -40,7 +40,8 @@ REPO = PLUGIN.parents[1]
 MEM = str(PLUGIN / "bin" / "mem")
 LEAVE_OUT = ("CLAUDE.md", "docs/superpowers/plans", "plugins/memory/evals")
 TOOLS = ["Read", "Grep", "Glob", "Skill", "Bash(mem *)"]  # identical in every arm, the pilot and the writer
-ANSWER_FORMAT = " Responde con la ruta completa del archivo, relativa a la raíz del repositorio, y una frase de justificación."
+# Only the path: a justification could name the old file to say it moved, which the staleness grading counts as wrong.
+ANSWER_FORMAT = " Responde solo con la ruta completa del archivo, relativa a la raíz del repositorio, sin más texto."
 
 # Each candidate: name, question (Spanish), a substring of the right path, and the chain that leads to it (verified by
 # reading the code at the commit this script was written on). The two with `moved` are the staleness cases: the file
