@@ -247,6 +247,7 @@ Tasks 1 to 3 are built and reviewed (820 tests pass). The pilot ran each of the 
 
 What this shows and what it does not:
 
-- Observed: on this repository Sonnet answers every candidate "where is X decided" question correctly in 2 to 5 tool calls with Grep, Glob and Read alone; about 99,000 tokens of every session are its starting context, so a saved call moves tokens little.
+- Observed: on this repository Sonnet answers every candidate "where is X decided" question correctly (graded against the expected path) in 2 to 5 tool calls with Grep, Glob and Read alone. A 2-call session uses about 99,000 tokens; each further call adds roughly 20,000 (root-worktree: 99,112 at 2 calls, 140,039 at 4), so where a question does take many calls a saving would show in tokens too.
+- Not fixed in the harness, to fix before any further run (review round 2): `decide` reaches a decision with planned rows missing; a pilot case with one failed run is ranked on the other; resuming an older work folder keeps its plugin copy and unstripped copies. Any rerun starts in a new work folder.
 - Not measured: orientation in a larger or less greppable project; the staleness arms (S1 against S2), which do not depend on the orientation cases but are part of the stopped experiment.
 - Cost: 16 sessions, 0.06 to 0.09 USD each.
