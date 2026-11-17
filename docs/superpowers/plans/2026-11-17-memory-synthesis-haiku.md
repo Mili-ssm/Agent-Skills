@@ -43,6 +43,18 @@
 | One claim is 3 points, above the margin | Both arms 2 runs per topic; inconclusive above 2 points |
 | A denied write breaks a run silently | Smoke asserts writes exit 0, no denials; cost summed over all sessions |
 
+## Redesign after the smoke (owner, 2026-11-17)
+
+The smoke (one pipeline per arm on human-memory) cost about 3.5 USD against the 0.5–1 estimated; at measured costs the full design would cost 18–25 USD. Its single pair: arm S 3.2 unsupported per 100 (62 claims checked), 1.35 USD; arm H (Haiku writer) 8.7 per 100 (46 claims, 74% of S), 0.27 USD (judge excluded). The owner chose a hybrid arm instead of arm H, with Haiku at medium or high effort rather than low.
+
+This section replaces the arms, runs and rule above; the fixture, measures and pre-mortem changes still hold.
+
+- **Arm S:** writer Sonnet → checker Haiku → fixer Sonnet (unchanged).
+- **Arm Y (hybrid):** writer Sonnet → checker Haiku (`--effort high`) → fixer Haiku (`--effort high`), up to 2 fix rounds, ending on a check.
+- **Judge:** Haiku (`--effort high`), the same for both arms and blind to the arm, with the judge instructions above (used/unused notes, the `COUNTS:` line).
+- **Runs:** 4 topics × 1 run per arm. The smoke's arm-S pipeline on human-memory is reused (judged again by the Haiku judge); 7 new pipelines plus 8 judge sessions. Estimated 8 to 9 USD. With one run per topic the variance rule cannot apply: the result is labelled preliminary.
+- **Decision rule, written before these runs:** adopt arm Y for synthesis curation when its judged unsupported rate is at most arm S's plus 2 points (pooled over the 4 topics), its claims checked at least 80% of arm S's, its coverage at least arm S's minus 10 points, every Y synthesis passes `mem check`, and its pipeline cost (judge excluded) is at most 80% of arm S's; otherwise keep today's pipeline and record the gap.
+
 ## Results
 
 Pending.
