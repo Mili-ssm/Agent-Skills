@@ -36,7 +36,7 @@ import yaml
 import records
 import syntheses
 
-_WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources", "import")
+_WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memories", "curate", "session-index", "signal", "projects")
@@ -2098,11 +2098,12 @@ def _with_changed_listings(originals: dict[Path, bytes], listings: Mapping[Path,
     return {**{p: b for p, b in listings.items() if p.read_bytes() != b}, **originals}
 
 
-def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: Mapping[Path, Path] | None = None) -> None:
+def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: Mapping[Path, Path] | None = None,
+               group: str | None = None) -> None:
     """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
     and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since.
     `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
-    group = uuid.uuid4().hex
+    group = group or uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
         for path, before in originals.items():
@@ -4244,6 +4245,138 @@ def cmd_rename(args: argparse.Namespace) -> int:
     return 0
 
 
+# --- note edit -----------------------------------------------------------------
+
+
+def _section_span(text: str, heading: str) -> tuple[list[str], int, int]:
+    """The note's lines and the index of the `## heading` line and of the line that ends its text."""
+    lines, heads = syntheses._scan(text)
+    want = " ".join(heading.removeprefix("## ").split())
+    hits = [k for k, (_, h) in enumerate(heads) if " ".join(h.split()) == want]
+    if not hits:
+        raise ValueError(f"no section '## {want}' in the note")
+    if len(hits) > 1:
+        raise ValueError(f"the heading '## {want}' is repeated in the note: edit it by hand")
+    k = hits[0]
+    return lines, heads[k][0], heads[k + 1][0] if k + 1 < len(heads) else len(lines)
+
+
+def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section: str | None, body: str | None,
+                      claim: str | None, topics: list[str] | None, shrink: bool,
+                      today: datetime.date) -> tuple[str, list[str]]:
+    """The note's text with the section text, the claim and the topics replaced (every other byte stays), and what
+    changed; ValueError when a change is refused."""
+    what = []
+    if section is not None:
+        lines, head, end = _section_span(text, section)
+        new = syntheses._clean(body or "")
+        if not new:
+            raise ValueError("the section text is empty")
+        syntheses._check_body(new)
+        if not shrink:
+            syntheses._guard_shrink("\n".join(lines[head + 1:end]).strip("\n"), new)
+        lines[head + 1:end] = ["", *new.split("\n"), ""]
+        text = "\n".join(lines)
+        what.append("section " + " ".join(section.removeprefix("## ").split()))
+    if claim is not None:
+        if not isinstance(meta.get("claim"), str):
+            raise ValueError("the note has no claim: only a knowledge note does")
+        if not claim:
+            raise ValueError("the claim is empty")
+        if not shrink:
+            syntheses._guard_shrink(meta["claim"], claim, sentences=False)
+        text = _set_field(text, "claim", claim)
+        what.append("claim")
+    if topics is not None:
+        if not topics:
+            raise ValueError("at least one topic is required")
+        for t in topics:
+            if t not in known:
+                raise ValueError(f"unknown topic '{t}': use an id from topics.yaml")
+            domain = path.parent.name
+            if path.parent.parent.name in ("literature", "knowledge") and root_of(known, t) != domain:
+                raise ValueError(f"topic '{t}' belongs to the domain {root_of(known, t)}, not to {domain}, "
+                                 "where the note lives")
+            if missing := [a for a in ancestors(known, t) if a not in topics]:
+                raise ValueError(f"topic '{t}' needs its ancestor '{missing[0]}' in the list too")
+        text = _set_field(text, "topics", topics)
+        what.append("topics")
+    if "updated" in meta:
+        text = _set_field(text, "updated", today.isoformat())
+    return text, what
+
+
+def _swap_file(path: Path, data: bytes) -> None:
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def cmd_note(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    if args.section is None and args.claim is None and args.topics is None:
+        build_parser().error("note edit needs --section, --claim or --topics")
+    if (args.section is None) != (args.body_file is None):
+        build_parser().error("--section and --body-file go together")
+    claim = " ".join(args.claim.split()) if args.claim is not None else None
+    topics = list(dict.fromkeys(t.strip() for t in args.topics.split(",") if t.strip())) \
+        if args.topics is not None else None
+    try:
+        body = _read_body(args.body_file) if args.body_file else None
+        texts = [args.section or "", body or "", claim or "", *(topics or [])]
+        if _refuse_secret(texts):
+            return 4
+        if refused := _check_terms(texts, "note", getattr(args, "owner_approved", False)):
+            return refused
+        found = resolve_note(root, args.note)
+        if isinstance(found, list):
+            _ambiguous(args.note, found)
+            return 2
+        if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+            raise ValueError(f"no note {args.note}")
+        rel = found.relative_to(root).as_posix()
+        original = found.read_bytes()
+        text = original.decode("utf-8")
+        if "\r" in text:
+            raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
+        meta = split_frontmatter(text)[0]
+        if not isinstance(meta, dict):
+            raise ValueError(f"{rel} has no frontmatter mapping")
+        today = datetime.date.today()
+        new, what = _edited_note_text(text, found, meta, load_topics(root), section=args.section, body=body,
+                                      claim=claim, topics=topics, shrink=args.shrink, today=today)
+        if found.read_bytes() != original:
+            raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
+        group = uuid.uuid4().hex
+        listings = _index_files(root)
+        log = root / records.CURATION_LOG
+        number = log.read_text(encoding="utf-8").count("\n") if log.exists() else 0
+        entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                 "action": "note-edit", "handle": rel, "group": group, "before": text,
+                 "after": _sha(new.encode("utf-8"))}
+        with log.open("a", encoding="utf-8", newline="") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        try:
+            _swap_file(found, new.encode("utf-8"))
+            apply_index(root)
+        except (OSError, FrontmatterError):
+            _swap_file(found, original)
+            for path, data in listings.items():
+                if path.read_bytes() != data:
+                    _swap_file(path, data)
+            marker = {"t": entry["t"], "action": "restore", "handle": rel, "undone": number}
+            with log.open("a", encoding="utf-8", newline="") as f:
+                f.write(json.dumps(marker) + "\n")
+            raise
+        _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
+    except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{_handle(rel)}\tedited {', '.join(what)}")
+    log_usage(root, {"cmd": "note", "action": "edit"})
+    return 0
+
+
 _IMPORT_FOLDERS = ("literature", "knowledge", "research")
 # what an investigation's documents are made of: the text and the figures it embeds
 _IMPORT_DOCUMENTS = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
@@ -4797,6 +4930,18 @@ def build_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument("note", metavar="NOTE")
     rename_parser.add_argument("new_stem", metavar="NEW-STEM", help="the new file name without .md")
     rename_parser.set_defaults(func=cmd_rename)
+    note_parser = sub.add_parser("note", help="change a note through mem, never by editing its file")
+    note_sub = note_parser.add_subparsers(dest="note_command", required=True)
+    note_edit = note_sub.add_parser("edit", help="replace the text of one section, the claim or the topics of a note")
+    note_edit.add_argument("note", metavar="NOTE", help="a path or a handle, as in mem show")
+    note_edit.add_argument("--section", metavar="HEADING", help="the `## ` heading whose text is replaced")
+    note_edit.add_argument("--body-file", metavar="PATH", help="the new section text; - reads standard input")
+    note_edit.add_argument("--claim", metavar="TEXT", help="the new frontmatter claim (one sentence)")
+    note_edit.add_argument("--topics", metavar="A,B", help="the new topic ids: in topics.yaml, in the note's domain")
+    note_edit.add_argument("--shrink", action="store_true",
+                           help="accept a text that drops over 20%% of the words, a sentence or a link")
+    note_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    note_parser.set_defaults(func=cmd_note)
     import_parser = sub.add_parser("import", help="copy the notes of another folder of notes into the store; the source is never changed")
     import_parser.add_argument("source", metavar="SOURCE", help="the folder to read (literature/, knowledge/, research/, topics.yaml)")
     import_parser.add_argument("--dry-run", action="store_true", help="change nothing; print the report a real run would")

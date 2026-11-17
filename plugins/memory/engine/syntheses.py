@@ -349,11 +349,13 @@ def _sentences(text: str) -> list[str]:
     return [s for s in found if len(s.split()) >= 6]
 
 
-def _guard_shrink(old: str, new: str) -> None:
+def _guard_shrink(old: str, new: str, *, sentences: bool = True) -> None:
+    """Refuse a text that drops over 20% of the words, a link or, when `sentences`, a sentence of the old one
+    (a one-sentence field such as a claim is checked without the sentence rule)."""
     dropped = max(word_count(old) - word_count(new), 0)
     lost = list(dict.fromkeys(t for t in _links(old) if t not in set(_links(new))))
     kept = set(_sentences(new))
-    gone = [s for s in dict.fromkeys(_sentences(old)) if s not in kept]
+    gone = [s for s in dict.fromkeys(_sentences(old)) if s not in kept] if sentences else []
     if lost or gone or word_count(new) < SHRINK_RATIO * word_count(old):
         parts = [f"{n} {name}" for n, name in ((dropped, "words"), (len(gone), "sentences")) if n]
         if lost:
