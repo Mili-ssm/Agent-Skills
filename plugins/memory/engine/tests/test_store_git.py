@@ -412,3 +412,43 @@ def test_restore_still_works_on_the_entries_left_after_trimming(repo, capsys):
     assert "second" not in memory.read_text(encoding="utf-8") and "third" not in memory.read_text(encoding="utf-8")
     assert json.loads(log.read_text(encoding="utf-8").split("\n")[5])["undone"] == 4
     assert mem.main(["restore", HANDLE, "--global"]) != 0               # nothing left to undo
+
+
+# ---- the automatic run's lock ----
+
+def test_curate_done_skips_trimming_while_a_run_holds_the_lock(repo, tmp_path, monkeypatch):
+    import auto_state
+    log = repo / "memories" / ".curation-log"
+    remember()
+    mem.main(["forget", HANDLE, "--global", "--because", "x"])
+    aged(log, [0])
+    before = log.read_text(encoding="utf-8")
+    fd = auto_state.take_run_lock(auto_state.auto_dir(Path(os.environ["MEM_DATA"]), repo))
+    assert fd is not None
+    try:
+        assert mem.main(["curate", "--done"]) == 0
+        assert log.read_text(encoding="utf-8") == before
+    finally:
+        os.close(fd)
+    assert mem.main(["curate", "--done"]) == 0
+    assert log.read_text(encoding="utf-8") != before   # trimmed once the lock is free
+
+
+def test_trimming_waits_for_nothing_when_the_commit_lock_is_busy(repo):
+    remember()
+    mem.main(["forget", HANDLE, "--global", "--because", "x"])
+    log = repo / "memories" / ".curation-log"
+    aged(log, [0])
+    before = log.read_text(encoding="utf-8")
+    fd = store_git._lock(repo)
+    try:
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr(store_git, "LOCK_WAIT", 0)
+        try:
+            assert store_git.trim_logs_locked(repo) == 0
+        finally:
+            monkey.undo()
+        assert log.read_text(encoding="utf-8") == before
+    finally:
+        os.close(fd)
+    assert store_git.trim_logs_locked(repo) == 1

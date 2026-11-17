@@ -32,11 +32,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import trial_env  # noqa: E402
+import synth_pipeline as sp  # noqa: E402
+from synth_pipeline import (CHEAP, DELETE_ONLY, NOT_GIVEN, brief as _brief, changed_outside, cost_by_family, mem,  # noqa: E402,F401
+                            parse_report, resolve_parts, run_session, scope_text, section_handle, split_parts,
+                            summary)
 
 HERE = Path(__file__).resolve().parent
 PLUGIN = trial_env.PLUGIN
-MEM = PLUGIN / "bin" / "mem"
 SOURCE = trial_env.TARGET / "synthesis-source"
 ATTACHED = trial_env.TARGET / "synthesis-source-attached.json"
 TOPICS = ("human-memory", "time-series-forecasting", "llm-evaluation", "mental-health")
@@ -44,15 +48,7 @@ DEFAULT_TOPICS = TOPICS[:3]
 ARMS = ("S", "L", "M")
 WRITER = {"S": ("sonnet", None), "L": ("sonnet", None), "M": ("haiku", "high")}   # model, effort
 LEAN = ("L", "M")
-CHEAP = "high"   # effort of every Haiku checker, fixer and judge (owner, 2026-11-17: raised from medium, unmeasured)
-NOT_GIVEN = "(not given)"
 STATE = "state.json"
-SKILL = PLUGIN / "skills" / "memory-synthesis" / "SKILL.md"
-COUNTS = re.compile(r"^COUNTS: checked=(\d+) unsupported=(\d+)(?: used=(\d+) unused=(\d+))?\s*$", re.M)
-NOTE_LINE = re.compile(r"^NOTE: (\S+) (used|unused)\s*$", re.M)
-CLAIM_LINE = re.compile(r"^(?P<part>[^|\n]+?) \| (?P<start>[^|\n]*) \| (?P<kind>[^|\n]+?) \| (?P<note>[^|\n]*) \| (?P<fix>.*)$")
-PARTS_LINE = re.compile(r"^PARTS: ?(.*)$", re.M)
-DENIED = re.compile(r"requested permissions|haven't granted|permission.{0,40}denied|denied.{0,40}permission", re.I)
 
 JUDGE_EXTRA = """
 ## Additional instruction for this check
@@ -63,14 +59,6 @@ exactly `NOTE: <path> used` or `NOTE: <path> unused`, the path from the store ro
 each note once, after the claim lines and before the `PARTS:` line. The very last line of the file is then exactly
 `COUNTS: checked=<N> unsupported=<M> used=<A> unused=<B>` (integers; A and B count the NOTE lines).
 """
-
-DELETE_ONLY = """
-## Additional instruction for this step: delete only
-
-This is the last pass. For every claim the report lists, delete that sentence from its part: ignore any replacement
-sentence, write no new text, and leave every other character of the part as it is.
-"""
-
 
 # --- fixture -------------------------------------------------------------------------------------------------
 
@@ -104,9 +92,9 @@ def ensure_source() -> Path:
     return SOURCE
 
 
-def mem(store: Path, env: dict, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run([str(MEM), *args], env={**env, "MEM_STORE": str(store)}, input=stdin, capture_output=True,
-                          text=True, cwd=store)
+def brief(name: str, **values: str) -> str:
+    """A brief: the writer's is the trial's own (the command uses the `memory-synthesizer` agent instead)."""
+    return _brief(name, **values) if name != "writer" else _brief(name, HERE, **values)
 
 
 def front_part_of(text: str) -> str | None:
@@ -134,178 +122,11 @@ def prepare_store(store: Path, env: dict, topic: str) -> list[str]:
     return denominator
 
 
-# --- briefs --------------------------------------------------------------------------------------------------
-
-def brief(name: str, **values: str) -> str:
-    text = (HERE / f"{name}-brief.md").read_text()
-    values.setdefault("SKILL_FILE", str(SKILL))
-    values.setdefault("PARTS", NOT_GIVEN)
-    for key, value in values.items():
-        text = text.replace("{" + key + "}", value)
-    left = re.findall(r"\{[A-Z_]+\}", text)
-    assert not left, f"{name}-brief.md has unfilled placeholders: {left}"
-    return text
-
-
-# --- sessions ------------------------------------------------------------------------------------------------
-
-def model_family(model_id: str) -> str:
-    return next((f for f in ("haiku", "sonnet", "opus") if f in model_id.lower()), model_id)
-
-
-def cost_by_family(model_usage: dict) -> dict[str, float]:
-    costs: dict[str, float] = {}
-    for model, usage in model_usage.items():
-        family = model_family(model)
-        costs[family] = costs.get(family, 0.0) + float(usage.get("costUSD") or 0.0)
-    return costs
-
-
-def parse(stdout: str) -> dict:
-    """Facts of one stream-json session: writes with their exit status, denials, cost per model, result."""
-    out = dict(writes=0, write_errors=0, denied=0, tool_errors=0, model_usage={}, cost=0.0, error=True, answer="",
-               has_result=False)
-    uses: dict[str, tuple[str, str]] = {}
-    for line in stdout.splitlines():
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        kind = event.get("type")
-        message = event.get("message") if isinstance(event.get("message"), dict) else {}
-        content = message.get("content")
-        if kind == "assistant" and isinstance(content, list):
-            for part in content:
-                if part.get("type") == "tool_use":
-                    uses[part["id"]] = (part["name"], (part.get("input") or {}).get("command", ""))
-        elif kind == "user" and isinstance(content, list):
-            for part in content:
-                if part.get("type") != "tool_result":
-                    continue
-                name, command = uses.get(part.get("tool_use_id"), ("", ""))
-                body = part.get("content")
-                text = body if isinstance(body, str) else " ".join(b.get("text", "") for b in body or [])
-                failed = bool(part.get("is_error"))
-                if failed:
-                    out["tool_errors"] += 1
-                    if DENIED.search(text):
-                        out["denied"] += 1
-                if name == "Write" or (name == "Bash" and re.match(r"\s*mem synthesis (new|add|edit|append)\b", command)):
-                    out["writes"] += 1
-                    out["write_errors"] += failed
-        elif kind == "result":
-            out["has_result"] = True
-            out["answer"] = event.get("result") or ""
-            out["model_usage"] = event.get("modelUsage") or {}
-            out["cost"] = float(event.get("total_cost_usd") or 0.0)
-            out["error"] = bool(event.get("is_error"))
-    return out
-
-
-def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path, env: dict, log: Path,
-                timeout: int = 1500, effort: str | None = None) -> dict:
-    cmd = [claude, "-p", prompt, "--model", model, "--plugin-dir", str(PLUGIN), "--settings", str(settings),
-           "--setting-sources", "project",
-           # Headless --allowedTools also limits what a session may run: exactly what a step needs. Body files go
-           # in the work folder (`//` is an absolute path in a permission rule; a new file needs the Edit rule too); the
-           # web stays out.
-           "--allowedTools", "Bash(mem *)", "Read", "Grep", "Glob",
-           f"Write(/{work}/**)", f"Edit(/{work}/**)",
-           "--disallowedTools", "WebSearch", "WebFetch",
-           "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
-    if effort:
-        cmd += ["--effort", effort]
-    start = time.monotonic()
-    try:
-        done = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              timeout=timeout)
-        raw = done.stdout
-    except subprocess.TimeoutExpired as exc:
-        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-    log.write_text(raw)
-    result = parse(raw)
-    result["wall"] = time.monotonic() - start
-    return result
-
-
-def parse_report(path: Path) -> dict | None:
-    """The checker's report: its last COUNTS line, the PARTS line, the claim lines and the judge's NOTE lines.
-
-    None when the file or the COUNTS line is missing. A report with no unsupported claim holds only the COUNTS line."""
-    if not path.is_file():
-        return None
-    text = path.read_text()
-    lines = [ln for ln in text.splitlines() if ln.strip()]
-    found = COUNTS.fullmatch(lines[-1]) if lines else None
-    if not found:
-        return None
-    notes = {}
-    for rel, state in NOTE_LINE.findall(text):
-        at = rel.find("knowledge/")
-        notes[rel[at:] if at >= 0 else rel] = state
-    claims = [m.groupdict() for m in map(CLAIM_LINE.match, lines) if m]
-    listed = PARTS_LINE.search(text)
-    # A model may write a heading where the brief asks for a handle: both become the handle `mem` gives the part.
-    parts = [section_handle(h.strip().removeprefix("s:").split("#")[-1])
-             for h in (listed.group(1) if listed else "").split(",") if h.strip()]
-    for claim in claims:
-        claim["part"] = section_handle(claim["part"].strip().removeprefix("s:").split("#")[-1])
-    parts = list(dict.fromkeys(parts + [c["part"] for c in claims]))
-    return dict(checked=int(found.group(1)), unsupported=int(found.group(2)), notes=notes, claims=claims, parts=parts)
-
-
-def scope_text(report: dict, fixer_answer: str) -> str:
-    """What the scoped second check receives in `{PARTS}`: the fixer's own report of the parts and sentences it
-    changed; when the fixer said nothing usable, the parts and sentence starts the first report listed."""
-    answer = fixer_answer.strip()
-    if answer:
-        return answer[:2000]
-    return "; ".join(f"{c['part'].strip()}: {c['start'].strip()}" for c in report["claims"]) or ", ".join(report["parts"])
-
-
-def section_handle(heading: str) -> str:
-    """As `syntheses.section_handle` of the engine: the handle `mem` gives a part."""
-    import unicodedata
-    ascii_text = unicodedata.normalize("NFKD", heading).encode("ascii", "ignore").decode()
-    return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
-
-
-def resolve_parts(parts: list[str], text: str) -> list[str]:
-    """Reported parts as handles: a checker may name a part by the line range `mem show s:<slug>` prints
-    (`12-30`), which is the part whose heading sits on the range's first line."""
-    by_line = {n: section_handle(line[3:]) for n, line in enumerate(text.splitlines(), 1) if line.startswith("## ")}
-    out = []
-    for part in parts:
-        m = re.fullmatch(r"(\d+)-\d+", part)
-        out.append(by_line.get(int(m.group(1)), part) if m else part)
-    return list(dict.fromkeys(out))
-
-
-def split_parts(text: str) -> dict[str, str]:
-    """Part handle -> exact part text (heading line included); the front matter and anything before the first part
-    are left out."""
-    pieces = re.split(r"^(?=## )", text, flags=re.M)[1:]
-    return {section_handle(piece.splitlines()[0][3:]): piece for piece in pieces}
-
-
-def changed_outside(before: str, after: str, allowed: list[str]) -> list[str]:
-    """Handles of the parts that differ between the two texts although they are not in `allowed`: a fixer may touch
-    only the parts its report lists, and an untouched part must stay byte-equal."""
-    old, new = split_parts(before), split_parts(after)
-    return sorted(h for h in old.keys() | new.keys() if old.get(h) != new.get(h) and h not in allowed)
-
-
 # --- pipeline ------------------------------------------------------------------------------------------------
 
 def synthesis_facts(path: Path) -> tuple[int, int]:
     text = path.read_text()
     return len(text.split()), len(re.findall(r"^## (?!Summary$)", text, re.M))
-
-
-def summary(s: dict) -> dict:
-    return dict(role=s["role"], model=s["model"], costs=s["costs"], cost=s["cost"], wall=s["wall"], writes=s["writes"],
-                write_errors=s["write_errors"], denied=s["denied"], tool_errors=s["tool_errors"],
-                ok=s["has_result"] and not s["error"])
 
 
 def judge_row(claude: str, base: Path, env: dict, topic: str, arm: str, run: int, judge_model: str, prior: dict) -> dict:
@@ -371,52 +192,17 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
     settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
     fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
     sessions: list[dict] = []
-
-    def step(role: str, model: str, text: str, level: str | None = None) -> dict:
-        s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl",
-                        effort=level)
-        s.update(role=role, model=model, costs=cost_by_family(s["model_usage"]))
-        sessions.append(summary(s))
-        return s
-
-    def check(n: int, scope: str = NOT_GIVEN) -> dict | None:
-        report = work / f"report-{n}.md"
-        step("checker", "haiku", brief("checker", **fill, REPORT_FILE=str(report), PARTS=scope), CHEAP)
-        return parse_report(report)
-
-    def guarded_fix(model: str, level: str | None, text: str, report: dict, role: str = "fixer") -> dict:
-        """One fixer step; the parts it changed outside the report's PARTS are recorded."""
-        before = synthesis.read_text()
-        s = step(role, model, text, level)
-        scope_violations.extend(changed_outside(before, synthesis.read_text(), resolve_parts(report["parts"], before)))
-        return s
-
     synthesis = store / "syntheses" / f"{topic}.md"
     writer_model, writer_effort = WRITER[arm]
-    step("writer", writer_model, brief("writer", **fill), writer_effort)
-    arm_count, why, fixes, deleted, scope_violations = None, "", 0, 0, []
-    if not synthesis.is_file():
-        why = "no synthesis written"
-    else:
-        arm_count = check(1)
-        if arm_count and arm_count["unsupported"]:
-            fixes = 1
-            text = brief("fixer", **fill, REPORT_FILE=str(work / "report-1.md"))
-            if arm == "S":
-                guarded_fix("sonnet", None, text, arm_count)
-            else:
-                fixed = guarded_fix("haiku", CHEAP, text, arm_count)
-                second = check(2, scope_text(arm_count, fixed["answer"]))
-                if second is None:
-                    why = "scoped check report unreadable"
-                elif second["unsupported"]:
-                    guarded_fix("haiku", CHEAP, text.replace(str(work / "report-1.md"), str(work / "report-2.md"))
-                                + DELETE_ONLY, second, "deleter")
-                    deleted = len(second["claims"]) or second["unsupported"]
-        if arm_count is None:
-            why = "arm checker report unreadable"
-    prior = dict(sessions=sessions, why=why, denominator=denominator, arm_count=arm_count, fixes=fixes, deleted=deleted,
-                 scope_violations=scope_violations)
+    s = run_session(claude, writer_model, brief("writer", **fill), work, settings, env, base / "01-writer.jsonl",
+                    effort=writer_effort)
+    s.update(role="writer", model=writer_model, costs=cost_by_family(s["model_usage"]))
+    sessions.append(summary(s))
+    done = dict(arm_count=None, why="no synthesis written", fixes=0, deleted=0, scope_violations=[])
+    if synthesis.is_file():
+        done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions, lean=arm in LEAN)
+    prior = dict(sessions=sessions, why=done["why"], denominator=denominator, arm_count=done["arm_count"],
+                 fixes=done["fixes"], deleted=done["deleted"], scope_violations=done["scope_violations"])
     (base / "pipeline.json").write_text(json.dumps(prior))   # what `--rejudge` needs besides the kept store
     row = judge_row(claude, base, env, topic, arm, run, judge_model, prior)
     if not keep:
@@ -541,7 +327,7 @@ def self_check() -> int:
             shutil.rmtree(store)
         for name in ("writer", "checker", "fixer"):
             brief(name, TOPIC="t", SLUG="t", STORE="s", WORK_DIR="w", REPORT_FILE="r")   # every placeholder is filled
-            raw = (HERE / f"{name}-brief.md").read_text()
+            raw = ((HERE if name == "writer" else sp.BRIEFS) / f"{name}-brief.md").read_text()
             assert "/home/" not in raw and "/tmp/" not in raw and "~/" not in raw, f"{name}-brief.md has a private path"
         sample = root / "r.md"
         sample.write_text("1. x\nNOTE: ../knowledge/a/b.md used\nNOTE: ../literature/c.md unused\n"

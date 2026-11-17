@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+"""mem-auto: one bounded curation run in the background, started by the SessionEnd hook when the plugin option
+`auto_curation` is exactly `true`.
+
+`run` (detached, no output): takes the store-wide run lock first and exits quietly when it is busy; checks the option
+and that the records written since the last run's end (or the last curation pass, whichever is later) reach the
+threshold (option `auto_curation_threshold`, default 10: global memories plus notes of the store, counted by
+`mem curate --new-since`); writes status `running`; then the curator in apply mode (only `mem curate apply --safe`
+changes anything) and `mem-synthesize` for the store topics with 8 notes or more and no synthesis, within the run's
+budget (option `auto_curation_budget`, default 2 USD). Status, logs and transcripts: `<state folder>/auto/<id>/`,
+mode 0700, runs kept 30 days. It never records `mem curate --done`.
+
+Usage: mem-auto run [--store PATH] [--claude PATH] [--budget USD] [--threshold N] | status | ack | due | --self-check
+"""
+from __future__ import annotations
+
+import argparse
+import importlib.machinery
+import importlib.util
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "engine"))
+import auto_state as au  # noqa: E402
+import synth_pipeline as sp  # noqa: E402
+
+_loader = importlib.machinery.SourceFileLoader("mem_synthesize", str(HERE / "mem-synthesize"))
+ms = importlib.util.module_from_spec(importlib.util.spec_from_loader("mem_synthesize", _loader))
+_loader.exec_module(ms)
+
+OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CURATION"
+BUDGET_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CURATION_BUDGET"
+THRESHOLD_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CURATION_THRESHOLD"
+DEFAULT_BUDGET = 2.0         # USD per run
+DEFAULT_THRESHOLD = 10       # new memories and notes that start a run
+KEEP_SECONDS = 30 * 86400
+AGENT = "memory:memory-curator"
+SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
+                "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
+
+
+def budget_of(value: str | float | None) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_BUDGET
+    return number if number > 0 else DEFAULT_BUDGET
+
+
+def threshold_of(value: str | int | None) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_THRESHOLD
+    return number if number > 0 else DEFAULT_THRESHOLD
+
+
+def stamp(seconds: float | None) -> str:
+    return time.strftime("%Y-%m-%d %H:%M", time.localtime(seconds)) if seconds else "never"
+
+
+class State:
+    """The files of one store's automatic runs."""
+
+    def __init__(self, store: Path):
+        self.store = store
+        self.dir = au.auto_dir(ms.state_dir(), store)
+
+    def status(self) -> dict:
+        return au.read_json(self.dir / au.STATUS_NAME)
+
+    def save_status(self, **changes) -> dict:
+        au.private_dir(self.dir)
+        data = {**self.status(), **changes}
+        au.write_json(self.dir / au.STATUS_NAME, data)
+        return data
+
+
+def count_new(state: State, env: dict) -> int:
+    """Records written since the last run ended (or the last curation pass, whichever is later)."""
+    last = state.status()
+    # from the end of the last run, not its start: its own attaches and merges are not new work (a killed run has no end)
+    since = last.get("finished") or last.get("started")
+    found = sp.mem(state.store, env, "curate", "--new-since", str(float(since) if isinstance(since, (int, float)) else 0))
+    if found.returncode or not found.stdout.strip().isdigit():
+        raise RuntimeError(f"mem curate --new-since failed: {found.stderr.strip()[:150]}")
+    return int(found.stdout.strip())
+
+
+def topics_due(state: State, env: dict) -> list[str]:
+    found = sp.mem(state.store, env, "curate", "--notes")
+    if found.returncode:
+        raise RuntimeError(f"mem curate --notes failed: {found.stderr.strip()[:150]}")
+    return ms.topics_without_synthesis(found.stdout)
+
+
+def prune(state: State, now: float) -> None:
+    runs = state.dir / "runs"
+    if not runs.is_dir():
+        return
+    for folder in runs.iterdir():
+        try:
+            if now - folder.stat().st_mtime > KEEP_SECONDS:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def run_steps(state: State, claude: str, run_budget: float, root: Path, log, acct: dict) -> None:
+    """The curator, then the synthesis of the topics due. `acct` (`cost`, `failures`) is filled as sessions finish, so
+    an exception later still leaves what was spent. A session without a cost report ends the run: no further session."""
+    env = ms.session_env(state.store)
+    store = state.store
+    settings = root / "settings.json"
+    settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}},
+                                    "disableAllHooks": True}))   # no hook of the sessions may commit or start a run
+    ms.history_commit(store, env, "mem-auto: before curation", log)
+    work = root / "curator-work"
+    work.mkdir(mode=0o700)
+    done = sp.run_session(claude, "haiku", "apply", work, settings, env, root / "01-curator.jsonl", timeout=900,
+                          agent=AGENT, max_budget=run_budget)
+    acct["cost"] += done["cost"]
+    log(f"curator: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
+        f"answer={' '.join(done['answer'].split())[:300]}")
+    ms.history_commit(store, env, "mem-auto: after curation", log)
+    if not done["has_result"]:
+        acct["failures"].append(sp.NO_COST)
+        return
+    if done["error"]:
+        acct["failures"].append("curator session failed")
+    topics = topics_due(state, env)
+    log(f"topics due: {topics}")
+    if topics:
+        rows: list[dict] = []
+        try:
+            ms.run(claude, store, topics, max(run_budget - acct["cost"], 0.0), False,
+                   out=lambda text: log(f"synthesize: {text}"), root=root / "synthesize", rows_out=rows)
+        finally:   # rows arrive one by one: whatever finished is counted even when the call raises
+            for row in rows:
+                acct["cost"] += row["cost"]
+                if row["status"] not in ("ok", "not started: budget", "not started: unknown spend"):
+                    acct["failures"].append(f"topic {row['topic']}: {row['status']}")
+
+
+def cmd_run(store: Path, claude: str | None, budget_arg: str | float | None, threshold_arg: str | int | None) -> int:
+    state = State(store)
+    fd = au.take_run_lock(state.dir)   # the first action: a busy lock means a run is going
+    if fd is None:
+        return 0
+    now = time.time()
+    log_file = None
+    acct: dict = {"cost": 0.0, "failures": []}
+
+    def finish() -> None:
+        """The end status, written while the lock is still held."""
+        failures = acct["failures"]
+        finished = time.time()
+        reason = "; ".join(failures)
+        if log_file is None:   # the run never started (the count failed): the count window must not move
+            if failures:
+                state.save_status(failure={"at": finished, "reason": reason, "log": ""})
+            return
+        state.save_status(state="failed" if failures else "ok", finished=finished, cost=acct["cost"], reason=reason,
+                          **({"failure": {"at": finished, "reason": reason, "log": str(log_file)}} if failures else {}))
+
+    try:
+        if os.environ.get(OPTION) != "true":
+            return 0
+        budget = budget_of(budget_arg if budget_arg is not None else os.environ.get(BUDGET_OPTION))
+        threshold = threshold_of(threshold_arg if threshold_arg is not None else os.environ.get(THRESHOLD_OPTION))
+        if count_new(state, ms.session_env(store)) < threshold:
+            return 0
+        previous = state.status()
+        stale = au.failure({"state": previous.get("state"), "started": previous.get("started"),
+                            "log": previous.get("log")}, now)
+        root = state.dir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+        au.private_dir(root)
+        prune(state, now)
+        log_file = root / "log.txt"
+
+        def log(text: str) -> None:
+            fd_log = os.open(log_file, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd_log, "a") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+        # a killed run leaves this `running` behind: shown as failed after an hour, and its failure kept here
+        extra = {"failure": stale} if stale and not previous.get("failure") else {}
+        state.save_status(state="running", started=now, finished=None, cost=0.0, reason="", log=str(log_file), **extra)
+        log(f"start: budget {budget:.2f}")
+        if not claude:
+            acct["failures"].append("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+        else:
+            run_steps(state, claude, budget, root, log, acct)
+        if acct["cost"] > budget + 1e-9:
+            acct["failures"].append(f"cost {acct['cost']:.2f} USD is over the budget {budget:.2f}")
+        finish()
+    except Exception as exc:   # anything after the lock ends as a `failed` status; a killed run is the stale case
+        acct["failures"].append(f"{type(exc).__name__}: {exc}"[:150])
+        try:
+            finish()
+        except Exception:
+            pass
+    finally:
+        os.close(fd)
+    return 0
+
+
+def cmd_due(store: Path, threshold_arg: str | None) -> int:
+    state = State(store)
+    threshold = threshold_of(threshold_arg or os.environ.get(THRESHOLD_OPTION))
+    try:
+        count = count_new(state, ms.session_env(store))
+    except RuntimeError as exc:
+        print(f"would not start: {exc}")
+        return 0
+    why = ("the option auto_curation is not exactly true" if os.environ.get(OPTION) != "true"
+           else "a run holds the lock" if au.run_lock_held(ms.state_dir(), store)
+           else f"{count} is under the threshold" if count < threshold else "")
+    print(f"new records since the last run or pass: {count}; threshold: {threshold}; "
+          + (f"would not start: {why}" if why else "would start"))
+    return 0
+
+
+def cmd_status(store: Path) -> int:
+    state = State(store)
+    data = state.status()
+    if not data:
+        print("no automatic run yet")
+        return 0
+    now = time.time()
+    shown = data.get("state", "?")
+    if shown == "running" and now - float(data.get("started") or 0) > au.STALE_RUNNING_SECONDS:
+        shown = "failed (a run that did not finish)"
+    print(f"last run: {stamp(data.get('started'))}, state {shown}, cost {float(data.get('cost') or 0):.3f} USD")
+    if data.get("reason"):
+        print(f"reason: {data['reason']}")
+    print(f"log: {data.get('log') or '(none)'}")
+    found = au.failure(data, now)
+    print(f"unacknowledged failure: {'yes (mem-auto ack clears it)' if found else 'no'}")
+    return 0
+
+
+def cmd_ack(store: Path) -> int:
+    state = State(store)
+    data = state.status()
+    if data:
+        changes: dict = {"failure": None}
+        if au.failure({"state": data.get("state"), "started": data.get("started")}, time.time()):
+            changes["state"] = "failed"   # a stale `running` is closed
+        state.save_status(**changes)
+    print("acknowledged: the failure line is cleared")
+    return 0
+
+
+def self_check() -> int:
+    """No model: the lock, the folder mode, the options, and a run with the option unset (it starts nothing)."""
+    assert budget_of("x") == DEFAULT_BUDGET and budget_of("0.6") == 0.6 and threshold_of("3") == 3
+    assert threshold_of("0") == DEFAULT_THRESHOLD and threshold_of(None) == DEFAULT_THRESHOLD
+    with tempfile.TemporaryDirectory(prefix="mem-auto-check-") as tmp:
+        tmp = Path(tmp)
+        for name, folder in (("MEM_DATA", "data"), ("XDG_DATA_HOME", "share"), ("MEM_PROJECT", "project"),
+                             ("XDG_CONFIG_HOME", "cfg")):
+            os.environ[name] = str(tmp / folder)
+        os.environ.pop("MEM_MEMORIES", None)
+        store = tmp / "store"
+        init = subprocess.run([str(sp.MEM), "init", str(store)], capture_output=True, text=True)
+        assert init.returncode == 0, init.stderr
+        state = State(store)
+        held = au.take_run_lock(state.dir)
+        assert held is not None and au.take_run_lock(state.dir) is None
+        assert au.run_lock_held(Path(os.environ["MEM_DATA"]), store)
+        os.close(held)
+        assert not au.run_lock_held(Path(os.environ["MEM_DATA"]), store)
+        assert (state.dir.stat().st_mode & 0o777) == 0o700, oct(state.dir.stat().st_mode)
+        os.environ.pop(OPTION, None)
+        assert cmd_run(store, "/nonexistent", "2", 1) == 0 and not state.status().get("state"), "ran with the option unset"
+        os.environ[OPTION] = "true"
+        assert cmd_run(store, "/nonexistent", "2", 1000) == 0 and not state.status().get("state"), "ran under the threshold"
+        assert count_new(state, ms.session_env(store)) == 0
+    print("self-check passed")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("command", nargs="?", choices=["run", "status", "ack", "due"])
+    parser.add_argument("--store", type=Path, help="default: the store `mem` resolves (MEM_STORE, else the default)")
+    parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    parser.add_argument("--budget", help=f"USD per run (default: the option auto_curation_budget, else {DEFAULT_BUDGET})")
+    parser.add_argument("--threshold", help=f"new records that start a run (default: the option auto_curation_threshold, else {DEFAULT_THRESHOLD})")
+    parser.add_argument("--self-check", action="store_true", help="no model: prove the lock, the folder mode and the gates")
+    args = parser.parse_args()
+    if args.self_check:
+        return self_check()
+    if not args.command:
+        parser.error("a command is required")
+    store = args.store.expanduser().resolve() if args.store else ms.default_store()
+    if store is None or not (store / "mem-store.yaml").is_file():
+        if args.command != "run":   # run is silent: it starts from a hook
+            print(f"mem-auto: no store at {store}", file=sys.stderr)
+        return 0 if args.command == "run" else 2
+    if args.command == "run":
+        for name in SESSION_VARS:   # left over from the session that started this process
+            os.environ.pop(name, None)
+        return cmd_run(store, args.claude, args.budget, args.threshold)
+    return {"due": lambda: cmd_due(store, args.threshold), "status": lambda: cmd_status(store),
+            "ack": lambda: cmd_ack(store)}[args.command]()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

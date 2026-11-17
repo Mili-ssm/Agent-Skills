@@ -1,6 +1,6 @@
 ---
 name: memory-synthesis
-description: Writes and maintains a synthesis with the `mem` command - one long, indexed document that gathers what many notes and sources say on a subject (origins, reasons, when it applies and when not), from which short notes are drawn as recalls of its parts. Use when the owner asks for a compendium, an overview, a guide or "everything we know" on a subject, when a subject has gathered many notes, when `mem curate --notes` lists a topic without a synthesis, or or when a curation pass lists notes to attach to an existing one; load it before writing so the document grows one cited part at a time and is never rewritten whole.
+description: Writes and maintains a synthesis with the `mem` command - one long, indexed document that gathers what many notes and sources say on a subject (origins, reasons, when it applies and when not), from which short notes are drawn as recalls of its parts. Use when the owner asks for a compendium, an overview, a guide or "everything we know" on a subject, when a subject has gathered many notes, when `mem curate --notes` lists a topic without a synthesis, or when a curation pass lists notes to attach to an existing one; load it before writing so the document grows one cited part at a time and is never rewritten whole.
 ---
 
 # Synthesis
@@ -26,6 +26,8 @@ Worth it when a subject has many notes that a reader would have to assemble (the
 5. `mem check` must pass before you stop.
 
 Write from the notes and sources you read in this session, not from memory: a part with nothing to cite is a part to leave out.
+
+For many topics at once, run `mem-synthesize` in the background: it writes, fact-checks, fixes and attaches each synthesis in headless sessions and prints one table at the end (`--dry-run` lists the topics and the cost; `--topic T` picks them). For one topic without writing it yourself, dispatch the `memory-synthesizer` subagent.
 
 Accuracy (in a measured trial 2-12% of claims were unsupported, of three kinds):
 - A sentence of your own reasoning starts with `Inference:`. "Holds by construction" and "should not replace" are inferences.

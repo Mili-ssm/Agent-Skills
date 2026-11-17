@@ -200,3 +200,15 @@ def trim_logs(store: Path, now: datetime.datetime | None = None) -> int:
                 continue
             removed += changed
     return removed
+
+
+def trim_logs_locked(store: Path) -> int:
+    """`trim_logs` under the commit lock; 0 when the lock stays busy (the next pass trims)."""
+    try:
+        fd = _lock(Path(store))
+    except (OSError, GitError):
+        return 0
+    try:
+        return trim_logs(store)
+    finally:
+        os.close(fd)

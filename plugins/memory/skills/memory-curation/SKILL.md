@@ -7,7 +7,7 @@ description: Reviews and tidies the memories and notes kept with the `mem` comma
 
 **Core rule:** a pass decides, one item at a time, and every decision can be undone (`mem restore m:<handle>`). Nothing is deleted: a memory leaves search by being marked. When you cannot tell, leave the item and say so; a wrong merge costs more than a duplicate.
 
-Run a pass after the current task, not in the middle of it. It may be handed to the `memory-curator` subagent, which proposes actions and applies none; you apply the ones you agree with.
+Run a pass after the current task, not in the middle of it. It may be handed to the `memory-curator` subagent, which proposes actions and applies none; you apply the ones you agree with. Prompt it with "apply" and it also carries out the safe subset through `mem curate apply --safe` (merges of equal claims, attaches the part's `Sources:` line backs; the rest stays a proposal), reporting counts and what it left: you still decide every other row.
 
 ## The pass
 
@@ -33,7 +33,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | notes on a topic that has a synthesis, not yet part of it | Add what the note says to the right part (`mem synthesis append` or `add`, the note among its sources), then `mem synthesis attach <note> s:<h>#<section>`. Not about that subject: leave it |
 | notes older than their section | Rewrite the note from its part (`mem show s:<h>#<section>`), keeping it short, with `mem note edit <note> --section <heading> --body-file -` |
 | notes that say the same or the opposite? | The same: write one text that keeps every source link and every "does not apply when" of both, then `mem unify <keep> <other> --body-file -`. Opposites or different things: `mem distinct <a> <b>`, or leave and say so |
-| topics with 8 notes or more and no synthesis | Worth a long document? Load the `memory-synthesis` skill. Not worth it: leave |
+| topics with 8 notes or more and no synthesis | Worth a long document? Load the `memory-synthesis` skill. For many topics, `mem-synthesize` writes them quietly (launch it in the background, it prints one table at the end); for one, the `memory-synthesizer` subagent. Not worth it: leave |
 
 `mem unify` refuses a text that drops a link the notes had; the kept note takes the lowest confidence of the ones it replaces.
 

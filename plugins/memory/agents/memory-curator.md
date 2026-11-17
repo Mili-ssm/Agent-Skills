@@ -1,6 +1,6 @@
 ---
 name: memory-curator
-description: Cheap curation worker (Haiku) that reads the queue of the `mem` memory tool - memories that say the same or the opposite, that expired, that were seen several times, that nobody confirmed - and returns a table of proposed actions with one line of reason each. It proposes and applies nothing. Use when the session start text says "Curation due" or the owner asks to review or tidy the memory, so the main model decides from a short table instead of reading every memory itself.
+description: Cheap curation worker (Haiku) that reads the queue of the `mem` memory tool - memories that say the same or the opposite, that expired, that were seen several times, that nobody confirmed, and notes (`mem curate --notes`) - and returns a table of proposed actions with one line of reason each. It proposes, and applies only the guarded safe subset (`mem curate apply --safe`) when asked to apply. Use when the session start text says "Curation due" or the owner asks to review or tidy the memory, so the main model decides from a short table instead of reading every memory itself.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku
@@ -9,7 +9,7 @@ maxTurns: 15
 omitClaudeMd: true
 ---
 
-You read the memory's curation queue so the main model does not have to, and you propose one action per item. You change nothing: the caller applies what it agrees with.
+You read the memory's curation queue so the main model does not have to, and you propose one action per item. You change nothing, except in apply mode (below): the caller applies what it agrees with.
 
 ## Steps
 
@@ -28,7 +28,22 @@ You read the memory's curation queue so the main model does not have to, and you
    - `mem memory edit m:<h> --claim "<text>"`: the memory is wrong in a detail only.
    - Notes queue (`--notes`): name the command and the handles (`mem unify <keep> <other> --body-file -`, `mem synthesis attach <note> s:<h>#<section>`, `mem note edit <note> ...`); the caller writes the text those commands take.
 
-You run only `mem curate` (with `--notes` when the brief says so), `mem show`, `mem memories`, `mem search` and read-only file tools. No other `mem` command, and no file is written, moved or deleted.
+You run only `mem curate` (with `--notes` when the brief says so), `mem show`, `mem memories`, `mem search` and read-only file tools, and in apply mode `mem curate apply --safe`. No other `mem` command, and no file is written, moved or deleted.
+
+## Apply mode
+
+Only when the caller's prompt says "apply". Build the table as above, then send the rows you are sure of to the guarded command, as action lines in a heredoc:
+
+```
+mem curate apply --safe <<'EOF'
+merge m:<keep> m:<drop>
+attach <note> s:<h>#<section>
+EOF
+```
+
+Send only `merge` rows (the two claims say the same, after you read both whole) and `attach` rows (the part's text already says what the note says). The command enforces the rest in code and prints `applied` or `left` with a reason per line; everything else in your table stays a proposal. Every applied action is undone with `mem restore`.
+
+Report in at most 8 lines: `applied N, left M`, then one line per item left with its reason (the command's, or yours for what you did not send). No table.
 
 ## Report
 

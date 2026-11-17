@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import argparse
 import collections
+import contextlib
 import dataclasses
 import datetime
 import hashlib
 import html.parser
 import http.client
+import io
 import json
 import math
 import os
@@ -33,6 +35,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 
 import yaml
 
+import auto_state
 import project_syntheses
 import records
 import store_git
@@ -3013,10 +3016,11 @@ def _count_notes(store: Path) -> int:
 
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
-                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None) -> str:
+                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
-    `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out."""
+    `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
+    `notice` is one more line after the rules (the failure of the automatic curation run)."""
     try:
         has_store = store is not None and store.is_dir()
         has_memories = memories is not None and memories.is_dir()
@@ -3048,6 +3052,8 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     if due:
         head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
+    if notice:
+        lines.append(notice)
     if mine and limit > 0:
         rows = []
         for m in mine:
@@ -3109,8 +3115,13 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         except OSError:
             project = None
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+        try:
+            notice = auto_state.failure_line(data_dir(os.environ), store, time.time())
+        except Exception:
+            notice = None
         text = session_index(store, records.project_dir(project) if project else None, memories,
-                             datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ))
+                             datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
+                             notice=notice)
     except Exception:
         text = _INDEX_RULES
     print(text)
@@ -3974,7 +3985,145 @@ def _project_synthesis_context_quiet() -> tuple[Path, Path] | None:
     return records.project_dir(root), project_syntheses.worktree(Path.cwd(), root, os.environ)
 
 
+def _claim_key(claim: str) -> str:
+    """A claim for the safe-merge test: case, whitespace and trailing punctuation do not count."""
+    return " ".join(claim.lower().split()).rstrip(" .,;:!?")
+
+
+def _parse_actions(text: str) -> list[tuple[str, list[str]]]:
+    """(raw line, words) of each action line; blank lines and `#` comments dropped. ValueError on a known verb
+    with the wrong number of arguments, so a malformed file applies nothing."""
+    out = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        words = line.split()
+        if words[0] == "merge" and len(words) != 3:
+            raise ValueError(f"malformed line (merge m:<keep> m:<drop>): {line}")
+        if words[0] == "attach" and len(words) != 3:
+            raise ValueError(f"malformed line (attach <note> s:<h>#<section>): {line}")
+        out.append((" ".join(words), words))
+    return out
+
+
+def _last_error(buf: io.StringIO, default: str) -> str:
+    lines = [ln.removeprefix("mem: ").strip() for ln in buf.getvalue().splitlines() if ln.strip()]
+    return lines[-1] if lines else default
+
+
+def _safe_merge(args: argparse.Namespace, keep: str, drop: str) -> str | None:
+    """None after the merge ran; else why it was left. Only equal claims, both active, in one scope; never --force."""
+    err = io.StringIO()
+    with contextlib.redirect_stderr(err):
+        found = _memory_of(args, [keep, drop])
+    if found is None:
+        return _last_error(err, "memories not found")
+    a, b = found
+    if a.handle == b.handle:
+        return "the same memory twice"
+    if a.scope != b.scope:
+        return "different scopes"
+    for m in found:
+        if m.status != "active" or m.superseded_by is not None:
+            return f"m:{m.handle} is {m.status}"
+    if _claim_key(a.claim) != _claim_key(b.claim):
+        return "the claims are not equal"
+    ns = argparse.Namespace(**{**vars(args), "keep": keep, "drop": drop, "force": False})
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = cmd_merge(ns)
+    return None if code == 0 else _last_error(err, "the merge was refused")
+
+
+def _safe_attach(args: argparse.Namespace, note: str, target: str) -> str | None:
+    """None after the attach ran; else why it was left. Only when the part's `Sources:` line links the note and the
+    note is not part of a synthesis yet."""
+    root = args.root
+    if not isinstance(root, Path) or not root.is_dir() or not records.store_is_writable(root):
+        return "no writable store"
+    found = resolve_note(root, note)
+    if isinstance(found, list):
+        return "the note name is ambiguous"
+    if found is None:
+        return "no such note"
+    try:
+        syn, sec = _section_ref(root, target)
+        part = split_frontmatter(_read_text(found))[0].get("part_of")
+    except (ValueError, OSError, FrontmatterError) as exc:
+        return str(exc)
+    if part:
+        return f"the note is already part of s:{part}"
+    cited = {(syn.path.parent / s).resolve() for s in sec.sources}
+    if found.resolve() not in cited:
+        return "the part's Sources line does not link the note"
+    ns = argparse.Namespace(root=root, note=note, target=target)
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        code = _attach(ns)
+    return None if code == 0 else _last_error(err, "the attach was refused")
+
+
+def _curate_apply(args: argparse.Namespace) -> int:
+    """`mem curate apply --safe`: action lines from a file or stdin; only what the code can prove safe runs."""
+    if not args.safe:
+        print("mem: curate apply runs only with --safe: there is no unsafe mode.", file=sys.stderr)
+        return 2
+    try:
+        text = sys.stdin.read() if args.from_file in (None, "-") else Path(args.from_file).read_text(encoding="utf-8")
+        actions = _parse_actions(text)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    applied = left = 0
+    for line, words in actions:
+        if words[0] == "merge":
+            why = _safe_merge(args, words[1], words[2])
+        elif words[0] == "attach":
+            why = _safe_attach(args, words[1], words[2])
+        else:
+            why = f"not a safe action ({words[0]})"
+        if why is None:
+            applied += 1
+            print(f"applied\t{line}")
+        else:
+            left += 1
+            print(f"left\t{line}\t{why}")
+    print(f"applied {applied}, left {left}")
+    return 0
+
+
+def _curate_new_since(args: argparse.Namespace) -> int:
+    """Print how many global memories and notes of the store were written after `--new-since` (epoch seconds) and
+    after the last curation pass of the global memories (its day counts as passed). File times: an edit counts as new.
+    The trigger of `mem-auto`."""
+    store = args.root
+    cutoff = float(args.new_since)
+    memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+    paths: list[Path] = []
+    if memories is not None and memories.is_dir():
+        last = read_passes(os.environ).get(str(memories.resolve()))
+        if last is not None:
+            cutoff = max(cutoff, datetime.datetime.combine(last + datetime.timedelta(days=1), datetime.time.min).timestamp())
+        today = datetime.date.today()
+        paths += [m.path for m in records.load_memories(memories, "global") if m.error is None and records.is_live(m, today)]
+    if store is not None and store.is_dir():
+        paths += [store / n.rel for n in discover_notes(store) if n.error is None]
+    count = 0
+    for path in paths:
+        try:
+            count += path.stat().st_mtime > cutoff
+        except OSError:
+            continue
+    print(count)
+    return 0
+
+
 def cmd_curate(args: argparse.Namespace) -> int:
+    if args.action == "apply":
+        return _curate_apply(args)
+    if args.new_since is not None:
+        return _curate_new_since(args)
     if args.notes:
         return _curate_notes(args)
     today = datetime.date.today()
@@ -4000,8 +4149,10 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 return 2
         if store is not None and store_git.is_repo(store):
             _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
-            if not failed:  # git holds the older states now: the logs keep 30 days
-                store_git.trim_logs(store)
+            # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
+            # to them, and under the commit lock so a commit never sees a half-written log.
+            if not failed and not auto_state.run_lock_held(data_dir(os.environ), store):
+                store_git.trim_logs_locked(store)
         return 0
     scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
@@ -4112,6 +4263,8 @@ def cmd_history(args: argparse.Namespace) -> int:
             print(f"mem: {store} is not a git repository (run \"mem history init\")", file=sys.stderr)
         return 0 if hook else 2
     if args.history_command == "commit":
+        if hook and auto_state.run_lock_held(data_dir(os.environ), store):
+            return 0  # an automatic run holds the store: it commits its own work
         now = datetime.datetime.now()
         if args.message:
             message: str | Callable[[int], str] = args.message
@@ -5528,6 +5681,12 @@ def build_parser() -> argparse.ArgumentParser:
     curate_parser.add_argument("--notes", action="store_true",
                                help="list notes to attach to a synthesis part, and notes older than their part")
     curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
+    curate_parser.add_argument("--new-since", type=float, metavar="EPOCH",
+                               help="print the number of global memories and notes written since EPOCH seconds (and since the last pass)")
+    curate_parser.add_argument("action", nargs="?", choices=["apply"],
+                               help="apply: carry out the safe actions read from --from FILE or stdin (needs --safe)")
+    curate_parser.add_argument("--safe", action="store_true", help="with apply: only merges of equal claims and attaches the part's Sources line backs")
+    curate_parser.add_argument("--from", dest="from_file", metavar="FILE", help="with apply: the action lines (default or -: stdin)")
     curate_parser.set_defaults(func=cmd_curate)
     ps_parser = sub.add_parser("project-synthesis", help="write, confirm and list the stamped parts of a project's syntheses")
     ps_sub = ps_parser.add_subparsers(dest="ps_command", required=True)

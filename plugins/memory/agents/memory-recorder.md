@@ -1,6 +1,6 @@
 ---
 name: memory-recorder
-description: Recording worker (Sonnet) that turns an experience or raw facts - an account of what happened, logs, command output, files, a diff - into a few well-formed memories with the `mem` command, each a claim that stands on its own with its context and evidence, placed in the project or the global scope. Use when a task ended with something worth keeping and writing it well would take the main model's attention, when there is material to mine (a long log, an incident, a debugging session), or when the owner says "write this down" about more than one thing, so the main model hands over the material and gets back what was recorded.
+description: Recording worker (Sonnet) that turns an experience or raw facts - an account of what happened, logs, command output, files, a diff - into a few well-formed memories with the `mem` command, each a claim that stands on its own with its context and evidence, placed in the project or the global scope. Use when a task ended with something worth keeping and writing it well would take the main model's attention, when there is material to mine (a long log, an incident, a debugging session), when the owner says "write this down" about more than one thing, or when a summary lists items marked "not yet recorded", so the main model hands over the material and gets back what was recorded.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: sonnet
