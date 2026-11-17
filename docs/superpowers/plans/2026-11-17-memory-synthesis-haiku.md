@@ -2,7 +2,7 @@
 
 **Goal:** Find out whether a synthesis written by Haiku, checked and fixed in a loop by Haiku, is as accurate and complete as one written by Sonnet with one Haiku fact-check (the pipeline of the 2026-11-17 curation), and at what cost. Owner's open items 1 (cost of curation) and 3 (an independent cheap checker that iterates with the writer).
 
-**Status:** planned 2026-11-17; not started.
+**Status:** done 2026-11-17 (preliminary): keep today's pipeline; quiet script-driven curation is the lead.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -50,11 +50,35 @@ The smoke (one pipeline per arm on human-memory) cost about 3.5 USD against the 
 This section replaces the arms, runs and rule above; the fixture, measures and pre-mortem changes still hold.
 
 - **Arm S:** writer Sonnet → checker Haiku → fixer Sonnet (unchanged).
-- **Arm Y (hybrid):** writer Sonnet → checker Haiku (`--effort high`) → fixer Haiku (`--effort high`), up to 2 fix rounds, ending on a check.
+- **Arm Y (hybrid):** writer Sonnet → checker Haiku (`--effort medium`, owner) → fixer Haiku (`--effort high`), up to 2 fix rounds, ending on a check.
 - **Judge:** Haiku (`--effort high`), the same for both arms and blind to the arm, with the judge instructions above (used/unused notes, the `COUNTS:` line).
 - **Runs:** 4 topics × 1 run per arm. The smoke's arm-S pipeline on human-memory is reused (judged again by the Haiku judge); 7 new pipelines plus 8 judge sessions. Estimated 8 to 9 USD. With one run per topic the variance rule cannot apply: the result is labelled preliminary.
 - **Decision rule, written before these runs:** adopt arm Y for synthesis curation when its judged unsupported rate is at most arm S's plus 2 points (pooled over the 4 topics), its claims checked at least 80% of arm S's, its coverage at least arm S's minus 10 points, every Y synthesis passes `mem check`, and its pipeline cost (judge excluded) is at most 80% of arm S's; otherwise keep today's pipeline and record the gap.
 
 ## Results
 
-Pending.
+### Smoke (arms S and H, human-memory, Sonnet judge), 2026-11-17
+
+Arm S 3.2 unsupported per 100 (62 claims), 1.35 USD; arm H (Haiku writer, low effort) 8.7 per 100 (46 claims), 0.27 USD plus judge. One pair; it led to the redesign. Smoke cost about 3.5 USD (one invalid first run: a `Write` rule without `Edit` could not create the checker's report).
+
+### Hybrid arm (Y) against today's pipeline (S), Haiku judge at high effort, 2026-11-17
+
+Commits `6f2c0a8`, `e8604ab`. Arm Y: writer Sonnet, checker Haiku `--effort medium`, fixer Haiku `--effort high`, 2 fix rounds in every Y pipeline. One run per topic; the budget stop (10 USD) ended the run before mental-health Y.
+
+| Topic | Arm | Unsupported per 100 (judge) | Claims checked | Words | Parts | Coverage | Arm checker vs judge | Fix rounds | Cost with judge (USD) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| human-memory | S | 6.4 | 125 | 2955 | 6 | 6/6 | 5/105 v 8/125 | 1 | 1.016 |
+| human-memory | Y | 9.5 | 105 | 2437 | 6 | 6/6 | 5/86 v 10/105 | 2 | 0.977 |
+| time-series-forecasting | S | 24.8 | 117 | 3085 | 7 | 8/8 | 25/79 v 29/117 | 1 | 1.196 |
+| time-series-forecasting | Y | 15.7 | 83 | 2509 | 6 | 8/8 | 10/68 v 13/83 | 2 | 1.599 |
+| llm-evaluation | S | 8.1 | 99 | 3311 | 7 | 10/10 | 11/97 v 8/99 | 1 | 1.397 |
+| llm-evaluation | Y | 5.5 | 128 | 4050 | 9 | 10/10 | 8/141 v 7/128 | 2 | 1.631 |
+| mental-health | S | 10.3 | 136 | 4735 | 11 | 12/12 | 11/150 v 14/136 | 1 | 1.655 |
+
+Pooled: S 12.4 per 100 (4 topics; 13.2 on the 3 topics both arms finished), Y 9.5; mean pipeline cost without judge S 1.078, Y 1.206 USD; Y took 1,090–1,284 s against 440–593 s.
+
+**Action by the rule (preliminary, 1 run per topic):** keep today's pipeline. Y passes accuracy, claims, coverage and `mem check`, and fails only on cost (1.206 > 0.8 × 1.078): two Haiku fix rounds at high effort cost more than one Sonnet fix.
+
+Observed beside the rule: every pipeline, driven by a script with no main session relaying reports, cost 1 to 1.7 USD per synthesis. Inference (not measured here): most of the 2026-11-17 curation cost came from the expensive main session relaying about a hundred reports, so the larger saving is a quiet, script-driven curation (open item 4), whatever the writer's model; a one-round Haiku fixer may keep Y's accuracy at lower cost (not run).
+
+Total cost of the experiment: about 13.6 USD (smoke 3.5, run 10.1). The work folder was deleted after the run; the script now writes `target/mem-trials/synthesis-results-<time>.json` before cleaning up.

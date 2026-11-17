@@ -27,6 +27,7 @@ import subprocess
 import sys
 import threading
 import time
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -537,6 +538,10 @@ def main() -> int:
         list(pool.map(task, todo))
     print("\n" + "\n".join(decide(rows)))
     print(f"total cost USD over all sessions: {sum(r['cost'] for r in rows):.3f}")
+    # The rows outlive the work folder: a clean run must not lose its results (it did once).
+    results = trial_env.TARGET / f"synthesis-results-{time.strftime('%Y%m%d-%H%M%S')}.json"
+    results.write_text(json.dumps({"rows": rows, "decision": decide(rows)}, indent=1))
+    print(f"results: {results}")
     if all(r["valid"] for r in rows) and not args.keep:
         trial_env.clean(root)
     else:
