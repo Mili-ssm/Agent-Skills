@@ -41,6 +41,7 @@ _loader.exec_module(ms)
 DEFAULT_BUDGET = 0.25   # USD per run
 KEEP_SECONDS = 30 * 86400
 SESSION_TIMEOUT = 600
+FAILURE_WAIT = 30      # minutes a failed run waits at least, also at session end (which asks with 0 minutes)
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
 
@@ -222,7 +223,7 @@ def cmd_run(store: Path, claude: str | None, budget_arg: str | float | None, min
     try:
         previous = state.status()
         # a failed run is not retried at once: its pairs stay pending, and every write would start it again
-        if previous.get("state") == "failed" and now - float(previous.get("finished") or 0) <= minutes * 60:
+        if previous.get("state") == "failed" and now - float(previous.get("finished") or 0) <= max(minutes, FAILURE_WAIT) * 60:
             return 0
         budget = budget_of(budget_arg)
         due, why = due_check(store, minutes)

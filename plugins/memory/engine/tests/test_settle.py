@@ -117,11 +117,10 @@ def test_both_unjudged_use_the_later_date_and_a_same_day_tie_is_undecidable(gfol
     put(gfolder, "a-first", OLD, created=days_ago(1))
     [pair] = json.loads(run("pending", "--json")[1])
     assert pair["newer"] is None
-    rows = [{"a": "a-first", "b": "b-second", "decision": d} for d in ("merge", "supersede")]
+    rows = [{"a": "a-first", "b": "b-second", "decision": d} for d in ("merge", "supersede", "distinct")]
     out = run("apply", "--verdicts", verdicts(tmp_path, *rows))[1].splitlines()
-    assert len(out) == 2 and all(line.startswith("refused") and "cannot tell which is newer" in line for line in out)
-    out = run("apply", "--verdicts", verdicts(tmp_path, {"a": "a-first", "b": "b-second", "decision": "distinct"}))[1]
-    assert out.startswith("applied")
+    assert len(out) == 3 and all(line.startswith("refused") and "cannot tell which is newer" in line for line in out[:2])
+    assert out[2].startswith("applied")
 
 
 def test_flagged_pair_cannot_be_merged(gfolder, run, tmp_path):
@@ -198,7 +197,9 @@ def test_nothing_changes_no_file_and_judges_the_pair(gfolder, run, tmp_path):
 
 
 def test_judged_covers_unpaired_new_records_and_spares_those_written_after_pending(gfolder, run, tmp_path):
-    seeded(gfolder, run)
+    put(gfolder, "old-one", OLD, created=days_ago(10))
+    run("pending")
+    put(gfolder, "new-one", NEW, created=days_ago(1))
     put(gfolder, "alone", "Something about volcanoes in the south.")
     run("pending")
     put(gfolder, "late", "A claim written while the run was under way.")
@@ -235,6 +236,7 @@ def test_undo_puts_both_records_back_in_one_command(gfolder, run, tmp_path, deci
     put(gfolder, "old-one", OLD, created=days_ago(10), body="Old body.\n")
     run("pending")
     put(gfolder, "new-one", NEW, created=days_ago(1), body="New body.\n")
+    run("pending")
     before = snapshot(gfolder)
     run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": decision}))
     assert snapshot(gfolder) != before
@@ -375,3 +377,83 @@ def test_settle_creates_no_gitignore_outside_a_repository(gfolder, run):
     put(gfolder, "old-one", OLD)
     run("pending")
     assert not (gfolder.parent / ".gitignore").exists() and not (gfolder / ".gitignore").exists()
+
+
+def log_entries(folder):
+    return [json.loads(line) for line in (folder / settle.LOG_NAME).read_text().splitlines()]
+
+
+def two_newcomers(gfolder, run):
+    put(gfolder, "old-one", OLD, created=days_ago(10))
+    run("pending")
+    put(gfolder, "new-one", NEW, created=days_ago(2))
+    put(gfolder, "new-two", "Use the build cache for every release build now.", created=days_ago(1))
+    run("pending")
+
+
+def test_a_handle_with_another_pair_still_retained_is_not_judged(gfolder, run, tmp_path):
+    two_newcomers(gfolder, run)
+    run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "distinct"}))
+    assert "new-two" not in state(gfolder)["judged"]
+    run("pending")
+    run("apply", "--verdicts", verdicts(tmp_path))
+    assert "new-two" in state(gfolder)["judged"]
+    assert any(e["decision"] == "left" and "new-two" in (e["older"], e["newer"]) for e in log_entries(gfolder))
+
+
+def test_a_pair_whose_record_is_no_longer_active_needs_no_left_entry(gfolder, run, tmp_path):
+    two_newcomers(gfolder, run)
+    run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "supersede"}))
+    assert not any(e["decision"] == "left" and "old-one" in (e["older"], e["newer"]) for e in log_entries(gfolder))
+
+
+def test_offers_count_pending_showings_not_applies(gfolder, run, tmp_path):
+    seeded(gfolder, run)
+    empty = verdicts(tmp_path)
+    run("apply", "--verdicts", empty)
+    run("apply", "--verdicts", empty)
+    assert run("log", "--all")[1] == "" and "new-one" not in state(gfolder)["judged"]
+    run("pending")
+    run("apply", "--verdicts", empty)
+    assert "left" in run("log")[1]
+
+
+def test_apply_without_a_listing_changes_nothing_and_fails(gfolder, run, tmp_path):
+    put(gfolder, "old-one", OLD, created=days_ago(10))
+    run("pending")
+    put(gfolder, "new-one", NEW, created=days_ago(1))
+    before, files = (gfolder / settle.STATE_NAME).read_bytes(), snapshot(gfolder)
+    code, out, _ = run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "distinct"}))
+    assert code != 0 and out.startswith("refused") and "mem settle pending" in out
+    assert (gfolder / settle.STATE_NAME).read_bytes() == before and snapshot(gfolder) == files
+    assert not (gfolder / settle.LOG_NAME).exists()
+
+
+def test_a_programming_error_still_logs_the_changed_record_then_propagates(gfolder, run, tmp_path, monkeypatch):
+    put(gfolder, "old-one", OLD, created=days_ago(10), body="Old body.\n")
+    run("pending")
+    put(gfolder, "new-one", NEW, created=days_ago(1), body="New body.\n")
+    run("pending")
+    before = snapshot(gfolder)
+    real = mem._merge_pair
+
+    def broken(keep, drop, today):
+        real(keep, drop, today)
+        raise KeyError("bug")
+    monkeypatch.setattr(mem, "_merge_pair", broken)
+    with pytest.raises(KeyError):
+        run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "merge"}))
+    [entry] = log_entries(gfolder)
+    assert entry["partial"] is True and entry["files"]
+    with settle.locked(gfolder):  # the lock was released
+        pass
+    assert run("undo", "1")[0] == 0 and snapshot(gfolder) == before
+
+
+def test_undo_of_a_left_entry_says_there_is_nothing_to_undo(gfolder, run, tmp_path):
+    seeded(gfolder, run)
+    run("apply", "--verdicts", verdicts(tmp_path))
+    run("pending")
+    run("apply", "--verdicts", verdicts(tmp_path))
+    code, _, err = run("undo", "1")
+    assert code == 1 and "settling 1 changed no record: nothing to undo" in err

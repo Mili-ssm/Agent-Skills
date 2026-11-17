@@ -4308,9 +4308,15 @@ def cmd_settle(args: argparse.Namespace) -> int:
             except (OSError, ValueError) as exc:
                 print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
                 return 2
-            with settle.locked(folder):
-                lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today, time.time(),
-                                              actions=_settle_actions(), reason_ok=_settle_reason_ok, tokenize=tokenize)
+            try:
+                with settle.locked(folder):
+                    lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today,
+                                                  time.time(), actions=_settle_actions(),
+                                                  reason_ok=_settle_reason_ok, tokenize=tokenize)
+            except settle.NoListing as exc:
+                print("\n".join(exc.lines))
+                print(f"mem: {exc}", file=sys.stderr)
+                return 1
             print("\n".join(lines))
             return 0
         if command == "log":
@@ -4321,8 +4327,12 @@ def cmd_settle(args: argparse.Namespace) -> int:
         if command == "ack":
             print(f"acknowledged {settle.ack(folder)}")
             return 0
-        with settle.locked(folder):
-            print("\n".join(settle.undo(folder, args.number, today)))
+        try:
+            with settle.locked(folder):
+                print("\n".join(settle.undo(folder, args.number, today)))
+        except settle.NothingToUndo as exc:
+            print(f"mem: {exc}", file=sys.stderr)
+            return 1
         return 0
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)

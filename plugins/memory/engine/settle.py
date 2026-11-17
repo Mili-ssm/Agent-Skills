@@ -49,6 +49,17 @@ class Busy(ValueError):
     pass
 
 
+class NoListing(ValueError):
+    """`apply` ran with no `pending` listing recorded; `lines` are the refusals, one per row."""
+    def __init__(self, lines: list[str]):
+        super().__init__("run `mem settle pending` first: nothing was changed")
+        self.lines = lines
+
+
+class NothingToUndo(ValueError):
+    pass
+
+
 @contextlib.contextmanager
 def locked(folder: Path):
     """Exclusive, non-blocking lock beside the state: two settle commands never change it at once."""
@@ -153,17 +164,20 @@ def _key(pair) -> str:
 
 
 def offer(folder: Path, state: dict, found: list[dict], now: float) -> None:
-    """Remember what this look at the queue covered: the handles, and the pairs. What is written afterwards stays new
-    for the next run. With no pair to judge, the handles examined are judged at once and the run counts as done, so
+    """Remember what this look at the queue covered: the handles, and the pairs, and count one more offer for each
+    pair shown. What is written afterwards stays new for the next run. With no pair to judge, the handles examined are judged at once and the run counts as done, so
     `due` stops reporting work and no model session is needed."""
     judged = set(state["judged"])
     unjudged = [s for s in _stems(folder) if s not in judged]
     if found:
         state["offered"] = unjudged
         state["offered_pairs"] = [sorted((p["a"], p["b"])) for p in found]
+        before = state.get("offers") or {}
+        state["offers"] = {_key((p["a"], p["b"])): int(before.get(_key((p["a"], p["b"])), 0)) + 1 for p in found}
     else:
         state["judged"] = sorted(judged | set(unjudged))
         state["offered"] = state["offered_pairs"] = None
+        state["offers"] = {}
         state["last_apply"] = now
     save_state(folder, state)
 
@@ -215,7 +229,9 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
     superseded, and a pair whose newer side cannot be told allows only distinct or nothing; a pair with flagged
     words is never merged; a record changed by an earlier row of the file is not touched again. A refused row
     leaves the others untouched. A pair offered `OFFERS_BEFORE_LEFT` times without an applied decision is logged as
-    `left` and judged; before that it stays pending."""
+    `left`; before that it stays pending. A handle is judged only when no pair it belongs to is still retained.
+    Without a recorded `pending` listing every row is refused (`NoListing`) and nothing changes. Only `OSError` and
+    `ValueError` from an action are a row failure; any other exception is logged if a record changed, then raised."""
     state = load_state(folder)
     judged_now = set(state["judged"])
     listed = {frozenset((p["a"], p["b"])) for p in pending(memories, state, today, tokenize=tokenize)}
@@ -225,6 +241,9 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
     lines: list[str] = []
     if not isinstance(rows, list):
         return ["refused\tthe file must hold a list of verdicts"]
+    if not isinstance(state.get("offered_pairs"), list):
+        why = "no listing is recorded: run `mem settle pending` first"
+        raise NoListing([f"refused\trow {n}\t{why}" for n in range(1, len(rows) + 1)] or [f"refused\t{why}"])
     seq = max((e["seq"] for e in read_log(folder) if isinstance(e.get("seq"), int)), default=0)
     for number, row in enumerate(rows, 1):
         def refuse(why: str, number=number) -> None:
@@ -267,6 +286,7 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
                     out = actions.distinct(older, newer, today)
             except Exception as exc:  # a half-done action must still be logged, whatever raised
                 failure, out = exc, []
+            fatal = failure is not None and not isinstance(failure, (OSError, ValueError))
             files = {}
             for h in before:
                 try:
@@ -276,6 +296,8 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
                 if after != before[h]:
                     files[h] = {"before": before[h], "after": after}
             if failure is not None and not files:
+                if fatal:
+                    raise failure
                 refuse(f"{failure}")
                 continue
             seq += 1
@@ -284,6 +306,8 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
             if failure is not None:
                 entry["partial"] = True
             _append_log(folder, entry)
+            if fatal:
+                raise failure  # the state is unchanged, so the listing still stands for a retry
             touched |= {a, b}
             decided.add(frozenset((a, b)))
             if failure is not None:
@@ -295,14 +319,16 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
     covered = state.get("offered")
     if not isinstance(covered, list):
         covered = [s for s in stems if s not in judged_now]
-    offered = state.get("offered_pairs")
-    offered = {frozenset(p) for p in offered if isinstance(p, list)} & listed if isinstance(offered, list) else listed
+    # what is still a valid pair after this file's changes: a merged or superseded record drops out of it
+    still = {frozenset((p["a"], p["b"])) for p in pending(records.load_memories(folder, "global"), state, today,
+                                                         tokenize=tokenize)}
+    offered = {frozenset(p) for p in state["offered_pairs"] if isinstance(p, list)} & listed & still
     offers: dict[str, int] = {}
     retained: set[frozenset] = set()
     for pair in sorted(offered, key=_key):
-        if pair in decided or pair & touched:
+        if pair in decided:
             continue
-        count = int((state.get("offers") or {}).get(_key(pair), 0)) + 1
+        count = int((state.get("offers") or {}).get(_key(pair), 0))
         if count < OFFERS_BEFORE_LEFT:
             offers[_key(pair)] = count
             retained.add(pair)
@@ -354,6 +380,8 @@ def undo(folder: Path, number: int, today: datetime.date) -> list[str]:
         raise ValueError(f"no settling {number}")
     if found["undone"]:
         raise ValueError(f"settling {number} was already undone on {found['undone']}")
+    if not found.get("files"):
+        raise NothingToUndo(f"settling {number} changed no record: nothing to undo")
     todo = []
     for handle, shas in found.get("files", {}).items():
         path = folder / f"{handle}.md"

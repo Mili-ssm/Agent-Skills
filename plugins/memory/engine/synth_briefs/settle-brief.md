@@ -15,12 +15,12 @@ Read `{PAIRS_FILE}`: a JSON list of pairs of short memories, each with `pair`, `
 
 - **When unsure, choose `nothing`.** A wrong merge or supersede loses a fact, and a wrong `distinct` hides the pair from every later check; a duplicate that stays costs only a little reading, and the pair is offered again.
 - **A pair whose `newer` is null cannot be merged or superseded**, because the code cannot tell which record to keep; choose `distinct` or `nothing`.
-- **A pair whose `flagged_words` is not empty cannot be merged**: those words may make the claims opposites or versions. Choose `supersede`, `distinct` or `nothing`.
+- **A pair whose `flagged_words` is not empty cannot be merged**: those words may make the claims opposites or versions. Choose `supersede` (only when `newer` is not null), `distinct` or `nothing`.
 - Judge only the two claims in the file. Do not look for other files and do not guess what a claim leaves out.
 
 ## Output
 
-Write only `{VERDICTS_FILE}`: a JSON list with one object per pair, in this form (the handles are copied from the pair):
+Write only `{VERDICTS_FILE}`: a JSON list with one object per pair, in this form (the handles are copied from the pair; a row that names a handle not in the file is refused):
 
 ```json
 [

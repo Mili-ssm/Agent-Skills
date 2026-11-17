@@ -151,6 +151,11 @@ def test_a_failed_run_is_not_retried_within_the_minutes(world):
     settle_run(world, "--minutes", "30", mode="nofile")
     settle_run(world, "--minutes", "30")
     assert calls(world) == 1 and status(world)["state"] == "failed"
+    settle_run(world, "--minutes", "0")   # session end asks with 0 minutes: a failure still waits
+    assert calls(world) == 1 and status(world)["state"] == "failed"
+    old = status(world)
+    old["finished"] -= 3600
+    (world.state / "status.json").write_text(json.dumps(old))
     settle_run(world, "--minutes", "0")
     assert calls(world) == 2 and status(world)["state"] == "ok"
 
