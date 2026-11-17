@@ -46,6 +46,10 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 - Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree.
 - When a memory you used proved right: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`.
 
+## Changing a record
+
+Records change only through `mem` commands, never by editing their files: the commands carry the guards, the secret check, the undo log and the link integrity that a file edit skips. A note: `mem note edit <note> --claim "…"` (or `--section`, `--body-file`, `--topics`); a memory: `mem memory edit m:<handle> --claim "…"`. Each is undone with `mem restore <handle>`. These are curation work, like the rest of this list.
+
 ## Not while working
 
 Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too.
