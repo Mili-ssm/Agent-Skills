@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import posixpath
 import re
 import subprocess
 from pathlib import Path
@@ -117,7 +118,9 @@ def worktree(cwd: Path, project_root: Path, env: Mapping[str, str]) -> Path:
     repository's top level at `cwd` (a linked worktree is its own), else the project root."""
     if env.get("MEM_PROJECT"):
         return project_root
-    return records._toplevel(cwd) or project_root
+    out = _git(cwd, "rev-parse", "--show-toplevel")
+    top = out.stdout.strip() if out else ""
+    return Path(top) if top else project_root
 
 
 def _git(tree: Path, *args: str) -> subprocess.CompletedProcess | None:
@@ -140,9 +143,10 @@ def _check_paths(tree: Path, paths: Sequence[str]) -> list[str]:
         raise ProjectSynthesisError("a part must cover at least one path")
     clean = []
     for p in paths:
-        parts = p.split("/")
+        norm = posixpath.normpath(p) if p else ""
         if (not p or p != p.strip() or "," in p or "|" in p or "\\" in p or "\n" in p or p.startswith("/")
-                or ".." in parts or parts[0] == ".memory" or p.endswith("//") or "//" in p):
+                or ".." in p.split("/") or "//" in p or norm == ".." or norm.startswith("../")
+                or norm == records.PROJECT_DIR or norm.startswith(records.PROJECT_DIR + "/")):
             raise ProjectSynthesisError(f"invalid path {p!r}: relative, `/`-separated, no `,` or `|`, not in .memory/")
         if not (tree / p).exists():
             raise ProjectSynthesisError(f"the path {p!r} does not exist in {tree.name}")
@@ -166,6 +170,8 @@ def write_part(memory_dir: Path, worktree: Path, name: str, heading: str, body: 
     """Create the file or add a part to it; a heading whose handle exists replaces that part in place."""
     path = _file(memory_dir, name)
     heading = " ".join(heading.split())
+    if heading.startswith("#"):
+        raise ProjectSynthesisError("the heading must not start with `#`: the tool writes the `## `")
     handle = syntheses.section_handle(heading)
     if not handle:
         raise ProjectSynthesisError("the heading has no letters or digits")
@@ -174,6 +180,9 @@ def write_part(memory_dir: Path, worktree: Path, name: str, heading: str, body: 
         raise ProjectSynthesisError("the text is empty")
     if syntheses._scan("---\nx: 1\n---\n" + body)[1]:
         raise ProjectSynthesisError("the text contains a `## ` heading: a part is one heading and its text")
+    probe = syntheses._scan("---\nx: 1\n---\n" + body + "\n## probe")[1]
+    if not probe or probe[-1][1] != "probe":
+        raise ProjectSynthesisError("the text leaves a code fence open: close it")
     if any(_parse_stamp(ln.rstrip()) for ln in body.split("\n")):
         raise ProjectSynthesisError("the text contains a stamp line: the tool writes the stamp")
     covered = _check_paths(worktree, paths)
@@ -207,7 +216,10 @@ def confirm_part(memory_dir: Path, worktree: Path, name: str, handle: str, today
     part = next((p for p in _parse(path) if p.handle == handle), None)
     if part is None:
         raise ProjectSynthesisError(f"no part {handle!r} in {name}")
-    _check_paths(worktree, part.stamp.paths)
+    try:
+        _check_paths(worktree, part.stamp.paths)
+    except ProjectSynthesisError as e:
+        raise ProjectSynthesisError(f"{e}; confirming would stamp a false fresh: write the part again with new paths") from None
     lines, heads = syntheses._scan(syntheses._read(path))
     n = next(k for k, (i, _) in enumerate(heads) if i + 1 == part.line)
     end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
@@ -237,7 +249,11 @@ def freshness(worktree: Path, stamp: Stamp) -> str:
     status = _git(worktree, "status", "--porcelain", "-z", "--untracked-files=all", "--", *stamp.paths)
     if diff is None or status is None:
         return UNKNOWN
-    touched = [n for n in _names(diff, False) + _names(status, True) if n.split("/")[0] != records.PROJECT_DIR]
+    prefix = _git(worktree, "rev-parse", "--show-prefix")
+    if prefix is None:
+        return UNKNOWN
+    own = prefix.stdout.strip() + records.PROJECT_DIR + "/"
+    touched = [n for n in _names(diff, False) + _names(status, True) if not n.startswith(own)]
     if touched or any(not (worktree / p).exists() for p in stamp.paths):
         return CHANGED
     return FRESH
