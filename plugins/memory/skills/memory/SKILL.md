@@ -56,7 +56,8 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 | `pitfall` | What failed or misled, and how to avoid it |
 | `lesson` | A way of working that proved better |
 | `finding` | A result of web research not yet checked against its source; needs `--source <url>` and expires after 90 days |
-| `state` | A pointer to the plan of work in progress |
+| `document` | What a document says that is less reliable than a published source or belongs to this project (a specification, meeting notes, a vendor file); needs `--source <url or path>` |
+| `state` | The project's current situation, or a pointer to the plan of work in progress |
 
 - Write the claim in English even when the conversation is not: search matches words, and the store is in English.
 - Choose the scope with one question: **would this be true and useful in another project?**

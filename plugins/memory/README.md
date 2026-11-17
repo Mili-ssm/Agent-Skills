@@ -17,7 +17,7 @@ Stages 1 and 2 of ADR 0023 (proposed); see the [stage plan](../../docs/superpowe
 |---|---|---|
 | What | A general statement with its source | Something seen or decided once, in a context: experience, not fact |
 | Where | The store | The project's `.memory/` folder by default; a global folder with `--global` |
-| Written with | `mem new` | `mem remember`, `mem observe` |
+| Written with | `mem new` (a paper or other source is a `literature` note with its `--url`; `mem fetch-sources` keeps a local copy outside git and `mem passages` reads it) | `mem remember`, `mem observe` (kinds: decision, constraint, pitfall, lesson, finding, document, state) |
 
 `mem search` prints matching memories first, labelled `[memory: …]`, then notes.
 
