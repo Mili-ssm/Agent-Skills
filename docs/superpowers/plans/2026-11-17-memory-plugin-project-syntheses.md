@@ -31,6 +31,7 @@
 - `mem show p:…`, `mem project-synthesis list` and `mem curate` are the only commands that run the freshness comparison; the session-start hook runs no extra git command.
 - Git runs in the working tree the session is in (`git rev-parse --show-toplevel` from the current directory), not in the main worktree, with `GIT_LITERAL_PATHSPECS=1` in its environment.
 - The repository is public: no home paths, private repository names or note titles in code, tests, docs or commits.
+- The owner's standing rules are in [the stage plan](2026-11-17-memory-plugin.md#current-state-and-where-to-resume-2026-11-17), last paragraph of that section: the origin of the notes is never written to, and a merge into `main` needs the owner's word.
 - Vocabulary: "project synthesis" (the file), "part" (a `## ` section), "stamp" (the last line of a part), "freshness" (`fresh`, `changed`, `unknown`).
 - Tests: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q` (745 passed, 4 skipped before this plan); `python3 scripts/validate.py` before every commit.
 
