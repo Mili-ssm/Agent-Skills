@@ -97,8 +97,9 @@ def test_hook_keeps_each_option_independent(tmp_path):
 
 HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 SUBAGENT_TEXT = (
-    'memory: this project and the owner\'s store have a searchable memory. If you can run shell commands: '
-    'mem search "<question in English>", then mem show <handle>. Project memories are files in '
+    'memory: decisions, constraints and pitfalls learned in earlier sessions are in a searchable memory, not in '
+    'the files. Before you change or decide anything, if you can run shell commands: '
+    'mem search "<topic in English>", then mem show <handle>. Project memories are files in '
     '.memory/ at the repository root. A line marked [memory: ...] is experience, not fact. Do not run mem remember: '
     'tell your caller what is worth remembering, if anything.')
 PRE_COMPACT = ('Keep in the summary: the path of the active plan file (say "no plan" if there is none), and every '
@@ -118,9 +119,7 @@ def test_hooks_json_names_the_scripts():
     assert start[1]["matcher"] == "startup|clear|compact"
     assert start[1]["hooks"][0]["command"].endswith("/hooks/session-index.sh") and start[1]["hooks"][0]["timeout"] == 10
     assert cfg["SubagentStart"][0]["hooks"][0]["command"].endswith("/hooks/subagent-start.sh")
-    group = cfg["PreToolUse"][0]
-    assert group["matcher"] == "Agent" and group["hooks"][0]["timeout"] == 10
-    assert group["hooks"][0]["command"].endswith("/hooks/signal.sh")
+    assert "PreToolUse" not in cfg  # the signal hook is built but not registered: it showed no gain (stage 6 plan)
     assert cfg["PreCompact"][0]["hooks"][0]["command"].endswith("/hooks/pre-compact.sh")
 
 
@@ -129,7 +128,7 @@ def test_subagent_start_prints_the_json_text():
     assert r.returncode == 0 and r.stderr == ""
     out = json.loads(r.stdout)["hookSpecificOutput"]
     assert out["hookEventName"] == "SubagentStart" and out["additionalContext"] == SUBAGENT_TEXT
-    assert len(SUBAGENT_TEXT) <= 400
+    assert len(SUBAGENT_TEXT) <= 450
 
 
 def test_pre_compact_prints_its_line():

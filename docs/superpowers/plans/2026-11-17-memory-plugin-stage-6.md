@@ -146,3 +146,19 @@ These override the tasks above.
 - A record counts as already named when its handle occurs in the brief as a whole token, with or without the `m:` prefix. The skill tells the main agent to quote `m:<handle>` when a brief uses a memory.
 - Kill criteria, read from the hook log after a week of use: the signal fires on more than 5% of briefs, or a subagent follows a memory against its brief: switch the hook off and re-plan.
 - Not built: combining with another plugin's hook that also rewrites the brief (none is installed); a different block for subagents that cannot run shell commands (they can read `.memory/` files).
+
+### Delegated trials (Task 4, 2026-11-17): the signal showed no gain and is not registered
+
+`evals/recall/run_trials.py --delegate` tells the agent to hand the work to a subagent without consulting anything first; a run passes when the answer carries the memory's fact. Sonnet, two runs per case (three in the last row).
+
+| Arm | Project pitfall | Project constraint | Global lesson | Unrelated (must not consult) | Total |
+|---|---|---|---|---|---|
+| With the signal hook | 2 of 2 | 2 of 2 | 0 of 2 | 2 of 2 | 6 of 8 |
+| Without it | 2 of 2 | 2 of 2 | 1 of 2 | 2 of 2 | 7 of 8 |
+| Without it, and the subagent's start text reworded to give its reason ("…are in a searchable memory, not in the files. Before you change or decide anything…") | 3 of 3 | not run | 3 of 3 | 3 of 3 | 9 of 9 |
+
+Reading: where the brief already holds a memory's words, the subagent finds it without a signal; where it does not (the global lesson: the brief says "upgrade the library", the memory says which version corrupts exports), a word match cannot fire. The case was solved by the subagent searching, which the reworded start text brought about.
+
+Decided from these figures: the reworded subagent text is adopted (441 characters). `mem signal` and `hooks/signal.sh` stay in the code with their tests, but the `PreToolUse` group is not registered in `hooks.json`. The hook's own figures: about 100 ms per call; 0.3% false signals on real briefs at the chosen threshold.
+
+Open: a signal for notes or for paraphrased memories needs a match on meaning, not on words; the owner's idea of bands (strong, possible, tangential) waits for that. The "project constraint" case's key word also appears in the project's file, so that column does not separate the arms.
