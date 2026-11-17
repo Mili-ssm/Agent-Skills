@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import pytest
+from conftest import usage_log_path
+
 import mem
 
 
@@ -24,6 +27,32 @@ def test_data_dir(tmp_path):
     assert mem.data_dir({"MEM_DATA": "/d"}) == Path("/d")
     assert mem.data_dir({"XDG_STATE_HOME": "/s"}) == Path("/s/agent-memory")
     assert mem.data_dir({"HOME": "/h"}) == Path("/h/.local/state/agent-memory")
+    assert mem.data_dir({}) is None
+    assert mem.data_dir({"MEM_DATA": "", "XDG_STATE_HOME": "", "HOME": ""}) is None
+
+
+def _files(folder):
+    return sorted(p.relative_to(folder) for p in folder.rglob("*"))
+
+
+def test_log_usage_without_data_dir_writes_nothing(hub_root, monkeypatch):
+    monkeypatch.chdir(hub_root)
+    before = _files(hub_root)
+    mem.log_usage(hub_root, {"cmd": "search"}, env={}, cwd=hub_root)
+    assert _files(hub_root) == before
+
+
+def test_log_usage_never_writes_inside_the_store(hub_root, tmp_path):
+    before = _files(hub_root)
+    mem.log_usage(hub_root, {"cmd": "search"}, env={"MEM_DATA": str(hub_root / "data")}, cwd=tmp_path)
+    assert _files(hub_root) == before
+
+
+def test_stats_counts_zero_entries_without_data_dir(hub_root, monkeypatch, capsys):
+    for var in ("MEM_DATA", "XDG_STATE_HOME", "HOME"):
+        monkeypatch.delenv(var, raising=False)
+    assert mem.main(["--root", str(hub_root), "stats"]) == 0
+    assert "usage log entries: 0" in capsys.readouterr().out
 
 
 def test_log_usage_goes_to_data_dir_and_marks_outside(hub_root, tmp_path):
@@ -47,15 +76,43 @@ def test_main_without_store(monkeypatch, tmp_path, capsys):
     assert capsys.readouterr().err.strip() == 'mem: no store is set. Enable the memory plugin and set its "store" option, or pass --root <folder>, or set MEM_STORE.'
 
 
-def test_write_commands_need_permission(hub_root, monkeypatch, capsys):
+@pytest.mark.parametrize("argv", [
+    ["new", "research", "--slug", "s", "--title", "t", "--question", "q", "--topics", "x"],
+    ["rename", "a", "b"],
+    ["index"],
+    ["fetch-sources"],
+])
+def test_write_commands_need_permission(hub_root, monkeypatch, capsys, argv):
     monkeypatch.delenv("MEM_ALLOW_WRITE")
-    assert mem.main(["--root", str(hub_root), "index"]) == 2
-    assert capsys.readouterr().err.strip() == "mem: index writes to the store, which is read-only in stage 1; set MEM_ALLOW_WRITE=1 to allow it."
+    before = _files(hub_root)
+    assert mem.main(["--root", str(hub_root), *argv]) == 2
+    assert capsys.readouterr().err.strip() == f"mem: {argv[0]} writes to the store, which is read-only in stage 1; set MEM_ALLOW_WRITE=1 to allow it."
+    assert _files(hub_root) == before
+
+
+def test_read_commands_need_no_permission(hub_root, monkeypatch):
+    monkeypatch.delenv("MEM_ALLOW_WRITE")
     assert mem.main(["--root", str(hub_root), "search", "attention"]) == 0
 
 
-def test_tilde_is_expanded(monkeypatch, tmp_path):
-    assert mem.resolve_root("~/x", {"HOME": "/h"}) == Path("~/x").expanduser()
+def test_tilde_is_expanded(monkeypatch):
+    monkeypatch.setenv("HOME", "/h")
+    assert mem.resolve_root("~/x", {}) == Path("/h/x")
+
+
+def test_unreadable_current_folder_counts_as_outside(hub_root, monkeypatch):
+    def gone():
+        raise FileNotFoundError
+    monkeypatch.setattr(Path, "cwd", gone)
+    assert mem.main(["--root", str(hub_root), "search", "attention"]) == 0
+    entry = json.loads(usage_log_path().read_text().splitlines()[-1])
+    assert entry["outside"] is True
+
+
+def test_main_with_a_file_as_store(tmp_path, capsys):
+    f = tmp_path / "file"; f.write_text("x")
+    assert mem.main(["--root", str(f), "search", "x"]) == 2
+    assert capsys.readouterr().err.strip() == f"mem: the store is not a folder: {f}"
 
 
 def test_stats_names_the_store_source(hub_root, capsys):

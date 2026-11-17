@@ -77,14 +77,15 @@ def resolve_root(cli_root: str | None, env: Mapping[str, str]) -> Path | None:
     return Path(raw).expanduser()
 
 
-def data_dir(env: Mapping[str, str]) -> Path:
-    """Folder for the usage log and other state, outside the store."""
+def data_dir(env: Mapping[str, str]) -> Path | None:
+    """Folder for the usage log and other state, outside the store; None when no variable locates it."""
     if _env_value(env, "MEM_DATA"):
         return Path(env["MEM_DATA"])
     state = _env_value(env, "XDG_STATE_HOME")
     if state:
         return Path(state) / "agent-memory"
-    return Path(_env_value(env, "HOME")) / ".local" / "state" / "agent-memory"
+    home = _env_value(env, "HOME")
+    return Path(home) / ".local" / "state" / "agent-memory" if home else None
 
 _DROPPED_TAGS = {"tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool"}
 
@@ -2248,8 +2249,9 @@ def cmd_topics(args: argparse.Namespace) -> int:
     return 0
 
 
-def _usage_log(env: Mapping[str, str]) -> Path:
-    return data_dir(env) / "usage" / "log.jsonl"
+def _usage_log(env: Mapping[str, str]) -> Path | None:
+    data = data_dir(env)
+    return None if data is None else data / "usage" / "log.jsonl"
 
 
 def _is_outside(root: Path, cwd: Path | None) -> bool:
@@ -2270,6 +2272,9 @@ def log_usage(root: Path, entry: dict[str, Any], *, env: Mapping[str, str] | Non
     try:
         entry["outside"] = _is_outside(root, cwd)
         log_path = _usage_log(env)
+        # the store is never written in this stage, not even by the log
+        if log_path is None or log_path.resolve().is_relative_to(root.resolve()):
+            return
         # ASCII escapes keep one entry on one line and survive argv that is not valid UTF-8
         line = (json.dumps(entry) + "\n").encode("ascii")
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2395,8 +2400,9 @@ def cmd_stats(args: argparse.Namespace) -> int:
     lines.append(f"orphans: {len(orphan_notes(root))}")
     lines += [f"topics: {topic_count}", f"characters: {chars}", f"tokens: {chars // 4}",
               f"mem.py lines: {len(script.splitlines())}"]
+    log_path = _usage_log(os.environ)
     try:
-        entries = _usage_log(os.environ).read_bytes().count(b"\n")
+        entries = 0 if log_path is None else log_path.read_bytes().count(b"\n")
     except OSError:
         entries = 0
     lines.append(f"usage log entries: {entries}")
@@ -2683,6 +2689,9 @@ def main(argv: list[str] | None = None) -> int:
     if root is None:
         print('mem: no store is set. Enable the memory plugin and set its "store" option, '
               "or pass --root <folder>, or set MEM_STORE.", file=sys.stderr)
+        return 2
+    if root.exists() and not root.is_dir():
+        print(f"mem: the store is not a folder: {root}", file=sys.stderr)
         return 2
     if not root.is_dir():
         print(f"mem: the store folder does not exist: {root}", file=sys.stderr)
