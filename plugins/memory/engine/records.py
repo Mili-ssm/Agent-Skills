@@ -266,23 +266,21 @@ def observe(memory: Memory, today: datetime.date) -> Memory:
 
 
 def ensure_excluded(project: Path) -> bool:
-    try:
-        if (project / PROJECT_DIR).exists():
-            return False
-        common = _git_common_dir(project)
-        if common is None:
-            return False
-        exclude = common / "info" / "exclude"
-        existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
-        lines = {ln.strip() for ln in existing.splitlines()}
-        if lines & {".memory/", ".memory", "/.memory/", "/.memory"}:
-            return False
-        exclude.parent.mkdir(parents=True, exist_ok=True)
-        sep = "" if not existing or existing.endswith("\n") else "\n"
-        exclude.write_text(f"{existing}{sep}{PROJECT_DIR}/\n", encoding="utf-8")
-        return True
-    except Exception:
+    """Add `.memory/` to the repository's .git/info/exclude; raises OSError when the line should be written and cannot."""
+    if (project / PROJECT_DIR).exists():
         return False
+    common = _git_common_dir(project)
+    if common is None:
+        return False
+    exclude = common / "info" / "exclude"
+    existing = exclude.read_text(encoding="utf-8") if exclude.exists() else ""
+    lines = {ln.strip() for ln in existing.splitlines()}
+    if lines & {".memory/", ".memory", "/.memory/", "/.memory"}:
+        return False
+    exclude.parent.mkdir(parents=True, exist_ok=True)
+    sep = "" if not existing or existing.endswith("\n") else "\n"
+    exclude.write_text(f"{existing}{sep}{PROJECT_DIR}/\n", encoding="utf-8")
+    return True
 
 
 def forbidden_file(env: Mapping[str, str]) -> Path | None:
@@ -290,20 +288,44 @@ def forbidden_file(env: Mapping[str, str]) -> Path | None:
     return base / "agent-memory" / "forbidden-terms" if base is not None else None
 
 
+class ForbiddenListError(ValueError):
+    """The forbidden-terms file exists but cannot be read or decoded."""
+
+
+def _fold(text: str) -> str:
+    decomposed = unicodedata.normalize("NFKD", text)
+    bare = "".join(c for c in decomposed if not unicodedata.combining(c)).casefold()
+    return " ".join(bare.split())  # a line break between two words must not hide a term
+
+
 def forbidden_line(texts: Iterable[str], env: Mapping[str, str]) -> int | None:
+    """Line number of the first forbidden term found in any text, or in all of them joined; None when clean or no file.
+
+    Raises ForbiddenListError when the file exists but cannot be read: the check must fail closed.
+    """
     path = forbidden_file(env)
-    if path is None:
+    if path is None or not path.exists():
         return None
     try:
-        terms = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return None
-    lows = [t.lower() for t in texts]
+        terms = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ForbiddenListError(str(path)) from exc
+    texts = list(texts)
+    items = [_fold(t) for t in texts] + [_fold("\n".join(texts))]
     for i, term in enumerate(terms, 1):
-        term = term.strip().lower()
-        if term and any(term in low for low in lows):
+        term = _fold(term)
+        if term and any(term in item for item in items):
             return i
     return None
+
+
+def inside(path: Path, folder: Path) -> bool:
+    """True when path is folder or lies inside it (symlinks resolved)."""
+    try:
+        Path(path).resolve().relative_to(Path(folder).resolve())
+        return True
+    except (OSError, ValueError):
+        return False
 
 
 def store_is_writable(store: Path) -> bool:

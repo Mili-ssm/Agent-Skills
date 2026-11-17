@@ -207,3 +207,116 @@ def test_init_refuses_a_foreign_folder_but_accepts_git_files(tmp_path, capsys):
     (ok / ".gitignore").write_text("x\n")
     (ok / "README.md").write_text("r\n")
     assert mem.main(["init", str(ok)]) == 0
+
+
+def _marker_less_store(tmp_path, monkeypatch):
+    store = tmp_path / "store"
+    (store / "knowledge").mkdir(parents=True)
+    monkeypatch.setenv("MEM_STORE", str(store))
+    return store
+
+
+@pytest.mark.parametrize("inner", [False, True])
+def test_project_inside_a_marker_less_store_is_refused(tmp_path, monkeypatch, capsys, inner):
+    store = _marker_less_store(tmp_path, monkeypatch)
+    root = store / "sub" if inner else store
+    root.mkdir(exist_ok=True)
+    git(root, "init", "-q")
+    monkeypatch.setenv("MEM_PROJECT", str(root))
+    assert remember() == 2
+    assert capsys.readouterr().err.strip() == ("mem: this project is the store, which is read-only: it has no "
+                                               "mem-store.yaml; a memory cannot be written here.")
+    assert not (root / ".memory").exists()
+    assert ".memory" not in (root / ".git" / "info" / "exclude").read_text() if (root / ".git" / "info" / "exclude").exists() else True
+
+
+def test_observe_in_a_marker_less_store_is_refused(tmp_path, monkeypatch, capsys):
+    store = _marker_less_store(tmp_path, monkeypatch)
+    git(store, "init", "-q")
+    monkeypatch.setenv("MEM_PROJECT", str(store))
+    (store / ".memory").mkdir()
+    (store / ".memory" / "x.md").write_text("---\nkind: lesson\nclaim: X thing.\n---\n")
+    assert mem.main(["observe", "m:x"]) == 2
+    assert "read-only" in capsys.readouterr().err
+    assert "observed" not in (store / ".memory" / "x.md").read_text()
+
+
+def test_named_memories_folder_inside_a_marker_less_store_is_refused(tmp_path, monkeypatch, capsys):
+    store = _marker_less_store(tmp_path, monkeypatch)
+    folder = store / "mine"
+    monkeypatch.setenv("MEM_MEMORIES", str(folder))
+    forbid(tmp_path)
+    assert remember("--global") == 2
+    assert capsys.readouterr().err.strip() == "mem: the memories folder is inside the store, which is read-only: it has no mem-store.yaml."
+    assert not folder.exists()
+    folder.mkdir()
+    (folder / "x.md").write_text("---\nkind: lesson\nclaim: X thing.\n---\n")
+    assert mem.main(["observe", "m:x"]) == 2
+    assert "observed" not in (folder / "x.md").read_text()
+
+
+def test_init_refuses_an_existing_store_without_marker(tmp_path, capsys):
+    for entry in ("literature", "knowledge", "research", "topics.yaml"):
+        folder = tmp_path / entry.replace(".", "_")
+        folder.mkdir()
+        (folder / entry).mkdir() if "." not in entry else (folder / entry).write_text("{}\n")
+        assert mem.main(["init", str(folder)]) == 2
+        assert capsys.readouterr().err.strip() == (f"mem: {folder} already holds a store without mem-store.yaml; it stays "
+                                                   "read-only (add the file by hand only if you own it and mean to write to it).")
+        assert not (folder / "mem-store.yaml").exists()
+
+
+def test_init_on_a_marked_store_changes_nothing(tmp_path):
+    assert mem.main(["init", str(tmp_path / "s")]) == 0
+    (tmp_path / "s" / "topics.yaml").unlink()
+    assert mem.main(["init", str(tmp_path / "s")]) == 0
+    assert not (tmp_path / "s" / "topics.yaml").exists()
+
+
+def test_global_write_fails_closed_on_an_unreadable_forbidden_list(gfolder, tmp_path, capsys):
+    f = tmp_path / "mem-config" / "agent-memory" / "forbidden-terms"
+    f.parent.mkdir(parents=True)
+    f.write_bytes(b"\xff\xfe\x80\n")
+    assert remember("--global") == 2
+    assert capsys.readouterr().err.strip() == f"mem: the forbidden-terms list cannot be read ({f}); nothing was written."
+    assert not gfolder.exists()
+
+
+def test_forbidden_term_split_between_claim_and_body(gfolder, tmp_path, capsys, monkeypatch):
+    forbid(tmp_path, "acme corp")
+    monkeypatch.setattr("sys.stdin", io.StringIO("corp\n"))
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
+    assert remember("--global", "--body-file", "-", claim="Seen at Acme") == 4
+
+
+def test_failed_exclusion_warns_but_writes(repo, capsys, monkeypatch):
+    def boom(project):
+        raise OSError("denied")
+    monkeypatch.setattr(records, "ensure_excluded", boom)
+    assert remember() == 0
+    cap = capsys.readouterr()
+    assert (repo / ".memory" / "retries-need-idempotency-keys.md").is_file()
+    assert "mem: could not add .memory/ to .git/info/exclude; the folder may appear in git status." in cap.err
+
+
+def test_distinct_non_latin_claims_are_not_duplicates(repo, capsys):
+    assert remember(claim="重试需要键") == 0
+    assert remember(claim="超时需要设置") == 0
+    assert remember(claim="重试需要键") == 3
+
+
+def test_claim_whitespace_is_collapsed_and_empty_is_rejected(repo, capsys):
+    assert remember("--context", "a\tb\nc", claim="Line one\n\ttwo  three") == 0
+    out = capsys.readouterr().out
+    assert out.count("\n") == 1 and out.startswith("m:line-one-two-three\t")
+    assert "claim: Line one two three" in (repo / ".memory" / "line-one-two-three.md").read_text()
+    assert "context: a b c" in (repo / ".memory" / "line-one-two-three.md").read_text()
+    assert remember(claim=" \n\t ") == 2
+
+
+def test_rejected_call_leaves_no_exclude_line(repo, capsys):
+    assert remember(claim=" ") == 2
+    assert remember(claim="A finding.", kind="finding") == 2
+    assert not (repo / ".memory").exists()
+    ex = repo / ".git" / "info" / "exclude"
+    assert not ex.exists() or ".memory" not in ex.read_text()

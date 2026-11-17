@@ -322,3 +322,44 @@ def test_match_dead_memories_only_with_include_dead():
             _mem("ok", "alpha thing")]
     assert [m.handle for m in _match(mems, "alpha")] == ["ok"]
     assert {m.handle for m in _match(mems, "alpha", include_dead=True)} == {"r", "e", "ok"}
+
+
+def _terms(tmp_path, data: bytes):
+    cfg = tmp_path / "agent-memory"
+    cfg.mkdir(exist_ok=True)
+    (cfg / "forbidden-terms").write_bytes(data)
+    return {"XDG_CONFIG_HOME": str(tmp_path)}
+
+
+def test_forbidden_line_fails_closed_on_an_unreadable_list(tmp_path):
+    env = _terms(tmp_path, b"\xff\xfe\x00bad\x80\n")
+    with pytest.raises(records.ForbiddenListError):
+        records.forbidden_line(["clean"], env)
+    assert issubclass(records.ForbiddenListError, ValueError)
+    assert records.forbidden_line(["x"], {"XDG_CONFIG_HOME": str(tmp_path / "none")}) is None  # missing: caller's case
+
+
+def test_forbidden_line_matches_split_accented_fullwidth_bom_and_slug(tmp_path):
+    env = _terms(tmp_path, "﻿acme corp\nnaïve\nzeta\n".encode("utf-8"))
+    assert records.forbidden_line(["we met acme", "corp today"], env) == 1          # split between texts
+    assert records.forbidden_line(["ACME CORP"], env) == 1                            # first line after a BOM
+    assert records.forbidden_line(["a NAIVE case"], env) == 2                         # accent on the list side
+    assert records.forbidden_line(["a naive case"], env) == 2
+    env2 = _terms(tmp_path, b"naive\n")
+    assert records.forbidden_line(["a naïve case"], env2) == 1                   # accent on the text side
+    assert records.forbidden_line(["ｚｅｔａ"], _terms(tmp_path, b"zeta\n")) == 1  # full-width
+    assert records.forbidden_line([records.slug_of("Zeta, retries")], _terms(tmp_path, b"zeta-retries\n")) == 1
+
+
+def test_ensure_excluded_raises_when_the_line_cannot_be_written(repo):
+    info = repo / ".git" / "info"
+    if info.exists():
+        import shutil
+        shutil.rmtree(info)
+    assert records.ensure_excluded(repo) is True            # creates .git/info when missing
+    (repo / ".memory").rmdir() if (repo / ".memory").exists() else None
+    ex = info / "exclude"
+    ex.unlink()
+    ex.mkdir()                                              # a folder where the file should be
+    with pytest.raises(OSError):
+        records.ensure_excluded(repo)

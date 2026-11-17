@@ -2389,14 +2389,41 @@ def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None
     return None
 
 
+_READ_ONLY_PROJECT = ("mem: this project is the store, which is read-only: it has no mem-store.yaml; "
+                      "a memory cannot be written here.")
+_READ_ONLY_MEMORIES = "mem: the memories folder is inside the store, which is read-only: it has no mem-store.yaml."
+
+
+def _read_only_store(store: Path | None, path: Path) -> bool:
+    return store is not None and not records.store_is_writable(store) and records.inside(path, store)
+
+
+def _same_claim(a: str, b: str) -> bool:
+    """Exact duplicate by word sequence in any script; claims with no word characters compare as stripped text."""
+    wa, wb = re.findall(r"\w+", a.casefold()), re.findall(r"\w+", b.casefold())
+    return wa == wb if wa or wb else a.strip() == b.strip()
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
+    args.claim = " ".join(args.claim.split())
+    if args.context is not None:
+        args.context = " ".join(args.context.split()) or None
+    if not args.claim:
+        print("mem: the claim is empty.", file=sys.stderr)
+        return 2
+    if args.kind not in records.KINDS:
+        print(f"mem: unknown kind {args.kind!r}.", file=sys.stderr)
+        return 2
     if args.is_global:
         folder = records.memories_root(os.environ, store)
         if folder is None:
             print('mem: no folder for global memories: set the plugin\'s "memories" option, '
                   'or MEM_MEMORIES, or use a store made with "mem init".', file=sys.stderr)
+            return 2
+        if _read_only_store(store, folder):
+            print(_READ_ONLY_MEMORIES, file=sys.stderr)
             return 2
         forbidden = records.forbidden_file(os.environ)
         if forbidden is None or not forbidden.is_file():
@@ -2410,6 +2437,9 @@ def cmd_remember(args: argparse.Namespace) -> int:
             print("mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
                   file=sys.stderr)
             return 2
+        if _read_only_store(store, project):
+            print(_READ_ONLY_PROJECT, file=sys.stderr)
+            return 2
         folder = records.project_dir(project)
     scope = "global" if args.is_global else "project"
     if args.kind == "finding" and not args.source:
@@ -2421,7 +2451,12 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print(f"mem: cannot read the body: {exc}", file=sys.stderr)
         return 2
     if args.is_global:
-        hit = records.forbidden_line([args.claim, args.context or "", body, *args.source], os.environ)
+        try:
+            hit = records.forbidden_line([args.claim, args.context or "", body, *args.source,
+                                          records.slug_of(args.claim)], os.environ)
+        except records.ForbiddenListError as exc:
+            print(f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.", file=sys.stderr)
+            return 2
         if hit is not None:
             print(f"mem: the text contains a forbidden term (line {hit} of the forbidden-terms list); "
                   "nothing was written.", file=sys.stderr)
@@ -2430,7 +2465,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
     existing = records.load_memories(folder, scope)
     live = [m for m in existing if records.is_live(m, today)]
     if not args.force:
-        same = [m for m in live if claim_tokens and tokenize(m.claim) == claim_tokens]
+        same = [m for m in live if _same_claim(m.claim, args.claim)]
         if same:
             for m in same:
                 print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
@@ -2438,8 +2473,12 @@ def cmd_remember(args: argparse.Namespace) -> int:
                   "or repeat with --force to write a new one.", file=sys.stderr)
             return 3
     related = records.match_memories(live, claim_tokens, today, tokenize=tokenize)
+    exclude_failed = False
     if project is not None:
-        records.ensure_excluded(project)
+        try:
+            records.ensure_excluded(project)
+        except OSError:
+            exclude_failed = True
     try:
         m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
                                  context=args.context, valid_until=args.valid_until, sources=args.source)
@@ -2448,6 +2487,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
         return 2
     rel = m.path.relative_to(project if project is not None else folder).as_posix()
     print(f"m:{m.handle}\t{rel}")
+    if exclude_failed:
+        print("mem: could not add .memory/ to .git/info/exclude; the folder may appear in git status.", file=sys.stderr)
     if related:
         print('related memories (if one is the same, run "mem observe m:<handle>"; if one says the opposite, keep both):',
               file=sys.stderr)
@@ -2467,6 +2508,9 @@ def cmd_observe(args: argparse.Namespace) -> int:
     if found.error is not None:
         print(f"mem: {found.path}: {found.error}", file=sys.stderr)
         return 2
+    if _read_only_store(_optional_store(args), found.path):
+        print(_READ_ONLY_PROJECT if found.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+        return 2
     try:
         updated = records.observe(found, datetime.date.today())
     except OSError as exc:
@@ -2484,6 +2528,13 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 2
     if folder.is_dir() and any(p.name not in _INIT_ALLOWED for p in folder.iterdir()):
         print(f"mem: {folder} is not empty and is not a store", file=sys.stderr)
+        return 2
+    if (folder / records.STORE_MARKER).is_file():
+        print(folder)
+        return 0
+    if any((folder / n).exists() for n in ("literature", "knowledge", "research", "topics.yaml")):
+        print(f"mem: {folder} already holds a store without mem-store.yaml; it stays read-only "
+              "(add the file by hand only if you own it and mean to write to it).", file=sys.stderr)
         return 2
     try:
         folder.mkdir(parents=True, exist_ok=True)
