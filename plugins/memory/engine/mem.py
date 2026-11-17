@@ -2538,7 +2538,7 @@ def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Re
     """The block appended to a subagent's brief: handles and counts only, at most _SIGNAL_LIMIT characters."""
     if not strong:
         return ""
-    shown = [f"{r.kind}:{r.handle}" for r in [*strong, *possible][:_SIGNAL_HANDLES]]
+    shown = [f"{r.kind}:{r.handle}" for r in strong[:_SIGNAL_HANDLES]]  # only strong matches are named
 
     def render(items: list[str]) -> str:
         return "\n".join([

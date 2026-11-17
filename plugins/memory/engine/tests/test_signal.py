@@ -64,7 +64,7 @@ LINE3 = ("They are experience, not fact: where one conflicts with this brief, th
 def test_signal_text_exact():
     text = mem.signal_text([Related("a", "m", 1.0), Related("b", "m", 1.0)], [Related("c", "m", 0.5)])
     assert text.split("\n") == [
-        LINE1 + "m:a m:b m:c",
+        LINE1 + "m:a m:b",  # a possible match is counted, never named
         "2 strong, 1 possibly related. Read one with: mem show m:<handle> (they are files in .memory/).",
         LINE3]
 

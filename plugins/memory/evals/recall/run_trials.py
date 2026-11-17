@@ -21,6 +21,7 @@ import tempfile
 from pathlib import Path
 
 DEFAULT_PLUGIN = Path(__file__).resolve().parents[2]
+DELEGATE = False
 
 # name, files of the scratch project, memories (scope, kind, claim), prompt (Spanish), words the answer must hold
 CASES = [
@@ -47,6 +48,7 @@ def session(claude: str, model: str, plugin: Path, settings: Path, cwd: Path, en
     run = subprocess.run(
         [claude, "-p", prompt, "--model", model, "--plugin-dir", str(plugin), "--settings", str(settings),
          "--setting-sources", "project", "--allowedTools", "Bash(mem *)", "Skill", "Read", "Edit", "Write",
+         *(["Agent"] if DELEGATE else []),
          "--output-format", "stream-json", "--verbose", "--no-session-persistence"],
         cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=300)
     mem_calls, answer = [], ""
@@ -73,7 +75,11 @@ def main() -> int:
     parser.add_argument("--model", default="sonnet")
     parser.add_argument("--runs", type=int, default=2)
     parser.add_argument("--case", action="append", default=[])
+    parser.add_argument("--delegate", action="store_true",
+                        help="tell the agent to hand the work to a subagent; a run then passes on the facts alone")
     args = parser.parse_args()
+    global DELEGATE
+    DELEGATE = args.delegate
     plugin = args.plugin.resolve()
     mem = str(plugin / "bin" / "mem")
     cases = [c for c in CASES if not args.case or c[0] in args.case]
@@ -100,9 +106,12 @@ def main() -> int:
                                check=True, capture_output=True)
             settings = base / "settings.json"
             settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
+            if DELEGATE:
+                prompt = ("Delega este trabajo en un subagente general-purpose, sin hacerlo tú ni consultar nada antes, "
+                          "y dame su resultado: " + prompt)
             calls, answer = session(args.claude, args.model, plugin, settings, project, env, prompt)
             has_facts = facts is not None and all(f.lower() in answer.lower() for f in facts)
-            ok = (not calls) if facts is None else (bool(calls) and has_facts)
+            ok = (not calls) if facts is None else (has_facts if DELEGATE else bool(calls) and has_facts)
             passed += ok
             total += 1
             print(f"{name:20} {run:<3} {len(calls):<9} {('-' if facts is None else str(has_facts)):5} "
