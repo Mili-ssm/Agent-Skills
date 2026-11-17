@@ -113,4 +113,36 @@ Run by the main conversation.
 | 0.6 | 5 of 5 · 5 of 10 | 5 of 5 · 5 of 10 |
 | 0.75 (the provisional value) | 1 of 1 · 1 of 10 | 5 of 5 · 5 of 10 |
 
-Chosen: `STRONG = 0.5` (the strictest value that keeps full coverage on the tuning half; it meets the rule on the test half). `POSSIBLE = 0.35` only feeds a count and was not tuned. Limit: the briefs were written by the same agent that wrote the matcher, and they are shorter than real ones; the delegated trials of Task 4 are the check against that.
+That choice (0.5) did not survive real data and is withdrawn. The pre-mortem simulated the matcher on the owner's own transcripts, and a second measurement confirmed it (2,254 distinct subagent briefs, median about 320 words; the briefs stay on the owner's machine, only figures are recorded here).
+
+| What is matched | Rule | Briefs that would get a signal |
+|---|---|---|
+| Note names (about 1,100) | share of name words in the brief, 0.5 | 82% |
+| Note names | the same, 0.75 | 35% |
+| Knowledge note names only, words weighted by rarity, 0.85, two rare words | | 9% |
+| The 15 synthetic memory claims (no real brief relates to them, so every signal is false) | share of claim words, 0.5 | 4.7% |
+| The same | 0.6, numbers ignored | 0.3% (7 briefs) |
+| The same | 0.75 | 0.0% |
+
+On the labelled set, memories only, 0.6 with numbers ignored: every signalled brief names only related memories (8 of 8) and 8 of 15 briefs with a related memory get a signal.
+
+## Amendments after the pre-mortem and the real-data measurement (2026-11-17)
+
+These override the tasks above.
+
+- **Memories only.** Notes are not signalled in this version: a note's name shares too many common words with a real brief. Signalling notes needs a meaning-based match and is left for a later stage. `related_records` keeps its `note_stems` parameter; `mem signal` passes an empty list.
+- `STRONG = 0.6`, `POSSIBLE = 0.5`; a term that is only digits is not a term. The rule of Task 2 is met as: false signals on real briefs at most 1 in 100 (measured 0.3%), and at least half of the labelled briefs with a related memory signalled (8 of 15).
+- The signal text becomes exactly:
+
+  ```
+  [memory] For information: memories related to this task exist (not read yet): m:<h> m:<h>
+  S strong, P possibly related. Read one with: mem show m:<handle> (they are files in .memory/).
+  They are experience, not fact: where one conflicts with this brief, the brief wins and you report the conflict.
+  ```
+
+  with at most three handles; all three lines always.
+- `plugins/memory/hooks/subagent-start.sh`: the words `and your brief has no memory section` are removed, so a signal in the brief does not stop a subagent from searching.
+- The hook log line of `signal` gains `subagent_type` and `words` (the brief's word count); it still holds no text and no handle.
+- A record counts as already named when its handle occurs in the brief as a whole token, with or without the `m:` prefix. The skill tells the main agent to quote `m:<handle>` when a brief uses a memory.
+- Kill criteria, read from the hook log after a week of use: the signal fires on more than 5% of briefs, or a subagent follows a memory against its brief: switch the hook off and re-plan.
+- Not built: combining with another plugin's hook that also rewrites the brief (none is installed); a different block for subagents that cannot run shell commands (they can read `.memory/` files).
