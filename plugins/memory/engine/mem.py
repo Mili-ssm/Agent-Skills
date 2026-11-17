@@ -32,7 +32,8 @@ import yaml
 import records
 
 _WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
-_NO_STORE_NEEDED = ("remember", "observe", "session-index", "signal")
+_NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
+                    "memories", "curate", "session-index", "signal")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -2695,25 +2696,236 @@ def cmd_remember(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_observe(args: argparse.Namespace) -> int:
-    handle = args.handle.removeprefix("m:")
-    found = _find_memory(args, handle) if args.handle.startswith("m:") else None
-    if found is None:
-        print(f"mem: no memory named {args.handle}", file=sys.stderr)
-        return 2
-    if found.error is not None:
-        print(f"mem: {found.path}: {found.error}", file=sys.stderr)
-        return 2
-    if _read_only_store(_optional_store(args), found.path.resolve()):
-        print(_READ_ONLY_PROJECT if found.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
-        return 2
+def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records.Memory] | None:
+    """The named memories, all in one scope: the project's unless --global; None after a message on stderr.
+
+    A handle found in both scopes means the project one, as for any lookup; with several handles the scope is
+    one that holds all of them, and handles that exist only in different scopes are refused."""
+    project = records.project_root(Path.cwd(), os.environ)
+    folders = {"project": records.project_dir(project) if project else None,
+               "global": records.memories_root(os.environ, _optional_store(args))}
+    loaded = {scope: {m.handle: m for m in records.load_memories(folder, scope)} for scope, folder in folders.items()}
+    order = ("global",) if args.is_global else ("project", "global")
+    names = [h.removeprefix("m:") for h in handles]
+    for name, raw in zip(names, handles):
+        if not any(name in loaded[scope] for scope in order):
+            print(f"mem: no memory named {raw}", file=sys.stderr)
+            return None
+    for scope in order:
+        if all(name in loaded[scope] for name in names):
+            found = [loaded[scope][name] for name in names]
+            break
+    else:
+        print(f"mem: {' and '.join('m:' + n for n in names)} are in different scopes: both must be in the same one.",
+              file=sys.stderr)
+        return None
+    store = _optional_store(args)
+    for m in found:
+        if m.error is not None:
+            print(f"mem: {m.path}: {m.error}", file=sys.stderr)
+            return None
+        if _read_only_store(store, m.path.resolve()):
+            print(_READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+            return None
+    return found
+
+
+def _with_note(body: str, heading: str, text: str) -> str:
+    """The body with a heading line and the text under it added at the end."""
+    head = body.rstrip("\n")
+    return f"{head}\n\n{heading}\n{text.strip()}\n" if head.strip() else f"{heading}\n{text.strip()}\n"
+
+
+def _reason_allowed(memory: records.Memory, because: str | None) -> bool:
+    """A reason written into a global memory goes through the forbidden-terms list, failing closed."""
+    if not because or memory.scope != "global":
+        return True
     try:
-        updated = records.observe(found, datetime.date.today())
-    except OSError as exc:
+        hit = records.forbidden_line([because], os.environ)
+    except records.ForbiddenListError as exc:
+        print(f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.", file=sys.stderr)
+        return False
+    if hit is not None:
+        print(f"mem: the text contains a forbidden term (line {hit} of the forbidden-terms list); "
+              "nothing was written.", file=sys.stderr)
+        return False
+    return True
+
+
+def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list[records.Memory], datetime.date], list[str]],
+         name: str, because: str | None = None) -> int:
+    found = _memory_of(args, handles)
+    if found is None:
+        return 2
+    if not _reason_allowed(found[0], because):
+        return 4
+    try:
+        lines = apply(found, datetime.date.today())
+    except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"m:{updated.handle}\tobserved {updated.observed}")
-    log_usage(_optional_store(args), {"cmd": "observe", "scope": found.scope})
+    print("\n".join(lines))
+    log_usage(_optional_store(args), {"cmd": name, "scope": found[0].scope})
+    return 0
+
+
+def cmd_confirm(args: argparse.Namespace) -> int:
+    def apply(found, today):
+        updated = records.observe(found[0], today)
+        return [f"m:{updated.handle}\tobserved {updated.observed}"]
+    return _act(args, [args.handle], apply, args.command)
+
+
+def _text_change(found: list[records.Memory], key: str, heading: str, because: str | None, today: datetime.date,
+                 **extra) -> records.Memory:
+    m = found[0]
+    changes = {"status": key, key: today, **extra}
+    if because and because.strip():
+        changes["body"] = _with_note(m.body, f"{heading} {today.isoformat()}:", because)
+    return records.update(m, today, **changes)
+
+
+def cmd_refute(args: argparse.Namespace) -> int:
+    def apply(found, today):
+        _text_change(found, "refuted", "Refuted", args.because, today)
+        return [f"m:{found[0].handle}\trefuted"]
+    return _act(args, [args.handle], apply, "refute", args.because)
+
+
+def cmd_forget(args: argparse.Namespace) -> int:
+    def apply(found, today):
+        _text_change(found, "forgotten", "Forgotten", args.because, today)
+        return [f"m:{found[0].handle}\tforgotten"]
+    return _act(args, [args.handle], apply, "forget", args.because)
+
+
+def _two(args: argparse.Namespace, first: str, second: str, name: str, apply) -> int:
+    if first.removeprefix("m:") == second.removeprefix("m:"):
+        print(f"mem: {name} needs two different memories.", file=sys.stderr)
+        return 2
+    return _act(args, [first, second], apply, name)
+
+
+def cmd_supersede(args: argparse.Namespace) -> int:
+    def apply(found, today):
+        old, new = found
+        records.update(old, today, status="superseded", superseded_by=new.handle)
+        return [f"m:{old.handle}\tsuperseded by m:{new.handle}"]
+    return _two(args, args.old, args.new, "supersede", apply)
+
+
+def cmd_merge(args: argparse.Namespace) -> int:
+    def apply(found, today):
+        keep, drop = found
+        records.update(drop, today, status="superseded", superseded_by=keep.handle)
+        changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
+        if drop.body.strip():
+            changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
+        updated = records.update(keep, today, **changes)
+        return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
+    return _two(args, args.keep, args.drop, "merge", apply)
+
+
+def cmd_promote(args: argparse.Namespace) -> int:
+    args.is_global = False
+    found = []
+    for handle in args.handles:
+        got = _memory_of(args, [handle])
+        if got is None:
+            return 2
+        found.append(got[0])
+    print('Draft for: mem remember --global --kind lesson --claim "\u2026"')
+    for m in found:
+        print(f"m:{m.handle}\t{' '.join(m.claim.split())}")
+        if m.context:
+            print(f"  context: {' '.join(m.context.split())}")
+    print("Rewrite the claim in general terms, with no name of a project, system, client or person, "
+          "before you run it.")
+    return 0
+
+
+def _curation_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
+    folders = _memory_folders(args)
+    if args.all:
+        return folders
+    return [f for f in folders if (f[0] == "global") == args.is_global]
+
+
+def _loaded(args: argparse.Namespace) -> list[tuple[str, Path | None, list[records.Memory]]]:
+    out = []
+    for scope, folder in _curation_folders(args):
+        loaded = records.load_memories(folder, scope)
+        for m in loaded:
+            if m.error is not None:
+                print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
+        out.append((scope, folder, loaded))
+    return out
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())  # a hand-edited tab or newline must not add a column
+
+
+def cmd_memories(args: argparse.Namespace) -> int:
+    today = datetime.date.today()
+    shown = [m for _, _, loaded in _loaded(args) for m in loaded
+             if m.error is None and (args.kind is None or m.kind == args.kind)
+             and (args.dead or records.is_live(m, today))]
+    shown.sort(key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle))
+    for m in shown:
+        dead = _memory_status(m, today)
+        created = m.created.isoformat() if m.created else "undated"
+        print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
+    return 0
+
+
+_STALE_DAYS = 90
+_FREQUENT = 3
+CURATED = ".curated"
+
+
+def cmd_curate(args: argparse.Namespace) -> int:
+    today = datetime.date.today()
+    scopes = _loaded(args)
+    if args.done:
+        store = _optional_store(args)
+        for scope, folder, _ in scopes:
+            if folder is None or not folder.is_dir():
+                continue
+            if _read_only_store(store, folder.resolve()):
+                print(_READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+                return 2
+            try:
+                (folder / CURATED).write_text(today.isoformat() + "\n", encoding="utf-8")
+            except OSError as exc:
+                print(f"mem: {exc}", file=sys.stderr)
+                return 2
+        return 0
+    every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
+    live = [m for m in every if records.is_live(m, today)]
+    cutoff = today - datetime.timedelta(days=_STALE_DAYS)
+    out: list[str] = []
+    same = [pair for _, _, loaded in scopes for pair in records.pairs(loaded, today, tokenize=tokenize)]
+    same.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    if same:
+        out.append("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
+        for a, b, _ in same:
+            out += [f"  m:{a.handle}  {_flat(a.claim)}", f"  m:{b.handle}  {_flat(b.claim)}"]
+    expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today]
+    if expired:
+        out.append("expired (decide: mem forget <h>, or mem remember again with a new date)")
+        out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
+    frequent = [m for m in live if m.observed >= _FREQUENT]
+    if frequent:
+        out.append(f"seen {_FREQUENT} times or more: general enough for a note? (mem promote <h>)")
+        out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
+    stale = [m for m in live if m.kind != "state" and m.created is not None and m.created <= cutoff
+             and m.observed == 1 and m.last_observed is None]
+    if stale:
+        out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
+        out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
+    if out:
+        print("\n".join(out))
     return 0
 
 
@@ -3186,9 +3398,37 @@ def build_parser() -> argparse.ArgumentParser:
     signal_cmd.add_argument("--hook", action="store_true",
                             help="read a PreToolUse hook's JSON from standard input and print the brief with the signal appended")
     signal_cmd.set_defaults(func=cmd_signal)
-    observe_parser = sub.add_parser("observe", help="count one more observation of a memory")
-    observe_parser.add_argument("handle", metavar="m:HANDLE")
-    observe_parser.set_defaults(func=cmd_observe)
+    def memory_command(name: str, help_text: str, *handles: str, because: bool = False):
+        cmd = sub.add_parser(name, help=help_text)
+        for h in handles:
+            cmd.add_argument(h, metavar="m:HANDLE")
+        if because:
+            cmd.add_argument("--because", metavar="TEXT", help="the reason, appended to the memory's body")
+        cmd.add_argument("--global", dest="is_global", action="store_true",
+                         help="act on the global memory when the handle exists in both scopes")
+        return cmd
+
+    for name, text in (("confirm", "count one more observation of a memory"),
+                       ("observe", "alias of confirm")):
+        memory_command(name, text, "handle").set_defaults(func=cmd_confirm)
+    memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
+    memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
+    memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
+    memory_command("merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop").set_defaults(func=cmd_merge)
+    promote_parser = sub.add_parser("promote", help="print a draft of a global memory from project memories")
+    promote_parser.add_argument("handles", nargs="+", metavar="m:HANDLE")
+    promote_parser.set_defaults(func=cmd_promote)
+    memories_parser = sub.add_parser("memories", help="list memories, newest first")
+    curate_parser = sub.add_parser("curate", help="list what needs a decision: pairs, expired, frequent, unconfirmed")
+    for lister in (memories_parser, curate_parser):
+        scope_group = lister.add_mutually_exclusive_group()
+        scope_group.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
+        scope_group.add_argument("--all", action="store_true", help="project and global memories")
+    memories_parser.add_argument("--kind", choices=records.KINDS)
+    memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
+    memories_parser.set_defaults(func=cmd_memories)
+    curate_parser.add_argument("--done", action="store_true", help="record today's date as the last pass")
+    curate_parser.set_defaults(func=cmd_curate)
     init_parser = sub.add_parser("init", help="make a folder a writable store")
     init_parser.add_argument("folder", metavar="FOLDER")
     init_parser.set_defaults(func=cmd_init)

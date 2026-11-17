@@ -16,7 +16,7 @@ from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Sequence
 import yaml
 
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
-STATUSES = ("active", "refuted", "superseded")
+STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
 STORE_MARKER = "mem-store.yaml"
@@ -37,6 +37,7 @@ class Memory:
     sources: list[str]
     body: str
     error: str | None
+    last_observed: datetime.date | None = None
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -164,7 +165,11 @@ def _parse(path: Path, scope: str) -> Memory:
         sources = meta.get("sources") or []
         if not isinstance(sources, list) or not all(isinstance(s, str) for s in sources):
             raise ValueError("sources must be a list of strings")
-        return replace(base, kind=kind, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        try:
+            last_observed = _date(meta.get("last_observed"), "last_observed")
+        except ValueError:  # only curation reads it: a bad value must not hide the memory
+            last_observed = None
+        return replace(base, kind=kind, last_observed=last_observed, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -246,23 +251,45 @@ def similarity(a: Iterable[str], b: Iterable[str]) -> float:
     return len(sa & sb) / len(sa | sb)
 
 
-def observe(memory: Memory, today: datetime.date) -> Memory:
-    updated = replace(memory, observed=memory.observed + 1)
-    try:
-        meta, body = _split(memory.path.read_text(encoding="utf-8"))
-    except (OSError, ValueError, yaml.YAMLError):
-        meta, body = None, None
-    if meta is None:
-        text = _render(updated, {"last_observed": today.isoformat()})
-    else:  # edit the file's own frontmatter so keys this module does not know survive
-        meta["observed"] = updated.observed
-        meta["last_observed"] = today.isoformat()
-        head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
-        text = f"---\n{head}---\n{body}"
+def update(memory: Memory, today: datetime.date, **changes) -> Memory:
+    """Rewrite the memory's file with the given frontmatter keys changed or added; a value of None removes the key.
+
+    The reserved name `body` replaces the body instead. Keys this module does not know and the rest of the body
+    survive; the file is replaced through a temporary one. `today` is the date of the action: callers put it into
+    the keys they change, as dates are written as ISO strings. Returns the memory read back from the file."""
+    meta, body = _split(memory.path.read_text(encoding="utf-8"))
+    body = changes.pop("body", body)
+    for key, value in changes.items():
+        if value is None:
+            meta.pop(key, None)
+        else:
+            meta[key] = value.isoformat() if isinstance(value, datetime.date) else value
+    head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     tmp = memory.path.with_name(f".{memory.path.name}.tmp")
-    tmp.write_text(text, encoding="utf-8")
+    tmp.write_text(f"---\n{head}---\n{body}", encoding="utf-8")
     os.replace(tmp, memory.path)
-    return updated
+    return _parse(memory.path, memory.scope)
+
+
+def observe(memory: Memory, today: datetime.date) -> Memory:
+    return update(memory, today, observed=memory.observed + 1, last_observed=today)
+
+
+def pairs(memories: Sequence[Memory], today: datetime.date, *,
+          tokenize: Callable[[str], list[str]]) -> list[tuple[Memory, Memory, float]]:
+    """Pairs of live memories whose claims contain each other with at least STRONG, in either direction.
+
+    A claim and its negation score as high as a near-copy: a pair means "same or opposite", never "duplicate"."""
+    live = sorted((m for m in memories if is_live(m, today)), key=lambda m: m.handle)
+    tokens = [tokenize(m.claim) for m in live]
+    found = []
+    for i, a in enumerate(live):
+        for j in range(i + 1, len(live)):
+            score = max(containment(tokens[i], set(tokens[j])), containment(tokens[j], set(tokens[i])))
+            if score >= STRONG:
+                found.append((a, live[j], score))
+    found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    return found
 
 
 def ensure_excluded(project: Path) -> bool:
