@@ -18,7 +18,7 @@ Read this section first; the stage list below is the history and the detail.
 
 Next, in the owner's order:
 
-1. **Stage 10**, the project syntheses experiment, which the owner asked for before the kill read: start at Task 1 of [its plan](2026-11-17-memory-plugin-project-syntheses.md). It adds decision D25 to the design.
+1. **Stage 10**, the project syntheses experiment, which the owner asked for before the kill read: Tasks 1 to 3 are built on its branch (not merged); the pilot of Task 4 stopped the experiment on 2026-11-17 ([its results](2026-11-17-memory-plugin-project-syntheses.md#results)). What to do with the code is the owner's decision.
 2. **Real use**: the owner works with the plugin installed; what the sessions do with it feeds the kill read.
 3. **Stage 4**, the kill read, around 2026-12-01 (two weeks after the install), from the usage and hook logs.
 4. **Stage 7**, the rest: a repository of its own as the remote of the default store.
