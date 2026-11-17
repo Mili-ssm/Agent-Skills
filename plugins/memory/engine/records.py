@@ -358,8 +358,8 @@ def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], toda
     return [m for m, _, _ in scored[:limit]]
 
 
-STRONG = 0.75  # provisional: the share of a claim's terms found in a brief that counts as strongly related
-POSSIBLE = 0.5
+STRONG = 0.5  # chosen on evals/signal/set.json by the rule in the stage 6 plan
+POSSIBLE = 0.35  # counted only, never named
 MIN_TERMS = 2
 
 

@@ -102,4 +102,15 @@ Run by the main conversation.
 
 ## Results
 
-Filled as tasks complete.
+### Thresholds (Task 2, 2026-11-17)
+
+`plugins/memory/evals/signal/set.json`: 30 synthetic briefs (20 with a related record, 10 with none, several of those sharing generic words with the claims), 15 memories, 15 note stems; a fixed paragraph of brief boilerplate is added to each. `score.py` splits by alternating briefs.
+
+| Strong threshold | Tuning half: signalled briefs naming only related records · briefs with a related record that got a signal | Test half |
+|---|---|---|
+| 0.4 | 10 of 11 · 10 of 10 | 10 of 10 · 10 of 10 |
+| **0.5** | **10 of 10 · 10 of 10** | **9 of 9 · 9 of 10** |
+| 0.6 | 5 of 5 · 5 of 10 | 5 of 5 · 5 of 10 |
+| 0.75 (the provisional value) | 1 of 1 · 1 of 10 | 5 of 5 · 5 of 10 |
+
+Chosen: `STRONG = 0.5` (the strictest value that keeps full coverage on the tuning half; it meets the rule on the test half). `POSSIBLE = 0.35` only feeds a count and was not tuned. Limit: the briefs were written by the same agent that wrote the matcher, and they are shorter than real ones; the delegated trials of Task 4 are the check against that.

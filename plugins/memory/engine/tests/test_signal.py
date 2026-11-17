@@ -31,16 +31,16 @@ def test_containment():
 
 def test_related_bands_order_and_exclusions():
     mems = [memory("b-strong", "alpha beta gamma delta"), memory("a-strong", "alpha beta gamma delta"),
-            memory("half", "alpha beta zeta eta"), memory("none", "zeta eta theta iota"),
+            memory("half", "alpha beta zeta eta theta"), memory("none", "zeta eta theta iota"),
             memory("gone", "alpha beta gamma delta", status="refuted"),
             memory("quoted", "alpha beta gamma delta")]
-    strong, possible = related(mems, ["alpha-beta-gamma-delta", "alpha-beta-zeta-eta"],
+    strong, possible = related(mems, ["alpha-beta-gamma-delta", "alpha-beta-zeta-eta-theta"],
                                "alpha beta gamma delta m:quoted")
     handles = [r.handle for r in strong]
     assert "quoted" not in handles and "gone" not in handles
     assert "alpha-beta-gamma-delta" in handles  # a note matched by its stem
     assert handles.index("a-strong") < handles.index("b-strong")
-    assert {r.handle for r in possible} == {"half", "alpha-beta-zeta-eta"}
+    assert {r.handle for r in possible} == {"half", "alpha-beta-zeta-eta-theta"}
     assert all(r.score >= records.POSSIBLE for r in possible) and all(r.score < records.STRONG for r in possible)
 
 
@@ -145,3 +145,8 @@ def test_notes_matched_by_stem_from_the_store(hub_root, proj, tmp_path, monkeypa
     monkeypatch.setattr("sys.stdin", io.StringIO("choose bm25 as a strong baseline"))
     assert mem.main(["signal"]) == 0
     assert "n:bm25-is-a-strong-baseline" in capsys.readouterr().out
+
+
+def test_thresholds_are_the_ones_chosen_on_the_labelled_set():
+    # Stage 6 plan, Task 2: chosen on evals/signal/set.json by a rule written beforehand.
+    assert (records.STRONG, records.POSSIBLE, records.MIN_TERMS) == (0.5, 0.35, 2)
