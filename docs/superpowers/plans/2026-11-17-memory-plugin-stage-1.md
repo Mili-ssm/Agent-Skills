@@ -28,7 +28,7 @@
 1. A store path that contains spaces: the launcher, the hook and the config file must keep it whole.
 2. A store path that is set but does not exist: `mem` exits 2 with a message naming the path, not a traceback.
 3. `uv` not installed: the launcher exits 127 with one line, not a shell error.
-4. The hook run with no `store` option set: exits 0, prints nothing, writes nothing. With the option set and no `CLAUDE_ENV_FILE`: writes the config file only.
+4. The hook run with no `store` option set: exits 0, prints nothing, writes nothing, and removes a config file left by an earlier option. With the option set and no `CLAUDE_ENV_FILE`: writes the config file only.
 5. The current folder cannot be read when the usage log computes `outside`: the command still succeeds.
 
 ---
