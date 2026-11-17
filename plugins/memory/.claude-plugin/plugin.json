@@ -13,6 +13,21 @@
       "type": "directory",
       "title": "Global memories",
       "description": "Folder for memories that do not belong to one project. Leave empty to keep them in the store."
+    },
+    "auto_curation": {
+      "type": "boolean",
+      "title": "Automatic curation",
+      "description": "When the session ends and enough memories and notes were written since the last run, start one bounded background curation (the curator in apply mode, then syntheses for topics without one). Spends model usage; off by default."
+    },
+    "auto_curation_budget": {
+      "type": "number",
+      "title": "Automatic curation budget (USD)",
+      "description": "Most one automatic run may spend. Default 2."
+    },
+    "auto_curation_threshold": {
+      "type": "number",
+      "title": "Automatic curation threshold",
+      "description": "New global memories plus new notes since the last run that start a run. Default 10."
     }
   }
 }
