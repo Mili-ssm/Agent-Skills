@@ -270,6 +270,17 @@ def section_handle(heading: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
 
 
+def resolve_parts(parts: list[str], text: str) -> list[str]:
+    """Reported parts as handles: a checker may name a part by the line range `mem show s:<slug>` prints
+    (`12-30`), which is the part whose heading sits on the range's first line."""
+    by_line = {n: section_handle(line[3:]) for n, line in enumerate(text.splitlines(), 1) if line.startswith("## ")}
+    out = []
+    for part in parts:
+        m = re.fullmatch(r"(\d+)-\d+", part)
+        out.append(by_line.get(int(m.group(1)), part) if m else part)
+    return list(dict.fromkeys(out))
+
+
 def split_parts(text: str) -> dict[str, str]:
     """Part handle -> exact part text (heading line included); the front matter and anything before the first part
     are left out."""
@@ -377,7 +388,7 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
         """One fixer step; the parts it changed outside the report's PARTS are recorded."""
         before = synthesis.read_text()
         s = step(role, model, text, level)
-        scope_violations.extend(changed_outside(before, synthesis.read_text(), report["parts"]))
+        scope_violations.extend(changed_outside(before, synthesis.read_text(), resolve_parts(report["parts"], before)))
         return s
 
     synthesis = store / "syntheses" / f"{topic}.md"
