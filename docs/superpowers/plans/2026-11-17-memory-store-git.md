@@ -45,9 +45,9 @@
 Commit 4efb128 built a per-command hook in `main()`; the owner then chose commits only at the end of a curation pass and at session end. Rework: remove the hook and the `_dispatch`/`_record_history` split from `main()` (restore `main()` to its earlier shape), keep `store_git.py` (`is_repo`, `commit_if_changed`, `init`, lock, stale lock, `.gitignore`, 5 MB limit, local identity, `-c commit.gpgsign=false -c core.hooksPath=`), and keep the 200-commit spike numbers in Results (1.7× the tracked tree).
 
 - [x] **Step 0: Spike** — done in 4efb128: 200 commits on a synthetic store gave `.git` 7.5 MB for a 4.4 MB tracked tree (1.7×), under the 3× criterion; no `gc.auto` change.
-- [ ] **Step 1: Tests** — no command runs git except the three commit points (monkeypatch `subprocess.run` in a write command, `session-index` and `signal`); the `store_git` unit tests stay.
-- [ ] **Step 2: Implement the rework; whole suite and `scripts/validate.py` pass.**
-- [ ] **Step 3: Commit** `refactor(memory): store git commits only at curation and session end`.
+- [x] **Step 1: Tests** — no command runs git except the three commit points (monkeypatch `subprocess.run` in a write command, `session-index` and `signal`); the `store_git` unit tests stay.
+- [x] **Step 2: Implement the rework; whole suite and `scripts/validate.py` pass.**
+- [x] **Step 3: Commit** `refactor(memory): store git commits only at curation and session end`.
 
 ### Task 2: The commit points, the commands and log trimming
 
