@@ -40,3 +40,9 @@ Plugin options take effect in the next session: a `SessionStart` hook exports th
 ```sh
 uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q
 ```
+
+Routing trials (nine headless sessions that cost model usage; they check that each kind of thing to remember lands in the right place, and that a client's name never reaches the store):
+
+```sh
+python3 plugins/memory/evals/routing/run_trials.py --claude "$(command -v claude)"
+```

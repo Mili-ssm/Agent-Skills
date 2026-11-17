@@ -59,8 +59,10 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 | `state` | A pointer to the plan of work in progress |
 
 - Write the claim in English even when the conversation is not: search matches words, and the store is in English.
-- By default the memory goes to the current project (a hidden `.memory/` folder, kept out of git when the tool created it), which is the right place for anything that names the project, its systems or its business.
-- Add `--global` only for what holds outside this project and names no client, company, system or data. Global writing needs the owner's list of forbidden terms: without the list it stops (exit code 2; tell the owner, do not create the file yourself), and it refuses a text that contains a term (exit code 4): rewrite the claim in general terms, never work around the check.
+- Choose the scope with one question: **would this be true and useful in another project?**
+  - No, or it names this project's systems, people or business: the project (the default; a hidden `.memory/` folder, kept out of git when the tool created it).
+  - Yes, and it names no client, company, system or data: add `--global`. General lessons about code and design, and research about a tool, a library or a method (a `finding` from documentation or the web), belong here even when you learned them while working on this project.
+  - Both parts in one discovery: write two memories, the general rule with `--global` and the project's case without it. Global writing needs the owner's list of forbidden terms: without the list it stops (exit code 2; tell the owner, do not create the file yourself), and it refuses a text that contains a term (exit code 4): rewrite the claim in general terms, never work around the check.
 - Exit code 3 means a memory with exactly the same claim exists: run the `mem observe m:<handle>` it prints, which counts one more observation. Anything short of an exact copy is written and kept: related memories are listed, and sorting out near-duplicates and contradictions is a later curation pass, not yours to do while writing.
 - `mem show m:<handle>` reads a memory whole.
 
