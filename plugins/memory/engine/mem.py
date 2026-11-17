@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import collections
+import dataclasses
 import datetime
+import hashlib
 import html.parser
 import http.client
 import json
@@ -23,6 +25,7 @@ import time
 import unicodedata
 import urllib.parse
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Sequence
@@ -32,7 +35,7 @@ import yaml
 import records
 import syntheses
 
-_WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
+_WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memories", "curate", "session-index", "signal")
@@ -310,6 +313,13 @@ def _cell(value: Any) -> str:
 
 
 def _index_row(note: Note, topics: dict) -> tuple[tuple, list[str]]:
+    key, cells = _index_cells(note, topics)
+    if note.meta.get("superseded_by") is not None:
+        cells[0 if note.type == "knowledge" else 1] += " (superseded)"  # the cell holding the note's link
+    return key, cells
+
+
+def _index_cells(note: Note, topics: dict) -> tuple[tuple, list[str]]:
     meta = note.meta
     listed = meta.get("topics")
     leaves = leaf_topics(topics, [t for t in listed if isinstance(t, str)]) \
@@ -565,9 +575,18 @@ def _part_hash(v: Any) -> str | None:
     return None if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{10}", v) else "set the 10-hex fingerprint of the section"
 
 
+def _handle_value(v: Any) -> str | None:
+    return None if isinstance(v, str) and v.strip() else "use the handle of a note"
+
+
+def _handle_list(v: Any) -> str | None:
+    ok = isinstance(v, list) and all(isinstance(h, str) and h.strip() for h in v)
+    return None if ok else "set a list of note handles"
+
+
 LEVELS = ("basic", "beginner", "intermediate", "advanced", "expert", "niche")
 # Fields a note may omit. Empty since 2026-11-07: `level` became required once every note had one (ADR 0004).
-OPTIONAL_FIELDS: frozenset[str] = frozenset({"part_of", "part_of_hash"})
+OPTIONAL_FIELDS: frozenset[str] = frozenset({"part_of", "part_of_hash", "superseded_by", "distinct_from"})
 
 # Field order follows the spec tables; `new` writes fields in this order.
 SCHEMAS: dict[str, dict[str, Validator]] = {
@@ -580,6 +599,8 @@ SCHEMAS: dict[str, dict[str, Validator]] = {
         "url": _url,
         "topics": _topics,
         "added": _date,
+        "superseded_by": _handle_value,
+        "distinct_from": _handle_list,
     },
     "knowledge": {
         "claim": _string,
@@ -590,6 +611,8 @@ SCHEMAS: dict[str, dict[str, Validator]] = {
         "updated": _date,
         "part_of": _part_of,
         "part_of_hash": _part_hash,
+        "superseded_by": _handle_value,
+        "distinct_from": _handle_list,
     },
     "research": {
         "title": _string,
@@ -597,6 +620,8 @@ SCHEMAS: dict[str, dict[str, Validator]] = {
         "status": _enum("idea", "active", "paused", "done", "abandoned"),
         "started": _month,
         "topics": _topics,
+        "superseded_by": _handle_value,
+        "distinct_from": _handle_list,
     },
 }
 
@@ -1258,9 +1283,26 @@ def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[P
     return problems
 
 
+def rule_supersession(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
+    """Rule 16: `superseded_by` and `distinct_from` name notes that exist."""
+    handles = {_handle(n.rel) for n in notes}
+    problems = []
+    for note in notes:
+        if note.error is not None or not isinstance(note.meta, dict):
+            continue
+        named = [("superseded_by", note.meta.get("superseded_by"))]
+        named += [("distinct_from", h) for h in (note.meta.get("distinct_from") or []) if isinstance(h, str)] \
+            if isinstance(note.meta.get("distinct_from"), list) else []
+        for field, value in named:
+            if isinstance(value, str) and value not in handles:
+                problems.append(Problem(note.rel, key_line(note.text, field),
+                                        f"{field} names {value}, which is not a note: fix or remove {field}"))
+    return problems
+
+
 RULES = [rule_names, rule_flat, rule_domain, rule_schema, rule_consistency, rule_topics_used,
          rule_topics_file, rule_links, rule_index_fresh, rule_placeholders, rule_requirements, rule_file_size, rule_handles,
-         rule_syntheses]
+         rule_syntheses, rule_supersession]
 
 
 def check(root: Path) -> list[Problem]:
@@ -1294,8 +1336,11 @@ def _unknown_topic_message(topic: str, known: dict) -> str:
 
 def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = None,
                     kind: str | None = None, status: str | None = None,
-                    confidence: str | None = None, level: str | None = None) -> list[Note]:
-    """Parsable typed notes matching every filter; unparsable ones are skipped with a warning."""
+                    confidence: str | None = None, level: str | None = None,
+                    superseded: bool = False) -> list[Note]:
+    """Parsable typed notes matching every filter; unparsable ones are skipped with a warning.
+
+    A note with `superseded_by` is left out unless `superseded`."""
     wanted = {"kind": kind, "status": status, "confidence": confidence, "level": level}
     types = {type} if type else set(INDEX_FOLDERS)
     for key, value in wanted.items():
@@ -1313,6 +1358,8 @@ def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = 
             continue
         meta = note.meta
         if note.type not in types:
+            continue
+        if not superseded and meta.get("superseded_by") is not None:
             continue
         if any(v is not None and meta.get(k) != v for k, v in wanted.items()):
             continue
@@ -1732,6 +1779,8 @@ def show(root: Path, paths: list[str], *, sections: list[str] | None = None,
             meta, body, body_line = split_frontmatter(text)
         except FrontmatterError:
             meta, body, body_line = None, text, 1
+        if isinstance(meta, dict) and isinstance(meta.get("superseded_by"), str):
+            out.append(f"superseded by: {meta['superseded_by']}")
         if facts := _key_facts(note_type, meta):
             out.append(facts)
         if isinstance(meta, dict) and isinstance(meta.get("part_of"), str):
@@ -1853,11 +1902,13 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
 
 # --- rename --------------------------------------------------------------------
 
-def _link_edits(text: str, base: Path, old: Path, new_name: str) -> tuple[str, int]:
+def _link_edits(text: str, base: Path, old: Path, new_name: str, new_path: Path | None = None) -> tuple[str, int]:
     """`text` of the file `base` with each relative link to `old` pointing at `new_name`, and their count.
 
     Links are found as `_relative_links` finds them (code is masked in place, so offsets stay valid);
-    only the file name of the path part changes: prefix, `#anchor` and link text are kept.
+    only the file name of the path part changes: prefix, `#anchor` and link text are kept. With `new_path`
+    (resolved, like `old` and `base`) the whole path part is recomputed from `base`'s folder instead, because
+    the note may sit in another folder.
     """
     lines = text.split("\n")
     masked = _CODE_SPAN.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)),
@@ -1874,11 +1925,55 @@ def _link_edits(text: str, base: Path, old: Path, new_name: str) -> tuple[str, i
                 hit = (base.parent / urllib.parse.unquote(raw)).resolve() == old
             except (OSError, ValueError):
                 continue
-            if hit:
+            if hit and new_path is not None:
+                lines[i] = lines[i][:start] + Path(os.path.relpath(new_path, base.parent)).as_posix() \
+                    + lines[i][start + len(raw):]
+                count += 1
+            elif hit:
                 cut = start + len(raw) - len(raw.rsplit("/", 1)[-1])
                 lines[i] = lines[i][:cut] + new_name + lines[i][start + len(raw):]
                 count += 1
     return "\n".join(lines), count
+
+
+def _split_frontmatter_block(text: str) -> re.Match | None:
+    return re.match(r"---\n(.*?)\n---[ \t]*(?:\n|$)", text, re.S)
+
+
+def _set_field(text: str, key: str, value: Any) -> str:
+    """`text` with the frontmatter field `key` set (in place when present, else last) or, for None, removed;
+    every other byte stays."""
+    m = _split_frontmatter_block(text)
+    if m is None:
+        raise ValueError("the note has no frontmatter")
+    lines = m.group(1).split("\n")
+    start = next((i for i, ln in enumerate(lines) if re.match(rf"{re.escape(key)}:", ln)), None)
+    end = start
+    if start is not None:
+        end = start + 1
+        while end < len(lines) and re.match(r"(\s|- )", lines[end]):
+            end += 1
+    rendered = "" if value is None else yaml.safe_dump(value, allow_unicode=True, default_flow_style=True,
+                                                       width=float("inf")).split("\n")[0]
+    new = [] if value is None else [f"{key}: {rendered}"]
+    new_lines = lines[:start] + new + lines[end:] if start is not None else lines + new
+    return "---\n" + "\n".join(new_lines) + "\n---\n" + text[m.end():]
+
+
+def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
+    """`text` with `superseded_by` and `distinct_from` values that name the note `old` naming `new`, and their count."""
+    try:
+        meta, _, _ = split_frontmatter(text)
+    except FrontmatterError:
+        return text, 0
+    count = 0
+    if isinstance(meta, dict):
+        if meta.get("superseded_by") == old:
+            text, count = _set_field(text, "superseded_by", new), count + 1
+        names = meta.get("distinct_from")
+        if isinstance(names, list) and old in names:
+            text, count = _set_field(text, "distinct_from", sorted(new if h == old else h for h in names)), count + 1
+    return text, count
 
 
 def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
@@ -1927,6 +2022,8 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
                                "fix it, then rename") from exc
         edited, count = _link_edits(text, path, old, name)
         count += edited.count(copy)  # a note's text naming its local copy
+        edited, named = _rename_handle_fields(edited, old.stem, stem)
+        count += named
         if count:
             edits[path], links = edited.replace(copy, f"{SOURCES_DIR}/{stem}/"), links + count
     locked = [p for p in (*edits, old, old.parent, *((sources, sources.parent) if sources.is_dir() else ()))
@@ -1944,6 +2041,135 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
         raise NewNoteError(f"{new.relative_to(root).as_posix()} was renamed but the index was not "
                            f"updated ({exc}): fix it, then run mem index") from exc
     return new, links, len(edits)
+
+
+# --- unify ---------------------------------------------------------------------
+
+_CONFIDENCE_ORDER = ("low", "medium", "high")
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _log_group(root: Path, originals: Mapping[Path, bytes], action: str) -> None:
+    """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
+    and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since."""
+    group = uuid.uuid4().hex
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+        for path, before in originals.items():
+            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                     "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _resolve_notes(root: Path, args: Sequence[str]) -> list[Path]:
+    typed = {p.resolve() for _, p in _note_files(root)}
+    found = []
+    for arg in args:
+        path = resolve_note(root, arg)
+        if isinstance(path, list):
+            raise NewNoteError(f"ambiguous: {arg} matches {len(path)} notes: {', '.join(path[:10])}")
+        if path is None or path not in typed:
+            raise NewNoteError(f"no note {arg}")
+        found.append(path)
+    return found
+
+
+def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str, *, drop: bool,
+                today: datetime.date) -> tuple[Path, int, int]:
+    """Make `keep_arg` the unified note of itself and `other_args`; return (keep path, notes unified, links rewritten).
+
+    The kept note takes `body`, the union of the topics and the lowest confidence; each other note gets
+    `superseded_by` and stays as a file; every link to an other note in the store points at the kept note.
+    The result must pass `check`, else every file is put back and the problems are raised."""
+    root = root.resolve()
+    paths = _resolve_notes(root, [keep_arg, *other_args])
+    if len(set(paths)) != len(paths):
+        raise NewNoteError("the same note is named twice: unify needs different notes")
+    notes = [_read_note(p.relative_to(root).parts[0], p, root) for p in paths]
+    for note in notes:
+        if note.error is not None or not isinstance(note.meta, dict):
+            raise NewNoteError(f"{note.rel} cannot be read ({note.error or 'frontmatter is not a mapping'})")
+    if len({n.type for n in notes}) > 1:
+        raise NewNoteError("the notes are of different types: unify joins notes of one type")
+    keep, others = notes[0], notes[1:]
+    for note in notes:
+        if note.meta.get("superseded_by") is not None:
+            raise NewNoteError(f"{note.rel} is already superseded by {note.meta['superseded_by']}")
+    handles = {_handle(n.rel) for n in notes}
+    for note in discover_notes(root):
+        if isinstance(note.meta, dict) and note.meta.get("superseded_by") in handles:
+            raise NewNoteError(f"{note.rel} is already superseded by {note.meta['superseded_by']}: unify into the "
+                               "note that replaced it, or leave it")
+    unified = {n.rel for n in notes}
+    had = set().union(*(_link_targets(root, n) for n in notes))
+    lost = sorted(had - _link_targets(root, dataclasses.replace(keep, body=body)) - unified)
+    if lost and not drop:
+        raise NewNoteError(f"the unified text drops the links {', '.join(lost)}; use --drop if that is meant.")
+
+    keep_text = _read_text(keep.path)
+    m = _split_frontmatter_block(keep_text)
+    if m is None:
+        raise NewNoteError(f"{keep.rel} has no frontmatter")
+    union = list(keep.meta.get("topics") or [])
+    union += [t for o in others for t in (o.meta.get("topics") or []) if t not in union]
+    new_text = _set_field(keep_text[:m.end()] + body, "topics", union)
+    if "confidence" in SCHEMAS[keep.type]:
+        ranks = [_CONFIDENCE_ORDER.index(n.meta["confidence"]) for n in notes if n.meta.get("confidence") in _CONFIDENCE_ORDER]
+        if ranks:
+            new_text = _set_field(new_text, "confidence", _CONFIDENCE_ORDER[min(ranks)])
+    if keep.type == "knowledge":
+        new_text = _set_field(new_text, "updated", today.isoformat())
+    edits: dict[Path, str] = {keep.path: new_text}
+    for o in others:
+        edits[o.path] = _set_field(_read_text(o.path), "superseded_by", _handle(keep.rel))
+    links = 0
+    skip = {o.path for o in others}
+    for path in _markdown_files(root):
+        rel = path.relative_to(root).as_posix()
+        if path.resolve() in skip or _is_index_readme(rel):
+            continue
+        resolved = path.resolve()
+        original = edits.get(resolved)
+        if original is None:
+            try:
+                original = _read_text(path)
+            except FrontmatterError as exc:
+                raise NewNoteError(f"cannot read {rel} to rewrite its links ({exc}): fix it, then unify") from exc
+        text = original
+        for o in others:
+            text, count = _link_edits(text, resolved, o.path, "", keep.path)
+            links += count
+        if text != original:
+            edits[resolved] = text
+    locked = [p for p in edits if not os.access(p, os.W_OK)]
+    if locked:
+        raise NewNoteError(f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}")
+
+    before = set(check(root))
+    originals = {p: p.read_bytes() for p in edits}
+    changed = {p.relative_to(root).as_posix() for p in edits}
+    for path, text in edits.items():
+        path.write_bytes(text.encode("utf-8"))
+    problems: list[Problem] = []
+    try:
+        apply_index(root)
+        problems = [p for p in check(root) if p not in before or p.path in changed]
+    except FrontmatterError as exc:
+        problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
+    if problems:
+        for path, data in originals.items():
+            path.write_bytes(data)
+        try:
+            apply_index(root)
+        except (FrontmatterError, OSError):
+            pass
+        raise NewNoteError(f"the unified notes have {len(problems)} problems, so nothing was written:\n"
+                           + "\n".join(str(p) for p in problems))
+    _log_group(root, originals, "unify")
+    return keep.path, len(notes), links
 
 
 # --- fetch-sources -------------------------------------------------------------
@@ -2265,7 +2491,8 @@ def cmd_index(args: argparse.Namespace) -> int:
 def cmd_find(args: argparse.Namespace) -> int:
     try:
         notes = _matching_notes(args.root, type=args.type, topic=args.topic, kind=args.kind,
-                                status=args.status, confidence=args.confidence, level=args.level)
+                                status=args.status, confidence=args.confidence, level=args.level,
+                                superseded=args.superseded)
     except (FrontmatterError, OSError) as exc:
         print(f"mem: cannot find: {exc}", file=sys.stderr)
         return 1
@@ -2534,13 +2761,27 @@ _INDEX_LIMIT = 1500
 _CLAIM_LIMIT = 100
 
 
+_SUPERSEDED_LINE = re.compile(r"^superseded_by:", re.M)
+
+
+def _is_superseded_file(path: Path) -> bool:
+    """Whether the frontmatter at the top of the file has `superseded_by`; only the first 16 KB is read."""
+    try:
+        with path.open(encoding="utf-8", errors="replace") as f:
+            head = f.read(16384)
+    except OSError:
+        return False
+    m = re.match(r"---\r?\n(.*?)\r?\n---", head, re.S)
+    return m is not None and _SUPERSEDED_LINE.search(m.group(1)) is not None
+
+
 def _count_notes(store: Path) -> int:
     """Notes by file name only: the index runs at every session start and must not read them."""
     try:
         files = [p for kind in ("literature", "knowledge") for p in store.glob(f"{kind}/*/*.md")
                  if p.name != "README.md"]
         files += list(store.glob("research/*/README.md"))
-        return len(files)
+        return sum(1 for f in files if not _is_superseded_file(f))
     except OSError:
         return 0
 
@@ -2966,7 +3207,45 @@ def cmd_merge(args: argparse.Namespace) -> int:
     return _two(args, args.keep, args.drop, "merge", apply)
 
 
+def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
+    """`mem distinct` for two notes of the store; None when the arguments are not both notes."""
+    if args.a.startswith("m:") or args.b.startswith("m:"):
+        return None
+    first, second = resolve_note(store, args.a), resolve_note(store, args.b)
+    if not isinstance(first, Path) or not isinstance(second, Path):
+        return None
+    root = _writable_store(args, "distinct")
+    if root is None:
+        return 2
+    root = root.resolve()
+    if first == second:
+        print("mem: distinct needs two different notes.", file=sys.stderr)
+        return 2
+    try:
+        names = {p: _handle(p.relative_to(root).as_posix()) for p in (first, second)}
+        originals, edits = {}, {}
+        for path, other in ((first, second), (second, first)):
+            text = _read_text(path)
+            meta, _, _ = split_frontmatter(text)
+            listed = meta.get("distinct_from") if isinstance(meta, dict) else None
+            known = [h for h in listed if isinstance(h, str)] if isinstance(listed, list) else []
+            originals[path], edits[path] = path.read_bytes(), _set_field(text, "distinct_from",
+                                                                        sorted({*known, names[other]}))
+        for path, text in edits.items():
+            path.write_bytes(text.encode("utf-8"))
+        _log_group(root, originals, "distinct")
+    except (OSError, ValueError, FrontmatterError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{names[first]}\tkept apart from {names[second]}")
+    log_usage(root, {"cmd": "distinct", "scope": "note"})
+    return 0
+
+
 def cmd_distinct(args: argparse.Namespace) -> int:
+    store = _optional_store(args)
+    if store is not None and store.is_dir() and (done := _distinct_notes(args, store)) is not None:
+        return done
     def apply(found, today):
         a, b = found
         for m in found:
@@ -3023,6 +3302,49 @@ class _StoreLog:
     handle: str
 
 
+def _restore_group(root: Path, rel: str, entry: dict) -> int:
+    """Undo every file of the unify or distinct that logged `entry`, or none: refused when any changed since."""
+    lines = (root / records.CURATION_LOG).read_text(encoding="utf-8").split("\n")
+    members: list[tuple[int, dict]] = []
+    undone: set[int] = set()
+    for number, line in enumerate(lines):
+        try:
+            logged = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(logged, dict):
+            continue
+        if logged.get("action") == "restore" and isinstance(logged.get("undone"), int):
+            undone.add(logged["undone"])
+        elif logged.get("group") == entry["group"] and isinstance(logged.get("before"), str):
+            members.append((number, logged))
+    members = [(n, e) for n, e in members if n not in undone]
+    moved = [e["handle"] for _, e in members
+             if not (root / e["handle"]).is_file() or _sha((root / e["handle"]).read_bytes()) != e.get("after")]
+    if moved:
+        print(f"mem: {', '.join(moved)} changed since {entry.get('action')}, so nothing was restored: "
+              "restore or edit those files by hand", file=sys.stderr)
+        return 2
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        for number, e in members:
+            target = root / e["handle"]
+            tmp = target.with_name(f".{target.name}.tmp")
+            tmp.write_bytes(e["before"].encode("utf-8"))
+            os.replace(tmp, target)
+            marker = {"t": stamp, "action": "restore", "handle": e["handle"], "undone": number}
+            with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+                f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+        apply_index(root)
+    except (OSError, FrontmatterError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{_handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
+          f"({len(members)} files)")
+    log_usage(root, {"cmd": "restore", "scope": "note"})
+    return 0
+
+
 def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
     rel = note.relative_to(root.resolve()).as_posix()
     log = _StoreLog(root / "note", rel)
@@ -3030,6 +3352,8 @@ def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
     if entry is None:
         print(f"mem: no logged text for {_handle(rel)}: nothing to restore", file=sys.stderr)
         return 2
+    if entry.get("group"):
+        return _restore_group(root, rel, entry)
     try:
         tmp = note.with_name(f".{note.name}.tmp")
         tmp.write_bytes(entry["before"].encode("utf-8"))
@@ -3163,6 +3487,34 @@ def _tagged(m: records.Memory, extra: str = "") -> str:
     return f"  m:{m.handle}  [{m.kind}, {created}{extra}]  {_flat(m.claim)}"
 
 
+TOPIC_CROWD = 8
+
+
+def _note_line(note: Note) -> str:
+    return (f"  {_handle(note.rel)}  [{note.meta.get('confidence', '')}, {note.meta.get('updated', '')}]  "
+            f"{_flat(str(note.meta.get('claim', '')))}")
+
+
+def _note_pairs(notes: Sequence[Note]) -> list[tuple[Note, Note]]:
+    """Pairs of notes that share a topic and whose claims contain each other with at least `records.STRONG`,
+    unless one names the other in `distinct_from`; the closest pair first."""
+    notes = sorted(notes, key=lambda n: _handle(n.rel))
+    tokens = [set(tokenize(str(n.meta.get("claim", "")))) for n in notes]
+    found = []
+    for i, a in enumerate(notes):
+        for j in range(i + 1, len(notes)):
+            b = notes[j]
+            if not set(a.meta.get("topics") or []) & set(b.meta.get("topics") or []):
+                continue
+            if _handle(b.rel) in (a.meta.get("distinct_from") or []) or _handle(a.rel) in (b.meta.get("distinct_from") or []):
+                continue
+            score = max(records.containment(tokens[i], tokens[j]), records.containment(tokens[j], tokens[i]))
+            if score >= records.STRONG:
+                found.append((score, a, b))
+    found.sort(key=lambda t: (-t[0], _handle(t[1].rel), _handle(t[2].rel)))
+    return [(a, b) for _, a, b in found]
+
+
 def _curate_notes(args: argparse.Namespace) -> int:
     root = args.root
     if root is None:
@@ -3200,6 +3552,25 @@ def _curate_notes(args: argparse.Namespace) -> int:
     if stale:
         out.append("notes older than their section (rewrite the note from the section: mem show s:<h>#<section>)")
         out += stale
+    live = [n for n in discover_notes(root) if n.error is None and isinstance(n.meta, dict)
+            and n.meta.get("superseded_by") is None]
+    same = _note_pairs([n for n in live if n.type == "knowledge"])
+    if same:
+        out.append("notes that say the same or the opposite? (decide: mem unify <keep> <other> --body-file \u2026, "
+                   "mem distinct <a> <b>, or leave)")
+        for a, b in same:
+            out += [_note_line(a), _note_line(b),
+                    f"  differ in: {', '.join(records.differing_words(str(a.meta.get('claim', '')), str(b.meta.get('claim', ''))))}"]
+    covered = {t for x in synths for t in x.topics}
+    counts: collections.Counter = collections.Counter()
+    for n in live:
+        if n.type in ("knowledge", "literature"):
+            counts.update(_own_topics(known, [t for t in n.meta.get("topics", []) if isinstance(t, str)]))
+    crowded = sorted(((t, c) for t, c in counts.items() if c >= TOPIC_CROWD and t not in covered),
+                     key=lambda tc: (-tc[1], tc[0]))
+    if crowded:
+        out.append(f"topics with {TOPIC_CROWD} notes or more and no synthesis (mem synthesis new)")
+        out += [f"  {t}  {c} notes" for t, c in crowded]
     if out:
         print("\n".join(out))
     return 0
@@ -3578,6 +3949,19 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_unify(args: argparse.Namespace) -> int:
+    try:
+        body = _read_body(args.body_file)
+        keep, count, links = unify_notes(args.root, args.keep, args.others, body, drop=args.drop,
+                                         today=datetime.date.today())
+    except (NewNoteError, OSError, ValueError, FrontmatterError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 1
+    print(f"{_handle(keep.relative_to(args.root.resolve()).as_posix())}\tunified from {count} notes, {links} links rewritten")
+    log_usage(args.root, {"cmd": "unify", "notes": count, "links": links, "drop": args.drop})
+    return 0
+
+
 def cmd_rename(args: argparse.Namespace) -> int:
     try:
         path, links, files = rename_note(args.root, args.note, args.new_stem)
@@ -3651,7 +4035,8 @@ def cmd_search(args: argparse.Namespace) -> int:
     if with_notes:
         try:
             corpus = build_corpus(args.root, type=args.type, topic=args.topic, kind=args.kind,
-                                  status=args.status, confidence=args.confidence, level=args.level)
+                                  status=args.status, confidence=args.confidence, level=args.level,
+                                  superseded=args.superseded)
             ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
             linkeds = [linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks]
         except (FrontmatterError, OSError) as exc:
@@ -3761,7 +4146,7 @@ def cmd_related(args: argparse.Namespace) -> int:
         return 1
     rel = path.relative_to(args.root.resolve()).as_posix() if path else None
     try:
-        corpus = build_corpus(args.root)
+        corpus = build_corpus(args.root, superseded=args.superseded)
         groups = related(args.root, rel, limit=args.limit, corpus=corpus)
     except ValueError:
         print(f"mem: not a note: {args.path}", file=sys.stderr)
@@ -3882,6 +4267,8 @@ def build_parser() -> argparse.ArgumentParser:
         filtered.add_argument("--status", choices=("idea", "active", "paused", "done", "abandoned"))
         filtered.add_argument("--confidence", choices=_CONFIDENCE)
         filtered.add_argument("--level", choices=LEVELS)
+        filtered.add_argument("--superseded", action="store_true",
+                              help="also list notes that a unified note replaced")
         filtered.add_argument("--handles", action="store_true",
                               help="print a short handle in place of each path (accepted wherever a note is named)")
         filtered.add_argument("--detail", choices=DETAILS, default="titles",
@@ -3900,6 +4287,8 @@ def build_parser() -> argparse.ArgumentParser:
     related_parser.add_argument("--limit", type=_limit, default=5, help="print at most N similar notes (default: 5)")
     related_parser.add_argument("--detail", choices=DETAILS, default="titles",
                                 help="per result: path only, title, key facts, a matching line, or the lead section")
+    related_parser.add_argument("--superseded", action="store_true",
+                                help="also list notes that a unified note replaced")
     related_parser.add_argument("--unlinked-mentions", action="store_true",
                                 help="print only the notes that name this one in their text without linking to it")
     related_parser.set_defaults(func=cmd_related)
@@ -3934,6 +4323,15 @@ def build_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument("note", metavar="NOTE")
     rename_parser.add_argument("new_stem", metavar="NEW-STEM", help="the new file name without .md")
     rename_parser.set_defaults(func=cmd_rename)
+    unify_parser = sub.add_parser("unify", help="replace several notes of one type with one, keeping the others as "
+                                                 "superseded files and pointing their links at it")
+    unify_parser.add_argument("keep", metavar="KEEP", help="the note that takes the unified text")
+    unify_parser.add_argument("others", nargs="+", metavar="OTHER", help="notes that KEEP replaces")
+    unify_parser.add_argument("--body-file", required=True, metavar="PATH",
+                              help="the unified body (after the frontmatter); - reads standard input")
+    unify_parser.add_argument("--drop", action="store_true",
+                              help="accept a unified text that lacks a link the notes had")
+    unify_parser.set_defaults(func=cmd_unify)
     new_parser = sub.add_parser("new", help="create a note from its template")
     new_sub = new_parser.add_subparsers(dest="type", required=True)
     for note_type, flags in {
