@@ -282,6 +282,22 @@ def test_crowded_topics_without_a_synthesis_are_listed(run, make, tmp_path):
     assert "topics with" not in run("curate", "--notes")[1]
 
 
+def test_a_crowded_topic_whose_notes_are_in_syntheses_is_not_listed(run, make, hub_root):
+    """A topic is due for a synthesis only while 5 or more of its knowledge notes are part of none."""
+    words = "alpha beta gamma delta epsilon zeta eta theta iota kappa".split()
+    for i in range(8):
+        make(f"crowd-{i}", f"{words[i]} {words[i + 1]}x{i} unique{i} thing{i}s", "algorithms")
+
+    def mark(i: int) -> None:
+        path = next(hub_root.glob(f"knowledge/*/crowd-{i}.md"))
+        path.write_text(path.read_text().replace("\n---\n", '\npart_of: "other#part"\n---\n', 1))
+    for i in range(3):
+        mark(i)
+    assert "algorithms  8 notes" in run("curate", "--notes")[1]  # 5 are still loose
+    mark(3)
+    assert "topics with" not in run("curate", "--notes")[1]  # 4 loose: nothing left worth a document
+
+
 def test_curate_notes_prints_nothing_for_an_empty_queue(run):
     assert run("curate", "--notes") == (0, "", "")
 

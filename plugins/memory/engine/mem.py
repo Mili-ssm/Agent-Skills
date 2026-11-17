@@ -3857,6 +3857,7 @@ def _tagged(m: records.Memory, extra: str = "") -> str:
 
 
 TOPIC_CROWD = 8
+TOPIC_LOOSE = 5  # of them, knowledge notes not yet part of any synthesis
 
 
 def _note_line(note: Note) -> str:
@@ -3932,10 +3933,16 @@ def _curate_notes(args: argparse.Namespace) -> int:
                     f"  differ in: {', '.join(records.differing_words(str(a.meta.get('claim', '')), str(b.meta.get('claim', ''))))}"]
     covered = {t for x in synths for t in x.topics}
     counts: collections.Counter = collections.Counter()
+    loose: collections.Counter = collections.Counter()  # knowledge notes that are part of no synthesis
     for n in live:
         if n.type in ("knowledge", "literature"):
-            counts.update(_own_topics(known, [t for t in n.meta.get("topics", []) if isinstance(t, str)]))
-    crowded = sorted(((t, c) for t, c in counts.items() if c >= TOPIC_CROWD and t not in covered),
+            own = _own_topics(known, [t for t in n.meta.get("topics", []) if isinstance(t, str)])
+            counts.update(own)
+            if n.type == "knowledge" and not n.meta.get("part_of"):
+                loose.update(own)
+    # A topic whose notes already sit in other syntheses is not worth a document of its own.
+    crowded = sorted(((t, c) for t, c in counts.items()
+                      if c >= TOPIC_CROWD and t not in covered and loose[t] >= TOPIC_LOOSE),
                      key=lambda tc: (-tc[1], tc[0]))
     if crowded:
         out.append(f"topics with {TOPIC_CROWD} notes or more and no synthesis (mem synthesis new)")
