@@ -76,8 +76,9 @@ One home per kind of fact, so the memory, auto memory and context files do not c
 
 | Fact | Home |
 |---|---|
-| How the owner wants the agent to work (preferences, corrections) | Claude Code auto memory, unchanged |
-| What this project uses, decided or cannot do, with names | A memory in the project scope |
+| The owner's preferences and personal matters, how they want the agent to work | Claude Code auto memory, unchanged |
+| A discovery, a fact or an assumption about this project (what it uses, decided or cannot do), with names | A memory in the project scope |
+| The project's current situation or a special condition (true now, may change) | Both: auto memory, and a `state` or `constraint` memory in the project scope |
 | Something learned from experience that does not depend on one project | A memory in the global scope, without names |
 | What holds in general, with its source | A note |
 | A web finding not yet checked against its source | A `finding` memory |
@@ -104,13 +105,13 @@ One home per kind of fact, so the memory, auto memory and context files do not c
 
 | When | What happens |
 |---|---|
-| A record is written | The command prints the most similar existing records and asks for one of two answers: update that one, or create anyway. It marks the record "needs curation" when a memory has no context, a note has no evidence, or a similar record exists |
+| A record is written | Only a memory with exactly the same claim is refused (the answer is `observe`). Otherwise the record is written and the related ones are printed; near-duplicates and contradictions wait for a curation pass (D14). Measured in stage 2: a claim and its negation scored 0.89 on a word-overlap index, so a threshold cannot tell "the same" from "the opposite" |
 | `review` | Prints a queue: probable duplicates; similar records that are not linked (`similar --unlinked`); memories past `valid_until`; records never recalled; memories observed three times or more, as candidates for promotion; records marked at writing |
 | A memory was used | `confirm` or `refute` records the outcome; a refuted memory is hidden from search by default |
 | `merge`, `supersede`, `forget` | Rewrite links as `rename` does; nothing is deleted outside git history |
 | `promote` | Prints a draft note from one or more memories for the agent to abstract; it never copies text, because a memory may hold business names |
 
-Curation is run by the agent on request, or when the session index says the queue passed a size; every change is an ordinary commit the owner can read. No background process rewrites records.
+A curation pass is started on request, after a number of writes, or after a period without one (the session index says when one is due); it may be handed to a small-model subagent that works beside the main task and proposes merges, supersessions and promotions. Every change is an ordinary file change the owner can read; nothing rewrites records unseen.
 
 ### Hooks
 
@@ -167,6 +168,8 @@ Decided by the owner on 2026-11-17. Round 2 replaced parts of round 1; the table
 | D10 | Notes and memories are different kinds of record; a memory may live in the project scope or the global scope |
 | D11 | Curation is part of the plugin: checks at writing, a review of duplicates and of similar records not linked, commands to act on them |
 | D12 | Hooks signal with bands and the titles of the best matches; no reference to a cached query by default, and both forms may be tried |
+| D13 | What to remember goes by its nature: personal matters and preferences to auto memory; discoveries, facts and assumptions to the plugin; the project's situation or special conditions to both |
+| D14 | Only a perfect duplicate is refused at writing. Other duplicates are kept and curated in later passes, started by elapsed time or by a number of writes, possibly by a small-model subagent run beside the work |
 
 The agent's choices, all reversible, not ruled on by the owner: the command plus skill and no MCP server; reading the note repository as a second, read-only store during development; the hook set and its caps; calibration before the signal ships; pull automatic, push explicit; auto memory left unchanged; the cached hook text; the local list of forbidden terms; the folder at the main worktree's root; the names `mem`, `.memory/`, `remember`.
 

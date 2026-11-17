@@ -33,6 +33,14 @@ description: Searches, reads and writes the owner's store of notes and memories 
 
 Search prints memories first, then notes. A line that starts with `m:` and carries `[memory: …]` is something an agent saw or decided once, in one context: experience, not an established fact. Weigh its date and how often it was observed, and when you pass one on (in a brief, in an answer) keep that label and date with it. A note is a general statement with its source and confidence.
 
+## Where something to remember goes
+
+| What | Where |
+|---|---|
+| The owner's preferences, personal matters, how they want you to work | Claude Code's auto memory, not `mem` |
+| A discovery, a fact, an assumption: a decision and its reason, a constraint, a pitfall, a finding | `mem remember` |
+| The project's current situation or a special condition (true now, may change) | Both: auto memory, and `mem remember --kind state` or `constraint` |
+
 ## Writing a memory
 
 Write one when the work produced something a later session would otherwise have to rediscover: a decision and its reason, a constraint, a pitfall, a correction from the owner, the findings of web research. Skip routine outcomes (a test passed, a file was edited): a store full of them hides the ones that matter.
@@ -53,7 +61,7 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 - Write the claim in English even when the conversation is not: search matches words, and the store is in English.
 - By default the memory goes to the current project (a hidden `.memory/` folder, kept out of git when the tool created it), which is the right place for anything that names the project, its systems or its business.
 - Add `--global` only for what holds outside this project and names no client, company, system or data. Global writing needs the owner's list of forbidden terms: without the list it stops (exit code 2; tell the owner, do not create the file yourself), and it refuses a text that contains a term (exit code 4): rewrite the claim in general terms, never work around the check.
-- Exit code 3 means the same claim is already recorded: run the `mem observe m:<handle>` it prints, which counts one more observation. If the command lists related memories, read them: when one says the same, `observe` it; when one says the opposite, keep both and say so in the body.
+- Exit code 3 means a memory with exactly the same claim exists: run the `mem observe m:<handle>` it prints, which counts one more observation. Anything short of an exact copy is written and kept: related memories are listed, and sorting out near-duplicates and contradictions is a later curation pass, not yours to do while writing.
 - `mem show m:<handle>` reads a memory whole.
 
 ## When a command refuses
