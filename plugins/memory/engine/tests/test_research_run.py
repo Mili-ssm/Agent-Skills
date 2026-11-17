@@ -252,6 +252,31 @@ def test_contrast_option_replaces_the_choice_of_the_memory_step(world):
     assert CLAIM in calls(world)[1]["argv"][1]
 
 
+def own_experience_note(w):
+    claim = "Gadget cycles were counted on the bench in my own run"
+    note = w.note.read_text().replace(CLAIM, claim).replace("origin: literature", "origin: experience")
+    (w.store / "knowledge/computing/bench-run.md").write_text(note)
+    return claim
+
+
+def test_an_experience_note_chosen_by_the_memory_step_is_not_sent_to_the_web(world):
+    claim = own_experience_note(world)
+    need(world, contrast=[HANDLE, "bench-run"])
+    put(world, "web.txt", "[]")
+    done = go(world)
+    prompt = calls(world)[1]["argv"][1]
+    assert CLAIM in prompt and claim not in prompt
+    assert "bench-run: own experience: not sent to the web" in done.stdout and "| bench-run |" not in done.stdout
+
+
+def test_an_experience_note_named_with_contrast_is_sent(world):
+    claim = own_experience_note(world)
+    need(world, contrast=[])
+    put(world, "web.txt", "[]")
+    done = go(world, "attention", "--contrast", HANDLE, "bench-run")
+    assert claim in calls(world)[1]["argv"][1] and "own experience" not in done.stdout
+
+
 def test_a_web_reply_that_is_not_json_writes_nothing(world):
     need(world)
     put(world, "web.txt", "I looked at some pages and they agree.")

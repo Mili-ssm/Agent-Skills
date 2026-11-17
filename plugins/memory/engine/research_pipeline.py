@@ -451,9 +451,29 @@ def research(store: Path, question: str, depth: str, contrast: list[str], claude
     return code
 
 
+def without_experience(store: Path, handles: list[str]) -> tuple[list[str], list[str]]:
+    """(handles kept, handles dropped): a note of origin `experience` records the owner's own experiments, which the
+    web cannot confirm and which are the most private notes, so the memory step's choice never sends one. A handle
+    that is not a readable knowledge note stays, for `contrast_notes` to drop with its own reason."""
+    known = knowledge_notes(store)
+    kept: list[str] = []
+    dropped: list[str] = []
+    for raw in handles:
+        path = known.get(Path(raw.strip()).name.removesuffix(".md"))
+        try:
+            origin = mem.split_frontmatter(path.read_text(encoding="utf-8"))[0].get("origin") if path else None
+        except (OSError, mem.FrontmatterError, AttributeError):
+            origin = None
+        (dropped if origin == "experience" else kept).append(raw)
+    return kept, dropped
+
+
 def web_and_verdicts(run: Run, store: Path, claude: str, question: str, depth: str, contrast: list[str],
                      allow_hosts: list[str], settings: Path, state: dict[str, Any]) -> None:
-    chosen = contrast or state["need"]["contrast"]
+    chosen = contrast
+    if not chosen:   # named with --contrast, an experience note goes; chosen by the memory step, it does not
+        chosen, own = without_experience(store, state["need"]["contrast"])
+        state["dropped"] += [f"{h}: own experience: not sent to the web" for h in own]
     notes, dropped = contrast_notes(store, chosen)
     state["dropped"] += [f"{d['handle']}: {d['reason']}" for d in dropped]
     web = rc.web_input(question, notes)
