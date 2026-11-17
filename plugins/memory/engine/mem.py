@@ -3344,6 +3344,10 @@ def cmd_memory(args: argparse.Namespace) -> int:
     if found is None:
         return 2
     m = found[0]
+    if m.status != "active":
+        print(f"mem: m:{m.handle} is {m.status}: run mem restore m:{m.handle} to bring it back before editing it.",
+              file=sys.stderr)
+        return 2
     if m.scope == "global" and texts:
         if refused := _check_terms(texts, m.kind, getattr(args, "owner_approved", False)):
             return refused
@@ -3366,12 +3370,16 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 syntheses._guard_shrink(m.body.strip("\n"), body.strip("\n"))
             changes["body"] = body
             what.append("body")
+        updating = False
         try:
             records.log_before(m, "edit")
             if m.path.read_bytes() != original:
                 raise ValueError(f"{m.path.name} changed since it was read, so nothing was written: run the command again")
+            updating = True
             records.update(m, datetime.date.today(), **changes)
         except BaseException:  # any failure leaves the memory and its log as they were
+            if updating and m.path.read_bytes() != original:
+                _swap_file(m.path, original)
             if log_before is None:
                 log.unlink(missing_ok=True)
             else:

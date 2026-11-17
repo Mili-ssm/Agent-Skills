@@ -158,3 +158,29 @@ def test_a_file_changed_since_it_was_read_is_refused(project, capsys, monkeypatc
     code, _, err = run(capsys, "m:retry-keys", "--claim", "Changed claim needs idempotency keys to stay.")
     assert code == 2 and "changed since" in err and path.read_bytes() == other
     assert not (project / ".curation-log").exists()
+
+
+def test_a_failure_after_the_swap_puts_the_file_and_the_log_back(project, capsys, monkeypatch):
+    path = put(project)
+    before = path.read_bytes()
+
+    real = mem.records.update
+
+    def boom(*a, **k):
+        real(*a, **k)  # the swap happened; the read-back then fails
+        raise OSError("read-back failed")
+    monkeypatch.setattr(mem.records, "update", boom)
+    code, _, err = run(capsys, "m:retry-keys", "--claim", "Changed claim needs idempotency keys to stay.")
+    assert code == 2 and "read-back failed" in err
+    assert path.read_bytes() == before and not (project / ".curation-log").exists()
+
+
+@pytest.mark.parametrize("status", ["refuted", "forgotten", "superseded"])
+def test_a_retired_memory_is_refused_and_an_active_one_accepted(project, capsys, status):
+    path = put(project)
+    path.write_text(path.read_text().replace("status: active", f"status: {status}"))
+    before = path.read_bytes()
+    code, _, err = run(capsys, "m:retry-keys", "--context", "new")
+    assert code == 2 and "mem restore" in err and path.read_bytes() == before
+    path.write_text(path.read_text().replace(f"status: {status}", "status: active"))
+    assert run(capsys, "m:retry-keys", "--context", "new")[0] == 0
