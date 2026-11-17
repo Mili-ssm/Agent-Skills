@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -126,7 +127,7 @@ PRE_COMPACT = ('Keep in the summary: the path of the active plan file (say "no p
                'marked "not yet recorded", so that the next context can record them.')
 
 
-@pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "signal.sh", "subagent-start.sh", "pre-compact.sh"])
+@pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "signal.sh", "subagent-start.sh", "pre-compact.sh", "session-end.sh"])
 def test_hook_scripts_are_executable(name):
     assert os.access(HOOKS / name, os.X_OK)
 
@@ -140,6 +141,7 @@ def test_hooks_json_names_the_scripts():
     assert cfg["SubagentStart"][0]["hooks"][0]["command"].endswith("/hooks/subagent-start.sh")
     assert "PreToolUse" not in cfg  # the signal hook is built but not registered: it showed no gain (stage 6 plan)
     assert cfg["PreCompact"][0]["hooks"][0]["command"].endswith("/hooks/pre-compact.sh")
+    assert cfg["SessionEnd"][0]["hooks"][0]["command"].endswith("/hooks/session-end.sh")
 
 
 def test_subagent_start_prints_the_json_text():
@@ -285,3 +287,50 @@ def test_session_index_falls_back_to_the_fixed_rules_when_mem_cannot_run(tmp_pat
         pytest.skip("uv is in a system folder")
     assert r.returncode == 0 and r.stderr == ""
     assert r.stdout.rstrip("\n") == mem._INDEX_RULES
+
+
+def _session_end(tmp_path, store, fake_git=None):
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path / "home"), "CLAUDE_PLUGIN_OPTION_STORE": str(store),
+           "MEM_DATA": str(tmp_path / "d"), "XDG_CONFIG_HOME": str(tmp_path / "c"), "MEM_PROJECT": str(tmp_path / "p"),
+           "XDG_DATA_HOME": str(tmp_path / "share"), "GIT_CONFIG_GLOBAL": str(tmp_path / "gitconfig"),
+           "GIT_CONFIG_SYSTEM": os.devnull}
+    (tmp_path / "home").mkdir(exist_ok=True)
+    (tmp_path / "gitconfig").write_text("", encoding="utf-8")
+    if fake_git:
+        bindir = tmp_path / "fake"
+        bindir.mkdir()
+        (bindir / "git").write_text(fake_git, encoding="utf-8")
+        (bindir / "git").chmod(0o755)
+        env["PATH"] = f"{bindir}:{env['PATH']}"
+    return subprocess.run([str(HOOKS / "session-end.sh")], input="{}", env=env, capture_output=True, text=True)
+
+
+@needs_uv
+def test_session_end_hook_commits_the_store(hub_root, tmp_path):
+    sys_path = str(Path(__file__).resolve().parents[1])
+    subprocess.run(["python3", "-c", f"import sys; sys.path.insert(0, {sys_path!r}); import store_git, pathlib; "
+                    f"store_git.init(pathlib.Path({str(hub_root)!r}))"], check=True,
+                   env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "HOME": str(tmp_path)})
+    (hub_root / "knowledge" / "new.md").write_text("new\n", encoding="utf-8")
+    r = _session_end(tmp_path, hub_root)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+    subject = subprocess.run(["git", "-C", str(hub_root), "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
+    assert subject.startswith("session end ")
+    rec = json.loads((tmp_path / "d" / "hooks" / "log.jsonl").read_text().splitlines()[-1])
+    assert rec["hook"] == "session-end" and "ms" in rec
+
+
+@needs_uv
+def test_session_end_hook_exits_0_when_git_fails(hub_root, tmp_path):
+    subprocess.run(["git", "-C", str(hub_root), "init", "-q"], check=True)
+    r = _session_end(tmp_path, hub_root, fake_git="#!/bin/sh\nexit 1\n")
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+@needs_uv
+@pytest.mark.skipif(shutil.which("timeout") is None, reason="no timeout command")
+def test_session_end_hook_exits_0_when_git_hangs(hub_root, tmp_path):
+    subprocess.run(["git", "-C", str(hub_root), "init", "-q"], check=True)
+    started = time.monotonic()
+    r = _session_end(tmp_path, hub_root, fake_git="#!/bin/sh\nsleep 30\n")
+    assert r.returncode == 0 and time.monotonic() - started < 9

@@ -35,6 +35,7 @@ import yaml
 
 import project_syntheses
 import records
+import store_git
 import syntheses
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
@@ -3997,6 +3998,10 @@ def cmd_curate(args: argparse.Namespace) -> int:
             except OSError as exc:
                 print(f"mem: {exc}", file=sys.stderr)
                 return 2
+        if store is not None and store_git.is_repo(store):
+            _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
+            if not failed:  # git holds the older states now: the logs keep 30 days
+                store_git.trim_logs(store)
         return 0
     scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
@@ -4052,6 +4057,80 @@ def cmd_init(args: argparse.Namespace) -> int:
         except OSError:
             pass  # the list is made again by the first global write
     return code
+
+
+def _history_store(args: argparse.Namespace) -> Path | None:
+    root = resolve_root(args.root, os.environ)
+    if root is None or not root.is_dir():
+        print(NO_STORE if root is None else f"mem: the store folder does not exist: {root}", file=sys.stderr)
+        return None
+    return root
+
+
+def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: bool = False) -> tuple[str | None, bool]:
+    """Commit the store; (commit id or None, whether git failed). The failure is reported and logged."""
+    failed: list[str] = []
+
+    def report(reason: str) -> None:
+        failed.append(reason)
+        if not quiet:
+            print(f"mem: history: {reason}", file=sys.stderr)
+        log_usage(store, {"cmd": "history", "error": reason})
+
+    return store_git.commit_if_changed(store, message, report=report), bool(failed)
+
+
+def cmd_history(args: argparse.Namespace) -> int:
+    started = time.monotonic()
+    hook = args.history_command == "commit" and args.hook
+    if args.history_command == "init":
+        folder = Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
+        if folder is None:
+            print(NO_STORE, file=sys.stderr)
+            return 2
+        if not folder.is_dir():
+            print(f"mem: the store folder does not exist: {folder}", file=sys.stderr)
+            return 2
+        if not records.store_is_writable(folder):
+            print(f"mem: {folder} is read-only: it has no mem-store.yaml (create a store with \"mem init\").",
+                  file=sys.stderr)
+            return 2
+        if store_git.is_repo(folder):
+            print(f"mem: {folder} is a git repository already", file=sys.stderr)
+            return 2
+        try:
+            print(store_git.init(folder) or "nothing to commit")
+        except store_git.GitError as exc:
+            print(f"mem: history: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    store = _history_store(args) if not hook else resolve_root(args.root, os.environ)
+    if store is None or not store.is_dir():
+        return 0 if hook else 2
+    if not store_git.is_repo(store):
+        if not hook:
+            print(f"mem: {store} is not a git repository (run \"mem history init\")", file=sys.stderr)
+        return 0 if hook else 2
+    if args.history_command == "commit":
+        now = datetime.datetime.now()
+        if args.message:
+            message: str | Callable[[int], str] = args.message
+        else:
+            label = "session end" if hook else "manual commit"
+            message = lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"  # noqa: E731
+        commit, failed = _commit_points(store, message, quiet=hook)  # the hook is silent; a failure is in the usage log
+        if hook:
+            _log_hook({"hook": "session-end", "ms": int((time.monotonic() - started) * 1000),
+                       "committed": commit is not None, "failed": failed})
+            return 0
+        print(commit or "nothing to commit")
+        return 1 if failed else 0
+    try:
+        print("\n".join(store_git.log(store, args.n)))
+    except store_git.GitError as exc:
+        print(f"mem: history: {exc}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _init_store(folder: Path) -> int:
@@ -5525,6 +5604,16 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = sub.add_parser("init", help="make a folder a writable store (default: the default store)")
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)
+    history_parser = sub.add_parser("history", help="the store's git history: list, init, commit")
+    history_parser.add_argument("-n", type=int, default=10, metavar="N", help="how many commits to list")
+    history_sub = history_parser.add_subparsers(dest="history_command")
+    history_init = history_sub.add_parser("init", help="make a writable store a git repository")
+    history_init.add_argument("folder", metavar="STORE", nargs="?")
+    history_commit = history_sub.add_parser("commit", help="commit what changed in the store")
+    history_commit.add_argument("-m", dest="message", metavar="TEXT", help="the commit message")
+    history_commit.add_argument("--hook", action="store_true",
+                                help="the SessionEnd hook: a `session end` message, silent, always exit 0, log the call")
+    history_parser.set_defaults(func=cmd_history)
     memory_parser = sub.add_parser("memory", help="change a memory through mem, never by editing its file")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
     memory_edit = memory_sub.add_parser("edit", help="replace the claim, the context or the body of a memory")
@@ -5545,7 +5634,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "read":
         args.command = "show"
-    if args.command in ("init", "terms"):
+    if args.command in ("init", "terms", "history"):  # history finds its own store: `history init` may name one
         return args.func(args)
     if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used
         root = resolve_root(args.root, os.environ)

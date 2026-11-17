@@ -1,11 +1,14 @@
-"""A store that is a git repository: `mem` commits every change it makes (plan 2026-11-17-memory-store-git).
+"""A store that is a git repository: `mem` commits at the end of a curation pass, at session end and by hand
+(plan 2026-11-17-memory-store-git); no other command runs git.
 
 A git failure never fails a command: `commit_if_changed` reports one line and returns None.
 """
 from __future__ import annotations
 
+import datetime
 import fcntl
 import fnmatch
+import json
 import os
 import subprocess
 import sys
@@ -97,7 +100,7 @@ def _drop_stale_index_lock(store: Path) -> None:
         pass
 
 
-def _commit(store: Path, message: str) -> str | None:
+def _commit(store: Path, message: str | Callable[[int], str]) -> str | None:
     try:
         fd = _lock(store)
     except OSError as exc:
@@ -111,6 +114,8 @@ def _commit(store: Path, message: str) -> str | None:
             return None
         if staged.returncode != 1:
             raise GitError("git diff failed: " + (staged.stderr.strip() or f"exit {staged.returncode}"))
+        if callable(message):
+            message = message(len(_git(store, "diff", "--cached", "--name-only").splitlines()))
         _git(store, "commit", "-q", "-m", message)
         return _git(store, "rev-parse", "--short", "HEAD").strip()
     except (OSError, subprocess.SubprocessError) as exc:
@@ -123,8 +128,10 @@ def _print_reason(reason: str) -> None:
     print(f"mem: history: {reason}", file=sys.stderr)
 
 
-def commit_if_changed(store: Path, message: str, *, report: Callable[[str], None] = _print_reason) -> str | None:
-    """Stage everything and commit; the short commit id, or None when nothing changed or git failed (reported)."""
+def commit_if_changed(store: Path, message: str | Callable[[int], str], *, report: Callable[[str], None] = _print_reason) -> str | None:
+    """Stage everything and commit; the short commit id, or None when nothing changed or git failed (reported).
+
+    `message` may be a function of the number of files the commit holds."""
     try:
         return _commit(Path(store), message)
     except GitError as exc:
@@ -132,7 +139,7 @@ def commit_if_changed(store: Path, message: str, *, report: Callable[[str], None
         return None
 
 
-def init(store: Path) -> None:
+def init(store: Path) -> str | None:
     """Make the store a repository: local identity, .gitignore, a first commit of everything present."""
     store = Path(store)
     _git(store, "init", "-q")
@@ -146,4 +153,50 @@ def init(store: Path) -> None:
         prefix = "\n" if have and not ignore.read_text(encoding="utf-8").endswith("\n") else ""
         with ignore.open("a", encoding="utf-8") as fh:
             fh.write(prefix + "".join(ln + "\n" for ln in missing))
-    _commit(store, "mem history init")
+    return _commit(store, "mem history init")
+
+
+def log(store: Path, count: int) -> list[str]:
+    """The last `count` commits, one line each: `<id> <date> <message>`."""
+    out = _git(Path(store), "log", f"-n{max(count, 1)}", "--date=short", "--format=%h %ad %s")
+    return out.splitlines()
+
+
+TRIM_DAYS = 30
+_LOG_FOLDERS = ("", "syntheses", "memories")  # the store's own curation logs; a project's .memory/ is never one of them
+
+
+def trim_logs(store: Path, now: datetime.datetime | None = None) -> int:
+    """Blank the `.curation-log` entries older than TRIM_DAYS; the number of entries removed.
+
+    A removed entry becomes an empty line, not a missing one: `mem restore` marks an undone entry by its line number.
+    Call it only for a store whose git history is intact."""
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    cutoff = now - datetime.timedelta(days=TRIM_DAYS)
+    removed = 0
+    for folder in _LOG_FOLDERS:
+        path = Path(store) / folder / ".curation-log"
+        try:
+            lines = path.read_text(encoding="utf-8").split("\n")
+        except (OSError, UnicodeDecodeError):
+            continue
+        changed = 0
+        for number, line in enumerate(lines):
+            try:
+                entry = json.loads(line) if line.strip() else None
+                when = datetime.datetime.strptime(entry["t"], "%Y-%m-%dT%H:%M:%SZ").replace(
+                    tzinfo=datetime.timezone.utc)
+            except (ValueError, TypeError, KeyError):
+                continue  # unreadable or undated lines stay
+            if when < cutoff:
+                lines[number] = ""
+                changed += 1
+        if changed:
+            tmp = path.with_name(".curation-log.tmp")
+            try:
+                tmp.write_text("\n".join(lines), encoding="utf-8", newline="")
+                os.replace(tmp, path)
+            except OSError:
+                continue
+            removed += changed
+    return removed
