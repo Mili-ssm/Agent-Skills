@@ -39,3 +39,25 @@ Two history commits in the copy (`mem-synthesize: before human-memory`, `after`)
 - The plugin's `SessionEnd` hook would commit the store after every headless session, so the command writes `disableAllHooks: true` into the sessions' settings and gives `MEM_STORE` in their environment (the brief's `pluginConfigs` is also passed). Hooks do not run in those sessions.
 - The fixer changed parts outside the reported ones in this run (`scope_violations` in the log); the guard only records, as in the trial. Not measured further.
 - Default store resolution: `--store`, else `MEM_STORE`, else the default XDG store; a store set only in the plugin's config file is not found (pass `--store`).
+
+## Extension (owner, 2026-11-17): the curator applies, and an automatic run
+
+The owner chose all three ways to make curation quiet: A (the curator applies in one dispatch), B (above, built), C (an automatic run), with one condition for C: a failure must be made visible. The owner watches usage and switches C off if it grows.
+
+### Decisions
+
+| Decision | Reason |
+| --- | --- |
+| A: `memory-curator` gains an apply mode, used only when the caller's prompt says "apply": it runs the reversible actions of a safe subset — `mem merge` without `--force` (the tool refuses claims that differ in a negation, a number or an opposite), `mem synthesis attach` of a note to a part whose `Sources:` line already links it — and reports counts plus one line per item left. Everything else stays a proposal | A wrong merge costs more than a duplicate; the subset is the part the tool itself guards, and every action is undone by `mem restore` |
+| C: an option of the plugin (`auto_curation`, off by default) lets a session start launch one detached background run when curation is due, no other run holds the lock, the last run is older than 20 hours and the day's budget is not spent. The run: the curator in apply mode, then `mem-synthesize` with a budget (default 2 USD per run) | Automatic, bounded, one at a time |
+| C never runs git or a model inside the hook itself: the hook only starts the detached process and returns | The session-start budget is 0.5 s |
+| C's result goes to a status file (time, ok or failed, reason, cost, log path). After a failure, the next session's start text carries one line naming the failure and the log until `mem auto ack`; after a success nothing is added | The owner's condition; the measured session text is unchanged unless a run failed |
+| The headless sessions of a run disable hooks and take the lock, so a run cannot start another | No recursion |
+| In `mem-synthesize`, a fixer that changes a part outside its report gets that part put back from the text before the fix | Seen once in the real run of B; until now only logged |
+
+### Tasks
+
+- [ ] A: apply mode in `agents/memory-curator.md` (body; its description says it proposes and applies nothing, so that line changes and is measured on `evals/trigger/memory-curator-due`), one line in `skills/memory-curation/SKILL.md`. Check: on a temporary store seeded with one exact duplicate pair, one pair differing in a number and one attachable note, an apply dispatch merges the first, leaves the second, attaches the third, and `mem restore` undoes each.
+- [ ] The out-of-scope guard in the pipeline, with a self-check case.
+- [ ] C: `plugins/memory/bin/mem-auto` (run, status, ack), the launch from the session-start hook, the option in `plugin.json`, the failure line in the session text, tests for due/lock/budget/failure line, and a spike first: can a session-start hook start a detached process that outlives it and finds the `claude` binary. Check: with the option off nothing starts; with it on and a fake `claude`, one run starts, a second session start does not start another, a failing run leaves the status and the next session text shows the line, `mem auto ack` removes it.
+- [ ] Docs: README section; kill criteria: a run that costs over its budget, two failures in a week, or the owner's word turn the option off.
