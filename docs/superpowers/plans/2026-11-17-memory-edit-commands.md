@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, pyyaml, pytest.
 
-**Status:** in progress: Tasks 1 to 3 done.
+**Status:** done 2026-11-17 (branch `feat/memory-edit-commands`, not merged).
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -90,9 +90,9 @@
 
 - The `memory` skill states once, with its reason, that records change only through `mem` commands, never by editing files, and names `note edit` and `memory edit`. The curation and synthesis skills name the new commands where their method needs them (correct a note, fix a memory, rename or remove a part, detach a note, set topics). Bodies only: no `description:` changes (they would need an eval). README: the command table gains the new rows.
 
-- [ ] **Step 1: Edit the four files.**
-- [ ] **Step 2: `python3 scripts/validate.py` and `claude plugin validate .` pass.**
-- [ ] **Step 3: Commit** `docs(memory): agents change records only through mem commands`.
+- [x] **Step 1: Edit the four files.**
+- [x] **Step 2: `python3 scripts/validate.py` and `claude plugin validate .` pass.**
+- [x] **Step 3: Commit** `docs(memory): agents change records only through mem commands`.
 
 ## Pre-mortem of 2026-11-17 and what changed
 
@@ -107,4 +107,4 @@
 
 ## Results
 
-Pending.
+All four tasks built, each reviewed once and fixed: `note edit` (rollback on any error, changed-since check just before the swap), `memory edit` (file rolled back on any error; retired memories refused), synthesis `rename`/`remove`/`detach`/`topics` with one group undo entry and a restore that chooses group or own entry by content, not by timestamp; the skills state the rule once. Engine tests: 809 passed, 4 skipped (745 on `main` before). Deferred (low): `updated` added only when a note has the key; `_restore_group` duplicates `_swap_file`; `remove` detaches notes edited after their part was written (reversible). The branch carries the test-isolation commit also in PR #120.
