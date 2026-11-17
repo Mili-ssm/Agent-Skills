@@ -93,6 +93,34 @@ Written by the main conversation (prompt text).
 - [ ] **Step 3:** The curator subagent on the same project: its proposals name the right action for each seeded item. Two runs.
 - [ ] **Step 4:** The routing and recall trials still pass. Record the figures; tick stage 5.
 
+## Amendments after the pre-mortem (2026-11-17)
+
+These override the tasks above. Task 1 is already committed (`0d645ae`); the items below change it.
+
+### A. Nothing a pass does is final
+- Every action that changes a memory first appends one JSON line to `.curation-log` in that memory's folder: `{"t": <UTC timestamp>, "action": <name>, "handle": <h>, "before": <the file's whole previous text>}`.
+- `mem restore <h>` puts back the `before` text of the newest log line for that handle (and logs that too); it prints `m:<h>\trestored to before <action> of <date>`; with no line for the handle it exits 2.
+- `mem merge` refuses, unless `--force`, when the two claims differ by a negation word (`not`, `no`, `never`, `cannot`, `without`, or a word ending in `n't`) or by any token that is only digits or digits with dots: `mem: these claims differ in <words>: they may be opposites or different versions; use --force to merge anyway.`, exit 2.
+- In the "same or opposite?" block each memory's line is `  m:<h>  [<kind>, <created>]  <claim>`, and after the pair a line `  differ in: <the tokens that occur in only one of the two claims, digits included>`.
+
+### B. The queue remembers what was decided
+- `mem distinct <a> <b>`: records in both memories the frontmatter key `distinct_from` (a list of handles); that pair no longer appears. Prints `m:<a>\tkept apart from m:<b>`.
+- `mem promote --no <h>`: records `promote: "no"`; the memory leaves the "seen 3 times or more" block.
+- A new block, before the others: `written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a different claim)`, for a live memory paired with a refuted one.
+
+### C. Rules that do not forget what is still true
+- The "not confirmed in 90 days" block counts from the later of `created` and `last_observed`, and leaves out the kinds `constraint`, `decision` and `state`. `Memory` parses `last_observed`.
+- A `state` memory written without `--valid-until` expires 30 days after `created`.
+
+### D. When a pass is due, and what a pass covers
+- `mem curate` covers both scopes by default (`--project` or `--global` restricts it), and `--done` records exactly the scopes it covered. The date of the last pass is kept outside the memory folders, in `data_dir(env)/curated.json` (`{<resolved folder>: <ISO date>}`), so a synced folder gets no file that conflicts.
+- `records.curation_due` as in Task 2; in addition a pass is due when a live memory is past `valid_until` (those are counted in N). A memory created on the day of the last pass does not count as new.
+- The session index line is ` Curation due: N items (run mem curate after the current task).`
+
+### E. Use
+- The skill tells an agent to run `mem confirm m:<handle>` when a memory it used proved right, and `mem refute` with a reason when it proved wrong: that is what keeps the 90-day rule honest.
+- Handles are accepted with or without the `m:` prefix in every command.
+
 ## Results
 
 Filled as tasks complete.
