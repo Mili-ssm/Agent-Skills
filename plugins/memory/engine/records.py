@@ -5,11 +5,12 @@ Imports nothing from mem.py (mem.py imports this module), so similarity and matc
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
 import subprocess
 import unicodedata
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Sequence
 
@@ -20,6 +21,7 @@ STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
 STORE_MARKER = "mem-store.yaml"
+CURATION_LOG = ".curation-log"
 
 
 @dataclass
@@ -38,6 +40,8 @@ class Memory:
     body: str
     error: str | None
     last_observed: datetime.date | None = None
+    distinct_from: list[str] = field(default_factory=list)
+    promote: str | None = None
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -169,7 +173,10 @@ def _parse(path: Path, scope: str) -> Memory:
             last_observed = _date(meta.get("last_observed"), "last_observed")
         except ValueError:  # only curation reads it: a bad value must not hide the memory
             last_observed = None
-        return replace(base, kind=kind, last_observed=last_observed, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        distinct = meta.get("distinct_from")
+        distinct = [str(h) for h in distinct] if isinstance(distinct, list) else []
+        promote = "no" if meta.get("promote") in ("no", False) else None  # YAML reads a bare no as False
+        return replace(base, kind=kind, last_observed=last_observed, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -223,6 +230,8 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     if kind == "finding":
         if valid_until is None:
             valid_until = today + datetime.timedelta(days=90)
+    if kind == "state" and valid_until is None:
+        valid_until = today + datetime.timedelta(days=30)
     folder.mkdir(parents=True, exist_ok=True)
     base = slug_of(claim)
     handle, n = base, 1
@@ -286,10 +295,96 @@ def pairs(memories: Sequence[Memory], today: datetime.date, *,
     for i, a in enumerate(live):
         for j in range(i + 1, len(live)):
             score = max(containment(tokens[i], set(tokens[j])), containment(tokens[j], set(tokens[i])))
-            if score >= STRONG:
+            if score >= STRONG and live[j].handle not in a.distinct_from and a.handle not in live[j].distinct_from:
                 found.append((a, live[j], score))
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
     return found
+
+
+def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *,
+                  tokenize: Callable[[str], list[str]]) -> list[tuple[Memory, Memory, float]]:
+    """(live, refuted, score): a live memory whose claim and a refuted one's contain each other with at least STRONG,
+    unless the two are recorded as distinct."""
+    live = sorted((m for m in memories if is_live(m, today)), key=lambda m: m.handle)
+    dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
+    found = []
+    for a in live:
+        ta = tokenize(a.claim)
+        for r in dead:
+            if r.handle in a.distinct_from or a.handle in r.distinct_from:
+                continue
+            tr = tokenize(r.claim)
+            score = max(containment(ta, set(tr)), containment(tr, set(ta)))
+            if score >= STRONG:
+                found.append((a, r, score))
+    found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    return found
+
+
+_WORD = re.compile(r"[a-z0-9]+(?:[.'\u2019][a-z0-9]+)*")
+_NEGATIONS = frozenset({"not", "no", "never", "cannot", "without"})
+
+
+def _claim_words(claim: str) -> set[str]:
+    return set(_WORD.findall(claim.casefold()))
+
+
+def differing_words(a: str, b: str) -> list[str]:
+    """The words that occur in only one of the two claims, digits and negations included, sorted."""
+    return sorted(_claim_words(a) ^ _claim_words(b))
+
+
+def is_flagged(word: str) -> bool:
+    """A negation word, or a token of only digits and dots: a score cannot tell it from its opposite or a version."""
+    return (word in _NEGATIONS or word.endswith(("n't", "n\u2019t"))
+            or (any(c.isdigit() for c in word) and all(c.isdigit() or c == "." for c in word)))
+
+
+def log_before(memory: Memory, action: str) -> None:
+    """Append the file's whole current text to the `.curation-log` beside it, before an action changes the file."""
+    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
+             "handle": memory.handle, "before": memory.path.read_bytes().decode("utf-8")}
+    with (memory.path.parent / CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def last_log_entry(memory: Memory) -> dict | None:
+    """The newest `.curation-log` line for the memory's handle, or None."""
+    try:
+        lines = (memory.path.parent / CURATION_LOG).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in reversed(lines):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and entry.get("handle") == memory.handle and isinstance(entry.get("before"), str):
+            return entry
+    return None
+
+
+def restore(memory: Memory, entry: dict) -> None:
+    """Put back the text a log entry holds, byte for byte, through a temporary file."""
+    tmp = memory.path.with_name(f".{memory.path.name}.tmp")
+    tmp.write_bytes(entry["before"].encode("utf-8"))
+    os.replace(tmp, memory.path)
+
+
+def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, today: datetime.date) -> int:
+    """Items for a pass: live memories created after the last pass (counted only at 10, or at 1 once the pass is 14
+    days old; with no pass yet, once the oldest live memory is) plus live-status memories past their valid_until."""
+    live = [m for m in memories if is_live(m, today)]
+    new = [m for m in live if last_pass is None or (m.created is not None and m.created > last_pass)]
+    if last_pass is not None:
+        age = (today - last_pass).days
+    else:
+        dated = [m.created for m in live if m.created is not None]
+        age = (today - min(dated)).days if dated else 0
+    counted = len(new) if len(new) >= 10 or (new and age >= 14) else 0
+    expired = sum(1 for m in memories if m.error is None and m.status == "active"
+                  and m.valid_until is not None and m.valid_until < today)
+    return counted + expired
 
 
 def ensure_excluded(project: Path) -> bool:
