@@ -12,7 +12,10 @@ folder. Phases, run in this order (each keeps its results in a state file in the
          two files in a commit (the staleness cases)
   ab     arm A (no syntheses) against arm B (syntheses), on the pilot's cases
   stale  S1 (parts as they are: possibly stale) and S2 (stamps rewritten to the new HEAD: fresh), same stale text
-  decide the decision rule's action, from the rows in the state file (`all` runs every phase, then this)
+  decide the decision rule's action, from the rows in the state file (`all` runs every phase, then this); it gives
+         none, and exits 1, while an arm has fewer valid rows than planned
+  decide-stale  the staleness verdict alone (S1 and S2), when A and B were not run (`decide` does the same when the
+         state has no ab rows)
 
 Usage: run_trials.py --claude <claude binary> --phase NAME [--work DIR] [--runs N] [--case NAME]... [--jobs 4]
 It costs model usage. The work folder is kept (print it, resume with --work); `--phase clean` deletes it. The
@@ -149,7 +152,12 @@ def make_env(work: Path) -> dict:
     env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in d)
     global PLUGIN_RUN
     PLUGIN_RUN = work / "plugin"
-    if not PLUGIN_RUN.exists():
+    if PLUGIN_RUN.exists():
+        diff = plugin_diff(PLUGIN, PLUGIN_RUN)
+        if diff:
+            raise SystemExit("the work folder's plugin copy differs from the current plugins/memory (" + "; ".join(diff[:5])
+                             + (f"; {len(diff) - 5} more" if len(diff) > 5 else "") + "): start a new work folder")
+    else:
         # A session that loads a skill sees the plugin's base folder, and evals/ holds the expected answers.
         shutil.copytree(PLUGIN, PLUGIN_RUN, symlinks=True, ignore=shutil.ignore_patterns("evals", "__pycache__"))
     env.update(XDG_CONFIG_HOME=str(work / "cfg"), MEM_DATA=str(work / "data"), XDG_DATA_HOME=str(work / "xdg-data"))
@@ -158,6 +166,29 @@ def make_env(work: Path) -> dict:
     (work / "data").mkdir(exist_ok=True)
     (work / "xdg-data").mkdir(exist_ok=True)
     return env
+
+
+def plugin_files(root: Path) -> dict[str, str]:
+    """Relative path -> content (symlinks: their target) of the plugin files a session sees (no evals/, no caches)."""
+    found = {}
+    for here, dirs, files in os.walk(root):
+        rel = Path(here).relative_to(root)
+        dirs[:] = [d for d in dirs if d != "__pycache__" and not (rel == Path(".") and d == "evals")]
+        for name in dirs + files:
+            path = Path(here) / name
+            key = str(rel / name)
+            if path.is_symlink():
+                found[key] = "link:" + os.readlink(path)
+            elif path.is_file():
+                found[key] = "file:" + path.read_bytes().hex()
+    return found
+
+
+def plugin_diff(src: Path, copy: Path) -> list[str]:
+    a, b = plugin_files(src), plugin_files(copy)
+    return ([f"{k} missing from the copy" for k in sorted(a.keys() - b.keys())]
+            + [f"{k} only in the copy" for k in sorted(b.keys() - a.keys())]
+            + [f"{k} differs" for k in sorted(k for k in a.keys() & b.keys() if a[k] != b[k])])
 
 
 def build_base(dest: Path) -> None:
@@ -262,6 +293,15 @@ def check_s2(env: dict, tree: Path) -> None:
     states = part_states(env, tree)
     if not states or any(state != "fresh" for _, state in states):
         raise RuntimeError(f"S2 project is not fresh everywhere: {states}")
+
+
+def check_s1(env: dict, tree: Path) -> None:
+    states = part_states(env, tree)
+    if not any(h.startswith("p:organization#") and s == "changed" for h, s in states):
+        raise RuntimeError(f"S1 shows no part as possibly stale: {states}")
+    shown = mem(env, tree, "show", next(h for h, _ in states if h.startswith("p:organization#"))).stdout
+    if "possibly stale" not in shown:
+        raise RuntimeError("S1: the organization part does not read as possibly stale")
 
 
 # --- one model session ---------------------------------------------------------------------------------------
@@ -416,11 +456,14 @@ def phase_pilot(args, work, env, state) -> None:
     if not base.exists():
         build_base(base)
     run_sessions(args, work, env, state, [("pilot", "P", c, r, base) for c in cases for r in range(1, runs + 1)])
-    medians = {c["name"]: statistics.median(r["calls"] for r in state.rows("pilot") if r["case"] == c["name"])
-               for c in CANDIDATES if any(r["case"] == c["name"] for r in state.rows("pilot"))}
+    valid = {c["name"]: [r for r in state.rows("pilot") if r["case"] == c["name"]] for c in CANDIDATES}
+    for n, rows in valid.items():
+        if rows and len(rows) < runs:
+            print(f"pilot case {n}: {len(rows)} valid of {runs} planned: not ranked (rerun the phase)")
+    medians = {n: statistics.median(r["calls"] for r in rows) for n, rows in valid.items() if len(rows) >= runs}
     print("pilot medians of tool calls: " + ", ".join(f"{n}={m:g}" for n, m in medians.items()))
     if len(medians) < len(CANDIDATES):
-        print("partial pilot: the rule is not applied")
+        print("partial pilot (cases missing, not run or short of valid runs): the rule is not applied")
         return
     enough = [n for n, m in medians.items() if m >= 4]
     ranked = sorted(medians, key=lambda n: (-medians[n], -statistics.mean(
@@ -463,32 +506,40 @@ def phase_write(args, work, env, state) -> None:
     removed = strip_to_syntheses(written)
     print("removed from the written copy's .memory/: " + (", ".join(removed) or "nothing"))
     state.data["writer_removed"] = sorted(set(state.data.get("writer_removed", [])) | set(removed))
+    state.data["written_stripped"] = True
     parts = part_states(env, written)
     print(f"writer parts: {len(parts)}: " + " ".join(h for h, _ in parts))
     if not parts:
         shutil.rmtree(written)
         raise SystemExit("the writer wrote no part: rerun --phase write")
-    prepare_stale(work, env, state, written)
     state.data["writer"] = {"parts": [h for h, _ in parts]}
     state.save()
 
 
+def need_written(work: Path, state: State) -> Path:
+    written = work / "written"
+    if not written.exists():
+        raise SystemExit("run --phase write first")
+    memory = written / ".memory"
+    if not state.data.get("written_stripped") or (memory.is_dir() and [p.name for p in memory.iterdir()] != ["syntheses"]):
+        raise SystemExit("the written copy was not cleaned to its syntheses by --phase write: start a new work folder")
+    return written
+
+
 def prepare_stale(work: Path, env: dict, state: State, written: Path) -> None:
+    """Builds S1 and S2 once, from the written copy that `strip_to_syntheses` has processed; a resume keeps them."""
     s1, s2 = work / "stale1", work / "stale2"
+    if s1.exists() and s2.exists() and state.data.get("stale"):
+        return
     for p in (s1, s2):
         shutil.rmtree(p, ignore_errors=True)
     copy_tree(written, s1)
     add_own_part(env, s1)
     rename_files(s1)
-    states = part_states(env, s1)
-    if not any(h.startswith("p:organization#") and s == "changed" for h, s in states):
-        raise RuntimeError(f"S1 shows no part as possibly stale: {states}")
     copy_tree(s1, s2)
     rewrite_stamps(s2)
-    check_s2(env, s2)
-    state.data["stale"] = {"s1": states, "s2": part_states(env, s2)}
-    print("S1 parts: " + " ".join(f"{h}={s}" for h, s in states))
-    print("S2 parts: " + " ".join(f"{h}={s}" for h, s in part_states(env, s2)))
+    state.data["stale"] = {"s1": part_states(env, s1), "s2": part_states(env, s2)}
+    state.save()
 
 
 def phase_ab(args, work, env, state) -> None:
@@ -496,9 +547,7 @@ def phase_ab(args, work, env, state) -> None:
     if args.case:
         cases = [c for c in cases if c["name"] in args.case]
     runs = args.runs or 4
-    base, written = work / "base", work / "written"
-    if not written.exists():
-        raise SystemExit("run --phase write first")
+    base, written = work / "base", need_written(work, state)
     arms = [("A", base), ("B", written)]
     jobs = [("ab", arm, c, r, folder) for c in cases for r in range(1, runs + 1) for arm, folder in arms
             if not args.arm or arm in args.arm]
@@ -509,8 +558,14 @@ def phase_ab(args, work, env, state) -> None:
 
 def phase_stale(args, work, env, state) -> None:
     runs = args.runs or 4
-    if not (work / "stale1").exists():
-        raise SystemExit("run --phase write first")
+    prepare_stale(work, env, state, need_written(work, state))
+    try:
+        check_s1(env, work / "stale1")
+        check_s2(env, work / "stale2")
+    except RuntimeError as exc:
+        raise SystemExit(f"no S session was run: {exc}")
+    print("S1 parts: " + " ".join(f"{h}={s}" for h, s in part_states(env, work / "stale1")))
+    print("S2 parts: " + " ".join(f"{h}={s}" for h, s in part_states(env, work / "stale2")))
     cases = [c for c in MOVED if not args.case or c["name"] in args.case]
     jobs = [("stale", arm, c, r, work / ("stale1" if arm == "S1" else "stale2"))
             for c in cases for r in range(1, runs + 1) for arm in ("S1", "S2")]
@@ -519,28 +574,54 @@ def phase_stale(args, work, env, state) -> None:
         print(summarize(state.rows("stale", arm), f"arm {arm}", len(state.errors("stale", arm))))
 
 
-def decide(state: State) -> None:
-    A, B, S1, S2 = (state.rows("ab", "A"), state.rows("ab", "B"), state.rows("stale", "S1"), state.rows("stale", "S2"))
-    errors = {"A": state.errors("ab", "A"), "B": state.errors("ab", "B"),
-              "S1": state.errors("stale", "S1"), "S2": state.errors("stale", "S2")}
-    for label, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)):
-        print(summarize(rows, f"arm {label}", len(errors[label])))
-    short = [f"arm {label} has {len(rows)} valid of {len(rows) + len(errors[label])} planned"
-             for label, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)) if errors[label]]
+PLANNED = {("ab", "A"): 16, ("ab", "B"): 16, ("stale", "S1"): 8, ("stale", "S2"): 8}
+
+
+def short_arms(state: State, needed: list[tuple[str, str]]) -> list[str]:
+    """Arms with fewer valid rows than planned; also prints `N valid of M planned` for each arm needed."""
+    short = []
+    for phase, arm in needed:
+        valid, planned = len(state.rows(phase, arm)), PLANNED[(phase, arm)]
+        print(f"arm {arm}: {valid} valid of {planned} planned")
+        if valid < planned:
+            short.append(arm)
+    return short
+
+
+def decide_stale(state: State) -> int:
+    short = short_arms(state, [("stale", "S1"), ("stale", "S2")])
     if short:
-        print("decision: none; rerun the phases to retry the failed sessions (" + "; ".join(short) + ")")
-        return
-    if not (A and B and S1):
-        print("decision: needs arms A, B and S1 (and S2 for the stamp's effect)")
-        return
+        print(f"decision: none; arm(s) {', '.join(short)} lack valid rows: run --phase stale again to retry")
+        return 1
+    S1, S2 = state.rows("stale", "S1"), state.rows("stale", "S2")
+    ok = lambda rows: sum(r["ok"] for r in rows)
+    for label, rows in (("S1", S1), ("S2", S2)):
+        print(summarize(rows, f"arm {label}") + f"; tokens mean {statistics.mean(r['tokens'] for r in rows):.0f}")
+    diff = ok(S1) - ok(S2)
+    print(f"S1 correct of {len(S1)}: {ok(S1)}; S2 correct of {len(S2)}: {ok(S2)}; S1 minus S2: {diff}")
+    print(f"syntheses used: S1 {sum(r['used'] for r in S1)}, S2 {sum(r['used'] for r in S2)}")
+    if ok(S1) < 6:
+        verdict = "the stamp does not protect the reader: do not merge"
+    elif diff >= 2:
+        verdict = "the stamp has an effect"
+    else:
+        verdict = "the stamp showed no effect at this sample size"
+    print(f"VERDICT: {verdict}")
+    return 0
+
+
+def decide(state: State) -> int:
+    if not state.errors_and_valid("ab", None):
+        return decide_stale(state)
+    arms = [("ab", "A"), ("ab", "B"), ("stale", "S1"), ("stale", "S2")]
+    short = short_arms(state, arms)
+    if short:
+        print(f"decision: none; arm(s) {', '.join(short)} lack valid rows: rerun the phases to retry the failed or missing sessions")
+        return 1
+    A, B, S1, S2 = (state.rows(p, a) for p, a in arms)
     ok = lambda rows: sum(r["ok"] for r in rows)
     med = lambda rows: statistics.median(r["calls"] for r in rows)
-    expected = {"A": 16, "B": 16, "S1": 8, "S2": 8}
-    for label, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)):
-        if rows and len(rows) != expected[label]:
-            print(f"note: arm {label} has {len(rows)} sessions, the design says {expected[label]}; thresholds scaled")
-    scale = len(S1) / 8
-    if ok(B) <= ok(A) - 2 or ok(S1) < 6 * scale:
+    if ok(B) <= ok(A) - 2 or ok(S1) < 6:
         action = "Do not merge; record the negative result"
     elif sum(r["used"] for r in B) < len(B) / 2:
         action = ("The session sentence does not work: reword it once, rerun B once (--phase ab --arm B --force), then "
@@ -549,12 +630,12 @@ def decide(state: State) -> None:
         action = "Keep everything; propose merging to the owner"
     else:
         action = "Keep the commands, remove the session sentence (no measurable gain)"
+    for label, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)):
+        print(summarize(rows, f"arm {label}") + f"; tokens mean {statistics.mean(r['tokens'] for r in rows):.0f}")
     print(f"DECISION: {action}")
-    tok = lambda rows: f"median {statistics.median(r['tokens'] for r in rows):g}, mean {statistics.mean(r['tokens'] for r in rows):.0f}"
-    print("tokens per arm: " + "; ".join(f"{n} {tok(rows)}" for n, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)) if rows))
-    if S2:
-        diff = ok(S1) - ok(S2)
-        print(f"S1 minus S2: {diff}" + ("" if diff >= 2 else "; the stamp showed no effect at this sample size"))
+    diff = ok(S1) - ok(S2)
+    print(f"S1 minus S2: {diff}" + ("" if diff >= 2 else "; the stamp showed no effect at this sample size"))
+    return 0
 
 
 # --- self-check, without a model -----------------------------------------------------------------------------
@@ -625,6 +706,52 @@ def self_check(work: Path) -> None:
     assert sorted(p.name for p in leftover_folders(projects, work)) == sorted(
         [encode_cwd(work), encode_cwd(work / "sessions" / "ab-A-x-1")]), "wrong leftover folders"
     assert shutil.which("mem", path=env["PATH"]) is None, "an installed `mem` is still on PATH"
+    check_s1(env, s1)
+    assert plugin_diff(PLUGIN, PLUGIN_RUN) == [], "a fresh plugin copy differs"
+    (PLUGIN_RUN / "bin" / "mem").write_bytes((PLUGIN_RUN / "bin" / "mem").read_bytes() + b"#")
+    (PLUGIN_RUN / "extra.txt").write_text("x")
+    assert sorted(plugin_diff(PLUGIN, PLUGIN_RUN)) == ["bin/mem differs", "extra.txt only in the copy"], plugin_diff(PLUGIN, PLUGIN_RUN)
+    try:
+        make_env(work)
+        raise AssertionError("a changed plugin copy was accepted on resume")
+    except SystemExit as exc:
+        assert "differs" in str(exc), exc
+    state = State(work / "synthetic")
+    assert state.data["rows"] == []
+    try:
+        need_written(work, state)
+        raise AssertionError("an unprocessed written copy was accepted")
+    except SystemExit as exc:
+        assert "was not cleaned" in str(exc), exc
+    state.data["written_stripped"] = True
+    assert need_written(work, state) == work / "written"
+
+    def synth(arm, ok_count, n=8, phase="stale", errors=0):
+        state.data["rows"] = [r for r in state.data["rows"] if (r["phase"], r["arm"]) != (phase, arm)]
+        for i in range(n):
+            row = {"phase": phase, "arm": arm, "case": "c", "run": i, "ok": i < ok_count, "calls": 3, "tokens": 100, "used": True}
+            state.data["rows"].append({**row, "error": "boom"} if i < errors else row)
+    import contextlib, io
+
+    def verdict(call):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = call(state)
+        return code, out.getvalue()
+    synth("S1", 8); synth("S2", 5, n=7)
+    code, out = verdict(decide)
+    assert code == 1 and "S2: 7 valid of 8 planned" in out and "VERDICT" not in out, out
+    synth("S2", 5, errors=1)
+    assert verdict(decide_stale)[0] == 1, "an error row counted as valid"
+    for s1_ok, s2_ok, text in ((5, 5, "does not protect the reader: do not merge"), (8, 5, "has an effect"),
+                               (7, 6, "showed no effect at this sample size")):
+        synth("S1", s1_ok); synth("S2", s2_ok)
+        code, out = verdict(decide)
+        assert code == 0 and ("VERDICT: the stamp " + text) in out, out
+        assert f"S1 correct of 8: {s1_ok}; S2 correct of 8: {s2_ok}" in out, out
+    synth("A", 4, 16, "ab"); synth("B", 4, 15, "ab")
+    code, out = verdict(decide)
+    assert code == 1 and "B: 15 valid of 16 planned" in out and "DECISION" not in out, out
     print("self-check passed")
     print("  plugin copy: no evals/, bin/mem runs; writer cleanup keeps only syntheses/; failed session -> error row; "
           "leftover cleanup matches only the work folder's own prefix")
@@ -632,6 +759,8 @@ def self_check(work: Path) -> None:
     print(f"  S1: {sorted(states.items())}")
     print(f"  S2: {part_states(env, s2)}, bodies byte-equal")
     print("  session-index without a store option: no `Store:` count; no installed `mem` on PATH")
+    print("  resume: a changed plugin copy and an unprocessed written copy are refused; decide: missing rows -> no "
+          "action and exit 1; stale-only verdict by the three rules")
 
 
 def encode_cwd(path: Path) -> str:
@@ -651,10 +780,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--claude", help="path to the claude binary")
     parser.add_argument("--model", default="sonnet")
-    parser.add_argument("--phase", choices=["pilot", "write", "ab", "stale", "decide", "all", "clean"], default="all")
+    parser.add_argument("--phase", choices=["pilot", "write", "ab", "stale", "decide", "decide-stale", "all", "clean"], default="all")
     parser.add_argument("--pilot", action="store_true", help="same as --phase pilot")
     parser.add_argument("--work", type=Path, help="work folder of an earlier phase (resume); default: a new one")
-    parser.add_argument("--runs", type=int, help="per case and arm (pilot 2, ab and stale 4)")
+    parser.add_argument("--runs", type=int, help="per case and arm (pilot 2, ab and stale 4; decide needs the design's 4)")
     parser.add_argument("--case", action="append", default=[], help="candidate name; pilot: any, ab: the chosen, stale: the moved")
     parser.add_argument("--arm", action="append", default=[], help="ab only: A or B (e.g. to rerun B)")
     parser.add_argument("--jobs", type=int, default=4, help="parallel sessions")
@@ -688,8 +817,10 @@ def main() -> int:
                 state.save()
                 if name == "pilot" and state.data.get("pilot", {}).get("stopped"):
                     return 1
+        if args.phase == "decide-stale":
+            return decide_stale(state)
         if args.phase in ("all", "decide"):
-            decide(state)
+            return decide(state)
         return 0
     finally:
         for leftover in leftover_folders(Path.home() / ".claude" / "projects", work):
