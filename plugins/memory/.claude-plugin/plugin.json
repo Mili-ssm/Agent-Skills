@@ -8,6 +8,11 @@
       "type": "directory",
       "title": "Store",
       "description": "Folder of notes and memories that the plugin reads and writes (the global scope)."
+    },
+    "memories": {
+      "type": "directory",
+      "title": "Global memories",
+      "description": "Folder for memories that do not belong to one project. Leave empty to keep them in the store."
     }
   }
 }

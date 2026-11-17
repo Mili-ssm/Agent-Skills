@@ -19,7 +19,7 @@ Stage 1 of ADR 0023 (proposed); see the [plan](../../docs/superpowers/plans/2026
 | `MEM_STORE` environment variable | Overrides the config file |
 | `--root` | Per call |
 
-Stage 1 is read-only: `new`, `rename`, `index` and `fetch-sources` refuse to run unless `MEM_ALLOW_WRITE=1`.
+`new`, `rename`, `index` and `fetch-sources` refuse to run unless the store holds a `mem-store.yaml` marker file (`mem init` creates a store with one).
 
 ## Use
 

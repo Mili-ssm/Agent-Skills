@@ -69,3 +69,26 @@ def test_hook_removes_the_config_file_when_the_option_is_cleared(tmp_path):
     r = run([str(HOOK)], env)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
     assert not (tmp_path / "c" / "agent-memory" / "store").exists()
+
+
+def test_hook_handles_the_memories_option_like_the_store(tmp_path):
+    envfile = tmp_path / "env"
+    envfile.write_text("")
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "c")}
+    r = run([str(HOOK)], {**env, "CLAUDE_PLUGIN_OPTION_MEMORIES": "/a path/mem", "CLAUDE_ENV_FILE": str(envfile)})
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+    assert (tmp_path / "c" / "agent-memory" / "memories").read_text() == "/a path/mem\n"
+    assert not (tmp_path / "c" / "agent-memory" / "store").exists()
+    out = subprocess.run(["bash", "-c", f"source {envfile}; printf '%s' \"$MEM_MEMORIES\""], capture_output=True, text=True).stdout
+    assert out == "/a path/mem"
+    r = run([str(HOOK)], env)  # cleared
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+    assert not (tmp_path / "c" / "agent-memory" / "memories").exists()
+
+
+def test_hook_keeps_each_option_independent(tmp_path):
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "c")}
+    run([str(HOOK)], {**env, "CLAUDE_PLUGIN_OPTION_STORE": "/s", "CLAUDE_PLUGIN_OPTION_MEMORIES": "/m"})
+    run([str(HOOK)], {**env, "CLAUDE_PLUGIN_OPTION_STORE": "/s"})
+    assert (tmp_path / "c" / "agent-memory" / "store").read_text() == "/s\n"
+    assert not (tmp_path / "c" / "agent-memory" / "memories").exists()

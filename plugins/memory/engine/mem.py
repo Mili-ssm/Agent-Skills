@@ -29,7 +29,10 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 
 import yaml
 
+import records
+
 _WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
+_NO_STORE_NEEDED = ("remember", "observe")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -2262,7 +2265,7 @@ def _is_outside(root: Path, cwd: Path | None) -> bool:
         return True
 
 
-def log_usage(root: Path, entry: dict[str, Any], *, env: Mapping[str, str] | None = None,
+def log_usage(root: Path | None, entry: dict[str, Any], *, env: Mapping[str, str] | None = None,
               cwd: Path | None = None) -> None:
     """Append one JSON line to the usage log in the data folder; never raises, never changes output."""
     env = os.environ if env is None else env
@@ -2270,10 +2273,13 @@ def log_usage(root: Path, entry: dict[str, Any], *, env: Mapping[str, str] | Non
         return
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
     try:
-        entry["outside"] = _is_outside(root, cwd)
         log_path = _usage_log(env)
-        # the store is never written in this stage, not even by the log
-        if log_path is None or log_path.resolve().is_relative_to(root.resolve()):
+        if root is not None:
+            entry["outside"] = _is_outside(root, cwd)
+            # the store is never written by the log
+            if log_path is not None and log_path.resolve().is_relative_to(root.resolve()):
+                return
+        if log_path is None:
             return
         # ASCII escapes keep one entry on one line and survive argv that is not valid UTF-8
         line = (json.dumps(entry) + "\n").encode("ascii")
@@ -2300,6 +2306,147 @@ def cmd_show(args: argparse.Namespace) -> int:
         log_usage(args.root, {"cmd": "show", "paths": list(dict.fromkeys(shown)), "sections": args.section or [],
                               "outline": bool(args.outline)})
     return 0 if ok else 1
+
+
+_INIT_ALLOWED = {"mem-store.yaml", "topics.yaml", "literature", "knowledge", "research", "memories",
+                 ".git", ".gitignore", "README.md"}
+
+
+def _memory_body(source: str | None) -> str:
+    """The text of `--body-file` (`-` is standard input); absent or empty gives an empty body."""
+    if not source:
+        return ""
+    if source == "-":
+        if sys.stdin.isatty():
+            raise OSError("--body-file - needs the body on standard input, not a terminal")
+        return sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
+    return Path(source).read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def _optional_store(args: argparse.Namespace) -> Path | None:
+    return args.root if isinstance(args.root, Path) and args.root.is_dir() else None
+
+
+def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None:
+    """An exact handle: the project scope wins over the global one."""
+    project = records.project_root(Path.cwd(), os.environ)
+    folders = [("project", records.project_dir(project) if project else None),
+               ("global", records.memories_root(os.environ, _optional_store(args)))]
+    for scope, folder in folders:
+        for m in records.load_memories(folder, scope):
+            if m.handle == handle:
+                return m
+    return None
+
+
+def cmd_remember(args: argparse.Namespace) -> int:
+    today = datetime.date.today()
+    store = _optional_store(args)
+    if args.is_global:
+        folder = records.memories_root(os.environ, store)
+        if folder is None:
+            print('mem: no folder for global memories: set the plugin\'s "memories" option, '
+                  'or MEM_MEMORIES, or use a store made with "mem init".', file=sys.stderr)
+            return 2
+        forbidden = records.forbidden_file(os.environ)
+        if forbidden is None or not forbidden.is_file():
+            print(f"mem: global memories need the file {forbidden} (one forbidden term per line; it may be empty), "
+                  "so that a business name is not written by mistake.", file=sys.stderr)
+            return 2
+        project = None
+    else:
+        project = records.project_root(Path.cwd(), os.environ)
+        if project is None:
+            print("mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
+                  file=sys.stderr)
+            return 2
+        folder = records.project_dir(project)
+    scope = "global" if args.is_global else "project"
+    if args.kind == "finding" and not args.source:
+        print("mem: a finding needs at least one --source.", file=sys.stderr)
+        return 2
+    try:
+        body = _memory_body(args.body_file)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"mem: cannot read the body: {exc}", file=sys.stderr)
+        return 2
+    if args.is_global:
+        hit = records.forbidden_line([args.claim, args.context or "", body, *args.source], os.environ)
+        if hit is not None:
+            print(f"mem: the text contains a forbidden term (line {hit} of the forbidden-terms list); "
+                  "nothing was written.", file=sys.stderr)
+            return 4
+    claim_tokens = tokenize(args.claim)
+    existing = records.load_memories(folder, scope)
+    live = [m for m in existing if records.is_live(m, today)]
+    if not args.force:
+        same = [m for m in live if claim_tokens and tokenize(m.claim) == claim_tokens]
+        if same:
+            for m in same:
+                print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
+            print(f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
+                  "or repeat with --force to write a new one.", file=sys.stderr)
+            return 3
+    related = records.match_memories(live, claim_tokens, today, tokenize=tokenize)
+    if project is not None:
+        records.ensure_excluded(project)
+    try:
+        m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
+                                 context=args.context, valid_until=args.valid_until, sources=args.source)
+    except (ValueError, OSError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    rel = m.path.relative_to(project if project is not None else folder).as_posix()
+    print(f"m:{m.handle}\t{rel}")
+    if related:
+        print('related memories (if one is the same, run "mem observe m:<handle>"; if one says the opposite, keep both):',
+              file=sys.stderr)
+        for r in related:
+            print(f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
+                  file=sys.stderr)
+    log_usage(store, {"cmd": "remember", "scope": scope})
+    return 0
+
+
+def cmd_observe(args: argparse.Namespace) -> int:
+    handle = args.handle.removeprefix("m:")
+    found = _find_memory(args, handle) if args.handle.startswith("m:") else None
+    if found is None:
+        print(f"mem: no memory named {args.handle}", file=sys.stderr)
+        return 2
+    if found.error is not None:
+        print(f"mem: {found.path}: {found.error}", file=sys.stderr)
+        return 2
+    try:
+        updated = records.observe(found, datetime.date.today())
+    except OSError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"m:{updated.handle}\tobserved {updated.observed}")
+    log_usage(_optional_store(args), {"cmd": "observe", "scope": found.scope})
+    return 0
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    folder = Path(args.folder).expanduser()
+    if folder.exists() and not folder.is_dir():
+        print(f"mem: {folder} is not a folder", file=sys.stderr)
+        return 2
+    if folder.is_dir() and any(p.name not in _INIT_ALLOWED for p in folder.iterdir()):
+        print(f"mem: {folder} is not empty and is not a store", file=sys.stderr)
+        return 2
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        for name in ("literature", "knowledge", "research", records.GLOBAL_DIR):
+            (folder / name).mkdir(exist_ok=True)
+        for name, text in ((records.STORE_MARKER, "format: 1\n"), ("topics.yaml", "{}\n")):
+            if not (folder / name).exists():
+                (folder / name).write_text(text, encoding="utf-8")
+    except OSError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(folder)
+    return 0
 
 
 SIMILAR_LIMIT = 3
@@ -2676,15 +2823,33 @@ def build_parser() -> argparse.ArgumentParser:
         for flag, opts in flags.items():
             type_parser.add_argument(f"--{flag}", required=True, **opts)
         type_parser.set_defaults(func=cmd_new)
+    remember_parser = sub.add_parser("remember", help="write a memory in the project or, with --global, in the global folder")
+    remember_parser.add_argument("--kind", required=True, choices=records.KINDS)
+    remember_parser.add_argument("--claim", required=True)
+    remember_parser.add_argument("--body-file", metavar="PATH", help="text (or - for standard input); may be empty")
+    remember_parser.add_argument("--context")
+    remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
+    remember_parser.add_argument("--source", action="append", default=[], metavar="URL")
+    remember_parser.add_argument("--global", dest="is_global", action="store_true")
+    remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
+    remember_parser.set_defaults(func=cmd_remember)
+    observe_parser = sub.add_parser("observe", help="count one more observation of a memory")
+    observe_parser.add_argument("handle", metavar="m:HANDLE")
+    observe_parser.set_defaults(func=cmd_observe)
+    init_parser = sub.add_parser("init", help="make a folder a writable store")
+    init_parser.add_argument("folder", metavar="FOLDER")
+    init_parser.set_defaults(func=cmd_init)
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    if args.command in _WRITE_COMMANDS and os.environ.get("MEM_ALLOW_WRITE") != "1":
-        print(f"mem: {args.command} writes to the store, which is read-only in stage 1; "
-              "set MEM_ALLOW_WRITE=1 to allow it.", file=sys.stderr)
-        return 2
+    if args.command == "init":
+        return args.func(args)
+    if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used
+        root = resolve_root(args.root, os.environ)
+        args.root = root
+        return args.func(args)
     root = resolve_root(args.root, os.environ)
     if root is None:
         print('mem: no store is set. Enable the memory plugin and set its "store" option, '
@@ -2695,6 +2860,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if not root.is_dir():
         print(f"mem: the store folder does not exist: {root}", file=sys.stderr)
+        return 2
+    if args.command in _WRITE_COMMANDS and not records.store_is_writable(root):
+        print(f"mem: {args.command} writes to the store, which is read-only: it has no mem-store.yaml "
+              '(create a store with "mem init").', file=sys.stderr)
         return 2
     args.root_source = store_source(args.root, os.environ)
     args.root = root

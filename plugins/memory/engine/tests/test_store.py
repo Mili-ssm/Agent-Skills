@@ -83,15 +83,15 @@ def test_main_without_store(monkeypatch, tmp_path, capsys):
     ["fetch-sources"],
 ])
 def test_write_commands_need_permission(hub_root, monkeypatch, capsys, argv):
-    monkeypatch.delenv("MEM_ALLOW_WRITE")
+    (hub_root / "mem-store.yaml").unlink()
     before = _files(hub_root)
     assert mem.main(["--root", str(hub_root), *argv]) == 2
-    assert capsys.readouterr().err.strip() == f"mem: {argv[0]} writes to the store, which is read-only in stage 1; set MEM_ALLOW_WRITE=1 to allow it."
+    assert capsys.readouterr().err.strip() == f"mem: {argv[0]} writes to the store, which is read-only: it has no mem-store.yaml (create a store with \"mem init\")."
     assert _files(hub_root) == before
 
 
 def test_read_commands_need_no_permission(hub_root, monkeypatch):
-    monkeypatch.delenv("MEM_ALLOW_WRITE")
+    (hub_root / "mem-store.yaml").unlink()
     assert mem.main(["--root", str(hub_root), "search", "attention"]) == 0
 
 
