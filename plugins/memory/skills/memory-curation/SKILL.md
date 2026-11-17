@@ -1,6 +1,6 @@
 ---
 name: memory-curation
-description: Reviews and tidies the memories kept with the `mem` command - merges memories that say the same, settles ones that contradict each other, retires expired ones and promotes ones seen several times - with one reversible command per decision. Use when the session start text says "Curation due", when the owner asks to review, clean up, tidy, prune or deduplicate the memory, or when a search returns memories that contradict each other; load it before changing any memory so nothing still true is forgotten and no two opposite claims are merged.
+description: Reviews and tidies the memories and notes kept with the `mem` command - merges or unifies records that say the same, joins loose notes to their synthesis, settles ones that contradict each other, retires expired ones and promotes ones seen several times - with one reversible command per decision. Use when the session start text says "Curation due", when the owner asks to review, clean up, tidy, prune or deduplicate the memory, or when a search returns memories that contradict each other; load it before changing any memory so nothing still true is forgotten and no two opposite claims are merged.
 ---
 
 # Memory curation
@@ -23,6 +23,19 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | expired | Past its `valid until` date | No longer true: `mem forget <h>`. Still true: `mem confirm <h> --until <new date>` |
 | seen 3 times or more | A candidate for a general lesson | Would hold in any project: `mem promote <h>` prints a draft; rewrite the claim in general terms with no name of a project, system, client or person, run it, then `mem promote --done <h>`. Only true here: `mem promote --no <h>` |
 | not confirmed in 90 days | An old lesson, pitfall or finding nobody confirmed | Check it against the project if that is cheap. Still true: `mem confirm <h>`. False: `mem refute <h> --because "<why>"`. Cannot tell: leave it |
+
+## Notes
+
+`mem curate --notes` is the same pass for notes in the store. Notes are written loose; this is where they are joined up.
+
+| Block of the queue | Actions |
+|---|---|
+| notes on a topic that has a synthesis, not yet part of it | Add what the note says to the right part (`mem synthesis append` or `add`, the note among its sources), then `mem synthesis attach <note> s:<h>#<section>`. Not about that subject: leave it |
+| notes older than their section | Rewrite the note from its part (`mem show s:<h>#<section>`), keeping it short |
+| notes that say the same or the opposite? | The same: write one text that keeps every source link and every "does not apply when" of both, then `mem unify <keep> <other> --body-file -`. Opposites or different things: `mem distinct <a> <b>`, or leave and say so |
+| topics with 8 notes or more and no synthesis | Worth a long document? Load the `memory-synthesis` skill. Not worth it: leave |
+
+`mem unify` refuses a text that drops a link the notes had; the kept note takes the lowest confidence of the ones it replaces.
 
 ## Rules
 
