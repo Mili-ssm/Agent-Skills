@@ -7,7 +7,7 @@ description: Reviews and tidies the memories and notes kept with the `mem` comma
 
 **Core rule:** a pass decides, one item at a time, and every decision can be undone (`mem restore m:<handle>`). Nothing is deleted: a memory leaves search by being marked. When you cannot tell, leave the item and say so; a wrong merge costs more than a duplicate.
 
-Run a pass after the current task, not in the middle of it. It may be handed to the `memory-curator` subagent, which proposes actions and applies none; you apply the ones you agree with.
+Run a pass after the current task, not in the middle of it. It may be handed to the `memory-curator` subagent, which proposes actions and applies none; you apply the ones you agree with. Prompt it with "apply" and it also carries out the safe subset through `mem curate apply --safe` (merges of equal claims, attaches the part's `Sources:` line backs; the rest stays a proposal), reporting counts and what it left: you still decide every other row.
 
 ## The pass
 
