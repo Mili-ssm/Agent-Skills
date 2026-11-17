@@ -341,3 +341,16 @@ def test_problems_older_than_the_unify_do_not_block_it(run, make, three, hub_roo
     code, _, err = run("unify", KEEP, B, C, "--body-file", three)
     assert (code, err) == (0, ""), err
     assert f"({KEEP}.md)" in path_of(hub_root, "linker-with-old-problem").read_text(encoding="utf-8")
+
+
+def test_a_second_copy_of_an_old_problem_is_a_new_problem(run, make, tmp_path, hub_root):
+    gone = "See [gone](../../docs/left-behind.md)."
+    make("slabs-a", "Basalt slabs crack", evidence=gone)
+    make("slabs-b", "Granite slabs crack")
+    before = snapshot(hub_root)
+    twice = text_file(tmp_path, note_body("Slabs crack", f"{gone}\n\n{gone}"), "twice.md")
+    code, _, err = run("unify", "slabs-a", "slabs-b", "--body-file", twice)
+    assert code == 1 and "left-behind.md" in err
+    assert snapshot(hub_root) == before
+    once = text_file(tmp_path, note_body("Slabs crack", gone), "once.md")
+    assert run("unify", "slabs-a", "slabs-b", "--body-file", once)[0] == 0

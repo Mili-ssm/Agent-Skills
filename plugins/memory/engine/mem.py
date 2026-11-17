@@ -2199,7 +2199,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
 
     # Line numbers move with the edit, so a problem is known by its file and message: the store may hold
     # problems older than this change (an imported note that links a document left behind), and they do not block it.
-    before = {(p.path, p.message) for p in check(root)}
+    before = collections.Counter((p.path, p.message) for p in check(root))
     originals = {p: p.read_bytes() for p in edits}
     listings = _index_files(root)
     changed = {p.relative_to(root).as_posix() for p in edits}
@@ -2208,7 +2208,9 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     problems: list[Problem] = []
     try:
         apply_index(root)
-        problems = [p for p in check(root) if (p.path, p.message) not in before]
+        after = check(root)
+        more = collections.Counter((p.path, p.message) for p in after) - before  # counted: a second copy is new
+        problems = [p for p in after if (p.path, p.message) in more]
     except FrontmatterError as exc:
         problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
     if problems:
