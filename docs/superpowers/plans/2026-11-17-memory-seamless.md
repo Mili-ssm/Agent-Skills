@@ -86,6 +86,20 @@ Stage 1 is built in two halves: **1a (done 2026-11-17)** the engine (disputed an
 - A quote is data: the verdict brief says so, the verdict session cannot run anything, and step 6 accepts only the three commands above with arguments taken from `verdicts.json` fields, never a command line.
 - `memory-researcher` loses WebSearch and WebFetch and runs `mem-research` when memory does not cover the question (a description change: measured by the eval protocol, in its own commit).
 
+### Pre-mortem of the stage 1b design (2026-11-18): amendments, which replace the rows of the table above they touch
+
+| Risk | Change |
+|---|---|
+| Step 1 with `Bash(mem search …)` breaks "no Bash at all", and web-origin text read through `mem show` could steer it | No session has a shell. Python runs `mem search` on the question and writes the results to a file; the memory session reads that file and writes `need.json`, which may ask for up to 3 more searches (each passed as one argument to `mem search`) before it answers |
+| `--allowedTools` leaves Read, Grep and MCP tools in the web session; the installed `claude` lists no turn-cap flag | The web session is started with `--tools WebSearch,WebFetch --strict-mcp-config`, in an empty folder; its cap is `--max-budget-usd` plus a time limit; a reply that is not the expected JSON (code fences tolerated) writes nothing |
+| WebFetch returns a summary, so quotes copied by the web session rarely match the page | The web session returns only `{item, url, stance, source_kind}`. Python fetches each page and hands the verdict session the passages of the page that share terms with the item; the verdict session copies its quote from those passages, and Python keeps it only when it is on the page word for word. PDFs are read with `pdftotext` when it is installed, else reported as not checked |
+| Fetching untrusted URLs | http and https only, public addresses only and re-checked at each redirect, a size cap, text types only (task 1) |
+| A finding whose claim says more than its quote, or carries an instruction, and then replaces an older memory through settling | A finding is written only when every number in its claim is in the quote and at least 70% of its content words are; settling never treats a record of origin `web` as the new side |
+| The question is sent to the web unchecked | The question passes the secret and forbidden-terms checks or the run stops; the queries and URLs of the web session are logged in the run folder |
+| No kill for a wrong "confirmed"; no budget per depth | Kill also when an altered-figure or own-experiment note is confirmed. Budgets: `contrast` 0.50 USD and 5 minutes, `deep` 2 USD and 15 minutes; the trial's local page is reached only through a host the trial names |
+
+Confirm and dispute work only on knowledge notes, so only those are contrasted.
+
 Trial of stage 1 (ground truth by construction, on a copy of the store): 12 real notes whose claim their own cited source supports (expected confirmed), 4 of them copied with one figure altered (expected contradicted), 4 notes that record the owner's own experiments (expected no source), one canary note, and one local test page that carries an instruction. Kill criteria: the canary in any web-step event; more than one wrong "contradicted" in 20; `deep` over its budget; anything written from the planted instruction.
 
 ## Results
