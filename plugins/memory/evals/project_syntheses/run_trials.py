@@ -37,7 +37,7 @@ from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parents[2]
 REPO = PLUGIN.parents[1]
-MEM = str(PLUGIN / "bin" / "mem")
+PLUGIN_RUN = PLUGIN  # replaced by make_env with the copy of the plugin without evals/ (the sessions must not see the answers)
 LEAVE_OUT = ("CLAUDE.md", "docs/superpowers/plans", "plugins/memory/evals")
 TOOLS = ["Read", "Grep", "Glob", "Skill", "Bash(mem *)"]  # identical in every arm, the pilot and the writer
 # Only the path: a justification could name the old file to say it moved, which the staleness grading counts as wrong.
@@ -147,6 +147,11 @@ def make_env(work: Path) -> dict:
     # An installed copy of the plugin puts its own (older) `mem` on PATH when the controller runs inside Claude Code;
     # the session must get the one under test, which --plugin-dir adds.
     env["PATH"] = os.pathsep.join(d for d in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in d)
+    global PLUGIN_RUN
+    PLUGIN_RUN = work / "plugin"
+    if not PLUGIN_RUN.exists():
+        # A session that loads a skill sees the plugin's base folder, and evals/ holds the expected answers.
+        shutil.copytree(PLUGIN, PLUGIN_RUN, symlinks=True, ignore=shutil.ignore_patterns("evals", "__pycache__"))
     env.update(XDG_CONFIG_HOME=str(work / "cfg"), MEM_DATA=str(work / "data"), XDG_DATA_HOME=str(work / "xdg-data"))
     (work / "cfg" / "agent-memory").mkdir(parents=True, exist_ok=True)
     (work / "cfg" / "agent-memory" / "forbidden-terms").write_text("")
@@ -176,8 +181,12 @@ def copy_tree(src: Path, dest: Path) -> Path:
     return dest
 
 
+def mem_bin() -> str:
+    return str(PLUGIN_RUN / "bin" / "mem")
+
+
 def mem(env: dict, cwd: Path, *args: str, stdin: str | None = None) -> subprocess.CompletedProcess:
-    return subprocess.run([MEM, *args], cwd=cwd, env=env, input=stdin, capture_output=True, text=True)
+    return subprocess.run([mem_bin(), *args], cwd=cwd, env=env, input=stdin, capture_output=True, text=True)
 
 
 def part_states(env: dict, tree: Path) -> list[tuple[str, str]]:
@@ -185,6 +194,17 @@ def part_states(env: dict, tree: Path) -> list[tuple[str, str]]:
     out = mem(env, tree, "project-synthesis", "list")
     rows = [line.split("\t") for line in out.stdout.splitlines() if line.startswith("p:")]
     return [(r[0], r[1]) for r in rows]
+
+
+def strip_to_syntheses(tree: Path) -> list[str]:
+    """Arm B must differ from A only by the syntheses: the writer may also have written memories (it has `mem *`)."""
+    removed = []
+    for entry in sorted((tree / ".memory").iterdir()) if (tree / ".memory").is_dir() else []:
+        if entry.name == "syntheses":
+            continue
+        shutil.rmtree(entry) if entry.is_dir() and not entry.is_symlink() else entry.unlink()
+        removed.append(entry.name)
+    return removed
 
 
 def add_own_part(env: dict, tree: Path) -> None:
@@ -247,20 +267,29 @@ def check_s2(env: dict, tree: Path) -> None:
 # --- one model session ---------------------------------------------------------------------------------------
 
 def session(claude: str, model: str, settings: Path, cwd: Path, env: dict, prompt: str, timeout: int = 600) -> dict:
+    error = None
     try:
         run = subprocess.run(
-            [claude, "-p", prompt, "--model", model, "--plugin-dir", str(PLUGIN), "--settings", str(settings),
+            [claude, "-p", prompt, "--model", model, "--plugin-dir", str(PLUGIN_RUN), "--settings", str(settings),
              "--setting-sources", "project", "--allowedTools", *TOOLS,
              "--output-format", "stream-json", "--verbose", "--no-session-persistence"],
             cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
         stdout = run.stdout
+        if run.returncode != 0:
+            error = f"exit code {run.returncode}: {run.stderr.strip()[-200:]}"
     except subprocess.TimeoutExpired as exc:
         stdout = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-    return parse_stream(stdout)
+        error = f"timeout after {timeout}s"
+    out = parse_stream(stdout)
+    error = error or out["error"]
+    if error is None and not out["has_result"]:
+        error = "no final result event"
+    out["error"] = error
+    return out
 
 
 def parse_stream(stdout: str) -> dict:
-    seen, calls, used, answer, usage, cost = set(), 0, False, "", {}, None
+    seen, calls, used, answer, usage, cost, has_result, error = set(), 0, False, "", {}, None, False, None
     for line in stdout.splitlines():
         try:
             event = json.loads(line)
@@ -278,11 +307,15 @@ def parse_stream(stdout: str) -> dict:
                 elif part["name"] == "Read" and ".memory/syntheses/" in str(data.get("file_path", "")):
                     used = True
         elif event.get("type") == "result":
+            has_result = True
             answer = event.get("result") or ""
             usage = event.get("usage") or {}
             cost = event.get("total_cost_usd")
+            if event.get("is_error"):
+                error = f"result is an error: {answer[:200]}"
     tokens = (usage.get("input_tokens") or 0) + (usage.get("cache_read_input_tokens") or 0)
-    return {"answer": answer, "calls": calls, "tokens": tokens, "used": used, "cost": cost, "ok_result": bool(usage)}
+    return {"answer": answer, "calls": calls, "tokens": tokens, "used": used, "cost": cost, "has_result": has_result,
+            "error": error}
 
 
 def grade(case: dict, arm: str, answer: str) -> bool:
@@ -304,9 +337,18 @@ class State:
         self.path.write_text(json.dumps(self.data, indent=1, ensure_ascii=False))
 
     def done(self, phase: str, arm: str, case: str, run: int) -> bool:
-        return any((r["phase"], r["arm"], r["case"], r["run"]) == (phase, arm, case, run) for r in self.data["rows"])
+        """A row with an error is not done: a resumed run retries it."""
+        return any((r["phase"], r["arm"], r["case"], r["run"]) == (phase, arm, case, run) and not r.get("error")
+                   for r in self.data["rows"])
 
     def rows(self, phase: str, arm: str | None = None) -> list[dict]:
+        """Valid rows only: error rows stay out of medians and of the decision."""
+        return [r for r in self.errors_and_valid(phase, arm) if not r.get("error")]
+
+    def errors(self, phase: str, arm: str | None = None) -> list[dict]:
+        return [r for r in self.errors_and_valid(phase, arm) if r.get("error")]
+
+    def errors_and_valid(self, phase: str, arm: str | None) -> list[dict]:
         return [r for r in self.data["rows"] if r["phase"] == phase and (arm is None or r["arm"] == arm)]
 
 
@@ -314,12 +356,15 @@ ROW_HEADER = f"{'phase':6} {'arm':3} {'case':16} {'run':3} {'ok':5} {'calls':5} 
 
 
 def format_row(r: dict) -> str:
+    if r.get("error"):
+        return f"{r['phase']:6} {r['arm']:3} {r['case']:16} {r['run']:<3} error: {r['error']}"
     cost = f"{r['cost']:.2f}" if isinstance(r.get("cost"), (int, float)) else "-"
     return (f"{r['phase']:6} {r['arm']:3} {r['case']:16} {r['run']:<3} {str(r['ok']):5} {r['calls']:<5} "
             f"{r['tokens']:<8} {'yes' if r['used'] else 'no':3} {cost:6}")
 
 
-def summarize(rows: list[dict], label: str) -> str:
+def summarize(rows: list[dict], label: str, errors: int = 0) -> str:
+    label = f"{label} ({errors} failed sessions excluded)" if errors else label
     if not rows:
         return f"{label}: no rows"
     return (f"{label}: correct {sum(r['ok'] for r in rows)}/{len(rows)}, median calls "
@@ -332,12 +377,12 @@ def run_sessions(args, work: Path, env: dict, state: State, jobs: list[tuple[str
     settings = work / "settings.json"
     if not settings.exists():
         store = work / "store"
-        subprocess.run([MEM, "init", str(store)], env=env, check=True, capture_output=True)
+        subprocess.run([mem_bin(), "init", str(store)], env=env, check=True, capture_output=True)
         settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
     todo = [j for j in jobs if args.force or not state.done(j[0], j[1], j[2]["name"], j[3])]
-    if args.force:
-        state.data["rows"] = [r for r in state.data["rows"] if (r["phase"], r["arm"], r["case"], r["run"]) not in
-                              {(j[0], j[1], j[2]["name"], j[3]) for j in todo}]
+    # Rows about to be rerun (forced, or failed earlier) are replaced by the new ones.
+    redo = {(j[0], j[1], j[2]["name"], j[3]) for j in todo}
+    state.data["rows"] = [r for r in state.data["rows"] if (r["phase"], r["arm"], r["case"], r["run"]) not in redo]
     print(ROW_HEADER, flush=True)
 
     def one(job):
@@ -347,13 +392,16 @@ def run_sessions(args, work: Path, env: dict, state: State, jobs: list[tuple[str
             out = session(args.claude, args.model, settings, cwd, env, case["question"] + ANSWER_FORMAT)
         finally:
             shutil.rmtree(cwd, ignore_errors=True)
-        row = {"phase": phase, "arm": arm, "case": case["name"], "run": run, "ok": grade(case, arm, out["answer"]),
+        row = {"phase": phase, "arm": arm, "case": case["name"], "run": run,
+               "ok": not out["error"] and grade(case, arm, out["answer"]),
                "calls": out["calls"], "tokens": out["tokens"], "used": out["used"], "cost": out["cost"],
                "answer": out["answer"][:300]}
+        if out["error"]:
+            row["error"] = out["error"]
         with LOCK:
             state.data["rows"].append(row)
             state.save()
-            print(format_row(row) + ("" if out["ok_result"] else "  (no result event)"), flush=True)
+            print(format_row(row), flush=True)
 
     with ThreadPoolExecutor(max_workers=max(args.jobs, 1)) as pool:
         list(pool.map(one, todo))
@@ -403,10 +451,16 @@ def phase_write(args, work, env, state) -> None:
         settings = work / "settings.json"
         if not settings.exists():
             store = work / "store"
-            subprocess.run([MEM, "init", str(store)], env=env, check=True, capture_output=True)
+            subprocess.run([mem_bin(), "init", str(store)], env=env, check=True, capture_output=True)
             settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
         out = session(args.claude, args.model, settings, written, env, WRITER_PROMPT, timeout=1800)
+        if out["error"]:
+            shutil.rmtree(written)
+            raise SystemExit(f"the writer session failed ({out['error']}): rerun --phase write")
         print(f"writer: {out['calls']} tool calls, tokens {out['tokens']}, cost {out['cost']}; says: {out['answer'][:200]!r}")
+    removed = strip_to_syntheses(written)
+    print("removed from the written copy's .memory/: " + (", ".join(removed) or "nothing"))
+    state.data["writer_removed"] = sorted(set(state.data.get("writer_removed", [])) | set(removed))
     parts = part_states(env, written)
     print(f"writer parts: {len(parts)}: " + " ".join(h for h, _ in parts))
     if not parts:
@@ -448,7 +502,7 @@ def phase_ab(args, work, env, state) -> None:
             if not args.arm or arm in args.arm]
     run_sessions(args, work, env, state, jobs)
     for arm, _ in arms:
-        print(summarize(state.rows("ab", arm), f"arm {arm}"))
+        print(summarize(state.rows("ab", arm), f"arm {arm}", len(state.errors("ab", arm))))
 
 
 def phase_stale(args, work, env, state) -> None:
@@ -460,13 +514,20 @@ def phase_stale(args, work, env, state) -> None:
             for c in cases for r in range(1, runs + 1) for arm in ("S1", "S2")]
     run_sessions(args, work, env, state, jobs)
     for arm in ("S1", "S2"):
-        print(summarize(state.rows("stale", arm), f"arm {arm}"))
+        print(summarize(state.rows("stale", arm), f"arm {arm}", len(state.errors("stale", arm))))
 
 
 def decide(state: State) -> None:
     A, B, S1, S2 = (state.rows("ab", "A"), state.rows("ab", "B"), state.rows("stale", "S1"), state.rows("stale", "S2"))
+    errors = {"A": state.errors("ab", "A"), "B": state.errors("ab", "B"),
+              "S1": state.errors("stale", "S1"), "S2": state.errors("stale", "S2")}
     for label, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)):
-        print(summarize(rows, f"arm {label}"))
+        print(summarize(rows, f"arm {label}", len(errors[label])))
+    short = [f"arm {label} has {len(rows)} valid of {len(rows) + len(errors[label])} planned"
+             for label, rows in (("A", A), ("B", B), ("S1", S1), ("S2", S2)) if errors[label]]
+    if short:
+        print("decision: none; rerun the phases to retry the failed sessions (" + "; ".join(short) + ")")
+        return
     if not (A and B and S1):
         print("decision: needs arms A, B and S1 (and S2 for the stamp's effect)")
         return
@@ -499,6 +560,9 @@ def decide(state: State) -> None:
 def self_check(work: Path) -> None:
     env = make_env(work)
     base = work / "base"
+    assert PLUGIN_RUN != PLUGIN and not (PLUGIN_RUN / "evals").exists(), "the plugin copy still has evals/"
+    assert (PLUGIN / "evals").exists() and (PLUGIN_RUN / "skills").exists(), "plugin copy incomplete"
+    assert mem(env, work, "--help").returncode == 0, "the copy's bin/mem does not run"
     build_base(base)
     for rel in (".memory", ".superpowers", "CLAUDE.md", "docs/superpowers/plans", "plugins/memory/evals"):
         assert not (base / rel).exists(), f"{rel} reached the copy"
@@ -513,6 +577,14 @@ def self_check(work: Path) -> None:
               "--body-file", "-", stdin="Scripts are run from the repository root.\n")
     assert run.returncode == 0, run.stderr
     assert part_states(env, written) == [("p:conventions#check-conventions", "fresh")], part_states(env, written)
+    (written / ".memory" / "memories").mkdir()
+    (written / ".memory" / "memories" / "note.md").write_text("x")
+    (written / ".memory" / "stray.json").write_text("{}")
+    removed = strip_to_syntheses(written)
+    assert removed == ["memories", "stray.json"], removed
+    assert [p.name for p in (written / ".memory").iterdir()] == ["syntheses"], "more than syntheses left"
+    assert strip_to_syntheses(written) == []
+    assert part_states(env, written) == [("p:conventions#check-conventions", "fresh")], "cleaning hurt the part"
     s1 = copy_tree(written, work / "stale1")
     add_own_part(env, s1)
     rename_files(s1)
@@ -541,12 +613,36 @@ def self_check(work: Path) -> None:
         {"type": "result", "result": "ok", "usage": {"input_tokens": 3, "cache_read_input_tokens": 10}}])
     parsed = parse_stream(stream)
     assert (parsed["calls"], parsed["tokens"], parsed["used"]) == (2, 13, True), parsed
+    fail = session("/bin/false", "m", work / "x.json", work, env, "p", timeout=30)
+    assert fail["error"], "a failed process gave no error"
+    assert parse_stream(stream)["error"] is None and parse_stream(stream.split("\n")[0])["has_result"] is False
+    projects = work / "projects"
+    for name in (encode_cwd(work), encode_cwd(work / "sessions" / "ab-A-x-1"), encode_cwd(work) + "x", "other"):
+        (projects / name).mkdir(parents=True)
+    assert encode_cwd(Path("/a/b.c/d_e")) == "-a-b-c-d-e"
+    assert sorted(p.name for p in leftover_folders(projects, work)) == sorted(
+        [encode_cwd(work), encode_cwd(work / "sessions" / "ab-A-x-1")]), "wrong leftover folders"
     assert shutil.which("mem", path=env["PATH"]) is None, "an installed `mem` is still on PATH"
     print("self-check passed")
+    print("  plugin copy: no evals/, bin/mem runs; writer cleanup keeps only syntheses/; failed session -> error row; "
+          "leftover cleanup matches only the work folder's own prefix")
     print("  copy: no .memory, .superpowers, CLAUDE.md, plans, evals; clean tree")
     print(f"  S1: {sorted(states.items())}")
     print(f"  S2: {part_states(env, s2)}, bodies byte-equal")
     print("  session-index without a store option: no `Store:` count; no installed `mem` on PATH")
+
+
+def encode_cwd(path: Path) -> str:
+    """How Claude Code names a project folder: every character that is not a letter or a digit becomes `-`."""
+    return "".join(c if c.isalnum() else "-" for c in str(path))
+
+
+def leftover_folders(projects: Path, work: Path) -> list[Path]:
+    """Auto-memory folders of sessions that ran inside the work folder; no other folder is ever returned."""
+    prefix = encode_cwd(work)
+    if not projects.is_dir():
+        return []
+    return [p for p in projects.iterdir() if p.is_dir() and (p.name == prefix or p.name.startswith(prefix + "-"))]
 
 
 def main() -> int:
@@ -594,8 +690,7 @@ def main() -> int:
             decide(state)
         return 0
     finally:
-        encoded = "".join(c if c.isalnum() else "-" for c in work.name)
-        for leftover in (Path.home() / ".claude" / "projects").glob(f"*{encoded}*"):
+        for leftover in leftover_folders(Path.home() / ".claude" / "projects", work):
             shutil.rmtree(leftover, ignore_errors=True)
         if args.self_check or args.phase == "clean":
             shutil.rmtree(work, ignore_errors=True)
