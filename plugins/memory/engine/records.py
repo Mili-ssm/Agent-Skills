@@ -99,6 +99,77 @@ def project_dir(project: Path) -> Path:
     return project / PROJECT_DIR
 
 
+REGISTRY_FILE = "projects.json"
+
+
+def read_registry(data: Path | None) -> dict[str, dict[str, str]]:
+    """The registry of projects in the data folder: name -> {path, seen}. Empty when there is no file;
+    ValueError when the file cannot be read or is not that shape."""
+    if data is None:
+        return {}
+    try:
+        text = (data / REGISTRY_FILE).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"the registry of projects cannot be read: {exc}") from exc
+    try:
+        reg = json.loads(text)
+    except ValueError as exc:
+        raise ValueError(f"the registry of projects is not valid JSON: {exc}") from exc
+    if not isinstance(reg, dict) or not all(isinstance(v, dict) and isinstance(v.get("path"), str)
+                                            for v in reg.values()):
+        raise ValueError("the registry of projects has an unexpected shape")
+    return reg
+
+
+def register_project(data: Path | None, project: Path, today: datetime.date, name: str | None = None) -> str | None:
+    """Register `project` (or refresh its `seen` date) in the data folder; its name, None without a data folder.
+
+    The name is the folder's name, with -2, -3 ... when another path holds it; an explicit `name` held by another
+    path is a ValueError. The file is replaced whole, so a failure leaves the old one."""
+    if data is None:
+        return None
+    reg = read_registry(data)
+    path = str(project.resolve())
+    held = next((n for n, v in reg.items() if v["path"] == path), None)
+    if name is not None and held != name and name in reg:
+        raise ValueError(f"the name {name} is taken by {reg[name]['path']}")
+    if held is not None and name is None:
+        name = held
+    elif name is None:
+        base = project.resolve().name or "project"
+        name, n = base, 2
+        while name in reg:
+            name, n = f"{base}-{n}", n + 1
+    if held is not None and held != name:
+        del reg[held]
+    reg[name] = {"path": path, "seen": today.isoformat()}
+    data.mkdir(parents=True, exist_ok=True)
+    tmp = data / f"{REGISTRY_FILE}.{os.getpid()}.tmp"
+    try:
+        tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, data / REGISTRY_FILE)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return name
+
+
+def forget_project(data: Path | None, name: str) -> bool:
+    """Remove a project from the registry; False when the name is unknown."""
+    reg = read_registry(data)
+    if name not in reg:
+        return False
+    del reg[name]
+    tmp = data / f"{REGISTRY_FILE}.{os.getpid()}.tmp"
+    try:
+        tmp.write_text(json.dumps(reg, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        os.replace(tmp, data / REGISTRY_FILE)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return True
+
+
 def _config_base(env: Mapping[str, str]) -> Path | None:
     if env.get("XDG_CONFIG_HOME"):
         return Path(env["XDG_CONFIG_HOME"])

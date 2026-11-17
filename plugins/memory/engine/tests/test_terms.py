@@ -123,3 +123,96 @@ def test_init_creates_the_terms_file_once(tmp_path, capsys):
     terms.write_text("mine\n")
     assert mem.main(["init", str(tmp_path / "store2")]) == 0
     assert terms.read_text() == "mine\n"
+
+
+# --- every command that writes text into the store runs the term check -----------------------------------------
+
+SRC_LINE = "Sources: [attention](../knowledge/computing/attention-replaces-recurrence.md)"
+NOTE_BODY = ("## Claim\n\n{}\n\n## Evidence\n\n- Experience (anonymized): seen.\n\n## Applies when\n\nAlways.\n\n"
+             "## Does not apply when\n\nNever.\n")
+
+
+def _file(tmp_path, text, name):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def _knowledge(slug, claim, body):
+    return ["new", "knowledge", "--slug", slug, "--claim", claim, "--topics", "llm", "--confidence", "medium",
+            "--level", "intermediate", "--origin", "experience", "--body-file", body]
+
+
+def _synthesis(tmp_path):
+    assert mem.main(["synthesis", "new", "--title", "Attention", "--topics", "computing,ml", "--slug", "attention",
+                     "--summary-file", _file(tmp_path, "How attention works.\n", "s.md")]) == 0
+    assert mem.main(["synthesis", "add", "s:attention", "--section", "One", "--body-file",
+                     _file(tmp_path, f"First part.\n\n{SRC_LINE}\n", "p.md")]) == 0
+
+
+def _two_notes(tmp_path):
+    for slug, claim in (("quartz-widgets-shrink", "Quartz widgets shrink under load"),
+                        ("amber-gadgets-expand", "Amber gadgets expand under heat")):
+        assert mem.main(_knowledge(slug, claim, _file(tmp_path, NOTE_BODY.format(claim), slug + ".md"))) == 0
+
+
+# case: (setup, argv(text, tmp_path), kind the text belongs to)
+CASES = {
+    "new-claim": (None, lambda t, p: _knowledge("zz", f"{t} widgets", _file(p, NOTE_BODY.format("Clean."), "b.md")), "note"),
+    "new-body": (None, lambda t, p: _knowledge("zz", "Clean claim", _file(p, NOTE_BODY.format(t), "b.md")), "note"),
+    "new-url": (None, lambda t, p: ["new", "literature", "--title", "A title", "--author", "Doe", "--year", "2020",
+                                    "--kind", "web", "--level", "beginner", "--url", f"https://example.org/{t}",
+                                    "--topics", "llm", "--slug", "zz"], "note"),
+    "unify": (_two_notes, lambda t, p: ["unify", "quartz-widgets-shrink", "amber-gadgets-expand", "--body-file",
+                                        _file(p, NOTE_BODY.format(t), "u.md")], "note"),
+    "synthesis-new": (None, lambda t, p: ["synthesis", "new", "--title", "Other", "--topics", "biology", "--slug",
+                                          "other", "--summary-file", _file(p, f"About {t}.\n", "x.md")], "synthesis"),
+    "synthesis-add": (_synthesis, lambda t, p: ["synthesis", "add", "s:attention", "--section", "Two", "--body-file",
+                                                _file(p, f"About {t}.\n\n{SRC_LINE}\n", "x.md")], "synthesis"),
+    "synthesis-append": (_synthesis, lambda t, p: ["synthesis", "append", "s:attention#one", "--body-file",
+                                                   _file(p, f"More about {t}.\n", "x.md")], "synthesis"),
+    "synthesis-edit": (_synthesis, lambda t, p: ["synthesis", "edit", "s:attention#one", "--body-file",
+                                                 _file(p, f"Rewritten about {t} and first part.\n\n{SRC_LINE}\n", "x.md")], "synthesis"),
+    "synthesis-add-note": (_synthesis, lambda t, p: ["synthesis", "add", "s:attention", "--section", "Two", "--body-file",
+                                                     _file(p, f"Second part.\n\n{SRC_LINE}\n", "x.md"),
+                                                     "--note-slug", "zz", "--note-claim", f"{t} widgets",
+                                                     "--note-body-file", _file(p, NOTE_BODY.format("Clean."), "n.md"),
+                                                     "--confidence", "medium", "--level", "intermediate"], "note"),
+}
+
+
+def _tree(root):
+    return {p: p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_every_store_write_runs_the_term_check(case, hub_root, tmp_path, terms_file, capsys, monkeypatch):
+    setup, argv, kind = CASES[case]
+    monkeypatch.setenv("MEM_STORE", str(hub_root))
+    root = []
+    if setup:
+        setup(tmp_path)
+        capsys.readouterr()
+    work = tmp_path / "args"
+    work.mkdir()
+    before = _tree(hub_root)
+    terms_file.write_text("zeta\n")
+    assert mem.main([*root, *argv("zeta", work)]) == 4
+    assert "forbidden term" in capsys.readouterr().err and _tree(hub_root) == before
+    terms_file.write_text("soft: zeta\n")
+    assert mem.main([*root, *argv("zeta", work)]) == 5
+    assert "(a soft term)" in capsys.readouterr().err and _tree(hub_root) == before
+    terms_file.write_text(f"soft[{kind}]: zeta\n")
+    assert mem.main([*root, *argv("zeta", work)]) == 5
+    capsys.readouterr()
+    assert mem.main([*root, *argv("zeta", work), "--owner-approved"]) == 0, capsys.readouterr().err
+    assert _tree(hub_root) != before
+
+
+def test_a_soft_term_of_the_other_kind_does_not_stop_a_note_or_a_synthesis(hub_root, tmp_path, terms_file, capsys):
+    argv_note = CASES["new-claim"][1]("zeta", tmp_path)
+    terms_file.write_text("soft[synthesis]: zeta\nsoft[lesson]: zeta\n")
+    assert mem.main(["--root", str(hub_root), *argv_note]) == 0
+    argv_syn = CASES["synthesis-new"][1]("zeta", tmp_path)
+    terms_file.write_text("soft[note]: zeta\n")
+    assert mem.main(["--root", str(hub_root), *argv_syn]) == 0

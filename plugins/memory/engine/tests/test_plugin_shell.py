@@ -257,3 +257,19 @@ def test_session_index_hook_finds_the_default_store(tmp_path):
     r = subprocess.run([str(HOOKS / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
                        env=env, capture_output=True, text=True)
     assert r.returncode == 0 and r.stderr == "" and " Store: 0 notes." in r.stdout.split("\n")[0]
+
+
+@needs_uv
+def test_clearing_the_store_option_removes_the_old_config_file_and_falls_back_to_the_default(tmp_path):
+    envfile = tmp_path / "env"
+    envfile.write_text("")
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(tmp_path / "share"), "CLAUDE_ENV_FILE": str(envfile)}
+    assert run([str(HOOK)], {**env, "CLAUDE_PLUGIN_OPTION_STORE": "/old/store"}).returncode == 0
+    old = tmp_path / "c" / "agent-memory" / "store"
+    assert old.read_text() == "/old/store\n"
+    envfile.write_text("")
+    r = run([str(HOOK)], env)  # the option is now empty
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+    assert not old.exists()
+    out = subprocess.run(["bash", "-c", f"source {envfile}; printf '%s' \"$MEM_STORE\""], capture_output=True, text=True).stdout
+    assert out == str(tmp_path / "share" / "agent-memory" / "store")

@@ -38,7 +38,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memories", "curate", "session-index", "signal")
+                    "distinct", "restore", "memories", "curate", "session-index", "signal", "projects")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -2636,6 +2636,46 @@ def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
             ("global", records.memories_root(os.environ, _optional_store(args)))]
 
 
+def _register_project(project: Path | None) -> None:
+    """Record the project in the local registry; never fails or prints, the command it follows has succeeded."""
+    if project is None:
+        return
+    try:
+        records.register_project(data_dir(os.environ), project, datetime.date.today())
+    except Exception:
+        pass
+
+
+def _named_folder(name: str) -> Path | None:
+    """The memory folder of a registered project; None when the name is unknown or the registry unreadable."""
+    try:
+        entry = records.read_registry(data_dir(os.environ)).get(name)
+    except ValueError:
+        return None
+    return records.project_dir(Path(entry["path"])) if entry else None
+
+
+def _other_projects(names: Sequence[str], every: bool) -> list[tuple[str, Path]] | None:
+    """The folders of the projects asked for, without the current one; None after a message on stderr."""
+    try:
+        reg = records.read_registry(data_dir(os.environ))
+    except ValueError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return None
+    for name in names:
+        if name not in reg:
+            print(f"mem: no project named {name} (see mem projects list)", file=sys.stderr)
+            return None
+    try:
+        current = records.project_root(Path.cwd(), os.environ)
+        current = current.resolve() if current else None
+    except OSError:
+        current = None
+    chosen = list(dict.fromkeys([*(reg if every else ()), *names]))
+    return [(n, records.project_dir(Path(reg[n]["path"]))) for n in chosen
+            if current is None or Path(reg[n]["path"]) != current]
+
+
 def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
     if m.status != "active":
         return m.status
@@ -2717,6 +2757,8 @@ def cmd_show(args: argparse.Namespace) -> int:
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return 2
+    if args.project and _other_projects([args.project], False) is None:
+        return 2
     if any(a.startswith("s:") or _is_memory_arg(args, a) for a in args.paths):
         blocks, shown, ok = [], [], True
         for arg in args.paths:
@@ -2772,6 +2814,9 @@ def _optional_store(args: argparse.Namespace) -> Path | None:
 
 def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None:
     """An exact handle: the project scope wins over the global one."""
+    named = getattr(args, "project", None)
+    if named:  # an explicit, read-only look at another project
+        return next((m for m in records.load_memories(_named_folder(named), "project") if m.handle == handle), None)
     project = records.project_root(Path.cwd(), os.environ)
     folders = [("project", records.project_dir(project) if project else None),
                ("global", records.memories_root(os.environ, _optional_store(args)))]
@@ -3124,6 +3169,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
+    _register_project(project)
     rel = m.path.relative_to(project if project is not None else folder).as_posix()
     print(f"m:{m.handle}\t{rel}")
     if exclude_failed:
@@ -3208,6 +3254,8 @@ def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
+    if found[0].scope == "project":
+        _register_project(records.project_root(Path.cwd(), os.environ))
     print("\n".join(lines))
     log_usage(_optional_store(args), {"cmd": name, "scope": found[0].scope, **_approval(args)})
     return 0
@@ -3530,9 +3578,15 @@ def _flat(text: str) -> str:
 
 def cmd_memories(args: argparse.Namespace) -> int:
     today = datetime.date.today()
-    folders = _memory_folders(args)
-    if not args.all:
-        folders = [f for f in folders if (f[0] == "global") == args.is_global]
+    if args.project:
+        named = _other_projects([args.project], False)
+        if named is None:
+            return 2
+        folders = [("project", _named_folder(args.project))]
+    else:
+        folders = _memory_folders(args)
+        if not args.all:
+            folders = [f for f in folders if (f[0] == "global") == args.is_global]
     shown = [m for _, _, loaded in _loaded(folders) for m in loaded
              if m.error is None and (args.kind is None or m.kind == args.kind)
              and (args.dead or records.is_live(m, today))]
@@ -3784,6 +3838,38 @@ def _term_class(term: records.Term) -> str:
     return "hard" if not term.soft else f"soft[{term.kind}]" if term.kind else "soft"
 
 
+def cmd_projects(args: argparse.Namespace) -> int:
+    data = data_dir(os.environ)
+    if data is None:
+        print("mem: no data folder is set (MEM_DATA, XDG_STATE_HOME or HOME), so there is no registry.", file=sys.stderr)
+        return 2
+    try:
+        if args.projects_command == "list":
+            today = datetime.date.today()
+            for name, entry in sorted(records.read_registry(data).items()):
+                path = Path(entry["path"])
+                if not path.is_dir():
+                    print(f"{name}\tmissing\t{path}")
+                    continue
+                live = [m for m in records.load_memories(records.project_dir(path), "project")
+                        if records.is_live(m, today)]
+                print(f"{name}\t{len(live)} memories\t{path}")
+        elif args.projects_command == "add":
+            path = Path(args.path).expanduser().resolve()
+            if not path.is_dir():
+                print(f"mem: {path} is not a folder.", file=sys.stderr)
+                return 2
+            name = records.register_project(data, path, datetime.date.today(), args.name)
+            print(f"{name}\t{path}")
+        elif not records.forget_project(data, args.name):
+            print(f"mem: no project named {args.name} (see mem projects list)", file=sys.stderr)
+            return 2
+    except (ValueError, OSError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_terms(args: argparse.Namespace) -> int:
     path = records.forbidden_file(os.environ)
     if path is None:
@@ -3978,6 +4064,7 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
     folder = root / syntheses.SYNTHESES_DIR
     today = datetime.date.today()
     action = args.synthesis_command
+    approved = getattr(args, "owner_approved", False)
     if action == "list":
         listed = syntheses.load(folder)
         try:
@@ -4015,6 +4102,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                 return 1
             if _refuse_secret([args.title, summary]):
                 return 4
+            if refused := _check_terms([args.title, args.slug, summary], "synthesis", approved):
+                return refused
             text = syntheses.render_new((_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
                                         title=args.title, topics=topics, summary=summary, today=today)
             path = syntheses.create(folder, args.slug, text)
@@ -4035,6 +4124,10 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                     return 1
             if _refuse_secret([getattr(args, "section", None) or "", body, *note_texts]):
                 return 4
+            if refused := _check_terms([getattr(args, "section", None) or "", body], "synthesis", approved):
+                return refused
+            if note_texts and (refused := _check_terms([*note_texts, args.note_slug], "note", approved)):
+                return refused
             if action == "add":
                 if section is not None:
                     raise ValueError("add takes s:<handle>, not a section")
@@ -4077,6 +4170,9 @@ def cmd_new(args: argparse.Namespace) -> int:
         body = _read_body(args.body_file) if args.body_file else None
         if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
             return 4
+        texts = [str(fields[k]) for k in ("title", "claim", "url", "question", "author", "slug") if k in fields]
+        if refused := _check_terms([*texts, args.slug, body or ""], "note", getattr(args, "owner_approved", False)):
+            return refused
         if getattr(args, "part_of", None):
             syn, sec = _section_ref(args.root, args.part_of)
             fields["part_of"] = f"{syn.handle}#{sec.handle}"
@@ -4120,6 +4216,8 @@ def cmd_unify(args: argparse.Namespace) -> int:
         body = _read_body(args.body_file)
         if _refuse_secret([body]):
             return 4
+        if refused := _check_terms([body], "note", getattr(args, "owner_approved", False)):
+            return refused
         keep, count, links = unify_notes(args.root, args.keep, args.others, body, drop=args.drop,
                                          today=datetime.date.today())
     except (NewNoteError, OSError, ValueError, FrontmatterError) as exc:
@@ -4206,6 +4304,9 @@ def cmd_search(args: argparse.Namespace) -> int:
         build_parser().error("query has no searchable words: use letters or digits")
     if args.links and args.offset:
         build_parser().error("--offset cannot be used with --links")
+    others = _other_projects(args.project, args.all_projects) if args.project or args.all_projects else []
+    if others is None:
+        return 2
     with_notes = args.scope != "memories"
     filters = {k: getattr(args, k) for k in ("type", "topic", "kind", "status", "confidence", "level")
                if getattr(args, k) is not None}
@@ -4226,14 +4327,15 @@ def cmd_search(args: argparse.Namespace) -> int:
     names = short_handles(args.root) if args.handles and with_notes else {}
     # memories stay out of any narrowed, paged or path-only note listing, unless they are all that was asked for
     memories: list[tuple[str, list[records.Memory]]] = []
+    other_memories: list[tuple[str, list[records.Memory]]] = []
     if args.scope != "notes" and not args.offset and not filters and (args.detail != "paths" or not with_notes):
         today = datetime.date.today()
-        for scope, folder in _memory_folders(args):
-            loaded = records.load_memories(folder, scope)
+        for scope, folder in [*_memory_folders(args), *((f"project: {n}", f) for n, f in others)]:
+            loaded = records.load_memories(folder, scope.split(":")[0])
             for m in loaded:
                 if m.error is not None:
                     print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
-            memories.append((scope, loaded))
+            (other_memories if ":" in scope else memories).append((scope, loaded))
     # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
     all_syntheses = (syntheses.load(args.root / syntheses.SYNTHESES_DIR)
                      if args.deep and args.scope == "all" and args.root is not None and not args.offset and not filters
@@ -4244,7 +4346,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         if args.also:
             print(f"== {query} ==")
         printed: list[str] = []
-        for scope, loaded in memories:
+        from_others = False
+        for scope, loaded in [*memories, *other_memories]:
             hits = records.match_memories(loaded, tokenize(query), today, tokenize=tokenize, limit=3,
                                           include_dead=args.all_memories)
             if not hits:
@@ -4254,10 +4357,13 @@ def cmd_search(args: argparse.Namespace) -> int:
             else:
                 print(f"-- memories ({scope}) --")
                 print("\n".join(_memory_line(m, today) for m in hits))
-            printed += [f"m:{m.handle}" for m in hits]
-        if with_notes and printed and result:
+            if ":" in scope:
+                from_others = True
+            else:
+                printed += [f"m:{m.handle}" for m in hits]
+        if with_notes and (printed or from_others) and result:
             print("-- notes --")
-        if not result and not printed and not args.offset:
+        if not result and not printed and not from_others and not args.offset:
             print("no matches", file=sys.stderr)
         terms = tokenize(query)
         weights = term_idf(corpus, terms) if corpus is not None else {}
@@ -4281,6 +4387,8 @@ def cmd_search(args: argparse.Namespace) -> int:
         extra = {"links": True, "linked": [note.rel for note, _ in linked]} if args.links else {}
         if printed:
             extra["memories"] = printed
+        if args.project or args.all_projects:
+            extra["projects"] = len(other_memories)
         if sections:
             extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in sections]
         if args.deep:
@@ -4451,6 +4559,10 @@ def build_parser() -> argparse.ArgumentParser:
                                     "(default: knowledge notes and memories)")
     search_parser.add_argument("--all-memories", action="store_true",
                                help="also match refuted, superseded and expired memories")
+    search_parser.add_argument("--project", action="append", default=[], metavar="NAME",
+                               help="also search this registered project's memories (repeatable; see mem projects list)")
+    search_parser.add_argument("--all-projects", action="store_true",
+                               help="also search the memories of every registered project but the current one")
     search_parser.set_defaults(func=cmd_search)
     for filtered in (find_parser, search_parser):
         filtered.add_argument("--type", choices=INDEX_FOLDERS)
@@ -4491,6 +4603,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--ranges", action="store_true",
                              help="with --outline: print start-end lines and word count per heading")
     show_parser.add_argument("--all", action="store_true", help="a synthesis: print the whole file, not its outline")
+    show_parser.add_argument("--project", metavar="NAME", help="read a memory of this registered project")
     show_parser.set_defaults(func=cmd_show)
     topics_parser = sub.add_parser("topics", help="print the topic tree with note counts")
     topics_parser.add_argument("topic", nargs="?", metavar="ID", help="print only this topic's subtree")
@@ -4521,6 +4634,7 @@ def build_parser() -> argparse.ArgumentParser:
     unify_parser.add_argument("others", nargs="+", metavar="OTHER", help="notes that KEEP replaces")
     unify_parser.add_argument("--body-file", required=True, metavar="PATH",
                               help="the unified body (after the frontmatter); - reads standard input")
+    unify_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     unify_parser.add_argument("--drop", action="store_true",
                               help="accept a unified text that lacks a link the notes had")
     unify_parser.set_defaults(func=cmd_unify)
@@ -4543,6 +4657,7 @@ def build_parser() -> argparse.ArgumentParser:
         if note_type == "knowledge":
             type_parser.add_argument("--part-of", metavar="s:HANDLE#SECTION",
                                      help="the synthesis section this note summarizes")
+        type_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
         type_parser.set_defaults(func=cmd_new)
     remember_parser = sub.add_parser("remember", help="write a memory in the project or, with --global, in the global folder")
     remember_parser.add_argument("--kind", required=True, choices=records.KINDS)
@@ -4601,6 +4716,7 @@ def build_parser() -> argparse.ArgumentParser:
     scope_group = memories_parser.add_mutually_exclusive_group()
     scope_group.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
     scope_group.add_argument("--all", action="store_true", help="project and global memories")
+    scope_group.add_argument("--project", metavar="NAME", help="the memories of this registered project")
     curate_scope = curate_parser.add_mutually_exclusive_group()
     curate_scope.add_argument("--project", dest="is_project", action="store_true", help="the project's memories only")
     curate_scope.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
@@ -4638,6 +4754,8 @@ def build_parser() -> argparse.ArgumentParser:
     syn_attach = synthesis_sub.add_parser("attach", help="make a knowledge note the short recall of a section")
     syn_attach.add_argument("note", metavar="NOTE")
     syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
+    for syn_cmd in (syn_new, syn_add, syn_edit, syn_append):
+        syn_cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
     synthesis_parser.set_defaults(func=cmd_synthesis)
@@ -4651,6 +4769,15 @@ def build_parser() -> argparse.ArgumentParser:
     terms_remove = terms_sub.add_parser("remove", help="remove every line that holds exactly this term")
     terms_remove.add_argument("term")
     terms_parser.set_defaults(func=cmd_terms)
+    projects_parser = sub.add_parser("projects", help="the local registry of projects whose memories can be searched")
+    projects_sub = projects_parser.add_subparsers(dest="projects_command", required=True)
+    projects_sub.add_parser("list", help="one line per project: name, live memories, path")
+    projects_add = projects_sub.add_parser("add", help="register a project by hand")
+    projects_add.add_argument("path")
+    projects_add.add_argument("--name")
+    projects_remove = projects_sub.add_parser("remove", help="forget a project; its files are not touched")
+    projects_remove.add_argument("name")
+    projects_parser.set_defaults(func=cmd_projects)
     init_parser = sub.add_parser("init", help="make a folder a writable store (default: the default store)")
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)

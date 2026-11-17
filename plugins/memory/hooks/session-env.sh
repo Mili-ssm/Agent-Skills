@@ -33,6 +33,8 @@ default_store() {
 if [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then
   handle "$CLAUDE_PLUGIN_OPTION_STORE" store MEM_STORE
 else
+  # The option was cleared: the fallback file must not keep an old path alive.
+  rm -f "$cfg/store" 2>/dev/null
   default_store
 fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
