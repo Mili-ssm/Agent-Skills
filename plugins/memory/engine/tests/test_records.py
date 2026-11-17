@@ -370,3 +370,14 @@ def test_project_root_override_expands_home_and_resolves(tmp_path, monkeypatch):
     assert records.project_root(tmp_path, {"MEM_PROJECT": "~/projX"}) == (tmp_path / "projX").resolve()
     monkeypatch.chdir(tmp_path)
     assert records.project_root(tmp_path, {"MEM_PROJECT": "rel"}) == (tmp_path / "rel").resolve()
+
+
+def test_document_needs_a_source_and_has_no_default_expiry(tmp_path):
+    with pytest.raises(ValueError, match="document"):
+        records.write_memory(tmp_path, "project", kind="document", claim="No source.", body="", today=TODAY)
+    assert list(tmp_path.glob("*.md")) == []
+    m = records.write_memory(tmp_path, "project", kind="document", claim="With a path.", body="",
+                             today=TODAY, sources=["docs/spec.pdf"])
+    assert m.valid_until is None and "valid_until" not in m.path.read_text()
+    [loaded] = records.load_memories(tmp_path, "project")
+    assert loaded.kind == "document" and loaded.sources == ["docs/spec.pdf"]

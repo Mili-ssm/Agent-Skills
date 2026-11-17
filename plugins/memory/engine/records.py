@@ -15,7 +15,7 @@ from typing import Callable, Iterable, Mapping, Sequence
 
 import yaml
 
-KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "state")
+KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
 STATUSES = ("active", "refuted", "superseded")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
@@ -213,9 +213,9 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     claim = claim.strip()
     if not claim:
         raise ValueError("claim is empty")
+    if kind in ("finding", "document") and not sources:
+        raise ValueError(f"a {kind} needs at least one source")
     if kind == "finding":
-        if not sources:
-            raise ValueError("a finding needs at least one source")
         if valid_until is None:
             valid_until = today + datetime.timedelta(days=90)
     folder.mkdir(parents=True, exist_ok=True)

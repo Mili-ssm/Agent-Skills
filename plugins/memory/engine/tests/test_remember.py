@@ -348,3 +348,17 @@ def test_rejected_call_leaves_no_exclude_line(repo, capsys):
     assert not (repo / ".memory").exists()
     ex = repo / ".git" / "info" / "exclude"
     assert not ex.exists() or ".memory" not in ex.read_text()
+
+
+def test_document_needs_a_source_and_takes_a_path(repo, capsys):
+    assert remember(kind="document") == 2
+    assert "document" in capsys.readouterr().err and not (repo / ".memory").exists()
+    assert remember("--source", "docs/spec.pdf", kind="document") == 0
+    text = (repo / ".memory" / "retries-need-idempotency-keys.md").read_text()
+    assert "docs/spec.pdf" in text and "valid_until" not in text
+
+
+def test_document_in_global_scope_checks_forbidden_terms_in_sources(gfolder, tmp_path, capsys):
+    forbid(tmp_path, "acme")
+    assert remember("--global", "--source", "/srv/ACME/spec.pdf", kind="document") == 4
+    assert remember("--global", "--source", "/srv/other/spec.pdf", kind="document") == 0

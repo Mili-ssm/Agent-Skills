@@ -15,7 +15,7 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "valid"
 def hub_root(tmp_path: Path) -> Path:
     root = tmp_path / "hub"
     shutil.copytree(FIXTURE, root)
-    shutil.copytree(Path(__file__).resolve().parent / "fixtures" / "templates", root / "templates")
+    shutil.copytree(ENGINE / "templates", root / "templates")
     (root / "mem-store.yaml").write_text("format: 1\n", encoding="utf-8")  # the marker that makes a store writable
     return root
 

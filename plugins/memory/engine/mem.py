@@ -2321,7 +2321,10 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
         facts += f" \u00b7 valid until {m.valid_until.isoformat()}"
     if m.context:
         facts += f" \u00b7 context: {m.context}"
-    out = [f"== m:{m.handle} ({m.scope})", facts, "", "## Claim", " ".join(m.claim.split())]
+    out = [f"== m:{m.handle} ({m.scope})", facts]
+    if m.sources:
+        out.append(f"sources: {', '.join(m.sources)}")
+    out += ["", "## Claim", " ".join(m.claim.split())]
     if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
         out += ["", m.body.rstrip("\n")]
     return "\n".join(out)
@@ -2362,7 +2365,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0 if ok else 1
 
 
-_INIT_ALLOWED = {"mem-store.yaml", "topics.yaml", "literature", "knowledge", "research", "memories",
+_INIT_ALLOWED = {"mem-store.yaml", "topics.yaml", "literature", "knowledge", "research", "memories", "templates",
                  ".git", ".gitignore", "README.md"}
 
 
@@ -2564,8 +2567,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
             print(_READ_ONLY_PROJECT, file=sys.stderr)
             return 2
     scope = "global" if args.is_global else "project"
-    if args.kind == "finding" and not args.source:
-        print("mem: a finding needs at least one --source.", file=sys.stderr)
+    if args.kind in ("finding", "document") and not args.source:
+        print(f"mem: a {args.kind} needs at least one --source.", file=sys.stderr)
         return 2
     try:
         body = _memory_body(args.body_file)
@@ -2643,6 +2646,9 @@ def cmd_observe(args: argparse.Namespace) -> int:
     return 0
 
 
+_TEMPLATES = Path(__file__).resolve().parent / "templates"
+
+
 def cmd_init(args: argparse.Namespace) -> int:
     folder = Path(args.folder).expanduser()
     if folder.exists() and not folder.is_dir():
@@ -2662,7 +2668,10 @@ def cmd_init(args: argparse.Namespace) -> int:
         folder.mkdir(parents=True, exist_ok=True)
         for name in ("literature", "knowledge", "research", records.GLOBAL_DIR):
             (folder / name).mkdir(exist_ok=True)
-        for name, text in ((records.STORE_MARKER, "format: 1\n"), ("topics.yaml", "{}\n")):
+        if not (folder / "templates").exists():
+            shutil.copytree(_TEMPLATES, folder / "templates")
+        for name, text in ((records.STORE_MARKER, "format: 1\n"),
+                           ("topics.yaml", "notes: {description: General notes}\n")):
             if not (folder / name).exists():
                 (folder / name).write_text(text, encoding="utf-8")
     except OSError as exc:
@@ -3092,7 +3101,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--body-file", metavar="PATH", help="text (or - for standard input); may be empty")
     remember_parser.add_argument("--context")
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
-    remember_parser.add_argument("--source", action="append", default=[], metavar="URL")
+    remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.set_defaults(func=cmd_remember)

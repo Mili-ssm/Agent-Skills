@@ -206,3 +206,14 @@ def test_read_is_an_alias_of_show(hub_root, project, capsys):
     assert code == 0 and read == shown
     code, read, _ = run(capsys, "read", f"m:{slug}")
     assert code == 0 and read == shown
+
+
+def test_document_listing_and_show_sources_line(project, capsys):
+    put(project, "Vendor spec says X", kind="document")
+    text = (project / "vendor-spec-says-x.md").read_text().replace("status: active\n", "status: active\nsources:\n- a.pdf\n- https://example.org/b\n")
+    (project / "vendor-spec-says-x.md").write_text(text)
+    assert mem.main(["search", "vendor", "--scope", "memories"]) == 0
+    assert "[memory: document, observed 1, 2026-01-05]" in capsys.readouterr().out
+    assert mem.main(["show", "m:vendor-spec-says-x"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].startswith("kind: document") and lines[2] == "sources: a.pdf, https://example.org/b"
