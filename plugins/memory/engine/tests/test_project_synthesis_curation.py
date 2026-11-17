@@ -136,3 +136,45 @@ def test_session_index_runs_no_git(proj, tmp_path, monkeypatch):
         raise AssertionError("git was called")
     monkeypatch.setattr(ps.subprocess, "run", fail)
     assert "p:organization" in first_line(proj)
+
+
+UNREADABLE_HEAD = "-- project syntheses: unreadable --"
+
+
+def test_curate_lists_a_broken_file_and_still_shows_the_others(proj, tmp_path, capsys):
+    add(tmp_path)
+    (proj / ".memory" / "syntheses" / "plans.md").write_text("no frontmatter here\n", encoding="utf-8")
+    (proj / "src" / "a.py").write_text("a = 2\n")
+    capsys.readouterr()
+    code, out, err = run(capsys, "curate")
+    assert code == 0
+    lines = out.splitlines()
+    assert UNREADABLE_HEAD in lines
+    row = lines[lines.index(UNREADABLE_HEAD) + 1]
+    assert row.startswith("syntheses/plans.md\t") and "frontmatter" in row
+    assert STALE_HEAD in lines and "p:organization#where-the-engine-lives" in out
+    assert err == ""
+
+
+def test_session_index_survives_a_broken_file(proj):
+    memories(proj, 2)
+    (proj / ".memory" / "syntheses").mkdir(exist_ok=True)
+    (proj / ".memory" / "syntheses" / "plans.md").write_text("garbage\n", encoding="utf-8")
+    assert first_line(proj).endswith(" " + SENTENCE.format("p:plans"))
+
+
+def test_curate_checks_freshness_in_the_sessions_linked_worktree(proj, tmp_path, monkeypatch, capsys):
+    add(tmp_path)
+    git(proj, "add", "-A")
+    git(proj, "commit", "-q", "-m", "synthesis")
+    linked = tmp_path / "linked"
+    git(proj, "worktree", "add", "-q", "-b", "feature", str(linked))
+    monkeypatch.delenv("MEM_PROJECT")
+    monkeypatch.chdir(proj)
+    capsys.readouterr()
+    assert STALE_HEAD not in run(capsys, "curate")[1]
+    (linked / "src" / "a.py").write_text("a = 2\n")
+    git(linked, "commit", "-q", "-am", "change in the linked worktree")
+    monkeypatch.chdir(linked)
+    out = run(capsys, "curate")[1]
+    assert STALE_HEAD in out and "p:organization#where-the-engine-lives" in out

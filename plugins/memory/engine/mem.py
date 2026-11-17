@@ -3856,12 +3856,11 @@ def _curate_project_syntheses(scopes: Sequence[tuple[str, Path | None, list[reco
     if context is None:
         return []
     memory_dir, tree = context
-    try:
-        found = project_syntheses.load(memory_dir)
-    except project_syntheses.ProjectSynthesisError as exc:
-        print(f"mem: {exc}", file=sys.stderr)
-        return []
+    found, broken = project_syntheses.load_each(memory_dir)
     out: list[str] = []
+    if broken:
+        out.append("-- project syntheses: unreadable --")
+        out += [f"{path}\t{error}" for path, error in broken]
     states = [(name, part, project_syntheses.freshness(tree, part.stamp)) for name, parts in found.items()
               for part in parts]
     stale = [(name, part, state) for name, part, state in states if state != project_syntheses.FRESH]
@@ -3870,7 +3869,7 @@ def _curate_project_syntheses(scopes: Sequence[tuple[str, Path | None, list[reco
         out += [f"p:{name}#{part.handle}\t{project_syntheses.describe(state)}" for name, part, state in stale]
     active = sum(1 for scope, _, loaded in scopes if scope == "project"
                  for m in loaded if m.error is None and records.is_live(m, today))
-    if not found and active >= _PROJECT_SYNTHESIS_MIN_MEMORIES:
+    if not found and not broken and active >= _PROJECT_SYNTHESIS_MIN_MEMORIES:
         out += ["-- project syntheses: none yet --",
                 f"{active} active memories and no project synthesis: organize them (see the memory-curation skill)."]
     return out

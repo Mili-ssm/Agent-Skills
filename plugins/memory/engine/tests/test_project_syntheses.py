@@ -292,3 +292,11 @@ def test_covers_uncommitted_sees_only_covered_changes_and_needs_git(tmp_path, gi
     plain = tmp_path / "plain"
     (plain / "src").mkdir(parents=True)
     assert not ps.covers_uncommitted(plain, ["src/"])
+
+
+def test_load_each_skips_a_broken_file_and_reports_it(git_project, mem_dir):
+    write(mem_dir, git_project)
+    (mem_dir / "syntheses" / "plans.md").write_text("no frontmatter here\n", encoding="utf-8")
+    found, broken = ps.load_each(mem_dir)
+    assert list(found) == ["organization"]
+    assert [(p, e.startswith("plans.md:")) for p, e in broken] == [("syntheses/plans.md", True)]

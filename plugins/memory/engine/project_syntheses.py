@@ -113,6 +113,21 @@ def load(memory_dir: Path) -> dict[str, list[Part]]:
     return found
 
 
+def load_each(memory_dir: Path) -> tuple[dict[str, list[Part]], list[tuple[str, str]]]:
+    """Like `load`, but a broken file does not stop the rest: (name -> parts of the files that load,
+    [(path under memory_dir, error message)] of the ones that do not). No git."""
+    found: dict[str, list[Part]] = {}
+    broken: list[tuple[str, str]] = []
+    for name in NAMES:
+        path = folder(memory_dir) / f"{name}.md"
+        if path.is_file():
+            try:
+                found[name] = _parse(path)
+            except ProjectSynthesisError as exc:
+                broken.append((path.relative_to(memory_dir).as_posix(), str(exc)))
+    return found, broken
+
+
 def worktree(cwd: Path, project_root: Path, env: Mapping[str, str]) -> Path:
     """The working tree the session is in: the project root when MEM_PROJECT names the project, else the
     repository's top level at `cwd` (a linked worktree is its own), else the project root."""

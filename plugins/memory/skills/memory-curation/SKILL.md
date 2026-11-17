@@ -46,6 +46,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 - Name folders in `--paths`, not many files: a folder survives renames and keeps the stamp meaningful.
 - Cite memories in the body as `m:<handle>`; never list files or line numbers, since they go stale on the next edit.
 - Possibly stale part: check its files, then `add` again with the corrected text, or `confirm` when it still holds.
+- Unreadable part file (`-- project syntheses: unreadable --`): open it and fix the reason shown, or move it out of `.memory/syntheses/`; curation skips it until then.
 - Write or confirm a part after committing the changes it describes, because the stamp is the commit (`add` and `confirm` print a note when covered files are uncommitted).
 
 ## Rules
