@@ -4243,7 +4243,7 @@ def cmd_rename(args: argparse.Namespace) -> int:
 _IMPORT_FOLDERS = ("literature", "knowledge", "research")
 
 
-def _import_files(src: Path, with_sources: bool) -> list[str]:
+def _import_files(src: Path, with_sources: bool, research_data: bool = False) -> list[str]:
     """Source-relative paths to import, sorted. The source is only listed and read, never written."""
     found: list[str] = []
     roots = [*_IMPORT_FOLDERS, *([".sources"] if with_sources else [])]
@@ -4255,6 +4255,9 @@ def _import_files(src: Path, with_sources: bool) -> list[str]:
             for name in names:
                 rel = (Path(here) / name).relative_to(src)
                 if top != ".sources" and name.startswith("."):
+                    continue
+                # An investigation's data and code stay where the experiments live; its documents are the memory.
+                if top == "research" and not research_data and not name.endswith(".md"):
                     continue
                 # the generated listings: folder/README.md and, for literature and knowledge, folder/topic/README.md
                 if name == "README.md" and top != ".sources" and len(rel.parts) in ((2,) if top == "research" else (2, 3)):
@@ -4329,7 +4332,7 @@ def cmd_import(args: argparse.Namespace) -> int:
     except FrontmatterError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    files = _import_files(src, args.with_sources)
+    files = _import_files(src, args.with_sources, args.research_data)
     kinds = collections.Counter(k for k in map(_note_kind, files) if k)
     todo: list[str] = []
     same, conflicts = 0, []
@@ -4793,6 +4796,8 @@ def build_parser() -> argparse.ArgumentParser:
     import_parser.add_argument("--dry-run", action="store_true", help="change nothing; print the report a real run would")
     import_parser.add_argument("--overwrite", action="store_true", help="replace files that differ (the old text goes to the curation log)")
     import_parser.add_argument("--with-sources", action="store_true", help="also copy the source's .sources/ folder")
+    import_parser.add_argument("--research-data", action="store_true",
+                               help="also copy the data and code under research/ (by default only its Markdown files)")
     import_parser.set_defaults(func=cmd_import)
     unify_parser = sub.add_parser("unify", help="replace several notes of one type with one, keeping the others as "
                                                  "superseded files and pointing their links at it")

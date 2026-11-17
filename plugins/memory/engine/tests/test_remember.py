@@ -413,6 +413,7 @@ def test_a_secret_is_refused_in_the_global_scope(repo, gfolder, tmp_path, capsys
     "token=xxxxxxxxxxxx",
     "secret: example-value-1",
     "An sk-short key and a ghp_short one.",
+    "See risk-parity-had-a-higher-sharpe-ratio and ask-yourself-dumb-questions-first.",
 ])
 def test_ordinary_prose_and_placeholders_are_not_secrets(text):
     assert records.secret_in([text]) is None

@@ -55,13 +55,13 @@ def test_a_first_import_copies_the_notes_and_makes_them_searchable(source, dest,
     assert lines[0] == f"source: {source.resolve()}"
     assert lines[1] == f"destination: {dest.resolve()}"
     assert lines[2] == "notes: 1 literature, 1 knowledge, 1 research"
-    assert lines[3] == "files: 5 copied, 0 identical, 0 conflicts"
+    assert lines[3] == "files: 4 copied, 0 identical, 0 conflicts"
     assert lines[4] == "topics: 6 added, 0 kept as they were"
     assert lines[5] == "check: 0 problems"
     assert lines[6] == "flagged: 0 files"
     assert len(lines) == 7
     assert (dest / "knowledge/computing/attention-replaces-recurrence.md").is_file()
-    assert (dest / "research/2026-11-llm-eval-methods/data.csv").is_file()
+    assert not (dest / "research/2026-11-llm-eval-methods/data.csv").exists()  # data: only with --research-data
     assert "attention-replaces-recurrence" in (dest / "knowledge/computing/README.md").read_text(encoding="utf-8")
     assert not (dest / ".hidden").exists()
     assert not (dest / "research/2026-11-llm-eval-methods/__pycache__").exists()
@@ -82,7 +82,7 @@ def test_a_second_import_copies_nothing(source, dest, capsys):
     run(dest, source, capsys)
     code, out, _ = run(dest, source, capsys)
     assert code == 0
-    assert "files: 0 copied, 5 identical, 0 conflicts" in out
+    assert "files: 0 copied, 4 identical, 0 conflicts" in out
     assert "topics: 0 added, 0 kept as they were" in out
 
 
@@ -93,12 +93,12 @@ def test_a_changed_destination_file_is_a_conflict_until_overwrite(source, dest, 
     target.write_text(mine, encoding="utf-8")
     code, out, _ = run(dest, source, capsys)
     assert code == 0
-    assert "files: 0 copied, 4 identical, 1 conflicts" in out
+    assert "files: 0 copied, 3 identical, 1 conflicts" in out
     assert out.split("conflicts:\n")[1].splitlines()[0].strip() == "knowledge/computing/attention-replaces-recurrence.md"
     assert target.read_text(encoding="utf-8") == mine
     code, out, _ = run(dest, source, capsys, "--overwrite")
     assert code == 0
-    assert "files: 1 copied, 4 identical, 0 conflicts" in out
+    assert "files: 1 copied, 3 identical, 0 conflicts" in out
     assert "My edit." not in target.read_text(encoding="utf-8")
     log = [json.loads(line) for line in (dest / ".curation-log").read_text(encoding="utf-8").splitlines()]
     assert len(log) == 1 and "My edit." in log[0]["before"] and log[0]["action"] == "import"
@@ -133,14 +133,14 @@ def test_with_sources_copies_the_sources_folder(source, dest, capsys):
     code, out, _ = run(dest, source, capsys, "--with-sources")
     assert code == 0
     assert (dest / ".sources/2017-vaswani-attention/paper.txt").read_text(encoding="utf-8") == "text\n"
-    assert "files: 6 copied" in out
+    assert "files: 5 copied" in out
 
 
 def test_generated_listings_are_not_copied(source, dest, capsys):
     (source / "literature" / "README.md").write_text("SOURCE-LISTING\n", encoding="utf-8")
     (source / "knowledge" / "computing" / "README.md").write_text("SOURCE-LISTING\n", encoding="utf-8")
     code, out, _ = run(dest, source, capsys)
-    assert code == 0 and "files: 5 copied" in out
+    assert code == 0 and "files: 4 copied" in out
     assert not (dest / "literature" / "README.md").exists()  # copied listings would be here; none is made without a marker
     assert "SOURCE-LISTING" not in (dest / "knowledge/computing/README.md").read_text(encoding="utf-8")
 
@@ -181,3 +181,14 @@ def test_a_file_with_a_secret_is_flagged_and_still_copied(source, dest, capsys):
     assert "flagged: 1 files" in out
     assert out.split("flagged:\n")[1].splitlines()[0].strip() == "knowledge/computing/attention-replaces-recurrence.md"
     assert "AKIA" in (dest / "knowledge/computing/attention-replaces-recurrence.md").read_text(encoding="utf-8")
+
+
+def test_research_data_is_copied_only_on_request(source, tmp_path, capsys):
+    plain, full = tmp_path / "plain", tmp_path / "full"
+    assert mem.main(["init", str(plain)]) == 0 and mem.main(["init", str(full)]) == 0
+    data = "research/2026-11-llm-eval-methods/data.csv"
+    assert run(plain, source, capsys)[0] == 0
+    assert not (plain / data).exists()
+    assert (plain / "research/2026-11-llm-eval-methods/README.md").is_file()
+    assert run(full, source, capsys, "--research-data")[0] == 0
+    assert (full / data).read_text(encoding="utf-8") == "a,b\n1,2\n"

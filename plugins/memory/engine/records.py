@@ -651,7 +651,7 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("AWS access key id", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("GitHub token", re.compile(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}")),
-    ("API key", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
+    ("API key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}")),  # not the "sk-" inside "risk-parity-…"
     ("Slack token", re.compile(r"xox[bpars]-\S{10,}")),
     ("credential in a URL", re.compile(r"://[^/\s:@]+:[^/\s@]+@")),
 )
