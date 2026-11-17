@@ -22,7 +22,10 @@ def work_dir(prefix: str) -> Path:
 
 
 def make_env(work: Path) -> dict:
-    env = {k: v for k, v in os.environ.items() if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT")}
+    # The plugin's hooks turn CLAUDE_PLUGIN_OPTION_* into MEM_* variables, so an inherited option would point a
+    # session at the owner's store or global memories: drop both families.
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT") and not k.startswith("CLAUDE_PLUGIN_OPTION_")}
     env.update(XDG_CONFIG_HOME=str(work / "cfg"), XDG_DATA_HOME=str(work / "xdg-data"), MEM_DATA=str(work / "data"))
     env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p)
     (work / "cfg" / "agent-memory").mkdir(parents=True, exist_ok=True)
@@ -50,10 +53,19 @@ def _real_store() -> Path:
     return Path(data) / "agent-memory" / "store"
 
 
+def _snapshot(folder: Path) -> dict[str, int]:
+    """Every file under the owner's store with its modification time; empty when there is no store."""
+    if not folder.is_dir():
+        return {}
+    return {str(p.relative_to(folder)): p.stat().st_mtime_ns for p in folder.rglob("*") if p.is_file()}
+
+
 def self_check(prefix: str) -> int:
-    """No model: prove that a session's `mem` sees only the folders under `target/`."""
+    """No model: prove that a session's `mem` sees only the folders under `target/`.
+
+    Run it while nothing else writes to the owner's store: it compares the store's files before and after."""
     real = _real_store()
-    before = real.stat().st_mtime_ns if real.exists() else None
+    before = _snapshot(real)
     work = work_dir(prefix)
     env = make_env(work)
     project = work / "self-check-project"
@@ -62,10 +74,11 @@ def self_check(prefix: str) -> int:
     out = subprocess.run([str(PLUGIN / "bin" / "mem"), "session-index"], cwd=project, env=env, check=True,
                          capture_output=True, text=True).stdout
     assert "Store:" not in out, f"a store was found from the real home:\n{out}"
+    assert "Global memories:" not in out, f"global memories were found outside target/:\n{out}"
+    assert not any(k.startswith("CLAUDE_PLUGIN_OPTION_") for k in env), "a plugin option reaches the session"
     assert Path(env["XDG_DATA_HOME"]).resolve().is_relative_to(TARGET.parent), env["XDG_DATA_HOME"]
     assert not any("/plugins/cache/" in p for p in env["PATH"].split(os.pathsep)), "installed plugin on PATH"
-    after = real.stat().st_mtime_ns if real.exists() else None
-    assert before == after, "the owner's store folder changed"
+    assert _snapshot(real) == before, "a file of the owner's store changed"
     clean(work)
     print("self-check passed")
     return 0
