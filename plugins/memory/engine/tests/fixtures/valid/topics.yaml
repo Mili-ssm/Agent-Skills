@@ -1,0 +1,6 @@
+computing:     {description: Computer science and software}
+ml:            {parent: computing, description: Machine learning}
+deep-learning: {parent: ml}
+llm:           {parent: deep-learning, description: Large language models}
+biology:       {}
+algorithms:    {parent: computing}

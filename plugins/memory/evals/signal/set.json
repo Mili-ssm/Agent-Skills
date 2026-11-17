@@ -1,0 +1,230 @@
+{
+ "boilerplate": "Decisions already taken: do not reopen them. Stop rule: if the brief does not fit what you find, stop and report the gap instead of improvising. Report: DONE or BLOCKED, the commit hash, the test summary line, what you changed and why, and an open questions or risks line, in at most 120 words. Do not touch files outside the scope. Run the checks before you report. Commit locally and do not push.",
+ "memories": {
+  "deploy-vpn": "deploy.sh fails silently when the VPN is not active: it prints no error and deploys nothing.",
+  "billing-backup": "The nightly billing job must not overlap the backup that starts at 01:00.",
+  "reportgen-pdf": "The reportgen library corrupts PDF exports from version 3.2 on; stay on 3.1.",
+  "staging-down": "The staging environment is down until Friday because of a database migration.",
+  "pandas-int-null": "pandas silently converts integer columns that contain nulls to float64.",
+  "idempotency-retries": "Retrying a request without an idempotency key duplicates its side effects.",
+  "worktree-force": "git worktree remove refuses a worktree with uncommitted changes unless --force is given.",
+  "vacuum-full-lock": "PostgreSQL VACUUM FULL rewrites the entire table and takes an ACCESS EXCLUSIVE lock.",
+  "orders-api-pages": "The orders API returns at most 100 rows per page and ignores larger page sizes.",
+  "tests-timezone": "Date tests fail on machines whose time zone is not UTC because fixtures store naive datetimes.",
+  "supplier-csv-latin1": "The supplier CSV exports are encoded in Latin-1, not UTF-8.",
+  "pricing-cache": "The pricing cache must be invalidated after every catalog import or prices stay stale for an hour.",
+  "migrations-before-workers": "Database migrations must run before the workers restart or jobs crash on missing columns.",
+  "ruff-line-length": "The owner wants ruff with line length 120 and no automatic import sorting.",
+  "upload-test-flaky": "The upload integration test is flaky when run in parallel because both workers share one bucket."
+ },
+ "notes": [
+  "bm25-is-a-strong-zero-shot-baseline-for-text-retrieval",
+  "retries-without-idempotency-keys-duplicate-side-effects",
+  "context-is-a-finite-budget",
+  "testing-shows-the-presence-of-bugs-not-their-absence",
+  "a-runnable-check-lets-agents-fix-their-own-errors",
+  "prompt-changes-are-judged-on-a-fixed-eval-set",
+  "safe-rust-cannot-perform-a-data-race",
+  "most-decimal-fractions-have-no-exact-binary-floating-point-form",
+  "consistent-hashing-moves-items-only-to-newly-added-buckets",
+  "2017-vaswani-attention",
+  "2021-thakur-beir",
+  "wcag-22-aa-text-contrast-is-4-5-to-1-and-ui-contrast-3-to-1",
+  "release-builds-are-often-10-100-times-faster-than-rust-dev-builds",
+  "small-eval-sets-cannot-detect-small-effects",
+  "fixed-workflows-suit-predictable-steps-better-than-agents"
+ ],
+ "briefs": [
+  {
+   "id": 1,
+   "text": "Goal: add a --dry-run flag to deploy.sh so it lists what it would deploy. Scope: deploy.sh only. Decision: keep rsync. Check: run deploy.sh --dry-run with and without the VPN active and compare what it prints.",
+   "related": [
+    "deploy-vpn"
+   ]
+  },
+  {
+   "id": 2,
+   "text": "Goal: move the nightly billing job in crontab.txt from 04:00 to 01:30. Scope: crontab.txt. The backup also starts at 01:00, so check whether the billing job would overlap it.",
+   "related": [
+    "billing-backup"
+   ]
+  },
+  {
+   "id": 3,
+   "text": "Goal: upgrade reportgen to the newest 3.x version in requirements.txt and regenerate the PDF exports. Scope: requirements.txt and the export script. Check: the PDF exports open.",
+   "related": [
+    "reportgen-pdf"
+   ]
+  },
+  {
+   "id": 4,
+   "text": "Goal: run the smoke suite against the staging environment after the database migration and report failures. Scope: read-only. Check: the suite's summary line.",
+   "related": [
+    "staging-down"
+   ]
+  },
+  {
+   "id": 5,
+   "text": "Goal: fix the stock report, which shows decimals in unit counts. The loader reads integer columns with pandas and some contain nulls. Scope: reports/stock.py. Check: unit counts print as integers.",
+   "related": [
+    "pandas-int-null"
+   ]
+  },
+  {
+   "id": 6,
+   "text": "Goal: make the payment client retry a failed request up to three times. Scope: clients/payments.py. Decision: exponential backoff. Check: a failed request is retried and the charge appears once; consider an idempotency key so retrying does not duplicate side effects.",
+   "related": [
+    "idempotency-retries",
+    "retries-without-idempotency-keys-duplicate-side-effects"
+   ]
+  },
+  {
+   "id": 7,
+   "text": "Goal: clean up old git worktrees under ../wt. Some have uncommitted changes. Scope: only worktree folders. Check: git worktree list shows the main one; do not use --force unless a worktree is confirmed disposable.",
+   "related": [
+    "worktree-force"
+   ]
+  },
+  {
+   "id": 8,
+   "text": "Goal: reclaim space from the bloated events table in PostgreSQL. Decision: use VACUUM FULL during the maintenance window. Scope: the events table. Check: table size before and after.",
+   "related": [
+    "vacuum-full-lock"
+   ]
+  },
+  {
+   "id": 9,
+   "text": "Goal: export every order through the orders API into a CSV. Decision: request 500 rows per page to reduce calls. Scope: scripts/export_orders.py. Check: the row count equals the API's total.",
+   "related": [
+    "orders-api-pages"
+   ]
+  },
+  {
+   "id": 10,
+   "text": "Goal: find why the date tests fail on the new laptop but pass in CI. The laptop's time zone is Madrid; CI runs in UTC. Scope: tests/test_dates.py and its fixtures. Check: the tests pass in both time zones.",
+   "related": [
+    "tests-timezone"
+   ]
+  },
+  {
+   "id": 11,
+   "text": "Goal: import the supplier CSV exports into the catalog; accented names arrive garbled. Scope: importers/supplier.py. Check: names with accents round-trip. The files may not be UTF-8.",
+   "related": [
+    "supplier-csv-latin1"
+   ]
+  },
+  {
+   "id": 12,
+   "text": "Goal: after the catalog import, prices on the site are still the old ones for a while. Find out why and fix it. Scope: catalog import and the pricing cache. Check: a changed price is visible right after an import.",
+   "related": [
+    "pricing-cache"
+   ]
+  },
+  {
+   "id": 13,
+   "text": "Goal: write the release runbook step for restarting the workers. Decide the order of database migrations and the workers restart. Scope: docs/runbook.md. Check: the steps are numbered and each has a verification.",
+   "related": [
+    "migrations-before-workers"
+   ]
+  },
+  {
+   "id": 14,
+   "text": "Goal: set up linting with ruff for the repository. Scope: pyproject.toml. Decision: follow the owner's preferences for line length and import sorting. Check: ruff check passes.",
+   "related": [
+    "ruff-line-length"
+   ]
+  },
+  {
+   "id": 15,
+   "text": "Goal: the upload integration test fails about one run in five in CI, where tests run in parallel with two workers. Find the cause. Scope: tests/integration/test_upload.py. Check: twenty consecutive passes.",
+   "related": [
+    "upload-test-flaky"
+   ]
+  },
+  {
+   "id": 16,
+   "text": "Goal: choose a baseline for the new text retrieval experiment. Decision needed: BM25 or a dense retriever as the zero-shot baseline. Scope: experiments/retrieval. Check: nDCG@10 on the dev set.",
+   "related": [
+    "bm25-is-a-strong-zero-shot-baseline-for-text-retrieval"
+   ]
+  },
+  {
+   "id": 17,
+   "text": "Goal: review the prompt changes in agents/reviewer.md. Decision: they are judged on the fixed eval set, not by rereading. Scope: read-only review. Check: scores before and after.",
+   "related": [
+    "prompt-changes-are-judged-on-a-fixed-eval-set"
+   ]
+  },
+  {
+   "id": 18,
+   "text": "Goal: benchmark the parser. Decision: benchmark Rust release builds, not dev builds, because dev builds are many times slower. Scope: benches/. Check: median of ten runs.",
+   "related": [
+    "release-builds-are-often-10-100-times-faster-than-rust-dev-builds"
+   ]
+  },
+  {
+   "id": 19,
+   "text": "Goal: check the new theme's text contrast against WCAG 2.2 AA: text contrast and UI contrast ratios. Scope: styles/theme.css. Check: every pair meets its ratio.",
+   "related": [
+    "wcag-22-aa-text-contrast-is-4-5-to-1-and-ui-contrast-3-to-1"
+   ]
+  },
+  {
+   "id": 20,
+   "text": "Goal: rebalance the shard map when a node is added. Decision: consistent hashing, so items move only to the newly added buckets. Scope: cluster/ring.py. Check: fewer than a fifth of keys move.",
+   "related": [
+    "consistent-hashing-moves-items-only-to-newly-added-buckets"
+   ]
+  },
+  {
+   "id": 21,
+   "text": "Goal: rename the variable x to total in notes.txt. Scope: notes.txt only. Check: the file still prints 1.",
+   "related": []
+  },
+  {
+   "id": 22,
+   "text": "Goal: add a README section that explains how to run the test suite and where the test files live. Scope: README.md. Check: the commands in it run.",
+   "related": []
+  },
+  {
+   "id": 23,
+   "text": "Goal: add a database table for user preferences with a migration file. Scope: migrations/ and models/preferences.py. Check: the migration applies on an empty database.",
+   "related": []
+  },
+  {
+   "id": 24,
+   "text": "Goal: bump the project version to 2.4.0 in pyproject.toml and add a changelog entry. Scope: pyproject.toml and CHANGELOG.md. Check: the version command prints 2.4.0.",
+   "related": []
+  },
+  {
+   "id": 25,
+   "text": "Goal: write unit tests for the slugify function: empty input, accents, punctuation, long input. Scope: tests/test_slug.py. Check: the new tests pass.",
+   "related": []
+  },
+  {
+   "id": 26,
+   "text": "Goal: summarize the meeting notes in docs/meeting-2026-11-10.md into five bullets. Scope: read-only. Check: each bullet cites a line.",
+   "related": []
+  },
+  {
+   "id": 27,
+   "text": "Goal: add type hints to utils/dates.py and make the type checker pass. Scope: utils/dates.py. Check: the type checker reports no errors in that file.",
+   "related": []
+  },
+  {
+   "id": 28,
+   "text": "Goal: find which files import the old logging helper and list them. Scope: read-only search of the repository. Check: the list matches a grep for the import.",
+   "related": []
+  },
+  {
+   "id": 29,
+   "text": "Goal: add a --verbose flag to the export script that prints each page it requests. Scope: scripts/export_users.py. Check: the flag prints one line per page.",
+   "related": []
+  },
+  {
+   "id": 30,
+   "text": "Goal: fix the typo in the error message of the upload form and update its snapshot test. Scope: forms/upload.py and its snapshot. Check: the snapshot test passes.",
+   "related": []
+  }
+ ]
+}

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Runs the engine with uv; the engine file carries its own dependency header.
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  d="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$d/$src" ;; esac
+done
+here="$(cd -P "$(dirname "$src")" && pwd)"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "mem: uv is not installed (https://docs.astral.sh/uv/)" >&2
+  exit 127
+fi
+exec uv run --quiet --script "$here/../engine/mem.py" "$@"
