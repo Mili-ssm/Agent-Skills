@@ -118,6 +118,8 @@ def web_cmd(claude: str, prompt: str, settings: Path, max_budget: float) -> list
     """The web session: only WebSearch and WebFetch, no MCP server, no plugin, hooks off, project settings only."""
     return [claude, "-p", prompt, "--model", "haiku", "--effort", "medium", "--settings", str(settings),
             "--setting-sources", "project", "--tools", "WebSearch,WebFetch", "--strict-mcp-config",
+            # --tools says which tools exist; a headless session still needs the permission to call them
+            "--allowedTools", "WebSearch", "WebFetch",
             "--output-format", "stream-json", "--verbose", "--no-session-persistence",
             "--max-budget-usd", f"{max_budget:.4f}"]
 
@@ -531,7 +533,8 @@ def self_check() -> int:
         assert not any(has_mem(p) for p in env["PATH"].split(os.pathsep)), "mem is on a session's PATH"
         cmd = web_cmd("claude", "prompt", tmp / "s.json", 0.2)
         assert cmd[cmd.index("--tools") + 1] == "WebSearch,WebFetch" and "--strict-mcp-config" in cmd
-        assert "--plugin-dir" not in cmd and "--allowedTools" not in cmd
+        assert "--plugin-dir" not in cmd
+        assert cmd[cmd.index("--allowedTools") + 1:cmd.index("--allowedTools") + 3] == ["WebSearch", "WebFetch"]
         cmd = file_cmd("claude", "prompt", tmp / "w", tmp / "s.json", 0.2)
         assert cmd[cmd.index("--tools") + 1] == "Read,Write,Edit" and "--strict-mcp-config" in cmd and "Bash" not in cmd
         allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--allowedTools") + 4]

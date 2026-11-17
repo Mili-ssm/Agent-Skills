@@ -6,7 +6,7 @@ Read `{INPUT_FILE}`: a JSON object with `question`, `notes` (each with `note`, t
 
 | verdict | needs |
 |---|---|
-| `confirmed` | a passage that states the note's fact, including its figures and its version when the note has them |
+| `confirmed` | a passage that states the note's main fact, including the figures and the version that fact carries. A note often holds several facts: one passage need not cover them all, and `fact` says which one it establishes |
 | `contradicted` | a passage from a source whose `source_kind` is `official` or `paper` that states the opposite or a different figure, about the same version when the note names one (a figure for another version is `no source`) |
 | `no source` | anything else |
 

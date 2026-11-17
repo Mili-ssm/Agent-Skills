@@ -224,7 +224,8 @@ def test_the_web_session_is_limited_and_its_prompt_holds_only_the_input_items(wo
     web = calls(world)[1]
     argv = web["argv"]
     assert argv[argv.index("--tools") + 1] == "WebSearch,WebFetch" and "--strict-mcp-config" in argv
-    assert "--plugin-dir" not in argv and "--allowedTools" not in argv
+    assert "--plugin-dir" not in argv
+    assert argv[argv.index("--allowedTools") + 1:argv.index("--allowedTools") + 3] == ["WebSearch", "WebFetch"]
     assert float(argv[argv.index("--max-budget-usd") + 1]) <= 0.5
     assert web["env"] == {} and web["mem_on_path"] == []
     assert os.listdir(web["cwd"]) == []
