@@ -2311,7 +2311,8 @@ def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
 def _memory_line(m: records.Memory, today: datetime.date) -> str:
     dead = _memory_status(m, today)
     created = m.created.isoformat() if m.created else "undated"
-    return f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{m.claim}"
+    claim = " ".join(m.claim.split())  # a hand-edited tab or newline must not add a column
+    return f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{claim}"
 
 
 def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
@@ -2320,7 +2321,7 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
         facts += f" \u00b7 valid until {m.valid_until.isoformat()}"
     if m.context:
         facts += f" \u00b7 context: {m.context}"
-    out = [f"== m:{m.handle} ({m.scope})", facts, "", "## Claim", m.claim]
+    out = [f"== m:{m.handle} ({m.scope})", facts, "", "## Claim", " ".join(m.claim.split())]
     if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
         out += ["", m.body.rstrip("\n")]
     return "\n".join(out)
@@ -2340,6 +2341,9 @@ def cmd_show(args: argparse.Namespace) -> int:
                 if found is None:
                     print(f"mem: no memory {arg}", file=sys.stderr)
                     blocks.append(f"== {arg}\n(not found)")
+                    ok = False
+                elif found.error is not None:
+                    print(f"mem: skipped {found.path}: {found.error}", file=sys.stderr)
                     ok = False
                 else:
                     blocks.append(_memory_block(found, args.section))
@@ -2422,7 +2426,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
             print('mem: no folder for global memories: set the plugin\'s "memories" option, '
                   'or MEM_MEMORIES, or use a store made with "mem init".', file=sys.stderr)
             return 2
-        if _read_only_store(store, folder):
+        if _read_only_store(store, folder.resolve()):
             print(_READ_ONLY_MEMORIES, file=sys.stderr)
             return 2
         forbidden = records.forbidden_file(os.environ)
@@ -2437,10 +2441,10 @@ def cmd_remember(args: argparse.Namespace) -> int:
             print("mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
                   file=sys.stderr)
             return 2
-        if _read_only_store(store, project):
+        folder = records.project_dir(project)
+        if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
             print(_READ_ONLY_PROJECT, file=sys.stderr)
             return 2
-        folder = records.project_dir(project)
     scope = "global" if args.is_global else "project"
     if args.kind == "finding" and not args.source:
         print("mem: a finding needs at least one --source.", file=sys.stderr)
@@ -2508,7 +2512,7 @@ def cmd_observe(args: argparse.Namespace) -> int:
     if found.error is not None:
         print(f"mem: {found.path}: {found.error}", file=sys.stderr)
         return 2
-    if _read_only_store(_optional_store(args), found.path):
+    if _read_only_store(_optional_store(args), found.path.resolve()):
         print(_READ_ONLY_PROJECT if found.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
         return 2
     try:
@@ -2917,7 +2921,7 @@ def build_parser() -> argparse.ArgumentParser:
     related_parser.add_argument("--unlinked-mentions", action="store_true",
                                 help="print only the notes that name this one in their text without linking to it")
     related_parser.set_defaults(func=cmd_related)
-    show_parser = sub.add_parser("show", help="print chosen sections of notes")
+    show_parser = sub.add_parser("show", aliases=["read"], help="print chosen sections of notes")
     show_parser.add_argument("paths", nargs="+", metavar="PATH")
     show_parser.add_argument("--section", action="append", help="a `## ` section to print (repeatable)")
     show_parser.add_argument("--outline", action="store_true", help="list headings with line numbers")
@@ -2985,6 +2989,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "read":
+        args.command = "show"
     if args.command == "init":
         return args.func(args)
     if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used
@@ -2994,6 +3000,9 @@ def main(argv: list[str] | None = None) -> int:
     root = resolve_root(args.root, os.environ)
     if args.command == "search" and args.scope == "memories" and (root is None or not root.is_dir()):
         args.root = None  # memories need no store; only a project or a global folder
+        return args.func(args)
+    if args.command == "show" and all(a.startswith("m:") for a in args.paths) and (root is None or not root.is_dir()):
+        args.root = None
         return args.func(args)
     if root is None:
         print('mem: no store is set. Enable the memory plugin and set its "store" option, '

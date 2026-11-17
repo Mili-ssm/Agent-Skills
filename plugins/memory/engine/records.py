@@ -84,7 +84,7 @@ def _toplevel(cwd: Path) -> Path | None:
 def project_root(cwd: Path, env: Mapping[str, str]) -> Path | None:
     override = env.get("MEM_PROJECT")
     if override:
-        return Path(override)
+        return Path(override).expanduser().resolve()
     return _main_worktree(cwd)
 
 

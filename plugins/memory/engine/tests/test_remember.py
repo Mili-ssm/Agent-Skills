@@ -255,6 +255,34 @@ def test_named_memories_folder_inside_a_marker_less_store_is_refused(tmp_path, m
     assert "observed" not in (folder / "x.md").read_text()
 
 
+def test_symlinked_project_memory_folder_into_a_marker_less_store_is_refused(tmp_path, monkeypatch, capsys):
+    store = _marker_less_store(tmp_path, monkeypatch)
+    target = store / "knowledge"
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    git(proj, "init", "-q")
+    (proj / ".memory").symlink_to(target, target_is_directory=True)
+    monkeypatch.setenv("MEM_PROJECT", str(proj))
+    assert remember() == 2
+    assert "read-only" in capsys.readouterr().err
+    assert list(target.iterdir()) == []
+    (target / "x.md").write_text("---\nkind: lesson\nclaim: X thing.\n---\n")
+    assert mem.main(["observe", "m:x"]) == 2
+    assert "observed" not in (target / "x.md").read_text()
+
+
+def test_symlinked_global_memories_folder_into_a_marker_less_store_is_refused(tmp_path, monkeypatch, capsys):
+    store = _marker_less_store(tmp_path, monkeypatch)
+    target = store / "knowledge"
+    link = tmp_path / "glink"
+    link.symlink_to(target, target_is_directory=True)
+    monkeypatch.setenv("MEM_MEMORIES", str(link))
+    forbid(tmp_path)
+    assert remember("--global") == 2
+    assert "read-only" in capsys.readouterr().err
+    assert list(target.iterdir()) == []
+
+
 def test_init_refuses_an_existing_store_without_marker(tmp_path, capsys):
     for entry in ("literature", "knowledge", "research", "topics.yaml"):
         folder = tmp_path / entry.replace(".", "_")

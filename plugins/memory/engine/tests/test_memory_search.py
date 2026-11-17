@@ -171,3 +171,38 @@ def test_stats_counts_memories(hub_root, project, gfolder, capsys):
     _, out, _ = run(capsys, "--root", str(hub_root), "stats")
     lines = out.splitlines()
     assert lines[0].startswith("store:") and lines[1] == "memories: 1 project, 1 global (1 live)"
+
+
+def test_show_broken_memory_reports_and_fails(hub_root, project, capsys):
+    project.mkdir()
+    (project / "bad.md").write_text("---\nkind: nonsense\nclaim: Bad one.\n---\n")
+    code, out, err = run(capsys, "--root", str(hub_root), "show", "m:bad")
+    assert code == 1 and "== m:bad" not in out
+    assert err.startswith("mem: skipped ") and "bad.md: " in err and "kind" in err
+
+
+def test_show_memory_needs_no_store(project, capsys):
+    slug = put(project, "Attention needs care")
+    code, out, _ = run(capsys, "show", f"m:{slug}")
+    assert code == 0 and out.startswith(f"== m:{slug} (project)")
+    code, _, err = run(capsys, "show", "some-note")
+    assert code == 2 and "no store is set" in err
+
+
+def test_claim_whitespace_is_collapsed_in_line_and_block(hub_root, project, capsys):
+    project.mkdir()
+    (project / "tabby.md").write_text("---\nkind: lesson\nclaim: \"Tab\\there\\nand newline\"\n---\n")
+    _, out, _ = run(capsys, "--root", str(hub_root), "search", "tab newline", "--scope", "memories")
+    line = next(ln for ln in out.splitlines() if ln.startswith("m:tabby"))
+    assert line.endswith("\tTab here and newline") and line.count("\t") == 2
+    _, out, _ = run(capsys, "--root", str(hub_root), "show", "m:tabby")
+    assert "## Claim\nTab here and newline" in out
+
+
+def test_read_is_an_alias_of_show(hub_root, project, capsys):
+    slug = put(project, "Attention needs care", body="Body text here.\n")
+    _, shown, _ = run(capsys, "--root", str(hub_root), "show", f"m:{slug}")
+    code, read, _ = run(capsys, "--root", str(hub_root), "read", f"m:{slug}")
+    assert code == 0 and read == shown
+    code, read, _ = run(capsys, "read", f"m:{slug}")
+    assert code == 0 and read == shown

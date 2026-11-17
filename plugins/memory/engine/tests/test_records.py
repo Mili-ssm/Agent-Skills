@@ -363,3 +363,10 @@ def test_ensure_excluded_raises_when_the_line_cannot_be_written(repo):
     ex.mkdir()                                              # a folder where the file should be
     with pytest.raises(OSError):
         records.ensure_excluded(repo)
+
+
+def test_project_root_override_expands_home_and_resolves(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert records.project_root(tmp_path, {"MEM_PROJECT": "~/projX"}) == (tmp_path / "projX").resolve()
+    monkeypatch.chdir(tmp_path)
+    assert records.project_root(tmp_path, {"MEM_PROJECT": "rel"}) == (tmp_path / "rel").resolve()
