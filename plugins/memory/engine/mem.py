@@ -2197,7 +2197,9 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     if locked:
         raise NewNoteError(f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}")
 
-    before = set(check(root))
+    # Line numbers move with the edit, so a problem is known by its file and message: the store may hold
+    # problems older than this change (an imported note that links a document left behind), and they do not block it.
+    before = {(p.path, p.message) for p in check(root)}
     originals = {p: p.read_bytes() for p in edits}
     listings = _index_files(root)
     changed = {p.relative_to(root).as_posix() for p in edits}
@@ -2206,7 +2208,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     problems: list[Problem] = []
     try:
         apply_index(root)
-        problems = [p for p in check(root) if p not in before or p.path in changed]
+        problems = [p for p in check(root) if (p.path, p.message) not in before]
     except FrontmatterError as exc:
         problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
     if problems:
@@ -4241,6 +4243,8 @@ def cmd_rename(args: argparse.Namespace) -> int:
 
 
 _IMPORT_FOLDERS = ("literature", "knowledge", "research")
+# what an investigation's documents are made of: the text and the figures it embeds
+_IMPORT_DOCUMENTS = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
 
 
 def _import_files(src: Path, with_sources: bool, research_data: bool = False) -> list[str]:
@@ -4257,7 +4261,7 @@ def _import_files(src: Path, with_sources: bool, research_data: bool = False) ->
                 if top != ".sources" and name.startswith("."):
                     continue
                 # An investigation's data and code stay where the experiments live; its documents are the memory.
-                if top == "research" and not research_data and not name.endswith(".md"):
+                if top == "research" and not research_data and Path(name).suffix.lower() not in _IMPORT_DOCUMENTS:
                     continue
                 # the generated listings: folder/README.md and, for literature and knowledge, folder/topic/README.md
                 if name == "README.md" and top != ".sources" and len(rel.parts) in ((2,) if top == "research" else (2, 3)):

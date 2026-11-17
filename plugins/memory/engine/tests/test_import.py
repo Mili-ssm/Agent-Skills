@@ -192,3 +192,9 @@ def test_research_data_is_copied_only_on_request(source, tmp_path, capsys):
     assert (plain / "research/2026-11-llm-eval-methods/README.md").is_file()
     assert run(full, source, capsys, "--research-data")[0] == 0
     assert (full / data).read_text(encoding="utf-8") == "a,b\n1,2\n"
+
+
+def test_an_investigations_figures_are_copied_with_its_documents(source, dest, capsys):
+    (source / "research" / "2026-11-llm-eval-methods" / "Plot.PNG").write_bytes(b"\x89PNG")
+    assert run(dest, source, capsys)[0] == 0
+    assert (dest / "research/2026-11-llm-eval-methods/Plot.PNG").read_bytes() == b"\x89PNG"

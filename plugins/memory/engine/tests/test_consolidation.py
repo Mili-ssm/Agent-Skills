@@ -330,3 +330,14 @@ def test_restore_gives_back_a_listing_that_was_already_stale_byte_for_byte(run, 
     assert listing.read_bytes() != stale.encode()
     assert run("restore", KEEP)[0] == 0
     assert snapshot(hub_root) == before
+
+
+def test_problems_older_than_the_unify_do_not_block_it(run, make, three, hub_root):
+    # an imported store: one untouched note and one note the unify rewrites both link a document left behind
+    make("old-problem", "Mica sheets peel", "llm", evidence="See [gone](../../docs/left-behind.md).")
+    make("linker-with-old-problem", "Slate tiles chip", "llm",
+         evidence=f"See [gone](../../docs/left-behind.md).\n\nSee [a]({B}.md).")
+    assert run("check")[0] == 1
+    code, _, err = run("unify", KEEP, B, C, "--body-file", three)
+    assert (code, err) == (0, ""), err
+    assert f"({KEEP}.md)" in path_of(hub_root, "linker-with-old-problem").read_text(encoding="utf-8")

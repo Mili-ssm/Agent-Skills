@@ -447,3 +447,8 @@ def test_no_reminder_after_a_curation_pass(repo, capsys):
     capsys.readouterr()
     assert remember(claim="Another lesson about something else.") == 0
     assert "curation pass" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("prefix", ["", "KEY=", 'key: "', "Bearer ", "MY_", "https://host/"])
+def test_an_api_key_is_found_after_any_separator(prefix):
+    assert records.secret_in([prefix + "sk-" + "abcdefghij0123456789_-xy"]) == "API key"
