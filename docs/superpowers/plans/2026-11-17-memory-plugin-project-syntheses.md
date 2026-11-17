@@ -255,3 +255,17 @@ What this shows and what it does not:
 ### Staleness arms alone (owner, 2026-11-17, after the pilot stop)
 
 The owner chose to measure the stamp on its own, as a separate measurement outside the stopped experiment: the writer, then S1 and S2 (2 cases × 4 runs each), in a new work folder, after the three parked harness defects are fixed. Criteria are the ones the decision rule already gave the S arms, written before any S run: S1 correct in fewer than 6 of 8 means the stamp does not protect the reader (do not merge); S1 at least 2 sessions above S2 means the stamp has an effect; otherwise the stamp showed no effect at this sample size. Orientation (A against B) stays unmeasured.
+
+Run on 2026-11-17 with the harness of commit `a9939dc`, Sonnet. The writer wrote 4 parts (organization, plans, pending, conventions; 10 tool calls, 0.28 USD) and nothing else into `.memory/`; with the script's own part, S1 showed 4 of 5 parts `possibly stale` (the `plans` part covers no moved path) and S2 showed all 5 `fresh`.
+
+| Arm | Correct | Median tool calls | Median tokens | Sessions that read a project synthesis |
+| --- | --- | --- | --- | --- |
+| S1, parts marked possibly stale | 8 of 8 | 4 | 122,994 | 0 of 8 |
+| S2, same stale text marked fresh | 8 of 8 | 3.5 | 119,894 | 2 of 8 |
+
+**Verdict by the criteria above:** S1 is not below 6 of 8 and not 2 above S2, so the stamp showed no effect at this sample size.
+
+- Observed: the sessions rarely read the project syntheses (2 of 16), although the session text names them; they searched the files and found the renamed file every time. The 2 S2 sessions that did read the stale text marked fresh still answered with the new name.
+- Inferred: on this repository the stamp has nothing to protect, because agents check the files anyway; the low use matches the second row of the decision rule (fewer than half the sessions used the syntheses), which says the session sentence does not work, although that row was written for arm B.
+- Not measured: a project where searching is costly or misleading, and sessions that are asked to rely on the syntheses.
+- Cost: 16 sessions, 0.06 to 0.11 USD each, plus the writer.
