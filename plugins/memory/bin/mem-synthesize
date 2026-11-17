@@ -168,7 +168,9 @@ def say(text: str) -> None:
     print(text, flush=True)
 
 
-def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_run: bool, out=say) -> int:
+def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_run: bool, out=say,
+        root: Path | None = None, rows_out: list | None = None) -> int:
+    """`root`: the run folder (default: a new one in the state folder, mode 0700); `rows_out` receives the rows."""
     env = session_env(store)
     if not topics:
         found = sp.mem(store, env, "curate", "--notes")
@@ -186,8 +188,8 @@ def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_r
     if not claude:
         print("mem-synthesize: no claude binary (use --claude, or CLAUDE_CODE_EXECPATH)", file=sys.stderr)
         return 2
-    root = state_dir() / f"synthesize-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-    root.mkdir(parents=True)
+    root = root or state_dir() / f"synthesize-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    root.mkdir(mode=0o700, parents=True)   # the sessions' transcripts are private
     log_file = root / "log.txt"
 
     def log(text: str) -> None:
@@ -212,6 +214,8 @@ def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_r
         rows.append(row)
         log(f"{topic}: {row}")
     history_commit(store, env, f"mem-synthesize: after {label}", log)
+    if rows_out is not None:
+        rows_out.extend(rows)
     out(table(rows))
     out(f"total cost USD {spent:.3f}; log {log_file}")
     return 0 if all(r["status"] == "ok" for r in rows) else 1
