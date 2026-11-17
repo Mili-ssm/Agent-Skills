@@ -28,7 +28,7 @@ Proposed: each sentence that states a finding ends with the handle of the note i
 
 ## Stages (each with its own trial and kill criterion; nothing joins `mem-auto` before its trial)
 
-- [ ] **W. Settling new memories soon after they are written (Mem0, in the background).** Intent (owner, 2026-11-17): the memory a session reads is already settled, also inside a session that lasts hours. Design after the pre-mortem of stage W (table below):
+- [x] **W. Settling new memories soon after they are written (Mem0, in the background).** Intent (owner, 2026-11-17): the memory a session reads is already settled, also inside a session that lasts hours. Design after the pre-mortem of stage W (table below):
   - **Trigger.** A write (`mem remember`, `mem memory edit`) to the global scope checks, at the cost of reading one state file: handles not yet judged exist, and the last settling run ended more than `auto_settle_minutes` ago (default 30; an option, because the owner sets how eager the memory is). When both hold it starts one detached settling run (`flock -n`, as `mem-auto`). The session-end hook starts the same run for what is left. The trigger lives in the write path, not in a timer: a session that writes nothing costs nothing, and two sessions open at once settle each other's records.
   - **Own state.** The run keeps its own list of judged handles; it never reads or writes `finished` of `mem-auto`, so the count of 10 for the heavy steps (syntheses, web contrast) is untouched, and a record written while a run is under way is judged by the next one. It runs no synthesis step.
   - **What is compared.** Only the queue pairs (`records.pairs`, containment 0.6 or more) in which one record is not yet judged; same scope, both active. Records of origin `pipeline` are never the new side.
@@ -69,6 +69,22 @@ Proposed: each sentence that states a finding ends with the handle of the note i
 | The owner sees nothing, and undoing a merge takes two restores | Session start line, `mem settle log`, `mem settle undo` |
 
 Stage 1 is built in two halves: **1a (done 2026-11-17)** the engine (disputed and confirmed marks, the origin of a record, their display and their place in the curation queue, the count exclusion); **1b** the `mem-research` pipeline and its trial.
+
+### Stage 1b design (2026-11-18): `mem-research`, five steps, three of them model sessions
+
+| Step | Who | Sees | May do | Produces |
+|---|---|---|---|---|
+| 1 Memory | Haiku session | the store, through `mem search`, `mem show`, `mem find` only (allowed by name; no other `mem` command, no web) | read | `need.json`: the answer from memory with its references, whether it covers the question, the notes worth contrasting (handles) |
+| 2 Web input | Python | the owner's question; for a contrast, the claims of the chosen global notes that pass the secret and forbidden-terms checks | build the web prompt | nothing written by a model reaches the web step |
+| 3 Web | Haiku session | only that prompt; an empty folder, no `MEM_*`, no `mem` on PATH, no plugin | WebSearch, WebFetch, a turn cap | its reply: a JSON list of `{item, url, quote, stance, source_kind}` |
+| 4 Check | Python | the URLs | fetch each page itself (http and https only, no private or local address, size and time caps) | only quotes found word for word on the page survive |
+| 5 Verdict | Haiku session, no shell, no web | the claims and the surviving quotes, as data | write one file in its work folder | `verdicts.json`: per contrasted note confirmed, contradicted or no source; new findings, each tied to a quote; the answer text |
+| 6 Apply | Python | `verdicts.json` | a fixed list: `mem note confirm`, `mem note dispute`, `mem remember --global --kind finding --origin web --source <url>` | records, each marked as coming from the web and unconfirmed |
+
+- Depth: `memory` stops after step 1; `contrast` (default, option `research_depth`) allows 5 pages; `deep` allows 15 and asks for papers. `--contrast NOTE...` skips the choice of notes in step 1.
+- "Contradicted" is applied only when the quote comes from a source the web step labelled official or paper and Python found the quote on the page; otherwise the row is downgraded to no source.
+- A quote is data: the verdict brief says so, the verdict session cannot run anything, and step 6 accepts only the three commands above with arguments taken from `verdicts.json` fields, never a command line.
+- `memory-researcher` loses WebSearch and WebFetch and runs `mem-research` when memory does not cover the question (a description change: measured by the eval protocol, in its own commit).
 
 Trial of stage 1 (ground truth by construction, on a copy of the store): 12 real notes whose claim their own cited source supports (expected confirmed), 4 of them copied with one figure altered (expected contradicted), 4 notes that record the owner's own experiments (expected no source), one canary note, and one local test page that carries an instruction. Kill criteria: the canary in any web-step event; more than one wrong "contradicted" in 20; `deep` over its budget; anything written from the planted instruction.
 
