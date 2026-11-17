@@ -448,12 +448,14 @@ def phase_write(args, work, env, state) -> None:
     written = work / "written"
     if not written.exists():
         copy_tree(base, written)
-        settings = work / "settings.json"
+        # The writer gets a store, data and global-memory folders of its own: what it records there with
+        # `mem remember` must not reach the arms, which read work/store.
+        wenv = {**env, "MEM_DATA": str(work / "writer-data"), "XDG_DATA_HOME": str(work / "writer-xdg-data")}
+        wstore, settings = work / "writer-store", work / "writer-settings.json"
         if not settings.exists():
-            store = work / "store"
-            subprocess.run([mem_bin(), "init", str(store)], env=env, check=True, capture_output=True)
-            settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
-        out = session(args.claude, args.model, settings, written, env, WRITER_PROMPT, timeout=1800)
+            subprocess.run([mem_bin(), "init", str(wstore)], env=wenv, check=True, capture_output=True)
+            settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(wstore)}}}}))
+        out = session(args.claude, args.model, settings, written, wenv, WRITER_PROMPT, timeout=1800)
         if out["error"]:
             shutil.rmtree(written)
             raise SystemExit(f"the writer session failed ({out['error']}): rerun --phase write")
