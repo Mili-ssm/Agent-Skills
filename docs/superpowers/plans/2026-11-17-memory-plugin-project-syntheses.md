@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-17-memory-plugin-design.md` (decisions D21, D24 and the new D25 added by Task 1).
 
-**Status:** stage plan for an experiment; not started. Result goes in `## Results` at the end of this file.
+**Status:** Tasks 1 to 3 built; the pilot of Task 4 stopped the experiment on 2026-11-17 (see `## Results`); what to do with the code is the owner's decision. Result goes in `## Results` at the end of this file.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -189,9 +189,9 @@ def describe(state: str) -> str
 
 Reported beside the action, without changing it: tokens per arm, and S1 minus S2. When S1 is not at least 2 sessions above S2, the result says the stamp showed no effect at this sample size.
 
-- [ ] **Step 1: Write the script** with `--claude`, `--model`, `--runs`, `--case`, `--pilot`; print one row per session and the medians per arm.
-- [ ] **Step 2: Run the pilot, then the arms**, through `check-runner` in the background; keep only the tables.
-- [ ] **Step 3: Write `## Results`** in this file: the tables, the action taken by the rule, and what was not measured.
+- [x] **Step 1: Write the script** with `--claude`, `--model`, `--runs`, `--case`, `--pilot`; print one row per session and the medians per arm.
+- [x] **Step 2: Run the pilot, then the arms**, through `check-runner` in the background; keep only the tables.
+- [x] **Step 3: Write `## Results`** in this file: the tables, the action taken by the rule, and what was not measured.
 - [ ] **Step 4: Commit** `test(memory): trials for project syntheses and their result`.
 
 ## Pre-mortem of 2026-11-17 and what changed
@@ -228,4 +228,25 @@ Every helper the plan reuses exists (`syntheses._scan`, `_write`, `section_handl
 
 ## Results
 
-Pending.
+### Pilot, 2026-11-17: the experiment stops
+
+Tasks 1 to 3 are built and reviewed (820 tests pass). The pilot ran each of the 8 candidate questions twice on Sonnet, arm A (no project synthesis), with the harness of commit `9a58138`.
+
+| Case | Correct | Tool calls (runs) | Median | Input + cache-read tokens |
+| --- | --- | --- | --- | --- |
+| root-worktree | 2 of 2 | 2, 4 | 3 | 99,112 · 140,039 |
+| synthesis-shrink | 2 of 2 | 3, 3 | 3 | 142,790 · 99,890 |
+| git-wait | 2 of 2 | 2, 2 | 2 | 102,184 · 102,161 |
+| default-store | 2 of 2 | 2, 3 | 2.5 | 99,696 · 102,158 |
+| fallback-rules | 2 of 2 | 5, 5 | 5 | 174,915 · 214,565 |
+| policy-embed | 2 of 2 | 2, 2 | 2 | 98,960 · 98,958 |
+| copilot-tools | 2 of 2 | 2, 2 | 2 | 99,029 · 99,025 |
+| stale-advice | 2 of 2 | 3, 5 | 4 | 102,023 · 136,272 |
+
+**Action by the rule written beforehand:** only 2 cases reach a median of 4 calls, fewer than the 4 the pilot requires, so the measure could not show a saving and the A/B, writer and staleness phases were not run. No project synthesis was written by a model; the decision table above was not reached.
+
+What this shows and what it does not:
+
+- Observed: on this repository Sonnet answers every candidate "where is X decided" question correctly in 2 to 5 tool calls with Grep, Glob and Read alone; about 99,000 tokens of every session are its starting context, so a saved call moves tokens little.
+- Not measured: orientation in a larger or less greppable project; the staleness arms (S1 against S2), which do not depend on the orientation cases but are part of the stopped experiment.
+- Cost: 16 sessions, 0.06 to 0.09 USD each.
