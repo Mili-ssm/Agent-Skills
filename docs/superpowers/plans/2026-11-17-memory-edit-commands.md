@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, pyyaml, pytest.
 
-**Status:** in progress: Tasks 1 and 2 done.
+**Status:** in progress: Tasks 1 to 3 done.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -78,11 +78,11 @@
 
 - `rename` and `remove` change several files: they write one group entry (the synthesis and every note they touch) to the store's root log, and `mem restore s:<h>` restores the whole group, or nothing when a member changed since (the `_restore_group` rule); `topics` logs the synthesis file alone with `records.log_before`; `mem restore <note>` undoes `detach`. A rename to a heading whose handle exists is refused.
 
-- [ ] **Step 1: Write the failing tests** — one per row; `mem restore` after each returns the exact previous bytes of every file it touched, and `mem check` passes after each command and after each restore; a restore after `rename` does not undo an earlier `edit` of the same synthesis; `part_of_hash` unchanged by `rename`; `mem curate --notes` stops listing a topic once a synthesis names it.
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Whole suite and `scripts/validate.py` pass.**
-- [ ] **Step 5: Commit** `feat(memory): rename, remove and detach synthesis sections, set a synthesis's topics`.
+- [x] **Step 1: Write the failing tests** — one per row; `mem restore` after each returns the exact previous bytes of every file it touched, and `mem check` passes after each command and after each restore; a restore after `rename` does not undo an earlier `edit` of the same synthesis; `part_of_hash` unchanged by `rename`; `mem curate --notes` stops listing a topic once a synthesis names it.
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Whole suite and `scripts/validate.py` pass.**
+- [x] **Step 5: Commit** `feat(memory): rename, remove and detach synthesis sections, set a synthesis's topics`.
 
 ### Task 4: Tell the agents
 
