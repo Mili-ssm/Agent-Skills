@@ -1,4 +1,5 @@
 import datetime
+import re
 import subprocess
 from pathlib import Path
 
@@ -84,11 +85,31 @@ def test_project_root_without_git_is_none(tmp_path, monkeypatch):
     assert records.project_root(tmp_path, {}) is None
 
 
-def test_memory_dir(tmp_path):
-    assert records.memory_dir("project", store=None, project=tmp_path) == tmp_path / ".memory"
-    assert records.memory_dir("global", store=tmp_path, project=None) == tmp_path / "memories"
-    assert records.memory_dir("project", store=tmp_path, project=None) is None
-    assert records.memory_dir("global", store=None, project=tmp_path) is None
+def test_project_dir(tmp_path):
+    assert records.project_dir(tmp_path) == tmp_path / ".memory"
+
+
+def test_memories_root_order(tmp_path):
+    store = tmp_path / "store"
+    cfg = tmp_path / "cfg" / "agent-memory"
+    cfg.mkdir(parents=True)
+    assert records.memories_root({}, None) is None
+    assert records.memories_root({}, store) is None            # store without marker
+    store.mkdir()
+    (store / "mem-store.yaml").write_text("")
+    assert records.memories_root({}, store) == store / "memories"
+    (cfg / "memories").write_text("\n/from/file\nsecond\n")
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "cfg")}
+    assert records.memories_root(env, store) == Path("/from/file")
+    assert records.memories_root({**env, "MEM_MEMORIES": "/from/env"}, store) == Path("/from/env")
+    assert records.memories_root({**env, "MEM_MEMORIES": ""}, store) == Path("/from/file")
+    (cfg / "memories").write_text("")
+    assert records.memories_root(env, store) == store / "memories"
+    assert records.memories_root({"MEM_MEMORIES": "~/mm", "HOME": "/h"}, None) == Path("/h/mm")
+
+
+def test_memories_root_without_marker_ignores_store(tmp_path):
+    assert records.memories_root({"MEM_MEMORIES": "/x"}, tmp_path) == Path("/x")
 
 
 def test_load_memories_missing_or_none(tmp_path):
@@ -164,19 +185,140 @@ def test_ensure_excluded_skips_existing_line_and_non_repos(repo, tmp_path):
     assert records.ensure_excluded(plain) is False
 
 
+def test_forbidden_line_checks_every_text(tmp_path):
+    cfg = tmp_path / "agent-memory"; cfg.mkdir(); (cfg / "forbidden-terms").write_text("alpha\nzeta\n")
+    env = {"XDG_CONFIG_HOME": str(tmp_path)}
+    assert records.forbidden_line(["clean", "has Zeta", "alpha"], env) == 1
+    assert records.forbidden_line(["clean", "has Zeta"], env) == 2
+    assert records.forbidden_line(["clean", "fine"], env) is None
+    assert records.forbidden_line([], env) is None
+
+
+def test_forbidden_file(tmp_path):
+    assert records.forbidden_file({"XDG_CONFIG_HOME": "/c"}) == Path("/c/agent-memory/forbidden-terms")
+    assert records.forbidden_file({"HOME": "/h"}) == Path("/h/.config/agent-memory/forbidden-terms")
+    assert records.forbidden_file({}) is None
+
+
 def test_forbidden_line(tmp_path):
     cfg = tmp_path / "agent-memory"; cfg.mkdir(); (cfg / "forbidden-terms").write_text("\nAcme Corp\nzeta\n")
     env = {"XDG_CONFIG_HOME": str(tmp_path)}
-    assert records.forbidden_line("we met ACME corp today", env) == 2
-    assert records.forbidden_line("nothing here", env) is None and records.forbidden_line("x", {}) is None
+    assert records.forbidden_line(["we met ACME corp today"], env) == 2
+    assert records.forbidden_line(["nothing here"], env) is None and records.forbidden_line(["x"], {}) is None
 
 
 def test_forbidden_line_falls_back_to_home(tmp_path):
     cfg = tmp_path / ".config" / "agent-memory"; cfg.mkdir(parents=True); (cfg / "forbidden-terms").write_text("zeta\n")
-    assert records.forbidden_line("a Zeta b", {"HOME": str(tmp_path)}) == 1
+    assert records.forbidden_line(["a Zeta b"], {"HOME": str(tmp_path)}) == 1
 
 
 def test_store_is_writable(tmp_path):
-    assert not records.store_is_writable(tmp_path, {})
-    assert records.store_is_writable(tmp_path, {"MEM_ALLOW_WRITE": "1"})
-    (tmp_path / "mem-store.yaml").write_text(""); assert records.store_is_writable(tmp_path, {})
+    assert not records.store_is_writable(tmp_path)
+    (tmp_path / "mem-store.yaml").write_text("")
+    assert records.store_is_writable(tmp_path)
+
+
+def test_project_root_of_a_submodule_is_its_own(tmp_path):
+    def run(cwd, *args):
+        subprocess.run(["git", "-C", str(cwd), "-c", "user.name=t", "-c", "user.email=t@example.org",
+                        "-c", "protocol.file.allow=always", *args], check=True, capture_output=True)
+    sub = tmp_path / "sub"; sub.mkdir(); run(sub, "init", "-q"); run(sub, "commit", "-q", "--allow-empty", "-m", "s")
+    parent = tmp_path / "parent"; parent.mkdir(); run(parent, "init", "-q"); run(parent, "commit", "-q", "--allow-empty", "-m", "p")
+    run(parent, "submodule", "add", "-q", str(sub), "vendored")
+    assert records.project_root(parent / "vendored", {}) == parent / "vendored"
+
+
+def test_project_root_env_wins_over_git(repo):
+    assert records.project_root(repo, {"MEM_PROJECT": "/p"}) == Path("/p")
+
+
+def test_observe_keeps_unknown_keys(tmp_path):
+    m = records.write_memory(tmp_path, "project", kind="lesson", claim="Keep extras.", body="b", today=TODAY)
+    text = m.path.read_text().replace("status: active\n", "status: active\nreviewed: '2026-01-01'\n")
+    m.path.write_text(text)
+    [loaded] = records.load_memories(tmp_path, "project")
+    records.observe(loaded, TODAY + datetime.timedelta(days=1))
+    out = m.path.read_text()
+    assert "reviewed: '2026-01-01'" in out and "last_observed: '2026-11-18'" in out and "observed: 2" in out
+    assert [p.name for p in tmp_path.iterdir()] == ["keep-extras.md"]
+
+
+def test_finding_needs_a_source_and_expires_in_90_days(tmp_path):
+    with pytest.raises(ValueError):
+        records.write_memory(tmp_path, "project", kind="finding", claim="No source.", body="", today=TODAY)
+    assert list(tmp_path.glob("*.md")) == []
+    m = records.write_memory(tmp_path, "project", kind="finding", claim="With source.", body="",
+                             today=TODAY, sources=["https://example.org/a"])
+    assert m.valid_until == TODAY + datetime.timedelta(days=90)
+    [loaded] = records.load_memories(tmp_path, "project")
+    assert loaded.valid_until == TODAY + datetime.timedelta(days=90)
+    keep = records.write_memory(tmp_path, "project", kind="finding", claim="Dated.", body="", today=TODAY,
+                                sources=["u"], valid_until=datetime.date(2027, 1, 1))
+    assert keep.valid_until == datetime.date(2027, 1, 1)
+    other = records.write_memory(tmp_path, "project", kind="lesson", claim="Plain.", body="", today=TODAY)
+    assert other.valid_until is None
+
+
+def _tok(text):
+    return re.findall(r"[a-z0-9]+", text.lower())
+
+
+def _mem(handle, claim, *, context=None, body="", observed=1, created=TODAY, status="active", valid_until=None):
+    return records.Memory("project", Path(f"{handle}.md"), handle, "lesson", claim, created, observed, status,
+                          context, valid_until, [], body, None)
+
+
+def _match(mems, query, **kw):
+    return records.match_memories(mems, _tok(query), TODAY, tokenize=_tok, **kw)
+
+
+def test_stopwords_is_a_frozenset_of_common_words():
+    assert isinstance(records.STOPWORDS, frozenset) and {"the", "is", "of", "what", "a"} <= records.STOPWORDS
+
+
+def test_match_stop_word_overlap_only_returns_nothing():
+    mems = [_mem("a", "The cache is stale")]
+    assert _match(mems, "what is the") == []
+    assert _match(mems, "is the database fast") == []          # only stop words overlap
+
+
+def test_match_two_of_three_terms_matches_one_of_three_does_not():
+    mems = [_mem("a", "Redis cache evicts keys")]
+    assert _match(mems, "redis cache postgres") == mems
+    assert _match(mems, "redis mysql postgres") == []
+    assert _match(mems, "redis") == mems                          # one term: half rounded up is 1
+    assert _match(mems, "redis mysql") == mems                    # two terms: need 1
+
+
+def test_match_uses_context_and_body():
+    mems = [_mem("a", "Unrelated claim", context="billing service", body="rate limit")]
+    assert _match(mems, "billing limit") == mems
+
+
+def test_match_order_rule():
+    mems = [
+        _mem("h-old", "alpha", body="beta", created=datetime.date(2026, 1, 1)),
+        _mem("g-body", "unrelated", body="alpha beta gamma", observed=9),
+        _mem("f-claim2", "alpha beta"),
+        _mem("e-claim1", "alpha", body="beta gamma"),
+        _mem("d-obs", "alpha", body="beta", observed=2),
+        _mem("c-new", "alpha", body="beta", created=datetime.date(2026, 6, 1)),
+        _mem("b-handle", "alpha", body="beta", created=datetime.date(2026, 6, 1)),
+    ]
+    got = [m.handle for m in _match(mems, "alpha beta gamma", limit=10)]
+    assert got == ["f-claim2", "e-claim1", "d-obs", "b-handle", "c-new", "h-old", "g-body"]
+    assert got.index("f-claim2") < got.index("e-claim1") < got.index("d-obs") < got.index("b-handle") < got.index("c-new") < got.index("h-old")
+    assert got.index("h-old") < got.index("g-body")
+
+
+def test_match_limit_default_three():
+    mems = [_mem(f"m{i}", "alpha") for i in range(5)]
+    assert len(_match(mems, "alpha")) == 3
+    assert len(_match(mems, "alpha", limit=2)) == 2
+
+
+def test_match_dead_memories_only_with_include_dead():
+    mems = [_mem("r", "alpha thing", status="refuted"), _mem("e", "alpha thing", valid_until=TODAY - datetime.timedelta(days=1)),
+            _mem("ok", "alpha thing")]
+    assert [m.handle for m in _match(mems, "alpha")] == ["ok"]
+    assert {m.handle for m in _match(mems, "alpha", include_dead=True)} == {"r", "e", "ok"}

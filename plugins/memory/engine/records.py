@@ -1,16 +1,17 @@
 """Memory records: one Markdown file with YAML frontmatter per memory.
 
-Imports nothing from mem.py (mem.py imports this module), so similarity takes token iterables.
+Imports nothing from mem.py (mem.py imports this module), so similarity and match_memories take tokens or a tokenizer.
 """
 from __future__ import annotations
 
 import datetime
+import os
 import re
 import subprocess
 import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, Sequence
 
 import yaml
 
@@ -52,18 +53,71 @@ def _git_common_dir(cwd: Path) -> Path | None:
     return Path(line)
 
 
+def _main_worktree(cwd: Path) -> Path | None:
+    try:
+        out = subprocess.run(["git", "-C", str(cwd), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True, check=False)
+    except (OSError, ValueError):
+        return None
+    if out.returncode != 0:
+        return None
+    for line in out.stdout.splitlines():
+        if line.startswith("worktree "):
+            first = Path(line[len("worktree "):])
+            # A submodule lists its git directory (under .git/modules), not its folder: ask for the folder.
+            if (first / ".git").exists():
+                return first
+            return _toplevel(cwd)
+    return None
+
+
+def _toplevel(cwd: Path) -> Path | None:
+    try:
+        out = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, check=False)
+    except (OSError, ValueError):
+        return None
+    line = out.stdout.strip()
+    return Path(line) if out.returncode == 0 and line else None
+
+
 def project_root(cwd: Path, env: Mapping[str, str]) -> Path | None:
     override = env.get("MEM_PROJECT")
     if override:
         return Path(override)
-    common = _git_common_dir(cwd)
-    return common.parent if common else None
+    return _main_worktree(cwd)
 
 
-def memory_dir(scope: str, *, store: Path | None, project: Path | None) -> Path | None:
-    if scope == "project":
-        return project / PROJECT_DIR if project is not None else None
-    return store / GLOBAL_DIR if store is not None else None
+def project_dir(project: Path) -> Path:
+    return project / PROJECT_DIR
+
+
+def _config_base(env: Mapping[str, str]) -> Path | None:
+    if env.get("XDG_CONFIG_HOME"):
+        return Path(env["XDG_CONFIG_HOME"])
+    if env.get("HOME"):
+        return Path(env["HOME"]) / ".config"
+    return None
+
+
+def memories_root(env: Mapping[str, str], store: Path | None) -> Path | None:
+    """Folder of global memories: MEM_MEMORIES, else the first line of agent-memory/memories, else the writable store's."""
+    named = env.get("MEM_MEMORIES")
+    if not named:
+        base = _config_base(env)
+        if base is not None:
+            try:
+                lines = (base / "agent-memory" / "memories").read_text(encoding="utf-8").splitlines()
+            except (OSError, UnicodeDecodeError):
+                lines = []
+            named = next((ln.strip() for ln in lines if ln.strip()), "")
+    if named:
+        if named == "~" or named.startswith("~/"):
+            named = str(Path(env["HOME"]) / named[2:]) if env.get("HOME") else os.path.expanduser(named)
+        return Path(named)
+    if store is not None and store_is_writable(store):
+        return store / GLOBAL_DIR
+    return None
 
 
 def _date(value, name: str) -> datetime.date | None:
@@ -159,6 +213,11 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     claim = claim.strip()
     if not claim:
         raise ValueError("claim is empty")
+    if kind == "finding":
+        if not sources:
+            raise ValueError("a finding needs at least one source")
+        if valid_until is None:
+            valid_until = today + datetime.timedelta(days=90)
     folder.mkdir(parents=True, exist_ok=True)
     base = slug_of(claim)
     handle, n = base, 1
@@ -189,7 +248,20 @@ def similarity(a: Iterable[str], b: Iterable[str]) -> float:
 
 def observe(memory: Memory, today: datetime.date) -> Memory:
     updated = replace(memory, observed=memory.observed + 1)
-    memory.path.write_text(_render(updated, {"last_observed": today.isoformat()}), encoding="utf-8")
+    try:
+        meta, body = _split(memory.path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError):
+        meta, body = None, None
+    if meta is None:
+        text = _render(updated, {"last_observed": today.isoformat()})
+    else:  # edit the file's own frontmatter so keys this module does not know survive
+        meta["observed"] = updated.observed
+        meta["last_observed"] = today.isoformat()
+        head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
+        text = f"---\n{head}---\n{body}"
+    tmp = memory.path.with_name(f".{memory.path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, memory.path)
     return updated
 
 
@@ -213,24 +285,52 @@ def ensure_excluded(project: Path) -> bool:
         return False
 
 
-def forbidden_line(text: str, env: Mapping[str, str]) -> int | None:
-    if env.get("XDG_CONFIG_HOME"):
-        base = Path(env["XDG_CONFIG_HOME"])
-    elif env.get("HOME"):
-        base = Path(env["HOME"]) / ".config"
-    else:
+def forbidden_file(env: Mapping[str, str]) -> Path | None:
+    base = _config_base(env)
+    return base / "agent-memory" / "forbidden-terms" if base is not None else None
+
+
+def forbidden_line(texts: Iterable[str], env: Mapping[str, str]) -> int | None:
+    path = forbidden_file(env)
+    if path is None:
         return None
     try:
-        terms = (base / "agent-memory" / "forbidden-terms").read_text(encoding="utf-8").splitlines()
+        terms = path.read_text(encoding="utf-8").splitlines()
     except (OSError, UnicodeDecodeError):
         return None
-    low = text.lower()
+    lows = [t.lower() for t in texts]
     for i, term in enumerate(terms, 1):
-        term = term.strip()
-        if term and term.lower() in low:
+        term = term.strip().lower()
+        if term and any(term in low for low in lows):
             return i
     return None
 
 
-def store_is_writable(store: Path, env: Mapping[str, str]) -> bool:
-    return (store / STORE_MARKER).is_file() or env.get("MEM_ALLOW_WRITE") == "1"
+def store_is_writable(store: Path) -> bool:
+    return (store / STORE_MARKER).is_file()
+
+
+STOPWORDS = frozenset("""a an the and or but nor of in on at to for from by with about as into over under
+is are was were be been being am do does did has have had will would can could should may might must
+i you he she it we they me him her us them my your his its our their this that these those
+what which who whom whose when where why how not no if then than so there here""".split())
+
+
+def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], today: datetime.date, *,
+                   tokenize: Callable[[str], list[str]], limit: int = 3,
+                   include_dead: bool = False) -> list[Memory]:
+    """Memories holding at least half (rounded up) of the query's non-stop-word terms, best first."""
+    terms = set(query_tokens) - STOPWORDS
+    if not terms:
+        return []
+    need = (len(terms) + 1) // 2
+    scored = []
+    for m in memories:
+        if m.error is not None or not (include_dead or is_live(m, today)):
+            continue
+        in_claim = terms & set(tokenize(m.claim))
+        overall = terms & set(tokenize(" ".join([m.claim, m.context or "", m.body])))
+        if len(overall) >= need:
+            scored.append((m, len(in_claim), len(overall)))
+    scored.sort(key=lambda t: (-t[1], -t[2], -t[0].observed, -(t[0].created or datetime.date.min).toordinal(), t[0].handle))
+    return [m for m, _, _ in scored[:limit]]
