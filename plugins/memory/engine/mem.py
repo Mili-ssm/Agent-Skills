@@ -2541,31 +2541,18 @@ def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Re
     shown = [f"{r.kind}:{r.handle}" for r in [*strong, *possible][:_SIGNAL_HANDLES]]
 
     def render(items: list[str]) -> str:
-        lines = [f"[memory] Records related to this task exist (not read yet): {' '.join(items)}",
-                 f"{len(strong)} strong, {len(possible)} possibly related. Open one with: mem show <handle>. "
-                 "Project memories are files in .memory/."]
-        if any(i.startswith("m:") for i in items):
-            lines.append("A memory (m:) is experience, not fact.")
-        return "\n".join(lines)
+        return "\n".join([
+            f"[memory] For information: memories related to this task exist (not read yet): {' '.join(items)}",
+            f"{len(strong)} strong, {len(possible)} possibly related. Read one with: mem show m:<handle> "
+            "(they are files in .memory/).",
+            "They are experience, not fact: where one conflicts with this brief, the brief wins and you report "
+            "the conflict."])
 
     text = render(shown)
     while len(text) > _SIGNAL_LIMIT and len(shown) > 1:  # very long note names
         shown.pop()
         text = render(shown)
     return text
-
-
-def _note_stems(store: Path | None) -> list[str]:
-    """Handles of the store's notes from file names only, as _count_notes counts them."""
-    try:
-        if store is None or not store.is_dir():
-            return []
-        stems = [p.stem for kind in ("literature", "knowledge") for p in store.glob(f"{kind}/*/*.md")
-                 if p.name != "README.md"]
-        stems += [p.parent.name for p in store.glob("research/*/README.md")]
-        return sorted(stems)
-    except OSError:
-        return []
 
 
 def cmd_signal(args: argparse.Namespace) -> int:
@@ -2584,6 +2571,7 @@ def cmd_signal(args: argparse.Namespace) -> int:
             brief = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
         if not isinstance(brief, str) or not brief.strip():
             return 0
+        subagent_type = tool_input.get("subagent_type") if args.hook else None
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
         if not cwd.is_dir():
@@ -2593,11 +2581,13 @@ def cmd_signal(args: argparse.Namespace) -> int:
         today = datetime.date.today()
         found = (records.load_memories(records.project_dir(project) if project else None, "project")
                  + records.load_memories(memories, "global"))
-        strong, possible = records.related_records(found, _note_stems(store), brief, today, tokenize=tokenize)
+        strong, possible = records.related_records(found, [], brief, today, tokenize=tokenize)  # memories only
         text = signal_text(strong, possible)
         if args.hook:
             _log_hook({"hook": "signal", "ms": int((time.monotonic() - started) * 1000),
-                       "strong": len(strong), "possible": len(possible)})
+                       "strong": len(strong), "possible": len(possible),
+                       "subagent_type": subagent_type if isinstance(subagent_type, str) else None,
+                       "words": len(brief.split())})
         if not text:
             return 0
         if args.hook:

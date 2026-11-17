@@ -97,8 +97,8 @@ def test_hook_keeps_each_option_independent(tmp_path):
 
 HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 SUBAGENT_TEXT = (
-    'memory: this project and the owner\'s store have a searchable memory. If you can run shell commands and your brief '
-    'has no memory section: mem search "<question in English>", then mem show <handle>. Project memories are files in '
+    'memory: this project and the owner\'s store have a searchable memory. If you can run shell commands: '
+    'mem search "<question in English>", then mem show <handle>. Project memories are files in '
     '.memory/ at the repository root. A line marked [memory: ...] is experience, not fact. Do not run mem remember: '
     'tell your caller what is worth remembering, if anything.')
 PRE_COMPACT = ('Keep in the summary: the path of the active plan file (say "no plan" if there is none), and every '
@@ -106,7 +106,7 @@ PRE_COMPACT = ('Keep in the summary: the path of the active plan file (say "no p
                'marked "not yet recorded", so that the next context can record them.')
 
 
-@pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "subagent-start.sh", "pre-compact.sh"])
+@pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "signal.sh", "subagent-start.sh", "pre-compact.sh"])
 def test_hook_scripts_are_executable(name):
     assert os.access(HOOKS / name, os.X_OK)
 
@@ -118,6 +118,9 @@ def test_hooks_json_names_the_scripts():
     assert start[1]["matcher"] == "startup|clear|compact"
     assert start[1]["hooks"][0]["command"].endswith("/hooks/session-index.sh") and start[1]["hooks"][0]["timeout"] == 10
     assert cfg["SubagentStart"][0]["hooks"][0]["command"].endswith("/hooks/subagent-start.sh")
+    group = cfg["PreToolUse"][0]
+    assert group["matcher"] == "Agent" and group["hooks"][0]["timeout"] == 10
+    assert group["hooks"][0]["command"].endswith("/hooks/signal.sh")
     assert cfg["PreCompact"][0]["hooks"][0]["command"].endswith("/hooks/pre-compact.sh")
 
 
@@ -155,4 +158,56 @@ def test_session_index_hook_with_spaced_store_and_logs(hub_root, tmp_path):
 def test_session_index_hook_without_uv_is_silent(tmp_path):
     r = subprocess.run([str(HOOKS / "session-index.sh")], input="{}", env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
                        capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+def _signal_env(tmp_path, **extra):
+    root = tmp_path / "proj"
+    folder = root / ".memory"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "retry-keys.md").write_text(
+        "---\nkind: lesson\nclaim: Retries without idempotency keys duplicate side effects\n"
+        "created: 2026-11-01\nobserved: 1\nstatus: active\n---\n", encoding="utf-8")
+    return {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "MEM_DATA": str(tmp_path / "d"),
+            "XDG_CONFIG_HOME": str(tmp_path / "c"), "MEM_PROJECT": str(root), **extra}
+
+
+def _signal(tmp_path, stdin, **extra):
+    return subprocess.run([str(HOOKS / "signal.sh")], input=stdin, env=_signal_env(tmp_path, **extra),
+                          capture_output=True, text=True)
+
+
+def _agent_input(prompt, tmp_path):
+    return json.dumps({"tool_name": "Agent", "tool_input": {"prompt": prompt, "subagent_type": "Explore"},
+                       "cwd": str(tmp_path)})
+
+
+@needs_uv
+def test_signal_hook_prints_the_updated_input(tmp_path):
+    brief = "Check how retries without idempotency keys duplicate side effects."
+    r = _signal(tmp_path, _agent_input(brief, tmp_path))
+    assert r.returncode == 0 and r.stderr == ""
+    spec = json.loads(r.stdout)["hookSpecificOutput"]
+    assert spec["hookEventName"] == "PreToolUse" and "permissionDecision" not in spec
+    assert spec["updatedInput"]["prompt"].startswith(brief) and "m:retry-keys" in spec["updatedInput"]["prompt"]
+    assert spec["updatedInput"]["subagent_type"] == "Explore"
+
+
+@needs_uv
+@pytest.mark.parametrize("stdin", ["", "not json", '{"tool_name": "Agent"}'])
+def test_signal_hook_is_silent_on_bad_input(tmp_path, stdin):
+    r = _signal(tmp_path, stdin)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+@needs_uv
+def test_signal_hook_is_silent_without_a_match(tmp_path):
+    r = _signal(tmp_path, _agent_input("Write a poem about the sea.", tmp_path))
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+@pytest.mark.skipif(any(Path(d, "uv").exists() for d in ("/usr/bin", "/bin")), reason="uv is under /usr/bin or /bin")
+def test_signal_hook_without_uv_is_silent(tmp_path):
+    r = subprocess.run([str(HOOKS / "signal.sh")], input=_agent_input("retries", tmp_path),
+                       env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}, capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""

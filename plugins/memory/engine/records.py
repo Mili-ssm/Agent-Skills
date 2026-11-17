@@ -358,16 +358,17 @@ def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], toda
     return [m for m, _, _ in scored[:limit]]
 
 
-STRONG = 0.5  # chosen on evals/signal/set.json by the rule in the stage 6 plan
-POSSIBLE = 0.35  # counted only, never named
+STRONG = 0.6  # chosen on evals/signal/set.json by the rule in the stage 6 plan
+POSSIBLE = 0.5  # counted only, never named
 MIN_TERMS = 2
 
 
 def containment(claim_tokens: Iterable[str], text_tokens: Collection[str]) -> float:
     """Share of the claim's distinct non-stop-word terms found in the text; 0.0 under MIN_TERMS terms.
 
-    Measured from the claim's side: a brief has hundreds of words and a claim about ten."""
-    terms = set(claim_tokens) - STOPWORDS
+    Measured from the claim's side: a brief has hundreds of words and a claim about ten. A token of only digits
+    (a year, a count) is not a term: it matches unrelated briefs."""
+    terms = {t for t in claim_tokens if not t.isdigit()} - STOPWORDS
     if len(terms) < MIN_TERMS:
         return 0.0
     return len(terms & set(text_tokens)) / len(terms)
@@ -383,13 +384,14 @@ def related_records(memories: Sequence[Memory], note_stems: Sequence[str], text:
                     tokenize: Callable[[str], list[str]]) -> tuple[list[Related], list[Related]]:
     """Records whose claim (a note: its file stem) is largely contained in the text: (strong, possible).
 
-    A record whose handle occurs in the text is left out: the text already names it."""
+    A record whose handle occurs in the text as a whole token, with or without "m:", is left out: the text already
+    names it."""
     text_tokens = set(tokenize(text))
     found: list[Related] = []
     candidates = [(m.handle, "m", m.claim) for m in memories if is_live(m, today)]
     candidates += [(stem, "n", stem.replace("-", " ")) for stem in note_stems]
     for handle, kind, claim in candidates:
-        if handle in text:
+        if re.search(rf"(?<![\w-]){re.escape(handle)}(?![\w-])", text):
             continue
         score = containment(tokenize(claim), text_tokens)
         if score >= POSSIBLE:
