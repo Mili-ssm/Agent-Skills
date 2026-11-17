@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, pyyaml, pytest.
 
-**Status:** planned 2026-11-17; not started.
+**Status:** in progress: Task 1 done.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -47,11 +47,11 @@
 - Refused (exit 2): an unknown section, a body with a `## ` heading, an empty result, an unknown topic id.
 - Guard applies to `--section` and `--claim` text.
 
-- [ ] **Step 1: Write the failing tests** — one per table row; guard refusal without `--shrink` and acceptance with it; a one-word claim correction accepted without `--shrink`; secret refusal writes nothing; forbidden term refused; a topic of another domain refused; `mem restore` returns the exact previous bytes and `mem check` passes after each edit and after each restore (README index included); a note `part of` a synthesis keeps its `part_of`; a write refused when the file changed since it was read.
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Whole suite and `scripts/validate.py` pass.**
-- [ ] **Step 5: Commit** `feat(memory): mem note edit for a section, the claim or the topics`.
+- [x] **Step 1: Write the failing tests** — one per table row; guard refusal without `--shrink` and acceptance with it; a one-word claim correction accepted without `--shrink`; secret refusal writes nothing; forbidden term refused; a topic of another domain refused; `mem restore` returns the exact previous bytes and `mem check` passes after each edit and after each restore (README index included); a note `part of` a synthesis keeps its `part_of`; a write refused when the file changed since it was read.
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Whole suite and `scripts/validate.py` pass.**
+- [x] **Step 5: Commit** `feat(memory): mem note edit for a section, the claim or the topics`.
 
 ### Task 2: `mem memory edit`
 
