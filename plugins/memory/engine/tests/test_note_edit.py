@@ -1,5 +1,6 @@
 """`mem note edit`: a section, the claim or the topics of a note, through the guard, with undo."""
 import pytest
+import yaml
 
 import mem
 
@@ -162,6 +163,13 @@ def test_part_of_survives_an_edit(run, hub_root, tmp_path, capsys):
     assert run(HANDLE, "--claim", "Self-attention can replace recurrence for sequence modelling")[0] == 0
     text = (hub_root / REL).read_text()
     assert 'part_of: "attention#part"' in text and "part_of_hash:" in text
+    assert mem.check(hub_root) == []
+    digest = [ln for ln in text.splitlines() if ln.startswith("part_of_hash:")]
+    assert run(HANDLE, "--section", "Evidence", "--body-file",
+               body(tmp_path, f"{EVIDENCE} More words here.\n", "e.md"))[0] == 0
+    after = (hub_root / REL).read_text()
+    assert [ln for ln in after.splitlines() if ln.startswith("part_of_hash:")] == digest
+    assert mem.check(hub_root) == []
 
 
 def test_refused_when_the_file_changed_since_it_was_read(run, hub_root, tmp_path, monkeypatch):
@@ -185,3 +193,30 @@ def test_read_only_store_and_missing_options(run, hub_root, tmp_path):
         assert stop.value.code == 2
     (hub_root / "mem-store.yaml").unlink()
     assert run(HANDLE, "--claim", "Self-attention can replace recurrence for sequence modelling")[0] == 2
+
+
+def test_a_change_between_read_and_swap_writes_nothing(run, hub_root, monkeypatch):
+    real = mem._index_files
+
+    def meddle(root):
+        path = hub_root / REL
+        path.write_text(path.read_text() + "\nA late line.\n")
+        return real(root)
+    monkeypatch.setattr(mem, "_index_files", meddle)
+    before = snapshot(hub_root)
+    code, _, err = run(HANDLE, "--claim", "Self-attention can replace recurrence for sequence modelling")
+    assert code == 2 and "changed" in err
+    assert snapshot(hub_root) == {**before, REL: before[REL] + b"\nA late line.\n"}
+    assert not (hub_root / ".curation-log").exists()
+
+
+def test_any_error_after_the_swap_rolls_everything_back(run, hub_root, monkeypatch):
+    log = hub_root / ".curation-log"
+    log.write_text('{"t": "x", "action": "other", "handle": "a"}\n')
+    before, log_before = snapshot(hub_root), log.read_bytes()
+
+    def boom(root):
+        raise yaml.YAMLError("broken")
+    monkeypatch.setattr(mem, "apply_index", boom)
+    assert run(HANDLE, "--claim", "Self-attention can replace recurrence for sequence modelling")[0] == 2
+    assert snapshot(hub_root) == before and log.read_bytes() == log_before

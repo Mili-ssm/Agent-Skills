@@ -4345,28 +4345,32 @@ def cmd_note(args: argparse.Namespace) -> int:
         today = datetime.date.today()
         new, what = _edited_note_text(text, found, meta, load_topics(root), section=args.section, body=body,
                                       claim=claim, topics=topics, shrink=args.shrink, today=today)
-        if found.read_bytes() != original:
-            raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
         group = uuid.uuid4().hex
         listings = _index_files(root)
         log = root / records.CURATION_LOG
-        number = log.read_text(encoding="utf-8").count("\n") if log.exists() else 0
+        log_before = log.read_bytes() if log.exists() else None
         entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                  "action": "note-edit", "handle": rel, "group": group, "before": text,
                  "after": _sha(new.encode("utf-8"))}
         with log.open("a", encoding="utf-8", newline="") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        swapped = False
         try:
+            if found.read_bytes() != original:
+                raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
             _swap_file(found, new.encode("utf-8"))
+            swapped = True
             apply_index(root)
-        except (OSError, FrontmatterError):
-            _swap_file(found, original)
-            for path, data in listings.items():
-                if path.read_bytes() != data:
-                    _swap_file(path, data)
-            marker = {"t": entry["t"], "action": "restore", "handle": rel, "undone": number}
-            with log.open("a", encoding="utf-8", newline="") as f:
-                f.write(json.dumps(marker) + "\n")
+        except BaseException:  # any failure leaves the note, the listings and the log as they were
+            if swapped:
+                _swap_file(found, original)
+                for path, data in listings.items():
+                    if path.read_bytes() != data:
+                        _swap_file(path, data)
+            if log_before is None:
+                log.unlink(missing_ok=True)
+            else:
+                log.write_bytes(log_before)
             raise
         _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
