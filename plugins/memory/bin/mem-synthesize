@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+"""mem-synthesize: write syntheses for topics that have none, quietly, one headless session per step.
+
+Per topic: writer (the `memory-synthesizer` agent) -> checker -> one fixer round -> scoped check -> delete-only step
+when claims remain -> `mem synthesis attach` for the writer's attach list. The store changes only through `mem`
+(`mem restore` undoes a step). Stdout: one line at the start and one table at the end; everything else goes to a log
+file whose path is printed. On demand only: it spends model usage (about 0.5 USD per topic, unmeasured at high effort).
+
+Usage: mem-synthesize [--topic T]... [--budget USD (3)] [--dry-run] [--store PATH] [--claude PATH] | --self-check
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
+import synth_pipeline as sp  # noqa: E402
+
+AGENT = "memory:memory-synthesizer"
+ESTIMATE_PER_TOPIC = 0.5   # USD: 0.25 measured at medium effort, doubled for the owner's high setting
+TOPIC_LINE = re.compile(r"^  (\S+)  (\d+) notes\s*$")
+ATTACH_LINE = re.compile(r"^(knowledge/\S+\.md)\t(s:[^\s#]+#[^\s#]+)\s*$")
+HEADER = ("topic", "parts", "attached", "fixed", "deleted", "mem check", "cost USD", "status")
+
+
+# --- environment ---------------------------------------------------------------------------------------------
+
+def default_store() -> Path | None:
+    """The store `mem` falls back to: MEM_STORE, else the default store under the XDG data folder."""
+    if os.environ.get("MEM_STORE"):
+        return Path(os.environ["MEM_STORE"]).expanduser()
+    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
+    found = Path(data) / "agent-memory" / "store"
+    return found if (found / "mem-store.yaml").is_file() else None
+
+
+def state_dir() -> Path:
+    if os.environ.get("MEM_DATA"):
+        return Path(os.environ["MEM_DATA"])
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "agent-memory"
+
+
+def session_env(store: Path) -> dict:
+    """The environment of the headless sessions and of the `mem` calls: aimed at `store` only; the installed
+    plugin's `bin/` is dropped from PATH so the sessions run this plugin's `mem`."""
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT") and not k.startswith("CLAUDE_PLUGIN_OPTION_")}
+    env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p)
+    env["MEM_STORE"] = str(store)
+    return env
+
+
+def topics_without_synthesis(curate_output: str) -> list[str]:
+    """Topic ids listed under "no synthesis" in the output of `mem curate --notes`."""
+    topics, inside = [], False
+    for line in curate_output.splitlines():
+        if line and not line.startswith(" "):
+            inside = "no synthesis" in line
+        elif inside and (found := TOPIC_LINE.match(line)):
+            topics.append(found.group(1))
+    return topics
+
+
+def attach_lines(answer: str) -> list[tuple[str, str]]:
+    return [m.groups() for m in map(ATTACH_LINE.match, answer.splitlines()) if m]
+
+
+def part_of(note: Path) -> str | None:
+    head = re.match(r"---\n(.*?)\n---\n", note.read_text(), re.S)
+    found = re.search(r'^part_of: "?([^"\n]+)"?$', head.group(1), re.M) if head else None
+    return found.group(1) if found else None
+
+
+def history_commit(store: Path, env: dict, message: str, log) -> None:
+    if not (store / ".git").exists():
+        return
+    done = sp.mem(store, env, "history", "commit", "-m", message)
+    log(f"history commit ({message}): exit {done.returncode} {done.stdout.strip()} {done.stderr.strip()}")
+
+
+# --- one topic -----------------------------------------------------------------------------------------------
+
+def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, settings: Path, log) -> dict:
+    """Run the pipeline for one topic; the row never raises: a failed step is `status`."""
+    row = dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, mem_check="-", cost=0.0, status="ok")
+    base = root / topic
+    work = base / "work"
+    work.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+    sessions: list[dict] = []
+    synthesis = store / "syntheses" / f"{topic}.md"
+    try:
+        if synthesis.exists():
+            row["status"] = "failed: a synthesis exists already"
+            return row
+        prompt = (f"Topic: {topic}\nSlug: {topic}\nStore: {store}\nWork folder: {work}\n"
+                  f"The memory-synthesis skill file: {sp.SKILL}")
+        w = sp.run_session(claude, "haiku", prompt, work, settings, env, base / "01-writer.jsonl", effort="high",
+                           agent=AGENT)
+        w.update(role="writer", model="haiku", costs=sp.cost_by_family(w["model_usage"]))
+        sessions.append(sp.summary(w))
+        answer = w["answer"].strip()
+        if not sessions[-1]["ok"]:
+            row["status"] = "failed: writer session"
+        elif answer.startswith("STOP"):
+            row["status"] = f"failed: {answer.splitlines()[0][:80]}"
+        elif not synthesis.is_file():
+            row["status"] = "failed: no synthesis written"
+        if row["status"] != "ok":
+            return row
+        done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions)
+        log(f"{topic}: loop {json.dumps({k: v for k, v in done.items() if k != 'arm_count'})}")
+        if done["why"]:
+            row["status"] = f"failed: {done['why']}"
+            return row
+        first = done["arm_count"]
+        row["deleted"] = done["deleted"]
+        row["fixed"] = max(0, (first["unsupported"] if first else 0) - done["deleted"])
+        for rel, target in attach_lines(answer):
+            note = store / rel
+            if not note.is_file():
+                log(f"{topic}: attach skipped, no note {rel}")
+            elif (current := part_of(note)) and not current.startswith(f"{topic}#"):
+                log(f"{topic}: attach skipped, {rel} is part of s:{current}")
+            else:
+                out = sp.mem(store, env, "synthesis", "attach", rel, target)
+                row["attached"] += out.returncode == 0
+                if out.returncode:
+                    log(f"{topic}: attach failed {rel} {target}: {out.stderr.strip()}")
+        row["parts"] = count_parts(synthesis)
+        row["mem_check"] = sp.mem(store, env, "check").returncode
+    except Exception as exc:   # a failed topic must not stop the run
+        row["status"] = f"failed: {type(exc).__name__}: {exc}"[:100]
+    finally:
+        row["cost"] = sum(s["cost"] for s in sessions)
+        if synthesis.is_file() and not row["parts"]:
+            row["parts"] = count_parts(synthesis)
+        for s in sessions:
+            log(f"{topic}: {s['role']} {s['model']} ok={s['ok']} cost={s['cost']:.3f} wall={s['wall']:.0f}s "
+                f"denied={s['denied']} tool_errors={s['tool_errors']}")
+    return row
+
+
+def count_parts(synthesis: Path) -> int:
+    return len(re.findall(r"^## (?!Summary$)", synthesis.read_text(), re.M))
+
+
+def table(rows: list[dict]) -> str:
+    lines = [HEADER] + [(r["topic"], r["parts"], r["attached"], r["fixed"], r["deleted"], r["mem_check"],
+                         f"{r['cost']:.3f}", r["status"]) for r in rows]
+    widths = [max(len(str(line[i])) for line in lines) for i in range(len(HEADER))]
+    return "\n".join("  ".join(str(c).ljust(w) for c, w in zip(line, widths)).rstrip() for line in lines)
+
+
+# --- run -----------------------------------------------------------------------------------------------------
+
+def say(text: str) -> None:
+    print(text, flush=True)
+
+
+def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_run: bool, out=say) -> int:
+    env = session_env(store)
+    if not topics:
+        found = sp.mem(store, env, "curate", "--notes")
+        if found.returncode:
+            print(f"mem-synthesize: mem curate --notes failed: {found.stderr.strip()}", file=sys.stderr)
+            return 2
+        topics = topics_without_synthesis(found.stdout)
+    if not topics:
+        out("mem-synthesize: no topic without a synthesis")
+        return 0
+    if dry_run:
+        out(f"mem-synthesize dry run: {len(topics)} topics: {', '.join(topics)}; estimated cost "
+            f"{len(topics) * ESTIMATE_PER_TOPIC:.2f} USD (budget {budget:.2f})")
+        return 0
+    if not claude:
+        print("mem-synthesize: no claude binary (use --claude, or CLAUDE_CODE_EXECPATH)", file=sys.stderr)
+        return 2
+    root = state_dir() / f"synthesize-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    root.mkdir(parents=True)
+    log_file = root / "log.txt"
+
+    def log(text: str) -> None:
+        with log_file.open("a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+    out(f"mem-synthesize: {len(topics)} topics ({', '.join(topics)}), budget {budget:.2f} USD, log {log_file}")
+    settings = root / "settings.json"
+    settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}},
+                                    "disableAllHooks": True}))   # no session-end hook may commit between our two
+    label = ", ".join(topics)
+    history_commit(store, env, f"mem-synthesize: before {label}", log)
+    rows, spent = [], 0.0
+    for topic in topics:
+        if spent >= budget:
+            rows.append(dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, mem_check="-", cost=0.0,
+                             status="not started: budget"))
+            continue
+        log(f"{topic}: start (spent {spent:.3f})")
+        row = run_topic(claude, env, root, store, topic, settings, log)
+        spent += row["cost"]
+        rows.append(row)
+        log(f"{topic}: {row}")
+    history_commit(store, env, f"mem-synthesize: after {label}", log)
+    out(table(rows))
+    out(f"total cost USD {spent:.3f}; log {log_file}")
+    return 0 if all(r["status"] == "ok" for r in rows) else 1
+
+
+# --- self-check ----------------------------------------------------------------------------------------------
+
+def self_check() -> int:
+    """No model: parsers, the dry run, and a whole run with a fake `claude` that writes nothing (every topic fails,
+    the run goes on, both history commits are made, the store keeps its content)."""
+    curate = ("2 memories seen several times\n  foo\n\ntopics with 8 notes or more and no synthesis (mem synthesis new)\n"
+              "  alpha-beta  26 notes\n  gamma  9 notes\nnotes to unify\n  delta  4 notes\n")
+    assert topics_without_synthesis(curate) == ["alpha-beta", "gamma"], topics_without_synthesis(curate)
+    answer = ("Slug: x\nATTACH\nknowledge/a/b.md\ts:x#part-one\nknowledge/a/c.md  s:x#bad\nliterature/z.md\ts:x#p\n")
+    assert attach_lines(answer) == [("knowledge/a/b.md", "s:x#part-one")], attach_lines(answer)
+    assert "/plugins/cache/" not in session_env(Path("/x"))["PATH"] and session_env(Path("/x"))["MEM_STORE"] == "/x"
+    rows = [dict(topic="t", parts=5, attached=7, fixed=2, deleted=1, mem_check=0, cost=0.31, status="ok")]
+    assert table(rows).splitlines()[1].split()[:3] == ["t", "5", "7"], table(rows)
+    with tempfile.TemporaryDirectory(prefix="mem-synthesize-check-") as tmp:
+        tmp = Path(tmp)
+        store = tmp / "store"
+        env = {**os.environ, "MEM_DATA": str(tmp / "data")}
+        assert subprocess.run([str(sp.MEM), "init", str(store)], env=env, capture_output=True).returncode == 0
+        assert subprocess.run([str(sp.MEM), "history", "init"], env={**env, "MEM_STORE": str(store)}, cwd=store,
+                              capture_output=True).returncode == 0
+        os.environ["MEM_DATA"] = str(tmp / "data")
+        lines: list[str] = []
+        assert run(None, store, ["one", "two"], 3.0, True, out=lines.append) == 0
+        assert "2 topics" in lines[0] and "1.00 USD" in lines[0], lines
+        assert not (tmp / "data").exists(), "a dry run wrote something"
+        fake = tmp / "fake-claude"
+        fake.write_text('#!/bin/sh\ntouch "$MEM_STORE/knowledge/touched.md"\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n')
+        fake.chmod(0o755)
+        (store / "knowledge").mkdir(exist_ok=True)
+        (store / "knowledge" / "keep.md").write_text("kept\n")
+        subprocess.run(["git", "add", "-A"], cwd=store, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture"], cwd=store,
+                       check=True)
+        lines.clear()
+        assert run(str(fake), store, ["one", "two"], 3.0, False, out=lines.append) == 1
+        assert "failed: STOP: fake" in lines[1] and lines[1].count("failed") == 2, lines
+        assert (store / "knowledge" / "keep.md").read_text() == "kept\n"
+        log = subprocess.run(["git", "log", "--format=%s"], cwd=store, capture_output=True, text=True).stdout
+        assert "mem-synthesize: after one, two" in log and "mem-synthesize: before" not in log, log   # only a change commits
+    print("self-check passed")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--topic", action="append", default=[], help="topic id (repeatable; default: the topics "
+                        "`mem curate --notes` lists without a synthesis)")
+    parser.add_argument("--budget", type=float, default=3.0, help="USD; no new topic starts past it")
+    parser.add_argument("--dry-run", action="store_true", help="list the topics and the estimated cost; run nothing")
+    parser.add_argument("--store", type=Path, help="default: the store `mem` resolves (MEM_STORE, else the default)")
+    parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    parser.add_argument("--self-check", action="store_true", help="no model: prove the parsers and a run with a fake claude")
+    args = parser.parse_args()
+    if args.self_check:
+        return self_check()
+    store = args.store.expanduser().resolve() if args.store else default_store()
+    if store is None or not (store / "mem-store.yaml").is_file():
+        print(f"mem-synthesize: no writable store at {store}", file=sys.stderr)
+        return 2
+    return run(args.claude, store, args.topic, args.budget, args.dry_run)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
