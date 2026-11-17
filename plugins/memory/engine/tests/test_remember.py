@@ -413,6 +413,7 @@ def test_a_secret_is_refused_in_the_global_scope(repo, gfolder, tmp_path, capsys
     "token=xxxxxxxxxxxx",
     "secret: example-value-1",
     "An sk-short key and a ghp_short one.",
+    "See risk-parity-had-a-higher-sharpe-ratio and ask-yourself-dumb-questions-first.",
 ])
 def test_ordinary_prose_and_placeholders_are_not_secrets(text):
     assert records.secret_in([text]) is None
@@ -446,3 +447,8 @@ def test_no_reminder_after_a_curation_pass(repo, capsys):
     capsys.readouterr()
     assert remember(claim="Another lesson about something else.") == 0
     assert "curation pass" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("prefix", ["", "KEY=", 'key: "', "Bearer ", "MY_", "https://host/"])
+def test_an_api_key_is_found_after_any_separator(prefix):
+    assert records.secret_in([prefix + "sk-" + "abcdefghij0123456789_-xy"]) == "API key"
