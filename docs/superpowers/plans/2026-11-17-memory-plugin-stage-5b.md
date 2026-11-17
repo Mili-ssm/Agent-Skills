@@ -89,6 +89,40 @@ Written by the main conversation: a `memory-synthesis` skill (when a synthesis i
 - [ ] **Step 4:** A question no single note answers ("when does this practice not apply, and why"): the session reaches the synthesis section and answers from it. A single-fact question: it answers from the note without opening the synthesis. One run each.
 - [ ] **Step 5:** Record the figures; tick stage 5b.
 
+## Amendments after the pre-mortem (2026-11-17)
+
+These override the tasks above. Task 1 as first written is being implemented; items A to C change it.
+
+### A. Synthesis first, in one call (the section is the source of truth)
+- `mem synthesis add s:<h> --section "<heading>" --body-file F` gains the optional group `--note-slug S --note-claim "…" --note-body-file G --confidence C --level L`: with it, the command writes the section and a knowledge note that summarizes it, the note's topics taken from the synthesis and its `part_of` set, both or neither. This is the normal way to record new knowledge on a subject that has a synthesis.
+- `part_of` is stored with a fingerprint of the section's text when the note was written (`part_of_hash`). `mem curate --notes` gains a block `notes older than their section (rewrite the note from the section: mem show s:<h>#<section>)`.
+- A part's `Sources:` line may cite a note in the store, an `https` URL, or the word `experience` followed by a date: knowledge that comes from work has no note to cite yet.
+- The refusal of `mem new knowledge` on a covered topic (exit 3) names the one-call form first. A topic is covered when a synthesis lists that exact topic id (no ancestors, no descendants); when several match, all are listed.
+
+### B. Sections grow, they are not retyped
+- `mem synthesis append s:<h>#<section> --body-file F` adds text at the end of a section, before its `Sources:` line, and may add links to that line. This is the default way to extend a part.
+- `mem synthesis edit` refuses, unless `--shrink` is given, a text with fewer than 80% of the section's words or without one of its links: `mem: the new text drops <N> words and the links <…>; use --shrink if that is meant.`
+- `mem show s:<h>` prints the outline with line ranges; `--all` prints the whole file. A section above 800 words makes `add`, `append` and `edit` print a note on stderr suggesting a split; nothing is refused.
+
+### C. Search and overlap
+- A section matches a query on its heading and its first paragraph only, never on its whole text or its `Sources:` line.
+- `mem synthesis new` refuses a topic id that another synthesis already lists: `mem: s:<h> already covers the topic <id>; add a part to it.`
+
+### D. Unifying notes without losing anything
+- Links are rewritten with paths recomputed from each file's folder to the kept note's folder (a note may be in another topic folder), and `check` runs on the result before anything is kept; on a problem every file is put back.
+- The unified body is refused, unless `--drop` is given, when it lacks a link target that any of the unified notes' bodies had: `mem: the unified text drops the links <…>; use --drop if that is meant.`
+- The kept note takes the union of the topics and the lowest confidence of the unified notes.
+- One `unify` is one undo: `mem restore <keep>` puts back every file it changed, and refuses when any of them changed since.
+- `mem distinct <a> <b>` works for notes too (a `distinct_from` field), so a pair told apart leaves `curate --notes`.
+- `mem rename` also rewrites `part_of` and `superseded_by` values that name the renamed note or synthesis.
+- A superseded note stays in the store's README listings marked `(superseded)`, and is left out of the session index's count.
+
+### E. How the owner's flow is judged
+Read from the usage log two weeks after the plugin is installed:
+- `--no-synthesis` on more than half of the `new knowledge` calls on covered topics, or a file under `syntheses/` changed outside `mem`: the synthesis-first rule is switched off and the result recorded.
+- Fewer than one `show s:` for every ten searches that printed a synthesis line: syntheses leave the search output.
+- Any lost link or stale-note report after a `unify` on real notes: `unify` is stopped and re-planned.
+
 ## Results
 
 Filled as tasks complete.
