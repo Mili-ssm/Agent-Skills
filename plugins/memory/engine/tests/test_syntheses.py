@@ -299,3 +299,36 @@ def test_a_secret_in_a_section_or_the_summary_is_refused(run, made, tmp_path):
     assert not (made.parent / "t-two.md").exists()
     assert run("synthesis", "edit", "s:attention#summary", "--body-file", body(tmp_path, f"{secret}\n", "e.md"))[0] == 4
     assert made.read_bytes() == before
+
+
+OLD_PARAGRAPH = "Attention lets every token read every other token in one step."
+
+
+def _section_with(run, tmp_path, text):
+    assert add(run, tmp_path, "Mechanism", f"{text}\n\n{SRC}\n")[0] == 0
+
+
+def test_edit_refuses_a_paragraph_swapped_for_other_text_of_the_same_length(run, made, tmp_path):
+    _section_with(run, tmp_path, OLD_PARAGRAPH)
+    before = made.read_bytes()
+    swapped = "Recurrent layers pass one hidden state along a very long chain!"
+    assert len(swapped.split()) == len(OLD_PARAGRAPH.split())
+    code, _, err = run("synthesis", "edit", "s:attention#mechanism", "--body-file",
+                       body(tmp_path, f"{swapped}\n\n{SRC}\n", "e.md"))
+    assert code == 1 and "drops 1 sentences; use --shrink if that is meant." in err
+    assert made.read_bytes() == before
+
+
+def test_edit_that_only_adds_text_passes_without_shrink(run, made, tmp_path):
+    _section_with(run, tmp_path, OLD_PARAGRAPH)
+    longer = f"{OLD_PARAGRAPH}\nIt also costs memory that grows with the square of the length."
+    assert run("synthesis", "edit", "s:attention#mechanism", "--body-file",
+               body(tmp_path, f"{longer}\n\n{SRC}\n", "e.md"))[0] == 0
+
+
+def test_fixing_a_typo_inside_a_sentence_needs_shrink_by_design(run, made, tmp_path):
+    # Accepted behavior: any rewritten sentence counts as dropped; small fixes need --shrink.
+    _section_with(run, tmp_path, OLD_PARAGRAPH.replace("every", "evry", 1))
+    fixed = body(tmp_path, f"{OLD_PARAGRAPH}\n\n{SRC}\n", "e.md")
+    assert run("synthesis", "edit", "s:attention#mechanism", "--body-file", fixed)[0] == 1
+    assert run("synthesis", "edit", "s:attention#mechanism", "--body-file", fixed, "--shrink")[0] == 0

@@ -284,3 +284,49 @@ def test_crowded_topics_without_a_synthesis_are_listed(run, make, tmp_path):
 
 def test_curate_notes_prints_nothing_for_an_empty_queue(run):
     assert run("curate", "--notes") == (0, "", "")
+
+
+def test_unify_refuses_a_secret_in_the_body_and_writes_nothing(run, make, tmp_path, hub_root):
+    make("one-note", "Mica sheets flex")
+    make("two-note", "Mica sheets bend")
+    unified = text_file(tmp_path, note_body("Mica flexes " + "ghp_" + "a" * 36), "u.md")
+    before = snapshot(hub_root)
+    code, out, err = run("unify", "one-note", "two-note", "--body-file", unified)
+    assert code == 4 and "secret" in err
+    assert snapshot(hub_root) == before
+
+
+def test_a_reference_definition_in_another_note_is_repointed_by_unify(run, make, tmp_path, hub_root):
+    make("ref-keep", "Mica sheets flex")
+    make("ref-other", "Mica sheets bend")
+    make("ref-reader", "Zinc hinges rust", evidence="See [o][r].\n\n[r]: ref-other.md \"title\"")
+    unified = text_file(tmp_path, note_body("Mica sheets flex and bend"), "u.md")
+    assert run("unify", "ref-keep", "ref-other", "--body-file", unified)[0] == 0
+    text = path_of(hub_root, "ref-reader").read_text(encoding="utf-8")
+    assert "[r]: ref-keep.md \"title\"" in text and "ref-other.md" not in text
+    assert run("check")[:2] == (0, "")
+
+
+def test_a_unified_body_that_loses_a_reference_style_link_is_refused_unless_drop(run, make, tmp_path, hub_root):
+    make("lit-target", "Quartz widgets shrink")
+    make("ref-a", "Mica sheets flex", evidence="See [t][r].\n\n[r]: lit-target.md")
+    make("ref-b", "Mica sheets bend")
+    unified = text_file(tmp_path, note_body("Mica sheets flex and bend"), "u.md")
+    before = snapshot(hub_root)
+    code, _, err = run("unify", "ref-a", "ref-b", "--body-file", unified)
+    assert code == 1 and "drops the links knowledge/" in err and "lit-target.md" in err
+    assert snapshot(hub_root) == before
+    assert run("unify", "ref-a", "ref-b", "--body-file", unified, "--drop")[0] == 0
+
+
+def test_restore_gives_back_a_listing_that_was_already_stale_byte_for_byte(run, three, hub_root):
+    listing = hub_root / "knowledge" / "README.md"
+    text = listing.read_text(encoding="utf-8")
+    stale = text.replace("(computing/README.md) | ", "(computing/README.md) | 9", 1)
+    assert stale != text
+    listing.write_text(stale, encoding="utf-8")
+    before = snapshot(hub_root)
+    assert run("unify", KEEP, B, C, "--body-file", three)[0] == 0
+    assert listing.read_bytes() != stale.encode()
+    assert run("restore", KEEP)[0] == 0
+    assert snapshot(hub_root) == before

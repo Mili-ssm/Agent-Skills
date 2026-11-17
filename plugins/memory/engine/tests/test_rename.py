@@ -8,7 +8,8 @@ LIT = "literature/computing/2017-vaswani-attention.md"
 
 
 def snapshot(root):
-    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*")) if p.is_file()}
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*"))
+            if p.is_file() and p.name != ".curation-log"}  # the log is append-only
 
 
 def write(root, rel, text):
@@ -132,3 +133,67 @@ def test_refuses_a_hidden_note_and_an_unreadable_linker(hub_root, capsys):
     before = snapshot(hub_root)
     assert run(hub_root, OLD, "attention-beats-recurrence") == 1
     assert "cannot read docs/bad.md" in capsys.readouterr().err and snapshot(hub_root) == before
+
+
+def test_rename_repoints_a_reference_definition(hub_root):
+    stem = "attention-replaces-recurrence"
+    append(hub_root, LIT, f"\nSee [a][r].\n\n[r]: ../../knowledge/computing/{stem}.md#claim\n")
+    assert run(hub_root, OLD, "attention-beats-recurrence.md") == 0
+    assert "[r]: ../../knowledge/computing/attention-beats-recurrence.md#claim" in (hub_root / LIT).read_text()
+    assert mem.check(hub_root) == []
+
+
+def restore(root, handle):
+    return mem.main(["--root", str(root), "restore", handle])
+
+
+def test_restore_undoes_a_rename_byte_for_byte(hub_root, capsys):
+    stem = "attention-replaces-recurrence"
+    append(hub_root, OLD, f"\n[self]({stem}.md)\n")
+    append(hub_root, LIT, f"\n[a](../../knowledge/computing/{stem}.md)\n")
+    write(hub_root, f".sources/{stem}/source.txt", "text")
+    before = snapshot(hub_root)
+    assert run(hub_root, OLD, "attention-beats-recurrence") == 0
+    assert snapshot(hub_root) != before
+    capsys.readouterr()
+    assert restore(hub_root, "attention-beats-recurrence") == 0
+    assert snapshot(hub_root) == before
+    assert mem.check(hub_root) == []
+
+
+def test_restore_after_rename_refuses_when_a_rewritten_file_changed_since(hub_root, capsys):
+    append(hub_root, LIT, "\n[a](../../knowledge/computing/attention-replaces-recurrence.md)\n")
+    assert run(hub_root, OLD, "attention-beats-recurrence") == 0
+    append(hub_root, LIT, "\nEdited later.\n")
+    edited = snapshot(hub_root)
+    capsys.readouterr()
+    assert restore(hub_root, "attention-beats-recurrence") == 2
+    assert LIT in capsys.readouterr().err
+    assert snapshot(hub_root) == edited
+
+
+def test_unify_then_rename_is_undone_by_two_restores_in_reverse_order(hub_root, tmp_path, capsys):
+    def new(slug, claim, evidence="Observed."):
+        body = tmp_path / f"{slug}.md"
+        body.write_text(f"## Claim\n\n{claim}\n\n## Evidence\n\n{evidence}\n\n## Applies when\n\nAlways.\n\n"
+                        "## Does not apply when\n\nNever.\n", encoding="utf-8")
+        assert mem.main(["--root", str(hub_root), "new", "knowledge", "--slug", slug, "--claim", claim,
+                         "--topics", "computing", "--confidence", "medium", "--level", "intermediate",
+                         "--origin", "experience", "--body-file", str(body)]) == 0
+    new("mica-sheets-flex", "Mica sheets flex")
+    new("mica-sheets-bend", "Mica sheets bend")
+    new("zinc-hinges-rust", "Zinc hinges rust", "See [m](mica-sheets-bend.md).")
+    unified = tmp_path / "u.md"
+    unified.write_text("## Claim\n\nMica sheets flex and bend.\n\n## Evidence\n\nObserved.\n\n"
+                       "## Applies when\n\nAlways.\n\n## Does not apply when\n\nNever.\n", encoding="utf-8")
+    start = snapshot(hub_root)
+    assert mem.main(["--root", str(hub_root), "unify", "mica-sheets-flex", "mica-sheets-bend",
+                     "--body-file", str(unified)]) == 0
+    unified_state = snapshot(hub_root)
+    assert run(hub_root, "mica-sheets-flex", "mica-sheets-bend-and-flex") == 0
+    capsys.readouterr()
+    assert restore(hub_root, "mica-sheets-bend-and-flex") == 0
+    assert snapshot(hub_root) == unified_state
+    assert restore(hub_root, "mica-sheets-flex") == 0
+    assert snapshot(hub_root) == start
+    assert mem.check(hub_root) == []

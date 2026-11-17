@@ -950,7 +950,19 @@ _LINK = re.compile(
     r"\[[^\]]*\]\(\s*(?:<([^<>\n]*)>|((?:[^()\s]|\([^()\s]*\))+))"
     r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)"""
 )
+# A reference definition, `[label]: target "title"`: a link to its target for `[text][label]` uses.
+_REFDEF = re.compile(
+    r"""^ {0,3}\[[^\]]+\]:[ \t]*(?:<([^<>\n]*)>|(\S+))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$"""
+)
 _SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
+
+
+def _target_spans(line: str, refs: bool) -> list[tuple[int, int]]:
+    """(start, end) of the target of each inline link in `line`, and of its reference definition when `refs`."""
+    found = [m.span(1 if m.group(1) is not None else 2) for m in _LINK.finditer(line)]
+    if refs and (m := _REFDEF.match(line)):
+        found.append(m.span(1 if m.group(1) is not None else 2))
+    return found
 
 
 def _blank(match: re.Match) -> str:
@@ -997,11 +1009,13 @@ def _markdown_files(root: Path) -> list[Path]:
     return found
 
 
-def _relative_links(text: str) -> Iterator[tuple[int, str, str]]:
-    """(line, target, decoded file part) of each relative link outside code; anchors and URLs are skipped."""
+def _relative_links(text: str, refs: bool = False) -> Iterator[tuple[int, str, str]]:
+    """(line, target, decoded file part) of each relative link outside code; anchors and URLs are skipped.
+
+    Reference definitions count as links only with `refs` (`check` keeps its own scan)."""
     for lineno, line in enumerate(_strip_code(text).split("\n"), 1):
-        for m in _LINK.finditer(line):
-            target = m.group(1) if m.group(1) is not None else m.group(2)
+        for start, end in _target_spans(line, refs):
+            target = line[start:end]
             if target.startswith(("#", "mailto:")) or _SCHEME.match(target):
                 continue
             file_part = urllib.parse.unquote(target.split("#", 1)[0])
@@ -1519,7 +1533,7 @@ RELATIONS = ("links-to", "linked-from", "similar")
 def _link_targets(root: Path, note: Note) -> set[str]:
     """Hub-relative paths the note links to (a folder link means its README.md), as `orphan_notes` resolves them."""
     targets = set()
-    for _, _, file_part in _relative_links(note.body):
+    for _, _, file_part in _relative_links(note.body, refs=True):
         target = os.path.normpath(root / Path(note.rel).parent / file_part)
         if Path(target).is_dir():
             target = os.path.join(target, "README.md")
@@ -1915,8 +1929,7 @@ def _link_edits(text: str, base: Path, old: Path, new_name: str, new_path: Path 
                             "\n".join(" " * len(l) if f else l for l, f in zip(lines, _in_fence(lines))))
     count = 0
     for i, line in enumerate(masked.split("\n")):
-        for m in reversed(list(_LINK.finditer(line))):
-            start, end = m.span(1 if m.group(1) is not None else 2)
+        for start, end in reversed(_target_spans(line, True)):
             target = line[start:end]
             raw = target.split("#", 1)[0]
             if target.startswith(("#", "mailto:")) or _SCHEME.match(target) or not raw:
@@ -1962,6 +1975,7 @@ def _set_field(text: str, key: str, value: Any) -> str:
 
 def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
     """`text` with `superseded_by` and `distinct_from` values that name the note `old` naming `new`, and their count."""
+    # `part_of` is not renamed here: it names a synthesis, and `rename` takes only literature and knowledge notes.
     try:
         meta, _, _ = split_frontmatter(text)
     except FrontmatterError:
@@ -2030,6 +2044,8 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
               if not os.access(p, os.W_OK)]
     if locked:
         raise NewNoteError(f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}")
+    originals = {(new if p == old else p): p.read_bytes() for p in (*edits, old)}
+    listings = _index_files(root)
     for path, text in edits.items():
         path.write_text(text, encoding="utf-8")
     old.rename(new)
@@ -2040,6 +2056,7 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
     except FrontmatterError as exc:
         raise NewNoteError(f"{new.relative_to(root).as_posix()} was renamed but the index was not "
                            f"updated ({exc}): fix it, then run mem index") from exc
+    _log_group(root, _with_changed_listings(originals, listings), "rename", {new: old})
     return new, links, len(edits)
 
 
@@ -2052,15 +2069,32 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _log_group(root: Path, originals: Mapping[Path, bytes], action: str) -> None:
+def _index_files(root: Path) -> dict[Path, bytes]:
+    """The README listing files that `apply_index` may rewrite, with their bytes now (those that exist)."""
+    try:
+        targets = index_targets(root, discover_notes(root), load_topics(root))
+    except FrontmatterError:
+        return {}
+    return {t.path: t.path.read_bytes() for t in targets if t.path.is_file()}
+
+
+def _with_changed_listings(originals: dict[Path, bytes], listings: Mapping[Path, bytes]) -> dict[Path, bytes]:
+    """`originals` plus each listing file in `listings` whose bytes are not what they were."""
+    return {**{p: b for p, b in listings.items() if p.read_bytes() != b}, **originals}
+
+
+def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: Mapping[Path, Path] | None = None) -> None:
     """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
-    and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since."""
+    and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since.
+    `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
     group = uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
         for path, before in originals.items():
             entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
                      "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
+            if moved and path in moved:
+                entry["from"] = moved[path].relative_to(root).as_posix()
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
@@ -2150,6 +2184,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
 
     before = set(check(root))
     originals = {p: p.read_bytes() for p in edits}
+    listings = _index_files(root)
     changed = {p.relative_to(root).as_posix() for p in edits}
     for path, text in edits.items():
         path.write_bytes(text.encode("utf-8"))
@@ -2168,7 +2203,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
             pass
         raise NewNoteError(f"the unified notes have {len(problems)} problems, so nothing was written:\n"
                            + "\n".join(str(p) for p in problems))
-    _log_group(root, originals, "unify")
+    _log_group(root, _with_changed_listings(originals, listings), "unify")
     return keep.path, len(notes), links
 
 
@@ -3324,7 +3359,10 @@ class _StoreLog:
 
 
 def _restore_group(root: Path, rel: str, entry: dict) -> int:
-    """Undo every file of the unify or distinct that logged `entry`, or none: refused when any changed since."""
+    """Undo every file of the unify, rename or distinct that logged `entry`, or none: refused when any changed since.
+
+    A README listing that changed since is left alone (not a refusal) and rebuilt by `apply_index`; one that is
+    as the action left it gets its exact previous bytes back."""
     lines = (root / records.CURATION_LOG).read_text(encoding="utf-8").split("\n")
     members: list[tuple[int, dict]] = []
     undone: set[int] = set()
@@ -3340,23 +3378,35 @@ def _restore_group(root: Path, rel: str, entry: dict) -> int:
         elif logged.get("group") == entry["group"] and isinstance(logged.get("before"), str):
             members.append((number, logged))
     members = [(n, e) for n, e in members if n not in undone]
-    moved = [e["handle"] for _, e in members
-             if not (root / e["handle"]).is_file() or _sha((root / e["handle"]).read_bytes()) != e.get("after")]
+
+    def current(e: dict) -> bool:
+        return (root / e["handle"]).is_file() and _sha((root / e["handle"]).read_bytes()) == e.get("after")
+    listing = {n: _is_index_readme(e["handle"]) for n, e in members}
+    moved = [e["handle"] for n, e in members if not listing[n] and not current(e)]
     if moved:
         print(f"mem: {', '.join(moved)} changed since {entry.get('action')}, so nothing was restored: "
               "restore or edit those files by hand", file=sys.stderr)
         return 2
+    kept = [(n, e) for n, e in members if not listing[n] or current(e)]
+    rebuild = not any(listing.values()) or len(kept) < len(members)
+    members = kept
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         for number, e in members:
-            target = root / e["handle"]
+            target = root / e.get("from", e["handle"])
             tmp = target.with_name(f".{target.name}.tmp")
             tmp.write_bytes(e["before"].encode("utf-8"))
             os.replace(tmp, target)
+            if "from" in e:
+                (root / e["handle"]).unlink()
+                sources, was = root / SOURCES_DIR / Path(e["handle"]).stem, root / SOURCES_DIR / Path(e["from"]).stem
+                if sources.is_dir() and not was.exists():
+                    sources.rename(was)
             marker = {"t": stamp, "action": "restore", "handle": e["handle"], "undone": number}
             with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
                 f.write(json.dumps(marker, ensure_ascii=False) + "\n")
-        apply_index(root)
+        if rebuild:
+            apply_index(root)
     except (OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3940,11 +3990,13 @@ def cmd_new(args: argparse.Namespace) -> int:
     fields = {k: getattr(args, k) for k in _NEW_FIELDS[args.type]}
     topics = [t.strip() for t in args.topics.split(",") if t.strip()]
     try:
+        body = _read_body(args.body_file) if args.body_file else None
+        if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
+            return 4
         if getattr(args, "part_of", None):
             syn, sec = _section_ref(args.root, args.part_of)
             fields["part_of"] = f"{syn.handle}#{sec.handle}"
             fields["part_of_hash"] = syntheses.fingerprint(sec.text)
-        body = _read_body(args.body_file) if args.body_file else None
         path = new_note(args.root, args.type, slug=args.slug, topics=topics,
                         today=datetime.date.today(), body=body, **fields)
     except (NewNoteError, OSError, ValueError) as exc:
@@ -3982,6 +4034,8 @@ def cmd_new(args: argparse.Namespace) -> int:
 def cmd_unify(args: argparse.Namespace) -> int:
     try:
         body = _read_body(args.body_file)
+        if _refuse_secret([body]):
+            return 4
         keep, count, links = unify_notes(args.root, args.keep, args.others, body, drop=args.drop,
                                          today=datetime.date.today())
     except (NewNoteError, OSError, ValueError, FrontmatterError) as exc:

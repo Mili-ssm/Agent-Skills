@@ -343,12 +343,23 @@ def _replace(path: Path, syn: Synthesis, target: Section, text: str, today: date
     _write(path, _bump("\n".join(lines), today))
 
 
+def _sentences(text: str) -> list[str]:
+    """Sentences of at least six words, whitespace collapsed and lower-cased; split on `.`, `!`, `?` and line breaks."""
+    found = (" ".join(part.split()).lower() for part in re.split(r"[.!?\n]+", text))
+    return [s for s in found if len(s.split()) >= 6]
+
+
 def _guard_shrink(old: str, new: str) -> None:
-    dropped = word_count(old) - word_count(new)
+    dropped = max(word_count(old) - word_count(new), 0)
     lost = list(dict.fromkeys(t for t in _links(old) if t not in set(_links(new))))
-    if lost or word_count(new) < SHRINK_RATIO * word_count(old):
-        raise ValueError(f"the new text drops {max(dropped, 0)} words and the links "
-                         f"{', '.join(lost) if lost else 'none'}; use --shrink if that is meant.")
+    kept = set(_sentences(new))
+    gone = [s for s in dict.fromkeys(_sentences(old)) if s not in kept]
+    if lost or gone or word_count(new) < SHRINK_RATIO * word_count(old):
+        parts = [f"{n} {name}" for n, name in ((dropped, "words"), (len(gone), "sentences")) if n]
+        if lost:
+            parts.append(f"the links {', '.join(lost)}")
+        what = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
+        raise ValueError(f"the new text drops {what}; use --shrink if that is meant.")
 
 
 def edit_section(path: Path, section: str, text: str, today: datetime.date, *, shrink: bool = False) -> None:

@@ -67,3 +67,19 @@ def test_body_from_standard_input_is_normalized_like_a_file(hub_root, monkeypatc
     monkeypatch.setattr(sys, "stdin", io.StringIO("﻿" + GOOD.replace("\n", "\r\n")))
     assert new(hub_root, "--body-file", "-") == 0
     assert (hub_root / NOTE).read_text(encoding="utf-8").endswith("---\n" + GOOD)
+
+
+FAKE_TOKEN = "ghp_" + "a" * 36  # built from parts: obviously fake
+
+
+def test_new_refuses_a_secret_in_body_title_or_url_and_writes_nothing(hub_root, tmp_path, capsys):
+    body = tmp_path / "b.md"
+    body.write_text(GOOD + f"\nToken {FAKE_TOKEN}\n", encoding="utf-8")
+    before = sorted(p for p in hub_root.rglob("*") if p.is_file())
+    assert new(hub_root, "--body-file", str(body)) == 4
+    assert "secret" in capsys.readouterr().err
+    clean = tmp_path / "c.md"
+    clean.write_text(GOOD, encoding="utf-8")
+    argv = [a if a != "A claim about bodies." else f"A claim {FAKE_TOKEN}" for a in ARGV]
+    assert mem.main(["--root", str(hub_root), *argv, "--body-file", str(clean)]) == 4
+    assert sorted(p for p in hub_root.rglob("*") if p.is_file()) == before
