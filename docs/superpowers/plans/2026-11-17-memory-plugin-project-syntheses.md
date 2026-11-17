@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-17-memory-plugin-design.md` (decisions D21, D24 and the new D25 added by Task 1).
 
-**Status:** Tasks 1 to 3 built; the pilot of Task 4 stopped the experiment on 2026-11-17 (see `## Results`); what to do with the code is the owner's decision. Result goes in `## Results` at the end of this file.
+**Status:** Tasks 1 to 3 built; the pilot of Task 4 stopped the experiment on 2026-11-17, and the staleness arms the owner then asked for showed no effect at their sample size (see `## Results`); what to do with the code is the owner's decision.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -172,7 +172,7 @@ def describe(state: str) -> str
 - Project under test: a copy of this repository at the branch's commit, in a temporary folder with its own `git init` and one commit (a real project, because a toy one made an earlier recall trial meaningless). Left out of the copy, because they hold the answers: `CLAUDE.md`, `docs/superpowers/plans/`, `plugins/memory/evals/`.
 - Questions: the script holds 8 candidate questions in Spanish whose answer is a path that takes several steps to find (which file a behaviour is decided in, reached through a caller, not a name to grep). A pilot runs each twice without syntheses; the 4 with the highest median tool calls are the orientation cases, and the pilot stops the experiment when fewer than 4 have a median of 4 calls or more (the measure could not show a saving).
 - Syntheses: written once by one headless Sonnet session told to load `memory-curation` and organize the project; kept in the temporary folder, part count reported. The script then adds one part of its own that names the two files the staleness cases move, so those cases do not depend on what the writer chose.
-- Orientation arms: A, no project synthesis; B, with them. Graded by a substring of the right path.
+- Orientation arms: A, no project synthesis; B, with them. Graded by a substring of the right path. Every session is asked for the path alone (a justification could name the old file of a staleness case and fail it), in its own copy of the project made with `git archive` (which keeps `.memory/` and `.superpowers/` out), with the same tools in every arm and the pilot: Read, Grep, Glob, Skill and `Bash(mem *)`.
 - Staleness arms, same stale text in both: after the syntheses are written, a commit renames each of the two files inside its own folder (`git mv`, new base name). The script's own part covers those two folders, not the files, and its body names the old files. S1 reads the parts as they are (reported `possibly stale`). S2 gets every stamp line rewritten by the harness to the new HEAD, with each covered path that no longer exists replaced by its nearest existing parent folder, bodies byte-equal; `mem project-synthesis list` must then show every part `fresh` before any S2 session (`confirm` cannot do this: it refuses a part whose covered path is gone, by Task 1's design). Pass: the answer holds the new base name and not the old one. S1 against S2 is what the stamp adds.
 - Per session, from the stream: correct or not, number of tool calls, input plus cache-read tokens of the final `result` event, and whether the syntheses were used (`mem show p:` or a read of a file under `.memory/syntheses/`).
 - Runs: 4 per case and arm on Sonnet: 16 sessions each for A and B, 8 each for S1 and S2, plus 16 pilot sessions and the writer.
@@ -190,9 +190,9 @@ def describe(state: str) -> str
 Reported beside the action, without changing it: tokens per arm, and S1 minus S2. When S1 is not at least 2 sessions above S2, the result says the stamp showed no effect at this sample size.
 
 - [x] **Step 1: Write the script** with `--claude`, `--model`, `--runs`, `--case`, `--pilot`; print one row per session and the medians per arm.
-- [x] **Step 2: Run the pilot, then the arms**, through `check-runner` in the background; keep only the tables.
+- [x] **Step 2: Run the pilot, then the arms** (the pilot stopped the experiment; the A/B arms were not run, the staleness arms ran later at the owner's request), through `check-runner` in the background; keep only the tables.
 - [x] **Step 3: Write `## Results`** in this file: the tables, the action taken by the rule, and what was not measured.
-- [ ] **Step 4: Commit** `test(memory): trials for project syntheses and their result`.
+- [x] **Step 4: Commit** `test(memory): trials for project syntheses and their result` (the results went in several commits).
 
 ## Pre-mortem of 2026-11-17 and what changed
 
@@ -264,6 +264,8 @@ Run on 2026-11-17 with the harness of commit `a9939dc`, Sonnet. The writer wrote
 | S2, same stale text marked fresh | 8 of 8 | 3.5 | 119,894 | 2 of 8 |
 
 **Verdict by the criteria above:** S1 is not below 6 of 8 and not 2 above S2, so the stamp showed no effect at this sample size.
+
+**Action:** the criteria set no action beyond the verdict (only "do not merge" for S1 below 6 of 8, which did not happen); what to do with the code is the owner's decision. Before any merge, the final integration review asks for: one exit code for a broken project synthesis file across `list` (1), `show` (2) and `curate` (0); `p:` not-found exit 2 against 1 for `s:` and `m:`; the stamp line built in one place (`_render_stamp`); `load` kept only for tests.
 
 - Observed: the sessions rarely read the project syntheses (2 of 16), although the session text names them; they searched the files and found the renamed file every time. The 2 S2 sessions that did read the stale text marked fresh still answered with the new name.
 - Inferred: on this repository the stamp has nothing to protect, because agents check the files anyway. The low use (2 of 16 S sessions) is of the kind the second row of the decision rule counts for arm B (fewer than 8 of 16 sessions used the syntheses); that row was not triggered, since B was not run, but it suggests the session sentence alone does not lead sessions to read the syntheses.
