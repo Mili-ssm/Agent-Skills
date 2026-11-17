@@ -120,6 +120,8 @@ def test_curate_prints_the_four_blocks(project, capsys):
         "  m:often  observed 4  Zebra crossing lights flicker",
         "not confirmed in 90 days (decide: mem confirm <h> or mem forget <h>)",
         f"  m:stale  {days_ago(120)}  Quartz clocks drift slowly",
+        "-- project syntheses: none yet --",
+        "6 active memories and no project synthesis: organize them (see the memory-curation skill).",
     ]
 
 

@@ -37,6 +37,18 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 
 `mem unify` refuses a text that drops a link the notes had; the kept note takes the lowest confidence of the ones it replaces.
 
+## Project syntheses
+
+`mem curate` also lists project synthesis parts that are possibly stale, and asks for a first synthesis when a project has 5 or more memories and none. A part is a section of `.memory/syntheses/<name>.md` stamped with the commit it was written at; `mem project-synthesis add|confirm|list` and `mem show p:<name>` handle them.
+
+- Kinds to names: `state` to `pending` or `plans`; `decision` and `constraint` to `conventions` or `organization`. `pitfall` and `lesson` stay memories unless they describe how the project is organized.
+- Read the code a part will describe before writing it, because a part written from memory repeats what may already be wrong.
+- Name folders in `--paths`, not many files: a folder survives renames and keeps the stamp meaningful.
+- Cite memories in the body as `m:<handle>`; never list files or line numbers, since they go stale on the next edit.
+- Possibly stale part: check its files, then `add` again with the corrected text, or `confirm` when it still holds.
+- Unreadable part file (`-- project syntheses: unreadable --`): open it and fix the reason shown, or move it out of `.memory/syntheses/`; curation skips it until then.
+- Write or confirm a part after committing the changes it describes, because the stamp is the commit (`add` and `confirm` print a note when covered files are uncommitted).
+
 ## Rules
 
 - `mem merge` refuses two claims that differ in a negation, a number or version, or a listed pair of opposites (works/fails, enable/disable, before/after…), because those are usually contradictions or versions. It cannot catch opposites said in other words ("is slow" against "is fast"): read the `differ in:` line yourself before every merge, and use `--force` only after reading both memories whole.

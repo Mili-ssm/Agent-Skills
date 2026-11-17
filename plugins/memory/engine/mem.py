@@ -33,13 +33,15 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 
 import yaml
 
+import project_syntheses
 import records
 import syntheses
 
 _WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memories", "curate", "session-index", "signal", "projects")
+                    "distinct", "restore", "memories", "curate", "session-index", "signal", "projects",
+                    "project-synthesis")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -2756,6 +2758,112 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
     return "\n".join(out).rstrip("\n")
 
 
+def _project_synthesis_context() -> tuple[Path, Path, Path] | None:
+    """(memory folder, working tree, project root) of the project the session is in; None after saying so."""
+    root = records.project_root(Path.cwd(), os.environ)
+    if root is None:
+        print("mem: not inside a project", file=sys.stderr)
+        return None
+    return records.project_dir(root), project_syntheses.worktree(Path.cwd(), root, os.environ), root
+
+
+def _split_part_ref(ref: str) -> tuple[str, str | None]:
+    name, sep, handle = ref.removeprefix("p:").partition("#")
+    if sep and not handle:
+        raise project_syntheses.ProjectSynthesisError(f"{ref!r} has an empty part handle after `#`")
+    return name, handle or None
+
+
+def _existing_parts(found: dict[str, list[project_syntheses.Part]]) -> str:
+    return "; ".join(f"p:{n}#{p.handle}" for n, parts in found.items() for p in parts) or "none yet"
+
+
+def _part_line(name: str, part: project_syntheses.Part, tree: Path) -> str:
+    return f"p:{name}#{part.handle}\t{project_syntheses.freshness(tree, part.stamp)}\t{part.heading}"
+
+
+def _load_project_syntheses(memory_dir: Path, name: str | None = None) -> dict[str, list[project_syntheses.Part]]:
+    """The files that load; a broken one does not hide the others, but asking for it by name raises its error."""
+    found, broken = project_syntheses.load_each(memory_dir)
+    for path, error in broken:
+        if name is not None and path == f"{project_syntheses.folder(Path()).as_posix()}/{name}.md":
+            raise project_syntheses.Unavailable(f"{path} cannot be read: {error}")
+    return found
+
+
+def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
+    """The outline of `p:NAME` or the text of `p:NAME#HANDLE`; ProjectSynthesisError when it does not exist."""
+    name, handle = _split_part_ref(ref)
+    found = _load_project_syntheses(memory_dir, name)
+    parts = found.get(name)
+    if parts is None:
+        raise project_syntheses.Unavailable(f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}")
+    if handle is None:
+        return "\n".join(_part_line(name, p, tree) for p in parts)
+    part = next((p for p in parts if p.handle == handle), None)
+    if part is None:
+        raise project_syntheses.Unavailable(f"no part {handle!r} in {name}; parts that exist: {_existing_parts(found)}")
+    state = project_syntheses.describe(project_syntheses.freshness(tree, part.stamp))
+    s = part.stamp
+    stamp = project_syntheses._render_stamp(s.paths, s.date, s.commit)
+    return f"== p:{name}#{part.handle} ({state})\n{part.heading}\n\n{part.body}\n{stamp}"
+
+
+def _warn_uncommitted(ref: str) -> None:
+    print(f"mem: {ref} covers files with uncommitted changes; "
+          "it will read possibly stale until you confirm it after committing.", file=sys.stderr)
+
+
+def cmd_project_synthesis(args: argparse.Namespace) -> int:
+    context = _project_synthesis_context()
+    if context is None:
+        return 2
+    memory_dir, tree, _ = context
+    try:
+        if args.ps_command == "list":
+            found, broken = project_syntheses.load_each(memory_dir)
+            for name, parts in found.items():
+                for part in parts:
+                    print(_part_line(name, part, tree))
+            for path, error in broken:
+                print(f"mem: skipped {path}: {error}", file=sys.stderr)
+            return 1 if broken else 0
+        if args.ps_command == "add":
+            try:
+                body = _memory_body(args.body_file)
+            except (OSError, UnicodeDecodeError) as exc:
+                print(f"mem: cannot read the body: {exc}", file=sys.stderr)
+                return 2
+            if args.name not in project_syntheses.NAMES:
+                raise project_syntheses.ProjectSynthesisError(
+                    f"unknown project synthesis {args.name!r}; use one of: {', '.join(project_syntheses.NAMES)}")
+            paths = [p for p in (item.strip() for item in args.paths.split(",")) if p]
+            project_syntheses._check_paths(tree, paths)  # before the secret scan, so a bad path is not reported as a secret
+            if _refuse_secret([args.heading, body]):
+                return 4
+            handle = project_syntheses.write_part(memory_dir, tree, args.name, args.heading, body,
+                                                  paths, datetime.date.today())
+            ref = f"p:{args.name}#{handle}"
+            print(ref)
+            if project_syntheses.covers_uncommitted(tree, paths):
+                _warn_uncommitted(ref)
+            return 0
+        name, handle = _split_part_ref(args.part)
+        found = _load_project_syntheses(memory_dir, name)
+        if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
+            raise project_syntheses.Unavailable(
+                f"no part {args.part!r}; parts that exist: {_existing_parts(found)}")
+        project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
+        print(f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}")
+        part = next(p for p in found[name] if p.handle == handle)
+        if project_syntheses.covers_uncommitted(tree, part.stamp.paths):
+            _warn_uncommitted(f"p:{name}#{handle}")
+        return 0
+    except project_syntheses.ProjectSynthesisError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 1 if isinstance(exc, project_syntheses.Unavailable) else 2
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     if args.ranges and not args.outline:
         build_parser().error("--ranges needs --outline")
@@ -2764,9 +2872,26 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 2
     if args.project and _other_projects([args.project], False) is None:
         return 2
-    if any(a.startswith("s:") or _is_memory_arg(args, a) for a in args.paths):
-        blocks, shown, ok = [], [], True
+    if any(a.startswith(("s:", "p:")) or _is_memory_arg(args, a) for a in args.paths):
+        blocks, shown, ok, refused = [], [], True, False
         for arg in args.paths:
+            if arg.startswith("p:"):
+                if args.project or args.section:  # refused per handle, so other handles in the call are still shown
+                    print(f"mem: --project and --section do not apply to `p:` handles ({arg})", file=sys.stderr)
+                    blocks.append(f"== {arg}\n(not found)")
+                    ok, refused = False, True
+                    continue
+                context = _project_synthesis_context()
+                if context is None:
+                    return 2
+                try:
+                    blocks.append(_project_synthesis_block(arg, context[0], context[1]))
+                except project_syntheses.ProjectSynthesisError as exc:
+                    print(f"mem: {exc}", file=sys.stderr)
+                    blocks.append(f"== {arg}\n(not found)")
+                    ok = False
+                    refused = refused or not isinstance(exc, project_syntheses.Unavailable)
+                continue
             if arg.startswith("s:"):
                 block = _synthesis_block(args, arg)
                 blocks.append(block or f"== {arg}\n(not found)")
@@ -2789,13 +2914,13 @@ def cmd_show(args: argparse.Namespace) -> int:
             shown += sh
             ok = ok and o
     else:
-        blocks, shown, ok = show(args.root, args.paths, sections=args.section, outline=args.outline,
-                                 ranges=args.ranges)
+        blocks, shown, ok, refused = *show(args.root, args.paths, sections=args.section, outline=args.outline,
+                                           ranges=args.ranges), False
     print("\n\n".join(blocks))
     if ok:
         log_usage(args.root, {"cmd": "show", "paths": list(dict.fromkeys(shown)), "sections": args.section or [],
                               "outline": bool(args.outline)})
-    return 0 if ok else 1
+    return 2 if refused else 0 if ok else 1
 
 
 _INIT_ALLOWED = {"mem-store.yaml", "topics.yaml", "literature", "knowledge", "research", "memories", "templates",
@@ -3729,6 +3854,46 @@ def _curate_notes(args: argparse.Namespace) -> int:
     return 0
 
 
+_PROJECT_SYNTHESIS_MIN_MEMORIES = 5
+
+
+def _curate_project_syntheses(scopes: Sequence[tuple[str, Path | None, list[records.Memory]]],
+                              today: datetime.date) -> list[str]:
+    """The two project synthesis blocks of `mem curate`: parts possibly stale, and none written yet."""
+    context = _project_synthesis_context_quiet()
+    if context is None:
+        return []
+    memory_dir, tree = context
+    found, broken = project_syntheses.load_each(memory_dir)
+    out: list[str] = []
+    if broken:
+        out.append("-- project syntheses: unreadable --")
+        out += [f"{path}\t{error}" for path, error in broken]
+    states = [(name, part, project_syntheses.freshness(tree, part.stamp)) for name, parts in found.items()
+              for part in parts]
+    stale = [(name, part, state) for name, part, state in states if state != project_syntheses.FRESH]
+    if stale:
+        out.append("-- project syntheses: possibly stale --")
+        out += [f"p:{name}#{part.handle}\t{project_syntheses.describe(state)}" for name, part, state in stale]
+    active = sum(1 for scope, _, loaded in scopes if scope == "project"
+                 for m in loaded if m.error is None and records.is_live(m, today))
+    if not found and not broken and active >= _PROJECT_SYNTHESIS_MIN_MEMORIES:
+        out += ["-- project syntheses: none yet --",
+                f"{active} active memories and no project synthesis: organize them (see the memory-curation skill)."]
+    return out
+
+
+def _project_synthesis_context_quiet() -> tuple[Path, Path] | None:
+    """(memory folder, working tree) of the project the session is in; None outside a project, silently."""
+    try:
+        root = records.project_root(Path.cwd(), os.environ)
+    except OSError:
+        return None
+    if root is None:
+        return None
+    return records.project_dir(root), project_syntheses.worktree(Path.cwd(), root, os.environ)
+
+
 def cmd_curate(args: argparse.Namespace) -> int:
     if args.notes:
         return _curate_notes(args)
@@ -3784,6 +3949,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
+    if not args.is_global:
+        out += _curate_project_syntheses(scopes, today)
     if out:
         print("\n".join(out))
     return 0
@@ -4904,6 +5071,17 @@ def build_parser() -> argparse.ArgumentParser:
                                help="list notes to attach to a synthesis part, and notes older than their part")
     curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
     curate_parser.set_defaults(func=cmd_curate)
+    ps_parser = sub.add_parser("project-synthesis", help="write, confirm and list the stamped parts of a project's syntheses")
+    ps_sub = ps_parser.add_subparsers(dest="ps_command", required=True)
+    ps_add = ps_sub.add_parser("add", help="write a part, or replace the one with the same heading; prints p:NAME#HANDLE")
+    ps_add.add_argument("name", metavar="NAME", help="one of: " + ", ".join(project_syntheses.NAMES))
+    ps_add.add_argument("heading")
+    ps_add.add_argument("--paths", required=True, metavar="A,B", help="the project files or folders the part covers")
+    ps_add.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    ps_confirm = ps_sub.add_parser("confirm", help="stamp a part as checked today, text unchanged")
+    ps_confirm.add_argument("part", metavar="p:NAME#HANDLE")
+    ps_sub.add_parser("list", help="one line per part: handle, freshness, heading")
+    ps_parser.set_defaults(func=cmd_project_synthesis)
     synthesis_parser = sub.add_parser("synthesis", help="create and extend syntheses, the long documents behind notes")
     synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
     syn_new = synthesis_sub.add_parser("new", help="create syntheses/<slug>.md with its summary")
@@ -4975,7 +5153,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "search" and args.scope == "memories" and (root is None or not root.is_dir()):
         args.root = None  # memories need no store; only a project or a global folder
         return args.func(args)
-    if args.command == "show" and all(a.startswith("m:") or _find_memory(args, a) for a in args.paths) and (root is None or not root.is_dir()):
+    if args.command == "show" and all(a.startswith(("m:", "p:")) or _find_memory(args, a) for a in args.paths) and (root is None or not root.is_dir()):
         args.root = None
         return args.func(args)
     if root is None:
