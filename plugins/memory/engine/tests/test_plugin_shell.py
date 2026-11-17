@@ -210,3 +210,16 @@ def test_signal_hook_without_uv_is_silent(tmp_path):
     r = subprocess.run([str(HOOKS / "signal.sh")], input=_agent_input("retries", tmp_path),
                        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)}, capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+@pytest.mark.parametrize("agent", ["memory:memory-researcher", "memory-recorder", "memory:memory-curator"])
+def test_subagent_start_is_silent_for_the_plugins_own_agents(agent):
+    r = subprocess.run([str(HOOKS / "subagent-start.sh")], input=json.dumps({"agent_type": agent, "agent_id": "a1"}),
+                       env={"PATH": os.environ["PATH"]}, capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+def test_subagent_start_still_speaks_to_other_agents():
+    r = subprocess.run([str(HOOKS / "subagent-start.sh")], input=json.dumps({"agent_type": "Explore", "agent_id": "a1"}),
+                       env={"PATH": os.environ["PATH"]}, capture_output=True, text=True)
+    assert json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] == SUBAGENT_TEXT
