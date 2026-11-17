@@ -89,7 +89,7 @@ def history_commit(store: Path, env: dict, message: str, log) -> None:
 
 # --- one topic -----------------------------------------------------------------------------------------------
 
-def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, settings: Path, log) -> dict:
+def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, settings: Path, log, budget_left=None) -> dict:
     """Run the pipeline for one topic; the row never raises: a failed step is `status`."""
     row = dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, reverted=0, mem_check="-", cost=0.0, status="ok")
     base = root / topic
@@ -98,18 +98,26 @@ def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, setti
     subprocess.run(["git", "init", "-q"], cwd=work, check=True)
     sessions: list[dict] = []
     synthesis = store / "syntheses" / f"{topic}.md"
+
+    def left():   # USD still allowed for this topic's next session
+        return budget_left() - sum(s["cost"] for s in sessions)
     try:
         if synthesis.exists():
             row["status"] = "failed: a synthesis exists already"
             return row
         prompt = (f"Topic: {topic}\nSlug: {topic}\nStore: {store}\nWork folder: {work}\n"
                   f"The memory-synthesis skill file: {sp.SKILL}")
+        if budget_left and left() <= 0:
+            row["status"] = "failed: budget spent"
+            return row
         w = sp.run_session(claude, "haiku", prompt, work, settings, env, base / "01-writer.jsonl", effort="high",
-                           agent=AGENT)
+                           agent=AGENT, max_budget=left() if budget_left else None)
         w.update(role="writer", model="haiku", costs=sp.cost_by_family(w["model_usage"]))
         sessions.append(sp.summary(w))
         answer = w["answer"].strip()
-        if not sessions[-1]["ok"]:
+        if budget_left and not w["has_result"]:
+            row["status"] = f"failed: {sp.NO_COST}"
+        elif not sessions[-1]["ok"]:
             row["status"] = "failed: writer session"
         elif answer.startswith("STOP"):
             row["status"] = f"failed: {answer.splitlines()[0][:80]}"
@@ -117,7 +125,8 @@ def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, setti
             row["status"] = "failed: no synthesis written"
         if row["status"] != "ok":
             return row
-        done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions)
+        done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions,
+                            left=left if budget_left else None)
         log(f"{topic}: loop {json.dumps({k: v for k, v in done.items() if k != 'arm_count'})}")
         if done["why"]:
             row["status"] = f"failed: {done['why']}"
@@ -202,20 +211,24 @@ def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_r
                                     "disableAllHooks": True}))   # no session-end hook may commit between our two
     label = ", ".join(topics)
     history_commit(store, env, f"mem-synthesize: before {label}", log)
-    rows, spent = [], 0.0
+    rows, spent, unknown = [], 0.0, False
     for topic in topics:
-        if spent >= budget:
+        if spent >= budget or unknown:
             rows.append(dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, reverted=0, mem_check="-", cost=0.0,
                              status="not started: budget"))
+            if rows_out is not None:
+                rows_out.append(rows[-1])
             continue
         log(f"{topic}: start (spent {spent:.3f})")
-        row = run_topic(claude, env, root, store, topic, settings, log)
+        row = run_topic(claude, env, root, store, topic, settings, log, lambda: budget - spent)
         spent += row["cost"]
         rows.append(row)
+        if rows_out is not None:
+            rows_out.append(row)
         log(f"{topic}: {row}")
+        if sp.NO_COST in row["status"]:
+            unknown = True
     history_commit(store, env, f"mem-synthesize: after {label}", log)
-    if rows_out is not None:
-        rows_out.extend(rows)
     out(table(rows))
     out(f"total cost USD {spent:.3f}; log {log_file}")
     return 0 if all(r["status"] == "ok" for r in rows) else 1

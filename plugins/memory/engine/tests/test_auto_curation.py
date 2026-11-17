@@ -276,3 +276,85 @@ def test_session_end_commit_skips_while_a_run_holds_the_lock(world):
     hook(world, CLAUDE_PLUGIN_OPTION_AUTO_CURATION="false", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
     log = subprocess.run(["git", "-C", str(world.store), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert "session end" in log
+
+
+# ---- unknown and partial spend, per-step caps ----
+
+NO_RESULT = "#!/bin/sh\necho call >> \"$FAKE_CALLS\"\necho \"$@\" > \"$FAKE_CALLS.args\"\n"
+
+
+def test_a_session_without_a_result_event_ends_the_run_failed_with_no_more_sessions(world):
+    memories(world, 3)
+    world.fake.write_text(NO_RESULT)
+    run(world)
+    s = status(world)
+    assert s["state"] == "failed" and s["reason"] == "a session ended without a cost report"
+    assert calls(world) == 1
+
+
+def test_every_session_gets_the_run_budget_as_its_cap(world):
+    memories(world, 3)
+    world.fake.write_text(FAKE + 'echo "$@" > "$FAKE_CALLS.args"\n')
+    auto(world, "run", "--store", str(world.store), "--claude", str(world.fake), "--threshold", "3", "--budget", "0.7")
+    args = Path(str(world.calls) + ".args").read_text().split()
+    assert args[args.index("--max-budget-usd") + 1] == "0.7000"
+
+
+def _loop(monkeypatch, tmp_path, results, left):
+    import synth_pipeline as sp
+    sessions, ran = [], []
+
+    def fake_session(*a, **k):
+        ran.append(k.get("max_budget"))
+        return {**dict(writes=0, write_errors=0, denied=0, tool_errors=0, model_usage={}, cost=0.0, wall=0.0, error=False,
+                       answer="", has_result=True), **results.pop(0)}
+    monkeypatch.setattr(sp, "run_session", fake_session)
+    work = tmp_path / "w"
+    work.mkdir()
+    done = sp.lean_loop("claude", {}, tmp_path, tmp_path / "s", work, tmp_path / "set", "t", sessions, left=left)
+    return done, sessions, ran
+
+
+def test_the_loop_stops_when_a_session_has_no_cost_report(monkeypatch, tmp_path):
+    done, sessions, ran = _loop(monkeypatch, tmp_path, [{"has_result": False}], lambda: 1.0)
+    assert done["why"] == "a session ended without a cost report" and len(sessions) == 1 and ran == [1.0]
+
+
+def test_the_loop_starts_no_step_without_budget_left(monkeypatch, tmp_path):
+    done, sessions, ran = _loop(monkeypatch, tmp_path, [], lambda: 0.0)
+    assert done["why"] == "budget spent" and sessions == [] and ran == []
+
+
+def _auto_module():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("mem_auto_under_test", str(AUTO))
+    mod = importlib.util.module_from_spec(importlib.util.spec_from_loader("mem_auto_under_test", loader))
+    loader.exec_module(mod)
+    return mod
+
+
+def test_a_failing_count_ends_in_a_failed_status_and_keeps_the_count_window(world, monkeypatch):
+    mod = _auto_module()
+    monkeypatch.setenv("MEM_DATA", str(world.data))
+    monkeypatch.setenv("XDG_DATA_HOME", world.env["XDG_DATA_HOME"])
+    monkeypatch.setenv(mod.OPTION, "true")
+    monkeypatch.setattr(mod, "count_new", lambda *a: (_ for _ in ()).throw(RuntimeError("count broke")))
+    assert mod.cmd_run(world.store, str(world.fake), None, 1) == 0
+    s = status(world)
+    assert "count broke" in s["failure"]["reason"] and "started" not in s
+    assert "Automatic curation failed" in session_text(world)
+    assert not auto_state.run_lock_held(world.data, world.store)
+
+
+def test_an_exception_after_a_session_still_records_what_was_spent(world, monkeypatch):
+    mod = _auto_module()
+    monkeypatch.setenv("MEM_DATA", str(world.data))
+    monkeypatch.setenv("XDG_DATA_HOME", world.env["XDG_DATA_HOME"])
+    monkeypatch.setenv(mod.OPTION, "true")
+    monkeypatch.setenv("FAKE_CALLS", str(world.calls))
+    memories(world, 3)
+    monkeypatch.setattr(mod, "topics_due", lambda *a: (_ for _ in ()).throw(RuntimeError("notes broke")))
+    mod.cmd_run(world.store, str(world.fake), None, 3)
+    s = status(world)
+    assert s["state"] == "failed" and "notes broke" in s["reason"] and s["cost"] == pytest.approx(0.05)

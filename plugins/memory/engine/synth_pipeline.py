@@ -104,7 +104,8 @@ def parse(stdout: str) -> dict:
 
 
 def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path, env: dict, log: Path,
-                timeout: int = 1500, effort: str | None = None, agent: str | None = None) -> dict:
+                timeout: int = 1500, effort: str | None = None, agent: str | None = None,
+                max_budget: float | None = None) -> dict:
     cmd = [claude, "-p", prompt, "--model", model, "--plugin-dir", str(PLUGIN), "--settings", str(settings),
            "--setting-sources", "project",
            # Headless --allowedTools also limits what a session may run: exactly what a step needs. Body files go
@@ -116,6 +117,8 @@ def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path
            "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
     if effort:
         cmd += ["--effort", effort]
+    if max_budget is not None:
+        cmd += ["--max-budget-usd", f"{max_budget:.4f}"]   # the session stops itself past this spend (--print only)
     if agent:
         cmd += ["--agent", agent]   # the agent's body is the session's system prompt
     start = time.monotonic()
@@ -220,22 +223,37 @@ def summary(s: dict) -> dict:
                 ok=s["has_result"] and not s["error"])
 
 
+class Stop(Exception):
+    """The loop ends: the budget is spent, or a session left no cost report."""
+
+
+NO_COST = "a session ended without a cost report"
+
+
 def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, settings: Path, topic: str,
-              sessions: list[dict], lean: bool = True) -> dict:
+              sessions: list[dict], lean: bool = True, left=None) -> dict:
     """Check, fix, and (lean) scoped check and delete-only step for the synthesis `s:<topic>` already in `store`.
 
     Each session's summary is appended to `sessions`; session streams go to `base/NN-<role>.jsonl`. Returns
     `arm_count` (first check, None when its report is unreadable), `why` (empty when every step worked), `fixes`,
-    `deleted`, `scope_violations`, `reverted` (the violations put back). `lean=False` is the trial's arm S: one Sonnet fixer, no second check."""
+    `deleted`, `scope_violations`, `reverted` (the violations put back). `lean=False` is the trial's arm S: one Sonnet fixer, no second check.
+    `left` (a function: USD still allowed) caps every step: none starts when nothing is left, each session gets
+    `--max-budget-usd` of what is left, and a session without a result event (killed at its timeout: its spend is
+    unknown) ends the loop with `why` = NO_COST."""
     synthesis = store / "syntheses" / f"{topic}.md"
     fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
     out = dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[], reverted=[])
 
     def step(role: str, model: str, text: str, level: str | None = None) -> dict:
+        remaining = left() if left else None
+        if remaining is not None and remaining <= 0:
+            raise Stop("budget spent")
         s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl",
-                        effort=level)
+                        effort=level, max_budget=remaining)
         s.update(role=role, model=model, costs=cost_by_family(s["model_usage"]))
         sessions.append(summary(s))
+        if left and not s["has_result"]:
+            raise Stop(NO_COST)
         return s
 
     def check(n: int, scope: str = NOT_GIVEN) -> dict | None:
@@ -253,21 +271,24 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
         out["reverted"].extend(back)
         return s
 
-    first = out["arm_count"] = check(1)
-    if first is None:
-        out["why"] = "arm checker report unreadable"
-    elif first["unsupported"]:
-        out["fixes"] = 1
-        text = brief("fixer", **fill, REPORT_FILE=str(work / "report-1.md"))
-        if not lean:
-            guarded_fix("sonnet", None, text, first)
-        else:
-            fixed = guarded_fix("haiku", CHEAP, text, first)
-            second = check(2, scope_text(first, fixed["answer"]))
-            if second is None:
-                out["why"] = "scoped check report unreadable"
-            elif second["unsupported"]:
-                guarded_fix("haiku", CHEAP, text.replace(str(work / "report-1.md"), str(work / "report-2.md"))
-                            + DELETE_ONLY, second, "deleter")
-                out["deleted"] = len(second["claims"]) or second["unsupported"]
+    try:
+        first = out["arm_count"] = check(1)
+        if first is None:
+            out["why"] = "arm checker report unreadable"
+        elif first["unsupported"]:
+            out["fixes"] = 1
+            text = brief("fixer", **fill, REPORT_FILE=str(work / "report-1.md"))
+            if not lean:
+                guarded_fix("sonnet", None, text, first)
+            else:
+                fixed = guarded_fix("haiku", CHEAP, text, first)
+                second = check(2, scope_text(first, fixed["answer"]))
+                if second is None:
+                    out["why"] = "scoped check report unreadable"
+                elif second["unsupported"]:
+                    guarded_fix("haiku", CHEAP, text.replace(str(work / "report-1.md"), str(work / "report-2.md"))
+                                + DELETE_ONLY, second, "deleter")
+                    out["deleted"] = len(second["claims"]) or second["unsupported"]
+    except Stop as stop:
+        out["why"] = str(stop)
     return out

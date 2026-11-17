@@ -113,36 +113,40 @@ def prune(state: State, now: float) -> None:
             continue
 
 
-def run_steps(state: State, claude: str, run_budget: float, root: Path, log) -> tuple[float, list[str]]:
-    """The curator, then the synthesis of the topics due; (cost USD, failures). A failed step does not raise."""
+def run_steps(state: State, claude: str, run_budget: float, root: Path, log, acct: dict) -> None:
+    """The curator, then the synthesis of the topics due. `acct` (`cost`, `failures`) is filled as sessions finish, so
+    an exception later still leaves what was spent. A session without a cost report ends the run: no further session."""
     env = ms.session_env(state.store)
     store = state.store
     settings = root / "settings.json"
     settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}},
                                     "disableAllHooks": True}))   # no hook of the sessions may commit or start a run
-    cost, failures = 0.0, []
     ms.history_commit(store, env, "mem-auto: before curation", log)
     work = root / "curator-work"
     work.mkdir(mode=0o700)
     done = sp.run_session(claude, "haiku", "apply", work, settings, env, root / "01-curator.jsonl", timeout=900,
-                          agent=AGENT)
-    cost += done["cost"]
+                          agent=AGENT, max_budget=run_budget)
+    acct["cost"] += done["cost"]
     log(f"curator: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
         f"answer={' '.join(done['answer'].split())[:300]}")
-    if not done["has_result"] or done["error"]:
-        failures.append("curator session failed")
     ms.history_commit(store, env, "mem-auto: after curation", log)
+    if not done["has_result"]:
+        acct["failures"].append(sp.NO_COST)
+        return
+    if done["error"]:
+        acct["failures"].append("curator session failed")
     topics = topics_due(state, env)
     log(f"topics due: {topics}")
     if topics:
         rows: list[dict] = []
-        ms.run(claude, store, topics, max(run_budget - cost, 0.0), False, out=lambda text: log(f"synthesize: {text}"),
-               root=root / "synthesize", rows_out=rows)
-        for row in rows:
-            cost += row["cost"]
-            if row["status"] not in ("ok", "not started: budget"):
-                failures.append(f"topic {row['topic']}: {row['status']}")
-    return cost, failures
+        try:
+            ms.run(claude, store, topics, max(run_budget - acct["cost"], 0.0), False,
+                   out=lambda text: log(f"synthesize: {text}"), root=root / "synthesize", rows_out=rows)
+        finally:   # rows arrive one by one: whatever finished is counted even when the call raises
+            for row in rows:
+                acct["cost"] += row["cost"]
+                if row["status"] not in ("ok", "not started: budget", "not started: unknown spend"):
+                    acct["failures"].append(f"topic {row['topic']}: {row['status']}")
 
 
 def cmd_run(store: Path, claude: str | None, budget_arg: str | float | None, threshold_arg: str | int | None) -> int:
@@ -150,8 +154,23 @@ def cmd_run(store: Path, claude: str | None, budget_arg: str | float | None, thr
     fd = au.take_run_lock(state.dir)   # the first action: a busy lock means a run is going
     if fd is None:
         return 0
+    now = time.time()
+    log_file = None
+    acct: dict = {"cost": 0.0, "failures": []}
+
+    def finish() -> None:
+        """The end status, written while the lock is still held."""
+        failures = acct["failures"]
+        finished = time.time()
+        reason = "; ".join(failures)
+        if log_file is None:   # the run never started (the count failed): the count window must not move
+            if failures:
+                state.save_status(failure={"at": finished, "reason": reason, "log": ""})
+            return
+        state.save_status(state="failed" if failures else "ok", finished=finished, cost=acct["cost"], reason=reason,
+                          **({"failure": {"at": finished, "reason": reason, "log": str(log_file)}} if failures else {}))
+
     try:
-        now = time.time()
         if os.environ.get(OPTION) != "true":
             return 0
         budget = budget_of(budget_arg if budget_arg is not None else os.environ.get(BUDGET_OPTION))
@@ -175,24 +194,22 @@ def cmd_run(store: Path, claude: str | None, budget_arg: str | float | None, thr
         extra = {"failure": stale} if stale and not previous.get("failure") else {}
         state.save_status(state="running", started=now, finished=None, cost=0.0, reason="", log=str(log_file), **extra)
         log(f"start: budget {budget:.2f}")
-        cost, failures = 0.0, []
+        if not claude:
+            acct["failures"].append("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+        else:
+            run_steps(state, claude, budget, root, log, acct)
+        if acct["cost"] > budget + 1e-9:
+            acct["failures"].append(f"cost {acct['cost']:.2f} USD is over the budget {budget:.2f}")
+        finish()
+    except Exception as exc:   # anything after the lock ends as a `failed` status; a killed run is the stale case
+        acct["failures"].append(f"{type(exc).__name__}: {exc}"[:150])
         try:
-            if not claude:
-                failures.append("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
-            else:
-                cost, failures = run_steps(state, claude, budget, root, log)
-            if cost > budget + 1e-9:
-                failures.append(f"cost {cost:.2f} USD is over the budget {budget:.2f}")
-        except Exception as exc:   # a raised error is recorded here; a killed run is the stale-status case
-            failures.append(f"{type(exc).__name__}: {exc}"[:150])
-        finished = time.time()
-        reason = "; ".join(failures)
-        log(f"end: {'failed' if failures else 'ok'} cost={cost:.3f} {reason}")
-        extra = {"failure": {"at": finished, "reason": reason, "log": str(log_file)}} if failures else {}
-        state.save_status(state="failed" if failures else "ok", finished=finished, cost=cost, reason=reason, **extra)
-        return 0
+            finish()
+        except Exception:
+            pass
     finally:
         os.close(fd)
+    return 0
 
 
 def cmd_due(store: Path, threshold_arg: str | None) -> int:

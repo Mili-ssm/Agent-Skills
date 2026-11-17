@@ -19,10 +19,13 @@ if [ -n "$here" ]; then
 fi
 # Automatic curation (option auto_curation, exactly "true"): start mem-auto detached, after the commit. It outlives
 # this hook (spike, plan 2026-11-17-memory-quiet-synthesis), and checks the lock and the threshold itself, so
-# nothing here waits on git or a model. The claude binary is the parent process when no variable names it.
+# nothing here waits on git or a model.
 if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CURATION:-}" = "true" ] && [ -n "$here" ] && [ -n "${MEM_STORE:-}" ]; then
-  claude="${CLAUDE_CODE_EXECPATH:-$(command -v claude 2>/dev/null)}"
-  [ -n "$claude" ] || claude="$(readlink "/proc/$PPID/exe" 2>/dev/null)"
+  claude="${CLAUDE_CODE_EXECPATH:-}"
+  if [ -z "$claude" ]; then # the running binary first (the one that ran this session), then PATH
+    claude="$(readlink "/proc/$PPID/exe" 2>/dev/null)"
+    case "$(basename "${claude:-x}")" in claude|claude.exe) ;; *) claude="$(command -v claude 2>/dev/null)" ;; esac
+  fi
   set -- run --store "$MEM_STORE"
   [ -n "$claude" ] && set -- "$@" --claude "$claude"
   if command -v setsid >/dev/null 2>&1; then

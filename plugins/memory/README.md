@@ -65,7 +65,7 @@ Plugin option `auto_curation` (exactly `true` turns it on; any other value is of
 
 **What it does:** takes the store-wide run lock first (one run at a time; while it holds it, `mem curate --done` does not trim logs and the session-end hook does not commit), writes status `running`, runs the `memory-curator` in apply mode (only `mem curate apply --safe` changes anything) and then `mem-synthesize` for store topics with 8 notes or more and no synthesis. Hooks are off in its sessions, so they cannot start another run. It never records `mem curate --done`.
 
-**Bounds:** `auto_curation_budget` USD per run (default 2); no per-day cap and no retry limit, because the threshold is the throttle.
+**Bounds:** `auto_curation_budget` USD per run (default 2); every session also gets `--max-budget-usd` of what is left, and no step starts when nothing is left. A session that ends without a cost report (killed at its timeout) fails the run and starts no further session. No per-day cap and no retry limit, because the threshold is the throttle.
 
 **Where to look:** `mem-auto status` (last run: time, state, cost, reason, log), `mem-auto due` (count, threshold, would it start), `mem-auto ack` (clears a shown failure). State and logs sit in `<state folder>/auto/<id>/` (mode 0700, runs kept 30 days). After a failed run (or a `running` older than one hour) the next session start text carries one line, `Automatic curation failed on <date>: <reason>; log: <path>`, until `mem-auto ack`; a success adds nothing. Every change is undone with `mem restore` or the store's git history.
 
