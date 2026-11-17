@@ -1,0 +1,247 @@
+"""Project syntheses: long-lived documents in a project's `.memory/syntheses/`, each part stamped with the commit it
+was written at, so a reader learns whether the files it covers changed since.
+
+A project synthesis is a file named after one of `NAMES`; a part is a `## ` section whose last line is its stamp:
+`Covers: <path>[, <path>...] | updated <YYYY-MM-DD> at <12 hex digits or no-commit>`. The tool writes the stamp.
+`load` reads files only and never runs git; `freshness` is the only function that compares a stamp with the files.
+Two roots: `.memory/` sits at the project root (the main worktree), git and the path checks use `worktree()`.
+"""
+from __future__ import annotations
+
+import datetime
+import os
+import re
+import subprocess
+from pathlib import Path
+from typing import Mapping, NamedTuple, Sequence
+
+import yaml
+
+import records
+import syntheses
+
+NAMES: tuple[str, ...] = ("organization", "plans", "pending", "conventions")
+FRESH, CHANGED, UNKNOWN = "fresh", "changed", "unknown"
+NO_COMMIT = "no-commit"
+GIT_TIMEOUT = 2
+_STAMP = re.compile(r"Covers: (?P<paths>[^|]+?) \| updated (?P<date>\d{4}-\d{2}-\d{2}) at (?P<commit>[0-9a-f]{12}|no-commit)")
+_DESCRIPTIONS = {
+    FRESH: "fresh: its files are as they were when it was written",
+    CHANGED: "possibly stale: its files changed since it was written; check them before relying on it",
+    UNKNOWN: "unknown: not a git project or its commit is gone; check the files",
+}
+
+
+class Stamp(NamedTuple):
+    paths: tuple[str, ...]
+    date: datetime.date
+    commit: str | None
+
+
+class Part(NamedTuple):
+    handle: str
+    heading: str
+    body: str
+    stamp: Stamp
+    line: int
+
+
+class ProjectSynthesisError(ValueError):
+    pass
+
+
+def folder(memory_dir: Path) -> Path:
+    return memory_dir / syntheses.SYNTHESES_DIR
+
+
+def _render_stamp(paths: Sequence[str], date: datetime.date, commit: str | None) -> str:
+    return f"Covers: {', '.join(paths)} | updated {date.isoformat()} at {commit or NO_COMMIT}"
+
+
+def _parse_stamp(line: str) -> Stamp | None:
+    m = _STAMP.fullmatch(line)
+    if not m:
+        return None
+    try:
+        date = datetime.date.fromisoformat(m["date"])
+    except ValueError:
+        return None
+    commit = None if m["commit"] == NO_COMMIT else m["commit"]
+    return Stamp(tuple(m["paths"].split(", ")), date, commit)
+
+
+def _parse(path: Path) -> list[Part]:
+    def fail(why: str) -> ProjectSynthesisError:
+        return ProjectSynthesisError(f"{path.name}: {why}")
+
+    try:
+        text = syntheses._read(path)
+    except (OSError, UnicodeDecodeError) as e:
+        raise fail(f"cannot be read ({type(e).__name__})") from None
+    m = syntheses._FRONTMATTER.match(text)
+    try:
+        meta = yaml.safe_load(m.group(1)) if m else None
+    except yaml.YAMLError:
+        meta = None
+    if not isinstance(meta, dict) or not isinstance(meta.get("title"), str):
+        raise fail("no valid frontmatter with a title")
+    lines, heads = syntheses._scan(text)
+    parts: list[Part] = []
+    for n, (i, heading) in enumerate(heads):
+        end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+        content = [ln.rstrip("\r") for ln in lines[i + 1:end]]
+        while content and not content[-1].strip():
+            content.pop()
+        stamp = _parse_stamp(content[-1]) if content else None
+        if stamp is None:
+            raise fail(f"the part `{heading}` (line {i + 1}) does not end with a stamp")
+        handle = syntheses.section_handle(heading)
+        if not handle or any(p.handle == handle for p in parts):
+            raise fail(f"the heading `{heading}` (line {i + 1}) has an empty or repeated handle")
+        parts.append(Part(handle, heading, "\n".join(content[:-1]).strip("\n"), stamp, i + 1))
+    return parts
+
+
+def load(memory_dir: Path) -> dict[str, list[Part]]:
+    """Name -> parts of every project synthesis that exists; a broken file raises ProjectSynthesisError. No git."""
+    found: dict[str, list[Part]] = {}
+    for name in NAMES:
+        path = folder(memory_dir) / f"{name}.md"
+        if path.is_file():
+            found[name] = _parse(path)
+    return found
+
+
+def worktree(cwd: Path, project_root: Path, env: Mapping[str, str]) -> Path:
+    """The working tree the session is in: the project root when MEM_PROJECT names the project, else the
+    repository's top level at `cwd` (a linked worktree is its own), else the project root."""
+    if env.get("MEM_PROJECT"):
+        return project_root
+    return records._toplevel(cwd) or project_root
+
+
+def _git(tree: Path, *args: str) -> subprocess.CompletedProcess | None:
+    try:
+        out = subprocess.run(["git", *args], cwd=tree, capture_output=True, text=True, check=False,
+                             timeout=GIT_TIMEOUT, env={**os.environ, "GIT_LITERAL_PATHSPECS": "1"})
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    return out if out.returncode == 0 else None
+
+
+def head_commit(tree: Path) -> str | None:
+    out = _git(tree, "rev-parse", "HEAD")
+    sha = out.stdout.strip()[:12] if out else ""
+    return sha if re.fullmatch(r"[0-9a-f]{12}", sha) else None
+
+
+def _check_paths(tree: Path, paths: Sequence[str]) -> list[str]:
+    if not paths:
+        raise ProjectSynthesisError("a part must cover at least one path")
+    clean = []
+    for p in paths:
+        parts = p.split("/")
+        if (not p or p != p.strip() or "," in p or "|" in p or "\\" in p or "\n" in p or p.startswith("/")
+                or ".." in parts or parts[0] == ".memory" or p.endswith("//") or "//" in p):
+            raise ProjectSynthesisError(f"invalid path {p!r}: relative, `/`-separated, no `,` or `|`, not in .memory/")
+        if not (tree / p).exists():
+            raise ProjectSynthesisError(f"the path {p!r} does not exist in {tree.name}")
+        clean.append(p)
+    return list(dict.fromkeys(clean))
+
+
+def _frontmatter(name: str, today: datetime.date) -> str:
+    meta = {"title": name.capitalize(), "created": today.isoformat(), "updated": today.isoformat()}
+    return "---\n" + yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, width=10**6) + "---\n"
+
+
+def _file(memory_dir: Path, name: str) -> Path:
+    if name not in NAMES:
+        raise ProjectSynthesisError(f"unknown project synthesis {name!r}; use one of: {', '.join(NAMES)}")
+    return folder(memory_dir) / f"{name}.md"
+
+
+def write_part(memory_dir: Path, worktree: Path, name: str, heading: str, body: str,
+               paths: Sequence[str], today: datetime.date) -> str:
+    """Create the file or add a part to it; a heading whose handle exists replaces that part in place."""
+    path = _file(memory_dir, name)
+    heading = " ".join(heading.split())
+    handle = syntheses.section_handle(heading)
+    if not handle:
+        raise ProjectSynthesisError("the heading has no letters or digits")
+    body = syntheses._clean(body)
+    if not body:
+        raise ProjectSynthesisError("the text is empty")
+    if syntheses._scan("---\nx: 1\n---\n" + body)[1]:
+        raise ProjectSynthesisError("the text contains a `## ` heading: a part is one heading and its text")
+    if any(_parse_stamp(ln.rstrip()) for ln in body.split("\n")):
+        raise ProjectSynthesisError("the text contains a stamp line: the tool writes the stamp")
+    covered = _check_paths(worktree, paths)
+    block = [f"## {heading}", "", *body.split("\n"), "", _render_stamp(covered, today, head_commit(worktree))]
+    if path.is_file():
+        old = _parse(path)
+        text = syntheses._read(path)
+        lines, heads = syntheses._scan(text)
+        same = next((p for p in old if p.handle == handle), None)
+        if same:
+            n = next(k for k, (i, _) in enumerate(heads) if i + 1 == same.line)
+            end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+            lines[heads[n][0]:end] = [*block, ""]
+        else:
+            while lines and not lines[-1].strip():
+                lines.pop()
+            lines += ["", *block, ""]
+        new = syntheses._bump("\n".join(lines), today)
+    else:
+        folder(memory_dir).mkdir(parents=True, exist_ok=True)
+        new = _frontmatter(name, today) + "\n" + "\n".join(block) + "\n"
+    syntheses._write(path, new)
+    return handle
+
+
+def confirm_part(memory_dir: Path, worktree: Path, name: str, handle: str, today: datetime.date) -> None:
+    """Give a part a new stamp (today, the current commit) and leave its text as it was."""
+    path = _file(memory_dir, name)
+    if not path.is_file():
+        raise ProjectSynthesisError(f"there is no project synthesis {name!r}")
+    part = next((p for p in _parse(path) if p.handle == handle), None)
+    if part is None:
+        raise ProjectSynthesisError(f"no part {handle!r} in {name}")
+    _check_paths(worktree, part.stamp.paths)
+    lines, heads = syntheses._scan(syntheses._read(path))
+    n = next(k for k, (i, _) in enumerate(heads) if i + 1 == part.line)
+    end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+    last = max(k for k in range(heads[n][0] + 1, end) if lines[k].strip())
+    lines[last] = _render_stamp(part.stamp.paths, today, head_commit(worktree))
+    syntheses._write(path, syntheses._bump("\n".join(lines), today))
+
+
+def _names(out: subprocess.CompletedProcess, status: bool) -> list[str]:
+    entries = out.stdout.split("\0")
+    if not status:
+        return [e for e in entries if e]
+    names, skip = [], False
+    for e in entries:
+        if skip:
+            skip = False
+        elif len(e) > 3:
+            names.append(e[3:])
+            skip = e[0] in "RC" or e[1] in "RC"
+    return names
+
+
+def freshness(worktree: Path, stamp: Stamp) -> str:
+    if stamp.commit is None or _git(worktree, "cat-file", "-e", f"{stamp.commit}^{{commit}}") is None:
+        return UNKNOWN
+    diff = _git(worktree, "diff", "--name-only", "-z", stamp.commit, "--", *stamp.paths)
+    status = _git(worktree, "status", "--porcelain", "-z", "--untracked-files=all", "--", *stamp.paths)
+    if diff is None or status is None:
+        return UNKNOWN
+    touched = [n for n in _names(diff, False) + _names(status, True) if n.split("/")[0] != records.PROJECT_DIR]
+    if touched or any(not (worktree / p).exists() for p in stamp.paths):
+        return CHANGED
+    return FRESH
+
+
+def describe(state: str) -> str:
+    return _DESCRIPTIONS[state]
