@@ -102,6 +102,19 @@ def test_restore_after_rename_puts_back_every_file_and_keeps_an_earlier_edit(run
     assert "Changed." not in read(made, SYN) and "Text of Alpha." in read(made, SYN)
 
 
+def test_restore_after_rename_then_edit_undoes_the_edit_first_even_in_the_same_second(run, made, tmp_path):
+    before = files(made)
+    assert run("synthesis", "rename", "s:attention#alpha", "First Part")[0] == 0
+    renamed = files(made)
+    assert run("synthesis", "edit", "s:attention#first-part", "--body-file",
+               text_file(tmp_path, f"Changed.\n\n{SRC}\n"), "--shrink")[0] == 0
+    assert run("restore", "s:attention")[0] == 0
+    assert files(made) == renamed
+    assert run("restore", "s:attention")[0] == 0
+    assert files(made) == before
+    assert run("check")[:2] == (0, "")
+
+
 def test_restore_of_a_note_undoes_the_whole_rename(run, made):
     before = files(made)
     assert run("synthesis", "rename", "s:attention#alpha", "First Part")[0] == 0

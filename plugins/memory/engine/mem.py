@@ -3487,8 +3487,9 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
     entry = records.last_log_entry(syn)
     rel = f"{syntheses.SYNTHESES_DIR}/{path.name}"
     group = records.last_log_entry(_StoreLog(root / "note", rel))  # a rename or remove logs its files as a group
-    if group is not None and group.get("group") and (
-            entry is None or _sha(path.read_bytes()) == group.get("after") or str(group.get("t")) >= str(entry.get("t"))):
+    if group is not None and group.get("group") and (entry is None or _sha(path.read_bytes()) == group.get("after")):
+        # the file is as the group's action left it (or has no own entry): the group is the newest change; when
+        # the file differs, a change came after the group and its own entry is the one to undo
         return _restore_group(root, rel, group, f"s:{handle}")
     if entry is None:
         print(f"mem: no logged text for s:{handle}: nothing to restore", file=sys.stderr)
@@ -4188,9 +4189,10 @@ def _structure(args: argparse.Namespace) -> int:
             path = syntheses.path_of(folder, handle)
             if path is None or not path.is_file():
                 raise ValueError(f"no synthesis named {args.target}")
-            if (section is None) != (action == "topics"):
-                raise ValueError("topics takes s:<handle>" if action == "topics"
-                                 else f"{action} takes s:<handle>#<section handle>")
+            if action == "topics" and section is not None:
+                raise ValueError("topics takes s:<handle>")
+            if action != "topics" and section is None:
+                raise ValueError(f"{action} takes s:<handle>#<section handle>")
             if action == "topics":
                 topics = list(dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip()))
                 known = load_topics(root)
