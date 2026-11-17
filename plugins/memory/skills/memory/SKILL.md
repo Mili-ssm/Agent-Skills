@@ -29,6 +29,8 @@ A `p:` part (project synthesis) marked possibly stale is a hint to check the fil
 
 A line marked `[memory: …]` is something seen or decided once, in one context: experience, not an established fact. Weigh its date and how often it was observed, and keep that label and date when you pass it on. A note is a general statement with its source and confidence; treat `medium` and `low` as hypotheses.
 
+`[disputed]` on a note is a claim a source contradicts: check it before relying on it. `web, unconfirmed` in a memory's bracket is a web finding no second source has confirmed yet.
+
 ## Remember
 
 Write one when the work produced something a later session would otherwise have to rediscover; skip routine outcomes.

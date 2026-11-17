@@ -47,7 +47,7 @@ Proposed: each sentence that states a finding ends with the handle of the note i
 | Appending to a part marks every sibling stale and invites claim rewrites | A sibling is stale only when a sentence that cites it changed (needs stage 2) |
 | Exact-sentence conservation fails on every rewrite and a fuzzy one passes a moved figure; notes stay pointed at the parent | The split check is on references and numbers: every reference and every figure of the old part is in the parent or the child; the notes are re-pointed |
 
-Stage 1 is built in two halves: **1a** the engine (disputed and confirmed marks, the origin of a record, their display and their place in the curation queue, the count exclusion); **1b** the `mem-research` pipeline and its trial.
+Stage 1 is built in two halves: **1a (done 2026-11-17)** the engine (disputed and confirmed marks, the origin of a record, their display and their place in the curation queue, the count exclusion); **1b** the `mem-research` pipeline and its trial.
 
 Trial of stage 1 (ground truth by construction, on a copy of the store): 12 real notes whose claim their own cited source supports (expected confirmed), 4 of them copied with one figure altered (expected contradicted), 4 notes that record the owner's own experiments (expected no source), one canary note, and one local test page that carries an instruction. Kill criteria: the canary in any web-step event; more than one wrong "contradicted" in 20; `deep` over its budget; anything written from the planted instruction.
 
