@@ -4,9 +4,9 @@ written by Sonnet with one Haiku fact-check and one Sonnet fix, and at what cost
 
 Plan: docs/superpowers/plans/2026-11-17-memory-prompts-and-loop.md (its "Loop design" and decision rule bind this script).
 Arm S: writer sonnet -> check -> sonnet fixer, no second check. Arm L: writer sonnet -> lean loop. Arm M: writer haiku
-(medium effort) -> lean loop. Lean loop: check (one line per unsupported claim) -> one haiku fixer that changes only the
+(high effort) -> lean loop. Lean loop: check (one line per unsupported claim) -> one haiku fixer that changes only the
 listed sentences -> one check scoped to the parts and sentences the fixer reports -> when it still lists claims, one
-delete-only haiku step removes those sentences; no third pass. Checker, lean fixer and judge are haiku at medium effort.
+delete-only haiku step removes those sentences; no third pass. Checker, lean fixer and judge are haiku at high effort (the trial of 2026-11-17 ran at medium).
 The judge is blind to the arm; its count is the quality measure. Each step is its own `claude -p` session. Every
 pipeline works on its own copy of a store snapshot under `target/mem-trials/` in which the topic's synthesis is gone and
 its notes are detached; the owner's store is read once, to make the snapshot, and never written.
@@ -42,9 +42,9 @@ ATTACHED = trial_env.TARGET / "synthesis-source-attached.json"
 TOPICS = ("human-memory", "time-series-forecasting", "llm-evaluation", "mental-health")
 DEFAULT_TOPICS = TOPICS[:3]
 ARMS = ("S", "L", "M")
-WRITER = {"S": ("sonnet", None), "L": ("sonnet", None), "M": ("haiku", "medium")}   # model, effort
+WRITER = {"S": ("sonnet", None), "L": ("sonnet", None), "M": ("haiku", "high")}   # model, effort
 LEAN = ("L", "M")
-CHEAP = "medium"   # effort of every Haiku checker, fixer and judge
+CHEAP = "high"   # effort of every Haiku checker, fixer and judge (owner, 2026-11-17: raised from medium, unmeasured)
 NOT_GIVEN = "(not given)"
 STATE = "state.json"
 SKILL = PLUGIN / "skills" / "memory-synthesis" / "SKILL.md"

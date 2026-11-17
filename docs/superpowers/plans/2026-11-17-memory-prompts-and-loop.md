@@ -65,3 +65,8 @@ All nine valid, coverage 100%, `mem check` 0, one fix round each, no part change
 Limits: one run per topic and three topics; the judge is Haiku at medium effort and its counts are noisy (claims checked for one document ranged 6 to 111 across rows), and it shares a model family with arm M's writer; the earlier Haiku writer at default effort with the untuned briefs scored 8.7 against 3.2 on one pair, so the gain comes from the tuned briefs, the effort level or both — not separated here. Kill criterion: if a fact-check of syntheses written this way in real use finds over 10 unsupported claims per 100, return the writer to Sonnet.
 
 Not done: making this pipeline a command or script the curation uses (the owner's open item 4); the description and session-text findings of the audit (each needs its eval).
+
+### After the trial (owner, 2026-11-17)
+
+- The lean loop's Haiku steps (writer, checker, fixer, judge) are raised from medium to high effort without a new measurement: the owner reads the gain as coming mostly from the tuned briefs and takes high effort as the middle point. Unmeasured; the kill criterion above applies.
+- The trial script stays as a test to run on demand (it costs model usage), not as part of any routine check.
