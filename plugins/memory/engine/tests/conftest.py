@@ -25,6 +25,7 @@ def isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "mem-config"))
     monkeypatch.setenv("MEM_ALLOW_WRITE", "1")
     monkeypatch.delenv("MEM_STORE", raising=False)
+    monkeypatch.delenv("MEM_PROJECT", raising=False)
 
 
 def usage_log_path() -> Path:
