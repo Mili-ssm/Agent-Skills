@@ -133,6 +133,13 @@ Loose notes are written freely; joining a note to a synthesis is part of curatio
 - The one-call form (`mem synthesis add` with the note group) stays as an optional way.
 - Amendment E's first criterion changes to: two weeks after installing, fewer than half of the notes on covered topics attached after a curation pass means the attach step is not being done and the flow is revisited.
 
+## Second change of rule by the owner (2026-11-17): D21
+
+- `mem search` returns knowledge notes and memories by default. `--deep` adds source notes (papers, documents), investigations and syntheses, printed after the notes under their own headers. With `--deep` and no memory or synthesis present, the note lines are those the original tool prints; without it they are the original's lines for knowledge notes only. The parity run compares `mem search --deep`.
+- `mem remember` prints, when a pass is due after this write, one line on stderr: `mem: N new memories since the last curation pass: after the current task, hand a pass to the memory-curator subagent.`
+- The `memory` skill covers three things: search, open, remember. Everything else is named as the curator's work.
+- Open: whether the curator applies actions itself. Proposed: it applies what is mechanical and reversible (merging a near-copy, forgetting an expired finding, attaching a note to its part) and proposes what needs judgment (which of two opposites holds, what to promote to the global scope).
+
 ## Results
 
 Filled as tasks complete.
