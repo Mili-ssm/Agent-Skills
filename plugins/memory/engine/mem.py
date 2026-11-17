@@ -30,8 +30,10 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 import yaml
 
 import records
+import syntheses
 
 _WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
+_SYNTHESIS_WRITES = ("new", "add", "edit")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memories", "curate", "session-index", "signal")
 
@@ -1205,8 +1207,34 @@ def rule_handles(root: Path, notes: list[Note], topics: dict | None) -> list[Pro
             for h, rels in groups.items() if len(rels) > 1 for rel in rels]
 
 
+def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
+    """Rule 15: each synthesis parses, repeats no section handle, uses known topics and ends every part with a
+    valid `Sources:` line."""
+    problems = []
+    for syn in syntheses.load(root / syntheses.SYNTHESES_DIR):
+        rel = syn.path.relative_to(root).as_posix()
+        if syn.error:
+            problems.append(Problem(rel, 1, f"synthesis cannot be parsed ({syn.error}): fix the frontmatter "
+                                            "and start the body with `## Summary`"))
+            continue
+        for t in syn.topics:
+            if topics is not None and t not in topics:
+                problems.append(Problem(rel, 1, f"unknown topic '{t}': use an id from topics.yaml or add it there"))
+        seen: set[str] = set()
+        for sec in syn.sections:
+            if sec.handle in seen:
+                problems.append(Problem(rel, sec.line, f'repeated section handle "{sec.handle}": '
+                                                       "rename one heading"))
+            seen.add(sec.handle)
+            if sec.handle != syntheses.SUMMARY:
+                for msg in syntheses.validate_section(sec.text, root):
+                    problems.append(Problem(rel, sec.line, f'section "{sec.heading}": {msg}'))
+    return problems
+
+
 RULES = [rule_names, rule_flat, rule_domain, rule_schema, rule_consistency, rule_topics_used,
-         rule_topics_file, rule_links, rule_index_fresh, rule_placeholders, rule_requirements, rule_file_size, rule_handles]
+         rule_topics_file, rule_links, rule_index_fresh, rule_placeholders, rule_requirements, rule_file_size, rule_handles,
+         rule_syntheses]
 
 
 def check(root: Path) -> list[Problem]:
@@ -2343,15 +2371,55 @@ def _is_memory_arg(args: argparse.Namespace, arg: str) -> bool:
     return _find_memory(args, arg) is not None
 
 
+def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
+    """`s:<h>` the whole file (or its outline or `--section`s), `s:<h>#<section handle>` one section; None after a message."""
+    handle, section = syntheses.split_ref(ref)
+    path = syntheses.path_of(args.root / syntheses.SYNTHESES_DIR, handle)
+    if path is None or not path.is_file():
+        print(f"mem: no synthesis {ref}", file=sys.stderr)
+        return None
+    syn = syntheses.load_one(path)
+    if syn.error:
+        print(f"mem: {path}: {syn.error}", file=sys.stderr)
+        return None
+    text = path.read_bytes().decode("utf-8", "replace")
+    lines = text.split("\n")
+    if section is not None:
+        found = [s for s in syn.sections if s.handle == section]
+        if not found:
+            print(f"mem: no section {section} in s:{handle}", file=sys.stderr)
+            return None
+        start = found[0].line - 1
+        stop = next((x.line - 1 for x in syn.sections if x.line > found[0].line), len(lines))
+        return "\n".join([f"== s:{handle}#{section}", *lines[start:stop]]).rstrip("\n")
+    out = [f"== s:{handle}"]
+    first = text[:syntheses._FRONTMATTER.match(text).end()].count("\n")
+    body = lines[first:]
+    if args.outline and args.ranges:
+        out.extend(_outline_ranges(body, first + 1))
+    elif args.outline:
+        out.extend(f"{first + 1 + i}: {line}" for i, _, line in _headings(body))
+    elif args.section:
+        out.extend(_sections(body, args.section))
+    else:
+        out.extend(lines)
+    return "\n".join(out).rstrip("\n")
+
+
 def cmd_show(args: argparse.Namespace) -> int:
     if args.ranges and not args.outline:
         build_parser().error("--ranges needs --outline")
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return 2
-    if any(_is_memory_arg(args, a) for a in args.paths):
+    if any(a.startswith("s:") or _is_memory_arg(args, a) for a in args.paths):
         blocks, shown, ok = [], [], True
         for arg in args.paths:
+            if arg.startswith("s:"):
+                block = _synthesis_block(args, arg)
+                blocks.append(block or f"== {arg}\n(not found)")
+                ok = ok and block is not None
+                continue
             if _is_memory_arg(args, arg):
                 found = _find_memory(args, arg.removeprefix("m:"))
                 if found is None:
@@ -2379,7 +2447,7 @@ def cmd_show(args: argparse.Namespace) -> int:
 
 
 _INIT_ALLOWED = {"mem-store.yaml", "topics.yaml", "literature", "knowledge", "research", "memories", "templates",
-                 ".git", ".gitignore", "README.md"}
+                 "syntheses", ".git", ".gitignore", "README.md"}
 
 
 def _memory_body(source: str | None) -> str:
@@ -2880,7 +2948,48 @@ def cmd_distinct(args: argparse.Namespace) -> int:
     return _two(args, args.a, args.b, "distinct", apply)
 
 
+def _writable_store(args: argparse.Namespace, command: str) -> Path | None:
+    root = args.root
+    if not isinstance(root, Path) or not root.is_dir():
+        print('mem: no store is set. Enable the memory plugin and set its "store" option, '
+              "or pass --root <folder>, or set MEM_STORE.", file=sys.stderr)
+        return None
+    if not records.store_is_writable(root):
+        print(f"mem: {command} writes to the store, which is read-only: it has no mem-store.yaml "
+              '(create a store with "mem init").', file=sys.stderr)
+        return None
+    return root
+
+
+def _restore_synthesis(args: argparse.Namespace) -> int:
+    root = _writable_store(args, "restore")
+    if root is None:
+        return 2
+    handle, section = syntheses.split_ref(args.handle)
+    path = syntheses.path_of(root / syntheses.SYNTHESES_DIR, handle)
+    if section is not None or path is None or not path.is_file():
+        print(f"mem: no synthesis named {args.handle}", file=sys.stderr)
+        return 2
+    syn = syntheses.Synthesis(path, handle)
+    entry = records.last_log_entry(syn)
+    if entry is None:
+        print(f"mem: no logged text for s:{handle}: nothing to restore", file=sys.stderr)
+        return 2
+    if entry["skipped"]:
+        print(f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr)
+    try:
+        records.restore(syn, entry)
+    except OSError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"s:{handle}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}")
+    log_usage(root, {"cmd": "restore", "scope": "synthesis"})
+    return 0
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
+    if args.handle.startswith("s:"):
+        return _restore_synthesis(args)
     def apply(found, today):
         m = found[0]
         entry = records.last_log_entry(m)
@@ -3068,7 +3177,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 2
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        for name in ("literature", "knowledge", "research", records.GLOBAL_DIR):
+        for name in ("literature", "knowledge", "research", records.GLOBAL_DIR, syntheses.SYNTHESES_DIR):
             (folder / name).mkdir(exist_ok=True)
         if not (folder / "templates").exists():
             shutil.copytree(_TEMPLATES, folder / "templates")
@@ -3102,6 +3211,80 @@ def _read_body(source: str) -> str:
     if body.split("\n", 1)[0].strip() == "---":
         raise NewNoteError("the body starts with a frontmatter fence: pass the text after the frontmatter")
     return body if body.endswith("\n") else body + "\n"
+
+
+def _synthesis_text(source: str | None) -> str | None:
+    try:
+        return _read_body(source) if source else ""
+    except NewNoteError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return None
+
+
+def cmd_synthesis(args: argparse.Namespace) -> int:
+    root = args.root
+    folder = root / syntheses.SYNTHESES_DIR
+    today = datetime.date.today()
+    action = args.synthesis_command
+    if action == "list":
+        listed = syntheses.load(folder)
+        try:
+            known = load_topics(root)
+        except FrontmatterError:
+            known = {}
+        wanted = {args.topic, *descendants(known, args.topic)} if args.topic else None
+        for syn in listed:
+            if syn.error:
+                print(f"mem: skipped {syn.path}: {syn.error}", file=sys.stderr)
+            elif wanted is None or wanted & set(syn.topics):
+                print(f"s:{syn.handle}\t{len(syn.parts)} parts, updated {syn.updated}\t{syn.title}")
+        return 0
+    try:
+        if action == "new":
+            topics = [t.strip() for t in args.topics.split(",") if t.strip()]
+            known = load_topics(root)
+            if not topics:
+                raise ValueError("at least one topic is required")
+            for t in topics:
+                if t not in known:
+                    raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+            summary = _synthesis_text(args.summary_file)
+            if summary is None:
+                return 1
+            text = syntheses.render_new((_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
+                                        title=args.title, topics=topics, summary=summary, today=today)
+            path = syntheses.create(folder, args.slug, text)
+            print(f"s:{path.stem}\t{path.relative_to(root).as_posix()}")
+        else:
+            ref = args.target
+            handle, section = syntheses.split_ref(ref)
+            path = syntheses.path_of(folder, handle)
+            if path is None or not path.is_file():
+                raise ValueError(f"no synthesis named {ref}")
+            body = _synthesis_text(args.body_file)
+            if body is None:
+                return 1
+            if action == "add":
+                if section is not None:
+                    raise ValueError("add takes s:<handle>, not a section")
+                problems = syntheses.validate_section(body, root) if body.strip() else []
+                if problems:
+                    raise ValueError("; ".join(problems))
+                new_handle = syntheses.add_section(path, args.section, body, today)
+                print(f"s:{handle}#{new_handle}\tadded")
+            else:
+                if section is None:
+                    raise ValueError("edit takes s:<handle>#<section handle>")
+                problems = syntheses.validate_section(body, root) if section != syntheses.SUMMARY and body.strip() else []
+                if problems:
+                    raise ValueError("; ".join(problems))
+                syntheses.edit_section(path, section, body, today)
+                print(f"s:{handle}#{section}\tedited")
+    except (ValueError, OSError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 1
+    log_usage(root, {"cmd": "synthesis", "action": action})
+    return 0
 
 
 def cmd_new(args: argparse.Namespace) -> int:
@@ -3177,6 +3360,9 @@ def cmd_stats(args: argparse.Namespace) -> int:
     for kind in ("literature", "knowledge"):
         domains = collections.Counter(n.path.parent.name for n in notes if n.type == kind)
         lines += [f"{kind}/{domain}: {domains[domain]}" for domain in sorted(domains)]
+    synths = [s for s in syntheses.load(root / syntheses.SYNTHESES_DIR) if s.error is None]
+    if synths:
+        lines.insert(len(INDEX_FOLDERS) + 1, f"syntheses: {len(synths)} ({sum(len(s.parts) for s in synths)} parts)")
     today = datetime.date.today()
     counts = [records.load_memories(folder, scope) for scope, folder in _memory_folders(args)]
     if any(counts):
@@ -3228,6 +3414,10 @@ def cmd_search(args: argparse.Namespace) -> int:
                 if m.error is not None:
                     print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
             memories.append((scope, loaded))
+    # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
+    all_syntheses = (syntheses.load(args.root / syntheses.SYNTHESES_DIR)
+                     if args.scope == "all" and args.root is not None and not args.offset and not filters
+                     and args.detail != "paths" else [])
     for query, ranked, linked in zip(queries, ranks, linkeds):
         result = ranked[args.offset:args.offset + args.limit]
         if args.also:
@@ -3258,11 +3448,18 @@ def cmd_search(args: argparse.Namespace) -> int:
         for note, score in linked:
             print("\n".join(format_hit(note, args.detail, score=score, terms=terms, weights=weights,
                                             name=names.get(note.rel))))
+        sections = syntheses.match_sections(all_syntheses, tokenize(query), tokenize=tokenize)
+        if sections:
+            print("-- syntheses (extended versions) --")
+            for syn, sec in sections:
+                print(f"s:{syn.handle}#{sec.handle}\t{syn.title}: {sec.heading}")
         if not args.also and with_notes:  # a footer names --offset, which applies to every query at once
             _page_footer(args.offset, len(result), len(ranked))
         extra = {"links": True, "linked": [note.rel for note, _ in linked]} if args.links else {}
         if printed:
             extra["memories"] = printed
+        if sections:
+            extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in sections]
         log_usage(args.root, {"cmd": "search", "query": query, "limit": args.limit,
                               "detail": args.detail, "filters": filters,
                               "results": [note.rel for note, _ in result], **extra})
@@ -3560,6 +3757,23 @@ def build_parser() -> argparse.ArgumentParser:
     memories_parser.set_defaults(func=cmd_memories)
     curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
     curate_parser.set_defaults(func=cmd_curate)
+    synthesis_parser = sub.add_parser("synthesis", help="create and extend syntheses, the long documents behind notes")
+    synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
+    syn_new = synthesis_sub.add_parser("new", help="create syntheses/<slug>.md with its summary")
+    syn_new.add_argument("--title", required=True)
+    syn_new.add_argument("--topics", required=True, help="comma-separated topic ids")
+    syn_new.add_argument("--slug", required=True)
+    syn_new.add_argument("--summary-file", metavar="PATH", help="the summary (or - for standard input)")
+    syn_add = synthesis_sub.add_parser("add", help="append one section; its text must end with a `Sources:` line")
+    syn_add.add_argument("target", metavar="s:HANDLE")
+    syn_add.add_argument("--section", required=True, metavar="HEADING")
+    syn_add.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    syn_edit = synthesis_sub.add_parser("edit", help="replace the text of one section; the rest of the file stays")
+    syn_edit.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_edit.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
+    syn_list.add_argument("--topic")
+    synthesis_parser.set_defaults(func=cmd_synthesis)
     init_parser = sub.add_parser("init", help="make a folder a writable store")
     init_parser.add_argument("folder", metavar="FOLDER")
     init_parser.set_defaults(func=cmd_init)
@@ -3593,7 +3807,8 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         print(f"mem: the store folder does not exist: {root}", file=sys.stderr)
         return 2
-    if args.command in _WRITE_COMMANDS and not records.store_is_writable(root):
+    writes = args.command in _WRITE_COMMANDS or (args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES)
+    if writes and not records.store_is_writable(root):
         print(f"mem: {args.command} writes to the store, which is read-only: it has no mem-store.yaml "
               '(create a store with "mem init").', file=sys.stderr)
         return 2

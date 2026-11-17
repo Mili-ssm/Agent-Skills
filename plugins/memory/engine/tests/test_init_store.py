@@ -8,7 +8,7 @@ BODY = {
 def test_a_new_store_takes_notes_and_passes_check(tmp_path, capsys):
     store = tmp_path / "store"
     assert mem.main(["init", str(store)]) == 0
-    assert sorted(p.name for p in (store / "templates").iterdir()) == ["knowledge.md", "literature.md", "research.md"]
+    assert sorted(p.name for p in (store / "templates").iterdir()) == ["knowledge.md", "literature.md", "research.md", "synthesis.md"]
     body = tmp_path / "body.md"
     body.write_text(BODY["knowledge"], encoding="utf-8")
     root = ["--root", str(store)]

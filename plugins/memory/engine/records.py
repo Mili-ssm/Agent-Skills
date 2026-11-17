@@ -12,7 +12,7 @@ import subprocess
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Sequence
+from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Protocol, Sequence
 
 import yaml
 
@@ -378,7 +378,13 @@ def flagged_words(a: str, b: str) -> list[str]:
     return sorted(flagged)
 
 
-def log_before(memory: Memory, action: str) -> None:
+class Logged(Protocol):
+    """What the curation log needs of a record: a file and a handle (a memory or a synthesis)."""
+    path: Path
+    handle: str
+
+
+def log_before(memory: Logged, action: str) -> None:
     """Append the file's whole current text to the `.curation-log` beside it, before an action changes the file."""
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
              "handle": memory.handle, "before": memory.path.read_bytes().decode("utf-8")}
@@ -386,7 +392,7 @@ def log_before(memory: Memory, action: str) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _log_lines(memory: Memory) -> list[str] | None:
+def _log_lines(memory: Logged) -> list[str] | None:
     try:
         # split on "\n" only: splitlines() would also cut at U+0085 or U+2028 inside a JSON string
         return (memory.path.parent / CURATION_LOG).read_text(encoding="utf-8").split("\n")
@@ -394,7 +400,7 @@ def _log_lines(memory: Memory) -> list[str] | None:
         return None
 
 
-def last_log_entry(memory: Memory) -> dict | None:
+def last_log_entry(memory: Logged) -> dict | None:
     """The newest `.curation-log` entry for the memory's handle that no restore has used yet, or None.
 
     Undo is a stack over an append-only log: a restore appends a marker naming the entry (by line number) it used.
@@ -422,7 +428,7 @@ def last_log_entry(memory: Memory) -> dict | None:
     return None
 
 
-def restore(memory: Memory, entry: dict) -> None:
+def restore(memory: Logged, entry: dict) -> None:
     """Put back the text a log entry holds, byte for byte, through a temporary file, then log that it was used."""
     tmp = memory.path.with_name(f".{memory.path.name}.tmp")
     tmp.write_bytes(entry["before"].encode("utf-8"))
