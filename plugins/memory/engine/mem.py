@@ -37,7 +37,7 @@ import records
 import syntheses
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
-_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
+_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memory", "memories", "curate", "session-index", "signal", "projects")
 
@@ -3485,6 +3485,11 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
         return 2
     syn = syntheses.Synthesis(path, handle)
     entry = records.last_log_entry(syn)
+    rel = f"{syntheses.SYNTHESES_DIR}/{path.name}"
+    group = records.last_log_entry(_StoreLog(root / "note", rel))  # a rename or remove logs its files as a group
+    if group is not None and group.get("group") and (
+            entry is None or _sha(path.read_bytes()) == group.get("after") or str(group.get("t")) >= str(entry.get("t"))):
+        return _restore_group(root, rel, group, f"s:{handle}")
     if entry is None:
         print(f"mem: no logged text for s:{handle}: nothing to restore", file=sys.stderr)
         return 2
@@ -3507,7 +3512,7 @@ class _StoreLog:
     handle: str
 
 
-def _restore_group(root: Path, rel: str, entry: dict) -> int:
+def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) -> int:
     """Undo every file of the unify, rename or distinct that logged `entry`, or none: refused when any changed since.
 
     A README listing that changed since is left alone (not a refusal) and rebuilt by `apply_index`; one that is
@@ -3559,7 +3564,7 @@ def _restore_group(root: Path, rel: str, entry: dict) -> int:
     except (OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{_handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
+    print(f"{label or _handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
           f"({len(members)} files)")
     log_usage(root, {"cmd": "restore", "scope": "note"})
     return 0
@@ -4099,6 +4104,155 @@ def _attach(args: argparse.Namespace) -> int:
     return 0
 
 
+def _part_of_notes(root: Path, ref: str) -> list[tuple[Path, str]]:
+    """(path, text) of each note whose `part_of` is `ref` (`<synthesis>#<section>`), sorted by path."""
+    found = []
+    for _, path in _note_files(root):
+        try:
+            text = path.read_bytes().decode("utf-8")
+            meta = split_frontmatter(text)[0]
+        except (OSError, UnicodeDecodeError, FrontmatterError):
+            continue
+        if isinstance(meta, dict) and meta.get("part_of") == ref:
+            found.append((path, text))
+    return sorted(found)
+
+
+def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], action: str) -> None:
+    """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes."""
+    group = uuid.uuid4().hex
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+        for path, (old, new) in changes.items():
+            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                     "before": old.decode("utf-8"), "after": _sha(new)}
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]) -> None:
+    """Log the undo with `write_log`, then swap each file from its old bytes to its new ones; a file that is not as
+    it was read, or any failure, puts every file and `log` back as they were."""
+    log_before = log.read_bytes() if log.exists() else None
+    write_log()
+    swapped: list[Path] = []
+    try:
+        for path, (old, _) in changes.items():
+            if path.read_bytes() != old:
+                raise ValueError(f"{path.name} changed since it was read, so nothing was written: run the command again")
+        for path, (_, new) in changes.items():
+            _swap_file(path, new)
+            swapped.append(path)
+    except BaseException:
+        for path in swapped:
+            _swap_file(path, changes[path][0])
+        if log_before is None:
+            log.unlink(missing_ok=True)
+        else:
+            log.write_bytes(log_before)
+        raise
+
+
+def _structure(args: argparse.Namespace) -> int:
+    """`mem synthesis rename | remove | detach | topics`: one line per changed record, errors on stderr with exit 2."""
+    root = args.root.resolve()
+    action = args.synthesis_command
+    today = datetime.date.today()
+    folder = root / syntheses.SYNTHESES_DIR
+    try:
+        if action == "rename" and _refuse_secret([args.heading]):
+            return 4
+        if action == "rename" and (refused := _check_terms([args.heading], "synthesis", getattr(args, "owner_approved", False))):
+            return refused
+        changes: dict[Path, tuple[bytes, bytes]] = {}
+        lines: list[str] = []
+        if action == "detach":
+            found = resolve_note(root, args.note)
+            if isinstance(found, list):
+                _ambiguous(args.note, found)
+                return 2
+            if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+                raise ValueError(f"no note {args.note}")
+            rel = found.relative_to(root).as_posix()
+            original = found.read_bytes()
+            text = original.decode("utf-8")
+            meta = split_frontmatter(text)[0]
+            part = meta.get("part_of") if isinstance(meta, dict) else None
+            if not isinstance(part, str):
+                raise ValueError(f"{_handle(rel)} is not part of a synthesis")
+            changes[found] = (original, _detached(text, rel).encode("utf-8"))
+            lines.append(f"{_handle(rel)}\tdetached from s:{part}")
+            log = root / records.CURATION_LOG
+            write_log = lambda: _log_note(root, found, rel, "detach")  # noqa: E731
+        else:
+            handle, section = syntheses.split_ref(args.target)
+            path = syntheses.path_of(folder, handle)
+            if path is None or not path.is_file():
+                raise ValueError(f"no synthesis named {args.target}")
+            if (section is None) != (action == "topics"):
+                raise ValueError("topics takes s:<handle>" if action == "topics"
+                                 else f"{action} takes s:<handle>#<section handle>")
+            if action == "topics":
+                topics = list(dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip()))
+                known = load_topics(root)
+                if not topics:
+                    raise ValueError("at least one topic is required")
+                for t in topics:
+                    if t not in known:
+                        raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+                for other in syntheses.load(folder):
+                    if other.error is None and other.handle != handle and (clash := [t for t in topics if t in other.topics]):
+                        raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}")
+                old, new = syntheses.with_topics(path, topics, today)
+                changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
+                lines.append(f"s:{handle}\ttopics {', '.join(topics)}")
+                log = folder / records.CURATION_LOG
+                write_log = lambda: records.log_before(syntheses.Synthesis(path, handle), "topics")  # noqa: E731
+            else:
+                ref = f"{handle}#{section}"
+                notes = _part_of_notes(root, ref)
+                if action == "rename":
+                    old, new, new_section = syntheses.renamed_section(path, section, args.heading, today)
+                    lines.append(f"s:{handle}#{new_section}\trenamed from {section}")
+                    edit = lambda text, rel: _renamed_part_of(text, rel, f"{handle}#{new_section}")  # noqa: E731
+                    lines += [f"{_handle(p.relative_to(root).as_posix())}\tpart of s:{handle}#{new_section}" for p, _ in notes]
+                else:
+                    old, new = syntheses.without_section(path, section, today)
+                    lines.append(f"s:{handle}#{section}\tremoved")
+                    edit = _detached  # noqa: E731
+                    lines += [f"{_handle(p.relative_to(root).as_posix())}\tdetached from s:{ref}" for p, _ in notes]
+                changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
+                for note, text in notes:
+                    changes[note] = (text.encode("utf-8"), edit(text, note.relative_to(root).as_posix()).encode("utf-8"))
+                log = root / records.CURATION_LOG
+                write_log = lambda: _log_group_ahead(root, changes, action)  # noqa: E731
+        locked = [p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)]
+        if locked:
+            raise ValueError(f"not writable: {', '.join(locked)}")
+        _write_logged_changes(changes, log, write_log)
+    except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print("\n".join(lines))
+    log_usage(root, {"cmd": "synthesis", "action": action})
+    return 0
+
+
+def _detached(text: str, rel: str) -> str:
+    """The note's text without `part_of` and `part_of_hash`."""
+    return _set_field(_set_field(_lf(text, rel), "part_of", None), "part_of_hash", None)
+
+
+def _renamed_part_of(text: str, rel: str, part_of: str) -> str:
+    """The note's text with `part_of` set to `part_of`; `part_of_hash` stays, so a stale note stays listed."""
+    return _set_field(_lf(text, rel), "part_of", part_of)
+
+
+def _lf(text: str, rel: str) -> str:
+    if "\r" in text:
+        raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
+    return text
+
+
 def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str, body: str,
                    today: datetime.date) -> str:
     """The section and the knowledge note that summarizes it, both or neither; returns the note's path."""
@@ -4158,6 +4312,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return 0
     if action == "attach":
         return _attach(args)
+    if action in ("rename", "remove", "detach", "topics"):
+        return _structure(args)
     note_group = [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level] \
         if action == "add" else []
     one_call = any(note_group)
@@ -5152,7 +5308,17 @@ def build_parser() -> argparse.ArgumentParser:
     syn_attach = synthesis_sub.add_parser("attach", help="make a knowledge note the short recall of a section")
     syn_attach.add_argument("note", metavar="NOTE")
     syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
-    for syn_cmd in (syn_new, syn_add, syn_edit, syn_append):
+    syn_rename = synthesis_sub.add_parser("rename", help="rename a section's heading; its notes follow")
+    syn_rename.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_rename.add_argument("heading", metavar="NEW_HEADING")
+    syn_remove = synthesis_sub.add_parser("remove", help="take a section out; its notes lose part_of")
+    syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
+    syn_detach.add_argument("note", metavar="NOTE")
+    syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
+    syn_topics.add_argument("target", metavar="s:HANDLE")
+    syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")
+    for syn_cmd in (syn_new, syn_add, syn_edit, syn_append, syn_rename):
         syn_cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
