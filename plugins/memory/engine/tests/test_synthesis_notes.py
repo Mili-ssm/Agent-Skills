@@ -233,8 +233,8 @@ def test_a_section_over_800_words_prints_a_note_on_stderr(run, made, tmp_path):
 def test_a_section_matches_on_heading_and_first_paragraph_only(run, made, tmp_path):
     text = f"Opening paragraph about gradients.\n\nA later paragraph mentions zebra stripes.\n\n{SRC}\n"
     run("synthesis", "add", "s:attention", "--section", "Training", "--body-file", body(tmp_path, text))
-    assert "s:attention#training" in run("search", "gradients training")[1]
-    assert "-- syntheses" not in run("search", "zebra stripes")[1]
+    assert "s:attention#training" in run("search", "gradients training", "--deep")[1]
+    assert "-- syntheses" not in run("search", "zebra stripes", "--deep")[1]
 
 
 def test_synthesis_new_refuses_a_topic_another_synthesis_lists(run, made):

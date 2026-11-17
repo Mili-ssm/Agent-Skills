@@ -362,3 +362,85 @@ def test_document_in_global_scope_checks_forbidden_terms_in_sources(gfolder, tmp
     forbid(tmp_path, "acme")
     assert remember("--global", "--source", "/srv/ACME/spec.pdf", kind="document") == 4
     assert remember("--global", "--source", "/srv/other/spec.pdf", kind="document") == 0
+
+
+# Test strings are built from fake parts so that no real secret appears in the repository.
+SECRETS = {
+    "private key": "-----BEGIN RSA " + "PRIVATE KEY-----",
+    "AWS access key id": "AKIA" + "ABCDEFGHIJKLMNOP",
+    "GitHub token": "ghp_" + "a1b2c3d4e5f6g7h8i9j0k1l2",
+    "API key": "sk-" + "abcdefghij0123456789_-xy",
+    "Slack token": "xoxb" + "-1234567890-abc",
+    "credential in a URL": "https://deploy:" + "hunter2@example.org/repo",
+    "secret assignment": "db_password = " + "correcthorse",
+}
+
+
+@pytest.mark.parametrize("name", SECRETS)
+def test_a_secret_is_refused_in_every_field_and_nothing_is_written(repo, capsys, name):
+    text = SECRETS[name]
+    assert records.secret_in([f"see {text} here"]) == name
+    for field in (["--claim", f"Use {text}"], ["--context", text], ["--source", text]):
+        argv = ["remember", "--kind", "lesson", "--claim", "Plain claim.", *field] if field[0] != "--claim" else \
+            ["remember", "--kind", "lesson", *field]
+        assert mem.main(argv) == 4
+        err = capsys.readouterr().err
+        assert err == f"mem: the text looks like it contains a secret ({name}); nothing was written.\n"
+    assert not (repo / ".memory").exists()
+
+
+def test_a_secret_in_the_body_is_refused(repo, tmp_path, monkeypatch, capsys):
+    path = tmp_path / "body.md"
+    path.write_text(f"Notes\n{SECRETS['GitHub token']}\n", encoding="utf-8")
+    assert remember("--body-file", str(path)) == 4
+    assert "GitHub token" in capsys.readouterr().err and not (repo / ".memory").exists()
+
+
+def test_a_secret_is_refused_in_the_global_scope(repo, gfolder, tmp_path, capsys):
+    forbid(tmp_path)
+    assert remember("--global", claim=f"Key {SECRETS['AWS access key id']} works.") == 4
+    assert "AWS access key id" in capsys.readouterr().err and not gfolder.exists()
+
+
+@pytest.mark.parametrize("text", [
+    "The token expires after an hour.",
+    "Set the password in the vault.",
+    "Clone from https://example.org/repo without credentials.",
+    "password = <your password here>",
+    "api_key: changeme-please",
+    "token=xxxxxxxxxxxx",
+    "secret: example-value-1",
+    "An sk-short key and a ghp_short one.",
+])
+def test_ordinary_prose_and_placeholders_are_not_secrets(text):
+    assert records.secret_in([text]) is None
+
+
+def test_a_secret_in_a_reason_is_refused(repo, capsys):
+    assert remember() == 0
+    capsys.readouterr()
+    for command in ("refute", "forget"):
+        assert mem.main([command, "m:retries-need-idempotency-keys", "--because", SECRETS["API key"]]) == 4
+        assert "API key" in capsys.readouterr().err
+    assert "API key" not in (repo / ".memory" / "retries-need-idempotency-keys.md").read_text()
+
+
+def test_no_reminder_below_the_threshold_and_one_at_it(repo, capsys):
+    for i in range(9):
+        assert remember(claim=f"Distinct lesson number {i} about topic{i}.") == 0
+        assert "curation pass" not in capsys.readouterr().err
+    assert remember(claim="Distinct lesson number 9 about topic9.") == 0
+    out = capsys.readouterr()
+    assert out.err.endswith("mem: 10 new memories since the last curation pass: after the current task, "
+                            "hand a pass to the memory-curator subagent.\n")
+    assert out.out.startswith("m:")
+
+
+def test_no_reminder_after_a_curation_pass(repo, capsys):
+    for i in range(10):
+        remember(claim=f"Distinct lesson number {i} about topic{i}.")
+    capsys.readouterr()
+    assert mem.main(["curate", "--project", "--done"]) == 0
+    capsys.readouterr()
+    assert remember(claim="Another lesson about something else.") == 0
+    assert "curation pass" not in capsys.readouterr().err

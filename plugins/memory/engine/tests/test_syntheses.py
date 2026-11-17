@@ -183,7 +183,7 @@ def test_a_synthesis_of_thousands_of_lines_has_a_cheap_outline(run, made, tmp_pa
     assert out.count("line of text") == 500 and time.perf_counter() - start < 5
 
 
-SEARCH = ["search", "attention recurrence"]
+SEARCH = ["search", "attention recurrence", "--deep"]
 
 
 def test_search_without_syntheses_is_unchanged_and_with_one_the_notes_come_first(run, made, tmp_path):
@@ -199,6 +199,13 @@ def test_search_without_syntheses_is_unchanged_and_with_one_the_notes_come_first
     assert out.startswith(plain[1])
     assert out[len(plain[1]):] == ("-- syntheses (extended versions) --\n"
                                    "s:attention#recurrence-in-depth\tAttention: Recurrence in depth\n")
+
+
+def test_default_search_prints_no_synthesis_and_hints_at_deep(run, made, tmp_path):
+    add(run, tmp_path, "Recurrence", f"attention recurrence.\n\n{SRC}\n")
+    code, out, err = run("search", "attention recurrence")
+    assert code == 0 and "-- syntheses" not in out
+    assert "-- syntheses" in run(*SEARCH)[1]
 
 
 def test_search_prints_at_most_two_syntheses_lines_ordered_by_heading_terms(run, made, tmp_path):
@@ -280,3 +287,15 @@ def test_load_never_raises(tmp_path):
     (folder / "b.md").write_text("---\ntitle: T\ntopics: x\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n", encoding="utf-8")
     assert [s.error is not None for s in syntheses.load(folder)] == [True, True]
     assert syntheses.load(tmp_path / "none") == []
+
+
+def test_a_secret_in_a_section_or_the_summary_is_refused(run, made, tmp_path):
+    secret = "ghp_" + "a1b2c3d4e5f6g7h8i9j0k1l2"  # fake parts, never a real token
+    before = made.read_bytes()
+    code, _, err = add(run, tmp_path, "Keys", f"Use {secret}.\n\n{SRC}\n")
+    assert code == 4 and "GitHub token" in err and made.read_bytes() == before
+    assert run("synthesis", "new", "--title", "T", "--topics", "biology", "--slug", "t-two", "--summary-file",
+               body(tmp_path, f"{secret}\n", "s.md"))[0] == 4
+    assert not (made.parent / "t-two.md").exists()
+    assert run("synthesis", "edit", "s:attention#summary", "--body-file", body(tmp_path, f"{secret}\n", "e.md"))[0] == 4
+    assert made.read_bytes() == before

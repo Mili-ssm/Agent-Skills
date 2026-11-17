@@ -66,7 +66,7 @@ def test_parity_after_removing_memory_sections(hub_root, project, gfolder, capsy
 
 def test_line_format_order_and_notes_separator(hub_root, project, capsys):
     slug = put(project, "Attention needs care", kind="pitfall", observed=3)
-    _, out, _ = run(capsys, "--root", str(hub_root), "search", "attention")
+    _, out, _ = run(capsys, "--root", str(hub_root), "search", "attention", "--deep")
     lines = out.splitlines()
     assert lines[0] == "-- memories (project) --"
     assert lines[1] == f"m:{slug}\t[memory: pitfall, observed 3, 2026-01-05]\tAttention needs care"
@@ -96,7 +96,7 @@ def test_scopes(hub_root, project, capsys):
     _, out, err = run(capsys, "--root", str(hub_root), "search", "attention", "--scope", "memories")
     lines = out.splitlines()
     assert lines[0] == "-- memories (project) --" and len(lines) == 2 and "-- notes --" not in out
-    _, out, _ = run(capsys, "--root", str(hub_root), "search", "attention", "--scope", "notes")
+    _, out, _ = run(capsys, "--root", str(hub_root), "search", "attention", "--scope", "notes", "--deep")
     assert "-- memories" not in out and "-- notes --" not in out and out.startswith("literature/")
 
 

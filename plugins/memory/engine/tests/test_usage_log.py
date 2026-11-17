@@ -74,7 +74,7 @@ def test_stats_counts_entries(hub_root, capsys):
 
 def test_query_that_is_not_valid_utf8_is_logged_on_one_line(hub_root, capsys):
     odd = "attention\udcff\u2028x"  # a surrogate from undecodable argv, and a line separator
-    assert mem.main(["--root", str(hub_root), "search", odd]) == 0
+    assert mem.main(["--root", str(hub_root), "search", odd, "--deep"]) == 0
     assert capsys.readouterr().err == ""
     (entry,) = entries(hub_root)
     assert entry["query"] == odd

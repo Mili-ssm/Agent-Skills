@@ -2965,6 +2965,15 @@ def cmd_signal(args: argparse.Namespace) -> int:
     return 0
 
 
+def _refuse_secret(texts: Sequence[str]) -> bool:
+    """Say so on stderr and return True when a text looks like it holds a secret."""
+    name = records.secret_in(texts)
+    if name is None:
+        return False
+    print(f"mem: the text looks like it contains a secret ({name}); nothing was written.", file=sys.stderr)
+    return True
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3011,6 +3020,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
     except (OSError, UnicodeDecodeError) as exc:
         print(f"mem: cannot read the body: {exc}", file=sys.stderr)
         return 2
+    if _refuse_secret([args.claim, args.context or "", body, *args.source]):
+        return 4
     if args.is_global:
         try:
             hit = records.forbidden_line([args.claim, args.context or "", body, *args.source,
@@ -3056,6 +3067,11 @@ def cmd_remember(args: argparse.Namespace) -> int:
         for r in related:
             print(f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
                   file=sys.stderr)
+    due = records.curation_due(records.load_memories(folder, scope),
+                               read_passes(os.environ).get(str(folder.resolve())), today)
+    if due > 0:
+        print(f"mem: {due} new memories since the last curation pass: after the current task, "
+              "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope})
     return 0
 
@@ -3101,8 +3117,13 @@ def _with_note(body: str, heading: str, text: str) -> str:
 
 
 def _reason_allowed(memory: records.Memory, because: str | None) -> bool:
-    """A reason written into a global memory goes through the forbidden-terms list, failing closed."""
-    if not because or memory.scope != "global":
+    """A reason goes through the secret patterns; one written into a global memory also through the forbidden-terms
+    list, failing closed."""
+    if not because:
+        return True
+    if _refuse_secret([because]):
+        return False
+    if memory.scope != "global":
         return True
     try:
         hit = records.forbidden_line([because], os.environ)
@@ -3858,6 +3879,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
             summary = _synthesis_text(args.summary_file)
             if summary is None:
                 return 1
+            if _refuse_secret([args.title, summary]):
+                return 4
             text = syntheses.render_new((_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
                                         title=args.title, topics=topics, summary=summary, today=today)
             path = syntheses.create(folder, args.slug, text)
@@ -3871,6 +3894,13 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
             body = _synthesis_text(args.body_file)
             if body is None:
                 return 1
+            note_texts = []
+            if one_call:
+                note_texts = [args.note_claim, _synthesis_text(args.note_body_file)]
+                if note_texts[1] is None:
+                    return 1
+            if _refuse_secret([getattr(args, "section", None) or "", body, *note_texts]):
+                return 4
             if action == "add":
                 if section is not None:
                     raise ValueError("add takes s:<handle>, not a section")
@@ -4022,6 +4052,16 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return 0
 
 
+def _deeper_hit(args: argparse.Namespace, query: str, printed: int) -> bool:
+    """True when a --deep search would print more note lines than the default one did (`printed`)."""
+    try:
+        full = build_corpus(args.root, topic=args.topic, kind=args.kind, status=args.status,
+                            confidence=args.confidence, level=args.level, superseded=args.superseded)
+        return len(rank(full, query, limit=len(full.notes))[args.offset:args.offset + args.limit]) > printed
+    except (FrontmatterError, OSError):
+        return False
+
+
 def cmd_search(args: argparse.Namespace) -> int:
     queries = [args.query, *args.also]
     if not all(tokenize(q) for q in queries):
@@ -4032,9 +4072,10 @@ def cmd_search(args: argparse.Namespace) -> int:
     filters = {k: getattr(args, k) for k in ("type", "topic", "kind", "status", "confidence", "level")
                if getattr(args, k) is not None}
     corpus = None
+    default_type = None if args.deep or args.type else "knowledge"
     if with_notes:
         try:
-            corpus = build_corpus(args.root, type=args.type, topic=args.topic, kind=args.kind,
+            corpus = build_corpus(args.root, type=args.type or default_type, topic=args.topic, kind=args.kind,
                                   status=args.status, confidence=args.confidence, level=args.level,
                                   superseded=args.superseded)
             ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
@@ -4057,8 +4098,9 @@ def cmd_search(args: argparse.Namespace) -> int:
             memories.append((scope, loaded))
     # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
     all_syntheses = (syntheses.load(args.root / syntheses.SYNTHESES_DIR)
-                     if args.scope == "all" and args.root is not None and not args.offset and not filters
+                     if args.deep and args.scope == "all" and args.root is not None and not args.offset and not filters
                      and args.detail != "paths" else [])
+    more = False
     for query, ranked, linked in zip(queries, ranks, linkeds):
         result = ranked[args.offset:args.offset + args.limit]
         if args.also:
@@ -4094,6 +4136,8 @@ def cmd_search(args: argparse.Namespace) -> int:
             print("-- syntheses (extended versions) --")
             for syn, sec in sections:
                 print(f"s:{syn.handle}#{sec.handle}\t{syn.title}: {sec.heading}")
+        if default_type and with_notes and len(result) < 3 and not more:
+            more = _deeper_hit(args, query, len(result))
         if not args.also and with_notes:  # a footer names --offset, which applies to every query at once
             _page_footer(args.offset, len(result), len(ranked))
         extra = {"links": True, "linked": [note.rel for note, _ in linked]} if args.links else {}
@@ -4101,9 +4145,13 @@ def cmd_search(args: argparse.Namespace) -> int:
             extra["memories"] = printed
         if sections:
             extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in sections]
+        if args.deep:
+            extra["deep"] = True
         log_usage(args.root, {"cmd": "search", "query": query, "limit": args.limit,
                               "detail": args.detail, "filters": filters,
                               "results": [note.rel for note, _ in result], **extra})
+    if more:
+        print("mem: more in sources and syntheses: repeat with --deep.", file=sys.stderr)
     return 0
 
 
@@ -4257,6 +4305,9 @@ def build_parser() -> argparse.ArgumentParser:
                                help="also list up to 10 notes linked to or from the first 10 printed results")
     search_parser.add_argument("--scope", choices=("all", "notes", "memories"), default="all",
                                help="what to search: notes and memories (default), only notes, only memories")
+    search_parser.add_argument("--deep", action="store_true",
+                               help="also rank source notes and investigations, and list syntheses "
+                                    "(default: knowledge notes and memories)")
     search_parser.add_argument("--all-memories", action="store_true",
                                help="also match refuted, superseded and expired memories")
     search_parser.set_defaults(func=cmd_search)

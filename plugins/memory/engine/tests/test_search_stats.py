@@ -82,7 +82,7 @@ def test_search_skips_unparsable_note_with_warning(hub_root, capsys):
 
 
 def test_cli_search_output_and_no_match(hub_root, capsys):
-    assert mem.main(["--root", str(hub_root), "search", "vaswani"]) == 0
+    assert mem.main(["--root", str(hub_root), "search", "vaswani", "--deep"]) == 0
     row = capsys.readouterr().out.splitlines()[0].split("\t")
     assert row[0] == "literature/computing/2017-vaswani-attention.md"
     assert len(row[1].split(".")[1]) == 2

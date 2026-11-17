@@ -24,7 +24,7 @@ def test_without_links_output_is_unchanged(hub_root, capsys):
     quiet = add(hub_root, "quiet", "Other", "Nothing.")
     linking(hub_root, "third", "Third", "Zebra.", quiet)
     score = dict((r, s) for r, s, _ in mem.search(hub_root, "zebra"))[top]
-    out = run(hub_root, capsys, "search", "zebra", "--limit", "2")
+    out = run(hub_root, capsys, "search", "zebra", "--limit", "2", "--deep")
     third = "knowledge/computing/third.md"
     other = {r: s for r, s, _ in mem.search(hub_root, "zebra")}[third]
     assert out == [f"{top}\t{score:.2f}\tZebra crossings", f"{third}\t{other:.2f}\tThird"]
@@ -49,7 +49,7 @@ def test_backlink_is_a_neighbour_and_results_are_not_repeated(hub_root, capsys):
 def test_filter_excludes_neighbour_of_another_type(hub_root, capsys):
     lit = "literature/computing/2017-vaswani-attention.md"
     linking(hub_root, "top", "Zebra crossings", "Zebra.", lit)
-    assert lit in first_column(run(hub_root, capsys, "search", "zebra", "--links"))
+    assert lit in first_column(run(hub_root, capsys, "search", "zebra", "--links", "--deep"))
     out = run(hub_root, capsys, "search", "zebra", "--links", "--type", "knowledge")
     assert lit not in first_column(out) and "-- linked to the results above --" not in out
 

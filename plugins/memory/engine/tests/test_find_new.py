@@ -233,7 +233,7 @@ def test_find_level_filters_to_literature_and_knowledge(hub_root):
 def test_find_and_search_level_cli(hub_root, capsys):
     assert mem.main(["--root", str(hub_root), "find", "--level", "intermediate"]) == 0
     assert capsys.readouterr().out.startswith("knowledge/computing/attention-replaces-recurrence.md\t")
-    assert mem.main(["--root", str(hub_root), "search", "attention", "--level", "advanced"]) == 0
+    assert mem.main(["--root", str(hub_root), "search", "attention", "--level", "advanced", "--deep"]) == 0
     assert capsys.readouterr().out.startswith("literature/computing/2017-vaswani-attention.md\t")
     with pytest.raises(SystemExit):
         mem.main(["--root", str(hub_root), "find", "--level", "guru"])

@@ -511,6 +511,34 @@ def forbidden_line(texts: Iterable[str], env: Mapping[str, str]) -> int | None:
     return None
 
 
+_PLACEHOLDER = re.compile(r"^[\"']?(<[^>]*>|\u2026|\.{3}|x{3,}|changeme|example)", re.IGNORECASE)
+_ASSIGNMENT = re.compile(
+    r"(?i)(?:password|passwd|secret|api[_-]?key|token)\b[\"']?\s*[:=]\s*[\"']?(\S{8,})")
+
+# Deliberately conservative: a false refusal costs one rewrite, a stored secret may be synced elsewhere.
+SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+    ("AWS access key id", re.compile(r"AKIA[0-9A-Z]{16}")),
+    ("GitHub token", re.compile(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}")),
+    ("API key", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
+    ("Slack token", re.compile(r"xox[bpars]-\S{10,}")),
+    ("credential in a URL", re.compile(r"://[^/\s:@]+:[^/\s@]+@")),
+)
+
+
+def secret_in(texts: Iterable[str]) -> str | None:
+    """Name of the first secret pattern found in any text, or None. The texts are checked one by one and joined."""
+    texts = list(texts)
+    for text in [*texts, "\n".join(texts)]:
+        for name, pattern in SECRET_PATTERNS:
+            if pattern.search(text):
+                return name
+        for match in _ASSIGNMENT.finditer(text):
+            if not _PLACEHOLDER.match(match.group(1)):
+                return "secret assignment"
+    return None
+
+
 def inside(path: Path, folder: Path) -> bool:
     """True when path is folder or lies inside it (symlinks resolved)."""
     try:
