@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 import urllib.parse
@@ -35,7 +36,7 @@ import yaml
 import records
 import syntheses
 
-_WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources")
+_WRITE_COMMANDS = ("new", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memories", "curate", "session-index", "signal", "projects")
@@ -4239,6 +4240,165 @@ def cmd_rename(args: argparse.Namespace) -> int:
     return 0
 
 
+_IMPORT_FOLDERS = ("literature", "knowledge", "research")
+
+
+def _import_files(src: Path, with_sources: bool) -> list[str]:
+    """Source-relative paths to import, sorted. The source is only listed and read, never written."""
+    found: list[str] = []
+    roots = [*_IMPORT_FOLDERS, *([".sources"] if with_sources else [])]
+    for top in roots:
+        base = src / top
+        for here, dirs, names in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if d == d.lstrip(".") or top == ".sources")
+            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            for name in names:
+                rel = (Path(here) / name).relative_to(src)
+                if top != ".sources" and name.startswith("."):
+                    continue
+                # the generated listings: folder/README.md and, for literature and knowledge, folder/topic/README.md
+                if name == "README.md" and top != ".sources" and len(rel.parts) in ((2,) if top == "research" else (2, 3)):
+                    continue
+                found.append(rel.as_posix())
+    return sorted(found)
+
+
+def _note_kind(rel: str) -> str | None:
+    parts = rel.split("/")
+    if parts[0] in ("literature", "knowledge") and len(parts) == 3 and parts[2].endswith(".md") and parts[2] != "README.md":
+        return parts[0]
+    if parts[0] == "research" and len(parts) == 3 and parts[2] == "README.md":
+        return "research"
+    return None
+
+
+def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
+    """Imported Markdown files whose text matches a secret pattern or a hard term."""
+    try:
+        terms = [t for t in records.read_terms(os.environ) if not t.soft]
+    except records.ForbiddenListError:
+        terms = []
+    flagged = []
+    for rel in files:
+        if not rel.endswith(".md"):
+            continue
+        try:
+            with (src / rel).open("rb") as f:
+                text = f.read().decode("utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if records.secret_in([text]) is not None or (terms and any(not t.soft for t in records.term_hits([text], os.environ))):
+            flagged.append(rel)
+    return flagged
+
+
+def _union_topics(src: Path, dest: Path) -> tuple[list[str], list[str], str]:
+    """(ids added, ids kept as they were, text to append to the destination's topics.yaml)."""
+    path = src / "topics.yaml"
+    if not path.is_file():
+        return [], [], ""
+    try:
+        theirs = load_yaml(_read_text(path))
+    except (yaml.YAMLError, FrontmatterError) as exc:
+        raise FrontmatterError(f"the source's topics.yaml is unusable ({exc})") from exc
+    if theirs is None:
+        theirs = {}
+    if not isinstance(theirs, dict):
+        raise FrontmatterError("the source's topics.yaml must be a mapping of topic ids")
+    mine = load_topics(dest)
+    added = [t for t in theirs if t not in mine]
+    kept = [t for t in theirs if t in mine and theirs[t] != mine[t]]
+    # one `id: {flow entry}` line each: the flow dump of {id: entry} without its outer braces
+    lines = "".join(yaml.safe_dump({t: theirs[t]}, default_flow_style=True, width=10**6, allow_unicode=True)
+                    .strip()[1:-1] + "\n" for t in added)
+    return [str(t) for t in added], [str(t) for t in kept], lines
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    dest = args.root.resolve()
+    src = Path(args.source).expanduser()
+    if not src.is_dir():
+        print(f"mem: the source is not a folder: {src}", file=sys.stderr)
+        return 2
+    src = src.resolve()
+    if records.inside(src, dest) or records.inside(dest, src):
+        print("mem: the source and the store must be separate folders, neither inside the other.", file=sys.stderr)
+        return 2
+    try:
+        added, kept, topic_text = _union_topics(src, dest)
+    except FrontmatterError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    files = _import_files(src, args.with_sources)
+    kinds = collections.Counter(k for k in map(_note_kind, files) if k)
+    todo: list[str] = []
+    same, conflicts = 0, []
+    for rel in files:
+        target = dest / rel
+        data = (src / rel).read_bytes()
+        if target.is_file():
+            if target.read_bytes() == data:
+                same += 1
+                continue
+            if not args.overwrite:
+                conflicts.append(rel)
+                continue
+        todo.append(rel)
+    flagged = _flag_import(src, files)
+
+    def apply(root: Path, log: bool) -> None:
+        originals: dict[Path, bytes] = {}
+        for rel in todo:
+            if rel.startswith(".sources/") and root is not dest:
+                continue
+            target = root / rel
+            if log and target.is_file():
+                try:
+                    target.read_bytes().decode("utf-8")
+                    originals[target] = target.read_bytes()
+                except UnicodeDecodeError:
+                    pass  # not text: the log keeps text only
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with (src / rel).open("rb") as f:
+                target.write_bytes(f.read())
+        if topic_text:
+            current = (root / "topics.yaml").read_text(encoding="utf-8")
+            (root / "topics.yaml").write_text(current + ("" if current.endswith("\n") or not current else "\n") + topic_text,
+                                              encoding="utf-8")
+        if originals:
+            _log_group(root, originals, "import")
+        apply_index(root)
+
+    try:
+        if args.dry_run:
+            with tempfile.TemporaryDirectory() as tmp:
+                scratch = Path(tmp) / "store"
+                shutil.copytree(dest, scratch, ignore=shutil.ignore_patterns(".*"))
+                apply(scratch, False)
+                problems = check(scratch)
+        else:
+            apply(dest, True)
+            problems = check(dest)
+    except (FrontmatterError, OSError) as exc:
+        print(f"mem: import failed: {exc}", file=sys.stderr)
+        return 2
+    print(f"source: {src}")
+    print(f"destination: {dest}")
+    print(f"notes: {kinds['literature']} literature, {kinds['knowledge']} knowledge, {kinds['research']} research")
+    print(f"files: {len(todo)} copied, {same} identical, {len(conflicts)} conflicts")
+    print(f"topics: {len(added)} added, {len(kept)} kept as they were")
+    print(f"check: {len(problems)} problems")
+    print(f"flagged: {len(flagged)} files")
+    for header, items in (("conflicts:", conflicts), ("topics kept:", kept),
+                          ("check problems (first 20):", [str(p) for p in problems[:20]]), ("flagged:", flagged)):
+        if items:
+            print(header)
+            for item in items:
+                print(f"  {item}")
+    log_usage(dest, {"cmd": "import", "copied": len(todo), "conflicts": len(conflicts)})
+    return 0
+
+
 def cmd_stats(args: argparse.Namespace) -> int:
     root = args.root
     if args.paths and not args.orphans:
@@ -4628,6 +4788,12 @@ def build_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument("note", metavar="NOTE")
     rename_parser.add_argument("new_stem", metavar="NEW-STEM", help="the new file name without .md")
     rename_parser.set_defaults(func=cmd_rename)
+    import_parser = sub.add_parser("import", help="copy the notes of another folder of notes into the store; the source is never changed")
+    import_parser.add_argument("source", metavar="SOURCE", help="the folder to read (literature/, knowledge/, research/, topics.yaml)")
+    import_parser.add_argument("--dry-run", action="store_true", help="change nothing; print the report a real run would")
+    import_parser.add_argument("--overwrite", action="store_true", help="replace files that differ (the old text goes to the curation log)")
+    import_parser.add_argument("--with-sources", action="store_true", help="also copy the source's .sources/ folder")
+    import_parser.set_defaults(func=cmd_import)
     unify_parser = sub.add_parser("unify", help="replace several notes of one type with one, keeping the others as "
                                                  "superseded files and pointing their links at it")
     unify_parser.add_argument("keep", metavar="KEEP", help="the note that takes the unified text")
