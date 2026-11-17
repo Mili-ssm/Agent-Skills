@@ -32,7 +32,7 @@ import yaml
 import records
 
 _WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
-_NO_STORE_NEEDED = ("remember", "observe", "session-index")
+_NO_STORE_NEEDED = ("remember", "observe", "session-index", "signal")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -2530,6 +2530,86 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     return 0
 
 
+_SIGNAL_LIMIT = 400
+_SIGNAL_HANDLES = 3
+
+
+def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Related]) -> str:
+    """The block appended to a subagent's brief: handles and counts only, at most _SIGNAL_LIMIT characters."""
+    if not strong:
+        return ""
+    shown = [f"{r.kind}:{r.handle}" for r in [*strong, *possible][:_SIGNAL_HANDLES]]
+
+    def render(items: list[str]) -> str:
+        lines = [f"[memory] Records related to this task exist (not read yet): {' '.join(items)}",
+                 f"{len(strong)} strong, {len(possible)} possibly related. Open one with: mem show <handle>. "
+                 "Project memories are files in .memory/."]
+        if any(i.startswith("m:") for i in items):
+            lines.append("A memory (m:) is experience, not fact.")
+        return "\n".join(lines)
+
+    text = render(shown)
+    while len(text) > _SIGNAL_LIMIT and len(shown) > 1:  # very long note names
+        shown.pop()
+        text = render(shown)
+    return text
+
+
+def _note_stems(store: Path | None) -> list[str]:
+    """Handles of the store's notes from file names only, as _count_notes counts them."""
+    try:
+        if store is None or not store.is_dir():
+            return []
+        stems = [p.stem for kind in ("literature", "knowledge") for p in store.glob(f"{kind}/*/*.md")
+                 if p.name != "README.md"]
+        stems += [p.parent.name for p in store.glob("research/*/README.md")]
+        return sorted(stems)
+    except OSError:
+        return []
+
+
+def cmd_signal(args: argparse.Namespace) -> int:
+    """Never fails. Without --hook: the brief on standard input, the signal text out. With --hook: the hook's JSON in,
+    the brief with the signal appended out (updatedInput, never a permission decision), one line in the hook log."""
+    started = time.monotonic()
+    try:
+        data: dict[str, Any] = {}
+        if args.hook:
+            data = _hook_input()
+            tool_input = data.get("tool_input")
+            if data.get("tool_name") != "Agent" or not isinstance(tool_input, dict):
+                return 0
+            brief = tool_input.get("prompt")
+        else:
+            brief = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+        if not isinstance(brief, str) or not brief.strip():
+            return 0
+        store = args.root if isinstance(args.root, Path) else None
+        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
+        if not cwd.is_dir():
+            cwd = Path.cwd()
+        project = records.project_root(cwd, os.environ)
+        memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+        today = datetime.date.today()
+        found = (records.load_memories(records.project_dir(project) if project else None, "project")
+                 + records.load_memories(memories, "global"))
+        strong, possible = records.related_records(found, _note_stems(store), brief, today, tokenize=tokenize)
+        text = signal_text(strong, possible)
+        if args.hook:
+            _log_hook({"hook": "signal", "ms": int((time.monotonic() - started) * 1000),
+                       "strong": len(strong), "possible": len(possible)})
+        if not text:
+            return 0
+        if args.hook:
+            updated = {**tool_input, "prompt": f"{brief}\n\n{text}"}
+            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}}))
+        else:
+            print(text)
+    except Exception:
+        pass
+    return 0
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3112,6 +3192,10 @@ def build_parser() -> argparse.ArgumentParser:
     index_cmd.add_argument("--list", type=int, default=0, metavar="N",
                            help="also list up to N of the project's newest memories")
     index_cmd.set_defaults(func=cmd_session_index)
+    signal_cmd = sub.add_parser("signal", help="print the records related to a brief read from standard input")
+    signal_cmd.add_argument("--hook", action="store_true",
+                            help="read a PreToolUse hook's JSON from standard input and print the brief with the signal appended")
+    signal_cmd.set_defaults(func=cmd_signal)
     observe_parser = sub.add_parser("observe", help="count one more observation of a memory")
     observe_parser.add_argument("handle", metavar="m:HANDLE")
     observe_parser.set_defaults(func=cmd_observe)

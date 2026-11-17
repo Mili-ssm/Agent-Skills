@@ -11,7 +11,7 @@ import subprocess
 import unicodedata
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Sequence
 
 import yaml
 
@@ -356,3 +356,43 @@ def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], toda
             scored.append((m, len(in_claim), len(overall)))
     scored.sort(key=lambda t: (-t[1], -t[2], -t[0].observed, -(t[0].created or datetime.date.min).toordinal(), t[0].handle))
     return [m for m, _, _ in scored[:limit]]
+
+
+STRONG = 0.75  # provisional: the share of a claim's terms found in a brief that counts as strongly related
+POSSIBLE = 0.5
+MIN_TERMS = 2
+
+
+def containment(claim_tokens: Iterable[str], text_tokens: Collection[str]) -> float:
+    """Share of the claim's distinct non-stop-word terms found in the text; 0.0 under MIN_TERMS terms.
+
+    Measured from the claim's side: a brief has hundreds of words and a claim about ten."""
+    terms = set(claim_tokens) - STOPWORDS
+    if len(terms) < MIN_TERMS:
+        return 0.0
+    return len(terms & set(text_tokens)) / len(terms)
+
+
+class Related(NamedTuple):
+    handle: str
+    kind: str  # "m" memory, "n" note
+    score: float
+
+
+def related_records(memories: Sequence[Memory], note_stems: Sequence[str], text: str, today: datetime.date, *,
+                    tokenize: Callable[[str], list[str]]) -> tuple[list[Related], list[Related]]:
+    """Records whose claim (a note: its file stem) is largely contained in the text: (strong, possible).
+
+    A record whose handle occurs in the text is left out: the text already names it."""
+    text_tokens = set(tokenize(text))
+    found: list[Related] = []
+    candidates = [(m.handle, "m", m.claim) for m in memories if is_live(m, today)]
+    candidates += [(stem, "n", stem.replace("-", " ")) for stem in note_stems]
+    for handle, kind, claim in candidates:
+        if handle in text:
+            continue
+        score = containment(tokenize(claim), text_tokens)
+        if score >= POSSIBLE:
+            found.append(Related(handle, kind, score))
+    found.sort(key=lambda r: (-r.score, r.kind != "m", r.handle))
+    return ([r for r in found if r.score >= STRONG], [r for r in found if r.score < STRONG])
