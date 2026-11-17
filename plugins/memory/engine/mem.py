@@ -39,7 +39,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memories", "curate", "session-index", "signal", "projects")
+                    "distinct", "restore", "memory", "memories", "curate", "session-index", "signal", "projects")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -3323,6 +3323,70 @@ def cmd_supersede(args: argparse.Namespace) -> int:
     return _two(args, args.old, args.new, "supersede", apply)
 
 
+def cmd_memory(args: argparse.Namespace) -> int:
+    """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
+    if args.claim is None and args.context is None and args.body_file is None:
+        build_parser().error("memory edit needs --claim, --context or --body-file")
+    claim = " ".join(args.claim.split()) if args.claim is not None else None
+    context = " ".join(args.context.split()) if args.context is not None else None
+    try:
+        body = _read_body(args.body_file) if args.body_file else None
+    except NewNoteError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    if claim is not None and not claim:
+        print("mem: the claim is empty.", file=sys.stderr)
+        return 2
+    texts = [t for t in (claim, context, body) if t]
+    if _refuse_secret(texts):
+        return 4
+    found = _memory_of(args, [args.handle])
+    if found is None:
+        return 2
+    m = found[0]
+    if m.scope == "global" and texts:
+        if refused := _check_terms(texts, m.kind, getattr(args, "owner_approved", False)):
+            return refused
+    log = m.path.parent / records.CURATION_LOG
+    log_before = log.read_bytes() if log.exists() else None
+    try:
+        original = m.path.read_bytes()
+        what = []
+        changes: dict[str, Any] = {}
+        if claim is not None:
+            if not args.shrink:
+                syntheses._guard_shrink(m.claim, claim, sentences=False)
+            changes["claim"] = claim
+            what.append("claim")
+        if context is not None:
+            changes["context"] = context or None
+            what.append("context")
+        if body is not None:
+            if not args.shrink:
+                syntheses._guard_shrink(m.body.strip("\n"), body.strip("\n"))
+            changes["body"] = body
+            what.append("body")
+        try:
+            records.log_before(m, "edit")
+            if m.path.read_bytes() != original:
+                raise ValueError(f"{m.path.name} changed since it was read, so nothing was written: run the command again")
+            records.update(m, datetime.date.today(), **changes)
+        except BaseException:  # any failure leaves the memory and its log as they were
+            if log_before is None:
+                log.unlink(missing_ok=True)
+            else:
+                log.write_bytes(log_before)
+            raise
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    if m.scope == "project":
+        _register_project(records.project_root(Path.cwd(), os.environ))
+    print(f"m:{m.handle}\tedited {', '.join(what)}")
+    log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    return 0
+
+
 def cmd_merge(args: argparse.Namespace) -> int:
     def apply(found, today):
         keep, drop = found
@@ -5107,6 +5171,19 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser = sub.add_parser("init", help="make a folder a writable store (default: the default store)")
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)
+    memory_parser = sub.add_parser("memory", help="change a memory through mem, never by editing its file")
+    memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
+    memory_edit = memory_sub.add_parser("edit", help="replace the claim, the context or the body of a memory")
+    memory_edit.add_argument("handle", metavar="m:HANDLE")
+    memory_edit.add_argument("--claim", metavar="TEXT", help="the new claim (one sentence)")
+    memory_edit.add_argument("--context", metavar="TEXT", help="the new context; an empty text removes it")
+    memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
+    memory_edit.add_argument("--shrink", action="store_true",
+                             help="accept a text that drops over 20%% of the words, a sentence or a link")
+    memory_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    memory_edit.add_argument("--global", dest="is_global", action="store_true",
+                             help="edit the global memory when the handle exists in both scopes")
+    memory_parser.set_defaults(func=cmd_memory)
     return parser
 
 
