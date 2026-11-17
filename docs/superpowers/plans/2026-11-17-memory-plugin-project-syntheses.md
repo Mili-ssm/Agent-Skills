@@ -251,3 +251,7 @@ What this shows and what it does not:
 - Not fixed in the harness, to fix before any further run (review round 2): `decide` reaches a decision with planned rows missing; a pilot case with one failed run is ranked on the other; resuming an older work folder keeps its plugin copy and unstripped copies. Any rerun starts in a new work folder.
 - Not measured: orientation in a larger or less greppable project; the staleness arms (S1 against S2), which do not depend on the orientation cases but are part of the stopped experiment.
 - Cost: 16 sessions, 0.06 to 0.09 USD each.
+
+### Staleness arms alone (owner, 2026-11-17, after the pilot stop)
+
+The owner chose to measure the stamp on its own, as a separate measurement outside the stopped experiment: the writer, then S1 and S2 (2 cases × 4 runs each), in a new work folder, after the three parked harness defects are fixed. Criteria are the ones the decision rule already gave the S arms, written before any S run: S1 correct in fewer than 6 of 8 means the stamp does not protect the reader (do not merge); S1 at least 2 sessions above S2 means the stamp has an effect; otherwise the stamp showed no effect at this sample size. Orientation (A against B) stays unmeasured.
