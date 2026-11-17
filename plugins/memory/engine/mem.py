@@ -32,7 +32,7 @@ import yaml
 import records
 
 _WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
-_NO_STORE_NEEDED = ("remember", "observe")
+_NO_STORE_NEEDED = ("remember", "observe", "session-index")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -2408,6 +2408,88 @@ def _same_claim(a: str, b: str) -> bool:
     return wa == wb if wa or wb else a.strip() == b.strip()
 
 
+_INDEX_RULES = (
+    "memory: notes and memories are searchable with the `mem` command (skill: memory).\n"
+    '- Before researching, re-reading or dispatching a researcher: mem search "<question in English>". '
+    "Put what applies into a subagent's brief.\n"
+    "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and "
+    "assumptions (a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "
+    "The project's situation or special conditions -> both.\n"
+    "- A line marked [memory: ...] is experience, not fact: keep its label and date when you pass it on.\n"
+    "- Open a result with mem show <handle>."
+)
+_INDEX_LIMIT = 1500
+_CLAIM_LIMIT = 100
+
+
+def _count_notes(store: Path) -> int:
+    """Notes by file name only: the index runs at every session start and must not read them."""
+    try:
+        files = [p for kind in ("literature", "knowledge") for p in store.glob(f"{kind}/*/*.md")
+                 if p.name != "README.md"]
+        files += list(store.glob("research/*/README.md"))
+        return len(files)
+    except OSError:
+        return 0
+
+
+def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
+                  *, limit: int = 8) -> str:
+    """Text for the start of a session: fixed rules, note and memory counts, the project's newest memories."""
+    lines = [_INDEX_RULES]
+    try:
+        has_store = store is not None and store.is_dir()
+        has_memories = memories is not None and memories.is_dir()
+    except OSError:
+        has_store = has_memories = False
+    counts = ""
+    if has_store:
+        counts = f"store: {_count_notes(store)} notes"
+    if has_memories:
+        live = sum(1 for m in records.load_memories(memories, "global") if records.is_live(m, today))
+        counts += f" · {live} global memories" if has_store else f"global memories: {live}"
+    if counts:
+        lines.append(counts)
+    mine = [m for m in records.load_memories(project, "project") if records.is_live(m, today)]
+    if mine:
+        mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
+        mine.sort(key=lambda m: m.created or datetime.date.min, reverse=True)
+        mine.sort(key=lambda m: m.observed, reverse=True)
+        lines.append(f"this project: {len(mine)} memories")
+        rows = []
+        for m in mine:
+            claim = " ".join(m.claim.split())
+            if len(claim) > _CLAIM_LIMIT:
+                claim = claim[:_CLAIM_LIMIT] + "…"
+            created = m.created.isoformat() if m.created else "undated"
+            rows.append(f"  m:{m.handle} [{m.kind}, {created}] {claim}")
+        shown = min(limit, len(rows))
+        while True:
+            tail = [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories'] if shown < len(rows) else []
+            text = "\n".join(lines + rows[:shown] + tail)
+            if len(text) <= _INDEX_LIMIT or shown == 0:
+                return text
+            shown -= 1
+    return "\n".join(lines)
+
+
+def cmd_session_index(args: argparse.Namespace) -> int:
+    """Never fails and never writes: the rules matter most when nothing is configured yet."""
+    try:
+        store = args.root if isinstance(args.root, Path) else None
+        try:
+            project = records.project_root(Path.cwd(), os.environ)
+        except OSError:
+            project = None
+        memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+        text = session_index(store, records.project_dir(project) if project else None, memories,
+                             datetime.date.today())
+    except Exception:
+        text = _INDEX_RULES
+    print(text)
+    return 0
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -2978,6 +3060,8 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.set_defaults(func=cmd_remember)
+    index_cmd = sub.add_parser("session-index", help="print the text that opens a session: rules, counts, project memories")
+    index_cmd.set_defaults(func=cmd_session_index)
     observe_parser = sub.add_parser("observe", help="count one more observation of a memory")
     observe_parser.add_argument("handle", metavar="m:HANDLE")
     observe_parser.set_defaults(func=cmd_observe)
