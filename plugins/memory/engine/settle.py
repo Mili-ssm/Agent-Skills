@@ -10,17 +10,23 @@ apply, the last log number acknowledged) and `.settle-log` (JSON lines). `mem-au
 nothing here reads or writes it. Standard library plus `records`."""
 from __future__ import annotations
 
+import contextlib
 import datetime
+import fcntl
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Callable, NamedTuple, Sequence
 
 import auto_state
 import records
+import store_git
 
 STATE_NAME = ".settle-state.json"
 LOG_NAME = ".settle-log"
+LOCK_NAME = ".settle-lock"
+OFFERS_BEFORE_LEFT = 2  # a pair offered this many times without an applied decision is left as it is
 DECISIONS = ("merge", "supersede", "distinct", "nothing")
 CLAIM_WIDTH = 70
 
@@ -39,17 +45,55 @@ def _stems(folder: Path) -> list[str]:
         return []
 
 
+class Busy(ValueError):
+    pass
+
+
+@contextlib.contextmanager
+def locked(folder: Path):
+    """Exclusive, non-blocking lock beside the state: two settle commands never change it at once."""
+    fd = os.open(folder / LOCK_NAME, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        raise Busy("another mem settle command is running: nothing was changed, try again later") from None
+    try:
+        yield
+    finally:
+        os.close(fd)  # closing releases the flock
+
+
 def load_state(folder: Path) -> dict:
     """The settle state. The first use (no state file) records every memory that exists as judged: only records
-    written after that are new. This writes the file, so an unwritable folder raises OSError."""
-    state = auto_state.read_json(folder / STATE_NAME)
-    if not isinstance(state.get("judged"), list):
+    written after that are new. This writes the file, so an unwritable folder raises OSError. A file that exists
+    but cannot be read as a state raises ValueError and is never replaced."""
+    path = folder / STATE_NAME
+    if not path.exists():
         state = {"judged": _stems(folder), "last_apply": None, "acked": 0, "offered": None}
         save_state(folder, state)
+        return state
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"{STATE_NAME} cannot be read ({exc}): nothing was changed; repair or remove it by hand") from exc
+    if not isinstance(state, dict) or not isinstance(state.get("judged"), list):
+        raise ValueError(f"{STATE_NAME} has no list of judged memories: nothing was changed; repair or remove it by hand")
     return state
 
 
+def _ensure_ignored(folder: Path) -> None:
+    """The store's .gitignore keeps the settle files out of history; `mem history init` writes it, so a store that
+    was made a repository before this feature gets the lines when settle first writes here."""
+    for candidate in (folder, folder.parent):  # the store holds the memories folder
+        if store_git.is_repo(candidate):
+            store_git.ensure_ignored(candidate)
+            return
+
+
 def save_state(folder: Path, state: dict) -> None:
+    if not (folder / STATE_NAME).exists():
+        _ensure_ignored(folder)
     auto_state.write_json(folder / STATE_NAME, state)
 
 
@@ -78,29 +122,49 @@ def due(folder: Path, minutes: float, now: float, today: datetime.date) -> int |
     return count or None
 
 
-def newer_first(a: records.Memory, b: records.Memory) -> tuple[records.Memory, records.Memory]:
-    """(newer, older) by creation date; on a tie the one that `mem memories` lists first (lower handle) is the newer."""
-    first, second = sorted((a, b), key=lambda m: (-(m.created or datetime.date.min).toordinal(), m.handle))
-    return first, second
+def newer_first(a: records.Memory, b: records.Memory, judged: set[str]) -> tuple[records.Memory, records.Memory] | None:
+    """(newer, older), or None when it cannot be told. Creation dates have day precision, so: the one record not yet
+    judged is the newer; otherwise the later `created`; the same date is undecidable."""
+    if (a.handle in judged) != (b.handle in judged):
+        return (b, a) if a.handle in judged else (a, b)
+    da, db = (a.created or datetime.date.min), (b.created or datetime.date.min)
+    if da == db:
+        return None
+    return (a, b) if da > db else (b, a)
 
 
 def pending(memories: Sequence[records.Memory], state: dict, today: datetime.date, *, tokenize) -> list[dict]:
-    """The look-alike pairs to judge: queue pairs of live global memories where one side is new."""
+    """The look-alike pairs to judge: queue pairs of live global memories where one side is new. `newer` is null
+    when it cannot be told (see `newer_first`)."""
     judged = set(state["judged"])
     out = []
     for a, b, _ in records.pairs(memories, today, tokenize=tokenize):
         if not (_counts_as_new(a, judged, today) or _counts_as_new(b, judged, today)):
             continue
-        newer, _older = newer_first(a, b)
+        order = newer_first(a, b, judged)
         out.append({"pair": len(out) + 1, "a": a.handle, "b": b.handle, "claim_a": " ".join(a.claim.split()),
-                    "claim_b": " ".join(b.claim.split()), "newer": newer.handle,
+                    "claim_b": " ".join(b.claim.split()), "newer": order[0].handle if order else None,
                     "flagged_words": records.flagged_words(a.claim, b.claim)})
     return out
 
 
-def offer(folder: Path, state: dict) -> None:
-    """Remember which handles this look at the queue covered: what is written afterwards stays new for the next run."""
-    state["offered"] = [s for s in _stems(folder) if s not in set(state["judged"])]
+def _key(pair) -> str:
+    return "|".join(sorted(pair))
+
+
+def offer(folder: Path, state: dict, found: list[dict], now: float) -> None:
+    """Remember what this look at the queue covered: the handles, and the pairs. What is written afterwards stays new
+    for the next run. With no pair to judge, the handles examined are judged at once and the run counts as done, so
+    `due` stops reporting work and no model session is needed."""
+    judged = set(state["judged"])
+    unjudged = [s for s in _stems(folder) if s not in judged]
+    if found:
+        state["offered"] = unjudged
+        state["offered_pairs"] = [sorted((p["a"], p["b"])) for p in found]
+    else:
+        state["judged"] = sorted(judged | set(unjudged))
+        state["offered"] = state["offered_pairs"] = None
+        state["last_apply"] = now
     save_state(folder, state)
 
 
@@ -139,17 +203,25 @@ def _short(text: str) -> str:
     return text if len(text) <= CLAIM_WIDTH else text[:CLAIM_WIDTH - 1].rstrip() + "…"
 
 
+def _claims(older: records.Memory, newer: records.Memory) -> dict:
+    return {"older": _short(" ".join(older.claim.split())), "newer": _short(" ".join(newer.claim.split()))}
+
+
 def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: object, today: datetime.date, now: float, *,
                    actions: Actions, reason_ok: Callable[[str], bool], tokenize) -> list[str]:
-    """Carry out the verdict rows the rules allow; one line per row (`applied` or `refused` and why).
+    """Carry out the verdict rows the rules allow; one line per row (`applied`, `refused` or `failed`, and why).
 
     Rules, enforced here: the pair is one `pending` lists now; the older record is the one merged away or
-    superseded; a pair with flagged words is never merged; a record changed by an earlier row of the file is not
-    touched again. A refused row leaves the others untouched."""
+    superseded, and a pair whose newer side cannot be told allows only distinct or nothing; a pair with flagged
+    words is never merged; a record changed by an earlier row of the file is not touched again. A refused row
+    leaves the others untouched. A pair offered `OFFERS_BEFORE_LEFT` times without an applied decision is logged as
+    `left` and judged; before that it stays pending."""
     state = load_state(folder)
+    judged_now = set(state["judged"])
     listed = {frozenset((p["a"], p["b"])) for p in pending(memories, state, today, tokenize=tokenize)}
     by_handle = {m.handle: m for m in memories}
     touched: set[str] = set()
+    decided: set[frozenset] = set()
     lines: list[str] = []
     if not isinstance(rows, list):
         return ["refused\tthe file must hold a list of verdicts"]
@@ -175,11 +247,17 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
                    "only supersede, distinct or nothing are allowed")
         elif decision != "nothing" and not reason_ok(reason):
             refuse("the reason was refused (secret or forbidden term)")
+        elif decision in ("merge", "supersede") and newer_first(by_handle[a], by_handle[b], judged_now) is None:
+            refuse("cannot tell which is newer (same creation date, both or neither judged): "
+                   "only distinct or nothing are allowed")
         elif decision == "nothing":
+            decided.add(frozenset((a, b)))
             lines.append(f"applied\trow {number}\tnothing: m:{a} and m:{b} left as they are")
         else:
-            newer, older = newer_first(by_handle[a], by_handle[b])
+            order = newer_first(by_handle[a], by_handle[b], judged_now)
+            newer, older = order if order else (by_handle[b], by_handle[a])  # distinct: the order carries no meaning
             before = {m.handle: _sha(m.path) for m in (newer, older)}
+            failure = None
             try:
                 if decision == "merge":
                     out = actions.merge(newer, older, today)
@@ -187,24 +265,58 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
                     out = actions.supersede(older, newer, today)
                 else:
                     out = actions.distinct(older, newer, today)
-            except (OSError, ValueError) as exc:
-                refuse(f"{exc}")
+            except Exception as exc:  # a half-done action must still be logged, whatever raised
+                failure, out = exc, []
+            files = {}
+            for h in before:
+                try:
+                    after = _sha(by_handle[h].path)
+                except OSError:
+                    continue
+                if after != before[h]:
+                    files[h] = {"before": before[h], "after": after}
+            if failure is not None and not files:
+                refuse(f"{failure}")
                 continue
-            files = {h: {"before": before[h], "after": _sha(by_handle[h].path)} for h in before}
-            files = {h: v for h, v in files.items() if v["before"] != v["after"]}
             seq += 1
-            _append_log(folder, {"seq": seq, "date": today.isoformat(), "decision": decision, "older": older.handle,
-                                 "newer": newer.handle, "reason": reason, "files": files,
-                                 "claims": {"older": _short(" ".join(older.claim.split())),
-                                            "newer": _short(" ".join(newer.claim.split()))}})
+            entry = {"seq": seq, "date": today.isoformat(), "decision": decision, "older": older.handle,
+                     "newer": newer.handle, "reason": reason, "files": files, "claims": _claims(older, newer)}
+            if failure is not None:
+                entry["partial"] = True
+            _append_log(folder, entry)
             touched |= {a, b}
-            lines.append(f"applied\trow {number}\tsettling {seq}: {out[0] if out else decision}")
+            decided.add(frozenset((a, b)))
+            if failure is not None:
+                lines.append(f"failed\trow {number}\t{failure}; the records it changed are logged as settling {seq}: "
+                             f"mem settle undo {seq} puts them back")
+            else:
+                lines.append(f"applied\trow {number}\tsettling {seq}: {out[0] if out else decision}")
     stems = set(_stems(folder))
     covered = state.get("offered")
     if not isinstance(covered, list):
-        covered = [s for s in stems if s not in set(state["judged"])]
-    state["judged"] = sorted((set(state["judged"]) | set(covered)) & stems)
-    state["offered"] = None
+        covered = [s for s in stems if s not in judged_now]
+    offered = state.get("offered_pairs")
+    offered = {frozenset(p) for p in offered if isinstance(p, list)} & listed if isinstance(offered, list) else listed
+    offers: dict[str, int] = {}
+    retained: set[frozenset] = set()
+    for pair in sorted(offered, key=_key):
+        if pair in decided or pair & touched:
+            continue
+        count = int((state.get("offers") or {}).get(_key(pair), 0)) + 1
+        if count < OFFERS_BEFORE_LEFT:
+            offers[_key(pair)] = count
+            retained.add(pair)
+            continue
+        a, b = sorted(pair)
+        order = newer_first(by_handle[a], by_handle[b], judged_now) or (by_handle[b], by_handle[a])
+        seq += 1
+        _append_log(folder, {"seq": seq, "date": today.isoformat(), "decision": "left", "older": order[1].handle,
+                             "newer": order[0].handle, "reason": f"no decision after {count} offers", "files": {},
+                             "claims": _claims(order[1], order[0])})
+    waiting = {h for pair in retained for h in pair if h not in judged_now}
+    state["judged"] = sorted(((judged_now | set(covered)) - waiting) & stems)
+    state["offered"] = state["offered_pairs"] = None
+    state["offers"] = offers
     state["last_apply"] = now
     save_state(folder, state)
     return lines

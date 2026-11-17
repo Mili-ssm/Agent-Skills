@@ -95,23 +95,70 @@ def test_supersede_marks_the_older(gfolder, run, tmp_path):
     assert loaded["old-one"].superseded_by == "new-one" and loaded["new-one"].status == "active"
 
 
-def test_same_day_tie_keeps_the_lower_handle_as_newer(gfolder, run, tmp_path):
+def test_the_unjudged_record_is_the_newer_even_when_created_earlier(gfolder, run):
     put(gfolder, "zz-old", "Unrelated placeholder claim here.")
     run("pending")
     put(gfolder, "a-first", OLD, created=days_ago(1))
     put(gfolder, "b-second", NEW, created=days_ago(1))
+    st = state(gfolder)
+    st["judged"].append("a-first")
+    settle.save_state(gfolder, st)
     [pair] = json.loads(run("pending", "--json")[1])
-    assert pair["newer"] == "a-first"
+    assert pair["newer"] == "b-second"
 
 
-def test_flagged_pair_cannot_be_merged_and_the_run_still_judges_it(gfolder, run, tmp_path):
+def test_both_unjudged_use_the_later_date_and_a_same_day_tie_is_undecidable(gfolder, run, tmp_path):
+    put(gfolder, "zz-old", "Unrelated placeholder claim here.")
+    run("pending")
+    put(gfolder, "a-first", OLD, created=days_ago(2))
+    put(gfolder, "b-second", NEW, created=days_ago(1))
+    [pair] = json.loads(run("pending", "--json")[1])
+    assert pair["newer"] == "b-second"
+    put(gfolder, "a-first", OLD, created=days_ago(1))
+    [pair] = json.loads(run("pending", "--json")[1])
+    assert pair["newer"] is None
+    rows = [{"a": "a-first", "b": "b-second", "decision": d} for d in ("merge", "supersede")]
+    out = run("apply", "--verdicts", verdicts(tmp_path, *rows))[1].splitlines()
+    assert len(out) == 2 and all(line.startswith("refused") and "cannot tell which is newer" in line for line in out)
+    out = run("apply", "--verdicts", verdicts(tmp_path, {"a": "a-first", "b": "b-second", "decision": "distinct"}))[1]
+    assert out.startswith("applied")
+
+
+def test_flagged_pair_cannot_be_merged(gfolder, run, tmp_path):
     seeded(gfolder, run, claim="Use the build cache for every release build never.")
-    code, out, _ = run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "merge"}))
+    _, out, _ = run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "merge"}))
     assert out.startswith("refused") and "never" in out
     loaded = {m.handle: m for m in records.load_memories(gfolder, "global")}
     assert loaded["old-one"].status == "active" and loaded["new-one"].observed == 1
-    # the refusal still ends the run: the new record is judged and the pair does not come back
+
+
+def test_a_refused_row_keeps_its_pair_pending_for_one_more_run_then_logs_left(gfolder, run, tmp_path):
+    seeded(gfolder, run, claim="Use the build cache for every release build never.")
+    merge = verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "merge"})
+    assert run("apply", "--verdicts", merge)[1].startswith("refused")
+    assert "new-one" not in state(gfolder)["judged"] and run("log", "--all")[1] == ""
+    assert len(json.loads(run("pending", "--json")[1])) == 1  # offered again
+    assert run("apply", "--verdicts", merge)[1].startswith("refused")
     assert "new-one" in state(gfolder)["judged"]
+    [entry] = [json.loads(line) for line in (gfolder / settle.LOG_NAME).read_text().splitlines()]
+    assert entry["decision"] == "left" and entry["files"] == {}
+    assert "left" in run("log")[1]
+    assert run("pending")[1] == ""
+
+
+def test_a_missing_verdict_counts_like_a_refused_one(gfolder, run, tmp_path):
+    seeded(gfolder, run)
+    run("apply", "--verdicts", verdicts(tmp_path))
+    assert "new-one" not in state(gfolder)["judged"]
+    run("pending")
+    run("apply", "--verdicts", verdicts(tmp_path))
+    assert "new-one" in state(gfolder)["judged"] and "left" in run("log")[1]
+
+
+def test_an_applied_decision_ends_the_pair(gfolder, run, tmp_path):
+    seeded(gfolder, run)
+    run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "distinct"}))
+    assert "new-one" in state(gfolder)["judged"] and run("log")[1].count("distinct") == 1
 
 
 def test_flagged_pair_can_be_superseded(gfolder, run, tmp_path):
@@ -157,9 +204,10 @@ def test_judged_covers_unpaired_new_records_and_spares_those_written_after_pendi
     put(gfolder, "late", "A claim written while the run was under way.")
     run("apply", "--verdicts", verdicts(tmp_path))
     judged = state(gfolder)["judged"]
-    assert "alone" in judged and "new-one" in judged and "late" not in judged
+    assert "alone" in judged and "late" not in judged
+    assert "new-one" not in judged  # its pair got no verdict: offered once more
     assert run("due", "--minutes", "30")[0] == 1  # the run just ended: too soon, though "late" waits
-    assert settle.due(gfolder, 30, state(gfolder)["last_apply"] + 31 * 60, TODAY) == 1
+    assert settle.due(gfolder, 30, state(gfolder)["last_apply"] + 31 * 60, TODAY) == 2  # "late" and the retained "new-one"
 
 
 def test_secret_in_a_reason_refuses_the_row(gfolder, run, tmp_path):
@@ -254,3 +302,76 @@ def test_settle_never_touches_the_automatic_run_state(gfolder, run, tmp_path, mo
 
 def test_settle_state_files_are_ignored_by_the_store_repository():
     assert {".settle-log", ".settle-state.json"} <= set(store_git.IGNORED_FILES)
+
+
+@pytest.mark.parametrize("text", ["not json {", "[1, 2]", '{"acked": 0}', '{"judged": "x"}'])
+def test_an_unreadable_state_file_is_an_error_and_never_replaced(gfolder, run, text):
+    put(gfolder, "old-one", OLD)
+    path = gfolder / settle.STATE_NAME
+    path.write_text(text, encoding="utf-8")
+    for argv in (("pending",), ("due", "--minutes", "0"), ("log",)):
+        code, _, err = run(*argv)
+        assert code == 2 and settle.STATE_NAME in err
+    assert path.read_text(encoding="utf-8") == text
+
+
+def test_an_empty_queue_judges_what_it_examined_and_stops_due(gfolder, run):
+    put(gfolder, "old-one", OLD)
+    run("pending")
+    put(gfolder, "lonely", "Something about volcanoes in the south.")
+    assert run("due", "--minutes", "0")[0] == 0
+    assert run("pending") == (0, "", "")
+    assert "lonely" in state(gfolder)["judged"] and state(gfolder)["last_apply"] is not None
+    assert run("due", "--minutes", "0")[0] == 1
+
+
+def test_a_second_process_is_refused_while_the_lock_is_held(gfolder, run, tmp_path):
+    seeded(gfolder, run)
+    before = (gfolder / settle.STATE_NAME).read_bytes()
+    with settle.locked(gfolder):
+        for argv in (("pending",), ("apply", "--verdicts", verdicts(tmp_path)), ("undo", "1")):
+            code, out, err = run(*argv)
+            assert code == 2 and out == "" and "another mem settle command" in err
+    assert (gfolder / settle.STATE_NAME).read_bytes() == before
+    assert run("pending")[0] == 0  # released
+
+
+def test_a_failure_after_a_file_changed_is_logged_as_partial_and_can_be_undone(gfolder, run, tmp_path, monkeypatch):
+    put(gfolder, "old-one", OLD, created=days_ago(10), body="Old body.\n")
+    run("pending")
+    put(gfolder, "new-one", NEW, created=days_ago(1), body="New body.\n")
+    run("pending")
+    before = snapshot(gfolder)
+    real = mem._merge_pair
+
+    def broken(keep, drop, today):
+        real(keep, drop, today)
+        raise OSError("disk went away")
+    monkeypatch.setattr(mem, "_merge_pair", broken)
+    out = run("apply", "--verdicts", verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "merge"}))[1]
+    assert out.startswith("failed") and "disk went away" in out
+    assert snapshot(gfolder) != before
+    entry = json.loads((gfolder / settle.LOG_NAME).read_text().splitlines()[0])
+    assert entry["partial"] is True and entry["decision"] == "merge" and entry["files"]
+    assert "merge" in run("log")[1]
+    assert run("undo", "1")[0] == 0 and snapshot(gfolder) == before
+
+
+def test_settle_adds_its_ignore_lines_to_a_store_that_is_a_repository_already(tmp_path, monkeypatch, run):
+    store = tmp_path / "store"
+    folder = store / "memories"
+    monkeypatch.setenv("MEM_MEMORIES", str(folder))
+    put(folder, "old-one", OLD)
+    (store / ".git").mkdir()
+    (store / ".gitignore").write_text("node_modules/", encoding="utf-8")
+    run("pending")
+    lines = (store / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == "node_modules/" and {".settle-log", ".settle-state.json"} <= set(lines)
+    run("pending")
+    assert (store / ".gitignore").read_text(encoding="utf-8").splitlines() == lines
+
+
+def test_settle_creates_no_gitignore_outside_a_repository(gfolder, run):
+    put(gfolder, "old-one", OLD)
+    run("pending")
+    assert not (gfolder.parent / ".gitignore").exists() and not (gfolder / ".gitignore").exists()

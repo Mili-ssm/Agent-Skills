@@ -4278,9 +4278,10 @@ def cmd_settle(args: argparse.Namespace) -> int:
             print(count)
             return 0
         if command == "pending":
-            state = settle.load_state(folder)
-            found = settle.pending(records.load_memories(folder, "global"), state, today, tokenize=tokenize)
-            settle.offer(folder, state)
+            with settle.locked(folder):
+                state = settle.load_state(folder)
+                found = settle.pending(records.load_memories(folder, "global"), state, today, tokenize=tokenize)
+                settle.offer(folder, state, found, time.time())
             if args.json:
                 print(json.dumps(found, ensure_ascii=False, indent=1))
             else:
@@ -4295,8 +4296,9 @@ def cmd_settle(args: argparse.Namespace) -> int:
             except (OSError, ValueError) as exc:
                 print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
                 return 2
-            lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today, time.time(),
-                                          actions=_settle_actions(), reason_ok=_settle_reason_ok, tokenize=tokenize)
+            with settle.locked(folder):
+                lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today, time.time(),
+                                              actions=_settle_actions(), reason_ok=_settle_reason_ok, tokenize=tokenize)
             print("\n".join(lines))
             return 0
         if command == "log":
@@ -4307,7 +4309,8 @@ def cmd_settle(args: argparse.Namespace) -> int:
         if command == "ack":
             print(f"acknowledged {settle.ack(folder)}")
             return 0
-        print("\n".join(settle.undo(folder, args.number, today)))
+        with settle.locked(folder):
+            print("\n".join(settle.undo(folder, args.number, today)))
         return 0
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
