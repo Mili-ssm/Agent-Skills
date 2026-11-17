@@ -223,7 +223,7 @@ def test_domain_readme_created_with_title_and_markers(hub_root):
 def test_missing_domain_readme_is_reported(hub_root):
     mem.apply_index(hub_root)
     (hub_root / "knowledge" / "computing" / "README.md").unlink()
-    assert has(mem.check(hub_root), "knowledge/computing/README.md", "run uv run tools/hub.py index")
+    assert has(mem.check(hub_root), "knowledge/computing/README.md", "run mem index")
 
 
 def test_domain_index_groups_by_subtopic_with_general_last(hub_root):

@@ -1,3 +1,4 @@
+from conftest import usage_log_path
 import json
 
 import mem
@@ -78,7 +79,7 @@ def test_usage_log_fields(hub_root, capsys):
     linking(hub_root, "top", "Zebra crossings", "Zebra.", quiet)
     run(hub_root, capsys, "search", "zebra", "--links")
     run(hub_root, capsys, "search", "zebra")
-    with_links, plain = [json.loads(line) for line in (hub_root / ".usage" / "log.jsonl").read_text().splitlines()]
+    with_links, plain = [json.loads(line) for line in usage_log_path().read_text().splitlines()]
     assert with_links["links"] is True and with_links["linked"] == [quiet]
     assert "links" not in plain and "linked" not in plain
 

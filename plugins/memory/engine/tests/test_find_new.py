@@ -134,7 +134,7 @@ def test_new_cli_success_prints_rel_path(hub_root, capsys):
 
 def test_find_unknown_topic_fails(hub_root, capsys):
     assert mem.main(["--root", str(hub_root), "find", "--topic", "nope"]) == 1
-    assert "unknown topic nope: for free text use: hub.py search \"nope\"" in capsys.readouterr().err
+    assert "unknown topic nope: for free text use: mem search \"nope\"" in capsys.readouterr().err
 
 
 def test_new_places_note_under_root_of_first_topic(hub_root):
@@ -215,7 +215,7 @@ def test_new_prints_no_hint_without_matches(hub_root, capsys):
 def test_unknown_topic_suggests_close_ids_and_search(hub_root, capsys):
     assert mem.main(["--root", str(hub_root), "find", "--topic", "learning"]) == 1
     err = capsys.readouterr().err
-    assert "unknown topic learning" in err and "deep-learning" in err and 'hub.py search "learning"' in err
+    assert "unknown topic learning" in err and "deep-learning" in err and 'mem search "learning"' in err
 
 
 def test_find_level_filters_to_literature_and_knowledge(hub_root):

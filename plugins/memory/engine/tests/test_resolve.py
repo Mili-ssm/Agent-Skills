@@ -1,3 +1,4 @@
+from conftest import usage_log_path
 import json
 
 import mem
@@ -77,9 +78,9 @@ def test_related_and_passages_use_the_resolver(hub_root, capsys):
 
 
 def test_usage_log_records_resolved_paths(hub_root, capsys, monkeypatch):
-    monkeypatch.delenv("HUB_USAGE_LOG", raising=False)
+    monkeypatch.delenv("MEM_USAGE_LOG", raising=False)
     show(hub_root, capsys, "2017-vaswani-attention", "--section", "x")
-    entry = json.loads((hub_root / mem.USAGE_LOG).read_text().splitlines()[-1])
+    entry = json.loads(usage_log_path().read_text().splitlines()[-1])
     assert entry["paths"] == [LIT]
 
 

@@ -1,3 +1,4 @@
+from conftest import usage_log_path
 import json
 
 import pytest
@@ -64,7 +65,7 @@ def test_missing_source_exits_1_naming_the_folder_and_logs_nothing(hub_root, cap
     code, out = run(hub_root, capsys, "zeta")
     assert code == 1 and out.out == ""
     assert f".sources/{FOLDER}/" in out.err and f"fetch-sources {LIT}" in out.err
-    assert not (hub_root / ".usage" / "log.jsonl").exists()
+    assert not usage_log_path().exists()
 
 
 def test_a_note_that_is_not_literature_exits_1(hub_root, capsys):
@@ -76,7 +77,7 @@ def test_no_matching_passage_exits_0_with_empty_stdout(hub_root, capsys):
     source(hub_root, text_of(30))
     code, out = run(hub_root, capsys, "zebra")
     assert code == 0 and out.out == "" and out.err.startswith(f"no matching passage in .sources/{FOLDER}/")
-    (entry,) = [json.loads(line) for line in (hub_root / ".usage" / "log.jsonl").read_text().splitlines()]
+    (entry,) = [json.loads(line) for line in usage_log_path().read_text().splitlines()]
     assert entry["hits"] == 0
 
 
@@ -99,7 +100,7 @@ def test_the_largest_txt_is_chosen_and_ties_go_by_name(hub_root, capsys):
 def test_usage_log_entry(hub_root, capsys):
     source(hub_root, text_of(30, {3}))
     run(hub_root, capsys, "zeta", "--count", "2", "--words", "10")
-    (entry,) = [json.loads(line) for line in (hub_root / ".usage" / "log.jsonl").read_text().splitlines()]
+    (entry,) = [json.loads(line) for line in usage_log_path().read_text().splitlines()]
     assert entry["cmd"] == "passages" and entry["path"] == LIT and entry["query"] == "zeta"
     assert (entry["count"], entry["words"], entry["hits"]) == (2, 10, 1)
 

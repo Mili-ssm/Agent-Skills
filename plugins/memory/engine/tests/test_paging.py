@@ -1,3 +1,4 @@
+from conftest import usage_log_path
 import json
 
 import mem
@@ -57,10 +58,10 @@ def test_search_also_headers_and_single_output_unchanged(hub_root, capsys):
 
 
 def test_search_also_logs_one_line_per_query(hub_root, capsys, monkeypatch):
-    monkeypatch.delenv("HUB_USAGE_LOG", raising=False)
+    monkeypatch.delenv("MEM_USAGE_LOG", raising=False)
     many(hub_root)
     run(hub_root, capsys, "search", "zebra", "--also", "attention")
-    entries = [json.loads(line) for line in (hub_root / mem.USAGE_LOG).read_text().splitlines()]
+    entries = [json.loads(line) for line in usage_log_path().read_text().splitlines()]
     assert [e["query"] for e in entries] == ["zebra", "attention"]
     assert all(e["cmd"] == "search" and e["limit"] == 10 for e in entries)
 

@@ -23,12 +23,12 @@ def test_stats_counts_on_fixture(hub_root, capsys):
     assert mem.main(["--root", str(hub_root), "stats"]) == 0
     out = capsys.readouterr().out.splitlines()
     values = dict(line.split(": ") for line in out)
-    assert out[:3] == ["literature: 1", "knowledge: 1", "research: 1"]
+    assert out[1:4] == ["literature: 1", "knowledge: 1", "research: 1"]
     assert values["literature/computing"] == "1"
     assert values["knowledge/computing"] == "1"
     assert values["topics"] == "6"
     assert int(values["tokens"]) == int(values["characters"]) // 4 > 0
-    assert int(values["hub.py lines"]) > 1000
+    assert int(values["mem.py lines"]) > 1000
 
 
 def test_search_ranks_title_above_body_mention(hub_root):
@@ -268,9 +268,9 @@ def test_cli_related_output_and_errors(hub_root, capsys):
     assert lines and all(line.split("\t")[0] in mem.RELATIONS for line in lines)
     assert sum(line.startswith("similar\t") for line in lines) <= 2
     assert mem.main(["--root", str(hub_root), "related", "knowledge/README.md"]) == 1
-    assert capsys.readouterr().err == "hub.py: not a note: knowledge/README.md\n"
+    assert capsys.readouterr().err == "mem: not a note: knowledge/README.md\n"
     assert mem.main(["--root", str(hub_root), "related", "knowledge/missing.md"]) == 1
-    assert capsys.readouterr().err == "hub.py: not a note: knowledge/missing.md\n"
+    assert capsys.readouterr().err == "mem: not a note: knowledge/missing.md\n"
 
 
 def test_cli_search_snippet_prefers_informative_term_over_function_words(hub_root, capsys):

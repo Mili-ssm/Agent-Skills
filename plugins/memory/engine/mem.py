@@ -3,7 +3,7 @@
 # requires-python = ">=3.12"
 # dependencies = ["pyyaml"]
 # ///
-"""Research hub tooling: parsing primitives and the hub commands."""
+"""Memory engine: parsing primitives and the mem commands."""
 
 from __future__ import annotations
 
@@ -29,7 +29,62 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 
 import yaml
 
-DEFAULT_ROOT = Path(__file__).resolve().parent.parent
+_WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
+
+
+def _env_value(env: Mapping[str, str], key: str) -> str:
+    return env.get(key) or ""
+
+
+def _config_file(env: Mapping[str, str]) -> Path | None:
+    base = _env_value(env, "XDG_CONFIG_HOME")
+    if not base:
+        home = _env_value(env, "HOME")
+        if not home:
+            return None
+        base = str(Path(home) / ".config")
+    return Path(base) / "agent-memory" / "store"
+
+
+def _config_store(env: Mapping[str, str]) -> str:
+    path = _config_file(env)
+    if path is None:
+        return ""
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError):
+        return ""
+    return lines[0].strip() if lines else ""
+
+
+def store_source(cli_root: str | None, env: Mapping[str, str]) -> str | None:
+    """Where the store path comes from: --root, MEM_STORE or the config file."""
+    if cli_root:
+        return "--root"
+    if _env_value(env, "MEM_STORE"):
+        return "MEM_STORE"
+    if _config_store(env):
+        return "config file"
+    return None
+
+
+def resolve_root(cli_root: str | None, env: Mapping[str, str]) -> Path | None:
+    """The store folder by precedence --root, MEM_STORE, config file; not checked for existence."""
+    source = store_source(cli_root, env)
+    if source is None:
+        return None
+    raw = {"--root": cli_root, "MEM_STORE": env.get("MEM_STORE")}.get(source) or _config_store(env)
+    return Path(raw).expanduser()
+
+
+def data_dir(env: Mapping[str, str]) -> Path:
+    """Folder for the usage log and other state, outside the store."""
+    if _env_value(env, "MEM_DATA"):
+        return Path(env["MEM_DATA"])
+    state = _env_value(env, "XDG_STATE_HOME")
+    if state:
+        return Path(state) / "agent-memory"
+    return Path(_env_value(env, "HOME")) / ".local" / "state" / "agent-memory"
 
 _DROPPED_TAGS = {"tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool"}
 
@@ -822,7 +877,7 @@ def rule_index_fresh(root: Path, notes: list[Note], topics: dict | None) -> list
         rel = path.relative_to(root).as_posix()
         if not path.is_file():
             if default is not None:
-                problems.append(Problem(rel, 1, "missing readme: run uv run tools/hub.py index"))
+                problems.append(Problem(rel, 1, "missing readme: run mem index"))
             continue
         try:
             text = _read_text(path)
@@ -838,7 +893,7 @@ def rule_index_fresh(root: Path, notes: list[Note], topics: dict | None) -> list
         if not current:
             start = text.find(INDEX_START)
             line = text.count("\n", 0, start) + 1 if start >= 0 else 1
-            problems.append(Problem(rel, line, "index stale: run uv run tools/hub.py index"))
+            problems.append(Problem(rel, line, "index stale: run mem index"))
     return problems
 
 
@@ -1175,7 +1230,7 @@ def _unknown_topic_message(topic: str, known: dict) -> str:
     words = set(topic.lower().split("-"))
     close = sorted(t for t in known if words & set(t.split("-")) or topic.lower() in t)
     hint = f"close ids: {', '.join(close)}; " if close else ""
-    return f"unknown topic {topic}: {hint}for free text use: hub.py search \"{topic.replace('-', ' ')}\" (ids: topics.yaml)"
+    return f"unknown topic {topic}: {hint}for free text use: mem search \"{topic.replace('-', ' ')}\" (ids: topics.yaml)"
 
 
 def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = None,
@@ -1194,7 +1249,7 @@ def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = 
     result = []
     for note in discover_notes(root):
         if note.error is not None or not isinstance(note.meta, dict):
-            print(f"hub.py: skipping {note.rel}: {note.error or 'frontmatter is not a mapping'}",
+            print(f"mem: skipping {note.rel}: {note.error or 'frontmatter is not a mapping'}",
                   file=sys.stderr)
             continue
         meta = note.meta
@@ -1730,7 +1785,7 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
         apply_index(root)
     except FrontmatterError as exc:
         raise NewNoteError(f"{target.relative_to(root).as_posix()} was created but the index "
-                           f"was not updated ({exc}): fix it, then run uv run tools/hub.py index") from exc
+                           f"was not updated ({exc}): fix it, then run mem index") from exc
     return target
 
 
@@ -1825,7 +1880,7 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
         apply_index(root)
     except FrontmatterError as exc:
         raise NewNoteError(f"{new.relative_to(root).as_posix()} was renamed but the index was not "
-                           f"updated ({exc}): fix it, then run uv run tools/hub.py index") from exc
+                           f"updated ({exc}): fix it, then run mem index") from exc
     return new, links, len(edits)
 
 
@@ -2126,7 +2181,7 @@ def cmd_check(args: argparse.Namespace) -> int:
     try:
         scopes = _scopes(args.root, args.paths)
     except ValueError as exc:
-        print(f"hub.py: {exc}", file=sys.stderr)
+        print(f"mem: {exc}", file=sys.stderr)
         return 2
     problems = [p for p in check(args.root) if _in_scopes(p.path, scopes)]
     for problem in problems:
@@ -2138,7 +2193,7 @@ def cmd_index(args: argparse.Namespace) -> int:
     try:
         changed = apply_index(args.root)
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot build the index: {exc}", file=sys.stderr)
+        print(f"mem: cannot build the index: {exc}", file=sys.stderr)
         return 1
     for rel in changed:
         print(f"updated {rel}")
@@ -2150,7 +2205,7 @@ def cmd_find(args: argparse.Namespace) -> int:
         notes = _matching_notes(args.root, type=args.type, topic=args.topic, kind=args.kind,
                                 status=args.status, confidence=args.confidence, level=args.level)
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot find: {exc}", file=sys.stderr)
+        print(f"mem: cannot find: {exc}", file=sys.stderr)
         return 1
     page = sorted(notes, key=lambda n: n.rel)[args.offset:args.offset + args.limit]
     names = short_handles(args.root) if args.handles else {}
@@ -2186,26 +2241,39 @@ def cmd_topics(args: argparse.Namespace) -> int:
     try:
         rows = topic_tree(args.root, args.topic)
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot find: {exc}", file=sys.stderr)
+        print(f"mem: cannot find: {exc}", file=sys.stderr)
         return 1
     for depth, tid, count in rows:
         print(f"{'  ' * depth}{tid}\t{count}")
     return 0
 
 
-USAGE_LOG = Path(".usage") / "log.jsonl"
+def _usage_log(env: Mapping[str, str]) -> Path:
+    return data_dir(env) / "usage" / "log.jsonl"
 
 
-def log_usage(root: Path, entry: dict[str, Any]) -> None:
-    """Append one JSON line to the local usage log; never raises, never changes output."""
-    if os.environ.get("HUB_USAGE_LOG") == "0":
+def _is_outside(root: Path, cwd: Path | None) -> bool:
+    try:
+        here = (cwd if cwd is not None else Path.cwd()).resolve()
+        return not here.is_relative_to(root.resolve())
+    except OSError:
+        return True
+
+
+def log_usage(root: Path, entry: dict[str, Any], *, env: Mapping[str, str] | None = None,
+              cwd: Path | None = None) -> None:
+    """Append one JSON line to the usage log in the data folder; never raises, never changes output."""
+    env = os.environ if env is None else env
+    if env.get("MEM_USAGE_LOG") == "0":
         return
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
     try:
+        entry["outside"] = _is_outside(root, cwd)
+        log_path = _usage_log(env)
         # ASCII escapes keep one entry on one line and survive argv that is not valid UTF-8
         line = (json.dumps(entry) + "\n").encode("ascii")
-        (root / USAGE_LOG).parent.mkdir(exist_ok=True)
-        fd = os.open(root / USAGE_LOG, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
         try:
             os.write(fd, line)  # one write: parallel processes cannot interleave lines
         finally:
@@ -2218,7 +2286,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     if args.ranges and not args.outline:
         build_parser().error("--ranges needs --outline")
     if args.outline and args.section:
-        print("hub.py: --outline and --section cannot be used together", file=sys.stderr)
+        print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return 2
     blocks, shown, ok = show(args.root, args.paths, sections=args.section, outline=args.outline,
                              ranges=args.ranges)
@@ -2258,7 +2326,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         path = new_note(args.root, args.type, slug=args.slug, topics=topics,
                         today=datetime.date.today(), body=body, **fields)
     except (NewNoteError, OSError) as exc:
-        print(f"hub.py: {exc}", file=sys.stderr)
+        print(f"mem: {exc}", file=sys.stderr)
         return 1
     rel = path.relative_to(args.root).as_posix()
     print(rel)
@@ -2289,7 +2357,7 @@ def cmd_rename(args: argparse.Namespace) -> int:
     try:
         path, links, files = rename_note(args.root, args.note, args.new_stem)
     except (NewNoteError, OSError) as exc:
-        print(f"hub.py: {exc}", file=sys.stderr)
+        print(f"mem: {exc}", file=sys.stderr)
         return 1
     print(path.relative_to(args.root.resolve()).as_posix())
     print(f"rewrote {links} links in {files} files", file=sys.stderr)
@@ -2304,7 +2372,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
         try:
             scopes = _scopes(root, args.paths)
         except ValueError as exc:
-            print(f"hub.py: {exc}", file=sys.stderr)
+            print(f"mem: {exc}", file=sys.stderr)
             return 2
         for path in orphan_notes(root):
             if _in_scopes(path, scopes):
@@ -2318,16 +2386,17 @@ def cmd_stats(args: argparse.Namespace) -> int:
     chars = 0
     for note in notes:
         chars += len(note.text)
-    lines = [f"{kind}: {sum(1 for n in notes if n.type == kind)}" for kind in INDEX_FOLDERS]
+    lines = [f"store: {root} (from {getattr(args, 'root_source', None) or 'unknown'})"]
+    lines += [f"{kind}: {sum(1 for n in notes if n.type == kind)}" for kind in INDEX_FOLDERS]
     for kind in ("literature", "knowledge"):
         domains = collections.Counter(n.path.parent.name for n in notes if n.type == kind)
         lines += [f"{kind}/{domain}: {domains[domain]}" for domain in sorted(domains)]
     script = Path(__file__).resolve().read_text(encoding="utf-8")
     lines.append(f"orphans: {len(orphan_notes(root))}")
     lines += [f"topics: {topic_count}", f"characters: {chars}", f"tokens: {chars // 4}",
-              f"hub.py lines: {len(script.splitlines())}"]
+              f"mem.py lines: {len(script.splitlines())}"]
     try:
-        entries = (root / USAGE_LOG).read_bytes().count(b"\n")
+        entries = _usage_log(os.environ).read_bytes().count(b"\n")
     except OSError:
         entries = 0
     lines.append(f"usage log entries: {entries}")
@@ -2347,7 +2416,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
         linkeds = [linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks]
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot search: {exc}", file=sys.stderr)
+        print(f"mem: cannot search: {exc}", file=sys.stderr)
         return 1
     names = short_handles(args.root) if args.handles else {}
     filters = {k: getattr(args, k) for k in ("type", "topic", "kind", "status", "confidence", "level")
@@ -2383,7 +2452,7 @@ def cmd_passages(args: argparse.Namespace) -> int:
     try:
         notes = {n.rel for n in discover_notes(args.root) if n.type == "literature"}
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot read passages: {exc}", file=sys.stderr)
+        print(f"mem: cannot read passages: {exc}", file=sys.stderr)
         return 1
     path = resolve_note(args.root, args.path)  # a path or handle, like `show`
     if isinstance(path, list):
@@ -2392,8 +2461,8 @@ def cmd_passages(args: argparse.Namespace) -> int:
     rel = path.relative_to(args.root.resolve()).as_posix() if path else args.path
     source = source_text(args.root, rel) if rel in notes else None
     if source is None:
-        print(f"hub.py: no source text for {args.path}: looked for a .txt in "
-              f"{SOURCES_DIR}/{Path(rel).stem}/ (needs a literature note path); `hub.py fetch-sources {args.path}` "
+        print(f"mem: no source text for {args.path}: looked for a .txt in "
+              f"{SOURCES_DIR}/{Path(rel).stem}/ (needs a literature note path); `mem fetch-sources {args.path}` "
               "downloads the source when it has a url, and writes a .txt only for a plain-text response "
               "or a PDF with pdftotext installed", file=sys.stderr)
         return 1
@@ -2419,10 +2488,10 @@ def cmd_related(args: argparse.Namespace) -> int:
         corpus = build_corpus(args.root)
         groups = related(args.root, rel, limit=args.limit, corpus=corpus)
     except ValueError:
-        print(f"hub.py: not a note: {args.path}", file=sys.stderr)
+        print(f"mem: not a note: {args.path}", file=sys.stderr)
         return 1
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot relate: {exc}", file=sys.stderr)
+        print(f"mem: cannot relate: {exc}", file=sys.stderr)
         return 1
     terms = tokenize(_title(next(n for n in corpus.notes if n.rel == rel)))
     weights = term_idf(corpus, terms)
@@ -2440,10 +2509,10 @@ def cmd_search_eval(args: argparse.Namespace) -> int:
     try:
         outcome = search_eval(args.root)
     except (FrontmatterError, OSError) as exc:
-        print(f"hub.py: cannot evaluate search: {exc}", file=sys.stderr)
+        print(f"mem: cannot evaluate search: {exc}", file=sys.stderr)
         return 1
     if outcome is None:
-        print(f"hub.py: {_EVAL_FILE} not found", file=sys.stderr)
+        print(f"mem: {_EVAL_FILE} not found", file=sys.stderr)
         return 0
     misses, found, expected, reciprocal = outcome
     for miss in misses:
@@ -2508,8 +2577,8 @@ _NEW_FIELDS = {
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="hub.py", description="Research hub tooling.")
-    parser.add_argument("--root", type=Path, default=DEFAULT_ROOT, help="hub root (default: this script's hub)")
+    parser = argparse.ArgumentParser(prog="mem", description="Memory engine: search and read a store of notes.")
+    parser.add_argument("--root", default=None, help="store folder (default: $MEM_STORE, then the config file)")
     sub = parser.add_subparsers(dest="command", required=True)
     check_parser = sub.add_parser("check", help="validate the hub rules")
     check_parser.add_argument("paths", nargs="*", metavar="PATH", help="print only problems in these notes or folders")
@@ -2606,6 +2675,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command in _WRITE_COMMANDS and os.environ.get("MEM_ALLOW_WRITE") != "1":
+        print(f"mem: {args.command} writes to the store, which is read-only in stage 1; "
+              "set MEM_ALLOW_WRITE=1 to allow it.", file=sys.stderr)
+        return 2
+    root = resolve_root(args.root, os.environ)
+    if root is None:
+        print('mem: no store is set. Enable the memory plugin and set its "store" option, '
+              "or pass --root <folder>, or set MEM_STORE.", file=sys.stderr)
+        return 2
+    if not root.is_dir():
+        print(f"mem: the store folder does not exist: {root}", file=sys.stderr)
+        return 2
+    args.root_source = store_source(args.root, os.environ)
+    args.root = root
     return args.func(args)
 
 

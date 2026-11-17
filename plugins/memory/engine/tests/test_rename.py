@@ -72,7 +72,7 @@ def test_moves_sources_folder(hub_root):
 def test_refusals_leave_hub_untouched(hub_root, capsys, note, stem):
     before = snapshot(hub_root)
     assert run(hub_root, note, stem) == 1
-    assert capsys.readouterr().err.startswith("hub.py: ")
+    assert capsys.readouterr().err.startswith("mem: ")
     assert snapshot(hub_root) == before
 
 

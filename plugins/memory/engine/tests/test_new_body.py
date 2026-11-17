@@ -53,7 +53,7 @@ def test_body_refusals_create_nothing(hub_root, tmp_path, monkeypatch, capsys):
     tty.isatty = lambda: True
     monkeypatch.setattr(sys, "stdin", tty)
     assert new(hub_root, "--body-file", "-") == 1
-    assert capsys.readouterr().err.count("hub.py: ") == 4
+    assert capsys.readouterr().err.count("mem: ") == 4
     assert not (hub_root / NOTE).exists()
 
 

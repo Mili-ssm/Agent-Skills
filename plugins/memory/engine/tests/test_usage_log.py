@@ -1,13 +1,14 @@
 import json
 
 import mem
+from conftest import usage_log_path
 
 from test_find_new import write_note
 from test_show import NOTE, REL
 
 
 def entries(root):
-    path = root / ".usage" / "log.jsonl"
+    path = usage_log_path()
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
 
@@ -41,16 +42,16 @@ def test_failed_show_logs_nothing(hub_root, capsys):
 
 
 def test_opt_out(hub_root, monkeypatch):
-    monkeypatch.setenv("HUB_USAGE_LOG", "0")
+    monkeypatch.setenv("MEM_USAGE_LOG", "0")
     mem.main(["--root", str(hub_root), "search", "attention"])
-    assert not (hub_root / ".usage").exists()
+    assert not usage_log_path().exists()
 
 
 def test_unwritable_usage_path_is_silent(hub_root, capsys):
     mem.main(["--root", str(hub_root), "search", "attention"])
     expected = capsys.readouterr()
-    (hub_root / ".usage").rename(hub_root / "moved")
-    (hub_root / ".usage").write_text("not a folder")
+    usage_log_path().parent.rename(usage_log_path().parent.with_name("moved"))
+    usage_log_path().parent.write_text("not a folder")
     assert mem.main(["--root", str(hub_root), "search", "attention"]) == 0
     got = capsys.readouterr()
     assert (got.out, got.err) == (expected.out, expected.err)
