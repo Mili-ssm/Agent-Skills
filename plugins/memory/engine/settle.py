@@ -109,11 +109,11 @@ def save_state(folder: Path, state: dict) -> None:
 
 
 def _counts_as_new(m: records.Memory, judged: set[str], today: datetime.date) -> bool:
-    return m.handle not in judged and records.is_live(m, today) and m.origin != "pipeline"
+    return m.handle not in judged and records.is_live(m, today) and m.origin not in ("pipeline", "web")
 
 
 def unjudged_count(folder: Path, state: dict, today: datetime.date) -> int:
-    """Live, non-pipeline memories not yet judged. Parses only the files whose handle is not in the judged list."""
+    """Live memories not yet judged, other than those of origin pipeline or web. Parses only the files whose handle is not in the judged list."""
     judged = set(state["judged"])
     count = 0
     for stem in _stems(folder):

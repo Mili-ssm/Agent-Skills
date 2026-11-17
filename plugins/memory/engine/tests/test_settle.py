@@ -73,6 +73,12 @@ def test_pipeline_records_are_never_the_new_side(gfolder, run):
     assert run("due", "--minutes", "0")[0] == 1
 
 
+def test_web_records_are_never_the_new_side(gfolder, run):
+    seeded(gfolder, run, extra="origin: web\n")
+    assert run("pending")[1] == ""
+    assert run("due", "--minutes", "0")[0] == 1
+
+
 def test_inactive_records_are_ignored(gfolder, run):
     seeded(gfolder, run, status="forgotten")
     assert run("pending")[1] == ""

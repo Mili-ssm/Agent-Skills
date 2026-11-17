@@ -1,6 +1,7 @@
 """Pure parts of `mem-research`: web input, page check, verdict application. No network beyond 127.0.0.1."""
 import functools
 import http.server
+import os
 import socket
 import sys
 import threading
@@ -142,8 +143,21 @@ def test_size_cap_and_plain_text(server, fetch_local):
     assert len(big) == rc.MAX_BYTES and "TAILMARK" not in big
 
 
-def test_pdf_is_reported_as_not_checked(server, fetch_local):
+def test_pdf_is_not_checked_without_pdftotext(server, fetch_local, monkeypatch):
+    monkeypatch.setattr(rc.shutil, "which", lambda name: None)
     with pytest.raises(rc.NotChecked, match="not checked: application/pdf"):
+        fetch_local(f"{server}/pdf")
+
+
+def test_pdf_is_read_through_pdftotext(server, fetch_local, monkeypatch, tmp_path):
+    fake = tmp_path / "bin" / "pdftotext"
+    fake.parent.mkdir()
+    fake.write_text("#!/bin/sh\ncat >/dev/null\necho 'text of the fake pdf'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake.parent}{os.pathsep}{os.environ['PATH']}")
+    assert fetch_local(f"{server}/pdf").strip() == "text of the fake pdf"
+    fake.write_text("#!/bin/sh\nexit 1\n")
+    with pytest.raises(rc.NotChecked, match="pdf unreadable"):
         fetch_local(f"{server}/pdf")
 
 
@@ -174,12 +188,53 @@ def test_quote_floor_of_20_characters():
     assert not rc.quote_found(" " * 5 + "x" * 19 + "   ", "x" * 40)  # counted after normalizing
 
 
+ITEMS = {"q": {"kind": "question", "text": "How many folding cycles does the gadget survive?"},
+         "c1": {"kind": "claim", "handle": HANDLE, "text": "The invented gadget survives ten thousand folding cycles"}}
+
+
 def row(**kw):
-    base = {"item": HANDLE, "url": "http://p/1", "quote": LONG, "stance": "supports", "source_kind": "official"}
+    base = {"item": "c1", "url": "http://p/1", "stance": "supports", "source_kind": "official"}
     return {**base, **kw}
 
 
-def test_check_items_fetches_once_and_drops_with_reasons():
+def test_item_ids_and_keys():
+    items = [ITEMS["q"], ITEMS["c1"], {"kind": "claim", "handle": "b", "text": "t"}]
+    assert list(rc.item_ids(items)) == ["q", "c1", "c2"]
+    assert [rc.item_key(i) for i in items] == [rc.QUESTION, HANDLE, "b"]
+
+
+def test_question_problem(tmp_path):
+    f = tmp_path / "mem-config" / "agent-memory" / "forbidden-terms"
+    f.parent.mkdir(parents=True)
+    f.write_text("Zorbco\n", encoding="utf-8")
+    assert rc.question_problem("How many cycles?") is None
+    assert "secret" in rc.question_problem(f"Does {FAKE_TOKEN} work?")
+    assert "forbidden" in rc.question_problem("What does Zorbco ship?")
+    assert rc.question_problem("  ") == "the question is empty"
+
+
+def test_parse_web_reply_tolerates_a_fence_and_nothing_else():
+    rows = '[{"item": "q"}]'
+    assert rc.parse_web_reply(rows) == [{"item": "q"}]
+    assert rc.parse_web_reply(f"Here you go:\n```json\n{rows}\n```\nDone.") == [{"item": "q"}]
+    for bad in ("Found some pages", '{"item": "q"}', "", "```\nnot json\n```", "[1, 2"):
+        assert rc.parse_web_reply(bad) is None
+
+
+def test_select_passages_takes_whole_paragraphs_best_first_within_the_limit():
+    page = ("Intro words about nothing relevant at all.\n\n"
+            "The gadget survives ten thousand folding cycles in the lab.\n\n"
+            "The gadget colour is red.\n\n"
+            + "gadget folding cycles " * 40)
+    got = rc.select_passages(page, "gadget folding cycles survives", limit=1000)
+    assert got[0].startswith("gadget folding cycles gadget") or got[0].startswith("The gadget survives")
+    assert "Intro words about nothing relevant at all." not in got and sum(map(len, got)) <= 1000
+    assert rc.select_passages("Nothing in common with it.", "gadget") == []
+    assert rc.select_passages("short\n\nThe gadget survives many cycles of folding here.", "gadget cycles") == [
+        "The gadget survives many cycles of folding here."]
+
+
+def test_check_rows_fetches_once_and_drops_with_reasons():
     calls = []
 
     def fetch(url):
@@ -190,68 +245,89 @@ def test_check_items_fetches_once_and_drops_with_reasons():
             raise rc.NotChecked("not checked: application/pdf")
         if url == "http://p/down":
             raise rc.FetchFailed("HTTP 500")
-        return f"intro {LONG} outro"
+        if url == "http://p/off":
+            return "A page about something else entirely, nothing shared."
+        return f"intro\n\n{LONG} in the lab\n\nthe end of it all"
 
-    items = [row(), row(quote="A sentence that the page does not carry"), row(url="http://p/refused"),
-             row(url="http://p/pdf"), row(url="http://p/down"), row(stance="neutral"), row(source_kind="blog"),
-             row(quote=""), "junk", row(quote=LONG[:19])]
-    got = rc.check_items(items, fetch=fetch)
-    assert got.surviving == [row()]
+    rows = [row(), row(stance="contradicts"), row(), row(url="http://p/refused"), row(url="http://p/pdf"),
+            row(url="http://p/down"), row(url="http://p/off"), row(stance="neutral"), row(source_kind="blog"),
+            row(item="zz"), "junk", row(url="http://p/capped")]
+    got = rc.check_rows(rows, ITEMS, fetch=fetch, max_pages=5)
+    assert [(e["item"], e["stance"]) for e in got.entries] == [(HANDLE, "supports"), (HANDLE, "contradicts")]
+    assert got.entries[0]["passages"] == [f"{LONG} in the lab"]
+    assert list(got.pages) == ["http://p/1", "http://p/off"]
     reasons = [d["reason"] for d in got.dropped]
-    assert reasons[0].startswith("quote not on the page")
-    assert reasons[1].startswith("fetch refused") and reasons[2] == "not checked: application/pdf"
-    assert reasons[3].startswith("fetch failed")
-    assert all(r.startswith("bad shape") for r in reasons[4:8]) and reasons[8].startswith("quote not")
-    assert calls.count("http://p/1") == 1 and len(calls) == 4
+    assert reasons[0].startswith("fetch refused") and reasons[1] == "not checked: application/pdf"
+    assert reasons[2].startswith("fetch failed") and reasons[3].startswith("no passage")
+    assert all(r.startswith("bad shape") for r in reasons[4:6]) and reasons[6] == "unknown item id"
+    assert reasons[7].startswith("bad shape") and reasons[8].startswith("over the page cap")
+    assert calls.count("http://p/1") == 1 and "http://p/capped" not in calls
 
 
-def test_check_items_end_to_end_on_the_local_page(server, fetch_local):
-    got = rc.check_items([row(url=f"{server}/page", quote="Fish & chips are served"),
-                          row(url=f"{server}/page", quote="SCRIPTONLY marker text")], fetch=fetch_local)
-    assert len(got.surviving) == 1 and got.dropped[0]["reason"].startswith("quote not on the page")
+def test_check_rows_gives_an_item_at_most_its_passage_budget(monkeypatch):
+    monkeypatch.setattr(rc, "ITEM_CHARS", 100)
+    page = "\n\n".join(f"The gadget survives cycle number {i} of the test." for i in range(6))
+    got = rc.check_rows([row(url="http://p/a"), row(url="http://p/b")], ITEMS, fetch=lambda u: page)
+    assert sum(len(p) for e in got.entries for p in e["passages"]) <= 100 and len(got.dropped) == 1
+
+
+def test_check_rows_end_to_end_on_the_local_page(server, fetch_local):
+    got = rc.check_rows([row(url=f"{server}/page"), row(url=f"{server}/redir-private")], ITEMS, fetch=fetch_local)
+    assert len(got.entries) == 1 and LONG in got.entries[0]["passages"][0]
+    assert "SCRIPTONLY" not in " ".join(got.entries[0]["passages"]) and "non-public" in got.dropped[0]["reason"]
+    assert LONG in got.pages[f"{server}/page"]
 
 
 # ---- step 6: plan ----
 
-Q_OK = row(quote="the gadget survives ten thousand cycles")
-SURV = [
-    row(),                                                                     # 0 supports, official
-    row(stance="contradicts", source_kind="paper"),                            # 1
-    row(stance="contradicts", source_kind="other"),                            # 2
-    row(item="other-note"),                                                    # 3 about another note
-    row(item="", url="http://p/2", stance="supports", source_kind="other"),    # 4 finding source
+PAGE = f"Intro paragraph.\n\n{LONG} in the lab, 28.4 BLEU were reported on the task.\n\nOutro."
+ENTRIES = [
+    {"item": HANDLE, "url": "http://p/1", "stance": "supports", "source_kind": "other", "passages": ["x"]},
+    {"item": HANDLE, "url": "http://p/2", "stance": "contradicts", "source_kind": "paper", "passages": ["x"]},
+    {"item": HANDLE, "url": "http://p/3", "stance": "contradicts", "source_kind": "other", "passages": ["x"]},
+    {"item": "other-note", "url": "http://p/1", "stance": "supports", "source_kind": "official", "passages": ["x"]},
 ]
+PAGES_FETCHED = {u: PAGE for u in ("http://p/1", "http://p/2", "http://p/3")}
 SENT = [HANDLE, "other-note"]
+Q = LONG + " in the lab"
 
 
 def plan(notes=(), findings=()):
-    return rc.plan_commands({"answer": "x", "notes": list(notes), "findings": list(findings)}, SURV, SENT)
+    return rc.plan_commands({"answer": "x", "notes": list(notes), "findings": list(findings)}, ENTRIES, PAGES_FETCHED, SENT)
+
+
+def note_row(**kw):
+    return {**{"note": HANDLE, "verdict": "confirmed", "url": "http://p/1", "quote": Q, "fact": "holds"}, **kw}
 
 
 def test_plan_commands_for_each_verdict():
     got = plan(
-        notes=[{"note": HANDLE, "verdict": "confirmed", "quote": 0, "fact": "holds"},
-               {"note": HANDLE, "verdict": "contradicted", "quote": 1, "fact": "differs"},
-               {"note": HANDLE, "verdict": "no source", "quote": 0, "fact": "-"}],
-        findings=[{"claim": "A new claim.", "quote": 0}])
+        notes=[note_row(),
+               note_row(verdict="contradicted", url="http://p/2", fact="differs"),
+               note_row(verdict="no source", url="", quote="", fact="")],
+        findings=[{"claim": "The gadget survives ten thousand folding cycles in the lab.", "url": "http://p/1", "quote": Q}])
     assert got.refused == []
     assert got.commands == [
-        ["note", "confirm", HANDLE, "--fact", "holds", "--source", "http://p/1", "--quote", LONG],
-        ["note", "dispute", HANDLE, "--fact", "differs", "--source", "http://p/1", "--quote", LONG],
-        ["remember", "--global", "--kind", "finding", "--origin", "web", "--source", "http://p/1", "--claim", "A new claim."]]
+        ["note", "confirm", HANDLE, "--fact", "holds", "--source", "http://p/1", "--quote", Q],
+        ["note", "dispute", HANDLE, "--fact", "differs", "--source", "http://p/2", "--quote", Q],
+        ["remember", "--global", "--kind", "finding", "--origin", "web", "--source", "http://p/1", "--claim",
+         "The gadget survives ten thousand folding cycles in the lab."]]
 
 
 @pytest.mark.parametrize("notes, why", [
-    ([{"note": "unsent", "verdict": "confirmed", "quote": 0, "fact": "f"}], "not sent"),
-    ([{"note": HANDLE, "verdict": "confirmed", "quote": 9, "fact": "f"}], "no surviving quote"),
-    ([{"note": HANDLE, "verdict": "confirmed", "quote": True, "fact": "f"}], "no surviving quote"),
-    ([{"note": HANDLE, "verdict": "confirmed", "quote": 3, "fact": "f"}], "another note"),
-    ([{"note": HANDLE, "verdict": "confirmed", "quote": 1, "fact": "f"}], "stance"),
-    ([{"note": HANDLE, "verdict": "contradicted", "quote": 0, "fact": "f"}], "stance"),
-    ([{"note": HANDLE, "verdict": "contradicted", "quote": 2, "fact": "f"}], "downgraded to no source"),
-    ([{"note": HANDLE, "verdict": "confirmed", "quote": 0, "fact": "--force"}], "starts with"),
-    ([{"note": HANDLE, "verdict": "confirmed", "quote": 0, "fact": ""}], "fact"),
-    ([{"note": HANDLE, "verdict": "maybe", "quote": 0, "fact": "f"}], "verdict"),
+    ([note_row(note="unsent")], "not sent"),
+    ([note_row(url="http://p/9")], "no supports URL"),
+    ([note_row(url=None)], "no supports URL"),
+    ([note_row(verdict="contradicted", url="http://p/1")], "no contradicts URL"),
+    ([note_row(verdict="confirmed", url="http://p/2")], "no supports URL"),
+    ([note_row(note="other-note", url="http://p/2")], "no supports URL"),
+    ([note_row(verdict="contradicted", url="http://p/3")], "downgraded to no source"),
+    ([note_row(quote="A sentence that the page does not carry")], "not on the fetched page"),
+    ([note_row(quote=Q[:19])], "not on the fetched page"),
+    ([note_row(quote=None)], "not on the fetched page"),
+    ([note_row(fact="--force")], "starts with"),
+    ([note_row(fact="")], "fact"),
+    ([note_row(verdict="maybe")], "verdict"),
     (["junk"], "bad shape"),
 ])
 def test_plan_refuses_a_row_with_a_reason(notes, why):
@@ -259,14 +335,28 @@ def test_plan_refuses_a_row_with_a_reason(notes, why):
     assert got.commands == [] and len(got.refused) == 1 and why in got.refused[0]["reason"]
 
 
-def test_plan_refuses_dash_values_and_bad_findings():
-    dashed = [row(quote="- an item that starts with a dash"), row(url="http://p/x", stance="contradicts")]
-    got = rc.plan_commands({"notes": [{"note": HANDLE, "verdict": "confirmed", "quote": 0, "fact": "f"}],
-                            "findings": [{"claim": "-rf", "quote": 2}, {"claim": "ok claim", "quote": 1},
-                                         {"claim": "ok claim", "quote": 7}]}, dashed + [row(stance="supports")], SENT)
-    assert got.commands == []
-    assert [r["reason"].split(":")[0] for r in got.refused] == ["a value starts with '-'"] * 2 + \
-        ["a finding needs a quote that supports it", "no surviving quote at that index"]
+@pytest.mark.parametrize("claim, why", [
+    ("The gadget reports 30.1 BLEU on the task.", "number"),
+    ("The gadget survives ten thousand folding cycles in the lab and also floats on water while glowing brightly purple.", "says more"),
+    ("-The gadget survives ten thousand folding cycles in the lab.", "starts with"),
+    ("", "claim is empty"),
+])
+def test_plan_refuses_a_finding_its_quote_does_not_cover(claim, why):
+    got = plan(findings=[{"claim": claim, "url": "http://p/1", "quote": Q + ", 28.4 BLEU were reported on the task"}])
+    assert got.commands == [] and why in got.refused[0]["reason"]
+
+
+def test_plan_refuses_a_finding_without_a_supporting_url_or_quote():
+    got = plan(findings=[{"claim": "The gadget survives ten thousand folding cycles", "url": "http://p/2", "quote": Q},
+                         {"claim": "The gadget survives ten thousand folding cycles", "url": "http://p/1", "quote": "not on it at all, no"},
+                         "junk"])
+    assert got.commands == [] and [r["reason"][:20] for r in got.refused] == ["the web step gave no", "the quote is not on ", "bad shape"]
+
+
+def test_plan_counts_a_number_with_its_own_digits():
+    ok = rc.finding_problem("It reaches 28.4 BLEU on the task here", "It reaches 28.4 BLEU on the task here, they say")
+    assert ok is None
+    assert rc.finding_problem("It reaches 28 BLEU on the task here", "It reaches 28.4 BLEU on the task here") is not None
 
 
 # ---- step 6: apply to a temporary store ----
@@ -279,24 +369,24 @@ def mem_env(hub_root, tmp_path, monkeypatch):
 
 def test_apply_writes_the_marks_and_the_finding(hub_root, tmp_path, mem_env):
     verdicts = {"answer": "a",
-                "notes": [{"note": HANDLE, "verdict": "confirmed", "quote": 0, "fact": "the page agrees"},
-                          {"note": HANDLE, "verdict": "contradicted", "quote": 1, "fact": "the paper differs"},
-                          {"note": "unsent", "verdict": "confirmed", "quote": 0, "fact": "x"}],
-                "findings": [{"claim": "A page-backed finding.", "quote": 0}]}
-    surviving = [row(url="https://example.org/a"), row(url="https://example.org/b", stance="contradicts", source_kind="paper")]
-    report = rc.apply(verdicts, surviving, [HANDLE], **mem_env)
+                "notes": [note_row(fact="the page agrees"),
+                          note_row(verdict="contradicted", url="http://p/2", fact="the paper differs"),
+                          note_row(note="unsent", fact="x")],
+                "findings": [{"claim": "The gadget survives ten thousand folding cycles in the lab.", "url": "http://p/1", "quote": Q}]}
+    report = rc.apply(verdicts, ENTRIES, PAGES_FETCHED, [HANDLE], **mem_env)
     assert report["failed"] == [] and len(report["applied"]) == 3
     assert len(report["refused"]) == 1 and "not sent" in report["refused"][0]["reason"]
     meta, body = mem.split_frontmatter((hub_root / "knowledge/computing" / f"{HANDLE}.md").read_text())[:2]
-    assert meta["disputed"][0]["source"] == "https://example.org/b"
-    assert "confirmed: the page agrees" in body and LONG in body
+    assert meta["disputed"][0]["source"] == "http://p/2"
+    assert "confirmed: the page agrees" in body and Q in body
     (found,) = records.load_memories(tmp_path / "gmem", "global")
-    assert found.origin == "web" and found.claim == "A page-backed finding."
+    assert found.origin == "web" and found.claim.startswith("The gadget survives")
 
 
 def test_apply_reports_a_failing_command(mem_env):
-    verdicts = {"notes": [{"note": "no-such-note", "verdict": "confirmed", "quote": 0, "fact": "x"}]}
-    report = rc.apply(verdicts, [row(item="no-such-note", url="https://example.org/a")], ["no-such-note"], **mem_env)
+    entries = [{"item": "no-such-note", "url": "http://p/1", "stance": "supports", "source_kind": "other", "passages": ["x"]}]
+    verdicts = {"notes": [note_row(note="no-such-note")]}
+    report = rc.apply(verdicts, entries, PAGES_FETCHED, ["no-such-note"], **mem_env)
     assert report["applied"] == [] and report["failed"][0]["code"] != 0 and "no note" in report["failed"][0]["stderr"]
 
 
@@ -304,6 +394,7 @@ def test_apply_runs_without_a_shell(mem_env, monkeypatch, tmp_path):
     seen = []
     monkeypatch.setattr(rc.subprocess, "run", lambda args, **kw: seen.append((args, kw)) or type("R", (), {"returncode": 0, "stderr": ""})())
     evil = "x; touch " + str(tmp_path / "pwned")
-    rc.apply({"findings": [{"claim": evil, "quote": 0}]}, [row()], [HANDLE], **mem_env)
+    page = {"http://p/1": f"{evil} appears on this page"}
+    rc.apply({"findings": [{"claim": evil, "url": "http://p/1", "quote": f"{evil} appears on this page"}]}, ENTRIES, page, [HANDLE], **mem_env)
     args, kw = seen[0]
     assert kw["shell"] is False and args[-1] == evil and not (tmp_path / "pwned").exists()
