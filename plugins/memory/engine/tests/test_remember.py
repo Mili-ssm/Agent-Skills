@@ -55,6 +55,7 @@ def test_outside_git_exits_2_and_writes_nothing(tmp_path, monkeypatch, capsys):
     plain = tmp_path / "plain"
     plain.mkdir()
     monkeypatch.chdir(plain)
+    monkeypatch.delenv("MEM_PROJECT")  # the suite points it at a scratch folder; here no project may resolve
     assert remember() == 2
     assert capsys.readouterr().err.strip() == "mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder."
     assert list(plain.iterdir()) == []
