@@ -19,6 +19,7 @@ description: Searches, reads and writes the owner's store of notes and memories 
 - Notes not enough (you need the source of a figure, the reasons behind a practice, when it does not apply): `mem search "<q>" --deep` adds papers, documents and syntheses. Use it when the task needs that depth, not by default.
 - Another project's memories are never searched by default. Only when the owner asks, or the task is explicitly about another project: `mem projects list`, then `mem search "<q>" --project <name>`.
 - Before dispatching a subagent, search first and put what applies into its brief, with its `m:` or note handle: a subagent that cannot run shell commands cannot search for itself.
+- A question that needs more than one search, or outside sources: dispatch the `memory-researcher` subagent instead of searching yourself; it searches on its own and returns conclusions, not search output.
 
 ## Open
 
@@ -31,6 +32,8 @@ A line marked `[memory: …]` is something seen or decided once, in one context:
 ## Remember
 
 Write one when the work produced something a later session would otherwise have to rediscover; skip routine outcomes.
+
+A summary line marked "not yet recorded" was never saved: record it now with `mem remember`, or hand the list to the `memory-recorder` subagent, before you go on.
 
 ```
 mem remember --kind pitfall --claim "One sentence, in English, that stands on its own." --context "where it applies" --body-file -
@@ -48,12 +51,8 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 - Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree.
 - When a memory you used proved right: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`.
 
-## Changing a record
-
-Records change only through `mem` commands, never by editing their files: the commands carry the guards, the secret check, the undo log and the link integrity that a file edit skips. A note: `mem note edit <note> --claim "…"` (or `--section`, `--body-file`, `--topics`); a memory: `mem memory edit m:<handle> --claim "…"`. Each is undone with `mem restore <handle>`. These are curation work, like the rest of this list.
-
 ## Not while working
 
-Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too.
+Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too. Change records only with `mem` commands (`mem note edit`, `mem memory edit`), never by editing their files: the commands carry the guards, the secret check and the undo. That is curation work. Each change is undone with `mem restore <handle>`.
 
 `mem: no store is set`: run `mem init` to create the default store; project memories work without one. The owner manages the terms that must not reach the global scope with `mem terms add|remove|list`. `read-only: it has no mem-store.yaml` means that store is not to be written through this tool: do not create the file.

@@ -60,4 +60,4 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 
 ## Report
 
-End with a short table: item, action taken (or "left"), one line of reason; then how many memories are live now.
+End with counts per action and one line for each item left. If `memory-curator` ran, name only where you departed from its table; do not repeat the table.

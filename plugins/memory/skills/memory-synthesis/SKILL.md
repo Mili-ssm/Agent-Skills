@@ -27,6 +27,12 @@ Worth it when a subject has many notes that a reader would have to assemble (the
 
 Write from the notes and sources you read in this session, not from memory: a part with nothing to cite is a part to leave out.
 
+Accuracy (in a measured trial 2-12% of claims were unsupported, of three kinds):
+- A sentence of your own reasoning starts with `Inference:`. "Holds by construction" and "should not replace" are inferences.
+- A figure keeps its exact origin (table, model or setting, dataset). Put two figures in one comparison only when the note compares them in the same setting.
+- Before writing "no note measures X" or "nothing tests Y", search the topic's notes for it; a note's own tests of defences, baselines or exceptions count.
+- A note's own `Inference:` stays an inference; an author's argument stays "the authors argue". When two notes disagree, give both with their sources.
+
 ## Joining notes to a synthesis (curation)
 
 `mem curate --notes` lists the notes on a subject that has a synthesis and are not part of it yet. For each: add what the note says to the right part (`append`, or `add` for a new part, with the note among its sources), then `mem synthesis attach <note> s:<slug>#<section>`. A note that does not belong to the subject is left as it is.
@@ -34,8 +40,9 @@ Write from the notes and sources you read in this session, not from memory: a pa
 When you are writing new knowledge and its part at the same time, one call writes both:
 
 ```
-mem synthesis add s:<slug> --section "<heading>" --body-file part.md \
-    --note-slug <claim-as-a-file-name> --note-claim "<one sentence>" --note-body-file note.md \
+d=$(mktemp -d)   # your own folder: parallel writers must not share file names
+mem synthesis add s:<slug> --section "<heading>" --body-file "$d/<slug>-part.md" \
+    --note-slug <claim-as-a-file-name> --note-claim "<one sentence>" --note-body-file "$d/<slug>-note.md" \
     --confidence medium --level intermediate
 ```
 

@@ -25,12 +25,14 @@ You read the memory's curation queue so the main model does not have to, and you
    - `mem confirm <h>`: you checked it in the project's files and it holds.
    - `leave`: you cannot tell. Say what would settle it.
    - Project synthesis parts to write, correct or confirm (the blocks under "project syntheses"): propose the `mem project-synthesis` command and what the part should say; you still write nothing.
+   - `mem memory edit m:<h> --claim "<text>"`: the memory is wrong in a detail only.
+   - Notes queue (`--notes`): name the command and the handles (`mem unify <keep> <other> --body-file -`, `mem synthesis attach <note> s:<h>#<section>`, `mem note edit <note> ...`); the caller writes the text those commands take.
 
-Do not run any command that changes a memory (`merge`, `refute`, `distinct`, `forget`, `promote --no`, `promote --done`, `confirm`, `observe`, `supersede`, `restore`, `remember`, `curate --done`), and do not write, move or delete any file, in `.memory/` or anywhere else. You may run `mem curate`, `mem show`, `mem memories`, `mem search` and read the project's files.
+You run only `mem curate` (with `--notes` when the brief says so), `mem show`, `mem memories`, `mem search` and read-only file tools. No other `mem` command, and no file is written, moved or deleted.
 
 ## Report
 
 | Item | Proposed action | Reason |
 |---|---|---|
 
-One row per item of the queue, in the queue's order, the action as a command the caller can run. Then one line: how many items you left and why. Nothing else.
+One row per item, in the queue's order; the reason at most 12 words. Then one line: how many items you left and why. If you run out of turns, report the rows done and how many items remain. Nothing else.
