@@ -34,6 +34,23 @@ Proposed: each sentence that states a finding ends with the handle of the note i
 - [ ] **4. Splitting a synthesis.** Detection in `mem curate --notes`; `memory-synthesizer` in split mode writes the child part and the revised parent part; conservation check; one reversible step. Trial on a copy with a seeded sub-subject.
 - [ ] **5. The steps join `mem-auto`**, each with its share of the run's budget, after its trial.
 
+## Pre-mortem of 2026-11-17 and what changed
+
+| Risk | Change (binding) |
+| --- | --- |
+| The web step can read the store (bare `Read`/`Grep`/`Glob`) or leak it in a query | The web session gets only WebSearch and WebFetch, a fresh empty folder outside the store, no `MEM_*` variables, no `mem` on PATH and a turn cap; its queries are built by code from the question or from global claims that pass the secret and forbidden-terms checks; the trial plants a canary note and searches the whole web-step stream for it |
+| The writing step obeys a quote (`Bash(mem *)` allows `--owner-approved`, `terms remove`, claim edits, `unify`, `synthesis remove`) | The model steps have no Bash at all: they produce a verdict file; Python reads it and runs a fixed list of `mem` commands without a shell |
+| Wrong "contradicted" verdicts; no disputed field exists; WebFetch returns a model's summary, not the page | New field and commands first (stage 1a); Python fetches each URL itself and keeps a quote only when it is found word for word on the page; "contradicted" needs a primary source, and one that matches the note's version when the note states one |
+| Records written by a pipeline count toward the `mem-auto` threshold and start the next run | Pipeline-written records carry their origin and are left out of that count |
+| The 24 existing syntheses have no inline references and nothing upgrades them | Stage 2 adds a measured backfill step |
+| Bare handles break on `rename`; after `unify` they point at superseded notes | Inline references are Markdown links; `mem check` follows `superseded_by` |
+| Appending to a part marks every sibling stale and invites claim rewrites | A sibling is stale only when a sentence that cites it changed (needs stage 2) |
+| Exact-sentence conservation fails on every rewrite and a fuzzy one passes a moved figure; notes stay pointed at the parent | The split check is on references and numbers: every reference and every figure of the old part is in the parent or the child; the notes are re-pointed |
+
+Stage 1 is built in two halves: **1a** the engine (disputed and confirmed marks, the origin of a record, their display and their place in the curation queue, the count exclusion); **1b** the `mem-research` pipeline and its trial.
+
+Trial of stage 1 (ground truth by construction, on a copy of the store): 12 real notes whose claim their own cited source supports (expected confirmed), 4 of them copied with one figure altered (expected contradicted), 4 notes that record the owner's own experiments (expected no source), one canary note, and one local test page that carries an instruction. Kill criteria: the canary in any web-step event; more than one wrong "contradicted" in 20; `deep` over its budget; anything written from the planted instruction.
+
 ## Results
 
 Pending.
