@@ -57,7 +57,7 @@ The start text every other subagent receives is not given to these four: they ca
 
 ## Curation
 
-`mem curate` lists what needs a decision (memories that say the same or the opposite, expired ones, ones seen several times, ones nobody confirmed); `mem merge`, `refute`, `distinct`, `supersede`, `forget`, `confirm` and `promote` carry a decision out, and `mem restore` undoes the last one on a memory. Records change only through commands, never by editing files: `mem note edit` corrects a note (claim, topics or one section) and `mem memory edit` a memory (`mem restore` a retired one first). Nothing is deleted. The session start text says when a pass is due; the `memory-curation` skill holds the procedure and the `memory-curator` subagent proposes actions without applying them.
+`mem curate` lists what needs a decision (memories that say the same or the opposite, expired ones, ones seen several times, ones nobody confirmed); `mem merge`, `refute`, `distinct`, `supersede`, `forget`, `confirm` and `promote` carry a decision out, and `mem restore` undoes the last one on a memory. Records change only through commands, never by editing files: `mem note edit` corrects a note (claim, topics or one section) and `mem memory edit` a memory (`mem restore` a retired one first). `mem note confirm` adds a source-backed line to a note's evidence and `mem note dispute` marks the note `[disputed]` (a claim a source contradicts: check it before relying on it; `--clear` removes the mark); a memory marked `web, unconfirmed` is a web finding no second source has confirmed. Nothing is deleted. The session start text says when a pass is due; the `memory-curation` skill holds the procedure and the `memory-curator` subagent proposes actions without applying them.
 
 ## Automatic curation (off by default)
 
@@ -70,6 +70,26 @@ Plugin option `auto_curation` (exactly `true` turns it on; any other value is of
 **Where to look:** `mem-auto status` (last run: time, state, cost, reason, log), `mem-auto due` (count, threshold, would it start), `mem-auto ack` (clears a shown failure). State and logs sit in `<state folder>/auto/<id>/` (mode 0700, runs kept 30 days). After a failed run (or a `running` older than one hour) the next session start text carries one line, `Automatic curation failed on <date>: <reason>; log: <path>`, until `mem-auto ack`; a success adds nothing. Every change is undone with `mem restore` or the store's git history.
 
 **Turn it off:** unset the option. **Kill criteria** (owner's call to turn it off): a run costing more than its budget (shown as a failure), two failures in a week, or usage growing beyond what the owner wants.
+
+## Settling new memories (engine commands, and the background run below; the run is not yet measured)
+
+`mem settle` is the engine side of judging new global memories against their look-alikes (stage W of `docs/superpowers/plans/2026-11-17-memory-seamless.md`; the background run that uses it is described after this table). Global memories only; project memories and notes are never touched. State and log sit beside the global memories (`.settle-state.json`, `.settle-log`; the store's `.gitignore` keeps both out) and the automatic run's state (`mem-auto`) is never read or written.
+
+| Command | Does |
+| --- | --- |
+| `mem settle pending [--json]` | The queue pairs (`mem curate` pairs) of two live global memories where one is not yet judged; prints nothing when there is none (the examined records are then judged and `due` stops reporting). A record written by a pipeline is never the new side. The first use of the feature marks every memory that exists as judged |
+| `mem settle apply --verdicts FILE` | FILE: a JSON list of `{"a", "b", "decision": "merge"\|"supersede"\|"distinct"\|"nothing", "reason"}`. A row is refused, alone, unless its pair is one `pending` lists now; merge and supersede always act on the older record: the one not yet judged is the newer, else the later `created`; on the same date merge and supersede are refused (only distinct or nothing). A pair with flagged words is never merged. Same code and undo records as `mem merge`, `supersede`, `distinct`. Afterwards what the last `pending` showed is judged, except the handles of a pair whose row was refused or missing: it is offered once more, then logged as `left` and judged. If an action fails after a file changed, the change is logged as `partial` and `undo` restores it |
+| `mem settle log [--all]`, `mem settle ack` | Settlings not yet acknowledged (number, date, decision, shortened claims); acknowledge them all |
+| `mem settle undo N` | (`pending`, `apply` and `undo` take a lock: a second one exits with a message.) An unreadable state file is an error, never replaced. Puts both records of settling N back in one step; refused, changing nothing, when a record changed again since |
+| `mem settle due --minutes M` | Exit 0 and the count when new memories wait and the last `apply` ended more than M minutes ago (or never); else exit 1 |
+
+### Automatic settling (off by default; not yet measured)
+
+Plugin option `auto_settle` (exactly `true` turns it on) and `auto_settle_minutes` (least time between runs, default 30). **What starts it:** the `SessionStart` hook exports `MEM_SETTLE_AUTO`, `MEM_SETTLE_MINUTES` and `MEM_SETTLE_CLAUDE` (the claude binary) to the session's shell commands and creates the settle state, so the first write is not taken as already judged. A `mem remember` or `mem memory edit` of a global memory then checks `mem settle due` (one state file) and, when it is due, starts `bin/mem-settle run` detached; the write is never delayed or failed by it. Without those variables nothing starts, so trials and tests never trigger it; records written with `--origin pipeline` never trigger. The `SessionEnd` hook starts the same run with `--minutes 0` for what is left.
+
+**What it does:** one run at a time (a second exits silently); `mem settle pending` writes the pairs to a work folder, and with none the run ends without a model. Otherwise one Haiku session (effort medium, budget `--budget`, default 0.25 USD) reads the pairs and writes `verdicts.json`. It has no Bash, because a session with `Bash(mem *)` could run any `mem` command and bypass the limits `mem settle apply` enforces; Python applies the file. A session that fails, has no cost report or leaves no valid list changes nothing and is a failure; a failed run waits `--minutes` before the next. It never reads or writes the `mem-auto` status.
+
+**Where to look:** `mem-settle status`, `mem-settle run --dry-run`, `mem-settle ack` (clears a failure line); state in `<state folder>/settle/<id>/` (runs kept 30 days). The session start text shows one line while unacknowledged settlings exist (`settled since <date>: 2 merged, 1 superseded, 1 left; see mem settle log, undo with mem settle undo <n>, hide with mem settle ack`) and a failure line after a failed run. **Not measured:** the 40-record trial of the plan decides whether it is turned on; kill criteria there.
 
 ## History
 

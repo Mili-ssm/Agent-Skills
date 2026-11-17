@@ -21,7 +21,8 @@ from typing import Callable
 LOCAL_DIRS = frozenset({"__pycache__", ".venv", "target", "node_modules", ".pytest_cache", ".sources",
                         ".playwright-mcp"})
 MAX_FILE_BYTES = 5 * 1024 * 1024
-IGNORED_FILES = ("research/*/data/", ".*.tmp", ".curation-log")  # logs: git holds every earlier state already
+SETTLE_FILES = (".settle-log", ".settle-state.json", ".settle-lock")
+IGNORED_FILES = ("research/*/data/", ".*.tmp", ".curation-log", *SETTLE_FILES)  # logs: git holds every earlier state already; settle state is per machine
 
 TIMEOUT = 10
 LOCK_WAIT = 10
@@ -139,13 +140,7 @@ def commit_if_changed(store: Path, message: str | Callable[[int], str], *, repor
         return None
 
 
-def init(store: Path) -> str | None:
-    """Make the store a repository: local identity, .gitignore, a first commit of everything present."""
-    store = Path(store)
-    _git(store, "init", "-q")
-    _git(store, "config", "user.name", "mem")
-    _git(store, "config", "user.email", "mem@localhost")
-    lines = [f"{name}/" for name in sorted(LOCAL_DIRS)] + list(IGNORED_FILES)
+def _ignore_lines(store: Path, lines: list[str]) -> None:
     ignore = store / ".gitignore"
     have = ignore.read_text(encoding="utf-8").splitlines() if ignore.exists() else []
     missing = [ln for ln in lines if ln not in have]
@@ -153,6 +148,21 @@ def init(store: Path) -> str | None:
         prefix = "\n" if have and not ignore.read_text(encoding="utf-8").endswith("\n") else ""
         with ignore.open("a", encoding="utf-8") as fh:
             fh.write(prefix + "".join(ln + "\n" for ln in missing))
+
+
+def ensure_ignored(store: Path) -> None:
+    """Add the settle files to the .gitignore of a store that is a repository already (`init` writes them for new ones)."""
+    if is_repo(store):
+        _ignore_lines(Path(store), list(SETTLE_FILES))
+
+
+def init(store: Path) -> str | None:
+    """Make the store a repository: local identity, .gitignore, a first commit of everything present."""
+    store = Path(store)
+    _git(store, "init", "-q")
+    _git(store, "config", "user.name", "mem")
+    _git(store, "config", "user.email", "mem@localhost")
+    _ignore_lines(store, [f"{name}/" for name in sorted(LOCAL_DIRS)] + list(IGNORED_FILES))
     return _commit(store, "mem history init")
 
 

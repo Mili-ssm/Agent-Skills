@@ -10,6 +10,8 @@ if [ -z "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then # no option: the default store
 fi
 [ -n "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" ] && export MEM_MEMORIES="$CLAUDE_PLUGIN_OPTION_MEMORIES"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+[ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null
+type find_claude >/dev/null 2>&1 || find_claude() { :; }   # the helper is missing: no claude path, never a failure
 if [ -n "$here" ]; then
   if command -v timeout >/dev/null 2>&1; then
     timeout 5 "$here/../bin/mem" history commit --hook </dev/null >/dev/null 2>&1
@@ -21,17 +23,25 @@ fi
 # this hook (spike, plan 2026-11-17-memory-quiet-synthesis), and checks the lock and the threshold itself, so
 # nothing here waits on git or a model.
 if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CURATION:-}" = "true" ] && [ -n "$here" ] && [ -n "${MEM_STORE:-}" ]; then
-  claude="${CLAUDE_CODE_EXECPATH:-}"
-  if [ -z "$claude" ]; then # the running binary first (the one that ran this session), then PATH
-    claude="$(readlink "/proc/$PPID/exe" 2>/dev/null)"
-    case "$(basename "${claude:-x}")" in claude|claude.exe) ;; *) claude="$(command -v claude 2>/dev/null)" ;; esac
-  fi
+  claude="$(find_claude)"
   set -- run --store "$MEM_STORE"
   [ -n "$claude" ] && set -- "$@" --claude "$claude"
   if command -v setsid >/dev/null 2>&1; then
     (setsid nohup "$here/../bin/mem-auto" "$@" >/dev/null 2>&1 </dev/null &)
   else
     (nohup "$here/../bin/mem-auto" "$@" >/dev/null 2>&1 </dev/null &)
+  fi
+fi
+# Settling what is left (option auto_settle, exactly "true"): the same detached run the write path starts. The run
+# asks `mem settle due --minutes 0` itself and exits quietly when nothing waits, so nothing here waits on a model.
+if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ] && [ -n "$here" ] && [ -n "${MEM_STORE:-}" ]; then
+  claude="$(find_claude)"
+  set -- run --store "$MEM_STORE" --minutes 0
+  [ -n "$claude" ] && set -- "$@" --claude "$claude"
+  if command -v setsid >/dev/null 2>&1; then
+    (setsid nohup "$here/../bin/mem-settle" "$@" >/dev/null 2>&1 </dev/null &)
+  else
+    (nohup "$here/../bin/mem-settle" "$@" >/dev/null 2>&1 </dev/null &)
   fi
 fi
 exit 0

@@ -28,6 +28,16 @@
       "type": "number",
       "title": "Automatic curation threshold",
       "description": "New global memories plus new notes since the last run that start a run. Default 10."
+    },
+    "auto_settle": {
+      "type": "boolean",
+      "title": "Automatic settling",
+      "description": "After a global memory is written, compare it in the background with its look-alikes (a cheap model judges, the code applies only safe changes, each one undoable with mem settle undo). Spends model usage, at most one run per interval; off by default. Not yet measured."
+    },
+    "auto_settle_minutes": {
+      "type": "number",
+      "title": "Automatic settling interval (minutes)",
+      "description": "Least time between two settling runs. Default 30."
     }
   }
 }

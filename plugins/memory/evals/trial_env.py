@@ -25,7 +25,9 @@ def make_env(work: Path) -> dict:
     # The plugin's hooks turn CLAUDE_PLUGIN_OPTION_* into MEM_* variables, so an inherited option would point a
     # session at the owner's store or global memories: drop both families.
     env = {k: v for k, v in os.environ.items()
-           if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT") and not k.startswith("CLAUDE_PLUGIN_OPTION_")}
+           if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT")
+           # MEM_SETTLE_*: an inherited trigger would start real settling runs on a trial's writes
+           and not k.startswith(("CLAUDE_PLUGIN_OPTION_", "MEM_SETTLE_"))}
     env.update(XDG_CONFIG_HOME=str(work / "cfg"), XDG_DATA_HOME=str(work / "xdg-data"), MEM_DATA=str(work / "data"))
     env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p)
     (work / "cfg" / "agent-memory").mkdir(parents=True, exist_ok=True)

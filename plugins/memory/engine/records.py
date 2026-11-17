@@ -17,6 +17,7 @@ from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Protocol
 import yaml
 
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
+ORIGINS = ("web", "pipeline")
 STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
@@ -44,6 +45,7 @@ class Memory:
     promote: str | None = None
     refuted: datetime.date | None = None
     superseded_by: str | None = None
+    origin: str | None = None  # "web" or "pipeline"; None: written in a session
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -255,7 +257,8 @@ def _parse(path: Path, scope: str) -> Memory:
         promote = "no" if meta.get("promote") in ("no", False) else "done" if meta.get("promote") == "done" else None  # YAML reads a bare no as False
         superseded_by = meta.get("superseded_by")
         superseded_by = str(superseded_by) if superseded_by else None
-        return replace(base, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        origin = meta.get("origin") if meta.get("origin") in ORIGINS else None
+        return replace(base, origin=origin, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -291,6 +294,8 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["valid_until"] = m.valid_until.isoformat()
     if m.sources:
         meta["sources"] = list(m.sources)
+    if m.origin:
+        meta["origin"] = m.origin
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -298,9 +303,11 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
 
 def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, today: datetime.date,
                  context: str | None = None, valid_until: datetime.date | None = None,
-                 sources: Sequence[str] = ()) -> Memory:
+                 sources: Sequence[str] = (), origin: str | None = None) -> Memory:
     if kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}")
+    if origin is not None and origin not in ORIGINS:
+        raise ValueError(f"unknown origin {origin!r}")
     claim = claim.strip()
     if not claim:
         raise ValueError("claim is empty")
@@ -317,7 +324,7 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     while True:
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
-                   list(sources), body if body.endswith("\n") or not body else body + "\n", None)
+                   list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))

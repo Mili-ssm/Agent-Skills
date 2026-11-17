@@ -38,13 +38,15 @@ import yaml
 import auto_state
 import project_syntheses
 import records
+import settle
+import settle_state
 import store_git
 import syntheses
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memory", "memories", "curate", "session-index", "signal", "projects",
+                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "signal", "projects",
                     "project-synthesis")
 
 
@@ -605,9 +607,25 @@ def _handle_list(v: Any) -> str | None:
     return None if ok else "set a list of note handles"
 
 
+_DISPUTE_KEYS = ("date", "fact", "source", "quote")
+
+
+def _disputed(v: Any) -> str | None:
+    hint = "set a non-empty list of {date, fact, source, quote} entries (mem note dispute writes them)"
+    if not isinstance(v, list) or not v:
+        return hint
+    for entry in v:
+        if not isinstance(entry, dict) or set(entry) != set(_DISPUTE_KEYS):
+            return hint
+        if _date(entry["date"]) is not None or any(not isinstance(entry[k], str) or not entry[k].strip()
+                                                    for k in _DISPUTE_KEYS[1:]) or _url(entry["source"]) is not None:
+            return hint
+    return None
+
+
 LEVELS = ("basic", "beginner", "intermediate", "advanced", "expert", "niche")
 # Fields a note may omit. Empty since 2026-11-07: `level` became required once every note had one (ADR 0004).
-OPTIONAL_FIELDS: frozenset[str] = frozenset({"part_of", "part_of_hash", "superseded_by", "distinct_from"})
+OPTIONAL_FIELDS: frozenset[str] = frozenset({"part_of", "part_of_hash", "superseded_by", "distinct_from", "disputed"})
 
 # Field order follows the spec tables; `new` writes fields in this order.
 SCHEMAS: dict[str, dict[str, Validator]] = {
@@ -634,6 +652,7 @@ SCHEMAS: dict[str, dict[str, Validator]] = {
         "part_of_hash": _part_hash,
         "superseded_by": _handle_value,
         "distinct_from": _handle_list,
+        "disputed": _disputed,
     },
     "research": {
         "title": _string,
@@ -1666,7 +1685,9 @@ def _key_facts(note_type: str, meta: Any) -> str | None:
     """One line of the fields an agent needs to judge a note; missing fields are left out."""
     if not isinstance(meta, dict) or note_type not in _KEY_FACTS:
         return None
-    return " \u00b7 ".join(f"{k}: {meta[k]}" for k in _KEY_FACTS[note_type] if meta.get(k) is not None) or None
+    flag = " [disputed]" if note_type == "knowledge" and meta.get("disputed") else ""
+    return " \u00b7 ".join(f"{k}: {meta[k]}{flag if k == 'confidence' else ''}" for k in _KEY_FACTS[note_type]
+                          if meta.get(k) is not None) or None
 
 
 DETAILS = ("paths", "titles", "facts", "snippet", "summary")
@@ -1700,6 +1721,8 @@ def format_hit(note: Note, detail: str, *, score: float | None = None,
         return [name or note.rel]
     lines = [(name or note.rel) + ("" if score is None else f"\t{score:.2f}") + f"\t{_title(note)}"]
     if detail == "titles":
+        if note.type == "knowledge" and isinstance(note.meta, dict) and note.meta.get("disputed"):
+            lines[0] += "  [disputed]"
         return lines
     if (facts := _key_facts(note.type, note.meta)) is not None:
         lines.append("  " + facts)
@@ -2694,11 +2717,17 @@ def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
     return "expired" if m.valid_until is not None and m.valid_until < today else None
 
 
+def _unconfirmed(m: records.Memory) -> str:
+    """A web finding is unchecked until a second source confirms it."""
+    return ", web, unconfirmed" if m.origin == "web" else ""
+
+
 def _memory_line(m: records.Memory, today: datetime.date) -> str:
     dead = _memory_status(m, today)
     created = m.created.isoformat() if m.created else "undated"
     claim = " ".join(m.claim.split())  # a hand-edited tab or newline must not add a column
-    return f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{claim}"
+    return (f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+            f"{', ' + dead if dead else ''}]\t{claim}")
 
 
 def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
@@ -3115,10 +3144,17 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         except OSError:
             project = None
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
-        try:
-            notice = auto_state.failure_line(data_dir(os.environ), store, time.time())
-        except Exception:
-            notice = None
+        notices = []
+        for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
+                     lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
+                     lambda: settle_state.settled_line(memories)):
+            try:
+                found = make()
+            except Exception:
+                found = None
+            if found:
+                notices.append(found)
+        notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
                              notice=notice)
@@ -3308,7 +3344,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
             exclude_failed = True
     try:
         m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
-                                 context=args.context, valid_until=args.valid_until, sources=args.source)
+                                 context=args.context, valid_until=args.valid_until, sources=args.source,
+                                 origin=getattr(args, "origin", None))
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3329,6 +3366,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print(f"mem: {due} new memories since the last curation pass: after the current task, "
               "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
+    if scope == "global" and getattr(args, "origin", None) != "pipeline":
+        settle_state.maybe_start(folder, store, os.environ, time.time(), today)
     return 0
 
 
@@ -3451,12 +3490,15 @@ def _two(args: argparse.Namespace, first: str, second: str, name: str, apply) ->
     return _act(args, [first, second], apply, name)
 
 
+def _supersede_pair(old: records.Memory, new: records.Memory, today: datetime.date) -> list[str]:
+    records.log_before(old, "supersede")
+    records.update(old, today, status="superseded", superseded_by=new.handle)
+    return [f"m:{old.handle}\tsuperseded by m:{new.handle}"]
+
+
 def cmd_supersede(args: argparse.Namespace) -> int:
     def apply(found, today):
-        old, new = found
-        records.log_before(old, "supersede")
-        records.update(old, today, status="superseded", superseded_by=new.handle)
-        return [f"m:{old.handle}\tsuperseded by m:{new.handle}"]
+        return _supersede_pair(*found, today)
     return _two(args, args.old, args.new, "supersede", apply)
 
 
@@ -3529,7 +3571,20 @@ def cmd_memory(args: argparse.Namespace) -> int:
         _register_project(records.project_root(Path.cwd(), os.environ))
     print(f"m:{m.handle}\tedited {', '.join(what)}")
     log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    if m.scope == "global" and m.origin != "pipeline":
+        settle_state.maybe_start(m.path.parent, _optional_store(args), os.environ, time.time(), datetime.date.today())
     return 0
+
+
+def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date) -> list[str]:
+    records.log_before(keep, "merge")
+    records.log_before(drop, "merge")
+    records.update(drop, today, status="superseded", superseded_by=keep.handle)
+    changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
+    if drop.body.strip():
+        changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
+    updated = records.update(keep, today, **changes)
+    return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
 
 def cmd_merge(args: argparse.Namespace) -> int:
@@ -3539,14 +3594,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         if flagged and not args.force:
             raise ValueError(f"these claims differ in {', '.join(flagged)}: they may be opposites or different "
                              "versions; use --force to merge anyway.")
-        records.log_before(keep, "merge")
-        records.log_before(drop, "merge")
-        records.update(drop, today, status="superseded", superseded_by=keep.handle)
-        changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
-        if drop.body.strip():
-            changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
-        updated = records.update(keep, today, **changes)
-        return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
+        return _merge_pair(keep, drop, today)
     return _two(args, args.keep, args.drop, "merge", apply)
 
 
@@ -3585,17 +3633,20 @@ def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
     return 0
 
 
+def _distinct_pair(a: records.Memory, b: records.Memory, today: datetime.date) -> list[str]:
+    for m in (a, b):
+        records.log_before(m, "distinct")
+    for m, other in ((a, b), (b, a)):
+        records.update(m, today, distinct_from=sorted({*m.distinct_from, other.handle}))
+    return [f"m:{a.handle}\tkept apart from m:{b.handle}"]
+
+
 def cmd_distinct(args: argparse.Namespace) -> int:
     store = _optional_store(args)
     if store is not None and store.is_dir() and (done := _distinct_notes(args, store)) is not None:
         return done
     def apply(found, today):
-        a, b = found
-        for m in found:
-            records.log_before(m, "distinct")
-        for m, other in ((a, b), (b, a)):
-            records.update(m, today, distinct_from=sorted({*m.distinct_from, other.handle}))
-        return [f"m:{a.handle}\tkept apart from m:{b.handle}"]
+        return _distinct_pair(*found, today)
     return _two(args, args.a, args.b, "distinct", apply)
 
 
@@ -3815,7 +3866,8 @@ def cmd_memories(args: argparse.Namespace) -> int:
     for m in shown:
         dead = _memory_status(m, today)
         created = m.created.isoformat() if m.created else "undated"
-        print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
+        print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+              f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
     return 0
 
 
@@ -3895,10 +3947,13 @@ def _curate_notes(args: argparse.Namespace) -> int:
         known = load_topics(root)
     except FrontmatterError:
         known = {}
-    unattached, stale = [], []
+    unattached, stale, disputed = [], [], []
     for note in discover_notes(root):
         if note.type != "knowledge" or note.error is not None or not isinstance(note.meta, dict):
             continue
+        if _disputed(note.meta.get("disputed")) is None:
+            disputed.append(f"  {_handle(note.rel)}  {_flat(str(note.meta.get('claim', '')))}  "
+                            f"(source: {note.meta['disputed'][0]['source']})")
         part = note.meta.get("part_of")
         name = _handle(note.rel)
         if not isinstance(part, str):
@@ -3915,6 +3970,10 @@ def _curate_notes(args: argparse.Namespace) -> int:
         if sec is not None and note.meta.get("part_of_hash") != syntheses.fingerprint(sec.text):
             stale.append(f"  {name}  s:{handle}#{section}")
     out = []
+    if disputed:
+        out.append("notes disputed by a source (decide: correct the note with mem note edit, "
+                   "or mem note dispute <note> --clear)")
+        out += disputed
     if unattached:
         out.append("notes on a topic that has a synthesis, not yet part of it (add what the note says to a part with "
                    "mem synthesis append or add, then: mem synthesis attach <note> s:<h>#<section>)")
@@ -4113,7 +4172,8 @@ def _curate_new_since(args: argparse.Namespace) -> int:
         if last is not None:
             cutoff = max(cutoff, datetime.datetime.combine(last + datetime.timedelta(days=1), datetime.time.min).timestamp())
         today = datetime.date.today()
-        paths += [m.path for m in records.load_memories(memories, "global") if m.error is None and records.is_live(m, today)]
+        paths += [m.path for m in records.load_memories(memories, "global") if m.error is None and records.is_live(m, today)
+                  and m.origin is None]  # a pipeline's own writes must not start the next run
     if store is not None and store.is_dir():
         paths += [store / n.rel for n in discover_notes(store) if n.error is None]
     count = 0
@@ -4196,6 +4256,87 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if out:
         print("\n".join(out))
     return 0
+
+
+def _settle_actions() -> settle.Actions:
+    return settle.Actions(_merge_pair, _supersede_pair, _distinct_pair)
+
+
+def _settle_reason_ok(reason: str) -> bool:
+    return not _refuse_secret([reason]) and _check_terms([reason], "lesson", False) == 0
+
+
+def cmd_settle(args: argparse.Namespace) -> int:
+    """`mem settle`: the engine side of settling new global memories (see settle.py)."""
+    store = _optional_store(args)
+    folder = records.memories_root(os.environ, store)
+    command = args.settle_command
+    if folder is None or not folder.is_dir():
+        if command == "due":
+            return 1
+        if command in ("pending", "log"):
+            return 0
+        print("mem: there is no global memories folder.", file=sys.stderr)
+        return 2
+    if _read_only_store(store, folder.resolve()):
+        print(_READ_ONLY_MEMORIES, file=sys.stderr)
+        return 2
+    today = datetime.date.today()
+    try:
+        if command == "due":
+            count = settle.due(folder, args.minutes, time.time(), today)
+            if count is None:
+                return 1
+            print(count)
+            return 0
+        if command == "pending":
+            with settle.locked(folder):
+                state = settle.load_state(folder)
+                found = settle.pending(records.load_memories(folder, "global"), state, today, tokenize=tokenize)
+                settle.offer(folder, state, found, time.time())
+            if args.json:
+                print(json.dumps(found, ensure_ascii=False, indent=1))
+            else:
+                for p in found:
+                    flagged = f"  flagged: {', '.join(p['flagged_words'])}" if p["flagged_words"] else ""
+                    print(f"pair {p['pair']}  newer: m:{p['newer']}{flagged}\n  m:{p['a']}\t{p['claim_a']}\n  "
+                          f"m:{p['b']}\t{p['claim_b']}")
+            return 0
+        if command == "apply":
+            try:
+                rows = json.loads(Path(args.verdicts).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
+                return 2
+            try:
+                with settle.locked(folder):
+                    lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today,
+                                                  time.time(), actions=_settle_actions(),
+                                                  reason_ok=_settle_reason_ok, tokenize=tokenize)
+            except settle.NoListing as exc:
+                print("\n".join(exc.lines))
+                print(f"mem: {exc}", file=sys.stderr)
+                return 1
+            print("\n".join(lines))
+            return 0
+        if command == "log":
+            out = settle.listing(folder, args.all)
+            if out:
+                print("\n".join(out))
+            return 0
+        if command == "ack":
+            print(f"acknowledged {settle.ack(folder)}")
+            return 0
+        try:
+            with settle.locked(folder):
+                print("\n".join(settle.undo(folder, args.number, today)))
+        except settle.NothingToUndo as exc:
+            print(f"mem: {exc}", file=sys.stderr)
+            return 1
+        return 0
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
 
 
 _TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -4948,6 +5089,39 @@ def _swap_file(path: Path, data: bytes) -> None:
     os.replace(tmp, path)
 
 
+def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: str, new: str) -> None:
+    """Write `new` over the note through the undo log; any failure leaves the note, the listings and the log as
+    they were (`mem restore` undoes it)."""
+    group = uuid.uuid4().hex
+    listings = _index_files(root)
+    log = root / records.CURATION_LOG
+    log_before = log.read_bytes() if log.exists() else None
+    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+             "action": "note-edit", "handle": rel, "group": group, "before": text,
+             "after": _sha(new.encode("utf-8"))}
+    with log.open("a", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    swapped = False
+    try:
+        if found.read_bytes() != original:
+            raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
+        _swap_file(found, new.encode("utf-8"))
+        swapped = True
+        apply_index(root)
+    except BaseException:  # any failure leaves the note, the listings and the log as they were
+        if swapped:
+            _swap_file(found, original)
+            for path, data in listings.items():
+                if path.read_bytes() != data:
+                    _swap_file(path, data)
+        if log_before is None:
+            log.unlink(missing_ok=True)
+        else:
+            log.write_bytes(log_before)
+        raise
+    _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
+
+
 def cmd_note(args: argparse.Namespace) -> int:
     root = args.root.resolve()
     if args.section is None and args.claim is None and args.topics is None:
@@ -4981,39 +5155,90 @@ def cmd_note(args: argparse.Namespace) -> int:
         today = datetime.date.today()
         new, what = _edited_note_text(text, found, meta, load_topics(root), section=args.section, body=body,
                                       claim=claim, topics=topics, shrink=args.shrink, today=today)
-        group = uuid.uuid4().hex
-        listings = _index_files(root)
-        log = root / records.CURATION_LOG
-        log_before = log.read_bytes() if log.exists() else None
-        entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                 "action": "note-edit", "handle": rel, "group": group, "before": text,
-                 "after": _sha(new.encode("utf-8"))}
-        with log.open("a", encoding="utf-8", newline="") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        swapped = False
-        try:
-            if found.read_bytes() != original:
-                raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
-            _swap_file(found, new.encode("utf-8"))
-            swapped = True
-            apply_index(root)
-        except BaseException:  # any failure leaves the note, the listings and the log as they were
-            if swapped:
-                _swap_file(found, original)
-                for path, data in listings.items():
-                    if path.read_bytes() != data:
-                        _swap_file(path, data)
-            if log_before is None:
-                log.unlink(missing_ok=True)
-            else:
-                log.write_bytes(log_before)
-            raise
-        _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
+        _commit_note_edit(root, found, rel, original, text, new)
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"{_handle(rel)}\tedited {', '.join(what)}")
     log_usage(root, {"cmd": "note", "action": "edit"})
+    return 0
+
+
+def _source_mark(fact: str, source: str, quote: str) -> tuple[str, str, str]:
+    """The texts of a confirm or dispute, whitespace collapsed; ValueError when one is empty or the source is no URL."""
+    fact, quote, source = (" ".join(t.split()) for t in (fact, quote, source))
+    if not fact or not quote:
+        raise ValueError("the fact and the quote must not be empty")
+    parts = urllib.parse.urlsplit(source)
+    if parts.scheme not in ("http", "https") or not parts.netloc or _url(source) is not None:
+        raise ValueError("the source must be an http(s) URL")
+    return fact, source, quote
+
+
+def _evidence_line(text: str, line: str) -> str:
+    """`text` with `line` appended to its `## Evidence` section (added at the end when the note has none)."""
+    if not re.search(r"^## Evidence[ \t]*$", text, re.M):
+        return text.rstrip("\n") + f"\n\n## Evidence\n\n{line}\n"
+    lines, head, end = _section_span(text, "Evidence")
+    last = max((i for i in range(head + 1, end) if lines[i].strip()), default=head)
+    lines.insert(last + 1, line)
+    if last == head:
+        lines.insert(last + 1, "")
+    return "\n".join(lines)
+
+
+def cmd_note_mark(args: argparse.Namespace) -> int:
+    """`mem note confirm|dispute`: a source's verdict on a knowledge note, through the `note edit` write path."""
+    root = args.root.resolve()
+    action = args.note_command
+    clear = action == "dispute" and args.clear
+    given = [args.fact, args.source, args.quote]
+    if clear and any(v is not None for v in given):
+        build_parser().error("--clear goes alone")
+    if not clear and any(v is None for v in given):
+        build_parser().error(f"note {action} needs --fact, --source and --quote" + (" (or --clear)" if action == "dispute" else ""))
+    try:
+        if not clear:
+            fact, source, quote = _source_mark(*given)
+            if _refuse_secret([fact, source, quote]):
+                return 4
+            if refused := _check_terms([fact, source, quote], "note", args.owner_approved):
+                return refused
+        found = resolve_note(root, args.note)
+        if isinstance(found, list):
+            _ambiguous(args.note, found)
+            return 2
+        if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+            raise ValueError(f"no note {args.note}")
+        rel = found.relative_to(root).as_posix()
+        if not rel.startswith("knowledge/"):
+            raise ValueError(f"{rel} is not a knowledge note: only a knowledge note carries evidence and can be disputed")
+        original = found.read_bytes()
+        text = original.decode("utf-8")
+        if "\r" in text:
+            raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
+        meta = split_frontmatter(text)[0]
+        if not isinstance(meta, dict):
+            raise ValueError(f"{rel} has no frontmatter mapping")
+        today = datetime.date.today().isoformat()
+        if action == "confirm":
+            host = urllib.parse.urlsplit(source).netloc
+            new = _evidence_line(text, f'- {today} confirmed: {fact} "{quote}" ([{host}]({source}))')
+        elif clear:
+            if not meta.get("disputed"):
+                raise ValueError(f"{rel} is not disputed")
+            new = _set_field(text, "disputed", None)
+        else:
+            entry = {"date": today, "fact": fact, "source": source, "quote": quote}
+            new = _set_field(text, "disputed", [*(meta.get("disputed") if isinstance(meta.get("disputed"), list) else []), entry])
+        if "updated" in meta:
+            new = _set_field(new, "updated", today)
+        _commit_note_edit(root, found, rel, original, text, new)
+    except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{_handle(rel)}\t{'cleared the dispute' if clear else action + ('ed' if action == 'confirm' else 'd')}")
+    log_usage(root, {"cmd": "note", "action": action})
     return 0
 
 
@@ -5582,6 +5807,17 @@ def build_parser() -> argparse.ArgumentParser:
                            help="accept a text that drops over 20%% of the words, a sentence or a link")
     note_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     note_parser.set_defaults(func=cmd_note)
+    for verb, what in (("confirm", "append a source-confirmed line to the note's Evidence section"),
+                       ("dispute", "mark the note as contradicted by a source (the claim stays as it is)")):
+        marked = note_sub.add_parser(verb, help=what)
+        marked.add_argument("note", metavar="NOTE", help="a path or a handle of a knowledge note, as in mem show")
+        marked.add_argument("--fact", metavar="TEXT", help="what the source says about the claim")
+        marked.add_argument("--source", metavar="URL", help="the http(s) URL of the page")
+        marked.add_argument("--quote", metavar="TEXT", help="the words of the page that show it")
+        if verb == "dispute":
+            marked.add_argument("--clear", action="store_true", help="remove the mark: the owner settled it")
+        marked.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+        marked.set_defaults(func=cmd_note_mark)
     import_parser = sub.add_parser("import", help="copy the notes of another folder of notes into the store; the source is never changed")
     import_parser.add_argument("source", metavar="SOURCE", help="the folder to read (literature/, knowledge/, research/, topics.yaml)")
     import_parser.add_argument("--dry-run", action="store_true", help="change nothing; print the report a real run would")
@@ -5628,6 +5864,8 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--context")
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
+    remember_parser.add_argument("--origin", choices=records.ORIGINS,
+                                 help="where the claim came from when not a session: a web finding or a pipeline's write")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
@@ -5695,6 +5933,21 @@ def build_parser() -> argparse.ArgumentParser:
     curate_parser.add_argument("--safe", action="store_true", help="with apply: only merges of equal claims and attaches the part's Sources line backs")
     curate_parser.add_argument("--from", dest="from_file", metavar="FILE", help="with apply: the action lines (default or -: stdin)")
     curate_parser.set_defaults(func=cmd_curate)
+    settle_parser = sub.add_parser("settle", help="settle new global memories against their look-alikes (verdicts from a file)")
+    settle_sub = settle_parser.add_subparsers(dest="settle_command", required=True)
+    settle_pending = settle_sub.add_parser("pending", help="list the look-alike pairs with a not yet judged side")
+    settle_pending.add_argument("--json", action="store_true", help="a JSON list: pair, a, b, claim_a, claim_b, newer, flagged_words")
+    settle_apply = settle_sub.add_parser("apply", help="carry out the verdicts the rules allow; refused rows are printed")
+    settle_apply.add_argument("--verdicts", required=True, metavar="FILE",
+                              help='JSON list of {"a", "b", "decision": merge|supersede|distinct|nothing, "reason"}')
+    settle_log = settle_sub.add_parser("log", help="list the settlings not yet acknowledged")
+    settle_log.add_argument("--all", action="store_true", help="every settling, acknowledged and undone ones too")
+    settle_sub.add_parser("ack", help="mark every settling acknowledged")
+    settle_undo = settle_sub.add_parser("undo", help="undo settling N: both records back as they were")
+    settle_undo.add_argument("number", type=int, metavar="N")
+    settle_due = settle_sub.add_parser("due", help="exit 0 and print the count when new memories wait and the last apply is older than M minutes")
+    settle_due.add_argument("--minutes", type=float, required=True, metavar="M")
+    settle_parser.set_defaults(func=cmd_settle)
     ps_parser = sub.add_parser("project-synthesis", help="write, confirm and list the stamped parts of a project's syntheses")
     ps_sub = ps_parser.add_subparsers(dest="ps_command", required=True)
     ps_add = ps_sub.add_parser("add", help="write a part, or replace the one with the same heading; prints p:NAME#HANDLE")
