@@ -48,7 +48,7 @@ They keep the main conversation's context on the task.
 
 | Subagent | Given | Does | Returns |
 |---|---|---|---|
-| `memory-researcher` (Sonnet) | A question | Answers from the memory, deeper sources if needed, outside research only for what is missing, which it records as findings | Conclusions with their references, and what is new and unchecked |
+| `memory-researcher` (Haiku) | A question | Answers from the memory, deeper sources if needed, outside research only for what is missing, which it records as findings | Conclusions with their references, and what is new and unchecked |
 | `memory-recorder` (Sonnet) | An account of what happened, or logs and files | Writes the few memories worth keeping, each in its scope; optionally lists the curation queue | What it recorded |
 | `memory-curator` (Haiku) | Nothing | Reads the curation queue | A table of proposed actions; it applies none |
 

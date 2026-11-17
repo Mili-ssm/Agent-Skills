@@ -1,9 +1,9 @@
 ---
 name: memory-researcher
-description: Research worker (Sonnet) that answers a question from the owner's memory first - notes, memories and, when needed, the papers, documents and syntheses behind them - and returns short conclusions with their references; when the memory does not cover the question it researches outside, records what it found as findings, and says which parts of its answer are new and unchecked. Use when a question needs more than one search of the memory, when the answer may need sources or outside research, or before a decision that should rest on what is already known, so the main model gets conclusions instead of search output.
+description: Research worker (Haiku) that answers a question from the owner's memory first - notes, memories and, when needed, the papers, documents and syntheses behind them - and returns short conclusions with their references; when the memory does not cover the question it researches outside, records what it found as findings, and says which parts of its answer are new and unchecked. Use when a question needs more than one search of the memory, when the answer may need sources or outside research, or before a decision that should rest on what is already known, so the main model gets conclusions instead of search output.
 tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
 disallowedTools: Edit, Write, NotebookEdit
-model: sonnet
+model: haiku
 effort: medium
 maxTurns: 30
 omitClaudeMd: true

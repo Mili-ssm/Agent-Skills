@@ -2,7 +2,7 @@
 
 **Goal:** Find out whether the `memory-researcher` subagent answers questions from the memory as well on Haiku as on Sonnet (its model today), and at what cost, as the first step of the owner's open item 7: memory work by secondary models of predictable cost that return only what matters to the main model.
 
-**Status:** planned 2026-11-17; not started.
+**Status:** done 2026-11-17: Haiku adopted.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -22,10 +22,10 @@
 
 ## Tasks
 
-- [ ] Question set with verified expected facts (a worker reads the store copy; the controller checks 3 questions against their notes). Check: 10 questions, each fact quoted from a note path.
-- [ ] Trial script `plugins/memory/evals/researcher/run_trials.py` on the `trial_env` fixture, with `--self-check` (no model) and the two arms. Check: self-check passes; one smoke run per arm parses facts and cost.
-- [ ] Run the 40 sessions in the background and write `## Results` with the table and the action the rule gives. Check: every run valid or rerun.
-- [ ] If the rule says adopt: change `model:` in `plugins/memory/agents/memory-researcher.md` and its description's "(Sonnet)" (a description change: the eval protocol of CLAUDE.md applies), else record why not.
+- [x] Question set with verified expected facts (a worker reads the store copy; the controller checks 3 questions against their notes). Check: 10 questions, each fact quoted from a note path.
+- [x] Trial script `plugins/memory/evals/researcher/run_trials.py` on the `trial_env` fixture, with `--self-check` (no model) and the two arms. Check: self-check passes; one smoke run per arm parses facts and cost.
+- [x] Run the 40 sessions in the background and write `## Results` with the table and the action the rule gives. Check: every run valid or rerun.
+- [x] If the rule says adopt: change `model:` in `plugins/memory/agents/memory-researcher.md` and its description's "(Sonnet)" (a description change: the eval protocol of CLAUDE.md applies), else record why not.
 
 ## Pre-mortem of 2026-11-17 and what changed
 
@@ -40,4 +40,19 @@
 
 ## Results
 
-Pending.
+Run on 2026-11-17 (commit `425f454`): 10 questions × 2 arms × 3 runs, main session Haiku, a fresh store copy per run, no web tools. Total cost 1.35 USD.
+
+| Arm | Valid runs | Facts found (of 63 expected for 30 runs) | Distractors | Not covered answered as such | Median cost per run | Median words |
+| --- | --- | --- | --- | --- | --- | --- |
+| Sonnet | 29 of 30 | 59 | 0 | 5 of 5 | 0.039 USD | 250 |
+| Haiku | 30 of 30 | 60 | 0 | 6 of 6 | 0.008 USD | 229 |
+
+One Sonnet run was invalid (the main session used a tool itself). Spread of run totals: Sonnet 1, Haiku 2 (within the inconclusive limit of 2).
+
+**Action by the rule written beforehand:** adopt Haiku. Facts 60 ≥ 59 − 2; not covered 6 of 6; median cost 0.0078 ≤ 0.0388 / 2. `memory-researcher` now runs on Haiku; its description and the README say so.
+
+Found on the way: with `--allowedTools Agent` only, the researcher's `mem search` was denied in headless mode (permissions are inherited by the subagent), and it turned to the web; the first smoke runs found 0 facts for that reason. The trial grants `Bash(mem *)`, `Read`, `Grep`, `Glob` and refuses the web.
+
+Not measured: whether the main session routes recall to the researcher by itself (these runs told it to); answers on the owner's other topics; the cost saving for a main model more expensive than Haiku (the researcher's cost does not depend on the main model, the relayed answer is about 230 words).
+
+The description change ("Sonnet" to "Haiku") was not run through a routing eval: no eval case of this plugin names `memory-researcher`. Kill criterion: if the owner sees wrong or empty answers from the researcher in real use, revert the model to Sonnet.
