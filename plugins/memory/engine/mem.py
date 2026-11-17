@@ -2414,7 +2414,7 @@ _INDEX_RULES = (
     "Put what applies into a subagent's brief.\n"
     "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and "
     "assumptions (a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "
-    "The project's situation or special conditions -> both.\n"
+    "The project's current situation or special conditions (true now, may change) -> both.\n"
     "- A line marked [memory: ...] is experience, not fact: keep its label and date when you pass it on.\n"
     "- Open a result with mem show <handle>."
 )
@@ -2455,6 +2455,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
         mine.sort(key=lambda m: m.created or datetime.date.min, reverse=True)
         mine.sort(key=lambda m: m.observed, reverse=True)
+        mine.sort(key=lambda m: m.kind != "state")  # the project's current situation first
         lines.append(f"this project: {len(mine)} memories")
         rows = []
         for m in mine:
@@ -2473,12 +2474,42 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     return "\n".join(lines)
 
 
+def _hook_input() -> dict[str, Any]:
+    """The hook's JSON from standard input; {} when it is missing or not an object."""
+    try:
+        data = json.load(sys.stdin)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _log_hook(entry: dict[str, Any]) -> None:
+    """Append one line to the hook log in the data folder; never raises. Holds no text and no path."""
+    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
+    try:
+        folder = data_dir(os.environ)
+        if folder is None:
+            return
+        log_path = folder / "hooks" / "log.jsonl"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+        try:
+            os.write(fd, (json.dumps(entry) + "\n").encode("ascii"))
+        finally:
+            os.close(fd)
+    except (OSError, ValueError, TypeError):
+        pass
+
+
 def cmd_session_index(args: argparse.Namespace) -> int:
-    """Never fails and never writes: the rules matter most when nothing is configured yet."""
+    """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
+    started = time.monotonic()
+    data = _hook_input() if args.hook else {}
     try:
         store = args.root if isinstance(args.root, Path) else None
+        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
         try:
-            project = records.project_root(Path.cwd(), os.environ)
+            project = records.project_root(cwd, os.environ)
         except OSError:
             project = None
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
@@ -2487,6 +2518,10 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     except Exception:
         text = _INDEX_RULES
     print(text)
+    if args.hook:
+        source = data.get("source")
+        _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
+                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text)})
     return 0
 
 
@@ -3061,6 +3096,8 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.set_defaults(func=cmd_remember)
     index_cmd = sub.add_parser("session-index", help="print the text that opens a session: rules, counts, project memories")
+    index_cmd.add_argument("--hook", action="store_true",
+                           help="read the hook's JSON from standard input (its cwd locates the project) and log the call")
     index_cmd.set_defaults(func=cmd_session_index)
     observe_parser = sub.add_parser("observe", help="count one more observation of a memory")
     observe_parser.add_argument("handle", metavar="m:HANDLE")

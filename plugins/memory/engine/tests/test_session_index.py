@@ -1,4 +1,6 @@
 import datetime
+import io
+import json
 from pathlib import Path
 
 import pytest
@@ -12,7 +14,7 @@ FIXED = [
     "Put what applies into a subagent's brief.",
     "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and assumptions "
     "(a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "
-    "The project's situation or special conditions -> both.",
+    "The project's current situation or special conditions (true now, may change) -> both.",
     "- A line marked [memory: ...] is experience, not fact: keep its label and date when you pass it on.",
     "- Open a result with mem show <handle>.",
 ]
@@ -131,3 +133,80 @@ def test_command_writes_nothing(hub_root, proj, monkeypatch, tmp_path):
     before = sorted(p for p in tmp_path.rglob("*"))
     assert mem.main(["session-index"]) == 0
     assert sorted(p for p in tmp_path.rglob("*")) == before
+
+
+def test_state_memories_come_first(proj):
+    write(proj, "a", "A.", observed=5, kind="lesson")
+    write(proj, "s2", "S two.", observed=1, kind="state", created="2026-11-02")
+    write(proj, "s1", "S one.", observed=2, kind="state", created="2026-11-01")
+    rows = mem.session_index(None, proj, None, TODAY).split("\n")[6:]
+    assert [r.split()[0] for r in rows] == ["m:s1", "m:s2", "m:a"]
+
+
+def test_missing_observed_sorts_as_one(proj):
+    (proj / "n.md").parent.mkdir(parents=True, exist_ok=True)
+    (proj / "n.md").write_text("---\nkind: lesson\nclaim: N.\ncreated: 2026-11-09\nstatus: active\n---\n", encoding="utf-8")
+    write(proj, "two", "Two.", observed=2, created="2026-11-01")
+    rows = mem.session_index(None, proj, None, TODAY).split("\n")[6:]
+    assert [r.split()[0] for r in rows] == ["m:two", "m:n"]
+
+
+def hook_run(monkeypatch, tmp_path, stdin, argv=("session-index", "--hook")):
+    monkeypatch.setenv("MEM_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    return mem.main(list(argv))
+
+
+def test_hook_uses_cwd_of_input_and_logs(tmp_path, monkeypatch, capsys):
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.delenv("MEM_PROJECT", raising=False)
+    monkeypatch.setenv("MEM_PROJECT", str(other))
+    write(other / ".memory", "here", "Here.")
+    monkeypatch.chdir(tmp_path)
+    assert hook_run(monkeypatch, tmp_path, json.dumps({"cwd": str(other), "source": "startup"})) == 0
+    out = capsys.readouterr().out
+    assert "m:here" in out
+    lines = (tmp_path / "data" / "hooks" / "log.jsonl").read_text().splitlines()
+    assert len(lines) == 1
+    rec = json.loads(lines[0])
+    assert list(rec) == ["t", "hook", "source", "ms", "chars"]
+    assert rec["hook"] == "session-index" and rec["source"] == "startup"
+    assert isinstance(rec["ms"], int) and rec["chars"] == len(out) - 1
+    assert str(other) not in lines[0]
+
+
+def test_hook_cwd_selects_the_project(tmp_path, monkeypatch, capsys):
+    import subprocess
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    write(repo / ".memory", "inrepo", "In repo.")
+    monkeypatch.delenv("MEM_PROJECT", raising=False)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    monkeypatch.chdir(tmp_path)
+    hook_run(monkeypatch, tmp_path, json.dumps({"cwd": str(repo)}))
+    assert "m:inrepo" in capsys.readouterr().out
+    rec = json.loads((tmp_path / "data" / "hooks" / "log.jsonl").read_text().splitlines()[0])
+    assert rec["source"] is None
+
+
+def test_hook_with_invalid_input_still_prints_and_logs(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+    assert hook_run(monkeypatch, tmp_path, "not json") == 0
+    assert capsys.readouterr().out.rstrip("\n").split("\n") == FIXED
+    assert (tmp_path / "data" / "hooks" / "log.jsonl").exists()
+
+
+def test_without_hook_reads_no_input_and_logs_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path.parent))
+
+    class Boom:
+        def read(self, *a):
+            raise AssertionError("stdin was read")
+    monkeypatch.setenv("MEM_DATA", str(tmp_path / "data"))
+    monkeypatch.setattr("sys.stdin", Boom())
+    assert mem.main(["session-index"]) == 0
+    assert not (tmp_path / "data").exists()
