@@ -24,6 +24,7 @@ You read the memory's curation queue so the main model does not have to, and you
    - `mem promote <h>` or `mem promote --no <h>`: would it hold in any project?
    - `mem confirm <h>`: you checked it in the project's files and it holds.
    - `leave`: you cannot tell. Say what would settle it.
+   - Project synthesis parts to write, correct or confirm (the blocks under "project syntheses"): propose the `mem project-synthesis` command and what the part should say; you still write nothing.
 
 Do not run any command that changes a memory (`merge`, `refute`, `distinct`, `forget`, `promote --no`, `promote --done`, `confirm`, `observe`, `supersede`, `restore`, `remember`, `curate --done`), and do not write, move or delete any file, in `.memory/` or anywhere else. You may run `mem curate`, `mem show`, `mem memories`, `mem search` and read the project's files.
 

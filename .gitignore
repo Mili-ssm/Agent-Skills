@@ -3,3 +3,6 @@ __pycache__/
 # Types the engine lays beside a mod while developing it
 plugins/*/.claude-plugin/types/
 plugins/*/tsconfig.json
+
+# Trial stores, data and work folders
+/target/

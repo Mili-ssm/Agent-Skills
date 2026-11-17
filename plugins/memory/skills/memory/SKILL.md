@@ -24,6 +24,8 @@ description: Searches, reads and writes the owner's store of notes and memories 
 
 `mem show <handle>... --section conclusion` gives the conclusion of the first one to three results in one call. `mem show <handle>` reads a record whole; for a long one, `mem show <handle> --outline --ranges` and then one line range. A note that shows `part of: s:<handle>#<section>` has a longer version: open that part only when the note is not enough.
 
+A `p:` part (project synthesis) marked possibly stale is a hint to check the files, not a fact.
+
 A line marked `[memory: …]` is something seen or decided once, in one context: experience, not an established fact. Weigh its date and how often it was observed, and keep that label and date when you pass it on. A note is a general statement with its source and confidence; treat `medium` and `low` as hypotheses.
 
 ## Remember

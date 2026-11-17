@@ -13,12 +13,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import trial_env  # noqa: E402
 
 DEFAULT_PLUGIN = Path(__file__).resolve().parents[2]
 DELEGATE = False
@@ -70,7 +70,8 @@ def session(claude: str, model: str, plugin: Path, settings: Path, cwd: Path, en
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--claude", required=True)
+    parser.add_argument("--claude")
+    parser.add_argument("--self-check", action="store_true", help="no model: prove the env stays under target/")
     parser.add_argument("--plugin", type=Path, default=DEFAULT_PLUGIN)
     parser.add_argument("--model", default="sonnet")
     parser.add_argument("--runs", type=int, default=2)
@@ -78,16 +79,17 @@ def main() -> int:
     parser.add_argument("--delegate", action="store_true",
                         help="tell the agent to hand the work to a subagent; a run then passes on the facts alone")
     args = parser.parse_args()
+    if args.self_check:
+        return trial_env.self_check("mem-recall-")
+    if not args.claude:
+        parser.error("--claude is required")
     global DELEGATE
     DELEGATE = args.delegate
     plugin = args.plugin.resolve()
     mem = str(plugin / "bin" / "mem")
     cases = [c for c in CASES if not args.case or c[0] in args.case]
-    work = Path(tempfile.mkdtemp(prefix="mem-recall-"))
-    env = {k: v for k, v in os.environ.items() if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT")}
-    env.update(XDG_CONFIG_HOME=str(work / "cfg"), MEM_DATA=str(work / "data"))
-    (work / "cfg" / "agent-memory").mkdir(parents=True)
-    (work / "cfg" / "agent-memory" / "forbidden-terms").write_text("")
+    work = trial_env.work_dir("mem-recall-")
+    env = trial_env.make_env(work)
     passed = total = 0
     print(f"{'case':20} {'run':3} {'mem calls':9} {'facts':5} result")
     for name, files, memories, prompt, facts in cases:
@@ -116,9 +118,10 @@ def main() -> int:
             total += 1
             print(f"{name:20} {run:<3} {len(calls):<9} {('-' if facts is None else str(has_facts)):5} "
                   f"{'pass' if ok else 'FAIL'}", flush=True)
-    for leftover in (Path.home() / ".claude" / "projects").glob("*" + "".join(c if c.isalnum() else "-" for c in work.name) + "*"):
-        shutil.rmtree(leftover, ignore_errors=True)
-    shutil.rmtree(work, ignore_errors=True)
+    if passed == total:
+        trial_env.clean(work)
+    else:
+        print(f"work folder kept for inspection: {work}")
     print(f"{passed} of {total} passed")
     return 0 if passed == total else 1
 
