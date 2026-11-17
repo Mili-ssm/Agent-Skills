@@ -21,7 +21,7 @@ from typing import Callable
 LOCAL_DIRS = frozenset({"__pycache__", ".venv", "target", "node_modules", ".pytest_cache", ".sources",
                         ".playwright-mcp"})
 MAX_FILE_BYTES = 5 * 1024 * 1024
-IGNORED_FILES = ("research/*/data/", ".*.tmp", ".curation-log")  # logs: git holds every earlier state already
+IGNORED_FILES = ("research/*/data/", ".*.tmp", ".curation-log", ".settle-log", ".settle-state.json")  # logs: git holds every earlier state already; settle state is per machine
 
 TIMEOUT = 10
 LOCK_WAIT = 10

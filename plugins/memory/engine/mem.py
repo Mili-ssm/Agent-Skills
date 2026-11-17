@@ -38,13 +38,14 @@ import yaml
 import auto_state
 import project_syntheses
 import records
+import settle
 import store_git
 import syntheses
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memory", "memories", "curate", "session-index", "signal", "projects",
+                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "signal", "projects",
                     "project-synthesis")
 
 
@@ -3479,12 +3480,15 @@ def _two(args: argparse.Namespace, first: str, second: str, name: str, apply) ->
     return _act(args, [first, second], apply, name)
 
 
+def _supersede_pair(old: records.Memory, new: records.Memory, today: datetime.date) -> list[str]:
+    records.log_before(old, "supersede")
+    records.update(old, today, status="superseded", superseded_by=new.handle)
+    return [f"m:{old.handle}\tsuperseded by m:{new.handle}"]
+
+
 def cmd_supersede(args: argparse.Namespace) -> int:
     def apply(found, today):
-        old, new = found
-        records.log_before(old, "supersede")
-        records.update(old, today, status="superseded", superseded_by=new.handle)
-        return [f"m:{old.handle}\tsuperseded by m:{new.handle}"]
+        return _supersede_pair(*found, today)
     return _two(args, args.old, args.new, "supersede", apply)
 
 
@@ -3560,6 +3564,17 @@ def cmd_memory(args: argparse.Namespace) -> int:
     return 0
 
 
+def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date) -> list[str]:
+    records.log_before(keep, "merge")
+    records.log_before(drop, "merge")
+    records.update(drop, today, status="superseded", superseded_by=keep.handle)
+    changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
+    if drop.body.strip():
+        changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
+    updated = records.update(keep, today, **changes)
+    return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
+
+
 def cmd_merge(args: argparse.Namespace) -> int:
     def apply(found, today):
         keep, drop = found
@@ -3567,14 +3582,7 @@ def cmd_merge(args: argparse.Namespace) -> int:
         if flagged and not args.force:
             raise ValueError(f"these claims differ in {', '.join(flagged)}: they may be opposites or different "
                              "versions; use --force to merge anyway.")
-        records.log_before(keep, "merge")
-        records.log_before(drop, "merge")
-        records.update(drop, today, status="superseded", superseded_by=keep.handle)
-        changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
-        if drop.body.strip():
-            changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
-        updated = records.update(keep, today, **changes)
-        return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
+        return _merge_pair(keep, drop, today)
     return _two(args, args.keep, args.drop, "merge", apply)
 
 
@@ -3613,17 +3621,20 @@ def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
     return 0
 
 
+def _distinct_pair(a: records.Memory, b: records.Memory, today: datetime.date) -> list[str]:
+    for m in (a, b):
+        records.log_before(m, "distinct")
+    for m, other in ((a, b), (b, a)):
+        records.update(m, today, distinct_from=sorted({*m.distinct_from, other.handle}))
+    return [f"m:{a.handle}\tkept apart from m:{b.handle}"]
+
+
 def cmd_distinct(args: argparse.Namespace) -> int:
     store = _optional_store(args)
     if store is not None and store.is_dir() and (done := _distinct_notes(args, store)) is not None:
         return done
     def apply(found, today):
-        a, b = found
-        for m in found:
-            records.log_before(m, "distinct")
-        for m, other in ((a, b), (b, a)):
-            records.update(m, today, distinct_from=sorted({*m.distinct_from, other.handle}))
-        return [f"m:{a.handle}\tkept apart from m:{b.handle}"]
+        return _distinct_pair(*found, today)
     return _two(args, args.a, args.b, "distinct", apply)
 
 
@@ -4233,6 +4244,74 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if out:
         print("\n".join(out))
     return 0
+
+
+def _settle_actions() -> settle.Actions:
+    return settle.Actions(_merge_pair, _supersede_pair, _distinct_pair)
+
+
+def _settle_reason_ok(reason: str) -> bool:
+    return not _refuse_secret([reason]) and _check_terms([reason], "lesson", False) == 0
+
+
+def cmd_settle(args: argparse.Namespace) -> int:
+    """`mem settle`: the engine side of settling new global memories (see settle.py)."""
+    store = _optional_store(args)
+    folder = records.memories_root(os.environ, store)
+    command = args.settle_command
+    if folder is None or not folder.is_dir():
+        if command == "due":
+            return 1
+        if command in ("pending", "log"):
+            return 0
+        print("mem: there is no global memories folder.", file=sys.stderr)
+        return 2
+    if _read_only_store(store, folder.resolve()):
+        print(_READ_ONLY_MEMORIES, file=sys.stderr)
+        return 2
+    today = datetime.date.today()
+    try:
+        if command == "due":
+            count = settle.due(folder, args.minutes, time.time(), today)
+            if count is None:
+                return 1
+            print(count)
+            return 0
+        if command == "pending":
+            state = settle.load_state(folder)
+            found = settle.pending(records.load_memories(folder, "global"), state, today, tokenize=tokenize)
+            settle.offer(folder, state)
+            if args.json:
+                print(json.dumps(found, ensure_ascii=False, indent=1))
+            else:
+                for p in found:
+                    flagged = f"  flagged: {', '.join(p['flagged_words'])}" if p["flagged_words"] else ""
+                    print(f"pair {p['pair']}  newer: m:{p['newer']}{flagged}\n  m:{p['a']}\t{p['claim_a']}\n  "
+                          f"m:{p['b']}\t{p['claim_b']}")
+            return 0
+        if command == "apply":
+            try:
+                rows = json.loads(Path(args.verdicts).read_text(encoding="utf-8"))
+            except (OSError, ValueError) as exc:
+                print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
+                return 2
+            lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today, time.time(),
+                                          actions=_settle_actions(), reason_ok=_settle_reason_ok, tokenize=tokenize)
+            print("\n".join(lines))
+            return 0
+        if command == "log":
+            out = settle.listing(folder, args.all)
+            if out:
+                print("\n".join(out))
+            return 0
+        if command == "ack":
+            print(f"acknowledged {settle.ack(folder)}")
+            return 0
+        print("\n".join(settle.undo(folder, args.number, today)))
+        return 0
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
 
 
 _TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -5829,6 +5908,21 @@ def build_parser() -> argparse.ArgumentParser:
     curate_parser.add_argument("--safe", action="store_true", help="with apply: only merges of equal claims and attaches the part's Sources line backs")
     curate_parser.add_argument("--from", dest="from_file", metavar="FILE", help="with apply: the action lines (default or -: stdin)")
     curate_parser.set_defaults(func=cmd_curate)
+    settle_parser = sub.add_parser("settle", help="settle new global memories against their look-alikes (verdicts from a file)")
+    settle_sub = settle_parser.add_subparsers(dest="settle_command", required=True)
+    settle_pending = settle_sub.add_parser("pending", help="list the look-alike pairs with a not yet judged side")
+    settle_pending.add_argument("--json", action="store_true", help="a JSON list: pair, a, b, claim_a, claim_b, newer, flagged_words")
+    settle_apply = settle_sub.add_parser("apply", help="carry out the verdicts the rules allow; refused rows are printed")
+    settle_apply.add_argument("--verdicts", required=True, metavar="FILE",
+                              help='JSON list of {"a", "b", "decision": merge|supersede|distinct|nothing, "reason"}')
+    settle_log = settle_sub.add_parser("log", help="list the settlings not yet acknowledged")
+    settle_log.add_argument("--all", action="store_true", help="every settling, acknowledged and undone ones too")
+    settle_sub.add_parser("ack", help="mark every settling acknowledged")
+    settle_undo = settle_sub.add_parser("undo", help="undo settling N: both records back as they were")
+    settle_undo.add_argument("number", type=int, metavar="N")
+    settle_due = settle_sub.add_parser("due", help="exit 0 and print the count when new memories wait and the last apply is older than M minutes")
+    settle_due.add_argument("--minutes", type=float, required=True, metavar="M")
+    settle_parser.set_defaults(func=cmd_settle)
     ps_parser = sub.add_parser("project-synthesis", help="write, confirm and list the stamped parts of a project's syntheses")
     ps_sub = ps_parser.add_subparsers(dest="ps_command", required=True)
     ps_add = ps_sub.add_parser("add", help="write a part, or replace the one with the same heading; prints p:NAME#HANDLE")
