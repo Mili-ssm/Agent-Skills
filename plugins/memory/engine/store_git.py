@@ -22,7 +22,7 @@ IGNORED_FILES = ("research/*/data/", ".*.tmp", ".curation-log")  # logs: git hol
 
 TIMEOUT = 10
 LOCK_WAIT = 10
-STALE_LOCK_SECONDS = 60
+STALE_LOCK_SECONDS = 600  # mem's own git calls time out at 10 s: a lock this old is left over
 LOCK_NAME = "mem-commit.lock"
 _GIT_FLAGS = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath="]  # a user's signing or hooks cannot hang a commit
 
@@ -31,10 +31,19 @@ class GitError(Exception):
     pass
 
 
+def _env() -> dict[str, str]:
+    """The environment without any GIT_* variable that could redirect the repository, index or work tree."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    for keep in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):  # the user's config choice, as the plan keeps it
+        if keep in os.environ:
+            env[keep] = os.environ[keep]
+    return env
+
+
 def _git(store: Path, *args: str) -> str:
     try:
         done = subprocess.run(["git", "-C", str(store), *_GIT_FLAGS, *args], capture_output=True, text=True,
-                              check=False, timeout=TIMEOUT, env=os.environ.copy())
+                              check=False, timeout=TIMEOUT, env=_env())
     except (OSError, subprocess.SubprocessError) as exc:
         raise GitError(f"git {args[0]}: {exc}") from exc
     if done.returncode != 0:
@@ -97,7 +106,7 @@ def _commit(store: Path, message: str) -> str | None:
         _drop_stale_index_lock(store)
         _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
         staged = subprocess.run(["git", "-C", str(store), *_GIT_FLAGS, "diff", "--cached", "--quiet"],
-                                capture_output=True, text=True, check=False, timeout=TIMEOUT)
+                                capture_output=True, text=True, check=False, timeout=TIMEOUT, env=_env())
         if staged.returncode == 0:
             return None
         if staged.returncode != 1:
@@ -130,5 +139,11 @@ def init(store: Path) -> None:
     _git(store, "config", "user.name", "mem")
     _git(store, "config", "user.email", "mem@localhost")
     lines = [f"{name}/" for name in sorted(LOCAL_DIRS)] + list(IGNORED_FILES)
-    (store / ".gitignore").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    ignore = store / ".gitignore"
+    have = ignore.read_text(encoding="utf-8").splitlines() if ignore.exists() else []
+    missing = [ln for ln in lines if ln not in have]
+    if missing or not ignore.exists():
+        prefix = "\n" if have and not ignore.read_text(encoding="utf-8").endswith("\n") else ""
+        with ignore.open("a", encoding="utf-8") as fh:
+            fh.write(prefix + "".join(ln + "\n" for ln in missing))
     _commit(store, "mem history init")

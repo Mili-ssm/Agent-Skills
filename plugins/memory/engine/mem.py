@@ -35,7 +35,6 @@ import yaml
 
 import project_syntheses
 import records
-import store_git
 import syntheses
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
@@ -5542,7 +5541,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _dispatch(args: argparse.Namespace) -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    if args.command == "read":
+        args.command = "show"
     if args.command in ("init", "terms"):
         return args.func(args)
     if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used
@@ -5573,57 +5575,6 @@ def _dispatch(args: argparse.Namespace) -> int:
     args.root_source = store_source(args.root, os.environ)
     args.root = root
     return args.func(args)
-
-
-
-# Writing commands whose change is committed when the store is a git repository (plan 2026-11-17-memory-store-git).
-# Reads, the hook commands (session-index, signal) and commands that write outside the store are left out.
-_HISTORY_COMMANDS = ("forget", "refute", "supersede", "merge", "restore", "confirm", "observe", "promote", "distinct",
-                     "memory", "note", "new", "rename", "unify", "index", "import", "fetch-sources")
-_HISTORY_SUBCOMMANDS = ("synthesis_command", "memory_command", "note_command", "type")
-_HISTORY_TARGETS = ("handle", "old", "keep", "a", "note", "target", "source", "slug")  # never the text of a record
-
-
-def _history_message(args: argparse.Namespace) -> str:
-    """`mem <command> [<subcommand>] [<first handle or path>]`: no claim, context or body text."""
-    parts = ["mem", args.command]
-    parts += [str(v) for name in _HISTORY_SUBCOMMANDS if (v := getattr(args, name, None))]
-    target = next((v for name in _HISTORY_TARGETS if (v := getattr(args, name, None))), None)
-    if target is None and getattr(args, "handles", None):
-        target = args.handles[0]
-    if isinstance(target, str):
-        parts.append(target)
-    return " ".join(parts)
-
-
-def _commits_history(args: argparse.Namespace) -> bool:
-    if args.command == "remember":
-        return bool(args.is_global)
-    if args.command == "synthesis":
-        return args.synthesis_command in _SYNTHESIS_WRITES
-    return args.command in _HISTORY_COMMANDS
-
-
-def _record_history(args: argparse.Namespace) -> None:
-    root = args.root
-    if not (_commits_history(args) and isinstance(root, Path) and store_git.is_repo(root)):
-        return
-
-    def report(reason: str) -> None:
-        print(f"mem: history: {reason}", file=sys.stderr)
-        log_usage(root, {"cmd": "history", "error": reason})
-
-    store_git.commit_if_changed(root, _history_message(args), report=report)
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    if args.command == "read":
-        args.command = "show"
-    code = _dispatch(args)
-    if code == 0:
-        _record_history(args)
-    return code
 
 
 if __name__ == "__main__":

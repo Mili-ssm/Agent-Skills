@@ -55,112 +55,6 @@ def remember(claim="Retries need idempotency keys."):
 HANDLE = "m:retries-need-idempotency-keys"
 
 
-def test_a_write_makes_one_commit_that_names_it(repo):
-    before = len(commits(repo))
-    assert remember() == 0
-    log = commits(repo)
-    assert len(log) == before + 1
-    assert log[0] == "mem remember"
-    assert git(repo, "status", "--porcelain") == ""
-
-
-def test_two_writes_give_two_commits(repo):
-    before = len(commits(repo))
-    remember("First claim here.")
-    remember("Second claim here.")
-    assert len(commits(repo)) == before + 2
-
-
-def test_forget_and_restore_commit(repo, capsys):
-    remember()
-    assert mem.main(["forget", HANDLE, "--global", "--because", "stale"]) == 0
-    assert commits(repo)[0] == f"mem forget {HANDLE}"
-    assert mem.main(["restore", HANDLE, "--global"]) == 0
-    assert commits(repo)[0] == f"mem restore {HANDLE}"
-
-
-def test_project_remember_does_not_commit_to_the_store(repo, tmp_path, monkeypatch):
-    project = tmp_path / "proj"
-    project.mkdir()
-    git(project, "init", "-q")
-    monkeypatch.setenv("MEM_PROJECT", str(project))
-    before = commits(repo)
-    assert mem.main(["remember", "--kind", "lesson", "--claim", "Only in the project."]) == 0
-    assert commits(repo) == before
-
-
-def test_the_message_never_holds_the_claim(repo):
-    remember("A secret claim that must stay out of history.")
-    assert "secret" not in "\n".join(commits(repo))
-    assert "secret" not in git(repo, "log", "-1", "--format=%B")
-
-
-def test_a_failing_command_makes_no_commit(repo):
-    before = commits(repo)
-    assert mem.main(["forget", "m:does-not-exist", "--global", "--because", "x"]) != 0
-    assert commits(repo) == before
-
-
-def test_a_store_without_git_is_untouched(store):
-    assert remember() == 0
-    assert not (store / ".git").exists()
-
-
-def test_read_and_hook_commands_run_no_git(repo, monkeypatch, capsys):
-    remember()
-
-    def refuse(cmd, *a, **k):
-        if cmd and cmd[0] == "git":
-            raise AssertionError(f"git was run: {cmd}")
-        return REAL_RUN(cmd, *a, **k)
-
-    monkeypatch.setattr(subprocess, "run", refuse)
-    for argv in (["session-index"], ["search", "retries"], ["show", HANDLE], ["memories", "--global"],
-                 ["stats"], ["curate"]):
-        mem.main(argv)  # exit code irrelevant; only that git never ran
-    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(""))
-    mem.main(["signal"])
-
-
-@pytest.mark.parametrize("failure", ["raises", "nonzero", "missing"])
-def test_a_git_failure_keeps_the_exit_code(repo, monkeypatch, capsys, failure):
-    def broken(cmd, *a, **k):
-        if cmd and cmd[0] == "git":
-            if failure == "raises":
-                raise subprocess.TimeoutExpired(cmd, 10)
-            if failure == "missing":
-                raise FileNotFoundError("git")
-            return subprocess.CompletedProcess(cmd, 128, "", "fatal: boom")
-        return REAL_RUN(cmd, *a, **k)
-
-    monkeypatch.setattr(subprocess, "run", broken)
-    assert remember() == 0
-    assert "mem: history:" in capsys.readouterr().err
-
-
-def test_a_git_failure_is_in_the_usage_log(repo, monkeypatch):
-    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git"))
-                        if cmd and cmd[0] == "git" else REAL_RUN(cmd, *a, **k))
-    remember()
-    log = (Path(os.environ["MEM_DATA"]) / "usage" / "log.jsonl").read_text(encoding="utf-8")
-    assert '"cmd": "history"' in log
-
-
-def test_every_call_disables_signing_and_hooks(repo, monkeypatch):
-    seen = []
-
-    def spy(cmd, *a, **k):
-        if cmd and cmd[0] == "git":
-            seen.append(cmd)
-        return REAL_RUN(cmd, *a, **k)
-
-    monkeypatch.setattr(subprocess, "run", spy)
-    remember()
-    assert seen
-    for cmd in seen:
-        assert "commit.gpgsign=false" in cmd and "core.hooksPath=" in cmd
-
-
 def test_init_writes_identity_ignores_and_commits_everything_present(store):
     (store / "memories" / "early.md").write_text("early\n", encoding="utf-8")
     store_git.init(store)
@@ -206,7 +100,7 @@ def test_the_short_id_is_returned(repo):
 def test_a_stale_index_lock_is_removed_and_a_fresh_one_is_not(repo):
     lock = repo / ".git" / "index.lock"
     lock.write_text("", encoding="utf-8")
-    old = time.time() - 120
+    old = time.time() - 700
     os.utime(lock, (old, old))
     (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
     assert store_git.commit_if_changed(repo, "mem a")
@@ -254,3 +148,77 @@ def test_an_oversized_ignored_file_does_not_break_the_commit(repo, monkeypatch):
     (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
     assert store_git.commit_if_changed(repo, "mem a")
     assert ".curation-log" not in git(repo, "ls-files")
+
+
+
+@pytest.mark.parametrize("argv", [["remember", "--global", "--kind", "lesson", "--claim", "No git here."],
+                                  ["session-index"], ["signal"]])
+def test_no_command_runs_git_by_itself(repo, monkeypatch, argv):
+    def refuse(cmd, *a, **k):
+        if cmd and cmd[0] == "git":
+            raise AssertionError(f"git was run: {cmd}")
+        return REAL_RUN(cmd, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", refuse)
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO(""))
+    mem.main(argv)
+    assert git(repo, "log", "--format=%s").splitlines() == ["mem history init"]
+
+
+def test_a_git_failure_is_reported_not_raised(repo, monkeypatch):
+    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")))
+    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
+    reasons = []
+    assert store_git.commit_if_changed(repo, "mem a", report=reasons.append) is None
+    assert reasons and "git" in reasons[0]
+
+
+def test_every_call_disables_signing_and_hooks(repo, monkeypatch):
+    seen = []
+
+    def spy(cmd, *a, **k):
+        if cmd and cmd[0] == "git":
+            seen.append(cmd)
+        return REAL_RUN(cmd, *a, **k)
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
+    store_git.commit_if_changed(repo, "mem a")
+    assert seen
+    for cmd in seen:
+        assert "commit.gpgsign=false" in cmd and "core.hooksPath=" in cmd
+
+
+def test_a_lock_of_five_minutes_is_not_removed(repo):
+    lock = repo / ".git" / "index.lock"
+    lock.write_text("", encoding="utf-8")
+    old = time.time() - 300
+    os.utime(lock, (old, old))
+    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
+    assert store_git.commit_if_changed(repo, "mem a", report=lambda r: None) is None
+    assert lock.exists()
+
+
+def test_inherited_git_variables_do_not_redirect_the_commit(repo, tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-q")
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(tmp_path / "wrong-index"))
+    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
+    assert store_git.commit_if_changed(repo, "mem a")
+    monkeypatch.delenv("GIT_DIR")
+    monkeypatch.delenv("GIT_WORK_TREE")
+    monkeypatch.delenv("GIT_INDEX_FILE")
+    assert "knowledge/a.md" in git(repo, "ls-files")
+    assert not (tmp_path / "wrong-index").exists()
+
+
+def test_init_keeps_an_existing_gitignore_and_appends_the_missing_lines(store):
+    (store / ".gitignore").write_text("mine/\n.sources/", encoding="utf-8")
+    store_git.init(store)
+    lines = (store / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert lines[:2] == ["mine/", ".sources/"]
+    assert lines.count(".sources/") == 1
+    assert ".curation-log" in lines and "node_modules/" in lines
