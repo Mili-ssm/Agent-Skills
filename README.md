@@ -7,6 +7,7 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | `agent-skills` | Specialist skills, agents and offload workers (below) | [Catalog](#catalog), [`plugins/agent-skills/`](plugins/agent-skills/) |
 | `plan-progress` (mod) | While a plan exists: progress status line, card above the prompt, task toasts | [README](plugins/plan-progress/README.md) |
 | `tool-fold` (mod) | Folds tool, skill and agent calls into one line each; running agents get a live card; Claude's own card per request: time, calls, skills, agents, context, session, Haiku activity and conclusion (ADR 0016) | [README](plugins/tool-fold/README.md) |
+| `memory` | Notes and memories reachable from every repository: the `mem` command (stage 1 of ADR 0023; proposed) | [README](plugins/memory/README.md) |
 
 `tool-fold` makes offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans; `tool-fold` also keeps tool output out of the way until asked for.
 
@@ -28,6 +29,7 @@ Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirement
 | VS Code extension | Install from a shell at user scope (above): the extension runs Claude Code on the same `~/.claude` config |
 | Older Claude Code | `/plugin marketplace add Mili-ssm/Agent-Skills`, then `/plugin install agent-skills@mili-ssm` |
 | A mod | Same commands with the mod's name; in cloud set `AGENT_SKILLS_MODS="tool-fold plan-progress"` in the environment |
+| The `memory` plugin | Same commands with the name `memory`; set its `store` option to the folder of notes |
 
 </details>
 

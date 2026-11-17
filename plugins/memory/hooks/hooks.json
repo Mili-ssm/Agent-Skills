@@ -1,0 +1,8 @@
+{
+  "description": "Passes the store path to shell commands of the session",
+  "hooks": {
+    "SessionStart": [
+      { "hooks": [ { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-env.sh", "timeout": 5 } ] }
+    ]
+  }
+}

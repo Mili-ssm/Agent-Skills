@@ -1,0 +1,13 @@
+{
+  "name": "memory",
+  "description": "Notes and memories reachable from every repository and subagent: a `mem` command that searches and reads a configured store.",
+  "author": { "name": "mili-ssm" },
+  "repository": "https://github.com/Mili-ssm/Agent-Skills",
+  "userConfig": {
+    "store": {
+      "type": "directory",
+      "title": "Store",
+      "description": "Folder of notes and memories that the plugin reads and writes (the global scope)."
+    }
+  }
+}
