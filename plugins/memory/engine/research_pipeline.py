@@ -464,7 +464,7 @@ def web_and_verdicts(run: Run, store: Path, claude: str, question: str, depth: s
         state["dropped"].append("the web session's reply was not the expected JSON list: no web results")
         return
     checked = rc.check_rows(rows, rc.item_ids(web.items), functools.partial(rc.fetch_text, allow_hosts=allow_hosts),
-                            PAGES[depth])
+                            max_urls=PAGES[depth])
     state["dropped"] += [f"web row {json.dumps(d['row'], ensure_ascii=False)[:120]}: {d['reason']}" for d in checked.dropped]
     (run.folder / "check.json").write_text(json.dumps(
         {"entries": checked.entries, "dropped": checked.dropped, "fetched": {u: len(t) for u, t in checked.pages.items()}},

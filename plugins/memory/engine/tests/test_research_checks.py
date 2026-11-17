@@ -5,6 +5,7 @@ import os
 import socket
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -32,7 +33,33 @@ PAGES = {
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.startswith("/redir-private"):
+        port = self.server.server_address[1]
+        if self.path.startswith("/drip"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.send_header("Content-Length", "1000")
+            self.end_headers()
+            try:
+                for _ in range(1000):
+                    self.wfile.write(b"x")
+                    self.wfile.flush()
+                    time.sleep(0.1)
+            except OSError:
+                pass
+        elif self.path.startswith("/redir-other"):
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{port}/page")
+            self.end_headers()
+        elif self.path.startswith("/redir-file") or self.path.startswith("/redir-ftp"):
+            self.send_response(302)
+            self.send_header("Location", "file:///etc/passwd" if "file" in self.path else "ftp://example.org/x")
+            self.end_headers()
+        elif self.path.startswith("/chain/"):
+            n = int(self.path.rsplit("/", 1)[1])
+            self.send_response(302)
+            self.send_header("Location", f"/chain/{n + 1}" if n < 9 else "/page")
+            self.end_headers()
+        elif self.path.startswith("/redir-private"):
             self.send_response(302)
             self.send_header("Location", "http://10.0.0.1/secret")
             self.end_headers()
@@ -131,10 +158,85 @@ def test_redirect_to_a_private_address_is_refused(server, fetch_local):
         fetch_local(f"{server}/redir-private")
 
 
-def test_redirect_is_followed_and_capped(server, fetch_local):
-    assert LONG in fetch_local(f"{server}/redir-page")
+@pytest.fixture
+def public_name(server, monkeypatch):
+    """Any name resolves to a public address (counted in `lookups`) that actually connects to the local server."""
+    lookups = []
+    real, real_lookup = socket.create_connection, socket.getaddrinfo
+
+    def lookup(host, port, *a, **k):
+        if host == "127.0.0.1":
+            return real_lookup(host, port, *a, **k)
+        lookups.append(host)
+        return [(2, 1, 6, "", ("93.184.216.34", port))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+    monkeypatch.setattr(socket, "create_connection", lambda addr, *a, **k: real(("127.0.0.1", addr[1]), *a, **k))
+    return f"http://public.example:{server.rsplit(':', 1)[1]}", lookups
+
+
+def test_relative_redirect_is_followed_and_rechecked(public_name):
+    base, lookups = public_name
+    assert LONG in rc.fetch_text(f"{base}/redir-page")
+    assert lookups == ["public.example", "public.example"]
+
+
+def test_redirects_are_capped_at_three(public_name):
+    base, _ = public_name
+    assert LONG in rc.fetch_text(f"{base}/chain/7")  # 3 redirects
     with pytest.raises(rc.FetchRefused, match="redirects"):
-        fetch_local(f"{server}/redir-loop")
+        rc.fetch_text(f"{base}/chain/6")  # 4
+    with pytest.raises(rc.FetchRefused, match="redirects"):
+        rc.fetch_text(f"{base}/redir-loop")
+
+
+@pytest.mark.parametrize("path", ["/redir-file", "/redir-ftp"])
+def test_redirect_to_a_foreign_scheme_is_refused(public_name, path):
+    with pytest.raises(rc.FetchRefused, match="only http"):
+        rc.fetch_text(public_name[0] + path)
+
+
+def test_allow_hosts_covers_only_the_first_hop(server, fetch_local):
+    assert LONG in fetch_local(f"{server}/page")
+    with pytest.raises(rc.FetchRefused, match="non-public"):
+        fetch_local(f"{server}/redir-other")
+    with pytest.raises(rc.FetchRefused, match="non-public"):
+        fetch_local(f"{server}/redir-page")  # a relative redirect to the same host too
+
+
+def test_host_with_one_private_address_is_refused(monkeypatch):
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 80)), (2, 1, 6, "", ("10.0.0.1", 80))])
+    with pytest.raises(rc.FetchRefused, match="non-public"):
+        rc.fetch_text("http://mixed.example/")
+
+
+def test_a_dripping_server_hits_the_total_deadline(server, fetch_local, monkeypatch):
+    monkeypatch.setattr(rc, "TOTAL_DEADLINE", 0.6)
+    started = time.monotonic()
+    with pytest.raises(rc.FetchFailed):
+        fetch_local(f"{server}/drip")
+    assert time.monotonic() - started < 2.5
+
+
+@pytest.mark.parametrize("address", ["::127.0.0.1", "::ffff:10.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a00:1", "2002:7f00:1::",
+                                     "2002:c0a8:101::1", "2001:0:4136:e378:8000:63bf:3fff:fdd2", "::ffff:169.254.169.254"])
+def test_ipv6_embedding_a_private_ipv4_is_not_public(address):
+    assert not rc._public(address)
+
+
+def test_ipv6_embedding_a_public_ipv4_stays_public_where_it_is_global():
+    assert rc._public("64:ff9b::5db8:d822") and rc._public("2606:4700:4700::1111")
+
+
+def test_hidden_text_is_not_returned():
+    markup = ("<p>shown one</p><div hidden>HID1 <span>HID2</span></div><p>shown two</p>"
+              "<div aria-hidden='true'>HID3<p>HID4</div><span style='Color:red; DISPLAY : None'>HID5</span>"
+              "<span style=\"visibility:  hidden\">HID6<b>HID7</b></span><p>shown three<br/>and <img src=x>more</p>"
+              "<div aria-hidden='false'>shown four</div><script>SCRIPTONLY</script>")
+    text = rc.html_text(markup)
+    assert "HID" not in text and "SCRIPTONLY" not in text
+    for word in ("shown one", "shown two", "shown three", "and", "more", "shown four"):
+        assert word in text
 
 
 def test_size_cap_and_plain_text(server, fetch_local):
@@ -252,7 +354,7 @@ def test_check_rows_fetches_once_and_drops_with_reasons():
     rows = [row(), row(stance="contradicts"), row(), row(url="http://p/refused"), row(url="http://p/pdf"),
             row(url="http://p/down"), row(url="http://p/off"), row(stance="neutral"), row(source_kind="blog"),
             row(item="zz"), "junk", row(url="http://p/capped")]
-    got = rc.check_rows(rows, ITEMS, fetch=fetch, max_pages=5)
+    got = rc.check_rows(rows, ITEMS, fetch=fetch, max_urls=5)
     assert [(e["item"], e["stance"]) for e in got.entries] == [(HANDLE, "supports"), (HANDLE, "contradicts")]
     assert got.entries[0]["passages"] == [f"{LONG} in the lab"]
     assert list(got.pages) == ["http://p/1", "http://p/off"]
@@ -260,8 +362,21 @@ def test_check_rows_fetches_once_and_drops_with_reasons():
     assert reasons[0].startswith("fetch refused") and reasons[1] == "not checked: application/pdf"
     assert reasons[2].startswith("fetch failed") and reasons[3].startswith("no passage")
     assert all(r.startswith("bad shape") for r in reasons[4:6]) and reasons[6] == "unknown item id"
-    assert reasons[7].startswith("bad shape") and reasons[8].startswith("over the page cap")
+    assert reasons[7].startswith("bad shape") and reasons[8].startswith("over the page limit")
     assert calls.count("http://p/1") == 1 and "http://p/capped" not in calls
+
+
+def test_check_rows_caps_urls_and_rows_before_fetching():
+    calls = []
+    rows = [row(url=f"http://p/{i}") for i in range(5)] + [row(url="http://p/0", stance="contradicts")]
+    got = rc.check_rows(rows, ITEMS, fetch=lambda u: calls.append(u) or f"{LONG} here", max_urls=2)
+    assert calls == ["http://p/0", "http://p/1"]
+    assert [d["reason"] for d in got.dropped] == ["over the page limit"] * 3
+    assert len(got.entries) == 3  # the second row of an admitted URL still counts
+    calls.clear()
+    many = [row(url="http://p/same", stance="supports", source_kind=k) for k in ("official", "paper", "other")] * 10
+    got = rc.check_rows(many + [row(url="http://p/late")], ITEMS, fetch=lambda u: calls.append(u) or LONG, max_urls=2)
+    assert "http://p/late" not in calls and any("row limit" in d["reason"] for d in got.dropped)
 
 
 def test_check_rows_gives_an_item_at_most_its_passage_budget(monkeypatch):

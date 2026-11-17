@@ -15,6 +15,8 @@ import shutil
 import socket
 import ssl
 import subprocess
+import threading
+import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
@@ -34,7 +36,9 @@ ITEM_CHARS = 12000  # and per item, over all its pages
 MIN_FINDING_WORDS = 0.7   # share of a finding's content words that its quote must hold
 QUESTION = "(question)"   # the item key of the question; a note's key is its handle
 MAX_REDIRECTS = 3
-TIMEOUT = 10
+TIMEOUT = 10   # per socket operation
+TOTAL_DEADLINE = 20   # per `fetch_text` call, all hops together
+ROWS_PER_URL = 4   # `check_rows` considers at most this many rows per allowed URL
 MEM_ENTRY = [str(Path(__file__).resolve().parent.parent / "bin" / "mem")]
 
 
@@ -146,10 +150,31 @@ class NotChecked(FetchError):
     """The content type is not text: the message reads "not checked: <type>"."""
 
 
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
+_V4_COMPATIBLE = ipaddress.ip_network("::/96")
+
+
+def _embedded_v4(ip: ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
+    """The IPv4 addresses an IPv6 address carries: mapped, compatible, NAT64, 6to4 and Teredo (server and client)."""
+    found = []
+    if ip.ipv4_mapped is not None:
+        found.append(ip.ipv4_mapped)
+    if ip in _NAT64 or ip in _V4_COMPATIBLE:
+        found.append(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+    if ip.sixtofour is not None:
+        found.append(ip.sixtofour)
+    if ip.teredo is not None:
+        found.extend(ip.teredo)
+    return found
+
+
 def _public(address: str) -> bool:
     ip = ipaddress.ip_address(address.split("%")[0])
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
+    if isinstance(ip, ipaddress.IPv6Address):
+        if not all(_public(str(v4)) for v4 in _embedded_v4(ip)):
+            return False
+        if ip in _V4_COMPATIBLE:   # deprecated form: when in doubt, refuse
+            return False
     return ip.is_global and not ip.is_multicast
 
 
@@ -169,7 +194,7 @@ def _resolve(host: str, port: int, allow: bool) -> str:
     return addresses[0]
 
 
-def _connection(parts: urllib.parse.SplitResult, address: str, port: int) -> http.client.HTTPConnection:
+def _connection(parts: urllib.parse.SplitResult, address: str, port: int, timeout: float = TIMEOUT) -> http.client.HTTPConnection:
     """A connection pinned to the checked address, so a second DNS answer cannot change the target."""
     host = parts.hostname or ""
 
@@ -180,7 +205,7 @@ def _connection(parts: urllib.parse.SplitResult, address: str, port: int) -> htt
                 sock = ssl.create_default_context().wrap_socket(sock, server_hostname=host)
             self.sock = sock
 
-    return Pinned(host, port, timeout=TIMEOUT)
+    return Pinned(host, port, timeout=timeout)
 
 
 _BLOCK = {"p", "div", "br", "li", "ul", "ol", "tr", "td", "th", "table", "h1", "h2", "h3", "h4", "h5", "h6",
@@ -188,26 +213,52 @@ _BLOCK = {"p", "div", "br", "li", "ul", "ol", "tr", "td", "th", "table", "h1", "
 _SKIP = {"script", "style", "template", "noscript"}
 
 
+_VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+_HIDING_STYLE = re.compile(r"display:none|visibility:hidden")
+
+
+def _hides(attrs: Any) -> bool:
+    for name, value in attrs:
+        if name == "hidden":
+            return True
+        if name == "aria-hidden" and (value or "").strip().lower() == "true":
+            return True
+        if name == "style" and _HIDING_STYLE.search(re.sub(r"\s+", "", (value or "").lower())):
+            return True
+    return False
+
+
 class _Text(html.parser.HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.skip = 0
+        self.open: list[tuple[str, bool]] = []   # open non-void elements: (tag, hides its content)
+        self.hidden = 0
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
         if tag in _SKIP:
             self.skip += 1
         elif tag in _BLOCK:
             self.parts.append("\n")
+        if tag not in _VOID:
+            hides = _hides(attrs)
+            self.open.append((tag, hides))
+            self.hidden += hides
 
     def handle_endtag(self, tag: str) -> None:
         if tag in _SKIP:
             self.skip = max(0, self.skip - 1)
         elif tag in _BLOCK:
             self.parts.append("\n")
+        for index in range(len(self.open) - 1, -1, -1):   # closes the nearest open element of that name and what it holds
+            if self.open[index][0] == tag:
+                self.hidden -= sum(h for _, h in self.open[index:])
+                del self.open[index:]
+                break
 
     def handle_data(self, data: str) -> None:
-        if not self.skip:
+        if not self.skip and not self.hidden:
             self.parts.append(data)
 
 
@@ -233,10 +284,38 @@ def _pdf_text(raw: bytes) -> str:
     return done.stdout.decode("utf-8", errors="replace")
 
 
-def fetch_text(url: str, allow_hosts: Iterable[str] = ()) -> str:
+def _cut(conn: http.client.HTTPConnection, cut: threading.Event) -> None:
+    """Shut the socket down from another thread, which ends a read blocked on it."""
+    cut.set()
+    try:
+        if conn.sock is not None:
+            conn.sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+
+
+def _read(resp: http.client.HTTPResponse, limit: int, deadline: float) -> bytes:
+    """At most `limit` bytes, in chunks, so the deadline is checked between reads."""
+    chunks: list[bytes] = []
+    size = 0
+    while size < limit:
+        if time.monotonic() >= deadline:
+            raise FetchFailed("total time limit passed")
+        chunk = resp.read1(min(65536, limit - size))
+        if not chunk:
+            break
+        chunks.append(chunk)
+        size += len(chunk)
+    return b"".join(chunks)
+
+
+def fetch_text(url: str, allow_hosts: Iterable[str] = (), deadline: float | None = None) -> str:
     """The visible text of a page. Only http(s); a non-public address is refused at every hop (3 redirects at most);
-    10 s timeout; 2 MB read at most (8 MB for a PDF, which `pdftotext` reads when installed; else it is not checked). `allow_hosts` names hosts that skip the address check (a local test page)."""
+    10 s per socket operation and `deadline` seconds (TOTAL_DEADLINE) for the whole call; 2 MB read at most (8 MB for a
+    PDF, which `pdftotext` reads when installed; else it is not checked). `allow_hosts` names hosts that skip the
+    address check, for the URL given only (a local test page): every redirect target is checked as any other."""
     allowed = {h.lower() for h in allow_hosts}
+    end = time.monotonic() + (TOTAL_DEADLINE if deadline is None else deadline)
     for hop in range(MAX_REDIRECTS + 1):
         parts = urllib.parse.urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
@@ -247,8 +326,16 @@ def fetch_text(url: str, allow_hosts: Iterable[str] = ()) -> str:
             port = parts.port or (443 if parts.scheme == "https" else 80)
         except ValueError as exc:
             raise FetchRefused("bad port") from exc
-        address = _resolve(parts.hostname, port, parts.hostname.lower() in allowed)
-        conn = _connection(parts, address, port)
+        address = _resolve(parts.hostname, port, hop == 0 and parts.hostname.lower() in allowed)
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            raise FetchFailed("total time limit passed")
+        conn = _connection(parts, address, port, min(TIMEOUT, remaining))
+        # A server that drips bytes keeps every single read within its timeout: cut the socket at the deadline.
+        cut = threading.Event()
+        cutter = threading.Timer(remaining, _cut, (conn, cut))
+        cutter.daemon = True
+        cutter.start()
         try:
             path = urllib.parse.urlunsplit(("", "", parts.path or "/", parts.query, ""))
             conn.request("GET", path, headers={"Host": parts.netloc.rsplit("@", 1)[-1], "Accept": "text/html,text/plain,application/pdf",
@@ -269,10 +356,15 @@ def fetch_text(url: str, allow_hosts: Iterable[str] = ()) -> str:
             pdf = ctype == "application/pdf" and shutil.which("pdftotext") is not None
             if not (pdf or _is_text_type(ctype)):
                 raise NotChecked(f"not checked: {ctype or 'unknown type'}")
-            raw = resp.read(MAX_PDF_BYTES if pdf else MAX_BYTES)
+            raw = _read(resp, MAX_PDF_BYTES if pdf else MAX_BYTES, end)
+            if cut.is_set():
+                raise FetchFailed("total time limit passed")
         except (OSError, http.client.HTTPException) as exc:
+            if cut.is_set():
+                raise FetchFailed("total time limit passed") from exc
             raise FetchFailed(f"{type(exc).__name__}: {exc}") from exc
         finally:
+            cutter.cancel()
             conn.close()
         if pdf:
             return _pdf_text(raw)
@@ -356,12 +448,22 @@ def select_passages(page: str, text: str, limit: int = PAGE_CHARS) -> list[str]:
 
 
 def check_rows(rows: Iterable[Any], items: Mapping[str, Mapping[str, str]], fetch: Callable[[str], str] = fetch_text,
-               max_pages: int = 5) -> Checked:
+               max_urls: int = 5) -> Checked:
     """The web session's rows (`item` is an id of `items`, see `item_ids`) -> entries with the passages of their page.
-    Each distinct URL is fetched once and at most `max_pages` of them; a row whose page could not be fetched, or whose
-    page shares no term with its item, is dropped with its reason."""
+    Only the first `4 * max_urls` rows are considered and only the first `max_urls` distinct URLs among them are
+    fetched, each once, after all rows are checked for shape: a row of any other URL is dropped before any fetch.
+    A row whose page could not be fetched, or whose page shares no term with its item, is dropped with its reason."""
+    rows = list(rows)
     entries: list[dict[str, Any]] = []
     dropped: list[dict[str, Any]] = []
+    limit = ROWS_PER_URL * max_urls
+    if len(rows) > limit:
+        dropped.append({"row": f"{len(rows) - limit} more rows", "reason": "over the row limit"})
+        rows = rows[:limit]
+    allowed: list[str] = []
+    for row in rows:
+        if _shape_problem(row) is None and row["item"] in items and row["url"] not in allowed and len(allowed) < max_urls:
+            allowed.append(row["url"])
     pages: dict[str, str | FetchError] = {}
     spent: dict[str, int] = {}
     seen: set[tuple[str, str, str]] = set()
@@ -375,13 +477,13 @@ def check_rows(rows: Iterable[Any], items: Mapping[str, Mapping[str, str]], fetc
             dropped.append({"row": row, "reason": "unknown item id"})
             continue
         key, url = item_key(item), row["url"]
+        if url not in allowed:
+            dropped.append({"row": row, "reason": "over the page limit"})
+            continue
         if (key, url, row["stance"]) in seen:
             continue
         seen.add((key, url, row["stance"]))
         if url not in pages:
-            if len(pages) >= max_pages:
-                dropped.append({"row": row, "reason": f"over the page cap ({max_pages})"})
-                continue
             try:
                 pages[url] = fetch(url)
             except FetchRefused as exc:
@@ -438,15 +540,19 @@ def plan_commands(verdicts: Mapping[str, Any], entries: Sequence[Mapping[str, An
     sent = set(sent)
     commands: list[list[str]] = []
     refused: list[dict[str, Any]] = []
-    found: dict[str, bool] = {}
+    found: dict[tuple[str, Any], bool] = {}
+    normalized: dict[str, str] = {}   # url -> its page, normalized once
 
     def refuse(row: Any, reason: str) -> None:
         refused.append({"row": row, "reason": reason})
 
     def on_page(quote: Any, url: str) -> bool:
-        key = f"{url}\n{quote}"
+        key = (url, quote)
         if key not in found:
-            found[key] = isinstance(quote, str) and quote_found(quote, pages.get(url, ""))
+            if url not in normalized:
+                normalized[url] = normalize(pages.get(url, ""))
+            wanted = normalize(quote) if isinstance(quote, str) else ""
+            found[key] = len(wanted) >= MIN_QUOTE and wanted in normalized[url]
         return found[key]
 
     notes = verdicts.get("notes", []) if isinstance(verdicts, Mapping) else []
