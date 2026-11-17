@@ -266,6 +266,6 @@ Run on 2026-11-17 with the harness of commit `a9939dc`, Sonnet. The writer wrote
 **Verdict by the criteria above:** S1 is not below 6 of 8 and not 2 above S2, so the stamp showed no effect at this sample size.
 
 - Observed: the sessions rarely read the project syntheses (2 of 16), although the session text names them; they searched the files and found the renamed file every time. The 2 S2 sessions that did read the stale text marked fresh still answered with the new name.
-- Inferred: on this repository the stamp has nothing to protect, because agents check the files anyway; the low use matches the second row of the decision rule (fewer than half the sessions used the syntheses), which says the session sentence does not work, although that row was written for arm B.
+- Inferred: on this repository the stamp has nothing to protect, because agents check the files anyway. The low use (2 of 16 S sessions) is of the kind the second row of the decision rule counts for arm B (fewer than 8 of 16 sessions used the syntheses); that row was not triggered, since B was not run, but it suggests the session sentence alone does not lead sessions to read the syntheses.
 - Not measured: a project where searching is costly or misleading, and sessions that are asked to rely on the syntheses.
 - Cost: 16 sessions, 0.06 to 0.11 USD each, plus the writer.
