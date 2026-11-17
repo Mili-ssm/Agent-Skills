@@ -96,9 +96,11 @@ def test_edit_changes_one_section_and_nothing_else(run, made, tmp_path):
 
 
 def test_edit_the_summary_needs_no_sources_and_last_section_works(run, made, tmp_path):
-    assert run("synthesis", "edit", "s:attention#summary", "--body-file", body(tmp_path, "New summary.\n"))[0] == 0
+    assert run("synthesis", "edit", "s:attention#summary", "--body-file", body(tmp_path, "New summary.\n"),
+               "--shrink")[0] == 0
     add(run, tmp_path, "Last")
-    assert run("synthesis", "edit", "s:attention#last", "--body-file", body(tmp_path, f"Changed.\n\n{SRC}\n", "e.md"))[0] == 0
+    assert run("synthesis", "edit", "s:attention#last", "--body-file", body(tmp_path, f"Changed.\n\n{SRC}\n", "e.md"),
+               "--shrink")[0] == 0
     text = made.read_text(encoding="utf-8")
     assert text.endswith(f"## Last\n\nChanged.\n\n{SRC}\n") and "## Summary\n\nNew summary.\n\n## Last" in text
 
@@ -113,7 +115,6 @@ def test_repeated_or_case_different_heading_is_refused(run, made, tmp_path):
 @pytest.mark.parametrize("text", [
     "No sources here.\n",
     "Text.\n\nSources: nothing linked\n",
-    "Text.\n\nSources: [x](https://example.org/x)\n",
     f"Text.\n\nSources: [x](../knowledge/computing/missing.md)\n",
     "Text.\n\nSources: [x](../../outside.md)\n",
     f"Text.\n\n{SRC}\n\nTrailing paragraph.\n",
@@ -123,7 +124,8 @@ def test_a_part_without_valid_sources_is_refused_and_file_unchanged(run, made, t
     code, _, err = add(run, tmp_path, "Bad", text)
     assert code == 1 and err.startswith("mem:")
     assert made.read_bytes() == before
-    assert run("synthesis", "edit", "s:attention#summary", "--body-file", body(tmp_path, "ok.\n", "s.md"))[0] == 0
+    assert run("synthesis", "edit", "s:attention#summary", "--body-file", body(tmp_path, "ok.\n", "s.md"),
+               "--shrink")[0] == 0
     assert syntheses.validate_section(text, made.parent.parent)
 
 

@@ -33,7 +33,7 @@ import records
 import syntheses
 
 _WRITE_COMMANDS = ("new", "rename", "index", "fetch-sources")
-_SYNTHESIS_WRITES = ("new", "add", "edit")
+_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memories", "curate", "session-index", "signal")
 
@@ -554,9 +554,20 @@ def _topics(v: Any) -> str | None:
     return None if ok else "set a list of topic ids from topics.yaml"
 
 
+_PART_OF = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*#[a-z0-9]+(?:-[a-z0-9]+)*")
+
+
+def _part_of(v: Any) -> str | None:
+    return None if isinstance(v, str) and _PART_OF.fullmatch(v) else "use <synthesis handle>#<section handle>"
+
+
+def _part_hash(v: Any) -> str | None:
+    return None if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{10}", v) else "set the 10-hex fingerprint of the section"
+
+
 LEVELS = ("basic", "beginner", "intermediate", "advanced", "expert", "niche")
 # Fields a note may omit. Empty since 2026-11-07: `level` became required once every note had one (ADR 0004).
-OPTIONAL_FIELDS: frozenset[str] = frozenset()
+OPTIONAL_FIELDS: frozenset[str] = frozenset({"part_of", "part_of_hash"})
 
 # Field order follows the spec tables; `new` writes fields in this order.
 SCHEMAS: dict[str, dict[str, Validator]] = {
@@ -577,6 +588,8 @@ SCHEMAS: dict[str, dict[str, Validator]] = {
         "level": _enum(*LEVELS),
         "origin": _enum("literature", "research", "experience"),
         "updated": _date,
+        "part_of": _part_of,
+        "part_of_hash": _part_hash,
     },
     "research": {
         "title": _string,
@@ -1211,7 +1224,20 @@ def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[P
     """Rule 15: each synthesis parses, repeats no section handle, uses known topics and ends every part with a
     valid `Sources:` line."""
     problems = []
-    for syn in syntheses.load(root / syntheses.SYNTHESES_DIR):
+    loaded = syntheses.load(root / syntheses.SYNTHESES_DIR)
+    for note in notes:
+        part = note.meta.get("part_of") if note.error is None and isinstance(note.meta, dict) else None
+        if isinstance(part, str) and _PART_OF.fullmatch(part):
+            handle, _, section = part.partition("#")
+            syn = next((x for x in loaded if x.handle == handle and x.error is None), None)
+            if syn is None:
+                problems.append(Problem(note.rel, key_line(note.text, "part_of"),
+                                        f"part_of names s:{handle}, which does not exist: fix or remove part_of"))
+            elif not any(sec.handle == section for sec in syn.sections):
+                problems.append(Problem(note.rel, key_line(note.text, "part_of"),
+                                        f"part_of names the section {section} of s:{handle}, which does not exist: "
+                                        "fix or remove part_of"))
+    for syn in loaded:
         rel = syn.path.relative_to(root).as_posix()
         if syn.error:
             problems.append(Problem(rel, 1, f"synthesis cannot be parsed ({syn.error}): fix the frontmatter "
@@ -1708,6 +1734,9 @@ def show(root: Path, paths: list[str], *, sections: list[str] | None = None,
             meta, body, body_line = None, text, 1
         if facts := _key_facts(note_type, meta):
             out.append(facts)
+        if isinstance(meta, dict) and isinstance(meta.get("part_of"), str):
+            ref = "s:" + meta["part_of"]
+            out.append(f"part of: {ref} (extended version: mem show {ref})")
         lines = body.split("\n")
         if outline and ranges:
             out.extend(_outline_ranges(lines, body_line))
@@ -2395,14 +2424,14 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
     out = [f"== s:{handle}"]
     first = text[:syntheses._FRONTMATTER.match(text).end()].count("\n")
     body = lines[first:]
-    if args.outline and args.ranges:
-        out.extend(_outline_ranges(body, first + 1))
-    elif args.outline:
+    if args.outline and not args.ranges:
         out.extend(f"{first + 1 + i}: {line}" for i, _, line in _headings(body))
-    elif args.section:
+    elif args.section and not args.outline:
         out.extend(_sections(body, args.section))
-    else:
+    elif args.all and not args.outline:
         out.extend(lines)
+    else:  # a synthesis is long: the outline with ranges is the default, `--all` prints the file
+        out.extend(_outline_ranges(body, first + 1))
     return "\n".join(out).rstrip("\n")
 
 
@@ -2987,9 +3016,44 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
     return 0
 
 
+@dataclass
+class _StoreLog:
+    """A note's entry in the store-level `.curation-log` (the log sits beside `path`, the store's root)."""
+    path: Path
+    handle: str
+
+
+def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
+    rel = note.relative_to(root.resolve()).as_posix()
+    log = _StoreLog(root / "note", rel)
+    entry = records.last_log_entry(log)
+    if entry is None:
+        print(f"mem: no logged text for {_handle(rel)}: nothing to restore", file=sys.stderr)
+        return 2
+    try:
+        tmp = note.with_name(f".{note.name}.tmp")
+        tmp.write_bytes(entry["before"].encode("utf-8"))
+        os.replace(tmp, note)
+        marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  "action": "restore", "handle": rel, "undone": entry["line"]}
+        with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+            f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{_handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}")
+    log_usage(root, {"cmd": "restore", "scope": "note"})
+    return 0
+
+
 def cmd_restore(args: argparse.Namespace) -> int:
     if args.handle.startswith("s:"):
         return _restore_synthesis(args)
+    if not args.handle.startswith("m:"):
+        store = _optional_store(args)
+        if store is not None and isinstance(found := resolve_note(store, args.handle), Path):
+            root = _writable_store(args, "restore")
+            return 2 if root is None else _restore_note(args, root, found)
     def apply(found, today):
         m = found[0]
         entry = records.last_log_entry(m)
@@ -3099,7 +3163,51 @@ def _tagged(m: records.Memory, extra: str = "") -> str:
     return f"  m:{m.handle}  [{m.kind}, {created}{extra}]  {_flat(m.claim)}"
 
 
+def _curate_notes(args: argparse.Namespace) -> int:
+    root = args.root
+    if root is None:
+        print("mem: curate --notes needs a store", file=sys.stderr)
+        return 2
+    synths = [x for x in syntheses.load(root / syntheses.SYNTHESES_DIR) if x.error is None]
+    try:
+        known = load_topics(root)
+    except FrontmatterError:
+        known = {}
+    unattached, stale = [], []
+    for note in discover_notes(root):
+        if note.type != "knowledge" or note.error is not None or not isinstance(note.meta, dict):
+            continue
+        part = note.meta.get("part_of")
+        name = _handle(note.rel)
+        if not isinstance(part, str):
+            topics = [t for t in note.meta.get("topics", []) if isinstance(t, str)]
+            own = set(_own_topics(known, topics))
+            covering = [x for x in synths if own & set(x.topics)]
+            if covering:
+                unattached.append(f"  {name}  \u2192  {', '.join('s:' + x.handle for x in covering)}  "
+                                  f"{_flat(str(note.meta.get('claim', '')))}")
+            continue
+        handle, _, section = part.partition("#")
+        syn = next((x for x in synths if x.handle == handle), None)
+        sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
+        if sec is not None and note.meta.get("part_of_hash") != syntheses.fingerprint(sec.text):
+            stale.append(f"  {name}  s:{handle}#{section}")
+    out = []
+    if unattached:
+        out.append("notes on a topic that has a synthesis, not yet part of it (add what the note says to a part with "
+                   "mem synthesis append or add, then: mem synthesis attach <note> s:<h>#<section>)")
+        out += unattached
+    if stale:
+        out.append("notes older than their section (rewrite the note from the section: mem show s:<h>#<section>)")
+        out += stale
+    if out:
+        print("\n".join(out))
+    return 0
+
+
 def cmd_curate(args: argparse.Namespace) -> int:
+    if args.notes:
+        return _curate_notes(args)
     today = datetime.date.today()
     folders = _memory_folders(args)
     if args.is_project or args.is_global:
@@ -3221,6 +3329,124 @@ def _synthesis_text(source: str | None) -> str | None:
         return None
 
 
+def _long_note(handle: str, path: Path, section: str) -> None:
+    sec = next((x for x in syntheses.load_one(path).sections if x.handle == section), None)
+    if sec is not None and (n := syntheses.word_count(sec.text)) > syntheses.LONG_SECTION_WORDS:
+        print(f"mem: s:{handle}#{section} has {n} words: consider splitting it into two parts "
+              "(mem synthesis add).", file=sys.stderr)
+
+
+def _own_topics(known: dict, topics: Sequence[str]) -> list[str]:
+    """The topics a note was filed under: those that are not the ancestor of another listed topic."""
+    return [t for t in topics if not any(t in ancestors(known, o) for o in topics if o != t)]
+
+
+def _covering(root: Path, topics: Sequence[str]) -> list[syntheses.Synthesis]:
+    """Syntheses that list one of `topics` by its exact id (no ancestors, no descendants)."""
+    try:
+        known = load_topics(root)
+    except FrontmatterError:
+        known = {}
+    own = set(_own_topics(known, topics))
+    return [x for x in syntheses.load(root / syntheses.SYNTHESES_DIR) if x.error is None and own & set(x.topics)]
+
+
+def _section_ref(root: Path, ref: str) -> tuple[syntheses.Synthesis, syntheses.Section]:
+    """`s:<h>#<section>` as the synthesis and section it names; ValueError when either is missing."""
+    handle, section = syntheses.split_ref(ref)
+    path = syntheses.path_of(root / syntheses.SYNTHESES_DIR, handle)
+    if section is None or path is None or not path.is_file():
+        raise ValueError(f"{ref} must name an existing synthesis section: s:<handle>#<section handle>")
+    syn = syntheses.load_one(path)
+    if syn.error:
+        raise ValueError(f"{path.name}: {syn.error}")
+    found = next((x for x in syn.sections if x.handle == section), None)
+    if found is None:
+        raise ValueError(f"no section {section} in s:{handle}")
+    return syn, found
+
+
+def _log_note(root: Path, path: Path, rel: str, action: str) -> None:
+    """The note's current text, appended to the store's `.curation-log` before a curation action changes it."""
+    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
+             "handle": rel, "before": path.read_bytes().decode("utf-8")}
+    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _set_part_of(text: str, part_of: str, digest: str) -> str:
+    m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
+    if m is None:
+        raise ValueError("the note has no frontmatter")
+    kept = [ln for ln in m.group(1).split("\n") if not re.match(r"part_of(_hash)?:", ln)]
+    head = "---\n" + "\n".join([*kept, f"part_of: {json.dumps(part_of)}", f"part_of_hash: {json.dumps(digest)}"]) + "\n---\n"
+    return head + text[m.end():]
+
+
+def _attach(args: argparse.Namespace) -> int:
+    root = args.root
+    found = resolve_note(root, args.note)
+    if isinstance(found, list):
+        _ambiguous(args.note, found)
+        return 2
+    if found is None:
+        print(f"mem: no note {args.note}", file=sys.stderr)
+        return 2
+    rel = found.relative_to(root.resolve()).as_posix()
+    if not rel.startswith("knowledge/"):
+        print(f"mem: {rel} is not a knowledge note: only knowledge notes are part of a synthesis", file=sys.stderr)
+        return 2
+    try:
+        syn, sec = _section_ref(root, args.target)
+        text = _read_text(found)
+        _log_note(root, found, rel, "attach")
+        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.fingerprint(sec.text)).encode("utf-8"))
+    except (ValueError, OSError, FrontmatterError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"{_handle(rel)}\tpart of s:{syn.handle}#{sec.handle}")
+    log_usage(root, {"cmd": "synthesis", "action": "attach"})
+    return 0
+
+
+def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str, body: str,
+                   today: datetime.date) -> str:
+    """The section and the knowledge note that summarizes it, both or neither; returns the note's path."""
+    syn = syntheses.load_one(path)
+    note_body = _read_body(args.note_body_file)
+    section_handle, _, cleaned = syntheses.prepare_add(path, args.section, body, today)
+    kinds = syntheses.source_kinds(cleaned)
+    origin = args.origin or ("literature" if kinds & {"literature", "url"} else
+                             "research" if "research" in kinds else
+                             "experience" if "experience" in kinds else "literature")
+    undo = syntheses.snapshot(path)
+    syntheses.add_section(path, args.section, body, today)
+    target = None
+    try:
+        known = load_topics(root)
+        domain = root_of(known, syn.topics[0]) if syn.topics and syn.topics[0] in known else None
+        created = not (root / "knowledge" / str(domain)).exists()
+        target = new_note(root, "knowledge", slug=args.note_slug, topics=list(syn.topics), today=today, body=note_body,
+                          claim=args.note_claim, confidence=args.confidence, level=args.level, origin=origin,
+                          part_of=f"{handle}#{section_handle}", part_of_hash=syntheses.fingerprint(cleaned))
+        rel = target.relative_to(root).as_posix()
+        if found := [p for p in check(root) if p.path == rel]:
+            raise NewNoteError(f"the note has {len(found)} problems, so nothing was written: "
+                               + "; ".join(str(p) for p in found))
+    except Exception:
+        if target is not None:
+            target.unlink(missing_ok=True)
+            if created:
+                shutil.rmtree(target.parent, ignore_errors=True)
+            try:
+                apply_index(root)
+            except (FrontmatterError, OSError):
+                pass
+        undo()
+        raise
+    return rel
+
+
 def cmd_synthesis(args: argparse.Namespace) -> int:
     root = args.root
     folder = root / syntheses.SYNTHESES_DIR
@@ -3239,6 +3465,13 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
             elif wanted is None or wanted & set(syn.topics):
                 print(f"s:{syn.handle}\t{len(syn.parts)} parts, updated {syn.updated}\t{syn.title}")
         return 0
+    if action == "attach":
+        return _attach(args)
+    note_group = [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level] \
+        if action == "add" else []
+    one_call = any(note_group)
+    if one_call and not all(note_group):
+        build_parser().error("--note-slug, --note-claim, --note-body-file, --confidence and --level go together")
     try:
         if action == "new":
             topics = [t.strip() for t in args.topics.split(",") if t.strip()]
@@ -3248,6 +3481,9 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
             for t in topics:
                 if t not in known:
                     raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+            for other in syntheses.load(folder):
+                if other.error is None and (clash := [t for t in topics if t in other.topics]):
+                    raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}; add a part to it.")
             summary = _synthesis_text(args.summary_file)
             if summary is None:
                 return 1
@@ -3270,17 +3506,29 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                 problems = syntheses.validate_section(body, root) if body.strip() else []
                 if problems:
                     raise ValueError("; ".join(problems))
-                new_handle = syntheses.add_section(path, args.section, body, today)
+                if one_call:
+                    note_rel = _add_with_note(args, root, path, handle, body, today)
+                    new_handle = syntheses.section_handle(args.section)
+                else:
+                    new_handle = syntheses.add_section(path, args.section, body, today)
                 print(f"s:{handle}#{new_handle}\tadded")
+                if one_call:
+                    print(note_rel)
             else:
                 if section is None:
-                    raise ValueError("edit takes s:<handle>#<section handle>")
-                problems = syntheses.validate_section(body, root) if section != syntheses.SUMMARY and body.strip() else []
-                if problems:
-                    raise ValueError("; ".join(problems))
-                syntheses.edit_section(path, section, body, today)
-                print(f"s:{handle}#{section}\tedited")
-    except (ValueError, OSError, FrontmatterError, yaml.YAMLError) as exc:
+                    raise ValueError(f"{action} takes s:<handle>#<section handle>")
+                if action == "append":
+                    syntheses.append_section(path, section, body, today, store=root)
+                    print(f"s:{handle}#{section}\tappended")
+                else:
+                    problems = (syntheses.validate_section(body, root)
+                                if section != syntheses.SUMMARY and body.strip() else [])
+                    if problems:
+                        raise ValueError("; ".join(problems))
+                    syntheses.edit_section(path, section, body, today, shrink=args.shrink)
+                    print(f"s:{handle}#{section}\tedited")
+            _long_note(handle, path, new_handle if action == "add" else section)
+    except (ValueError, OSError, FrontmatterError, yaml.YAMLError, NewNoteError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
     log_usage(root, {"cmd": "synthesis", "action": action})
@@ -3291,14 +3539,22 @@ def cmd_new(args: argparse.Namespace) -> int:
     fields = {k: getattr(args, k) for k in _NEW_FIELDS[args.type]}
     topics = [t.strip() for t in args.topics.split(",") if t.strip()]
     try:
+        if getattr(args, "part_of", None):
+            syn, sec = _section_ref(args.root, args.part_of)
+            fields["part_of"] = f"{syn.handle}#{sec.handle}"
+            fields["part_of_hash"] = syntheses.fingerprint(sec.text)
         body = _read_body(args.body_file) if args.body_file else None
         path = new_note(args.root, args.type, slug=args.slug, topics=topics,
                         today=datetime.date.today(), body=body, **fields)
-    except (NewNoteError, OSError) as exc:
+    except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
     rel = path.relative_to(args.root).as_posix()
     print(rel)
+    if args.type == "knowledge" and "part_of" not in fields:
+        for syn in _covering(args.root, topics):
+            print(f"mem: s:{syn.handle} ({syn.title}) covers this topic; a curation pass can attach this note to it "
+                  "(mem curate --notes).", file=sys.stderr)
     if body is not None and (found := [p for p in check(args.root) if p.path == rel]):
         print(f"check: {len(found)} problems in {rel}:", file=sys.stderr)
         for problem in found:
@@ -3653,6 +3909,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--outline", action="store_true", help="list headings with line numbers")
     show_parser.add_argument("--ranges", action="store_true",
                              help="with --outline: print start-end lines and word count per heading")
+    show_parser.add_argument("--all", action="store_true", help="a synthesis: print the whole file, not its outline")
     show_parser.set_defaults(func=cmd_show)
     topics_parser = sub.add_parser("topics", help="print the topic tree with note counts")
     topics_parser.add_argument("topic", nargs="?", metavar="ID", help="print only this topic's subtree")
@@ -3693,6 +3950,9 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="text (or - for standard input) that replaces the template body")
         for flag, opts in flags.items():
             type_parser.add_argument(f"--{flag}", required=True, **opts)
+        if note_type == "knowledge":
+            type_parser.add_argument("--part-of", metavar="s:HANDLE#SECTION",
+                                     help="the synthesis section this note summarizes")
         type_parser.set_defaults(func=cmd_new)
     remember_parser = sub.add_parser("remember", help="write a memory in the project or, with --global, in the global folder")
     remember_parser.add_argument("--kind", required=True, choices=records.KINDS)
@@ -3755,6 +4015,8 @@ def build_parser() -> argparse.ArgumentParser:
     memories_parser.add_argument("--kind", choices=records.KINDS)
     memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
     memories_parser.set_defaults(func=cmd_memories)
+    curate_parser.add_argument("--notes", action="store_true",
+                               help="list notes to attach to a synthesis part, and notes older than their part")
     curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
     curate_parser.set_defaults(func=cmd_curate)
     synthesis_parser = sub.add_parser("synthesis", help="create and extend syntheses, the long documents behind notes")
@@ -3768,9 +4030,22 @@ def build_parser() -> argparse.ArgumentParser:
     syn_add.add_argument("target", metavar="s:HANDLE")
     syn_add.add_argument("--section", required=True, metavar="HEADING")
     syn_add.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    syn_add.add_argument("--note-slug", metavar="SLUG", help="also write a knowledge note that summarizes the section")
+    syn_add.add_argument("--note-claim", metavar="TEXT")
+    syn_add.add_argument("--note-body-file", metavar="PATH", help="the note's body (or - for standard input)")
+    syn_add.add_argument("--confidence", choices=_CONFIDENCE)
+    syn_add.add_argument("--level", choices=LEVELS)
+    syn_add.add_argument("--origin", choices=_ORIGINS, help="default: taken from the section's Sources line")
     syn_edit = synthesis_sub.add_parser("edit", help="replace the text of one section; the rest of the file stays")
     syn_edit.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_edit.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    syn_edit.add_argument("--shrink", action="store_true", help="allow a text with fewer words or links than before")
+    syn_append = synthesis_sub.add_parser("append", help="add text at the end of a section, before its Sources line")
+    syn_append.add_argument("target", metavar="s:HANDLE#SECTION")
+    syn_append.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    syn_attach = synthesis_sub.add_parser("attach", help="make a knowledge note the short recall of a section")
+    syn_attach.add_argument("note", metavar="NOTE")
+    syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
     synthesis_parser.set_defaults(func=cmd_synthesis)

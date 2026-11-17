@@ -8,6 +8,7 @@ Imports nothing from mem.py (mem.py imports this module), so matching takes a to
 from __future__ import annotations
 
 import datetime
+import hashlib
 import os
 import re
 import unicodedata
@@ -29,6 +30,10 @@ _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 _SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
 _HANDLE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+_EXPERIENCE = re.compile(r"\bexperience (\d{4}-\d{2}-\d{2})\b")
+_BARE_URL = re.compile(r"https://[^\s,;)\]]+")
+LONG_SECTION_WORDS = 800
+SHRINK_RATIO = 0.8
 
 
 @dataclass
@@ -165,14 +170,18 @@ def load(folder: Path | None) -> list[Synthesis]:
 
 
 def validate_section(text: str, store: Path) -> list[str]:
-    """Problems with a part's closing `Sources:` line: missing, without a relative link, or a link that does not
-    resolve to a note file (literature, knowledge or research) inside the store."""
+    """Problems with a part's closing `Sources:` line: missing, citing nothing acceptable, or a note link that does
+    not resolve to a note file (literature, knowledge or research) inside the store. A line may cite a note by a
+    relative link, an `https` URL (link or bare), or `experience <YYYY-MM-DD>` for knowledge that has no note yet."""
     line = _sources_line(text)
     if line is None:
-        return ["the part must end with a `Sources:` line linking the notes it rests on"]
+        return ["the part must end with a `Sources:` line citing a note link, an https URL or `experience <date>`"]
     targets = [t for t in _links(line) if _relative(t)]
-    if not targets:
-        return ["the `Sources:` line has no relative Markdown link to a note"]
+    loose = _LINK.sub("", line)
+    experience = [d for d in _EXPERIENCE.findall(loose) if _is_date(d)]
+    urls = [t for t in _links(line) if t.startswith("https://")] + _BARE_URL.findall(loose)
+    if not (targets or experience or urls):
+        return ["the `Sources:` line has no relative Markdown link to a note, https URL or `experience <date>`"]
     base, root = (store / SYNTHESES_DIR).resolve(), store.resolve()
     problems = []
     for target in targets:
@@ -185,6 +194,63 @@ def validate_section(text: str, store: Path) -> list[str]:
         if not (rel.parts and rel.parts[0] in NOTE_FOLDERS and resolved.suffix == ".md" and resolved.is_file()):
             problems.append(f"source {target} is not an existing note of the store")
     return problems
+
+
+def _is_date(value: str) -> bool:
+    try:
+        datetime.date.fromisoformat(value)
+        return True
+    except ValueError:
+        return False
+
+
+def source_kinds(text: str) -> set[str]:
+    """What a part's `Sources:` line cites: the note folders (`literature`, `knowledge`, `research`), `url`,
+    `experience`."""
+    line = _sources_line(text) or ""
+    kinds = {parts[-3] for t in _links(line) if _relative(t) and len(parts := Path(_file_part(t)).parts) >= 3
+             and parts[-3] in NOTE_FOLDERS}
+    loose = _LINK.sub("", line)
+    if any(t.startswith("https://") for t in _links(line)) or _BARE_URL.search(loose):
+        kinds.add("url")
+    if any(_is_date(d) for d in _EXPERIENCE.findall(loose)):
+        kinds.add("experience")
+    return kinds
+
+
+def fingerprint(text: str) -> str:
+    """A short hash of a section's text without its `Sources:` line and surrounding whitespace."""
+    lines = text.split("\n")
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    if last is not None and lines[last].startswith("Sources:"):
+        lines = lines[:last]
+    return hashlib.sha256("\n".join(lines).strip().encode("utf-8")).hexdigest()[:10]
+
+
+def word_count(text: str) -> int:
+    return len(text.split())
+
+
+def first_paragraph(text: str) -> str:
+    """The text up to the first blank line; empty when that paragraph is the `Sources:` line."""
+    para = re.split(r"\n\s*\n", text.strip(), maxsplit=1)[0]
+    return "" if para.startswith("Sources:") else para
+
+
+def snapshot(path: Path):
+    """A function that puts back the synthesis and its curation log as they are now (for a write that must not
+    leave half a change when a later step fails)."""
+    log = path.parent / records.CURATION_LOG
+    before = path.read_bytes()
+    log_before = log.read_bytes() if log.exists() else None
+
+    def undo() -> None:
+        path.write_bytes(before)
+        if log_before is None:
+            log.unlink(missing_ok=True)
+        else:
+            log.write_bytes(log_before)
+    return undo
 
 
 def _clean(text: str) -> str:
@@ -226,8 +292,8 @@ def create(folder: Path, slug: str, text: str) -> Path:
     return path
 
 
-def add_section(path: Path, heading: str, text: str, today: datetime.date) -> str:
-    """Append `## heading` and its text; returns the section handle. Logs the previous file for undo."""
+def prepare_add(path: Path, heading: str, text: str, today: datetime.date) -> tuple[str, str, str]:
+    """Check an `add` without writing: (section handle, new file text, cleaned section text)."""
     syn = load_one(path)
     if syn.error:
         raise ValueError(f"{path.name}: {syn.error}")
@@ -244,13 +310,18 @@ def add_section(path: Path, heading: str, text: str, today: datetime.date) -> st
     old = _read(path)
     base = old if old.endswith("\n") else old + "\n"
     new = base + ("" if base.endswith("\n\n") else "\n") + f"## {heading}\n\n{text}\n"
-    records.log_before(syn, "add")
-    _write(path, _bump(new, today))
+    return handle, _bump(new, today), text
+
+
+def add_section(path: Path, heading: str, text: str, today: datetime.date) -> str:
+    """Append `## heading` and its text; returns the section handle. Logs the previous file for undo."""
+    handle, new, _ = prepare_add(path, heading, text, today)
+    records.log_before(load_one(path), "add")
+    _write(path, new)
     return handle
 
 
-def edit_section(path: Path, section: str, text: str, today: datetime.date) -> None:
-    """Replace the text under one section's heading; every other byte of the file stays. Logs the previous file."""
+def _target(path: Path, section: str) -> tuple[Synthesis, Section]:
     syn = load_one(path)
     if syn.error:
         raise ValueError(f"{path.name}: {syn.error}")
@@ -259,22 +330,80 @@ def edit_section(path: Path, section: str, text: str, today: datetime.date) -> N
         raise ValueError(f"no section {section!r} in s:{syn.handle}")
     if sum(1 for s in syn.sections if s.handle == section) > 1:
         raise ValueError(f"the handle {section!r} is repeated in s:{syn.handle}: rename one heading first")
-    text = _clean(text)
-    if not text:
-        raise ValueError("the section text is empty")
-    _check_body(text)
+    return syn, target
+
+
+def _replace(path: Path, syn: Synthesis, target: Section, text: str, today: datetime.date, action: str) -> None:
     old = _read(path)
     lines, heads = _scan(old)
     n = next(k for k, (i, _) in enumerate(heads) if i + 1 == target.line)
     end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
     lines[heads[n][0] + 1:end] = ["", *text.split("\n"), ""]
-    records.log_before(syn, "edit")
+    records.log_before(syn, action)
     _write(path, _bump("\n".join(lines), today))
+
+
+def _guard_shrink(old: str, new: str) -> None:
+    dropped = word_count(old) - word_count(new)
+    lost = list(dict.fromkeys(t for t in _links(old) if t not in set(_links(new))))
+    if lost or word_count(new) < SHRINK_RATIO * word_count(old):
+        raise ValueError(f"the new text drops {max(dropped, 0)} words and the links "
+                         f"{', '.join(lost) if lost else 'none'}; use --shrink if that is meant.")
+
+
+def edit_section(path: Path, section: str, text: str, today: datetime.date, *, shrink: bool = False) -> None:
+    """Replace the text under one section's heading; every other byte of the file stays. Logs the previous file.
+
+    Refused, unless `shrink`, when the new text has under 80% of the words or lacks a link of the old one."""
+    syn, target = _target(path, section)
+    text = _clean(text)
+    if not text:
+        raise ValueError("the section text is empty")
+    _check_body(text)
+    if not shrink:
+        _guard_shrink(target.text, text)
+    _replace(path, syn, target, text, today, "edit")
+
+
+def append_section(path: Path, section: str, text: str, today: datetime.date, *, store: Path | None = None) -> None:
+    """Add text at the end of a section, before its `Sources:` line; links of a closing `Sources:` line in `text`
+    join the section's own line."""
+    syn, target = _target(path, section)
+    text = _clean(text)
+    if not text:
+        raise ValueError("the text to append is empty")
+    _check_body(text)
+    old_src, new_src = _sources_line(target.text), _sources_line(text)
+
+    def without_sources(t: str, src: str | None) -> str:
+        if src is None:
+            return t.strip("\n")
+        lines = t.rstrip("\n").split("\n")
+        while lines and not lines[-1].strip():
+            lines.pop()
+        return "\n".join(lines[:-1]).strip("\n")
+
+    main, added = without_sources(target.text, old_src), without_sources(text, new_src)
+    items = []
+    if new_src:
+        have = old_src or ""
+        items = [i.strip() for i in re.split(r",\s*(?=\[|experience\b|https?://)", new_src.removeprefix("Sources:").strip())
+                 if i.strip() and i.strip() not in have]
+    if old_src:
+        src = old_src.rstrip() + "".join(", " + i for i in items)
+    else:
+        src = "Sources: " + ", ".join(items) if items else None
+    if not added and not items:
+        raise ValueError("the text to append adds nothing")
+    new = "\n\n".join(p for p in (main, added, src) if p)
+    if store is not None and section != SUMMARY and (problems := validate_section(new, store)):
+        raise ValueError("; ".join(problems))
+    _replace(path, syn, target, new, today, "append")
 
 
 def match_sections(syntheses: Sequence[Synthesis], query_tokens: Sequence[str], *,
                    tokenize: Callable[[str], list[str]], limit: int = 2) -> list[tuple[Synthesis, Section]]:
-    """Sections holding at least half (rounded up) of the query's non-stop-word terms in heading and text.
+    """Sections holding at least half (rounded up) of the query's non-stop-word terms in heading and first paragraph.
 
     Best first: most terms in the heading, then most overall, then handle."""
     terms = set(query_tokens) - records.STOPWORDS
@@ -287,7 +416,7 @@ def match_sections(syntheses: Sequence[Synthesis], query_tokens: Sequence[str], 
             continue
         for sec in syn.sections:
             in_heading = terms & set(tokenize(sec.heading))
-            overall = terms & set(tokenize(sec.heading + " " + sec.text))
+            overall = terms & set(tokenize(sec.heading + " " + first_paragraph(sec.text)))
             if len(overall) >= need:
                 scored.append((syn, sec, len(in_heading), len(overall)))
     scored.sort(key=lambda t: (-t[2], -t[3], t[0].handle, t[1].line))
