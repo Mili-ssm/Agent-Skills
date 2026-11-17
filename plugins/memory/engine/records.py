@@ -43,6 +43,7 @@ class Memory:
     distinct_from: list[str] = field(default_factory=list)
     promote: str | None = None
     refuted: datetime.date | None = None
+    superseded_by: str | None = None
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -180,8 +181,10 @@ def _parse(path: Path, scope: str) -> Memory:
             refuted = None
         distinct = meta.get("distinct_from")
         distinct = [str(h) for h in distinct] if isinstance(distinct, list) else []
-        promote = "no" if meta.get("promote") in ("no", False) else None  # YAML reads a bare no as False
-        return replace(base, kind=kind, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        promote = "no" if meta.get("promote") in ("no", False) else "done" if meta.get("promote") == "done" else None  # YAML reads a bare no as False
+        superseded_by = meta.get("superseded_by")
+        superseded_by = str(superseded_by) if superseded_by else None
+        return replace(base, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -343,10 +346,36 @@ def differing_words(a: str, b: str) -> list[str]:
     return sorted(_claim_words(a) ^ _claim_words(b))
 
 
-def is_flagged(word: str) -> bool:
-    """A negation word, or a token of only digits and dots: a score cannot tell it from its opposite or a version."""
-    return (word in _NEGATIONS or word.endswith(("n't", "n\u2019t"))
-            or (any(c.isdigit() for c in word) and all(c.isdigit() or c == "." for c in word)))
+# Pairs of words that make two claims opposites; either member of a pair may be the one in each claim.
+OPPOSITES = ("works/fails work/fail passes/fails pass/fail enable/disable enabled/disabled allow/deny "
+             "allowed/denied before/after always/never on/off safe/unsafe increase/decrease with/without "
+             "can/cannot must/may add/remove start/stop true/false required/optional sync/async up/down").split()
+
+
+def _partners() -> dict[str, set[str]]:
+    found: dict[str, set[str]] = {}
+    for pair in OPPOSITES:
+        x, y = pair.split("/")
+        found.setdefault(x, set()).add(y)
+        found.setdefault(y, set()).add(x)
+    return found
+
+
+_PARTNERS = _partners()
+
+
+def flagged_words(a: str, b: str) -> list[str]:
+    """The words that differ between two claims and may mean opposites or different versions: any token with a
+    digit, a negation, and a word of OPPOSITES whose partner is among the other claim's differing words."""
+    wa, wb = _claim_words(a), _claim_words(b)
+    only_a, only_b = wa - wb, wb - wa
+    flagged = set()
+    for mine, other in ((only_a, only_b), (only_b, only_a)):
+        for w in mine:
+            if (w in _NEGATIONS or w.endswith(("n't", "n\u2019t")) or any(c.isdigit() for c in w)
+                    or _PARTNERS.get(w, set()) & other):
+                flagged.add(w)
+    return sorted(flagged)
 
 
 def log_before(memory: Memory, action: str) -> None:
@@ -357,27 +386,51 @@ def log_before(memory: Memory, action: str) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def last_log_entry(memory: Memory) -> dict | None:
-    """The newest `.curation-log` line for the memory's handle, or None."""
+def _log_lines(memory: Memory) -> list[str] | None:
     try:
-        lines = (memory.path.parent / CURATION_LOG).read_text(encoding="utf-8").splitlines()
+        # split on "\n" only: splitlines() would also cut at U+0085 or U+2028 inside a JSON string
+        return (memory.path.parent / CURATION_LOG).read_text(encoding="utf-8").split("\n")
     except OSError:
         return None
-    for line in reversed(lines):
+
+
+def last_log_entry(memory: Memory) -> dict | None:
+    """The newest `.curation-log` entry for the memory's handle that no restore has used yet, or None.
+
+    Undo is a stack over an append-only log: a restore appends a marker naming the entry (by line number) it used.
+    The entry returned gains `line` (its number) and `skipped` (the unreadable lines of the log)."""
+    lines = _log_lines(memory)
+    if lines is None:
+        return None
+    parsed: list[dict | None] = []
+    skipped = 0
+    for line in lines:
+        if not line.strip():
+            parsed.append(None)
+            continue
         try:
             entry = json.loads(line)
         except ValueError:
-            continue
-        if isinstance(entry, dict) and entry.get("handle") == memory.handle and isinstance(entry.get("before"), str):
-            return entry
+            skipped += 1
+            entry = None
+        parsed.append(entry if isinstance(entry, dict) and entry.get("handle") == memory.handle else None)
+    undone = {e["undone"] for e in parsed if e and e.get("action") == "restore" and isinstance(e.get("undone"), int)}
+    for number in range(len(parsed) - 1, -1, -1):
+        entry = parsed[number]
+        if entry and isinstance(entry.get("before"), str) and number not in undone:
+            return {**entry, "line": number, "skipped": skipped}
     return None
 
 
 def restore(memory: Memory, entry: dict) -> None:
-    """Put back the text a log entry holds, byte for byte, through a temporary file."""
+    """Put back the text a log entry holds, byte for byte, through a temporary file, then log that it was used."""
     tmp = memory.path.with_name(f".{memory.path.name}.tmp")
     tmp.write_bytes(entry["before"].encode("utf-8"))
     os.replace(tmp, memory.path)
+    marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": "restore",
+              "handle": memory.handle, "undone": entry["line"]}
+    with (memory.path.parent / CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(marker, ensure_ascii=False) + "\n")
 
 
 def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, today: datetime.date) -> int:

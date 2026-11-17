@@ -2797,8 +2797,16 @@ def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list
 
 def cmd_confirm(args: argparse.Namespace) -> int:
     def apply(found, today):
+        until = getattr(args, "until", None)
+        if until is not None:
+            try:
+                until = datetime.date.fromisoformat(until)
+            except ValueError:
+                raise ValueError(f"--until needs a date as YYYY-MM-DD, not {until!r}") from None
         records.log_before(found[0], "confirm")
         updated = records.observe(found[0], today)
+        if until is not None:
+            updated = records.update(updated, today, valid_until=until)
         return [f"m:{updated.handle}\tobserved {updated.observed}"]
     return _act(args, [args.handle], apply, args.command)
 
@@ -2846,7 +2854,7 @@ def cmd_supersede(args: argparse.Namespace) -> int:
 def cmd_merge(args: argparse.Namespace) -> int:
     def apply(found, today):
         keep, drop = found
-        flagged = [w for w in records.differing_words(keep.claim, drop.claim) if records.is_flagged(w)]
+        flagged = records.flagged_words(keep.claim, drop.claim)
         if flagged and not args.force:
             raise ValueError(f"these claims differ in {', '.join(flagged)}: they may be opposites or different "
                              "versions; use --force to merge anyway.")
@@ -2878,7 +2886,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
         entry = records.last_log_entry(m)
         if entry is None:
             raise ValueError(f"no logged text for m:{m.handle}: nothing to restore")
-        records.log_before(m, "restore")
+        if entry["skipped"]:
+            print(f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr)
         records.restore(m, entry)
         return [f"m:{m.handle}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}"]
     return _act(args, [args.handle], apply, "restore")
@@ -2886,11 +2895,13 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
 def cmd_promote(args: argparse.Namespace) -> int:
     args.is_global = False
-    if args.no:
+    if args.no or args.done:
+        value, text = ("no", "not to be promoted") if args.no else ("done", "promoted")
+
         def apply(found, today):
             records.log_before(found[0], "promote")
-            records.update(found[0], today, promote="no")
-            return [f"m:{found[0].handle}\tnot to be promoted"]
+            records.update(found[0], today, promote=value)
+            return [f"m:{found[0].handle}\t{text}"]
         for handle in args.handles:
             if _act(args, [handle], apply, "promote") != 0:
                 return 2
@@ -2907,7 +2918,7 @@ def cmd_promote(args: argparse.Namespace) -> int:
         if m.context:
             print(f"  context: {' '.join(m.context.split())}")
     print("Rewrite the claim in general terms, with no name of a project, system, client or person, "
-          "before you run it.")
+          "before you run it; then run: mem promote --done <h>")
     return 0
 
 
@@ -3002,6 +3013,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 print(f"mem: {exc}", file=sys.stderr)
                 return 2
         return 0
+    scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
     live = [m for m in every if records.is_live(m, today)]
     cutoff = today - datetime.timedelta(days=_STALE_DAYS)
@@ -3020,9 +3032,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
             out += [_tagged(a), _tagged(b), f"  differ in: {', '.join(records.differing_words(a.claim, b.claim))}"]
     expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today]
     if expired:
-        out.append("expired (decide: mem forget <h>, or mem remember again with a new date)")
+        out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
         out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
-    frequent = [m for m in live if m.observed >= _FREQUENT and m.promote != "no"]
+    frequent = [m for m in live if m.observed >= _FREQUENT and not m.promote]
     if frequent:
         out.append(f"seen {_FREQUENT} times or more: general enough for a note? (mem promote <h>)")
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
@@ -3517,7 +3529,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name, text in (("confirm", "count one more observation of a memory"),
                        ("observe", "alias of confirm")):
-        memory_command(name, text, "handle").set_defaults(func=cmd_confirm)
+        confirm_parser = memory_command(name, text, "handle")
+        confirm_parser.add_argument("--until", metavar="YYYY-MM-DD", help="also set valid_until to this date")
+        confirm_parser.set_defaults(func=cmd_confirm)
     memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
     memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
     memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
@@ -3530,6 +3544,7 @@ def build_parser() -> argparse.ArgumentParser:
                    "handle").set_defaults(func=cmd_restore)
     promote_parser = sub.add_parser("promote", help="print a draft of a global memory from project memories")
     promote_parser.add_argument("--no", action="store_true", help="record that the memory is not for a global note")
+    promote_parser.add_argument("--done", action="store_true", help="record that the memory was promoted")
     promote_parser.add_argument("handles", nargs="+", metavar="m:HANDLE")
     promote_parser.set_defaults(func=cmd_promote)
     memories_parser = sub.add_parser("memories", help="list memories, newest first")

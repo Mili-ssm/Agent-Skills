@@ -114,7 +114,7 @@ def test_curate_prints_the_four_blocks(project, capsys):
         f"  m:k1  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls",
         f"  m:k2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
         "  differ in: never",
-        "expired (decide: mem forget <h>, or mem remember again with a new date)",
+        "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)",
         f"  m:exp  valid until {days_ago(3)}  Cache warmup takes long",
         "seen 3 times or more: general enough for a note? (mem promote <h>)",
         "  m:often  observed 4  Zebra crossing lights flicker",
@@ -351,18 +351,40 @@ def test_merge_logs_both_files_and_restore_undoes_each(project, capsys):
     assert [ln["action"] for ln in log_lines(project)].count("restore") == 2
 
 
-def test_restore_twice_undoes_the_restore_and_unknown_log_exits_2(project, capsys):
-    a = put(project, "a", "Alpha beta gamma")
-    original = a.read_bytes()
-    run(capsys, "forget", "m:a")
-    forgotten = a.read_bytes()
-    run(capsys, "restore", "m:a")
-    assert a.read_bytes() == original
-    code, out, _ = run(capsys, "restore", "m:a")
-    assert out.startswith("m:a\trestored to before restore of") and a.read_bytes() == forgotten
+def test_restore_walks_back_step_by_step_to_the_original(project, capsys):
+    a = put(project, "a", "Alpha beta gamma", body="Body.\n")
+    states = [a.read_bytes()]
+    for argv in (("confirm", "m:a"), ("refute", "m:a", "--because", "why"), ("forget", "m:a")):
+        run(capsys, *argv)
+        states.append(a.read_bytes())
+    for expected in reversed(states[:-1]):
+        assert run(capsys, "restore", "m:a")[0] == 0
+        assert a.read_bytes() == expected
+    code, out, err = run(capsys, "restore", "m:a")
+    assert (code, out) == (2, "") and "no logged text" in err
+    run(capsys, "forget", "m:a")  # a new action after the undo is undoable again
+    assert run(capsys, "restore", "m:a")[0] == 0 and a.read_bytes() == states[0]
     put(project, "b", "Beta gamma delta")
     code, out, err = run(capsys, "restore", "m:b")
     assert (code, out) == (2, "") and err.startswith("mem: ")
+
+
+def test_restore_a_body_with_a_unicode_line_separator(project, capsys):
+    a = put(project, "a", "Alpha beta gamma", body="one\u2028two\u0085three\n")
+    original = a.read_bytes()
+    run(capsys, "forget", "m:a")
+    assert run(capsys, "restore", "m:a")[0] == 0 and a.read_bytes() == original
+
+
+def test_restore_reports_unreadable_log_lines_and_uses_the_newest_readable(project, capsys):
+    a = put(project, "a", "Alpha beta gamma")
+    original = a.read_bytes()
+    run(capsys, "forget", "m:a")
+    with (project / ".curation-log").open("a") as f:
+        f.write("{not json\n")
+    code, out, err = run(capsys, "restore", "m:a")
+    assert code == 0 and a.read_bytes() == original
+    assert err == "mem: skipped 1 unreadable lines in the curation log\n"
 
 
 def test_restore_global_memory_needs_no_forbidden_list(project, gfolder, capsys):
@@ -387,6 +409,25 @@ def test_merge_refuses_a_negation_or_a_number_unless_forced(project, capsys):
     assert code == 2 and "2.1" in err and "3" in err
     assert run(capsys, "merge", "m:k", "m:n", "--force")[0] == 0
     assert run(capsys, "merge", "m:k", "m:ok")[0] == 0
+
+
+@pytest.mark.parametrize("one, two", [
+    ("The API exposes the v2 endpoint", "The API exposes the v3 endpoint"),
+    ("The nightly job works", "The nightly job fails"),
+    ("The cache is enable by default", "The cache is disable by default"),
+])
+def test_merge_refuses_versions_and_antonyms(project, capsys, one, two):
+    put(project, "x", one)
+    put(project, "y", two)
+    code, out, err = run(capsys, "merge", "m:x", "m:y")
+    assert (code, out) == (2, "") and "may be opposites or different versions" in err
+    assert run(capsys, "merge", "m:x", "m:y", "--force")[0] == 0
+
+
+def test_merge_allows_a_harmless_difference(project, capsys):
+    put(project, "x", "The nightly job takes a long time")
+    put(project, "y", "The nightly job takes a big long time")
+    assert run(capsys, "merge", "m:x", "m:y")[0] == 0
 
 
 def test_merge_refuses_a_word_ending_in_nt(project, capsys):
@@ -529,3 +570,34 @@ def test_index_line_says_curation_is_due(project, gfolder, tmp_path, capsys):
     first = run(capsys, "session-index")[1].splitlines()[0]
     assert first.endswith("Curation due: 1 item (run mem curate after the current task).")
     assert "This project: 3 memories. Curation due" in first
+
+
+# fix round 1: decisions that stay decided
+
+def test_confirm_until_sets_valid_until_and_leaves_the_expired_block(project, capsys):
+    p = put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    assert "m:exp" in run(capsys, "curate")[1]
+    until = (TODAY + datetime.timedelta(days=30)).isoformat()
+    assert run(capsys, "confirm", "m:exp", "--until", until)[0] == 0
+    assert f"valid_until: '{until}'" in p.read_text() or f"valid_until: {until}" in p.read_text()
+    assert "observed: 2" in p.read_text()
+    assert run(capsys, "curate") == (0, "", "")
+    assert run(capsys, "confirm", "m:exp", "--until", "soon")[0] == 2
+
+
+def test_superseded_by_memory_is_never_listed(project, capsys):
+    put(project, "exp", "Cache warmup takes long", observed=5, created=days_ago(200),
+        extra=f"valid_until: '{days_ago(3)}'\nsuperseded_by: other\n")
+    assert run(capsys, "curate") == (0, "", "")
+
+
+def test_promote_done_records_and_removes_from_the_frequent_block(project, capsys):
+    p = put(project, "often", "Zebra crossing lights flicker", observed=4)
+    before = p.read_bytes()
+    code, out, _ = run(capsys, "promote", "--done", "m:often")
+    assert (code, out) == (0, "m:often\tpromoted\n") and "promote: done" in p.read_text()
+    assert run(capsys, "curate") == (0, "", "")
+    assert [ln["action"] for ln in log_lines(project)] == ["promote"]
+    assert run(capsys, "restore", "m:often")[0] == 0 and p.read_bytes() == before
+    out = run(capsys, "promote", "m:often")[1]
+    assert out.splitlines()[-1].endswith("before you run it; then run: mem promote --done <h>")
