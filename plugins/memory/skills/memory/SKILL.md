@@ -19,7 +19,7 @@ description: Searches, reads and writes the owner's store of notes and memories 
 - Notes not enough (you need the source of a figure, the reasons behind a practice, when it does not apply): `mem search "<q>" --deep` adds papers, documents and syntheses. Use it when the task needs that depth, not by default.
 - Another project's memories are never searched by default. Only when the owner asks, or the task is explicitly about another project: `mem projects list`, then `mem search "<q>" --project <name>`.
 - Before dispatching a subagent, search first and put what applies into its brief, with its `m:` or note handle: a subagent that cannot run shell commands cannot search for itself.
-- A question that needs more than one search, or outside sources: dispatch the `memory-researcher` subagent; it returns conclusions, not search output.
+- A question that needs more than one search, or outside sources: dispatch the `memory-researcher` subagent instead of searching yourself; it searches on its own and returns conclusions, not search output.
 
 ## Open
 
@@ -53,6 +53,6 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 
 ## Not while working
 
-Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too. Change records only with `mem` commands (`mem note edit`, `mem memory edit`), never by editing their files: the commands carry the guards, the secret check and the undo. That is curation work.
+Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too. Change records only with `mem` commands (`mem note edit`, `mem memory edit`), never by editing their files: the commands carry the guards, the secret check and the undo. That is curation work. Each change is undone with `mem restore <handle>`.
 
 `mem: no store is set`: run `mem init` to create the default store; project memories work without one. The owner manages the terms that must not reach the global scope with `mem terms add|remove|list`. `read-only: it has no mem-store.yaml` means that store is not to be written through this tool: do not create the file.

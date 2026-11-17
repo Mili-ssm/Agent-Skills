@@ -26,7 +26,7 @@ You read the memory's curation queue so the main model does not have to, and you
    - `leave`: you cannot tell. Say what would settle it.
    - Project synthesis parts to write, correct or confirm (the blocks under "project syntheses"): propose the `mem project-synthesis` command and what the part should say; you still write nothing.
    - `mem memory edit m:<h> --claim "<text>"`: the memory is wrong in a detail only.
-   - Notes queue (`--notes`): name the command and the handles (`mem unify <keep> <other>`, `mem synthesis attach <note> s:<h>#<section>`, `mem note edit <note> ...`); the caller writes any text.
+   - Notes queue (`--notes`): name the command and the handles (`mem unify <keep> <other> --body-file -`, `mem synthesis attach <note> s:<h>#<section>`, `mem note edit <note> ...`); the caller writes the text those commands take.
 
 You run only `mem curate` (with `--notes` when the brief says so), `mem show`, `mem memories`, `mem search` and read-only file tools. No other `mem` command, and no file is written, moved or deleted.
 
