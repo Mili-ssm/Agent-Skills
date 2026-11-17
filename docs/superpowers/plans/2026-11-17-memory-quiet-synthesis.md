@@ -57,8 +57,8 @@ The owner chose all three ways to make curation quiet: A (the curator applies in
 
 ### Tasks
 
-- [ ] A: apply mode in `agents/memory-curator.md` (body; its description says it proposes and applies nothing, so that line changes and is measured on `evals/trigger/memory-curator-due`), one line in `skills/memory-curation/SKILL.md`. Check: on a temporary store seeded with one exact duplicate pair, one pair differing in a number and one attachable note, an apply dispatch merges the first, leaves the second, attaches the third, and `mem restore` undoes each.
-- [ ] The out-of-scope guard in the pipeline, with a self-check case.
+- [x] A: apply mode in `agents/memory-curator.md` (body; its description says it proposes and applies nothing, so that line changes and is measured on `evals/trigger/memory-curator-due`), one line in `skills/memory-curation/SKILL.md`. Check: on a temporary store seeded with one exact duplicate pair, one pair differing in a number and one attachable note, an apply dispatch merges the first, leaves the second, attaches the third, and `mem restore` undoes each.
+- [x] The out-of-scope guard in the pipeline, with a self-check case (`guard_parts` in `synth_pipeline.py`; `reverted` column in the table).
 - [ ] C: `plugins/memory/bin/mem-auto` (run, status, ack), the launch from the session-start hook, the option in `plugin.json`, the failure line in the session text, tests for due/lock/budget/failure line, and a spike first: can a session-start hook start a detached process that outlives it and finds the `claude` binary. Check: with the option off nothing starts; with it on and a fake `claude`, one run starts, a second session start does not start another, a failing run leaves the status and the next session text shows the line, `mem auto ack` removes it.
 - [ ] Docs: README section; kill criteria: a run that costs over its budget, two failures in a week, or the owner's word turn the option off.
 
