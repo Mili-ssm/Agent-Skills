@@ -142,4 +142,17 @@ Loose notes are written freely; joining a note to a synthesis is part of curatio
 
 ## Results
 
-Filled as tasks complete.
+Measured on 2026-11-17; counts and pass or fail only. Agent trials are one run each with Sonnet unless a count is given.
+
+| Item | Result |
+|---|---|
+| Code | Syntheses (new, add with an optional note, append, edit, attach, list, restore), `unify`, note `distinct`, `curate --notes` with four blocks, search of notes by default and `--deep`, the in-session curation reminder, secret refusal. Suite: 662 passed, 3 skipped |
+| Parity | `mem search --deep` gives output identical to the original tool on 20 of 20 queries; the default search returns knowledge notes and memories only, by the owner's rule D21 |
+| A store without its marker | `unify`, `synthesis new`, `synthesis attach` and `distinct` run from inside a real one changed nothing |
+| An agent asked for a synthesis of a subject, on a disposable copy of about 1,100 notes | Loaded the `memory-synthesis` skill, wrote five parts each ending with its sources, about 2,200 words; `mem check` passed before and after |
+| A single-fact question in that store | One search, answered from the note, opened nothing else |
+| A question asking for reasons and limits | Answered from the notes (one search, one `show`); it did not use `--deep` or the synthesis. Under D21 that is the intended default; it also says a synthesis will be read little while the notes are enough |
+| Trigger cases | `memory` 2 of 2, `memory-synthesis` 2 of 2; `memory-curation` 5 of 6 once its case accepts either path (loading the skill or dispatching the curator), the grader requiring an actual dispatch |
+| Routing and recall trials after these changes | 9 of 9 and 8 of 8 |
+
+Not measured: `unify` and `attach` done by an agent in a curation pass over notes; the one-call form; a second machine; real use. No independent review round was run on this stage's code beyond the pre-mortem: it is the first thing owed before this stage is relied on.
