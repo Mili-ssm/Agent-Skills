@@ -59,8 +59,8 @@ The owner chose all three ways to make curation quiet: A (the curator applies in
 
 - [x] A: apply mode in `agents/memory-curator.md` (body; its description says it proposes and applies nothing, so that line changes and is measured on `evals/trigger/memory-curator-due`), one line in `skills/memory-curation/SKILL.md`. Check: on a temporary store seeded with one exact duplicate pair, one pair differing in a number and one attachable note, an apply dispatch merges the first, leaves the second, attaches the third, and `mem restore` undoes each.
 - [x] The out-of-scope guard in the pipeline, with a self-check case (`guard_parts` in `synth_pipeline.py`; `reverted` column in the table).
-- [ ] C: `plugins/memory/bin/mem-auto` (run, status, ack), the launch from the session-start hook, the option in `plugin.json`, the failure line in the session text, tests for due/lock/budget/failure line, and a spike first: can a session-start hook start a detached process that outlives it and finds the `claude` binary. Check: with the option off nothing starts; with it on and a fake `claude`, one run starts, a second session start does not start another, a failing run leaves the status and the next session text shows the line, `mem auto ack` removes it.
-- [ ] Docs: README section; kill criteria: a run that costs over its budget, two failures in a week, or the owner's word turn the option off.
+- [x] C: `plugins/memory/bin/mem-auto` (run, status, ack), the launch from the session-start hook, the option in `plugin.json`, the failure line in the session text, tests for due/lock/budget/failure line, and a spike first: can a session-start hook start a detached process that outlives it and finds the `claude` binary. Check: with the option off nothing starts; with it on and a fake `claude`, one run starts, a second session start does not start another, a failing run leaves the status and the next session text shows the line, `mem auto ack` removes it.
+- [x] Docs: README section; kill criteria: a run that costs over its budget, two failures in a week, or the owner's word turn the option off.
 
 ### Pre-mortem of the extension, 2026-11-17, and what changed
 
@@ -76,4 +76,21 @@ The owner chose all three ways to make curation quiet: A (the curator applies in
 
 Kill criteria for C: more than one run in a day, a day's spend above its budget, or two failures in a week turn the option off.
 
+### Owner, later the same day (replaces C's launch and due rules)
+
+1. **Launch** from the `SessionEnd` hook, after its commit (not from session start): the next session then starts with the memory already curated. The spike showed a detached process survives from `SessionEnd` and finds `claude` (see Results).
+2. **Trigger** is a threshold, not every session: global memories plus notes written since the last automatic run started (or the last curation pass, whichever is later) reach `auto_curation_threshold` (default 10); `mem curate --new-since EPOCH` counts them (file times; an edit counts). After a run starts the count restarts from its start.
+3. **Fewer restrictions** (the owner is the only user): no 20-hour rule, no per-day budget or reservation, no skip list. Kept: `flock -n` first, the per-run budget (default 2 USD), status at start and end with `running` over 1 hour shown as failed, the failure line until `mem-auto ack`, folders 0700 and 30-day pruning, the option read as exactly `true`, `--store`, the run lock respected by `curate --done` trimming and the session-end commit, hooks off in the run's sessions.
+
+Pre-mortem rows that no longer apply: the one on the 20-hour rule and day budget reservation (row 1, partly: only the `running` and stale part stays), the due test and skip list (row 6: the threshold replaces the due test, there is no skip list, so `ack` clears only the failure). Rows 2, 3, 4, 5 and 7 stand.
+
 The trigger case of `memory-synthesizer` fired 1 of 2, then 6 of 6 at the protocol's rerun (0.39 USD): kept.
+
+### Results of C
+
+**Spike** (Haiku, one-word prompt, about 0.01 USD each, throwaway plugin under `target/`): a hook that starts `setsid nohup bash -c 'sleep 25; ...' &` with stdio redirected survives the `claude -p` session from both `SessionStart` and `SessionEnd` (child alive after the session exited, reparented, own session id, finished 25 s later). In the hook environment: `HOME` and `CLAUDE_PLUGIN_OPTION_<NAME>=true` (a boolean option arrives as `true`) are present; `CLAUDE_CODE_EXECPATH` is not (with a clean environment) and `claude` is not on `PATH` in this setup; `/proc/$PPID/exe` is the claude binary, so the hooks fall back to it. **Built: launch from `SessionEnd`** (owner's preference), in `hooks/session-end.sh` after the commit.
+
+**Built.** `bin/mem-auto` (`run`, `status`, `ack`, `due`, `--self-check`), `engine/auto_state.py` (state folder, run lock, failure line), `mem curate --new-since EPOCH` (the trigger count), lock checks in `curate --done` (trimming now under the commit lock) and in the session-end commit, the failure line in `mem session-index`, options `auto_curation`, `auto_curation_budget`, `auto_curation_threshold`; `mem-synthesize` run() takes `root` and `rows_out`. Tests: `engine/tests/test_auto_curation.py` plus two in `test_store_git.py`; suite 942 passed, 4 skipped.
+
+**Real run** on a copy of the owner's store under `target/` (history initialised, placeholder syntheses so only `genetics` was due, option forced on through env, budget 0.6): status `ok`, cost 0.150 USD (curator 0.004: applied 0, left 2; genetics synthesis 4 parts, 2 notes attached, 7 claims fixed, 1 deleted, `mem check` 0), history commits `mem-auto: before/after curation` found nothing to commit and `mem-synthesize: after genetics` was made, run folders mode 0700. The run's own attaches counted as new records (2) on a first count from its start, so the count now starts from the run's end.
+
