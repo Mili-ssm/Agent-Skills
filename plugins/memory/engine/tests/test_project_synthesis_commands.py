@@ -241,3 +241,18 @@ def test_show_mixes_a_p_handle_and_a_memory(proj, tmp_path, capsys):
     assert mem.main(["show", "p:organization#where-the-engine-lives", f"m:{handle}"]) == 0
     out = capsys.readouterr().out
     assert "== p:organization#where-the-engine-lives" in out and "Fact body." in out
+
+
+def test_a_broken_file_does_not_hide_the_others_from_list_show_and_confirm(proj, tmp_path, capsys):
+    add(tmp_path)
+    (proj / ".memory" / "syntheses" / "plans.md").write_text("no frontmatter here\n", encoding="utf-8")
+    capsys.readouterr()
+    assert mem.main(["project-synthesis", "list"]) == 1
+    captured = capsys.readouterr()
+    assert "p:organization#where-the-engine-lives" in captured.out
+    assert "syntheses/plans.md" in captured.err
+    assert mem.main(["show", "p:organization#where-the-engine-lives"]) == 0
+    assert "The engine lives in src." in capsys.readouterr().out
+    assert mem.main(["show", "p:plans"]) == 2
+    assert "syntheses/plans.md" in capsys.readouterr().err
+    assert mem.main(["project-synthesis", "confirm", "p:organization#where-the-engine-lives"]) == 0

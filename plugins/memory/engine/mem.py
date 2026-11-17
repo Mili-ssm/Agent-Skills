@@ -2782,10 +2782,19 @@ def _part_line(name: str, part: project_syntheses.Part, tree: Path) -> str:
     return f"p:{name}#{part.handle}\t{project_syntheses.freshness(tree, part.stamp)}\t{part.heading}"
 
 
+def _load_project_syntheses(memory_dir: Path, name: str | None = None) -> dict[str, list[project_syntheses.Part]]:
+    """The files that load; a broken one does not hide the others, but asking for it by name raises its error."""
+    found, broken = project_syntheses.load_each(memory_dir)
+    for path, error in broken:
+        if name is not None and path == f"{project_syntheses.folder(Path()).as_posix()}/{name}.md":
+            raise project_syntheses.ProjectSynthesisError(f"{path} cannot be read: {error}")
+    return found
+
+
 def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
     """The outline of `p:NAME` or the text of `p:NAME#HANDLE`; ProjectSynthesisError when it does not exist."""
-    found = project_syntheses.load(memory_dir)
     name, handle = _split_part_ref(ref)
+    found = _load_project_syntheses(memory_dir, name)
     parts = found.get(name)
     if parts is None:
         raise project_syntheses.ProjectSynthesisError(f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}")
@@ -2812,10 +2821,13 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
     memory_dir, tree, _ = context
     try:
         if args.ps_command == "list":
-            for name, parts in project_syntheses.load(memory_dir).items():
+            found, broken = project_syntheses.load_each(memory_dir)
+            for name, parts in found.items():
                 for part in parts:
                     print(_part_line(name, part, tree))
-            return 0
+            for path, error in broken:
+                print(f"mem: skipped {path}: {error}", file=sys.stderr)
+            return 1 if broken else 0
         if args.ps_command == "add":
             try:
                 body = _memory_body(args.body_file)
@@ -2837,7 +2849,7 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
                 _warn_uncommitted(ref)
             return 0
         name, handle = _split_part_ref(args.part)
-        found = project_syntheses.load(memory_dir)
+        found = _load_project_syntheses(memory_dir, name)
         if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
             raise project_syntheses.ProjectSynthesisError(
                 f"no part {args.part!r}; parts that exist: {_existing_parts(found)}")
