@@ -51,8 +51,9 @@ They keep the main conversation's context on the task.
 | `memory-researcher` (Haiku) | A question | Answers from the memory, deeper sources if needed, outside research only for what is missing, which it records as findings | Conclusions with their references, and what is new and unchecked |
 | `memory-recorder` (Sonnet) | An account of what happened, or logs and files | Writes the few memories worth keeping, each in its scope; optionally lists the curation queue | What it recorded |
 | `memory-curator` (Haiku) | Nothing | Reads the curation queue | A table of proposed actions; it applies none |
+| `memory-synthesizer` (Haiku) | A topic and a slug | Writes one synthesis from the topic's notes, only through `mem synthesis`; stops when the topic has too few notes | Parts, notes left out, `mem check` result and the notes to attach |
 
-The start text every other subagent receives is not given to these three: they carry their own instructions.
+The start text every other subagent receives is not given to these four: they carry their own instructions.
 
 ## Curation
 
