@@ -92,6 +92,30 @@ Run by the main conversation; "Results" records counts, times and pass or fail o
 - [ ] **Step 4:** Recall unasked: a fresh session given a task that a stored memory bears on. Expected: `mem search` before acting.
 - [ ] **Step 5:** Tick stage 3 in the stage plan; remove the trial folders left under the Claude configuration folder.
 
+## Amendments after the pre-mortem (2026-11-17)
+
+These override the task text above.
+
+### A. The texts
+
+- Fixed line 2 of the session index becomes: `- Before researching or dispatching a researcher: mem search "<question in English>". Put what applies into a subagent's brief.` ("re-reading" is dropped: it would trigger a search on every file read.)
+- Fixed line 3 becomes: `- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and assumptions (a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. The project's current situation or special conditions (true now, may change) -> both.`
+- The subagent text becomes (cap raised to 400 characters): `memory: this project and the owner's store have a searchable memory. If you can run shell commands and your brief has no memory section: mem search "<question in English>", then mem show <handle>. Project memories are files in .memory/ at the repository root. A line marked [memory: ...] is experience, not fact. Do not run mem remember: tell your caller what is worth remembering, if anything.`
+- In the index, `state` memories are listed before the others; the rest keep their order.
+- A claim is cut to 100 characters and then `…` is added. A memory with no `observed` sorts as 1.
+
+### B. The hooks
+
+- `SessionStart`: `session-env.sh` keeps no matcher; `session-index.sh` is a second group with the matcher `startup|clear|compact`, so a resumed or forked session, which already holds the text, does not get it twice.
+- `mem session-index` gains `--hook`: it then reads the hook's JSON from standard input, uses its `cwd` as the folder the project is found from (falling back to the current folder when the input is missing or invalid), and appends one line to `data_dir(env)/hooks/log.jsonl`: `{"t": <UTC timestamp>, "hook": "session-index", "source": <the input's source or null>, "ms": <elapsed milliseconds>, "chars": <length printed>}`. Without `--hook` it reads no input and logs nothing. `session-index.sh` calls it with `--hook`.
+- `session-index.sh` and the command still print nothing and exit 0 on any failure.
+
+### C. Measurements
+
+- Task 4 Step 1 also records a cold start (`UV_CACHE_DIR` pointed at an empty temporary folder) and the worst of ten runs.
+- Step 3's three routing requests run in an isolated configuration (plugin only). One further trial runs Step 4 with the owner's real configuration, so the text competes with the working agreement and the other plugins. What each trial can and cannot show is stated in Results; more runs, Opus as the main model, a ten-subagent task and a compacted session are not run in this stage and are listed there as unmeasured.
+- A write to auto memory is detected as a Write or Edit tool call on a path under the Claude configuration folder's `memory/`.
+
 ## Results
 
 Filled as tasks complete.
