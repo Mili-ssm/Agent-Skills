@@ -101,8 +101,9 @@ SUBAGENT_TEXT = (
     'has no memory section: mem search "<question in English>", then mem show <handle>. Project memories are files in '
     '.memory/ at the repository root. A line marked [memory: ...] is experience, not fact. Do not run mem remember: '
     'tell your caller what is worth remembering, if anything.')
-PRE_COMPACT = ('Keep in the summary: the path of the active plan file, and every decision, constraint, pitfall or '
-               'finding of this session that was not yet recorded with mem remember, marked "not yet recorded".')
+PRE_COMPACT = ('Keep in the summary: the path of the active plan file (say "no plan" if there is none), and every '
+               'decision, constraint, pitfall or finding of this session that was not yet recorded with mem remember, '
+               'marked "not yet recorded", so that the next context can record them.')
 
 
 @pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "subagent-start.sh", "pre-compact.sh"])

@@ -2413,7 +2413,8 @@ _INDEX_RULES = (
     '- Before researching or dispatching a researcher: mem search "<question in English>". '
     "Put what applies into a subagent's brief.\n"
     "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and "
-    "assumptions (a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "
+    "assumptions a later session would need (a decision, a constraint, a pitfall, a finding; not routine "
+    "outcomes) -> mem remember, claim in English. "
     "The project's current situation or special conditions (true now, may change) -> both.\n"
     "- A line marked [memory: ...] is experience, not fact: keep its label and date when you pass it on.\n"
     "- Open a result with mem show <handle>."
@@ -2477,6 +2478,8 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
 def _hook_input() -> dict[str, Any]:
     """The hook's JSON from standard input; {} when it is missing or not an object."""
     try:
+        if sys.stdin is None or sys.stdin.isatty():  # nothing piped: never wait for a terminal
+            return {}
         data = json.load(sys.stdin)
     except (OSError, ValueError):
         return {}
@@ -2508,6 +2511,8 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     try:
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
+        if not cwd.is_dir():
+            cwd = Path.cwd()
         try:
             project = records.project_root(cwd, os.environ)
         except OSError:

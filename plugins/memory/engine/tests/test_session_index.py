@@ -13,7 +13,7 @@ FIXED = [
     '- Before researching or dispatching a researcher: mem search "<question in English>". '
     "Put what applies into a subagent's brief.",
     "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and assumptions "
-    "(a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "
+    "a later session would need (a decision, a constraint, a pitfall, a finding; not routine outcomes) -> mem remember, claim in English. "
     "The project's current situation or special conditions (true now, may change) -> both.",
     "- A line marked [memory: ...] is experience, not fact: keep its label and date when you pass it on.",
     "- Open a result with mem show <handle>.",

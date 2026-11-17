@@ -66,7 +66,7 @@ memory: notes and memories are searchable with the `mem` command (skill: memory)
 - `hooks.json`: `SessionStart` keeps `session-env.sh` and gains `session-index.sh` (timeout 10); new `SubagentStart` and `PreCompact` entries (timeout 5), all in the shape already used in the file.
 - `session-index.sh`: exports `MEM_STORE` from `CLAUDE_PLUGIN_OPTION_STORE` and `MEM_MEMORIES` from `CLAUDE_PLUGIN_OPTION_MEMORIES` when they are non-empty, then runs `"<plugin root>/bin/mem" session-index` with stderr discarded; prints what it prints; exits 0 also when `mem` fails or `uv` is missing (then prints nothing).
 - `subagent-start.sh`: prints exactly one JSON object, `{"hookSpecificOutput": {"hookEventName": "SubagentStart", "additionalContext": "<text>"}}`, where the text is: `memory: notes and memories are searchable with the mem command. Before researching or re-reading: mem search "<question in English>", then mem show <handle>. A line marked [memory: ...] is experience, not fact. Report what is worth remembering to your caller.` (under 300 characters; the script holds it as a literal).
-- `pre-compact.sh`: prints `Keep in the summary: the path of the active plan file, and every decision, constraint, pitfall or finding of this session that was not yet recorded with mem remember, marked "not yet recorded".`
+- `pre-compact.sh`: prints `Keep in the summary: the path of the active plan file (say "no plan" if there is none), and every decision, constraint, pitfall or finding of this session that was not yet recorded with mem remember, marked "not yet recorded", so that the next context can record them.`
 
 - [ ] **Step 1: Write the failing tests** in `test_plugin_shell.py`: `session-index.sh` with `CLAUDE_PLUGIN_OPTION_STORE` set to a store whose path has a space prints the five fixed lines and the count line, exit 0; with `PATH` lacking `uv` (skip where `uv` is in a system folder) prints nothing, exit 0; `subagent-start.sh` prints valid JSON whose `additionalContext` is under 300 characters and contains `mem search`; `pre-compact.sh` prints the exact line; all three are executable; `hooks.json` parses and names the four scripts.
 - [ ] **Step 2:** Run them. Expected: fail, files missing.
@@ -118,4 +118,18 @@ These override the task text above.
 
 ## Results
 
-Filled as tasks complete.
+Measured on 2026-11-17 on Claude Code 2.1.325; counts, times and pass or fail only. Each agent trial is one run with Sonnet.
+
+| Item | Result |
+|---|---|
+| Tasks 1 and 2 | Done, one review round, fixes applied. Suite: 473 passed, 2 skipped |
+| Session index against a store of about 1,100 notes and a project with 10 memories | 1,477 characters. Ten warm runs of the hook: 105 to 144 ms. Cold `uv` cache: 1.9 s (the hook's timeout is 10 s) |
+| Ten subagent hooks started at once | 6 ms in total; the text is 394 characters |
+| The texts arrive | Pass. A subagent quoted its text |
+| Routing: a personal preference | Pass. Auto memory only |
+| Routing: a discovery about the project | Pass. `mem remember` only, kind `pitfall`, claim in English |
+| Routing: a current condition of the project | Pass. `mem remember` with kind `state`, and auto memory |
+| Recall under the owner's real configuration | Pass. A fresh session, asked whether to mind anything before deploying, gave both project memories with their label and date; it took them from the session index and ran no search |
+| The store | Unchanged; `git status` in the trial project empty |
+
+Not measured: more than one run per trial; Opus as the main model; a task with many subagents (how often they search, what it costs); a long session, a resumed one, or one that was compacted (the `PreCompact` text was only printed, never seen in a summary); whether the index makes agents record routine outcomes over days of use. The fixed line about what to remember was tightened after the trials ("a later session would need … not routine outcomes"); the trials ran with the earlier wording.
