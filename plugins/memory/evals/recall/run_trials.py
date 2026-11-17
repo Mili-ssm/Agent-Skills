@@ -107,7 +107,7 @@ def main() -> int:
             total += 1
             print(f"{name:20} {run:<3} {len(calls):<9} {('-' if facts is None else str(has_facts)):5} "
                   f"{'pass' if ok else 'FAIL'}", flush=True)
-    for leftover in (Path.home() / ".claude" / "projects").glob(f"*{work.name}*"):
+    for leftover in (Path.home() / ".claude" / "projects").glob("*" + "".join(c if c.isalnum() else "-" for c in work.name) + "*"):
         shutil.rmtree(leftover, ignore_errors=True)
     shutil.rmtree(work, ignore_errors=True)
     print(f"{passed} of {total} passed")

@@ -133,4 +133,16 @@ Measured on 2026-11-17 on Claude Code 2.1.325; counts, times and pass or fail on
 | The store | Unchanged; `git status` in the trial project empty |
 | Scope: general knowledge and research against project-specific memories (asked for by the owner after the first trials) | First pass, 4 cases: 3 right; a finding from a tool's documentation was written to the project. After adding one question to the index and the skill ("would this be true and useful in another project?"): 9 of 9 cases right in `plugins/memory/evals/routing/run_trials.py`: a preference to auto memory only; three project facts to the project; a fact naming a client to the project, with no trace of the name in the store; a general lesson and two research findings to the global folder; a mixed discovery as two memories, one in each scope |
 
-Not measured: more than one run per trial; Opus as the main model; a task with many subagents (how often they search, what it costs); a long session, a resumed one, or one that was compacted (the `PreCompact` text was only printed, never seen in a summary); whether the index makes agents record routine outcomes over days of use. The routing trials of the first table rows ran before the fixed line about what to remember was tightened; the nine-case script ran with the final wording.
+### The index, shortened at the owner's request (same day)
+
+The owner asked for fewer tokens at session start and generic context only. The index is now three lines (541 characters with no counts) and lists no memory; `mem session-index --list N` prints the listing on demand.
+
+| Index text | Characters | Recall unasked (`evals/recall/run_trials.py`, 4 cases, 2 runs each) | Routing (9 cases) |
+|---|---|---|---|
+| Three lines, "Before researching: mem search …" | 469 | 7 of 8 | 9 of 9 |
+| Three lines, "Before you act on this project, change something or research a topic … It returns decisions, constraints and pitfalls recorded earlier that the files do not show." (adopted) | 541 | 8 of 8 | 9 of 9 |
+| A third wording of the same length | 531 | 8 of 8 | not run |
+
+A first attempt at recall trials gave 0 of 3 for the short text and was wrong: its project script only printed a word, so nothing was worth checking, and another case asked something the model already knows. The trials now seed facts that cannot be derived from the files. No variant ran a `mem` command on the unrelated request.
+
+Not measured: more than two runs per trial; Opus as the main model; a task with many subagents (how often they search, what it costs); a long session, a resumed one, or one that was compacted (the `PreCompact` text was only printed, never seen in a summary); whether the index makes agents record routine outcomes over days of use. The routing trials of the first table rows ran before the fixed line about what to remember was tightened; the nine-case script ran with the final wording.

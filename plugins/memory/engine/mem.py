@@ -2414,7 +2414,8 @@ def _same_claim(a: str, b: str) -> bool:
 _INDEX_HEAD = "memory: the mem command searches notes and memories (skill: memory)."
 _INDEX_RULES = (
     _INDEX_HEAD + "\n"
-    '- Before researching: mem search "<question in English>" (add --scope memories for this project\'s).\n'
+    '- Before you act on this project, change something or research a topic: mem search "<topic in English>". '
+    "It returns decisions, constraints and pitfalls recorded earlier that the files do not show.\n"
     "- To remember: preferences and personal matters -> auto memory; what a later session would need (a decision, "
     "constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names "
     "no business; the project's current situation -> both."

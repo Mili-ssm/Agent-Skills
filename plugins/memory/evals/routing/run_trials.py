@@ -111,7 +111,7 @@ def main() -> int:
         failed += not ok
         print(f"{name:20} {str(got_project):8} {str(got_global):7} {str(got_auto):5} "
               f"{'pass' if ok else 'FAIL'}{' (forbidden term in the store)' if leaked else ''}")
-    for leftover in (Path.home() / ".claude" / "projects").glob(f"*{work.name}*"):
+    for leftover in (Path.home() / ".claude" / "projects").glob("*" + "".join(c if c.isalnum() else "-" for c in work.name) + "*"):
         shutil.rmtree(leftover, ignore_errors=True)
     shutil.rmtree(work, ignore_errors=True)
     print(f"{len(cases) - failed} of {len(cases)} passed")

@@ -11,7 +11,8 @@ TODAY = datetime.date(2026, 11, 17)
 LINE1 = "memory: the mem command searches notes and memories (skill: memory)."
 FIXED = [
     LINE1,
-    '- Before researching: mem search "<question in English>" (add --scope memories for this project\'s).',
+    '- Before you act on this project, change something or research a topic: mem search "<topic in English>". '
+    "It returns decisions, constraints and pitfalls recorded earlier that the files do not show.",
     "- To remember: preferences and personal matters -> auto memory; what a later session would need (a decision, "
     "constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names "
     "no business; the project's current situation -> both.",
