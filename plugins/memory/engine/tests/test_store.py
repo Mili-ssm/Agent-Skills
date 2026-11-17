@@ -5,6 +5,7 @@ import pytest
 from conftest import usage_log_path
 
 import mem
+import records
 
 
 def test_resolve_root_order(tmp_path):
@@ -73,7 +74,36 @@ def test_main_without_store(monkeypatch, tmp_path, capsys):
     monkeypatch.delenv("MEM_STORE", raising=False)
     monkeypatch.setenv("HOME", str(tmp_path)); monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     assert mem.main(["search", "x"]) == 2
-    assert capsys.readouterr().err.strip() == 'mem: no store is set. Enable the memory plugin and set its "store" option, or pass --root <folder>, or set MEM_STORE.'
+    assert capsys.readouterr().err.strip() == ('mem: no store is set. Run "mem init" to create the default store, or set the '
+                                               'plugin\'s "store" option, or pass --root <folder>, or set MEM_STORE.')
+
+
+def test_default_store_path():
+    assert records.default_store({"XDG_DATA_HOME": "/d", "HOME": "/h"}) == Path("/d/agent-memory/store")
+    assert records.default_store({"HOME": "/h"}) == Path("/h/.local/share/agent-memory/store")
+    assert records.default_store({}) is None
+
+
+def test_default_store_is_the_last_resort_and_only_when_it_exists(tmp_path):
+    env = {"XDG_DATA_HOME": str(tmp_path / "share"), "XDG_CONFIG_HOME": str(tmp_path / "cfg")}
+    assert mem.resolve_root(None, env) is None and mem.store_source(None, env) is None
+    default = tmp_path / "share" / "agent-memory" / "store"
+    default.mkdir(parents=True)
+    assert mem.resolve_root(None, env) == default and mem.store_source(None, env) == "default"
+    cfg = tmp_path / "cfg" / "agent-memory"; cfg.mkdir(parents=True)
+    (cfg / "store").write_text("/from/config\n")
+    assert mem.store_source(None, env) == "config file"
+    assert mem.store_source(None, {**env, "MEM_STORE": "/m"}) == "MEM_STORE"
+    assert mem.store_source("/r", {**env, "MEM_STORE": "/m"}) == "--root"
+
+
+def test_init_without_a_folder_makes_the_default_store(tmp_path, capsys):
+    default = tmp_path / "mem-share" / "agent-memory" / "store"
+    assert mem.main(["init"]) == 0
+    assert capsys.readouterr().out.strip() == str(default)
+    assert records.store_is_writable(default)
+    assert mem.main(["stats"]) == 0
+    assert f"store: {default} (from default)" in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("argv", [

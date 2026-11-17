@@ -480,8 +480,65 @@ def forbidden_file(env: Mapping[str, str]) -> Path | None:
     return base / "agent-memory" / "forbidden-terms" if base is not None else None
 
 
+def default_store(env: Mapping[str, str]) -> Path | None:
+    """The store used when none is named: agent-memory/store under XDG_DATA_HOME, else under ~/.local/share."""
+    if env.get("XDG_DATA_HOME"):
+        return Path(env["XDG_DATA_HOME"]) / "agent-memory" / "store"
+    if env.get("HOME"):
+        return Path(env["HOME"]) / ".local" / "share" / "agent-memory" / "store"
+    return None
+
+
 class ForbiddenListError(ValueError):
     """The forbidden-terms file exists but cannot be read or decoded."""
+
+
+TERMS_HEADER = ("# Terms that must not reach the global scope, one per line; matching ignores case and accents.\n"
+                "# A plain line is a hard term: the write is refused. \"soft: <term>\" or \"soft[<kind>]: <term>\" "
+                "is a soft term: the owner must approve the write.\n"
+                "# Manage the list with: mem terms list | add | remove.\n")
+TERM_KINDS = (*KINDS, "note", "synthesis")
+_SOFT_LINE = re.compile(r"^soft(?:\[([a-z]+)\])?:(.*)$")
+
+
+class Term(NamedTuple):
+    line: int          # line number in the file
+    text: str
+    soft: bool
+    kind: str | None   # a soft term that applies to one kind only
+
+
+def parse_term(raw: str, line: int = 0) -> Term | None:
+    """A term of the list, or None for a blank line or a comment."""
+    raw = raw.strip()
+    if not raw or raw.startswith("#"):
+        return None
+    m = _SOFT_LINE.match(raw)
+    if m:
+        return Term(line, m.group(2).strip(), True, m.group(1))
+    return Term(line, raw, False, None)
+
+
+def read_terms(env: Mapping[str, str]) -> list[Term]:
+    """The terms of the list; empty when there is no file. Raises ForbiddenListError when it cannot be read."""
+    path = forbidden_file(env)
+    if path is None or not path.exists():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8-sig").splitlines()
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ForbiddenListError(str(path)) from exc
+    return [t for i, raw in enumerate(lines, 1) if (t := parse_term(raw, i)) is not None]
+
+
+def ensure_terms_file(env: Mapping[str, str]) -> Path | None:
+    """Create the list with its comment header when it does not exist; the path, or None when no folder locates it."""
+    path = forbidden_file(env)
+    if path is not None and not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("x", encoding="utf-8") as f:
+            f.write(TERMS_HEADER)
+    return path
 
 
 def _fold(text: str) -> str:
@@ -490,25 +547,28 @@ def _fold(text: str) -> str:
     return " ".join(bare.split())  # a line break between two words must not hide a term
 
 
-def forbidden_line(texts: Iterable[str], env: Mapping[str, str]) -> int | None:
-    """Line number of the first forbidden term found in any text, or in all of them joined; None when clean or no file.
+def term_hits(texts: Iterable[str], env: Mapping[str, str], kind: str | None = None) -> list[Term]:
+    """The terms found in any text, or in all of them joined, in file order; a soft term with a kind counts only
+    for that kind.
 
     Raises ForbiddenListError when the file exists but cannot be read: the check must fail closed.
     """
-    path = forbidden_file(env)
-    if path is None or not path.exists():
-        return None
-    try:
-        terms = path.read_text(encoding="utf-8-sig").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        raise ForbiddenListError(str(path)) from exc
+    terms = read_terms(env)
     texts = list(texts)
     items = [_fold(t) for t in texts] + [_fold("\n".join(texts))]
-    for i, term in enumerate(terms, 1):
-        term = _fold(term)
-        if term and any(term in item for item in items):
-            return i
-    return None
+    hits = []
+    for term in terms:
+        if term.kind is not None and term.kind != kind:
+            continue
+        folded = _fold(term.text)
+        if folded and any(folded in item for item in items):
+            hits.append(term)
+    return hits
+
+
+def forbidden_line(texts: Iterable[str], env: Mapping[str, str]) -> int | None:
+    """Line number of the first hard term found in any text; None when clean or no file."""
+    return next((t.line for t in term_hits(texts, env) if not t.soft), None)
 
 
 _PLACEHOLDER = re.compile(r"^[\"']?(<[^>]*>|\u2026|\.{3}|x{3,}|changeme|example)", re.IGNORECASE)

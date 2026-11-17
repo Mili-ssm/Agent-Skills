@@ -97,11 +97,13 @@ def test_global_in_a_marked_store(hub_root, tmp_path, monkeypatch, capsys):
     assert (hub_root / "memories" / "retries-need-idempotency-keys.md").is_file()
 
 
-def test_global_needs_the_forbidden_terms_file(gfolder, tmp_path, capsys):
-    assert remember("--global") == 2
-    err = capsys.readouterr().err.strip()
-    assert err.startswith("mem: global memories need the file ") and str(tmp_path / "mem-config" / "agent-memory" / "forbidden-terms") in err
-    assert not gfolder.exists()
+def test_global_write_creates_a_missing_terms_file(gfolder, tmp_path):
+    terms = tmp_path / "mem-config" / "agent-memory" / "forbidden-terms"
+    assert not terms.exists()
+    assert remember("--global") == 0
+    assert any(gfolder.glob("*.md"))
+    text = terms.read_text()
+    assert len(text.splitlines()) == 3 and all(ln.startswith("#") for ln in text.splitlines())
 
 
 def test_empty_forbidden_file_allows_global_write(gfolder, tmp_path):

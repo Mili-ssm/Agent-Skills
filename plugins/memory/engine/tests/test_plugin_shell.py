@@ -13,6 +13,8 @@ needs_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not inst
 
 
 def run(cmd, env):  # PATH and HOME are carried over so uv keeps its cache; config and data go to tmp
+    # XDG_DATA_HOME is always set: without it the default store would be the real one under HOME
+    env = {"XDG_DATA_HOME": str(Path(env.get("XDG_CONFIG_HOME", env.get("MEM_DATA", "/nonexistent"))).parent / "share"), **env}
     return subprocess.run(cmd, env={"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], **env}, capture_output=True, text=True)
 
 
@@ -52,24 +54,41 @@ def test_hook_writes_config_and_env(tmp_path):
     assert out == "/a path/store"
 
 
-def test_hook_without_option_does_nothing(tmp_path):
-    r = run([str(HOOK)], {"XDG_CONFIG_HOME": str(tmp_path / "c")})
-    assert r.returncode == 0 and r.stdout == "" and not (tmp_path / "c").exists()
+@needs_uv
+def test_hook_without_option_makes_the_default_store_once(tmp_path):
+    envfile = tmp_path / "env"
+    envfile.write_text("")
+    env = {"XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(tmp_path / "share"), "CLAUDE_ENV_FILE": str(envfile)}
+    default = tmp_path / "share" / "agent-memory" / "store"
+    r = run([str(HOOK)], env)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+    assert (default / "mem-store.yaml").is_file()
+    assert (tmp_path / "c" / "agent-memory" / "forbidden-terms").is_file()
+    assert not (tmp_path / "c" / "agent-memory" / "store").exists()
+    out = subprocess.run(["bash", "-c", f"source {envfile}; printf '%s' \"$MEM_STORE\""], capture_output=True, text=True).stdout
+    assert out == str(default)
+    (default / "marker").write_text("x")
+    assert run([str(HOOK)], env).returncode == 0
+    assert (default / "marker").exists()  # an existing default store is not initialized again
+
+
+def test_hook_without_option_is_silent_when_init_fails(tmp_path):
+    blocker = tmp_path / "file"
+    blocker.write_text("")
+    r = run([str(HOOK)], {"XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(blocker)})
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+def test_hook_with_the_option_does_not_make_the_default_store(tmp_path):
+    r = run([str(HOOK)], {"XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(tmp_path / "share"),
+                          "CLAUDE_PLUGIN_OPTION_STORE": "/s"})
+    assert r.returncode == 0 and not (tmp_path / "share").exists()
 
 
 def test_hook_is_silent_when_the_env_file_cannot_be_written(tmp_path):
     r = run([str(HOOK)], {"XDG_CONFIG_HOME": str(tmp_path / "c"), "CLAUDE_PLUGIN_OPTION_STORE": "/s",
                           "CLAUDE_ENV_FILE": str(tmp_path / "missing" / "env")})
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
-
-
-def test_hook_removes_the_config_file_when_the_option_is_cleared(tmp_path):
-    env = {"XDG_CONFIG_HOME": str(tmp_path / "c")}
-    assert run([str(HOOK)], {**env, "CLAUDE_PLUGIN_OPTION_STORE": "/s"}).returncode == 0
-    assert (tmp_path / "c" / "agent-memory" / "store").exists()
-    r = run([str(HOOK)], env)
-    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
-    assert not (tmp_path / "c" / "agent-memory" / "store").exists()
 
 
 def test_hook_handles_the_memories_option_like_the_store(tmp_path):
@@ -144,7 +163,8 @@ def test_session_index_hook_with_spaced_store_and_logs(hub_root, tmp_path):
     proj.mkdir()
     r = subprocess.run([str(HOOKS / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
                        env={"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "CLAUDE_PLUGIN_OPTION_STORE": str(spaced),
-                            "MEM_DATA": str(tmp_path / "d"), "XDG_CONFIG_HOME": str(tmp_path / "c"), "MEM_PROJECT": str(proj)},
+                            "MEM_DATA": str(tmp_path / "d"), "XDG_CONFIG_HOME": str(tmp_path / "c"), "MEM_PROJECT": str(proj),
+                            "XDG_DATA_HOME": str(tmp_path / "share")},
                        capture_output=True, text=True)
     lines = r.stdout.split("\n")
     assert r.returncode == 0 and r.stderr == ""
@@ -168,7 +188,8 @@ def _signal_env(tmp_path, **extra):
         "---\nkind: lesson\nclaim: Retries without idempotency keys duplicate side effects\n"
         "created: 2026-11-01\nobserved: 1\nstatus: active\n---\n", encoding="utf-8")
     return {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "MEM_DATA": str(tmp_path / "d"),
-            "XDG_CONFIG_HOME": str(tmp_path / "c"), "MEM_PROJECT": str(root), **extra}
+            "XDG_CONFIG_HOME": str(tmp_path / "c"), "MEM_PROJECT": str(root), "XDG_DATA_HOME": str(tmp_path / "share"),
+            **extra}
 
 
 def _signal(tmp_path, stdin, **extra):
@@ -223,3 +244,16 @@ def test_subagent_start_still_speaks_to_other_agents():
     r = subprocess.run([str(HOOKS / "subagent-start.sh")], input=json.dumps({"agent_type": "Explore", "agent_id": "a1"}),
                        env={"PATH": os.environ["PATH"]}, capture_output=True, text=True)
     assert json.loads(r.stdout)["hookSpecificOutput"]["additionalContext"] == SUBAGENT_TEXT
+
+
+@needs_uv
+def test_session_index_hook_finds_the_default_store(tmp_path):
+    share = tmp_path / "share"
+    proj = tmp_path / "p"
+    proj.mkdir()
+    env = {"PATH": os.environ["PATH"], "HOME": os.environ["HOME"], "MEM_DATA": str(tmp_path / "d"),
+           "XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(share), "MEM_PROJECT": str(proj)}
+    assert subprocess.run([str(MEM), "init"], env=env, capture_output=True, text=True).returncode == 0
+    r = subprocess.run([str(HOOKS / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
+                       env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and r.stderr == "" and " Store: 0 notes." in r.stdout.split("\n")[0]

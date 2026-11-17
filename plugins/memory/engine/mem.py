@@ -66,22 +66,36 @@ def _config_store(env: Mapping[str, str]) -> str:
     return lines[0].strip() if lines else ""
 
 
+NO_STORE = ('mem: no store is set. Run "mem init" to create the default store, or set the plugin\'s "store" option, '
+            "or pass --root <folder>, or set MEM_STORE.")
+
+
+def _default_store(env: Mapping[str, str]) -> Path | None:
+    """The default store when its folder exists."""
+    path = records.default_store(env)
+    return path if path is not None and path.is_dir() else None
+
+
 def store_source(cli_root: str | None, env: Mapping[str, str]) -> str | None:
-    """Where the store path comes from: --root, MEM_STORE or the config file."""
+    """Where the store path comes from: --root, MEM_STORE, the config file or the default store."""
     if cli_root:
         return "--root"
     if _env_value(env, "MEM_STORE"):
         return "MEM_STORE"
     if _config_store(env):
         return "config file"
+    if _default_store(env) is not None:
+        return "default"
     return None
 
 
 def resolve_root(cli_root: str | None, env: Mapping[str, str]) -> Path | None:
-    """The store folder by precedence --root, MEM_STORE, config file; not checked for existence."""
+    """The store folder by precedence --root, MEM_STORE, config file, default store; not checked for existence."""
     source = store_source(cli_root, env)
     if source is None:
         return None
+    if source == "default":
+        return _default_store(env)
     raw = {"--root": cli_root, "MEM_STORE": env.get("MEM_STORE")}.get(source) or _config_store(env)
     return Path(raw).expanduser()
 
@@ -3000,6 +3014,35 @@ def cmd_signal(args: argparse.Namespace) -> int:
     return 0
 
 
+def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
+    """0 when a write to the global scope may go on, else its exit code after a message on stderr: 4 for a hard
+    term, 5 for a soft one the owner has not approved. A missing list is created, so it never blocks."""
+    try:
+        records.ensure_terms_file(os.environ)
+        hits = records.term_hits(texts, os.environ, kind)
+    except records.ForbiddenListError as exc:
+        print(f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.", file=sys.stderr)
+        return 2
+    except OSError as exc:
+        print(f"mem: the forbidden-terms list cannot be created ({exc}); nothing was written.", file=sys.stderr)
+        return 2
+    hard = next((t for t in hits if not t.soft), None)
+    if hard is not None:
+        print(f"mem: the text contains a forbidden term (line {hard.line} of the forbidden-terms list); "
+              "nothing was written.", file=sys.stderr)
+        return 4
+    soft = next((t for t in hits), None)
+    if soft is not None and not approved:
+        print(f'mem: the text mentions "{soft.text}" (a soft term): ask the owner whether this may be written to the '
+              "global scope; if they agree, repeat with --owner-approved.", file=sys.stderr)
+        return 5
+    return 0
+
+
+def _approval(args: argparse.Namespace) -> dict[str, bool]:
+    return {"owner_approved": True} if getattr(args, "owner_approved", False) else {}
+
+
 def _refuse_secret(texts: Sequence[str]) -> bool:
     """Say so on stderr and return True when a text looks like it holds a secret."""
     name = records.secret_in(texts)
@@ -3030,11 +3073,6 @@ def cmd_remember(args: argparse.Namespace) -> int:
         if _read_only_store(store, folder.resolve()):
             print(_READ_ONLY_MEMORIES, file=sys.stderr)
             return 2
-        forbidden = records.forbidden_file(os.environ)
-        if forbidden is None or not forbidden.is_file():
-            print(f"mem: global memories need the file {forbidden} (one forbidden term per line; it may be empty), "
-                  "so that a business name is not written by mistake.", file=sys.stderr)
-            return 2
         project = None
     else:
         project = records.project_root(Path.cwd(), os.environ)
@@ -3058,16 +3096,10 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if _refuse_secret([args.claim, args.context or "", body, *args.source]):
         return 4
     if args.is_global:
-        try:
-            hit = records.forbidden_line([args.claim, args.context or "", body, *args.source,
-                                          records.slug_of(args.claim)], os.environ)
-        except records.ForbiddenListError as exc:
-            print(f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.", file=sys.stderr)
-            return 2
-        if hit is not None:
-            print(f"mem: the text contains a forbidden term (line {hit} of the forbidden-terms list); "
-                  "nothing was written.", file=sys.stderr)
-            return 4
+        refused = _check_terms([args.claim, args.context or "", body, *args.source, records.slug_of(args.claim)],
+                               args.kind, args.owner_approved)
+        if refused:
+            return refused
     claim_tokens = tokenize(args.claim)
     existing = records.load_memories(folder, scope)
     live = [m for m in existing if records.is_live(m, today)]
@@ -3107,7 +3139,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if due > 0:
         print(f"mem: {due} new memories since the last curation pass: after the current task, "
               "hand a pass to the memory-curator subagent.", file=sys.stderr)
-    log_usage(store, {"cmd": "remember", "scope": scope})
+    log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
     return 0
 
 
@@ -3151,25 +3183,16 @@ def _with_note(body: str, heading: str, text: str) -> str:
     return f"{head}\n\n{heading}\n{text.strip()}\n" if head.strip() else f"{heading}\n{text.strip()}\n"
 
 
-def _reason_allowed(memory: records.Memory, because: str | None) -> bool:
-    """A reason goes through the secret patterns; one written into a global memory also through the forbidden-terms
-    list, failing closed."""
+def _reason_allowed(memory: records.Memory, because: str | None, approved: bool) -> int:
+    """0 when the reason may be written: it goes through the secret patterns; one written into a global memory also
+    through the term list, failing closed. Else the exit code, after a message."""
     if not because:
-        return True
+        return 0
     if _refuse_secret([because]):
-        return False
+        return 4
     if memory.scope != "global":
-        return True
-    try:
-        hit = records.forbidden_line([because], os.environ)
-    except records.ForbiddenListError as exc:
-        print(f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.", file=sys.stderr)
-        return False
-    if hit is not None:
-        print(f"mem: the text contains a forbidden term (line {hit} of the forbidden-terms list); "
-              "nothing was written.", file=sys.stderr)
-        return False
-    return True
+        return 0
+    return _check_terms([because], memory.kind, approved)
 
 
 def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list[records.Memory], datetime.date], list[str]],
@@ -3177,15 +3200,16 @@ def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list
     found = _memory_of(args, handles)
     if found is None:
         return 2
-    if not _reason_allowed(found[0], because):
-        return 4
+    refused = _reason_allowed(found[0], because, getattr(args, "owner_approved", False))
+    if refused:
+        return refused
     try:
         lines = apply(found, datetime.date.today())
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print("\n".join(lines))
-    log_usage(_optional_store(args), {"cmd": name, "scope": found[0].scope})
+    log_usage(_optional_store(args), {"cmd": name, "scope": found[0].scope, **_approval(args)})
     return 0
 
 
@@ -3315,8 +3339,7 @@ def cmd_distinct(args: argparse.Namespace) -> int:
 def _writable_store(args: argparse.Namespace, command: str) -> Path | None:
     root = args.root
     if not isinstance(root, Path) or not root.is_dir():
-        print('mem: no store is set. Enable the memory plugin and set its "store" option, '
-              "or pass --root <folder>, or set MEM_STORE.", file=sys.stderr)
+        print(NO_STORE, file=sys.stderr)
         return None
     if not records.store_is_writable(root):
         print(f"mem: {command} writes to the store, which is read-only: it has no mem-store.yaml "
@@ -3711,7 +3734,22 @@ _TEMPLATES = Path(__file__).resolve().parent / "templates"
 
 
 def cmd_init(args: argparse.Namespace) -> int:
-    folder = Path(args.folder).expanduser()
+    if args.folder is None:
+        default = records.default_store(os.environ)
+        if default is None:
+            print("mem: no folder given and neither XDG_DATA_HOME nor HOME is set.", file=sys.stderr)
+            return 2
+        args.folder = str(default)
+    code = _init_store(Path(args.folder).expanduser())
+    if code == 0:
+        try:
+            records.ensure_terms_file(os.environ)
+        except OSError:
+            pass  # the list is made again by the first global write
+    return code
+
+
+def _init_store(folder: Path) -> int:
     if folder.exists() and not folder.is_dir():
         print(f"mem: {folder} is not a folder", file=sys.stderr)
         return 2
@@ -3740,6 +3778,52 @@ def cmd_init(args: argparse.Namespace) -> int:
         return 2
     print(folder)
     return 0
+
+
+def _term_class(term: records.Term) -> str:
+    return "hard" if not term.soft else f"soft[{term.kind}]" if term.kind else "soft"
+
+
+def cmd_terms(args: argparse.Namespace) -> int:
+    path = records.forbidden_file(os.environ)
+    if path is None:
+        print("mem: neither XDG_CONFIG_HOME nor HOME is set: the term list has no place.", file=sys.stderr)
+        return 2
+    try:
+        terms = records.read_terms(os.environ)
+        if args.terms_command == "list":
+            for t in terms:
+                print(f"{_term_class(t)}\t{t.text}")
+            return 0
+        text = " ".join(args.term.split())
+        if args.terms_command == "add":
+            if args.kind and not args.soft:
+                build_parser().error("--kind needs --soft")
+            if not text or text.startswith("#") or records.parse_term(text).soft:
+                print("mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr)
+                return 2
+            line = f"soft[{args.kind}]: {text}" if args.soft and args.kind else f"soft: {text}" if args.soft else text
+            new = records.parse_term(line)
+            if any((t.text, t.soft, t.kind) == (new.text, new.soft, new.kind) for t in terms):
+                print("already listed")
+                return 0
+            records.ensure_terms_file(os.environ)
+            existing = path.read_text(encoding="utf-8")
+            with path.open("a", encoding="utf-8") as f:
+                f.write(("" if not existing or existing.endswith("\n") else "\n") + line + "\n")
+            print(f"{_term_class(new)}\t{text}")
+            return 0
+        lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
+        kept = [ln for ln in lines if (t := records.parse_term(ln)) is None or t.text != text]
+        if len(kept) == len(lines):
+            print(f"mem: no term {text!r} in the list.", file=sys.stderr)
+            return 2
+        path.write_text("".join(ln + "\n" for ln in kept), encoding="utf-8")
+        print(f"removed {len(lines) - len(kept)}")
+        return 0
+    except (records.ForbiddenListError, OSError) as exc:
+        print(f"mem: the forbidden-terms list cannot be used ({exc}).", file=sys.stderr)
+        return 2
 
 
 SIMILAR_LIMIT = 3
@@ -4339,6 +4423,9 @@ _NEW_FIELDS = {
 }
 
 
+_OWNER_APPROVED = "the owner agreed to a write that mentions a soft term: never add it on your own"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mem", description="Memory engine: search and read a store of notes.")
     parser.add_argument("--root", default=None, help="store folder (default: $MEM_STORE, then the config file)")
@@ -4466,6 +4553,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
+    remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     remember_parser.set_defaults(func=cmd_remember)
     index_cmd = sub.add_parser("session-index", help="print the text that opens a session: usage rules and counts")
     index_cmd.add_argument("--hook", action="store_true",
@@ -4483,6 +4571,7 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument(h, metavar="m:HANDLE")
         if because:
             cmd.add_argument("--because", metavar="TEXT", help="the reason, appended to the memory's body")
+            cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
         cmd.add_argument("--global", dest="is_global", action="store_true",
                          help="act on the global memory when the handle exists in both scopes")
         return cmd
@@ -4552,8 +4641,18 @@ def build_parser() -> argparse.ArgumentParser:
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
     synthesis_parser.set_defaults(func=cmd_synthesis)
-    init_parser = sub.add_parser("init", help="make a folder a writable store")
-    init_parser.add_argument("folder", metavar="FOLDER")
+    terms_parser = sub.add_parser("terms", help="manage the terms that must not reach the global scope")
+    terms_sub = terms_parser.add_subparsers(dest="terms_command", required=True)
+    terms_sub.add_parser("list", help="print hard<TAB>term and soft<TAB>term lines")
+    terms_add = terms_sub.add_parser("add", help="add a term to the list")
+    terms_add.add_argument("term")
+    terms_add.add_argument("--soft", action="store_true", help="a soft term: the owner must approve a write that holds it")
+    terms_add.add_argument("--kind", choices=records.TERM_KINDS, help="with --soft: only for this kind of memory, or note or synthesis")
+    terms_remove = terms_sub.add_parser("remove", help="remove every line that holds exactly this term")
+    terms_remove.add_argument("term")
+    terms_parser.set_defaults(func=cmd_terms)
+    init_parser = sub.add_parser("init", help="make a folder a writable store (default: the default store)")
+    init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)
     return parser
 
@@ -4562,7 +4661,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "read":
         args.command = "show"
-    if args.command == "init":
+    if args.command in ("init", "terms"):
         return args.func(args)
     if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used
         root = resolve_root(args.root, os.environ)
@@ -4576,8 +4675,7 @@ def main(argv: list[str] | None = None) -> int:
         args.root = None
         return args.func(args)
     if root is None:
-        print('mem: no store is set. Enable the memory plugin and set its "store" option, '
-              "or pass --root <folder>, or set MEM_STORE.", file=sys.stderr)
+        print(NO_STORE, file=sys.stderr)
         return 2
     if root.exists() and not root.is_dir():
         print(f"mem: the store is not a folder: {root}", file=sys.stderr)

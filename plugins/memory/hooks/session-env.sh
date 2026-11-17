@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 # SessionStart hook: hands the plugin's `store` and `memories` options to the session's shell
 # commands (they do not receive plugin options) and to the config files `mem` falls back on.
+# With no `store` option it makes the default store on the first run and hands that one over.
 # Silent and always exit 0: a failing hook would disturb every session.
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+export_var() { # <variable> <value>
+  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+    { printf 'export %s=%q\n' "$1" "$2" >> "$CLAUDE_ENV_FILE"; } 2>/dev/null
+  fi
+  return 0
+}
 handle() { # <option value> <config file name> <variable>
   if [ -z "$1" ]; then
     # The option was cleared: the fallback file must not keep an old value alive.
@@ -10,11 +18,22 @@ handle() { # <option value> <config file name> <variable>
     return 0
   fi
   { mkdir -p "$cfg" && printf '%s\n' "$1" > "$cfg/$2"; } >/dev/null 2>&1
-  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
-    { printf 'export %s=%q\n' "$3" "$1" >> "$CLAUDE_ENV_FILE"; } 2>/dev/null
+  export_var "$3" "$1"
+}
+default_store() {
+  local data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
+  [ -n "$data" ] || return 0
+  local dir="$data/agent-memory/store"
+  if [ ! -d "$dir" ] && [ -n "$here" ]; then
+    "$here/../bin/mem" init >/dev/null 2>&1 || true
   fi
+  [ -d "$dir" ] && export_var MEM_STORE "$dir"
   return 0
 }
-handle "${CLAUDE_PLUGIN_OPTION_STORE:-}" store MEM_STORE
+if [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then
+  handle "$CLAUDE_PLUGIN_OPTION_STORE" store MEM_STORE
+else
+  default_store
+fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
 exit 0

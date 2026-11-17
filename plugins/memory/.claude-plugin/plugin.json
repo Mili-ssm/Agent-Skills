@@ -7,7 +7,7 @@
     "store": {
       "type": "directory",
       "title": "Store",
-      "description": "Folder of notes and memories that the plugin reads and writes (the global scope)."
+      "description": "Folder of notes and memories that the plugin reads and writes (the global scope). Leave empty to use the default store, created on first use."
     },
     "memories": {
       "type": "directory",

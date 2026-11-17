@@ -24,6 +24,7 @@ def hub_root(tmp_path: Path) -> Path:
 def isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv("MEM_DATA", str(tmp_path / "mem-data"))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "mem-config"))
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "mem-share"))  # the default store never lands in the real home
     monkeypatch.delenv("MEM_STORE", raising=False)
     monkeypatch.delenv("MEM_PROJECT", raising=False)
     monkeypatch.delenv("MEM_MEMORIES", raising=False)
