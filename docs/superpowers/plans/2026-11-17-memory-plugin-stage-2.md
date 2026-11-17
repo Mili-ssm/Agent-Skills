@@ -220,6 +220,58 @@ Run by the main conversation; "Results" records counts and pass or fail only.
 - [ ] **Step 4:** With a forbidden-terms file, a headless `remember --global` containing a listed term is refused, and a scan of the store's `memories/` for the list finds nothing.
 - [ ] **Step 5:** Tick stage 2 in [the stage plan](2026-11-17-memory-plugin.md).
 
+## Amendments after the pre-mortem (2026-11-17)
+
+These override the task text above wherever they differ. Each comes from a failure the pre-mortem reproduced or measured.
+
+### A. Writing is allowed by a marker or an explicit folder, never by a variable
+
+- `MEM_ALLOW_WRITE` is removed everywhere (code, tests, README, skill). `store_is_writable(store: Path) -> bool` is `(store / STORE_MARKER).is_file()` and takes no `env`. The `hub_root` test fixture creates the marker; tests of the read-only guard delete it.
+- The guard message becomes `mem: <command> writes to the store, which is read-only: it has no mem-store.yaml (create a store with "mem init").`
+- **Global memories have their own folder**, so they can be written while the note store stays read-only. `records.memories_root(env: Mapping[str, str], store: Path | None) -> Path | None`: `env["MEM_MEMORIES"]`; else the first line of the file `agent-memory/memories` (under `XDG_CONFIG_HOME`, else `HOME/.config`); else `store / GLOBAL_DIR` when the store is writable; else `None`. A folder named through the variable or the file is written without a marker: naming it is the permission. `memory_dir("global", …)` is replaced by this function.
+- `plugin.json` gains a second option, `memories` (`type: directory`, title `Global memories`, description `Folder for memories that do not belong to one project. Leave empty to keep them in the store.`), and `hooks/session-env.sh` handles it exactly as it handles `store` (file `agent-memory/memories`, `export MEM_MEMORIES=…`), with the same tests.
+- `remember --global` with no folder: `mem: no folder for global memories: set the plugin's "memories" option, or MEM_MEMORIES, or use a store made with "mem init".`, exit 2.
+
+### B. Business names: stricter gate for the global scope
+
+- `forbidden_line` checks the claim, the context, the body and every source URL.
+- `remember --global` is refused when the forbidden-terms file does not exist: `mem: global memories need the file <path> (one forbidden term per line; it may be empty), so that a business name is not written by mistake.`, exit 2. An existing empty file allows the write.
+
+### C. Duplicates: exact match blocks, neighbours are shown
+
+Measured: a claim and its negation had a Jaccard index of 0.89, and a real paraphrase 0.25, so no threshold separates "the same" from "the opposite".
+
+- Exit 3 only when a live memory of the target scope has the same token sequence as the new claim (`mem.tokenize` of both). `--force` overrides.
+- Otherwise the write happens, and stderr lists up to three live memories of the same scope chosen by the match rule of amendment D (the new claim as the query), under the line `related memories (if one is the same, run "mem observe m:<handle>"; if one says the opposite, keep both):`, each as `m:<handle>\t[<kind>, observed N, <created>]\t<claim>`.
+- `similarity` stays in `records.py`, unused by the commands.
+
+### D. Reading: a match rule that works on a handful of records
+
+Measured: on a tiny corpus every common word has a positive BM25 weight, so nearly every query would print memories that share only stop words. Memories are therefore not ranked with BM25.
+
+- `records.STOPWORDS`: a frozenset of about sixty common English words (articles, prepositions, auxiliaries, pronouns, question words).
+- `records.match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], today: datetime.date, *, tokenize: Callable[[str], list[str]], limit: int = 3, include_dead: bool = False) -> list[Memory]`. The distinct query tokens minus `STOPWORDS` are the terms; with no term left, the result is empty. A memory matches when its claim, context and body together contain at least half of the terms, rounded up. Order: more terms in the claim first, then more terms overall, then higher `observed`, then newer `created`, then handle. Only live memories unless `include_dead`.
+- `mem search` prints memory sections **before** the notes, at most 3 lines per scope: header `-- memories (project) --` or `-- memories (global) --`, then `m:<handle>\t[memory: <kind>, observed N, <created>]\t<claim>` (no score; a dead memory shown with `--all-memories` has `, refuted`, `, superseded` or `, expired` before the bracket closes). When at least one memory line was printed and notes follow, the notes are preceded by the line `-- notes --`. The note lines themselves never change.
+- No memory section is printed when `--offset` is above 0, when any of `--type`, `--topic`, `--kind`, `--status`, `--confidence`, `--level` is given, or with `--detail paths` (unless `--scope memories`, which then prints bare `m:<handle>` lines and no header). With `--also`, each query gets its own memory sections after its `== query ==` line. `no matches` goes to stderr only when neither a note nor a memory was printed.
+- Parity rule, restated: for any query, removing the memory sections and the `-- notes --` line from stdout leaves the output the command gave before this stage.
+
+### E. Smaller fixes
+
+- `records.project_root`: the main worktree is the first `worktree` line of `git -C cwd worktree list --porcelain`. Tests: a linked worktree, a submodule (its own root, not the parent's `.git/modules`), not a repository.
+- `records.observe` keeps frontmatter keys it does not know, and writes through a temporary file and `os.replace`.
+- A `finding` needs at least one `--source`; without `--valid-until` it expires 90 days after `created`. Other kinds have no default expiry.
+- `log_usage` accepts `root: Path | None`; `remember` and `observe` log `{"cmd": …, "scope": …}` and never the claim.
+- `show` and `observe` take exact `m:` handles only; when both scopes hold the handle, the project one wins.
+- `mem init` accepts a folder that already holds `.git`, `.gitignore`, `README.md` or the store's own entries.
+- `--body-file` may be empty or absent.
+
+### F. Left to the owner or to a later stage
+
+- A note line carries no label of its own; the `-- notes --` header labels the block when memories are present. Labelling every line would end byte-for-byte parity with the original.
+- The engine is not split into modules in this stage after all: new code goes in `records.py`, and the old code is split only when a change needs it.
+- A search tool that honours git's ignore rules does not look inside `.memory/` once it is excluded; a subagent reaches a memory by its path or through `mem`. Stage 3's session index lists the handles.
+- Whether agents call `remember` unprompted, and in English, is measured in Task 5 with a session that is not told to.
+
 ## Results
 
 Filled as tasks complete.
