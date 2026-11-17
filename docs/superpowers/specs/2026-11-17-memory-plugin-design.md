@@ -169,10 +169,15 @@ Decided by the owner on 2026-11-17. Round 2 replaced parts of round 1; the table
 | D11 | Curation is part of the plugin: checks at writing, a review of duplicates and of similar records not linked, commands to act on them |
 | D12 | Hooks signal with bands and the titles of the best matches; no reference to a cached query by default, and both forms may be tried |
 | D13 | What to remember goes by its nature: personal matters and preferences to auto memory; discoveries, facts and assumptions to the plugin; the project's situation or special conditions to both |
+| D16 | Post-processing is more than removing duplicates: two or more records may have to be unified into one, their content appended or rewritten, with the old ones redirecting to it |
+| D17 | Conclusions may be single notes or be grouped in a synthesis: a document written by a model over related notes, with a summary and an extended version, to which those notes point |
+| D18 | A source (paper, document, article) may give several conclusions, and a conclusion may rest on several sources; the store keeps both directions |
 | D15 | The owner's note repository stays a research hub (its own documents and experiments). The memory's remote store is a different repository; notes and memories are transferred into it when the time comes, so the plugin needs an import |
 | D14 | Only a perfect duplicate is refused at writing. Other duplicates are kept and curated in later passes, started by elapsed time or by a number of writes, possibly by a small-model subagent run beside the work |
 
 The agent's choices, all reversible, not ruled on by the owner: the command plus skill and no MCP server; reading the note repository as a second, read-only store during development; the hook set and its caps; calibration before the signal ships; pull automatic, push explicit; auto memory left unchanged; the cached hook text; the local list of forbidden terms; the folder at the main worktree's root; the names `mem`, `.memory/`, `remember`.
+
+An idea the owner raised without making it a requirement: a conclusion that lists the conclusions it builds on, apart from its sources, so conclusions can be composed.
 
 Not settled: which of the three means handles Spanish prompts; whether old unconfirmed memories rank lower; the thresholds of the bands; the sync repository.
 
