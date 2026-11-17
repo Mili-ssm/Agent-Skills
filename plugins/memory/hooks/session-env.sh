@@ -24,10 +24,15 @@ default_store() {
   local data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
   [ -n "$data" ] || return 0
   local dir="$data/agent-memory/store"
-  if [ ! -d "$dir" ] && [ -n "$here" ]; then
-    "$here/../bin/mem" init >/dev/null 2>&1 || true
+  # The marker, not the folder: an init cut short by the time limit is finished on the next start.
+  if [ ! -f "$dir/mem-store.yaml" ] && [ -n "$here" ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 4 "$here/../bin/mem" init >/dev/null 2>&1 || true   # bounded: a cold cache without network must not hold the session
+    else
+      "$here/../bin/mem" init >/dev/null 2>&1 || true
+    fi
   fi
-  [ -d "$dir" ] && export_var MEM_STORE "$dir"
+  [ -f "$dir/mem-store.yaml" ] && export_var MEM_STORE "$dir"
   return 0
 }
 if [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then

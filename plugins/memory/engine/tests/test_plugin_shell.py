@@ -273,3 +273,15 @@ def test_clearing_the_store_option_removes_the_old_config_file_and_falls_back_to
     assert not old.exists()
     out = subprocess.run(["bash", "-c", f"source {envfile}; printf '%s' \"$MEM_STORE\""], capture_output=True, text=True).stdout
     assert out == str(tmp_path / "share" / "agent-memory" / "store")
+
+
+def test_session_index_falls_back_to_the_fixed_rules_when_mem_cannot_run(tmp_path):
+    # No uv on the path: the hook must still open the session with the rules, and they must be the engine's own.
+    import mem
+    r = subprocess.run([str(HOOKS / "session-index.sh")], input="{}", capture_output=True, text=True,
+                       env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "XDG_DATA_HOME": str(tmp_path / "data"),
+                            "XDG_CONFIG_HOME": str(tmp_path / "cfg"), "MEM_DATA": str(tmp_path / "d")})
+    if shutil.which("uv", path="/usr/bin:/bin"):
+        pytest.skip("uv is in a system folder")
+    assert r.returncode == 0 and r.stderr == ""
+    assert r.stdout.rstrip("\n") == mem._INDEX_RULES

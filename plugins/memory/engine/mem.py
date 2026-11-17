@@ -1,6 +1,6 @@
 #!/usr/bin/env -S uv run --script
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.12,<3.15"  # an upper bound: a newer Python may have no prebuilt pyyaml yet
 # dependencies = ["pyyaml"]
 # ///
 """Memory engine: parsing primitives and the mem commands."""
