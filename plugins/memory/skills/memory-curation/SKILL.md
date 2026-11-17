@@ -14,7 +14,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 1. `mem curate`: the queue. It prints nothing when there is nothing to decide.
 2. For each item, read both memories whole when the claims alone do not settle it: `mem show m:<a> m:<b>`.
 3. Apply one action per item (table below).
-4. `mem curate --done`: records the pass, so the session start text stops announcing it.
+4. `mem curate --done`: records the pass, so the session start text stops announcing it; in a store with git history it also commits the pass and trims curation-log entries older than 30 days.
 
 | Block of the queue | What it means | Actions |
 |---|---|---|

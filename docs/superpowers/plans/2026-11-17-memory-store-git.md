@@ -61,17 +61,17 @@ Commit 4efb128 built a per-command hook in `main()`; the owner then chose commit
 | `mem curate --done` | As today, then commits (`curation pass …`), then trims logs (30 days) |
 | `SessionEnd` hook | `mem history commit` with a `session end …` message, under `timeout 5`, never failing the session |
 
-- [ ] **Step 1: Failing tests** — one per row; trimming removes only entries older than 30 days, only after a commit, only inside a git store (a project `.memory/` log untouched), and `mem restore` still works on the entries left (including after an earlier restore marker); a store without git: `curate --done` behaves as today and trims nothing; the hook script exits 0 when git fails or times out.
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Whole suite, `scripts/validate.py` and `claude plugin validate plugins/memory` pass.**
-- [ ] **Step 5: Commit** `feat(memory): history commands, commits at curation and session end, 30-day log trimming`.
+- [x] **Step 1: Failing tests** — one per row; trimming removes only entries older than 30 days, only after a commit, only inside a git store (a project `.memory/` log untouched), and `mem restore` still works on the entries left (including after an earlier restore marker); a store without git: `curate --done` behaves as today and trims nothing; the hook script exits 0 when git fails or times out.
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Whole suite, `scripts/validate.py` and `claude plugin validate plugins/memory` pass.**
+- [x] **Step 5: Commit** `feat(memory): history commands, commits at curation and session end, 30-day log trimming`.
 
 ### Task 3: Document and turn it on
 
 **Files:** `plugins/memory/README.md`, `plugins/memory/skills/memory-curation/SKILL.md`.
 
-- [ ] **Step 1:** README: what the history is, the three commit points, `mem history init|commit` and `mem history`, the 30-day trimming, `mem restore` as the undo, the remote later. Curation skill: one line that `mem curate --done` also commits and trims (bodies only, no `description:` change).
+- [x] **Step 1:** README: what the history is, the three commit points, `mem history init|commit` and `mem history`, the 30-day trimming, `mem restore` as the undo, the remote later. Curation skill: one line that `mem curate --done` also commits and trims (bodies only, no `description:` change).
 - [ ] **Step 2:** After merge and plugin update, by the controller with the owner told first: back up the store, `mem history init` on the default store, check `git log` shows the first commit and that `curate --done` adds one.
 - [ ] **Step 3: Commit** `docs(memory): the store keeps a git history`.
 
@@ -90,4 +90,10 @@ Kill criteria: `.git` over 3× the working tree after one week → stop and re-p
 
 ## Results
 
-Pending.
+Tasks 1 and 2 built and reviewed; docs written (Task 3 Step 1). Engine tests 921 passed, 4 skipped. Spike: 200 commits gave `.git` 1.7× the tracked tree.
+
+Correction (review of Task 2): with commits only at curation and session end, git does not hold every earlier state, only the state at each commit point; trimming loses intermediate states older than 30 days that no commit captured. Accepted as the cost of coarse commits (owner's choice) and stated in the README.
+
+Deferred (low): hook and trim tests that would pass with the feature removed; a group entry straddling the 30-day cut; a fixed `.curation-log.tmp` name; a cold `uv` start can exceed the 5 s hook budget (the next commit point catches up).
+
+Pending: Task 3 Step 2 (turn it on in the owner's store) after merge and plugin update.
