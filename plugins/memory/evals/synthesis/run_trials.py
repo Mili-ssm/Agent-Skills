@@ -3,15 +3,17 @@
 as one written by Sonnet with one Haiku fact-check, and at what cost?
 
 Plan: docs/superpowers/plans/2026-11-17-memory-synthesis-haiku.md (its Design and decision rule bind this script).
-Arm S: writer sonnet -> checker haiku -> fixer sonnet. Arm H: writer haiku -> (checker haiku -> fixer haiku), up to
-2 fix rounds, ending on a check. A Sonnet judge, blind to the arm, fact-checks every final synthesis; the judge's
+Arm S: writer sonnet -> checker haiku -> fixer sonnet. Arm Y (default with S): writer sonnet -> checker haiku and
+fixer haiku at high effort, up to 2 fix rounds, ending on a check. Arm H (not a default): writer haiku -> (checker haiku -> fixer haiku), up to
+2 fix rounds, ending on a check. A Haiku judge at high effort, blind to the arm, fact-checks every final synthesis; the judge's
 count is the quality measure. Each step is its own `claude -p` session. Every pipeline works on its own copy of a
 store snapshot under `target/mem-trials/` in which the topic's synthesis is gone and its notes are detached; the
 owner's store is read once, to make the snapshot, and never written.
 
-Usage: run_trials.py [--claude PATH] [--topic T]... [--arm S|H]... [--runs 2] [--jobs 2] [--work DIR (resume)]
+Usage: run_trials.py [--claude PATH] [--topic T]... [--arm S|Y|H]... [--judge-model haiku] [--runs 1] [--jobs 2] [--work DIR (resume)]
                      [--keep] | --self-check
-It costs model usage (16 pipelines and 16 judges at the defaults, about 6 to 12 USD).
+It costs model usage (8 pipelines and 8 judges at the defaults, about 8 to 10 USD).
+--rejudge reuses a kept pipeline folder (run an earlier pipeline with --keep).
 """
 from __future__ import annotations
 
@@ -37,7 +39,8 @@ MEM = PLUGIN / "bin" / "mem"
 SOURCE = trial_env.TARGET / "synthesis-source"
 ATTACHED = trial_env.TARGET / "synthesis-source-attached.json"
 TOPICS = ("human-memory", "time-series-forecasting", "llm-evaluation", "mental-health")
-ARMS = ("S", "H")
+ARMS = ("S", "Y", "H")   # H (Haiku writer) is kept, but not run by default
+DEFAULT_ARMS = ("S", "Y")
 STATE = "state.json"
 SKILL = PLUGIN / "skills" / "memory-synthesis" / "SKILL.md"
 MAX_FIX_ROUNDS = 2
@@ -187,7 +190,7 @@ def parse(stdout: str) -> dict:
 
 
 def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path, env: dict, log: Path,
-                timeout: int = 1500) -> dict:
+                timeout: int = 1500, effort: str | None = None) -> dict:
     cmd = [claude, "-p", prompt, "--model", model, "--plugin-dir", str(PLUGIN), "--settings", str(settings),
            "--setting-sources", "project",
            # Headless --allowedTools also limits what a session may run: exactly what a step needs. Body files go
@@ -197,6 +200,8 @@ def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path
            f"Write(/{work}/**)", f"Edit(/{work}/**)",
            "--disallowedTools", "WebSearch", "WebFetch",
            "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
+    if effort:
+        cmd += ["--effort", effort]
     start = time.monotonic()
     try:
         done = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -234,7 +239,61 @@ def synthesis_facts(path: Path) -> tuple[int, int]:
     return len(text.split()), len(re.findall(r"^## (?!Summary$)", text, re.M))
 
 
-def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: int, keep: bool) -> dict:
+def summary(s: dict) -> dict:
+    return dict(role=s["role"], model=s["model"], costs=s["costs"], cost=s["cost"], wall=s["wall"], writes=s["writes"],
+                write_errors=s["write_errors"], denied=s["denied"], tool_errors=s["tool_errors"],
+                ok=s["has_result"] and not s["error"])
+
+
+def judge_row(claude: str, base: Path, env: dict, topic: str, arm: str, run: int, judge_model: str, prior: dict) -> dict:
+    """Judge the synthesis in `base/store` and build the row from the pipeline's `prior` facts."""
+    store, work = base / "store", base / "work"
+    settings = base / "settings.json"
+    synthesis = store / "syntheses" / f"{topic}.md"
+    sessions, why = list(prior["sessions"]), prior["why"]
+    judged, check_exit, words, parts = None, None, 0, 0
+    if synthesis.is_file():
+        check_exit = mem(store, env, "check").returncode
+        words, parts = synthesis_facts(synthesis)
+        report = work / "judge-report.md"
+        report.unlink(missing_ok=True)
+        fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
+        s = run_session(claude, judge_model, brief("checker", **fill, REPORT_FILE=str(report)) + JUDGE_EXTRA, work,
+                        settings, env, base / f"{len(sessions) + 1:02d}-judge.jsonl", effort="high")
+        s.update(role="judge", model=judge_model, costs=cost_by_family(s["model_usage"]))
+        sessions.append(summary(s))
+        judged = parse_report(report)
+        if judged is None:
+            why = why or "judge report unreadable"
+    for s in sessions:
+        if s["denied"]:
+            why = f"permission denied in {s['role']}"
+            break
+    for s in sessions:
+        if not s["ok"]:
+            why = why or f"{s['role']} session failed"
+        elif s["costs"].get(s["model"], 0.0) <= 0:
+            why = why or f"{s['model']} missing from {s['role']} modelUsage"
+    denominator = prior["denominator"]
+    used = {rel for rel, state in (judged or {}).get("notes", {}).items() if state == "used"}
+    pooled: dict[str, float] = {}
+    for s in sessions:
+        for family, cost in s["costs"].items():
+            pooled[family] = pooled.get(family, 0.0) + cost
+    arm_count = prior["arm_count"]
+    return dict(
+        topic=topic, arm=arm, run=run, valid=not why, why=why, denominator=len(denominator),
+        checked=judged["checked"] if judged else 0, unsupported=judged["unsupported"] if judged else 0,
+        words=words, parts=parts, used=len(used & set(denominator)), mem_check=check_exit, fix_rounds=prior["fixes"],
+        arm_checked=arm_count["checked"] if arm_count else None,
+        arm_unsupported=arm_count["unsupported"] if arm_count else None,
+        costs=pooled, cost=sum(s["cost"] for s in sessions),
+        pipeline_cost=sum(s["cost"] for s in sessions if s["role"] != "judge"),
+        wall=sum(s["wall"] for s in sessions), sessions=sessions)
+
+
+def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: int, keep: bool,
+                 judge_model: str) -> dict:
     name = f"{topic}-{arm}-{run}"
     base = root / "runs" / name
     shutil.rmtree(base, ignore_errors=True)
@@ -247,21 +306,23 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
     settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
     fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
     sessions: list[dict] = []
+    # Arm Y runs its Haiku checker and fixer at high effort; S and H at the default.
+    effort = "high" if arm == "Y" else None
 
-    def step(role: str, model: str, text: str) -> dict:
-        s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl")
+    def step(role: str, model: str, text: str, level: str | None = None) -> dict:
+        s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl",
+                        effort=level)
         s.update(role=role, model=model, costs=cost_by_family(s["model_usage"]))
-        sessions.append(s)
+        sessions.append(summary(s))
         return s
 
     def check(n: int) -> dict | None:
         report = work / f"report-{n}.md"
-        step("checker", "haiku", brief("checker", **fill, REPORT_FILE=str(report)))
+        step("checker", "haiku", brief("checker", **fill, REPORT_FILE=str(report)), effort)
         return parse_report(report)
 
     synthesis = store / "syntheses" / f"{topic}.md"
-    writer_model = "sonnet" if arm == "S" else "haiku"
-    step("writer", writer_model, brief("writer", **fill))
+    step("writer", "haiku" if arm == "H" else "sonnet", brief("writer", **fill))
     arm_count, why, fixes = None, "", 0
     if not synthesis.is_file():
         why = "no synthesis written"
@@ -273,49 +334,27 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
                 fixes = 1
         else:
             while arm_count and arm_count["unsupported"] and fixes < MAX_FIX_ROUNDS:
-                step("fixer", "haiku", brief("fixer", **fill, REPORT_FILE=str(work / f"report-{fixes + 1}.md")))
+                step("fixer", "haiku", brief("fixer", **fill, REPORT_FILE=str(work / f"report-{fixes + 1}.md")), effort)
                 fixes += 1
                 arm_count = check(fixes + 1)
         if arm_count is None:
             why = "arm checker report unreadable"
-    judged, check_exit, words, parts = None, None, 0, 0
-    if synthesis.is_file():
-        check_exit = mem(store, env, "check").returncode
-        words, parts = synthesis_facts(synthesis)
-        judge_report = work / "judge-report.md"
-        step("judge", "sonnet", brief("checker", **fill, REPORT_FILE=str(judge_report)) + JUDGE_EXTRA)
-        judged = parse_report(judge_report)
-        if judged is None:
-            why = why or "judge report unreadable"
-    for s in sessions:
-        if s["denied"]:
-            why = f"permission denied in {s['role']}"
-            break
-    for s in sessions:
-        if not s["has_result"] or s["error"]:
-            why = why or f"{s['role']} session failed"
-        elif s["costs"].get(s["model"], 0.0) <= 0:
-            why = why or f"{s['model']} missing from {s['role']} modelUsage"
-    used = {rel for rel, state in (judged or {}).get("notes", {}).items() if state == "used"}
-    pooled: dict[str, float] = {}
-    for s in sessions:
-        for family, cost in s["costs"].items():
-            pooled[family] = pooled.get(family, 0.0) + cost
-    pipeline_cost = sum(s["cost"] for s in sessions if s["role"] != "judge")
-    row = dict(
-        topic=topic, arm=arm, run=run, valid=not why, why=why, denominator=len(denominator),
-        checked=judged["checked"] if judged else 0, unsupported=judged["unsupported"] if judged else 0,
-        words=words, parts=parts, used=len(used & set(denominator)), mem_check=check_exit, fix_rounds=fixes,
-        arm_checked=arm_count["checked"] if arm_count else None,
-        arm_unsupported=arm_count["unsupported"] if arm_count else None,
-        costs=pooled, cost=sum(s["cost"] for s in sessions), pipeline_cost=pipeline_cost,
-        wall=sum(s["wall"] for s in sessions),
-        sessions=[dict(role=s["role"], model=s["model"], costs=s["costs"], cost=s["cost"], wall=s["wall"],
-                       writes=s["writes"], write_errors=s["write_errors"], denied=s["denied"],
-                       tool_errors=s["tool_errors"]) for s in sessions])
+    prior = dict(sessions=sessions, why=why, denominator=denominator, arm_count=arm_count, fixes=fixes)
+    (base / "pipeline.json").write_text(json.dumps(prior))   # what `--rejudge` needs besides the kept store
+    row = judge_row(claude, base, env, topic, arm, run, judge_model, prior)
     if not keep:
         shutil.rmtree(store, ignore_errors=True)   # large; the row and the session streams keep the evidence
     return row
+
+
+def rejudge(claude: str, root: Path, env: dict, base: Path, judge_model: str) -> dict:
+    """Judge the final synthesis of a kept pipeline folder again; the row is recorded as arm S, run 1."""
+    base = base.resolve()
+    topic = base.name.rsplit("-", 2)[0]
+    prior = json.loads((base / "pipeline.json").read_text())
+    assert (base / "store" / "syntheses" / f"{topic}.md").is_file(), f"{base} keeps no store (use --keep)"
+    prior["sessions"] = [s for s in prior["sessions"] if s["role"] != "judge"]
+    return judge_row(claude, base, env, topic, "S", 1, judge_model, prior)
 
 
 # --- report --------------------------------------------------------------------------------------------------
@@ -360,7 +399,8 @@ def spread(rows: list[dict]) -> float:
 
 
 def decide(rows: list[dict]) -> list[str]:
-    """The plan's decision rule, applied to the valid pipelines (pooled over topics and runs)."""
+    """The plan's decision rule (redesign of 2026-11-17: challenger Y against S), on the valid pipelines pooled
+    over topics and runs. Arm H, when it was run, is held to the original rule (cost at most half of S)."""
     by = {a: [r for r in rows if r["arm"] == a and r["valid"]] for a in ARMS}
     lines, stats = [], {}
     for arm, rs in by.items():
@@ -370,19 +410,25 @@ def decide(rows: list[dict]) -> list[str]:
         lines.append(f"{arm} valid={p['n']} unsupported/100={p['rate']:.1f} claims checked={p['checked']:.0f} "
                      f"words={p['words']:.0f} coverage={p['cover']:.0f}% mem check all 0={p['mem_ok']} "
                      f"pipeline cost={p['cost']:.3f} (judge {p['judge']:.3f}) run gap={spread(rs):.1f} points")
-    if len(stats) < len(ARMS):
-        return lines + ["Decision rule: not applicable, an arm has no valid pipeline."]
-    s, h = stats["S"], stats["H"]
-    gap = max(spread(by["S"]), spread(by["H"]))
+    challenger = next((a for a in ("Y", "H") if a in stats), None)
+    if "S" not in stats or challenger is None:
+        return lines + ["Decision rule: not applicable, S or its challenger has no valid pipeline."]
+    s, h = stats["S"], stats[challenger]
+    share = 0.8 if challenger == "Y" else 0.5
+    single = max(len([r for r in by[a] if r["topic"] == t]) for a in ("S", challenger) for t in TOPICS) <= 1
+    gap = max(spread(by["S"]), spread(by[challenger]))
     checks = {f"unsupported {h['rate']:.1f} <= {s['rate']:.1f}+2": h["rate"] <= s["rate"] + 2,
               f"claims {h['checked']:.0f} >= 80% of {s['checked']:.0f}": h["checked"] >= 0.8 * s["checked"],
               f"coverage {h['cover']:.0f} >= {s['cover']:.0f}-10": h["cover"] >= s["cover"] - 10,
-              "every H synthesis passes mem check": h["mem_ok"],
-              f"cost {h['cost']:.3f} <= {s['cost']:.3f}/2": h["cost"] <= s["cost"] / 2}
+              f"every {challenger} synthesis passes mem check": h["mem_ok"],
+              f"pipeline cost (judge excluded) {h['cost']:.3f} <= {share:.0%} of {s['cost']:.3f}":
+                  h["cost"] <= share * s["cost"]}
     lines += [f"  {text}: {ok}" for text, ok in checks.items()]
+    if single:
+        lines.append("preliminary (1 run per topic): the variance rule cannot apply")
     verdict = (f"INCONCLUSIVE (the runs of an arm differ by {gap:.1f} > 2 points on a topic, pooled over topics): "
                "no change" if gap > 2 else
-               "ADOPT arm H" if all(checks.values()) else "KEEP the writer on Sonnet and record the gap")
+               f"ADOPT arm {challenger}" if all(checks.values()) else "KEEP today's pipeline (arm S) and record the gap")
     return lines + [f"Verdict: {verdict}"]
 
 
@@ -424,6 +470,12 @@ def self_check() -> int:
                           "COUNTS: checked=40 unsupported=3 used=1 unused=1\n")
         got = parse_report(sample)
         assert got == dict(checked=40, unsupported=3, notes={"knowledge/a/b.md": "used", "../literature/c.md": "unused"}), got
+        def fake(arm, cost, unsupported):
+            return dict(topic="human-memory", arm=arm, run=1, valid=True, checked=60, unsupported=unsupported, used=6,
+                        denominator=6, words=3000, mem_check=0, cost=cost + 0.4, pipeline_cost=cost)
+        verdict = decide([fake("S", 1.0, 2), fake("Y", 0.7, 3)])
+        assert "preliminary (1 run per topic)" in " ".join(verdict) and verdict[-1].startswith("Verdict: ADOPT arm Y")
+        assert decide([fake("S", 1.0, 2), fake("Y", 0.9, 3)])[-1].startswith("Verdict: KEEP")
         assert trial_env._snapshot(real) == before, "a file of the owner's store changed"
     finally:
         trial_env.clean(root)
@@ -438,8 +490,12 @@ def main() -> int:
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     parser.add_argument("--self-check", action="store_true", help="no model: prove the fixture")
     parser.add_argument("--topic", action="append", default=[], help="topic id (repeatable)")
-    parser.add_argument("--arm", action="append", choices=ARMS, default=[])
-    parser.add_argument("--runs", type=int, default=2)
+    parser.add_argument("--arm", action="append", choices=ARMS, default=[], help="default: S and Y")
+    parser.add_argument("--judge-model", default="haiku", help="the judge's model (always at --effort high)")
+    parser.add_argument("--rejudge", type=Path, metavar="PIPELINE_DIR",
+                        help="judge the final synthesis of a kept pipeline folder (runs/<topic>-<arm>-<n> of an "
+                             "earlier --keep run) again, recorded as arm S, run 1; needs --work")
+    parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--jobs", type=int, default=2)
     parser.add_argument("--work", type=Path, help="resume the work folder of an earlier run")
     parser.add_argument("--keep", action="store_true", help="keep the work folder and the store copies at the end")
@@ -448,12 +504,20 @@ def main() -> int:
         return self_check()
     if not args.claude:
         parser.error("--claude is required (no claude binary found)")
-    topics, arms = args.topic or list(TOPICS), args.arm or list(ARMS)
+    topics, arms = args.topic or list(TOPICS), args.arm or list(DEFAULT_ARMS)
     root = args.work.resolve() if args.work else trial_env.work_dir("mem-synthesis-")
     env = trial_env.make_env(root)
     state_file = root / STATE
     rows = json.loads(state_file.read_text()) if state_file.is_file() else []
     rows = [r for r in rows if r["valid"]]   # an invalid pipeline is rerun from scratch on resume
+    if args.rejudge:
+        if not args.work:
+            parser.error("--rejudge needs --work (the folder whose state.json receives the row)")
+        row = rejudge(args.claude, root, env, args.rejudge, args.judge_model)
+        rows = [r for r in rows if (r["topic"], r["arm"], r["run"]) != (row["topic"], "S", 1)] + [row]
+        state_file.write_text(json.dumps(rows, indent=1))
+        print(HEADER + "\n" + table_line(row))
+        return 0
     done = {(r["topic"], r["arm"], r["run"]) for r in rows}
     todo = [(t, a, n) for t in topics for a in arms for n in range(1, args.runs + 1) if (t, a, n) not in done]
     lock = threading.Lock()
@@ -463,7 +527,7 @@ def main() -> int:
 
     def task(item):
         topic, arm, n = item
-        row = one_pipeline(args.claude, root, env, topic, arm, n, args.keep)
+        row = one_pipeline(args.claude, root, env, topic, arm, n, args.keep, args.judge_model)
         with lock:
             rows.append(row)
             state_file.write_text(json.dumps(rows, indent=1))
