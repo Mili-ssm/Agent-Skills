@@ -146,7 +146,7 @@ def test_session_index_hook_with_spaced_store_and_logs(hub_root, tmp_path):
                        capture_output=True, text=True)
     lines = r.stdout.split("\n")
     assert r.returncode == 0 and r.stderr == ""
-    assert lines[0].startswith("memory: notes and memories") and len(lines) > 5 and lines[5].startswith("store: ")
+    assert lines[0].startswith("memory: the mem command") and " Store: " in lines[0] and len(lines) == 4
     rec = json.loads((tmp_path / "d" / "hooks" / "log.jsonl").read_text().splitlines()[0])
     assert rec["source"] == "startup"
 

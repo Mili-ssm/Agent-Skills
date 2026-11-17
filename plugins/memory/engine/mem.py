@@ -2408,17 +2408,13 @@ def _same_claim(a: str, b: str) -> bool:
     return wa == wb if wa or wb else a.strip() == b.strip()
 
 
+_INDEX_HEAD = "memory: the mem command searches notes and memories (skill: memory)."
 _INDEX_RULES = (
-    "memory: notes and memories are searchable with the `mem` command (skill: memory).\n"
-    '- Before researching or dispatching a researcher: mem search "<question in English>". '
-    "Put what applies into a subagent's brief.\n"
-    "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and "
-    "assumptions a later session would need (a decision, a constraint, a pitfall, a finding; not routine "
-    "outcomes) -> mem remember, claim in English; add --global when it would hold in any project and "
-    "names no business (a general lesson, research on a tool or method). "
-    "The project's current situation or special conditions (true now, may change) -> both.\n"
-    "- A line marked [memory: ...] is experience, not fact: keep its label and date when you pass it on.\n"
-    "- Open a result with mem show <handle>."
+    _INDEX_HEAD + "\n"
+    '- Before researching: mem search "<question in English>" (add --scope memories for this project\'s).\n'
+    "- To remember: preferences and personal matters -> auto memory; what a later session would need (a decision, "
+    "constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names "
+    "no business; the project's current situation -> both."
 )
 _INDEX_LIMIT = 1500
 _CLAIM_LIMIT = 100
@@ -2436,29 +2432,28 @@ def _count_notes(store: Path) -> int:
 
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
-                  *, limit: int = 8) -> str:
-    """Text for the start of a session: fixed rules, note and memory counts, the project's newest memories."""
-    lines = [_INDEX_RULES]
+                  *, limit: int = 0) -> str:
+    """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0."""
     try:
         has_store = store is not None and store.is_dir()
         has_memories = memories is not None and memories.is_dir()
     except OSError:
         has_store = has_memories = False
-    counts = ""
+    head = [_INDEX_HEAD]
     if has_store:
-        counts = f"store: {_count_notes(store)} notes"
+        head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
         live = sum(1 for m in records.load_memories(memories, "global") if records.is_live(m, today))
-        counts += f" · {live} global memories" if has_store else f"global memories: {live}"
-    if counts:
-        lines.append(counts)
+        head.append(f"Global memories: {live}.")
     mine = [m for m in records.load_memories(project, "project") if records.is_live(m, today)]
     if mine:
         mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
         mine.sort(key=lambda m: m.created or datetime.date.min, reverse=True)
         mine.sort(key=lambda m: m.observed, reverse=True)
         mine.sort(key=lambda m: m.kind != "state")  # the project's current situation first
-        lines.append(f"this project: {len(mine)} memories")
+        head.append(f"This project: {len(mine)} memories.")
+    lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
+    if mine and limit > 0:
         rows = []
         for m in mine:
             claim = " ".join(m.claim.split())
@@ -2520,7 +2515,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             project = None
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
         text = session_index(store, records.project_dir(project) if project else None, memories,
-                             datetime.date.today())
+                             datetime.date.today(), limit=max(args.list, 0))
     except Exception:
         text = _INDEX_RULES
     print(text)
@@ -3101,9 +3096,11 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.set_defaults(func=cmd_remember)
-    index_cmd = sub.add_parser("session-index", help="print the text that opens a session: rules, counts, project memories")
+    index_cmd = sub.add_parser("session-index", help="print the text that opens a session: usage rules and counts")
     index_cmd.add_argument("--hook", action="store_true",
                            help="read the hook's JSON from standard input (its cwd locates the project) and log the call")
+    index_cmd.add_argument("--list", type=int, default=0, metavar="N",
+                           help="also list up to N of the project's newest memories")
     index_cmd.set_defaults(func=cmd_session_index)
     observe_parser = sub.add_parser("observe", help="count one more observation of a memory")
     observe_parser.add_argument("handle", metavar="m:HANDLE")
