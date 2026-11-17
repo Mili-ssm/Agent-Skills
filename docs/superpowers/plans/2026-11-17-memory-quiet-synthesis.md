@@ -61,3 +61,19 @@ The owner chose all three ways to make curation quiet: A (the curator applies in
 - [ ] The out-of-scope guard in the pipeline, with a self-check case.
 - [ ] C: `plugins/memory/bin/mem-auto` (run, status, ack), the launch from the session-start hook, the option in `plugin.json`, the failure line in the session text, tests for due/lock/budget/failure line, and a spike first: can a session-start hook start a detached process that outlives it and finds the `claude` binary. Check: with the option off nothing starts; with it on and a fake `claude`, one run starts, a second session start does not start another, a failing run leaves the status and the next session text shows the line, `mem auto ack` removes it.
 - [ ] Docs: README section; kill criteria: a run that costs over its budget, two failures in a week, or the owner's word turn the option off.
+
+### Pre-mortem of the extension, 2026-11-17, and what changed
+
+| Risk | Change (binding for the tasks above) |
+| --- | --- |
+| A killed run leaves no status and relaunches at the next start, adding cost | Under the lock and before any model call the run writes `started` and reserves the day's budget; a `running` older than 1 hour counts as failed and is shown; the spike covers closing the terminal, finding `claude` and credentials |
+| Several session starts race the lock | The child takes `flock -n` as its first action and exits quietly when busy |
+| The safe subset lived only in the curator's prompt (Bash unrestricted; the refusal message suggests `--force`; opposites in other words pass the guard) | A new engine command `mem curate apply --safe` reads action lines (`merge <keep> <drop>`, `attach <note> s:<h>#<section>`) and enforces the subset in code: merge only when the claims are equal after normalization, never `--force`; attach only when the part's `Sources:` line links the note; anything else is listed as left. The curator's apply mode and `mem-auto` act only through it |
+| The run and the owner write the store at once (commits take in the owner's edits; log trimming can drop an entry being appended) | One store-wide run lock; `curate --done` trimming and the session-end commit skip while a run holds it; trimming runs under the commit lock |
+| The option test is "non-empty", so `"false"` turns it on; a store set only as an option is missed by the run | The option counts only when it is exactly `true`; the hook passes the resolved store with `--store` |
+| The trigger counts project memories while the run writes store syntheses; a failing topic is retried every 20 hours | C's own due test (a topic with 8 notes and no synthesis, or a non-empty global queue); a topic that failed twice is skipped until `mem auto ack`; the run never records `curate --done` |
+| A killed run or a success shows nothing; transcripts sit in a world-readable folder forever | Run folders are created with mode 0700 and kept 30 days; `mem auto status` shows the last run, its cost and result |
+
+Kill criteria for C: more than one run in a day, a day's spend above its budget, or two failures in a week turn the option off.
+
+The trigger case of `memory-synthesizer` fired 1 of 2, then 6 of 6 at the protocol's rerun (0.39 USD): kept.
