@@ -26,7 +26,8 @@ def isolated_env(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "mem-config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "mem-share"))  # the default store never lands in the real home
     monkeypatch.delenv("MEM_STORE", raising=False)
-    monkeypatch.delenv("MEM_PROJECT", raising=False)
+    # not the repository the tests run in: its own .memory/ would leak into every command that reads project memories
+    monkeypatch.setenv("MEM_PROJECT", str(tmp_path / "mem-project"))
     monkeypatch.delenv("MEM_MEMORIES", raising=False)
 
 

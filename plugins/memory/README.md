@@ -71,3 +71,10 @@ Routing trials (nine headless sessions that cost model usage; they check that ea
 ```sh
 python3 plugins/memory/evals/routing/run_trials.py --claude "$(command -v claude)"
 ```
+
+Trials keep everything under the ignored `target/` folder at the repository root: their config, data, stores and work folders, so they never read or write a real store or global memories (inherited `MEM_*` and `CLAUDE_PLUGIN_OPTION_*` variables are dropped), and `PATH` entries of an installed copy of a plugin (under `/plugins/cache/`) are dropped so sessions run the `mem` under test. A work folder is kept when a run fails, for inspection. To check the isolation without a model session:
+
+```sh
+python3 plugins/memory/evals/routing/run_trials.py --self-check
+python3 plugins/memory/evals/recall/run_trials.py --self-check
+```
