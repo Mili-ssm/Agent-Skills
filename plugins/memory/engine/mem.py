@@ -2410,7 +2410,7 @@ def _same_claim(a: str, b: str) -> bool:
 
 _INDEX_RULES = (
     "memory: notes and memories are searchable with the `mem` command (skill: memory).\n"
-    '- Before researching, re-reading or dispatching a researcher: mem search "<question in English>". '
+    '- Before researching or dispatching a researcher: mem search "<question in English>". '
     "Put what applies into a subagent's brief.\n"
     "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and "
     "assumptions (a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "

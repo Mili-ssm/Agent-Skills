@@ -10,7 +10,7 @@ import mem
 TODAY = datetime.date(2026, 11, 17)
 FIXED = [
     "memory: notes and memories are searchable with the `mem` command (skill: memory).",
-    '- Before researching, re-reading or dispatching a researcher: mem search "<question in English>". '
+    '- Before researching or dispatching a researcher: mem search "<question in English>". '
     "Put what applies into a subagent's brief.",
     "- To remember: the owner's preferences and personal matters -> auto memory. Discoveries, facts and assumptions "
     "(a decision, a constraint, a pitfall, a finding) -> mem remember, claim in English. "
