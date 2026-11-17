@@ -155,11 +155,11 @@ def describe(state: str) -> str
 - `agents/memory-curator.md`: one line saying its proposals include project synthesis parts to write, correct or confirm (it still changes nothing).
 - `skills/memory/SKILL.md`: one line under reading: a `p:` part marked possibly stale is a hint to check the files, not a fact.
 
-- [ ] **Step 1: Write the failing tests**: the two blocks with exact text (a stale part; five memories and no synthesis; four memories prints nothing); `test_session_index_names_existing_syntheses_only`; `test_session_index_names_them_in_a_project_without_memories`; `test_the_list_stays_within_its_1500_characters`; `test_session_index_runs_no_git` (monkeypatch `subprocess.run` in `project_syntheses` to fail the test if called); `test_session_index_without_syntheses_is_unchanged` (text equal to the current one).
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement the code and the three prompt edits.**
-- [ ] **Step 4: Whole suite and `scripts/validate.py` pass.**
-- [ ] **Step 5: Commit** `feat(memory): curation and session text for project syntheses`.
+- [x] **Step 1: Write the failing tests**: the two blocks with exact text (a stale part; five memories and no synthesis; four memories prints nothing); `test_session_index_names_existing_syntheses_only`; `test_session_index_names_them_in_a_project_without_memories`; `test_the_list_stays_within_its_1500_characters`; `test_session_index_runs_no_git` (monkeypatch `subprocess.run` in `project_syntheses` to fail the test if called); `test_session_index_without_syntheses_is_unchanged` (text equal to the current one).
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement the code and the three prompt edits.**
+- [x] **Step 4: Whole suite and `scripts/validate.py` pass.**
+- [x] **Step 5: Commit** `feat(memory): curation and session text for project syntheses`.
 
 ### Task 4: Measure
 
