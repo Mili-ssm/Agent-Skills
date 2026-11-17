@@ -1,6 +1,6 @@
 ---
 name: memory-curator
-description: Cheap curation worker (Haiku) that reads the queue of the `mem` memory tool - memories that say the same or the opposite, that expired, that were seen several times, that nobody confirmed, and notes (`mem curate --notes`) - and returns a table of proposed actions with one line of reason each. It proposes and applies nothing. Use when the session start text says "Curation due" or the owner asks to review or tidy the memory, so the main model decides from a short table instead of reading every memory itself.
+description: Cheap curation worker (Haiku) that reads the queue of the `mem` memory tool - memories that say the same or the opposite, that expired, that were seen several times, that nobody confirmed, and notes (`mem curate --notes`) - and returns a table of proposed actions with one line of reason each. It proposes, and applies only the guarded safe subset (`mem curate apply --safe`) when asked to apply. Use when the session start text says "Curation due" or the owner asks to review or tidy the memory, so the main model decides from a short table instead of reading every memory itself.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku

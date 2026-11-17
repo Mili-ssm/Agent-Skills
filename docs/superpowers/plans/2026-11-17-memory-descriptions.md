@@ -35,6 +35,7 @@ Sonnet main model, `--ablation none`, temporary store and data folders under `ta
 | 2 | `routing/run_trials.py` (9 cases) | 9/9 | 9/9 | kept |
 | 3 | `trigger/memory-recorder-after-compaction` | 2/2 | 2/2 | kept |
 | 4 | `trigger/memory-curator-due` | 1/2, rerun at 6: 3/6 | 1/2, rerun at 6: 2/6 | kept (drop of 1 of 6, below the revert threshold) |
+| 5 | `trigger/memory-curator-due` (curator description states the apply mode, 2026-11-17) | 1/2, rerun at 6: 4/6 | 1/2, rerun at 6: 4/6 | kept (no change; the case stays weak and noisy) |
 
 Cost: about 1.6 USD for the `claude plugin eval` runs (reported by the tool, including the first runs of the new cases); the 18 routing sessions report no cost, estimated at most 3 USD. Running total stays under the 8 USD budget.
 
