@@ -1,0 +1,111 @@
+{
+  "_doc": "Question set for run_trials.py. A fact is found when any string of `match` occurs in the answer (case-insensitive); the first string is the one quoted from `note`, under the heading `part`. A distractor must not occur. `covered: false` questions expect the answer to say the memory does not cover them.",
+  "not_covered_patterns": ["not cover", "does not cover", "doesn't cover", "no coverage", "not covered", "no note", "no record", "no relevant", "nothing on", "nothing in", "not in the memory", "no information", "did not find", "didn't find", "found nothing", "no results", "not contain", "does not contain", "no memor", "no evidence", "not address", "does not have"],
+  "questions": [
+    {
+      "id": "sleep-extension-minimum",
+      "topic": "sleep",
+      "covered": true,
+      "question": "Adults who sleep under 6.5 hours a night: what does extending sleep by about an hour do to daily energy intake, and what minimum nightly sleep does the main expert consensus recommend for adults?",
+      "facts": [
+        {"match": ["270 kcal", "270 kilocalories"], "note": "syntheses/sleep.md", "part": "Sleep, diet and energy intake"},
+        {"match": ["7 or more hours", "7 hours", "seven hours"], "note": "syntheses/sleep.md", "part": "How much sleep adults are advised to get"}
+      ],
+      "distractor": {"match": ["5.30%"], "note": "syntheses/sleep.md", "part": "Naps and sleep inertia"}
+    },
+    {
+      "id": "caffeine-vigilance-and-bedtime",
+      "topic": "sleep",
+      "covered": true,
+      "question": "How much did caffeine improve vigilance under sleep deprivation in the trials with military personnel, and by how much did a 400 mg dose shorten objectively measured sleep when taken before bedtime?",
+      "facts": [
+        {"match": ["0.73"], "note": "syntheses/sleep.md", "part": "Caffeine: alertness under sleep loss and cost to sleep"},
+        {"match": ["1.1 to 1.2", "1.1-1.2", "1.1–1.2"], "note": "syntheses/sleep.md", "part": "Caffeine: alertness under sleep loss and cost to sleep"}
+      ],
+      "distractor": {"match": ["104 mg"], "note": "syntheses/sleep.md", "part": "Caffeine: alertness under sleep loss and cost to sleep"}
+    },
+    {
+      "id": "volume-and-failure",
+      "topic": "exercise-science",
+      "covered": true,
+      "question": "How many weekly sets per muscle group does the evidence link to more muscle growth, where do returns diminish, and did training to momentary failure build clearly more muscle than stopping short?",
+      "facts": [
+        {"match": ["10 sets"], "note": "syntheses/exercise-science.md", "part": "Resistance training: weekly volume, load and frequency"},
+        {"match": ["18 to 20", "18-20", "18–20"], "note": "syntheses/exercise-science.md", "part": "Resistance training: weekly volume, load and frequency"},
+        {"match": ["0.12", "trivial"], "note": "syntheses/exercise-science.md", "part": "Training to failure and its recovery cost"}
+      ],
+      "distractor": {"match": ["1.62"], "note": "syntheses/exercise-science.md", "part": "Protein, lifting and lean mass in an energy deficit"}
+    },
+    {
+      "id": "protein-and-frail-adults",
+      "topic": "exercise-science",
+      "covered": true,
+      "question": "In an energy deficit, how much extra fat-free mass and one-repetition-maximum strength did protein supplementation add to lifting, and how much lean mass did frail older adults lose with aerobic-only exercise while dieting?",
+      "facts": [
+        {"match": ["0.30 kg"], "note": "syntheses/exercise-science.md", "part": "Protein, lifting and lean mass in an energy deficit"},
+        {"match": ["2.49"], "note": "syntheses/exercise-science.md", "part": "Protein, lifting and lean mass in an energy deficit"},
+        {"match": ["2.7 kg", "-2.7", "2.7"], "note": "syntheses/exercise-science.md", "part": "Protein, lifting and lean mass in an energy deficit"}
+      ],
+      "distractor": {"match": ["52 kcal"], "note": "syntheses/exercise-science.md", "part": "Protein, lifting and lean mass in an energy deficit"}
+    },
+    {
+      "id": "bm25-dense-fusion",
+      "topic": "information-retrieval",
+      "covered": true,
+      "question": "How does BM25 compare with dense retrievers on zero-shot benchmarks, why did dense retrieval win where it did, and what constant does reciprocal rank fusion use in the original study?",
+      "facts": [
+        {"match": ["BEIR"], "note": "syntheses/information-retrieval.md", "part": "The lexical baseline: BM25, BM25F, stemming and verbose queries"},
+        {"match": ["vocabulary mismatch", "different words"], "note": "syntheses/information-retrieval.md", "part": "Dense and hybrid retrieval, and fusing rankings"},
+        {"match": ["k = 60", "k=60", "k of 60"], "note": "syntheses/information-retrieval.md", "part": "Dense and hybrid retrieval, and fusing rankings"}
+      ],
+      "distractor": {"match": ["6100"], "note": "syntheses/information-retrieval.md", "part": "Reranking and expansion of queries and documents"}
+    },
+    {
+      "id": "rerank-and-doc-expansion",
+      "topic": "information-retrieval",
+      "covered": true,
+      "question": "What gains did BERT cross-encoder reranking and document expansion bring to BM25 on MS MARCO, and how much of the expansion gain survived outside its training domain?",
+      "facts": [
+        {"match": ["36.5"], "note": "syntheses/information-retrieval.md", "part": "Reranking and expansion of queries and documents"},
+        {"match": ["0.277", "0.279", "27.7", "27.9"], "note": "syntheses/information-retrieval.md", "part": "Reranking and expansion of queries and documents"},
+        {"match": ["1.6%"], "note": "syntheses/information-retrieval.md", "part": "Reranking and expansion of queries and documents"}
+      ],
+      "distractor": {"match": ["2000 ms", "2000ms"], "note": "syntheses/information-retrieval.md", "part": "Reranking and expansion of queries and documents"}
+    },
+    {
+      "id": "judge-order-and-context",
+      "topic": "llm-evaluation",
+      "covered": true,
+      "question": "How much did swapping the answer order change LLM judge verdicts, how low was swap consistency across judges, and what effective context length did NoLiMa report for GPT-4o?",
+      "facts": [
+        {"match": ["82.5"], "note": "syntheses/llm-evaluation.md", "part": "LLM judges: position, length and reasoning bias"},
+        {"match": ["23.8"], "note": "syntheses/llm-evaluation.md", "part": "LLM judges: position, length and reasoning bias"},
+        {"match": ["8K", "8,000", "8k"], "note": "syntheses/llm-evaluation.md", "part": "Effective context length is shorter than the advertised window"}
+      ],
+      "distractor": {"match": ["64K"], "note": "syntheses/llm-evaluation.md", "part": "Effective context length is shorter than the advertised window"}
+    },
+    {
+      "id": "overfit-and-decay",
+      "topic": "quantitative-finance",
+      "covered": true,
+      "question": "If I try 45 skill-less strategy variants on one year of data, what Sharpe ratio should I expect from the best one, and how much did published stock predictors lose after publication?",
+      "facts": [
+        {"match": ["2.24"], "note": "syntheses/quantitative-finance.md", "part": "Backtest overfitting and the number of trials"},
+        {"match": ["35%"], "note": "syntheses/quantitative-finance.md", "part": "Published stock predictors: replication, decay after publication and bid-ask costs"}
+      ],
+      "distractor": {"match": ["0.0794"], "note": "syntheses/quantitative-finance.md", "part": "Portfolio construction and position sizing: 1/N, shrinkage, risk parity and Kelly"}
+    },
+    {
+      "id": "not-covered-jet-lag",
+      "topic": "sleep (not covered)",
+      "covered": false,
+      "question": "What does the memory say about how to schedule light exposure and melatonin to recover from jet lag after a transatlantic flight?"
+    },
+    {
+      "id": "not-covered-kubernetes",
+      "topic": "computing (not covered)",
+      "covered": false,
+      "question": "What does the memory say about configuring Kubernetes horizontal pod autoscaling for a web service?"
+    }
+  ]
+}
