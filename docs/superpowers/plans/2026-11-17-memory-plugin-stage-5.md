@@ -123,4 +123,20 @@ These override the tasks above. Task 1 is already committed (`0d645ae`); the ite
 
 ## Results
 
-Filled as tasks complete.
+Measured on 2026-11-17; counts and pass or fail only. Agent trials are one run each unless a count is given.
+
+| Item | Result |
+|---|---|
+| Tasks 1 and 2 with the amendments | Done; one review round and two fix rounds. Suite: 564 passed, 3 skipped |
+| The queue on a seeded project (a pair of opposites, a near-copy, two versions, an expired finding, a memory seen four times, a constraint and a decision) | Lists the first five with their `differ in:` lines; leaves the constraint and the decision alone |
+| `merge` | Refuses the opposites (`never`; `works` against `fails`) and the versions (`0.4`/`0.5`, `v2`/`v3`); merges the near-copy |
+| Undo | Three actions on one memory, then three `restore`: the file equals the original byte for byte; a fourth exits 2 |
+| A store without its marker | Six curation commands run from inside a real one changed nothing (`git status --ignored` identical) |
+| A full pass by the main agent (Sonnet), told a pass is due | Refuted the false one of the opposites with a reason, merged the near-copy, kept the two versions apart, forgot the expired finding; touched neither the constraint nor the decision |
+| The curator subagent (Haiku) | Proposed `leave` for the opposites (nothing in the project says which is right), `merge` for the near-copy, `distinct` for the versions; applied nothing |
+| Trigger cases | `memory` 6 of 6; `memory-curation` 5 of 6 with its first description, 6 of 6 after rewriting it to open with the verb and the owner's words |
+| Routing and recall trials after this stage | 9 of 9 and 8 of 8 |
+
+Review round 1 found, and the fix rounds closed: undo that toggled between the last two states instead of walking back; a `merge` that combined `v2` with `v3` and `works` with `fails`; a log line cut by a Unicode line separator; an expired memory, a promoted one and a pair already told apart that came back in every pass; a "Curation due" line that never went away.
+
+Not measured: a pass on real memories (none exist yet); what the main agent does with the curator's table when it has many rows; opposites said in other words, which `merge` cannot catch and the skill tells the agent to read for.

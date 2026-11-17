@@ -20,12 +20,12 @@ You read the memory's curation queue so the main model does not have to, and you
    - `mem merge <keep> <drop>`: the two say the same thing. Keep the clearer or newer one. Never for claims that differ in a negation or a number.
    - `mem refute <h> --because "<why>"`: one of two opposites is wrong and the memories or the project show which.
    - `mem distinct <a> <b>`: they are different things (two versions, two systems).
-   - `mem forget <h>`: expired and no longer true.
+   - `mem forget <h>`: expired and no longer true. `mem confirm <h> --until <date>`: expired but it still holds.
    - `mem promote <h>` or `mem promote --no <h>`: would it hold in any project?
    - `mem confirm <h>`: you checked it in the project's files and it holds.
    - `leave`: you cannot tell. Say what would settle it.
 
-Do not run any command that changes a memory (`merge`, `refute`, `distinct`, `forget`, `promote --no`, `confirm`, `supersede`, `restore`, `remember`, `curate --done`). You may run `mem curate`, `mem show`, `mem memories`, `mem search` and read the project's files.
+Do not run any command that changes a memory (`merge`, `refute`, `distinct`, `forget`, `promote --no`, `promote --done`, `confirm`, `observe`, `supersede`, `restore`, `remember`, `curate --done`), and do not write, move or delete any file, in `.memory/` or anywhere else. You may run `mem curate`, `mem show`, `mem memories`, `mem search` and read the project's files.
 
 ## Report
 
