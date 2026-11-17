@@ -2482,7 +2482,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         mine.sort(key=lambda m: m.kind != "state")  # the project's current situation first
         head.append(f"This project: {len(mine)} memories.")
     if due:
-        head.append(f"Curation due: {due} items (run mem curate after the current task).")
+        head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if mine and limit > 0:
         rows = []

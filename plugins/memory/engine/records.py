@@ -42,6 +42,7 @@ class Memory:
     last_observed: datetime.date | None = None
     distinct_from: list[str] = field(default_factory=list)
     promote: str | None = None
+    refuted: datetime.date | None = None
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -173,10 +174,14 @@ def _parse(path: Path, scope: str) -> Memory:
             last_observed = _date(meta.get("last_observed"), "last_observed")
         except ValueError:  # only curation reads it: a bad value must not hide the memory
             last_observed = None
+        try:
+            refuted = _date(meta.get("refuted"), "refuted")
+        except ValueError:  # only curation reads it: a bad value must not hide the memory
+            refuted = None
         distinct = meta.get("distinct_from")
         distinct = [str(h) for h in distinct] if isinstance(distinct, list) else []
         promote = "no" if meta.get("promote") in ("no", False) else None  # YAML reads a bare no as False
-        return replace(base, kind=kind, last_observed=last_observed, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        return replace(base, kind=kind, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -304,7 +309,8 @@ def pairs(memories: Sequence[Memory], today: datetime.date, *,
 def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *,
                   tokenize: Callable[[str], list[str]]) -> list[tuple[Memory, Memory, float]]:
     """(live, refuted, score): a live memory whose claim and a refuted one's contain each other with at least STRONG,
-    unless the two are recorded as distinct."""
+    unless the two are recorded as distinct or the live one is not strictly newer than the refutation
+    (its `refuted` date, else the refuted memory's `created`)."""
     live = sorted((m for m in memories if is_live(m, today)), key=lambda m: m.handle)
     dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
     found = []
@@ -313,6 +319,9 @@ def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *,
         for r in dead:
             if r.handle in a.distinct_from or a.handle in r.distinct_from:
                 continue
+            since = r.refuted or r.created
+            if a.created is None or (since is not None and a.created <= since):
+                continue  # not written after the refutation
             tr = tokenize(r.claim)
             score = max(containment(ta, set(tr)), containment(tr, set(ta)))
             if score >= STRONG:
@@ -373,7 +382,8 @@ def restore(memory: Memory, entry: dict) -> None:
 
 def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, today: datetime.date) -> int:
     """Items for a pass: live memories created after the last pass (counted only at 10, or at 1 once the pass is 14
-    days old; with no pass yet, once the oldest live memory is) plus live-status memories past their valid_until."""
+    days old; with no pass yet, once the oldest live memory is) plus active memories past their valid_until (not those
+    already past it on the day of the last pass: that pass dealt with them)."""
     live = [m for m in memories if is_live(m, today)]
     new = [m for m in live if last_pass is None or (m.created is not None and m.created > last_pass)]
     if last_pass is not None:
@@ -383,7 +393,8 @@ def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, to
         age = (today - min(dated)).days if dated else 0
     counted = len(new) if len(new) >= 10 or (new and age >= 14) else 0
     expired = sum(1 for m in memories if m.error is None and m.status == "active"
-                  and m.valid_until is not None and m.valid_until < today)
+                  and m.valid_until is not None and m.valid_until < today
+                  and (last_pass is None or m.valid_until >= last_pass))
     return counted + expired
 
 

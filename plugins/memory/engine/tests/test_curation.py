@@ -407,9 +407,13 @@ def test_distinct_hides_the_pair_in_both_scopes_of_the_queue(project, capsys):
     assert run(capsys, "distinct", "m:k1", "m:k1")[0] == 2
 
 
+def d_(n):
+    return TODAY - datetime.timedelta(days=n)
+
+
 def test_pairs_skips_distinct_and_refuted_pairs_are_listed_apart(tmp_path):
-    ms = [records.Memory("project", tmp_path / f"{h}.md", h, "lesson", c, TODAY, 1, st, None, None, [], "", None,
-                         distinct_from=d)
+    ms = [records.Memory("project", tmp_path / f"{h}.md", h, "lesson", c, TODAY if st == "active" else d_(3), 1, st,
+                         None, None, [], "", None, distinct_from=d)
           for h, c, st, d in [("a", "Retries need idempotency keys on every payment call", "active", ["b"]),
                               ("b", "Retries need idempotency keys on every payment call always", "active", []),
                               ("r", "Retries need idempotency keys on every payment call", "refuted", [])]]
@@ -427,15 +431,27 @@ def test_promote_no_removes_the_memory_from_the_frequent_block(project, capsys):
 
 
 def test_live_memory_written_again_after_a_refutation_gets_the_first_block(project, capsys):
-    put(project, "old", "Retries need idempotency keys on payment calls", status="refuted")
+    put(project, "old", "Retries need idempotency keys on payment calls", status="refuted", created=days_ago(3))
     put(project, "new", "Retries need idempotency keys on payment calls")
     code, out, _ = run(capsys, "curate")
     assert out.splitlines() == [
         "written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a different claim)",
         f"  m:new  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls",
-        f"  m:old  [lesson, {days_ago(1)}, refuted]  Retries need idempotency keys on payment calls"]
+        f"  m:old  [lesson, {days_ago(3)}, refuted]  Retries need idempotency keys on payment calls"]
     run(capsys, "distinct", "m:new", "m:old")
     assert run(capsys, "curate") == (0, "", "")
+
+
+def test_refuted_pairs_list_only_memories_written_after_the_refutation(tmp_path):
+    def pair(live_created, refuted, r_created):
+        ms = [records.Memory("project", tmp_path / "a.md", "a", "lesson", "Retries need keys", live_created, 1, "active",
+                             None, None, [], "", None),
+              records.Memory("project", tmp_path / "r.md", "r", "lesson", "Retries need keys", r_created, 1, "refuted",
+                             None, None, [], "", None, refuted=refuted)]
+        return records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+    assert len(pair(d(1), d(3), d(9))) == 1
+    assert pair(d(3), d(3), d(9)) == [] and pair(d(5), d(3), d(9)) == []
+    assert len(pair(d(1), None, d(3))) == 1 and pair(d(3), None, d(3)) == []
 
 
 # amendment C
@@ -499,6 +515,9 @@ def test_curation_due_rule(tmp_path):
     assert due(mems(tmp_path, [(d(14), None)]), d(14), TODAY) == 0
     # a live memory past valid_until counts and makes a pass due
     assert due(mems(tmp_path, [(d(30), d(1)), (d(30), None)]), d(1), TODAY) == 1
+    # one that expired before the last pass was dealt with by it; one that expired after still counts
+    assert due(mems(tmp_path, [(d(30), d(5))]), d(2), TODAY) == 0
+    assert due(mems(tmp_path, [(d(30), d(1))]), d(2), TODAY) == 1
 
 
 def test_index_line_says_curation_is_due(project, gfolder, tmp_path, capsys):
@@ -508,5 +527,5 @@ def test_index_line_says_curation_is_due(project, gfolder, tmp_path, capsys):
     assert "Curation due" not in run(capsys, "session-index")[1]
     put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
     first = run(capsys, "session-index")[1].splitlines()[0]
-    assert first.endswith("Curation due: 1 items (run mem curate after the current task).")
+    assert first.endswith("Curation due: 1 item (run mem curate after the current task).")
     assert "This project: 3 memories. Curation due" in first
