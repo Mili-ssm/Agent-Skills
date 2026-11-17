@@ -43,11 +43,11 @@
 **Interfaces:**
 - Produces: module `mem` importable from `plugins/memory/engine/`, with every function of the original under the same name; the `hub_root` pytest fixture, unchanged in name and behavior.
 
-- [ ] **Step 1:** Copy the files. Do not copy `__pycache__`.
-- [ ] **Step 2:** In the tests, change the imported module name from `hub` to `mem` (imports and attribute references), make `conftest.py` put `plugins/memory/engine/` on `sys.path`, and make the `hub_root` fixture copy templates from `tests/fixtures/templates`. Change nothing else, in the tests or in `mem.py`.
-- [ ] **Step 3:** Run the tests. Expected: `324 passed`.
-- [ ] **Step 4:** Run `grep -rnE '/home/|Documentos|research-hub' plugins/memory/` . Expected: no output. If a hit is in copied code, stop and report it; do not rewrite it.
-- [ ] **Step 5:** Commit: `feat(memory): copy the search engine and its tests`.
+- [x] **Step 1:** Copy the files. Do not copy `__pycache__`.
+- [x] **Step 2:** In the tests, change the imported module name from `hub` to `mem` (imports and attribute references), make `conftest.py` put `plugins/memory/engine/` on `sys.path`, and make the `hub_root` fixture copy templates from `tests/fixtures/templates`. Change nothing else, in the tests or in `mem.py`.
+- [x] **Step 3:** Run the tests. Expected: `324 passed`.
+- [x] **Step 4:** Run `grep -rnE '/home/|Documentos|research-hub' plugins/memory/` . Expected: no output. If a hit is in copied code, stop and report it; do not rewrite it.
+- [x] **Step 5:** Commit: `feat(memory): copy the search engine and its tests`.
 
 ### Task 2: Store path from configuration, usage log outside the store
 
@@ -252,4 +252,19 @@ Run by the main conversation; "Results" below records counts and pass or fail on
 
 ## Results
 
-Filled as tasks complete.
+Measured on 2026-11-17; counts and pass or fail only.
+
+| Task | Result |
+|---|---|
+| 1 | Done. The copy was byte-identical to the original and passed its 324 tests |
+| 2 | Done, one fix round. A review found that a read command could leave its usage log inside the store when no home folder was set; fixed and tested. Suite: 348 passed, 1 skipped (the no-`uv` test, skipped where `uv` is in a system folder) |
+| 3 | Done. Validators pass; both scripts are executable |
+| 4 | Skill and trigger case written. **The trigger case has not run**: `claude plugin eval` refuses a plugin folder the owner has not trusted |
+| 5, step 0 | Pass. A trial plugin showed: the manifest and `hooks.json` validate; the `store` option reaches the hook; `bin/` is on the path of the main session's shell and of a subagent's; a variable exported through `CLAUDE_ENV_FILE` reaches both; the option itself does not reach the shell |
+| 5, step 1 | Pass. 20 of 20 fixed queries gave identical output in the original and in `mem`; `search-eval` gave identical figures; the disposable clone was unchanged |
+| 5, step 2 | Pass. With the plugin loaded in a headless session, `mem` ran in the main session and in a subagent; both took the store from the exported variable; the store was unchanged |
+| 5, step 3 | Pass. With no store set: the Task 2 message and exit code 2 |
+| 5, step 4 | **Not run**: the eval isolation check needs the same trust decision as Task 4 |
+| Write guard on a real store | Pass. `mem index` returned 2 and changed nothing |
+
+Open for the owner: trust `plugins/memory` for `claude plugin eval` (one interactive run, or the trust flag), so the trigger case and the isolation check can run.
