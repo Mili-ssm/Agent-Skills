@@ -178,10 +178,20 @@ def test_confirm_over_uncommitted_changes_warns(proj, tmp_path, capsys):
 def test_show_p_handle_rejects_project_and_section(proj, tmp_path, capsys):
     add(tmp_path)
     capsys.readouterr()
-    for opt in (["--project", "x"], ["--section", "y"]):
-        assert mem.main(["show", "p:organization", *opt]) == 2
-        err = capsys.readouterr().err
-        assert err.count("\n") == 1 and "do not apply to `p:` handles" in err
+    assert mem.main(["show", "p:organization", "--project", "x"]) == 2  # an unknown project is refused first
+    capsys.readouterr()
+    assert mem.main(["show", "p:organization", "--section", "y"]) == 2
+    err = capsys.readouterr().err
+    assert err.count("\n") == 1 and "do not apply to `p:` handles" in err
+
+
+def test_a_refused_p_handle_does_not_hide_a_memory_in_the_same_call(proj, tmp_path, capsys):
+    add(tmp_path)
+    assert mem.main(["remember", "--kind", "lesson", "--claim", "Tests seed one memory here"]) == 0
+    handle = capsys.readouterr().out.split()[0]
+    assert mem.main(["show", "p:organization", handle, "--section", "y"]) == 2
+    out = capsys.readouterr().out
+    assert "== p:organization\n(not found)" in out and handle in out
 
 
 def test_trailing_hash_exits_2(proj, tmp_path, capsys):
@@ -206,7 +216,13 @@ def test_paths_are_trimmed_and_empty_items_dropped(proj, tmp_path):
 
 def test_paths_with_nothing_left_exit_2(proj, tmp_path, capsys):
     assert add(tmp_path, paths=" , ") == 2
-    assert "mem:" in capsys.readouterr().err
+    assert "at least one path" in capsys.readouterr().err
+
+
+def test_a_bad_path_is_reported_before_the_secret_scan(proj, tmp_path, capsys):
+    secret = "password = hunter2hunter2hunter2\napi_key = AKIAABCDEFGHIJKLMNOP"
+    assert add(tmp_path, paths="nope/", text=secret) == 2
+    assert "does not exist" in capsys.readouterr().err
 
 
 def test_a_bad_name_is_reported_before_the_secret_scan(proj, tmp_path, capsys):

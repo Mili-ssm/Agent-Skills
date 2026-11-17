@@ -2826,8 +2826,7 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
                 raise project_syntheses.ProjectSynthesisError(
                     f"unknown project synthesis {args.name!r}; use one of: {', '.join(project_syntheses.NAMES)}")
             paths = [p for p in (item.strip() for item in args.paths.split(",")) if p]
-            if not paths:
-                raise project_syntheses.ProjectSynthesisError("a part must cover at least one path")
+            project_syntheses._check_paths(tree, paths)  # before the secret scan, so a bad path is not reported as a secret
             if _refuse_secret([args.heading, body]):
                 return 4
             handle = project_syntheses.write_part(memory_dir, tree, args.name, args.heading, body,
@@ -2859,15 +2858,17 @@ def cmd_show(args: argparse.Namespace) -> int:
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return 2
-    if any(a.startswith("p:") for a in args.paths) and (args.project or args.section):
-        print("mem: --project and --section do not apply to `p:` handles", file=sys.stderr)
-        return 2
     if args.project and _other_projects([args.project], False) is None:
         return 2
     if any(a.startswith(("s:", "p:")) or _is_memory_arg(args, a) for a in args.paths):
         blocks, shown, ok, refused = [], [], True, False
         for arg in args.paths:
             if arg.startswith("p:"):
+                if args.project or args.section:  # refused per handle, so other handles in the call are still shown
+                    print(f"mem: --project and --section do not apply to `p:` handles ({arg})", file=sys.stderr)
+                    blocks.append(f"== {arg}\n(not found)")
+                    ok, refused = False, True
+                    continue
                 context = _project_synthesis_context()
                 if context is None:
                     return 2
