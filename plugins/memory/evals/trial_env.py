@@ -78,6 +78,8 @@ def self_check(prefix: str) -> int:
     assert not any(k.startswith("CLAUDE_PLUGIN_OPTION_") for k in env), "a plugin option reaches the session"
     assert Path(env["XDG_DATA_HOME"]).resolve().is_relative_to(TARGET.parent), env["XDG_DATA_HOME"]
     assert not any("/plugins/cache/" in p for p in env["PATH"].split(os.pathsep)), "installed plugin on PATH"
+    found = shutil.which("mem", path=env["PATH"])
+    assert found is None or Path(found).resolve() == (PLUGIN / "bin" / "mem").resolve(), f"another mem on PATH: {found}"
     assert _snapshot(real) == before, "a file of the owner's store changed"
     clean(work)
     print("self-check passed")
