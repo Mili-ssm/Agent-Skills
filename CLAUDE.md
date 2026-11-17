@@ -1,6 +1,6 @@
 # Agent-Skills: maintainer notes
 
-Marketplace `mili-ssm`: the `agent-skills` plugin, two UI mods and generated Copilot/Codex ports. Developed mostly by Claude sessions; this file holds only what the code does not show. The offload table and the routing text belong in the user-level `~/.claude/CLAUDE.md` (sources: `user-config/offload-policy.md` and `user-config/routing.md`, ADR 0012, 0021), never here, because a second copy loads twice.
+Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI mods and generated Copilot/Codex ports. Developed mostly by Claude sessions; this file holds only what the code does not show. The offload table and the routing text belong in the user-level `~/.claude/CLAUDE.md` (sources: `user-config/offload-policy.md` and `user-config/routing.md`, ADR 0012, 0021), never here, because a second copy loads twice.
 
 ## Commands
 
@@ -22,6 +22,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, two UI mods and generated Cop
 | Skill, agent or command | `plugins/agent-skills/{skills,agents,commands}/` | `port.py`; the README catalog row (validate.py checks names, model and preloads); the eval case when a description changes |
 | Offload table | `user-config/offload-policy.md` (single copy) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
 | Routing, plan loop and review rules | `user-config/routing.md` (single copy, ADR 0021) | `port.py`; no eval embeds it, so the ADR carries a kill criterion (N6) |
+| Memory plugin | `plugins/memory/`; first read "Current state and where to resume" in `docs/superpowers/plans/2026-11-17-memory-plugin.md` | its tests (`uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`); the stage plan's state table; no port (ADR 0023) |
 | UI mod | `plugins/<mod>/` and its README | `docs/mods-surfaces.md` for anything a surface did unexpectedly |
 | Requirement | `docs/requirements.md` (keep IDs stable: `validate.py` cites them) | a flipped requirement needs an ADR |
 | Decision | new `docs/adr/NNNN-kebab-title.md` | ADR rules below |

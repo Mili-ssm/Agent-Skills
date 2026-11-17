@@ -1,10 +1,46 @@
 # Memory plugin
 
-Goal: sessions in any repository, and their subagents, recall from and write to a store of notes and memories and a per-project memory (owner, 2026-11-17). Design and evidence: [the design](../specs/2026-11-17-memory-plugin-design.md); decision: ADR 0023 (proposed). `agent-skills`, the mods and the ports do not change, and neither does the owner's note repository until stage 7.
+Goal: sessions in any repository, and their subagents, recall from and write to a store of notes and memories and a per-project memory (owner, 2026-11-17). Design and evidence: [the design](../specs/2026-11-17-memory-plugin-design.md); decision: ADR 0023 (accepted). `agent-skills`, the mods and the ports do not change, and neither does the owner's note repository until stage 7.
 
 Each stage is installable and revertible on its own, ends with the owner's review, and gets its own task plan (Superpowers `writing-plans`) and one `pre-mortem` when it starts, not before: a detailed plan written now would be stale by then. Code is written on a branch of this repository and pushed; tests that write use a disposable copy of the notes, never the note repository itself.
 
-- [ ] **0. Proposal.** ADR 0023, the design and this plan pushed on the branch `docs/memory-plugin-proposal` and reviewed by the owner. Check: `python3 scripts/validate.py` and `claude plugin validate .` pass; the three files hold no path, name or note title from the private repository.
+## Current state and where to resume (2026-11-17)
+
+Read this section first; the stage list below is the history and the detail.
+
+| Fact | State |
+| --- | --- |
+| On `main` | Stages 0 to 3, 5, 5b and 6, and the import of stage 7 (PR #117, PR #118) |
+| Installed | `memory@mili-ssm` at user scope since 2026-11-17, no option set, so it uses the default store |
+| Default store | Holds the owner's imported notes (715 literature, 387 knowledge, 11 investigations, 60 topics); no remote yet. Its `check` reports 29 broken links, all to documents of the origin that are not notes and were not imported; `unify` passes over them |
+| Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 745 passed, 4 skipped |
+| Not registered | The signal hook of stage 6 (measured: no gain) |
+
+Next, in the owner's order:
+
+1. **Stage 10**, the project syntheses experiment: start at Task 1 of [its plan](2026-11-17-memory-plugin-project-syntheses.md). It adds decision D25 to the design.
+2. **Real use**: the owner works with the plugin installed; what the sessions do with it feeds the kill read.
+3. **Stage 4**, the kill read, around 2026-12-01 (two weeks after the install), from the usage and hook logs.
+4. **Stage 7**, the rest: a repository of its own as the remote of the default store.
+5. **Stage 9**, then **stage 8**.
+
+Open items, none blocking:
+
+| Item | Size |
+| --- | --- |
+| The 29 broken links of the imported store: import those documents, or rewrite the links | A decision for the owner |
+| Under `mem import --research-data`, files that are not Markdown are not scanned for secrets | Small |
+| The forbidden-terms check is skipped when neither `HOME` nor `XDG_CONFIG_HOME` is set | Small |
+| `mem memories --project <name>` prints nothing, without a message, when the registered project's folder moved | Small |
+| A replaced part of a project synthesis cannot be undone (stage 10 leaves it out) | Decide after stage 10 |
+| The fixes of stage 5b's review round were confirmed by tests, not by a second review ([its results](2026-11-17-memory-plugin-stage-5b.md#results)) | One review |
+| Matching by meaning, and a paired evaluation of task outcomes with and without the plugin | Not planned yet |
+
+Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D24) and are not reopened without new evidence.
+
+## Stages
+
+- [x] **0. Proposal.** *Merged into `main` with stages 1 to 6 as PR #117 on 2026-11-17.* ADR 0023, the design and this plan pushed on the branch `docs/memory-plugin-proposal` and reviewed by the owner. Check: `python3 scripts/validate.py` and `claude plugin validate .` pass; the three files hold no path, name or note title from the private repository.
 - [x] **1. Engine and reach** (U1). *Built and measured on 2026-11-17; results in [the stage 1 plan](2026-11-17-memory-plugin-stage-1.md#results). The engine is one file for now; the split into modules moves to stage 2.* `plugins/memory/`: the engine as a Python package copied from the search tool and split into modules, `bin/mem`, `plugin.json` with `userConfig.store`, the `memory` skill, the marketplace entry and README row, a usage log in the plugin's data folder. Check:
   - on a disposable copy of the notes, the copy's search evaluation gives the same figures as the original tool, and its first ten results are identical for twenty fixed queries;
   - in a scratch repository with the plugin enabled, `mem search "<a known topic>"` prints results in the main session and in a Haiku subagent, with no permission prompt once the allow rule is set; with no store set, the command says how to set one;
@@ -17,8 +53,9 @@ Each stage is installable and revertible on its own, ends with the owner's revie
 - [x] **5. Curation** (U9, U10). *Built and measured on 2026-11-17 for memories; results in [the stage 5 plan](2026-11-17-memory-plugin-stage-5.md#results). Notes are curated in stage 5b.* `review`, `similar --unlinked`, `confirm`, `refute`, `merge`, `supersede`, `promote`, `forget`; the `memory-curation` skill with one trigger eval case at 2 runs (N6); the queue's size in the session index; a pass becomes due after a number of writes or a period without one, and can be handed to a small-model subagent that proposes changes (D14). Check: on a disposable copy seeded with five duplicates, three unlinked similar pairs and two expired memories, `review` lists all ten and nothing else from the seeded set; `merge` leaves no broken link; a refuted memory is not returned by default; `promote` prints a draft and copies no text.
 - [x] **5b. Consolidation** (owner, 2026-11-17: D16 to D21). *Built and measured on 2026-11-17; results, the two changes of rule the owner made while it was built, and what is still owed (a review round) in [the stage 5b plan](2026-11-17-memory-plugin-stage-5b.md#results).* `mem unify <keep> <other>...` for notes and for memories (the agent writes the unified text; the others are marked as replaced by it and every link to them is rewritten, as `rename` does); a `synthesis` record written by the agent over a group of notes (summary first, extended version after, the list of its member notes), with each member pointing to it and `search` printing the synthesis before its members; a check that a source's several conclusions and a conclusion's several sources survive an import; optionally a `builds_on` list between conclusions. Check: after unifying three notes, a search for any of the old names lands on the new one and no link is broken; a synthesis over five notes is found by a question none of the five answers alone; the store's search evaluation gives the same figures as before for single-fact questions.
 - [x] **6. Signal** (U1, U11). *Built and measured on 2026-11-17, before stage 5 at the owner's request; results in [the stage 6 plan](2026-11-17-memory-plugin-stage-6.md#results). A signal matched on words showed no gain in delegated trials and would fire on 9% to 82% of real briefs for notes, so its hook is not registered; what solved recall was rewording the texts given at session and subagent start. A signal for notes and paraphrases needs a match on meaning and stays open.* An evaluation set of prompts and web queries in Spanish and English with the records that truly relate to each, written without looking at search results; the rule for adoption written before any run; the bands calibrated on half of the set and scored on the other half; the three means for Spanish prompts compared; the two forms of the hint (handles, per-call reference) compared in agent runs. Then the hooks, each only if the rule passes for its kind of text: `PreToolUse` on `Agent` (the brief, in English, expected first), `UserPromptSubmit` (the prompt), and `PreToolUse` on the web search tool if context can be added without deciding the permission. Check: the rule, the figures and the choice are recorded in ADR 0023 as a `## Measurement`; a hook ships only if the rule passes; it prints nothing for the evaluation texts that have no related record, stays under 300 characters and under 1 s, and skips task notifications.
-- [ ] **7. Sync and transfer** (U7). Decided by the owner on 2026-11-17 (D15): the remote store is a repository of its own, not the note repository, which stays a research hub. This stage adds an import that copies notes, with their links and source folders, and memories into the new store, leaving the origin untouched. Background pull at session start; "not pushed" and "diverged" lines in the index; if the choice is the note repository, the change there follows its own rules and decision records. Check: with two clones, a pushed record appears in the other clone's next session; a diverged clone prints the rebase command and changes nothing.
+- [ ] **7. Sync and transfer** (U7). *The import is built (`mem import`, PR #118, 2026-11-17) and the owner's notes are in the default store; the remote repository, the pull and the push are not started.* Decided by the owner on 2026-11-17 (D15): the remote store is a repository of its own, not the note repository, which stays a research hub. This stage adds an import that copies notes, with their links and source folders, and memories into the new store, leaving the origin untouched. Background pull at session start; "not pushed" and "diverged" lines in the index; if the choice is the note repository, the change there follows its own rules and decision records. Check: with two clones, a pushed record appears in the other clone's next session; a diverged clone prints the rebase command and changes nothing.
 - [ ] **9. Capture experiment** (D20, after the owner has tried the plugin). A spike first: can a session-end or pre-compaction hook start a process that outlives it, and does that process stay out of the plugin's own hooks. Then a small model reads the transcript and writes provisional project memories, never global ones; a `provisional` status and a `discard?` mark in the queue; a curator started when a pass is due at session end. Check: on ten real transcripts, the share of provisional memories a main agent keeps in the next pass, and the tokens spent, recorded in ADR 0023; adopted only if most are kept.
+- [ ] **10. Project syntheses experiment** (D25, owner, 2026-11-17). *Plan approved by the owner on 2026-11-17, amended after its pre-mortem, not started:* [the task plan](2026-11-17-memory-plugin-project-syntheses.md), branch `feat/memory-project-syntheses`. Check: its `## Results` holds the tables and the action its decision rule gives.
 - [ ] **8. Rust decision.** Hook and search times from the usage log, and the number of changes to the record model since stage 2, put to the owner. Check: the decision and its figures are recorded in ADR 0023.
 - [ ] With stage 3, and again after each later stage: the owner's user-level text about the note repository cut to what the skill and the index do not say; requirement rows added. A routing row in `user-config/routing.md` only if the kill read shows the index is not enough, with a kill criterion and worded so the ports stay correct. Check: `python3 scripts/port.py --check` passes; the pasted blocks of the owner's file equal `origin/main` (ADR 0021).
 
