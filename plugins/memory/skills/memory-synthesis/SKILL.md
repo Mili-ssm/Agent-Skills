@@ -1,6 +1,6 @@
 ---
 name: memory-synthesis
-description: Writes and maintains a synthesis with the `mem` command - one long, indexed document that gathers what many notes and sources say on a subject (origins, reasons, when it applies and when not), from which short notes are drawn as recalls of its parts. Use when the owner asks for a compendium, an overview, a guide or "everything we know" on a subject, when a subject has gathered many notes, when `mem curate --notes` lists a topic without a synthesis, or or when a curation pass lists notes to attach to an existing one; load it before writing so the document grows one cited part at a time and is never rewritten whole.
+description: Writes and maintains a synthesis with the `mem` command - one long, indexed document that gathers what many notes and sources say on a subject (origins, reasons, when it applies and when not), from which short notes are drawn as recalls of its parts. Use when the owner asks for a compendium, an overview, a guide or "everything we know" on a subject, when a subject has gathered many notes, when `mem curate --notes` lists a topic without a synthesis, or when a curation pass lists notes to attach to an existing one; load it before writing so the document grows one cited part at a time and is never rewritten whole.
 ---
 
 # Synthesis
