@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12+, pyyaml, pytest.
 
-**Status:** in progress: Task 1 done.
+**Status:** in progress: Tasks 1 and 2 done.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -59,11 +59,11 @@
 
 `mem memory edit m:<handle> [--claim "<text>"] [--context "<text>"] [--body-file F] [--shrink] [--global]`: changes the given fields; the handle stays (renaming is out of scope); `records.log_before(..., "edit")` first; guard on `--claim` and the body; forbidden terms for a global memory only; secrets always.
 
-- [ ] **Step 1: Write the failing tests** — each field; guard; secret; a global memory with a forbidden term refused, a project one accepted; `mem restore m:<h>` undoes; `--global` picks the global memory when both scopes hold the handle (as `supersede` does).
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Whole suite and `scripts/validate.py` pass.**
-- [ ] **Step 5: Commit** `feat(memory): mem memory edit for a memory's claim, context or body`.
+- [x] **Step 1: Write the failing tests** — each field; guard; secret; a global memory with a forbidden term refused, a project one accepted; `mem restore m:<h>` undoes; `--global` picks the global memory when both scopes hold the handle (as `supersede` does).
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Whole suite and `scripts/validate.py` pass.**
+- [x] **Step 5: Commit** `feat(memory): mem memory edit for a memory's claim, context or body`.
 
 ### Task 3: Synthesis structure commands
 
