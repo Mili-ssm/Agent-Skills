@@ -43,4 +43,28 @@ else
   default_store
 fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
+# Background settling (option auto_settle, exactly "true"): the variables below are what lets the write path of this
+# session's shell commands start a settling run; no variable, no trigger (a trial or a test never has them).
+if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ]; then
+  [ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null
+  claude=""
+  type find_claude >/dev/null 2>&1 && claude="$(find_claude)"
+  export_var MEM_SETTLE_AUTO 1
+  export_var MEM_SETTLE_MINUTES "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE_MINUTES:-30}"
+  [ -n "$claude" ] && export_var MEM_SETTLE_CLAUDE "$claude"
+  # `settle log` creates the settle state when it is missing and records the memories that exist as judged, so the
+  # first write after the option is turned on is not taken as already judged.
+  store="${CLAUDE_PLUGIN_OPTION_STORE:-}"
+  if [ -z "$store" ]; then
+    data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
+    [ -n "$data" ] && [ -f "$data/agent-memory/store/mem-store.yaml" ] && store="$data/agent-memory/store"
+  fi
+  if [ -n "$here" ] && [ -n "$store" ]; then
+    if command -v timeout >/dev/null 2>&1; then
+      MEM_STORE="$store" MEM_MEMORIES="${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" timeout 3 "$here/../bin/mem" settle log </dev/null >/dev/null 2>&1
+    else
+      MEM_STORE="$store" MEM_MEMORIES="${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" "$here/../bin/mem" settle log </dev/null >/dev/null 2>&1
+    fi
+  fi
+fi
 exit 0

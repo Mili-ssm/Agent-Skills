@@ -39,6 +39,7 @@ import auto_state
 import project_syntheses
 import records
 import settle
+import settle_state
 import store_git
 import syntheses
 
@@ -3143,10 +3144,17 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         except OSError:
             project = None
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
-        try:
-            notice = auto_state.failure_line(data_dir(os.environ), store, time.time())
-        except Exception:
-            notice = None
+        notices = []
+        for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
+                     lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
+                     lambda: settle_state.settled_line(memories)):
+            try:
+                found = make()
+            except Exception:
+                found = None
+            if found:
+                notices.append(found)
+        notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
                              notice=notice)
@@ -3358,6 +3366,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print(f"mem: {due} new memories since the last curation pass: after the current task, "
               "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
+    if scope == "global" and getattr(args, "origin", None) != "pipeline":
+        settle_state.maybe_start(folder, store, os.environ, time.time(), today)
     return 0
 
 
@@ -3561,6 +3571,8 @@ def cmd_memory(args: argparse.Namespace) -> int:
         _register_project(records.project_root(Path.cwd(), os.environ))
     print(f"m:{m.handle}\tedited {', '.join(what)}")
     log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    if m.scope == "global" and m.origin != "pipeline":
+        settle_state.maybe_start(m.path.parent, _optional_store(args), os.environ, time.time(), datetime.date.today())
     return 0
 
 
