@@ -1,6 +1,6 @@
 # 0023 A memory plugin makes notes and memories reachable from every repository
 
-Status: proposed · Date: 2026-11-17
+Status: accepted · Date: 2026-11-17
 
 ## Context
 
@@ -53,3 +53,16 @@ Proposed with this record and not ruled on by the owner (the design lists them):
 - A hook's measured time stays over its budget after the engine keeps a search index on disk: reconsider Rust, for the hooks alone or for the engine.
 - The owner wants the memory in cloud sessions, Copilot or Codex.
 - Claude Code documents a way for a plugin to supply or sync auto memory.
+
+## Review 2026-11-17
+
+Accepted by the owner the same day, by asking for the branch to be merged and the plugin installed for a trial. Between the proposal and the merge the owner ruled further, and stages 1 to 3, 5, 5b and 6 were built; the decisions table of the [design](../superpowers/specs/2026-11-17-memory-plugin-design.md) (D1 to D23) is the current statement, and where it differs from the Decision above, it wins. The differences:
+
+- The store is the default one, created on first use; the owner's note repository stays a research hub, and its notes are transferred later (D15, D23). Git is for pushing the default store to a remote the owner chooses.
+- The standard search returns notes and memories; papers, documents and syntheses are an explicit, deeper search. Writing while working is a note or a memory; everything complex belongs to curation and to subagents (D21, D22).
+- Syntheses were added: long documents written by a model over many notes (D17, D19).
+- The signal hook was built and measured, showed no gain, and is not registered; what made agents consult the memory was a short start text that states its reason.
+- Terms that must not reach the global scope are of two classes: hard ones block, soft ones make the agent ask the owner (D23).
+
+Measured, with one or two runs per case on a Sonnet-class model, which the owner takes as a sufficient reference: routing 9 of 9, recall 8 of 8, delegated recall 9 of 9. No measurement shows that the plugin makes tasks come out better; the field research found none for comparable systems either. The kill criteria of the [plan](../superpowers/plans/2026-11-17-memory-plugin.md) are read after two weeks of use.
+

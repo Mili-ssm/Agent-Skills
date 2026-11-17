@@ -17,6 +17,7 @@ description: Searches, reads and writes the owner's store of notes and memories 
 - Answers come from the first few results; do not page.
 - Nothing relevant: say that the memory does not cover it, then research. Do not answer as if the memory had said it.
 - Notes not enough (you need the source of a figure, the reasons behind a practice, when it does not apply): `mem search "<q>" --deep` adds papers, documents and syntheses. Use it when the task needs that depth, not by default.
+- Another project's memories are never searched by default. Only when the owner asks, or the task is explicitly about another project: `mem projects list`, then `mem search "<q>" --project <name>`.
 - Before dispatching a subagent, search first and put what applies into its brief, with its `m:` or note handle: a subagent that cannot run shell commands cannot search for itself.
 
 ## Open
@@ -39,13 +40,14 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 | A discovery, a fact, an assumption: `decision`, `constraint`, `pitfall`, `lesson`; a web or documentation result not yet checked: `finding` (needs `--source <url>`); what a document says: `document` (needs `--source <url or path>`) | `mem remember` |
 | The project's current situation or a special condition (true now, may change) | Both: auto memory, and `mem remember --kind state` |
 
+- The global scope is for what holds anywhere. It does not hold a project's data: no names of its systems, people or clients, no figures, paths or incidents of it; at most a passing mention that the lesson came from a project.
 - Scope, one question: **would this be true and useful in another project?** No, or it names this project's systems, people or business: the project (the default). Yes, and it names no client, company, system or data: add `--global`. Both parts in one discovery: two memories.
 - When in doubt about scope or worth, write it to the project: a curation pass decides later what moves up.
-- Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 2 on `--global`: the owner's list of forbidden terms is missing; tell the owner.
+- Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree.
 - When a memory you used proved right: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`.
 
 ## Not while working
 
 Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too.
 
-`mem: no store is set` means no store was found: set the plugin's `store` option (it takes effect in the next session); project memories work without one. `read-only: it has no mem-store.yaml` means that store is not to be written through this tool: do not create the file.
+`mem: no store is set`: run `mem init` to create the default store; project memories work without one. The owner manages the terms that must not reach the global scope with `mem terms add|remove|list`. `read-only: it has no mem-store.yaml` means that store is not to be written through this tool: do not create the file.

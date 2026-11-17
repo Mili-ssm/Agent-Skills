@@ -1,8 +1,8 @@
 # Memory plugin: notes and memories reachable from every repository and subagent
 
-Status: proposed · Date: 2026-11-17 · Decision: [ADR 0023](../../adr/0023-a-memory-plugin-makes-a-note-store-reachable-from-every-repository.md) · Plan: [2026-11-17-memory-plugin.md](../plans/2026-11-17-memory-plugin.md)
+Status: accepted, stages 1 to 3, 5, 5b and 6 built · Date: 2026-11-17 · Decision: [ADR 0023](../../adr/0023-a-memory-plugin-makes-a-note-store-reachable-from-every-repository.md) · Plan: [2026-11-17-memory-plugin.md](../plans/2026-11-17-memory-plugin.md)
 
-Nothing is built. This file holds the intent, the design, the evidence and the change impact; the plan holds the order of work.
+This file holds the intent, the design as first proposed, the evidence and the change impact; the plan holds the order of work and each stage's plan holds what was built and measured. Where the decisions table below differs from an earlier section, the table wins.
 
 ## Intent
 
@@ -169,6 +169,8 @@ Decided by the owner on 2026-11-17. Round 2 replaced parts of round 1; the table
 | D11 | Curation is part of the plugin: checks at writing, a review of duplicates and of similar records not linked, commands to act on them |
 | D12 | Hooks signal with bands and the titles of the best matches; no reference to a cached query by default, and both forms may be tried |
 | D13 | What to remember goes by its nature: personal matters and preferences to auto memory; discoveries, facts and assumptions to the plugin; the project's situation or special conditions to both |
+| D24 | Project memories hold what is specific; a list of projects lets the owner look into another project's memories, only on an explicit request (a search option naming one or several projects), never by default. The list is kept on the machine and not synced, because paths are local and project names may be business names (the agent's choice, told to the owner) |
+| D23 | The store is the default one, created on first use; git is for pushing it to a remote the owner chooses, and the note repository's content is transferred there later. The global scope does not hold what is specific to a project: at most a passing mention, never its data. Terms that must not reach it are managed with commands and are of two classes: hard terms block the write, soft terms (which may depend on the kind of content) make the agent ask the owner |
 | D22 | Subagents do the memory work that would fill the main context: one that answers from the memory, researching further when needed, and records what it finds; one that turns an experience or raw facts (logs, files) into memories, possibly ending with their curation; their models are chosen by measuring. Tried once each on 2026-11-17: the recorder wrote nothing on Haiku and three sound memories on Sonnet, so it runs on Sonnet |
 | D21 | A simple pipeline while working, the complex work in curation. The standard search returns notes (and memories) only; documents, papers and syntheses are reached by an explicit search when the model judges it necessary. Basic writing is a note or a memory, flagged as new; writing into a synthesis, unifying, correcting, reviewing wording and promoting belong to the curator. Few commands while working; every complex action and check with the curators |
 | D19 | A synthesis is long-term knowledge, a note is working memory. A synthesis is a document written by a model from many conclusions and sources on one subject (for example good programming practice): origins, reasons, when it applies and when not, with an index and parts so one part can be read alone. A note is the short recall of one part. The owner first asked that new knowledge go into the synthesis before its note, then chose the simpler flow the same day: loose notes are written freely, and creating a synthesis or moving a note into an existing one belongs to curation |

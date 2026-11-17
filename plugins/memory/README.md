@@ -1,7 +1,7 @@
 # memory
 
 Notes and memories reachable from every repository and subagent, through the `mem` command.
-Stages 1 and 2 of ADR 0023 (proposed); see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-plugin.md).
+ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-plugin.md).
 
 ## Install
 
@@ -25,8 +25,9 @@ Stages 1 and 2 of ADR 0023 (proposed); see the [stage plan](../../docs/superpowe
 
 | Folder | Set by | Notes |
 |---|---|---|
-| Store (notes) | Plugin option `store`, or `MEM_STORE`, or `--root` | Read-only unless it holds a `mem-store.yaml` marker; `mem init <folder>` creates a new store with one. An existing store without the marker is never made writable by this tool |
-| Global memories | Plugin option `memories`, or `MEM_MEMORIES`; else `memories/` in a writable store | May not be inside a read-only store. Writing needs the file `$XDG_CONFIG_HOME/agent-memory/forbidden-terms` (one term per line; it may be empty): a text that contains a term is refused |
+| Store (notes) | Nothing to set: the default store is created on first use (`mem init`). Or the plugin option `store`, `MEM_STORE`, `--root` | A store is read-only unless it holds a `mem-store.yaml` marker; the default one has it. An existing folder of notes without the marker is never made writable by this tool. To sync, make the store a git repository and push it to a remote of your choice |
+| Global memories | Plugin option `memories`, or `MEM_MEMORIES`; else `memories/` in a writable store | May not be inside a read-only store. Nothing specific to a project belongs here. `mem terms add <term>` lists a hard term (a write that contains it is refused); `mem terms add <term> --soft` lists a soft one (the agent must ask the owner); `mem terms list` and `remove` manage them |
+| Other projects | A local registry, filled as memories are written (`mem projects list`) | Never read by default. `mem search "<q>" --project <name>` or `--all-projects` includes them, each under its own header; the registry holds names and paths, stays on this machine and is not synced |
 | Project memories | The main worktree's `.memory/` | Kept out of git through `.git/info/exclude`, added once when the folder is created; remove that line to commit the folder |
 
 Plugin options take effect in the next session: a `SessionStart` hook exports them to shell commands and writes them under `$XDG_CONFIG_HOME/agent-memory/`.

@@ -7,7 +7,7 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | `agent-skills` | Specialist skills, agents and offload workers (below) | [Catalog](#catalog), [`plugins/agent-skills/`](plugins/agent-skills/) |
 | `plan-progress` (mod) | While a plan exists: progress status line, card above the prompt, task toasts | [README](plugins/plan-progress/README.md) |
 | `tool-fold` (mod) | Folds tool, skill and agent calls into one line each; running agents get a live card; Claude's own card per request: time, calls, skills, agents, context, session, Haiku activity and conclusion (ADR 0016) | [README](plugins/tool-fold/README.md) |
-| `memory` | Notes and memories reachable from every repository: the `mem` command (stage 1 of ADR 0023; proposed) | [README](plugins/memory/README.md) |
+| `memory` | Notes and memories reachable from every repository and subagent: the `mem` command, a short start text, curation and syntheses (ADR 0023) | [README](plugins/memory/README.md) |
 
 `tool-fold` makes offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans; `tool-fold` also keeps tool output out of the way until asked for.
 
