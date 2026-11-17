@@ -132,11 +132,11 @@ def describe(state: str) -> str
 - `add` runs `_refuse_secret` on the body (exit 4); it does not run `_check_terms`.
 - An unknown name or part exits 2 and names the parts that exist.
 
-- [ ] **Step 1: Write the failing tests**: one per table row with the exact output; `test_show_marks_a_part_whose_files_changed` (commit after writing, then the header line contains `possibly stale: its files changed`); `test_outside_a_project_exits_2`; `test_a_secret_in_the_body_exits_4_and_writes_nothing`; `test_the_command_and_show_work_without_a_store` (`MEM_STORE` unset, `XDG_*` pointed at an empty folder; `show p:organization` exits 0); `test_the_store_is_untouched` (snapshot of the store before and after `add`).
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Whole suite passes; `python3 scripts/validate.py` passes.**
-- [ ] **Step 5: Commit** `feat(memory): commands to write, confirm and read project syntheses`.
+- [x] **Step 1: Write the failing tests**: one per table row with the exact output; `test_show_marks_a_part_whose_files_changed` (commit after writing, then the header line contains `possibly stale: its files changed`); `test_outside_a_project_exits_2`; `test_a_secret_in_the_body_exits_4_and_writes_nothing`; `test_the_command_and_show_work_without_a_store` (`MEM_STORE` unset, `XDG_*` pointed at an empty folder; `show p:organization` exits 0); `test_the_store_is_untouched` (snapshot of the store before and after `add`).
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Whole suite passes; `python3 scripts/validate.py` passes.**
+- [x] **Step 5: Commit** `feat(memory): commands to write, confirm and read project syntheses`.
 
 ### Task 3: Curation and the session text
 
@@ -151,7 +151,7 @@ def describe(state: str) -> str
   - `-- project syntheses: possibly stale --` with `p:<name>#<handle>\t<describe text>` for every part not `fresh`.
   - `-- project syntheses: none yet --` with the single line `<N> active memories and no project synthesis: organize them (see the memory-curation skill).` when no file exists and the project has 5 or more active memories.
 - `session_index` appends one sentence to its first line (after `This project:` and `Curation due:` when present, and also when the project has no memories), only when at least one project synthesis exists: `Project syntheses: p:organization p:pending (read: mem show p:<name>; each part says whether its files changed since it was written).` with the names that exist, in `NAMES` order. No git call.
-- `memory-curation/SKILL.md` gains a section "Project syntheses" (at most 15 lines): which memory kinds go to which name (`state` → `pending` or `plans`; `decision`, `constraint` → `conventions` or `organization`; `pitfall`, `lesson` stay memories unless they describe how the project is organized); read the code a part will describe before writing it; name folders in `--paths` rather than many files; cite memories as `m:<handle>` in the body; for a possibly stale part, check the files, then `add` again with the corrected text or `confirm` when it still holds; never list files or line numbers.
+- `memory-curation/SKILL.md` gains a section "Project syntheses" (at most 15 lines): which memory kinds go to which name (`state` → `pending` or `plans`; `decision`, `constraint` → `conventions` or `organization`; `pitfall`, `lesson` stay memories unless they describe how the project is organized); read the code a part will describe before writing it; name folders in `--paths` rather than many files; cite memories as `m:<handle>` in the body; for a possibly stale part, check the files, then `add` again with the corrected text or `confirm` when it still holds; write or confirm a part after committing the changes it describes, because the stamp is the commit (`add` and `confirm` print a note when covered files are uncommitted); never list files or line numbers.
 - `agents/memory-curator.md`: one line saying its proposals include project synthesis parts to write, correct or confirm (it still changes nothing).
 - `skills/memory/SKILL.md`: one line under reading: a `p:` part marked possibly stale is a hint to check the files, not a fact.
 
