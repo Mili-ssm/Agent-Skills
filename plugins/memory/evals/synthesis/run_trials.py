@@ -3,8 +3,8 @@
 as one written by Sonnet with one Haiku fact-check, and at what cost?
 
 Plan: docs/superpowers/plans/2026-11-17-memory-synthesis-haiku.md (its Design and decision rule bind this script).
-Arm S: writer sonnet -> checker haiku -> fixer sonnet. Arm Y (default with S): writer sonnet -> checker haiku and
-fixer haiku at high effort, up to 2 fix rounds, ending on a check. Arm H (not a default): writer haiku -> (checker haiku -> fixer haiku), up to
+Arm S: writer sonnet -> checker haiku -> fixer sonnet. Arm Y (default with S): writer sonnet -> checker haiku (medium effort) and
+fixer haiku (high effort), up to 2 fix rounds, ending on a check. Arm H (not a default): writer haiku -> (checker haiku -> fixer haiku), up to
 2 fix rounds, ending on a check. A Haiku judge at high effort, blind to the arm, fact-checks every final synthesis; the judge's
 count is the quality measure. Each step is its own `claude -p` session. Every pipeline works on its own copy of a
 store snapshot under `target/mem-trials/` in which the topic's synthesis is gone and its notes are detached; the
@@ -306,8 +306,8 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
     settings.write_text(json.dumps({"pluginConfigs": {"memory": {"options": {"store": str(store)}}}}))
     fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
     sessions: list[dict] = []
-    # Arm Y runs its Haiku checker and fixer at high effort; S and H at the default.
-    effort = "high" if arm == "Y" else None
+    # Arm Y runs its Haiku checker at medium effort and its Haiku fixer at high; S and H at the default.
+    check_effort, fix_effort = ("medium", "high") if arm == "Y" else (None, None)
 
     def step(role: str, model: str, text: str, level: str | None = None) -> dict:
         s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl",
@@ -318,7 +318,7 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
 
     def check(n: int) -> dict | None:
         report = work / f"report-{n}.md"
-        step("checker", "haiku", brief("checker", **fill, REPORT_FILE=str(report)), effort)
+        step("checker", "haiku", brief("checker", **fill, REPORT_FILE=str(report)), check_effort)
         return parse_report(report)
 
     synthesis = store / "syntheses" / f"{topic}.md"
@@ -334,7 +334,7 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
                 fixes = 1
         else:
             while arm_count and arm_count["unsupported"] and fixes < MAX_FIX_ROUNDS:
-                step("fixer", "haiku", brief("fixer", **fill, REPORT_FILE=str(work / f"report-{fixes + 1}.md")), effort)
+                step("fixer", "haiku", brief("fixer", **fill, REPORT_FILE=str(work / f"report-{fixes + 1}.md")), fix_effort)
                 fixes += 1
                 arm_count = check(fixes + 1)
         if arm_count is None:
