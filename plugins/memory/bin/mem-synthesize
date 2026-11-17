@@ -28,7 +28,7 @@ AGENT = "memory:memory-synthesizer"
 ESTIMATE_PER_TOPIC = 0.5   # USD: 0.25 measured at medium effort, doubled for the owner's high setting
 TOPIC_LINE = re.compile(r"^  (\S+)  (\d+) notes\s*$")
 ATTACH_LINE = re.compile(r"^(knowledge/\S+\.md)\t(s:[^\s#]+#[^\s#]+)\s*$")
-HEADER = ("topic", "parts", "attached", "fixed", "deleted", "mem check", "cost USD", "status")
+HEADER = ("topic", "parts", "attached", "fixed", "deleted", "reverted", "mem check", "cost USD", "status")
 
 
 # --- environment ---------------------------------------------------------------------------------------------
@@ -91,7 +91,7 @@ def history_commit(store: Path, env: dict, message: str, log) -> None:
 
 def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, settings: Path, log) -> dict:
     """Run the pipeline for one topic; the row never raises: a failed step is `status`."""
-    row = dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, mem_check="-", cost=0.0, status="ok")
+    row = dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, reverted=0, mem_check="-", cost=0.0, status="ok")
     base = root / topic
     work = base / "work"
     work.mkdir(parents=True)
@@ -124,6 +124,7 @@ def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, setti
             return row
         first = done["arm_count"]
         row["deleted"] = done["deleted"]
+        row["reverted"] = len(done["reverted"])
         row["fixed"] = max(0, (first["unsupported"] if first else 0) - done["deleted"])
         for rel, target in attach_lines(answer):
             note = store / rel
@@ -155,7 +156,7 @@ def count_parts(synthesis: Path) -> int:
 
 
 def table(rows: list[dict]) -> str:
-    lines = [HEADER] + [(r["topic"], r["parts"], r["attached"], r["fixed"], r["deleted"], r["mem_check"],
+    lines = [HEADER] + [(r["topic"], r["parts"], r["attached"], r["fixed"], r["deleted"], r["reverted"], r["mem_check"],
                          f"{r['cost']:.3f}", r["status"]) for r in rows]
     widths = [max(len(str(line[i])) for line in lines) for i in range(len(HEADER))]
     return "\n".join("  ".join(str(c).ljust(w) for c, w in zip(line, widths)).rstrip() for line in lines)
@@ -202,7 +203,7 @@ def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_r
     rows, spent = [], 0.0
     for topic in topics:
         if spent >= budget:
-            rows.append(dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, mem_check="-", cost=0.0,
+            rows.append(dict(topic=topic, parts=0, attached=0, fixed=0, deleted=0, reverted=0, mem_check="-", cost=0.0,
                              status="not started: budget"))
             continue
         log(f"{topic}: start (spent {spent:.3f})")
@@ -227,7 +228,7 @@ def self_check() -> int:
     answer = ("Slug: x\nATTACH\nknowledge/a/b.md\ts:x#part-one\nknowledge/a/c.md  s:x#bad\nliterature/z.md\ts:x#p\n")
     assert attach_lines(answer) == [("knowledge/a/b.md", "s:x#part-one")], attach_lines(answer)
     assert "/plugins/cache/" not in session_env(Path("/x"))["PATH"] and session_env(Path("/x"))["MEM_STORE"] == "/x"
-    rows = [dict(topic="t", parts=5, attached=7, fixed=2, deleted=1, mem_check=0, cost=0.31, status="ok")]
+    rows = [dict(topic="t", parts=5, attached=7, fixed=2, deleted=1, reverted=0, mem_check=0, cost=0.31, status="ok")]
     assert table(rows).splitlines()[1].split()[:3] == ["t", "5", "7"], table(rows)
     with tempfile.TemporaryDirectory(prefix="mem-synthesize-check-") as tmp:
         tmp = Path(tmp)
@@ -249,6 +250,29 @@ def self_check() -> int:
         subprocess.run(["git", "add", "-A"], cwd=store, check=True)
         subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "fixture"], cwd=store,
                        check=True)
+        # the out-of-scope guard: a fake fixer edits two parts, the report lists one; the other is put back
+        os.environ["MEM_STORE"] = str(store)
+        assert sp.mem(store, env, "synthesis", "new", "--title", "Demo", "--topics", "notes", "--slug", "demo",
+                      "--summary-file", "-", stdin="Summary.\n").returncode == 0
+        for heading in ("Alpha", "Beta"):
+            added = sp.mem(store, env, "synthesis", "add", "s:demo", "--section", heading, "--body-file", "-",
+                           stdin=f"{heading} text one. Second sentence here.\n\nSources: experience 2026-11-17\n")
+            assert added.returncode == 0, added.stderr
+        demo = store / "syntheses" / "demo.md"
+        before = demo.read_text()
+        demo.write_text(before.replace("Alpha text one.", "Alpha fixed.").replace("Second sentence here.", "Cut."))
+        after = demo.read_text()
+        bad, back = sp.guard_parts(store, env, "demo", before, after, ["alpha"])
+        assert (bad, back) == (["beta"], ["beta"]), (bad, back)
+        now = sp.split_parts(demo.read_text())
+        assert now["beta"].strip() == sp.split_parts(before)["beta"].strip() and "Alpha fixed." in now["alpha"], now
+        checked = sp.mem(store, env, "check")
+        assert "demo.md" not in checked.stdout, checked.stdout   # keep.md above is not a note
+        assert sp.mem(store, env, "restore", "s:demo").returncode == 0   # the revert is one undoable step
+        assert sp.guard_parts(store, env, "demo", before, before, [])[0] == []
+        os.environ.pop("MEM_STORE", None)
+        subprocess.run(["git", "add", "-A"], cwd=store, check=True)
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "demo"], cwd=store, check=True)
         lines.clear()
         assert run(str(fake), store, ["one", "two"], 3.0, False, out=lines.append) == 1
         assert "failed: STOP: fake" in lines[1] and lines[1].count("failed") == 2, lines

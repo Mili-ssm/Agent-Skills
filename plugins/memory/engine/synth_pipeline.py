@@ -198,6 +198,22 @@ def changed_outside(before: str, after: str, allowed: list[str]) -> list[str]:
     return sorted(h for h in old.keys() | new.keys() if old.get(h) != new.get(h) and h not in allowed)
 
 
+def guard_parts(store: Path, env: dict, topic: str, before: str, after: str, allowed: list[str]) -> tuple[list[str], list[str]]:
+    """(violations, reverted): the parts changed outside `allowed` and those put back to their text in `before`
+    through `mem synthesis edit --shrink`, so the undo log and `mem check` stay consistent. A part the fixer removed
+    or added cannot be put back by `edit`: it stays in the violations only."""
+    violations = changed_outside(before, after, allowed)
+    old, new = split_parts(before), split_parts(after)
+    reverted = []
+    for handle in violations:
+        if handle in old and handle in new:
+            text = old[handle].split("\n", 1)[1].strip("\n") if "\n" in old[handle] else ""
+            done = mem(store, env, "synthesis", "edit", f"s:{topic}#{handle}", "--body-file", "-", "--shrink", stdin=text + "\n")
+            if done.returncode == 0:
+                reverted.append(handle)
+    return violations, reverted
+
+
 def summary(s: dict) -> dict:
     return dict(role=s["role"], model=s["model"], costs=s["costs"], cost=s["cost"], wall=s["wall"], writes=s["writes"],
                 write_errors=s["write_errors"], denied=s["denied"], tool_errors=s["tool_errors"],
@@ -210,10 +226,10 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
 
     Each session's summary is appended to `sessions`; session streams go to `base/NN-<role>.jsonl`. Returns
     `arm_count` (first check, None when its report is unreadable), `why` (empty when every step worked), `fixes`,
-    `deleted`, `scope_violations`. `lean=False` is the trial's arm S: one Sonnet fixer, no second check."""
+    `deleted`, `scope_violations`, `reverted` (the violations put back). `lean=False` is the trial's arm S: one Sonnet fixer, no second check."""
     synthesis = store / "syntheses" / f"{topic}.md"
     fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
-    out = dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[])
+    out = dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[], reverted=[])
 
     def step(role: str, model: str, text: str, level: str | None = None) -> dict:
         s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl",
@@ -229,10 +245,12 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
         return parse_report(report)
 
     def guarded_fix(model: str, level: str | None, text: str, report: dict, role: str = "fixer") -> dict:
-        """One fixer step; the parts it changed outside the report's PARTS are recorded."""
+        """One fixer step; the parts it changed outside the report's PARTS are recorded and put back."""
         before = synthesis.read_text()
         s = step(role, model, text, level)
-        out["scope_violations"].extend(changed_outside(before, synthesis.read_text(), resolve_parts(report["parts"], before)))
+        bad, back = guard_parts(store, env, topic, before, synthesis.read_text(), resolve_parts(report["parts"], before))
+        out["scope_violations"].extend(bad)
+        out["reverted"].extend(back)
         return s
 
     first = out["arm_count"] = check(1)
