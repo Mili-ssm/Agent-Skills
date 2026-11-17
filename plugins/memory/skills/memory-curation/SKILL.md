@@ -33,7 +33,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | notes on a topic that has a synthesis, not yet part of it | Add what the note says to the right part (`mem synthesis append` or `add`, the note among its sources), then `mem synthesis attach <note> s:<h>#<section>`. Not about that subject: leave it |
 | notes older than their section | Rewrite the note from its part (`mem show s:<h>#<section>`), keeping it short, with `mem note edit <note> --section <heading> --body-file -` |
 | notes that say the same or the opposite? | The same: write one text that keeps every source link and every "does not apply when" of both, then `mem unify <keep> <other> --body-file -`. Opposites or different things: `mem distinct <a> <b>`, or leave and say so |
-| topics with 8 notes or more and no synthesis | Worth a long document? Load the `memory-synthesis` skill. Not worth it: leave |
+| topics with 8 notes or more and no synthesis | Worth a long document? Load the `memory-synthesis` skill. For many topics, `mem-synthesize` writes them quietly (launch it in the background, it prints one table at the end); for one, the `memory-synthesizer` subagent. Not worth it: leave |
 
 `mem unify` refuses a text that drops a link the notes had; the kept note takes the lowest confidence of the ones it replaces.
 
