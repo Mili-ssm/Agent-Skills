@@ -165,7 +165,11 @@ def valid(parsed: dict, arm: str) -> tuple[bool, str]:
 def run_session(claude: str, plugin: Path, settings: Path, project: Path, env: dict, question: str) -> dict:
     cmd = [claude, "-p", PROMPT.format(question=question.rstrip("?.")), "--model", "haiku",
            "--plugin-dir", str(plugin), "--settings", str(settings), "--setting-sources", "project",
-           "--allowedTools", "Agent", "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
+           # Permissions are inherited by the subagent: the researcher needs mem and file reads; the main session's
+           # own use of mem makes a run invalid (graded below). The web stays out so no finding leaks between runs.
+           "--allowedTools", "Agent", "Bash(mem *)", "Read", "Grep", "Glob",
+           "--disallowedTools", "WebSearch", "WebFetch",
+           "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
     try:
         done = subprocess.run(cmd, cwd=project, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=600)
