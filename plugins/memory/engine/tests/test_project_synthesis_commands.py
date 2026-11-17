@@ -148,3 +148,80 @@ def test_the_store_is_untouched(proj, hub_root, tmp_path, monkeypatch):
     assert mem.main(["show", "p:organization"]) == 0
     after = sorted((p.relative_to(hub_root), p.read_bytes()) for p in hub_root.rglob("*") if p.is_file())
     assert before == after
+
+
+def test_add_over_uncommitted_changes_warns_and_still_writes(proj, tmp_path, capsys):
+    (proj / "src" / "a.py").write_text("a = 2\n")
+    assert add(tmp_path) == 0
+    cap = capsys.readouterr()
+    ref = "p:organization#where-the-engine-lives"
+    assert cap.out == ref + "\n"
+    assert cap.err == (f"mem: {ref} covers files with uncommitted changes; "
+                       "it will read possibly stale until you confirm it after committing.\n")
+
+
+def test_add_over_a_clean_tree_does_not_warn(proj, tmp_path, capsys):
+    assert add(tmp_path) == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_confirm_over_uncommitted_changes_warns(proj, tmp_path, capsys):
+    add(tmp_path)
+    (proj / "src" / "a.py").write_text("a = 2\n")
+    capsys.readouterr()
+    ref = "p:organization#where-the-engine-lives"
+    assert mem.main(["project-synthesis", "confirm", ref]) == 0
+    assert capsys.readouterr().err == (f"mem: {ref} covers files with uncommitted changes; "
+                                       "it will read possibly stale until you confirm it after committing.\n")
+
+
+def test_show_p_handle_rejects_project_and_section(proj, tmp_path, capsys):
+    add(tmp_path)
+    capsys.readouterr()
+    for opt in (["--project", "x"], ["--section", "y"]):
+        assert mem.main(["show", "p:organization", *opt]) == 2
+        err = capsys.readouterr().err
+        assert err.count("\n") == 1 and "do not apply to `p:` handles" in err
+
+
+def test_trailing_hash_exits_2(proj, tmp_path, capsys):
+    add(tmp_path)
+    capsys.readouterr()
+    assert mem.main(["show", "p:organization#"]) == 2
+    assert "mem:" in capsys.readouterr().err
+    assert mem.main(["project-synthesis", "confirm", "p:organization#"]) == 2
+    assert "mem:" in capsys.readouterr().err
+
+
+def test_paths_are_trimmed_and_empty_items_dropped(proj, tmp_path):
+    (proj / "lib.txt").write_text("x\n")
+    git(proj, "add", "-A")
+    git(proj, "commit", "-q", "-m", "lib")
+    assert add(tmp_path, paths="src/, lib.txt") == 0
+    assert add(tmp_path, heading="Second", paths="src/,") == 0
+    parts = {p.heading: p for p in ps.load(proj / ".memory")["organization"]}
+    assert parts["Where the engine lives"].stamp.paths == ("src/", "lib.txt")
+    assert parts["Second"].stamp.paths == ("src/",)
+
+
+def test_paths_with_nothing_left_exit_2(proj, tmp_path, capsys):
+    assert add(tmp_path, paths=" , ") == 2
+    assert "mem:" in capsys.readouterr().err
+
+
+def test_a_bad_name_is_reported_before_the_secret_scan(proj, tmp_path, capsys):
+    secret = "password = hunter2hunter2hunter2\napi_key = AKIAABCDEFGHIJKLMNOP"
+    assert add(tmp_path, name="organisation", text=secret) == 2
+    err = capsys.readouterr().err
+    assert "unknown project synthesis" in err and "secret" not in err
+
+
+def test_show_mixes_a_p_handle_and_a_memory(proj, tmp_path, capsys):
+    add(tmp_path)
+    assert mem.main(["remember", "--kind", "lesson", "--claim", "A fact.", "--body-file",
+                     body_file(tmp_path, "Fact body.")]) == 0
+    handle = next((proj / ".memory").glob("*.md")).stem
+    capsys.readouterr()
+    assert mem.main(["show", "p:organization#where-the-engine-lives", f"m:{handle}"]) == 0
+    out = capsys.readouterr().out
+    assert "== p:organization#where-the-engine-lives" in out and "Fact body." in out

@@ -260,5 +260,11 @@ def freshness(worktree: Path, stamp: Stamp) -> str:
     return FRESH
 
 
+def covers_uncommitted(worktree: Path, paths: Sequence[str]) -> bool:
+    """True when a covered path differs from HEAD in the working tree; False when git is unavailable."""
+    head = head_commit(worktree)
+    return head is not None and freshness(worktree, Stamp(tuple(paths), datetime.date.today(), head)) == CHANGED
+
+
 def describe(state: str) -> str:
     return _DESCRIPTIONS[state]

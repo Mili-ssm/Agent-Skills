@@ -2768,7 +2768,9 @@ def _project_synthesis_context() -> tuple[Path, Path, Path] | None:
 
 
 def _split_part_ref(ref: str) -> tuple[str, str | None]:
-    name, _, handle = ref.removeprefix("p:").partition("#")
+    name, sep, handle = ref.removeprefix("p:").partition("#")
+    if sep and not handle:
+        raise project_syntheses.ProjectSynthesisError(f"{ref!r} has an empty part handle after `#`")
     return name, handle or None
 
 
@@ -2798,6 +2800,11 @@ def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
     return f"== p:{name}#{part.handle} ({state})\n{part.heading}\n\n{part.body}\n{stamp}"
 
 
+def _warn_uncommitted(ref: str) -> None:
+    print(f"mem: {ref} covers files with uncommitted changes; "
+          "it will read possibly stale until you confirm it after committing.", file=sys.stderr)
+
+
 def cmd_project_synthesis(args: argparse.Namespace) -> int:
     context = _project_synthesis_context()
     if context is None:
@@ -2815,11 +2822,20 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
             except (OSError, UnicodeDecodeError) as exc:
                 print(f"mem: cannot read the body: {exc}", file=sys.stderr)
                 return 2
+            if args.name not in project_syntheses.NAMES:
+                raise project_syntheses.ProjectSynthesisError(
+                    f"unknown project synthesis {args.name!r}; use one of: {', '.join(project_syntheses.NAMES)}")
+            paths = [p for p in (item.strip() for item in args.paths.split(",")) if p]
+            if not paths:
+                raise project_syntheses.ProjectSynthesisError("a part must cover at least one path")
             if _refuse_secret([args.heading, body]):
                 return 4
             handle = project_syntheses.write_part(memory_dir, tree, args.name, args.heading, body,
-                                                  args.paths.split(","), datetime.date.today())
-            print(f"p:{args.name}#{handle}")
+                                                  paths, datetime.date.today())
+            ref = f"p:{args.name}#{handle}"
+            print(ref)
+            if project_syntheses.covers_uncommitted(tree, paths):
+                _warn_uncommitted(ref)
             return 0
         name, handle = _split_part_ref(args.part)
         found = project_syntheses.load(memory_dir)
@@ -2828,6 +2844,9 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
                 f"no part {args.part!r}; parts that exist: {_existing_parts(found)}")
         project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
         print(f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}")
+        part = next(p for p in found[name] if p.handle == handle)
+        if project_syntheses.covers_uncommitted(tree, part.stamp.paths):
+            _warn_uncommitted(f"p:{name}#{handle}")
         return 0
     except project_syntheses.ProjectSynthesisError as exc:
         print(f"mem: {exc}", file=sys.stderr)
@@ -2839,6 +2858,9 @@ def cmd_show(args: argparse.Namespace) -> int:
         build_parser().error("--ranges needs --outline")
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
+        return 2
+    if any(a.startswith("p:") for a in args.paths) and (args.project or args.section):
+        print("mem: --project and --section do not apply to `p:` handles", file=sys.stderr)
         return 2
     if args.project and _other_projects([args.project], False) is None:
         return 2

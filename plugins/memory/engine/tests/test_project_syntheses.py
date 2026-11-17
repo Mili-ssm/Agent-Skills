@@ -282,3 +282,13 @@ def test_confirming_a_part_whose_path_was_deleted_raises(git_project, mem_dir):
 def test_heading_starting_with_a_hash_is_refused(git_project, mem_dir):
     with pytest.raises(ps.ProjectSynthesisError):
         write(mem_dir, git_project, heading="## X")
+
+
+def test_covers_uncommitted_sees_only_covered_changes_and_needs_git(tmp_path, git_project):
+    assert not ps.covers_uncommitted(git_project, ["src/"])
+    (git_project / "docs" / "p.md").write_text("changed\n")
+    assert not ps.covers_uncommitted(git_project, ["src/"])
+    assert ps.covers_uncommitted(git_project, ["docs/"])
+    plain = tmp_path / "plain"
+    (plain / "src").mkdir(parents=True)
+    assert not ps.covers_uncommitted(plain, ["src/"])
