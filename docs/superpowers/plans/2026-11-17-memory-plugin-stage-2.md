@@ -228,7 +228,7 @@ These override the task text above wherever they differ. Each comes from a failu
 
 - `MEM_ALLOW_WRITE` is removed everywhere (code, tests, README, skill). `store_is_writable(store: Path) -> bool` is `(store / STORE_MARKER).is_file()` and takes no `env`. The `hub_root` test fixture creates the marker; tests of the read-only guard delete it.
 - The guard message becomes `mem: <command> writes to the store, which is read-only: it has no mem-store.yaml (create a store with "mem init").`
-- **Global memories have their own folder**, so they can be written while the note store stays read-only. `records.memories_root(env: Mapping[str, str], store: Path | None) -> Path | None`: `env["MEM_MEMORIES"]`; else the first line of the file `agent-memory/memories` (under `XDG_CONFIG_HOME`, else `HOME/.config`); else `store / GLOBAL_DIR` when the store is writable; else `None`. A folder named through the variable or the file is written without a marker: naming it is the permission. `memory_dir("global", …)` is replaced by this function.
+- **Global memories have their own folder**, so they can be written while the note store stays read-only. `records.memories_root(env: Mapping[str, str], store: Path | None) -> Path | None`: `env["MEM_MEMORIES"]`; else the first line of the file `agent-memory/memories` (under `XDG_CONFIG_HOME`, else `HOME/.config`); else `store / GLOBAL_DIR` when the store is writable; else `None`. A folder named through the variable or the file is written without a marker: naming it is the permission. One exception, added after review: a named folder that is the store, or inside it, is refused when the store has no marker, and the folder actually written is tested after resolving symlinks. `memory_dir("global", …)` is replaced by this function.
 - `plugin.json` gains a second option, `memories` (`type: directory`, title `Global memories`, description `Folder for memories that do not belong to one project. Leave empty to keep them in the store.`), and `hooks/session-env.sh` handles it exactly as it handles `store` (file `agent-memory/memories`, `export MEM_MEMORIES=…`), with the same tests.
 - `remember --global` with no folder: `mem: no folder for global memories: set the plugin's "memories" option, or MEM_MEMORIES, or use a store made with "mem init".`, exit 2.
 
@@ -274,4 +274,19 @@ Measured: on a tiny corpus every common word has a positive BM25 weight, so near
 
 ## Results
 
-Filled as tasks complete.
+Measured on 2026-11-17; counts and pass or fail only. Each trial with an agent is one run.
+
+| Item | Result |
+|---|---|
+| Tasks 1 to 3 | Done, with two review rounds and three fix rounds. Suite: 447 passed, 1 skipped |
+| Task 4 | Done. Trigger case after the description change: 2 of 2 runs loaded the skill (Sonnet). No negative case was run, so over-triggering is unmeasured |
+| Parity (Task 5, step 1) | Pass. 20 of 20 queries and `search-eval` identical to the original tool with no memory present |
+| A store without its marker | Pass. Against a real one: `index`, `init`, `remember` from inside it, `remember --global` with the memories folder inside it or equal to it, and a `.memory` symlinked into it all exit 2; its `git status --ignored` and `.git/info/exclude` were identical before and after |
+| Worktree (step 3) | Pass. A memory written from a linked worktree was found after `git worktree remove`; `git status` empty |
+| Forbidden terms (step 4) | Pass. A claim with an accented spelling of a listed term was refused (exit 4); a scan of the global folder for the term found nothing |
+| Agent use without a session index (step 2) | **Fail.** Told in Spanish to remember a pitfall, a Sonnet session wrote it to Claude Code's auto memory and never loaded the skill or called `mem` |
+| Agent use with a three-line text at session start | Pass. The same request loaded the skill and ran `mem remember` with an English claim (`git status` empty); a new session, asked in Spanish whether to mind anything before deploying, ran `mem search` unasked, opened the memory and gave the warning. It first tried `mem read`, which is now an alias of `show` |
+
+What this changes: the session index of stage 3 is a condition for the plugin being used at all, not an addition; and "auto memory left as it is" (an agent's choice in the design) holds only if the index tells the agent where project facts go.
+
+Limits kept on purpose: a folder shaped like a store is protected only when it is the configured store; `observe` has no lock; a note line carries no label of its own.

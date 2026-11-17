@@ -1,6 +1,6 @@
 ---
 name: memory
-description: Searches, reads and writes the owner's store of notes and memories with the `mem` command - what is already known about a topic, a past decision, a pitfall of this project, a lesson learned or earlier research - in three cheap steps (search, open the conclusion, read deeper only if needed), and records what was learned in one call. Use when about to research a topic, search the web or dispatch a web researcher, when asked "what do we know about X", "have we seen this before" or "did we already decide this", and when a task ends with something worth keeping (a decision, a constraint, a pitfall, a correction from the owner, findings from web research) or the owner says "remember this"; load it before searching or writing so the answer comes from what is recorded and a new memory lands in the right place.
+description: Searches, reads and writes the owner's store of notes and memories with the `mem` command - what is already known about a topic, a past decision, a pitfall of this project, a lesson learned or earlier research - in three cheap steps (search, open the conclusion, read deeper only if needed), and records what was learned in one call. Use when about to research a topic, search the web or dispatch a web researcher, when asked "what do we know about X", "have we seen this before" or "did we already decide this", and when the work produced something a later session would otherwise have to rediscover (a decision with its reason, a constraint, a pitfall, a correction from the owner, findings from web research; not routine outcomes) or the owner says "remember this"; load it before searching or writing so the answer comes from what is recorded and a new memory lands in the right place.
 ---
 
 # Memory
@@ -51,12 +51,12 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 | `state` | A pointer to the plan of work in progress |
 
 - Write the claim in English even when the conversation is not: search matches words, and the store is in English.
-- By default the memory goes to the current project (a hidden `.memory/` folder that git ignores), which is the right place for anything that names the project, its systems or its business.
-- Add `--global` only for what holds outside this project and names no client, company, system or data. Global writing needs a list of forbidden terms and refuses a text that contains one (exit code 4): rewrite the claim in general terms, never work around the check.
+- By default the memory goes to the current project (a hidden `.memory/` folder, kept out of git when the tool created it), which is the right place for anything that names the project, its systems or its business.
+- Add `--global` only for what holds outside this project and names no client, company, system or data. Global writing needs the owner's list of forbidden terms: without the list it stops (exit code 2; tell the owner, do not create the file yourself), and it refuses a text that contains a term (exit code 4): rewrite the claim in general terms, never work around the check.
 - Exit code 3 means the same claim is already recorded: run the `mem observe m:<handle>` it prints, which counts one more observation. If the command lists related memories, read them: when one says the same, `observe` it; when one says the opposite, keep both and say so in the body.
 - `mem show m:<handle>` reads a memory whole.
 
 ## When a command refuses
 
 - `no store is set`: no store was found; the plugin's `store` option takes effect in the next session. Project memories work without a store (`mem search "<q>" --scope memories`).
-- `read-only: it has no mem-store.yaml`: that store is not to be written through this tool. Do not create the file; write a project memory instead, or tell the owner.
+- `read-only: it has no mem-store.yaml`: that store is not to be written through this tool. Do not create the file. Write a project memory instead, unless the project is that store: then tell the owner.
