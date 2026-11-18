@@ -253,3 +253,28 @@ Run 1 found two defects: the web session had its two tools but no permission to 
 Limits: one run per state; 12 notes of the kind easiest to check (standards, language documentation); half of the real notes still get no source (papers and pages the web session did not reach); the web session's own `official` label is trusted; `deep` was not run. Not yet done: `memory-researcher` without web tools (a measured description change), and joining `mem-auto`.
 
 Stage 2: built, trial pending (see "Stage 2 design"). Stages 3 to 5: pending.
+
+### Stage 2 backfill trial, 2026-11-18 (`run_trials.py --backfill-trial --budget 8`, three syntheses of a store copy, Haiku at high effort, one run)
+
+Verdict by the rule fixed before the run: **PASS**. Spent 1.87 USD of the 8 USD cap: 0.13 for the three backfill sessions, 1.74 for the reference judgments and calibrations.
+
+| Measure | Value | Rule |
+|---|---|---|
+| Parts and units sent | 21 parts, 336 units | |
+| References proposed, applied, refused | 429, 400, 29 (all 29 in one synthesis; reasons not read, the run's work folder is deleted at the end) | at least one applied per synthesis: pass |
+| `none` answers | 5 of 336 units (1%) | at most 20%: pass |
+| Wrong references in a sample of 100 new ones | 1 (worst case 1) | at most 1: pass |
+| Findings without a reference before that now have one | 178 of 196 (91%, worst case equal) | at least 60%: pass |
+| Words of every part, `mem check`, notes behind their section | unchanged, exit 0, 0 before and 0 after | pass |
+| `mem restore`, one per synthesis | every snapshotted file back byte for byte | pass |
+| Calibration of the reference judge | 20 of 20 planted wrong references found, none of them weak; no unit or reference left unjudged | at least 16: valid |
+| Backfill cost | 0.035, 0.046 and 0.053 USD per synthesis; 0.006 to 0.007 per part | |
+| Tokens as stored, before and after | 5342 to 10487, 4688 to 7960, 5840 to 8796 (+96%, +70%, +51%) | |
+| Tokens as `mem show` prints them | 5342 to 6845, 4688 to 5619, 5826 to 6398 (+28%, +20%, +10%) | no rule in this trial |
+
+Reading, with its limits:
+
+- One run, three syntheses, one judge model: the wrong-reference rate is bounded near 5% by the sample, not measured below that.
+- The judge marked 197 of the 336 units as findings; coverage is over those.
+- What a reader is shown grew by 10% to 28%, because a label copied from the `Sources:` line is several words long. The writer trial's limit for the same measure is 15%. Proposed before the real backfill (owner's decision): `mem show` prints a reference as the number of its note on the part's `Sources:` line (`[2]`), computed when shown; storage unchanged.
+- From the measured cost per part, the backfill of the real store's 218 parts is estimated at about 1.5 USD without any judging.
