@@ -38,6 +38,11 @@
       "type": "number",
       "title": "Automatic settling interval (minutes)",
       "description": "Least time between two settling runs. Default 30."
+    },
+    "research_depth": {
+      "type": "string",
+      "title": "Research depth",
+      "description": "How far mem-research goes by default: memory (only what the memory says), contrast (also checks chosen notes and the question against up to 5 web pages, at most 0.50 USD and 5 minutes) or deep (up to 15 pages, papers asked for, at most 2 USD and 15 minutes). Default contrast. Spends model usage; not yet measured."
     }
   }
 }
