@@ -11,7 +11,11 @@ The judge is blind to the arm; its count is the quality measure. Each step is it
 pipeline works on its own copy of a store snapshot under `target/mem-trials/` in which the topic's synthesis is gone and
 its notes are detached; the owner's store is read once, to make the snapshot, and never written.
 
-Usage: run_trials.py [--claude PATH] [--topic T]... [--arm S|L|M]... [--judge-model haiku] [--runs 1] [--jobs 2]
+Arm R: M's models and effort with the current texts (writer brief, skill, checker and fixer briefs). Arm M runs on the
+frozen texts of `main` (`frozen-main/`), so M and R compare the pipeline before and after inline references. The judge is
+the same for every arm: the frozen checker brief, reading the synthesis with its references removed.
+
+Usage: run_trials.py [--claude PATH] [--topic T]... [--arm S|L|M|R]... [--judge-model haiku] [--runs 1] [--jobs 2]
                      [--budget USD (10)] [--work DIR (resume)] [--keep] | --self-check
 It costs model usage (9 pipelines and 9 judges at the defaults, about 7 to 9 USD); no pipeline starts once the summed
 cost passes --budget. --rejudge reuses a kept pipeline folder (run an earlier pipeline with --keep).
@@ -35,6 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import trial_env  # noqa: E402
 import synth_pipeline as sp  # noqa: E402
+import syntheses  # noqa: E402
 from synth_pipeline import (CHEAP, DELETE_ONLY, NOT_GIVEN, brief as _brief, changed_outside, cost_by_family, mem,  # noqa: E402,F401
                             parse_report, resolve_parts, run_session, scope_text, section_handle, split_parts,
                             summary)
@@ -45,9 +50,18 @@ SOURCE = trial_env.TARGET / "synthesis-source"
 ATTACHED = trial_env.TARGET / "synthesis-source-attached.json"
 TOPICS = ("human-memory", "time-series-forecasting", "llm-evaluation", "mental-health")
 DEFAULT_TOPICS = TOPICS[:3]
-ARMS = ("S", "L", "M")
-WRITER = {"S": ("sonnet", None), "L": ("sonnet", None), "M": ("haiku", "high")}   # model, effort
-LEAN = ("L", "M")
+ARMS = ("S", "L", "M", "R")
+DEFAULT_ARMS = ("S", "L", "M")
+WRITER = {"S": ("sonnet", None), "L": ("sonnet", None), "M": ("haiku", "high"), "R": ("haiku", "high")}   # model, effort
+LEAN = ("L", "M", "R")
+FROZEN = HERE / "frozen-main"
+FROZEN_ARMS = ("M",)   # the control runs the texts of `main`
+PREPARED = trial_env.TARGET / "synthesis-source-prepared.json"   # what making the copy changed in it
+# The proposed rule of R against M (owner fixes it before a run; constants, never options).
+R_RATE_MARGIN = 2.0      # R's unsupported/100 <= M's + max(this, gap between M's runs), in points
+R_COST_FACTOR = 1.3      # R's mean pipeline cost must stay below this times M's
+PRELIM_MIN_RUNS = 2      # fewer runs per arm than this: preliminary
+PRELIM_MAX_GAP = 4.0     # M's runs differing by more than this many points: preliminary
 STATE = "state.json"
 
 JUDGE_EXTRA = """
@@ -71,7 +85,7 @@ def ensure_source() -> Path:
 
     The log is read, not copied: the handles it records as attached tell the notes that were attached to a synthesis
     from the ones a synthesis created itself (`--note-slug`)."""
-    if (SOURCE / "mem-store.yaml").is_file() and ATTACHED.is_file():
+    if (SOURCE / "mem-store.yaml").is_file() and ATTACHED.is_file() and PREPARED.is_file():
         return SOURCE
     real = real_store()
     if not (real / "mem-store.yaml").is_file():
@@ -89,12 +103,58 @@ def ensure_source() -> Path:
             if entry.get("action") == "attach" and entry.get("handle"):
                 attached.add(entry["handle"])
     ATTACHED.write_text(json.dumps(sorted(attached)))
+    PREPARED.write_text(json.dumps({"refs_removed": drop_unlisted_references(SOURCE)}))
     return SOURCE
 
 
-def brief(name: str, **values: str) -> str:
-    """A brief: the writer's is the trial's own (the command uses the `memory-synthesizer` agent instead)."""
-    return _brief(name, **values) if name != "writer" else _brief(name, HERE, **values)
+def drop_unlisted_references(store: Path) -> int:
+    """Remove from the (trial) copy `store` every reference that names a note missing from its part's `Sources:` line,
+    the case `syntheses.validate_section` refuses; return how many were removed. Never run it on a real store."""
+    base, total = store / syntheses.SYNTHESES_DIR, 0
+    for path in sorted(base.glob("*.md")):
+        text, syn = path.read_text(), syntheses.load_one(path)
+        if syn.error:
+            continue
+        for part in syn.parts:
+            line = syntheses._sources_line(part.text) or ""
+            listed = {syntheses._resolved(base, t) for t in syntheses._links(line) if syntheses._relative(t)}
+            _, every, _, body_end = syntheses._parse(part.text)
+            bad = [r for r in every if syntheses._resolved(base, r.target) not in listed]
+            if bad:
+                new = syntheses._remove(part.text, 0, body_end, bad) + part.text[body_end:]
+                text, total = syntheses.apply_part_text(text, part.handle, new), total + len(bad)
+        path.write_text(text)
+    return total
+
+
+def references_removed() -> int:
+    """How many references `ensure_source` removed from the trial copy of the store."""
+    return json.loads(PREPARED.read_text())["refs_removed"]
+
+
+def texts(arm: str) -> dict:
+    """Where an arm's writer brief, skill and checker/fixer briefs are read from."""
+    if arm in FROZEN_ARMS:
+        return dict(writer=FROZEN, skill=FROZEN / "SKILL.md", briefs=FROZEN)
+    return dict(writer=HERE, skill=sp.SKILL, briefs=sp.BRIEFS)
+
+
+def without_references_text(path: Path) -> str:
+    """The synthesis file's text with the references of every part's body (Summary included) removed."""
+    text = path.read_text()
+    for section in syntheses.load_one(path).sections:
+        text = syntheses.apply_part_text(text, section.handle, syntheses.without_references(section.text))
+    return text
+
+
+def tokens(text: str) -> float:
+    return len(text) / 4
+
+
+def brief(name: str, folder: Path | None = None, **values: str) -> str:
+    """A brief from `folder`: by default the writer's is the trial's own (the command uses the `memory-synthesizer`
+    agent instead) and the others are the engine's."""
+    return _brief(name, folder or (HERE if name == "writer" else sp.BRIEFS), **values)
 
 
 def front_part_of(text: str) -> str | None:
@@ -135,18 +195,23 @@ def judge_row(claude: str, base: Path, env: dict, topic: str, arm: str, run: int
     settings = base / "settings.json"
     synthesis = store / "syntheses" / f"{topic}.md"
     sessions, why = list(prior["sessions"]), prior["why"]
-    judged, check_exit, words, parts = None, None, 0, 0
+    judged, check_exit, words, parts, size = None, None, 0, 0, dict(tokens_stored=None, tokens_shown=None)
     if synthesis.is_file():
         check_exit = mem(store, env, "check").returncode
         words, parts = synthesis_facts(synthesis)
+        stored = synthesis.read_text()
+        size = dict(tokens_stored=tokens(stored), tokens_shown=tokens(syntheses.shown_file(stored)))
         report = work / "judge-report.md"
         report.unlink(missing_ok=True)
         fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
-        units = work / "judge-units.md"
-        sp.write_units(synthesis, units)
-        s = run_session(claude, judge_model, brief("checker", **fill, REPORT_FILE=str(report), UNITS_FILE=str(units))
-                        + JUDGE_EXTRA, work,
-                        settings, env, base / f"{len(sessions) + 1:02d}-judge.jsonl", effort=CHEAP)
+        # The judge reads the file in place without its references (the same count for every arm and the baseline);
+        # the stored text is put back afterwards, so a later step measures the run's own synthesis.
+        synthesis.write_text(without_references_text(synthesis))
+        try:
+            s = run_session(claude, judge_model, brief("checker", FROZEN, **fill, REPORT_FILE=str(report)) + JUDGE_EXTRA,
+                            work, settings, env, base / f"{len(sessions) + 1:02d}-judge.jsonl", effort=CHEAP)
+        finally:
+            synthesis.write_text(stored)
         s.update(role="judge", model=judge_model, costs=cost_by_family(s["model_usage"]))
         sessions.append(summary(s))
         judged = parse_report(report)
@@ -171,7 +236,7 @@ def judge_row(claude: str, base: Path, env: dict, topic: str, arm: str, run: int
     return dict(
         topic=topic, arm=arm, run=run, valid=not why, why=why, denominator=len(denominator),
         checked=judged["checked"] if judged else 0, unsupported=judged["unsupported"] if judged else 0,
-        words=words, parts=parts, used=len(used & set(denominator)), mem_check=check_exit, fix_rounds=prior["fixes"],
+        words=words, parts=parts, **size, used=len(used & set(denominator)), mem_check=check_exit, fix_rounds=prior["fixes"],
         arm_checked=arm_count["checked"] if arm_count else None,
         arm_unsupported=arm_count["unsupported"] if arm_count else None,
         deleted=prior.get("deleted", 0), scope_violations=prior.get("scope_violations", []),
@@ -197,13 +262,15 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
     sessions: list[dict] = []
     synthesis = store / "syntheses" / f"{topic}.md"
     writer_model, writer_effort = WRITER[arm]
-    s = run_session(claude, writer_model, brief("writer", **fill), work, settings, env, base / "01-writer.jsonl",
+    t = texts(arm)
+    s = run_session(claude, writer_model, brief("writer", t["writer"], SKILL_FILE=str(t["skill"]), **fill), work, settings, env, base / "01-writer.jsonl",
                     effort=writer_effort)
     s.update(role="writer", model=writer_model, costs=cost_by_family(s["model_usage"]))
     sessions.append(summary(s))
     done = dict(arm_count=None, why="no synthesis written", fixes=0, deleted=0, scope_violations=[])
     if synthesis.is_file():
-        done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions, lean=arm in LEAN)
+        done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions, lean=arm in LEAN,
+                            briefs=t["briefs"])
     prior = dict(sessions=sessions, why=done["why"], denominator=denominator, arm_count=done["arm_count"],
                  fixes=done["fixes"], deleted=done["deleted"], scope_violations=done["scope_violations"])
     (base / "pipeline.json").write_text(json.dumps(prior))   # what `--rejudge` needs besides the kept store
@@ -234,14 +301,18 @@ def coverage(r: dict) -> float:
 
 
 HEADER = (f"{'topic':24} {'arm':3} {'run':3} {'valid':5} {'unsup/100':9} {'checked':7} {'words':5} {'parts':5} "
-          f"{'cover':9} {'check':5} {'arm vs judge':14} {'fix':3} {'del':3} {'pipe USD':8} {'judge USD':9} {'wall s':6} "
+          f"{'tok file':8} {'tok shown':9} {'cover':9} {'check':5} {'arm vs judge':14} {'fix':3} {'del':3} {'pipe USD':8} {'judge USD':9} {'wall s':6} "
           f"{'unlisted parts changed'}")
+
+
+def fmt_tokens(value: float | None) -> str:
+    return "-" if value is None else f"{value:.0f}"
 
 
 def table_line(r: dict) -> str:
     arm = "-" if r["arm_checked"] is None else f"{r['arm_unsupported']}/{r['arm_checked']} v {r['unsupported']}/{r['checked']}"
     return (f"{r['topic']:24} {r['arm']:3} {r['run']:<3} {str(r['valid']):5} {rate(r):9.1f} {r['checked']:<7} "
-            f"{r['words']:<5} {r['parts']:<5} {r['used']}/{r['denominator']:<7} {str(r['mem_check']):5} {arm:14} "
+            f"{r['words']:<5} {r['parts']:<5} {fmt_tokens(r.get('tokens_stored')):8} {fmt_tokens(r.get('tokens_shown')):9} {r['used']}/{r['denominator']:<7} {str(r['mem_check']):5} {arm:14} "
             f"{r['fix_rounds']:<3} {r['deleted']:<3} {r['pipeline_cost']:<8.3f} {r['judge_cost']:<9.3f} {r['wall']:<6.0f} "
             f"{','.join(r['scope_violations']) or 'none'} {r['why']}")
 
@@ -251,6 +322,8 @@ def pooled(rows: list[dict]) -> dict:
     return dict(n=len(rows), rate=100.0 * sum(r["unsupported"] for r in rows) / checked if checked else float("nan"),
                 checked=statistics.mean(r["checked"] for r in rows), words=statistics.mean(r["words"] for r in rows),
                 cover=statistics.mean(coverage(r) for r in rows),
+                tok_stored=statistics.mean(r.get("tokens_stored") or 0 for r in rows),
+                tok_shown=statistics.mean(r.get("tokens_shown") or 0 for r in rows),
                 cost=statistics.mean(r["pipeline_cost"] for r in rows), judge=statistics.mean(r["judge_cost"] for r in rows),
                 mem_ok=all(r["mem_check"] == 0 for r in rows))
 
@@ -265,9 +338,44 @@ def spread(rows: list[dict]) -> float:
     return statistics.mean(gaps) if gaps else 0.0
 
 
+def run_gap(rows: list[dict]) -> float:
+    """The absolute gap between an arm's runs: each run's rate pooled over its topics, largest minus smallest (0 with one run)."""
+    rates = [pooled([r for r in rows if r["run"] == n])["rate"] for n in sorted({r["run"] for r in rows})]
+    return max(rates) - min(rates) if len(rates) > 1 else 0.0
+
+
+def reference_conditions(r_rows: list[dict], m_rows: list[dict]) -> list[tuple[str, bool]]:
+    """Conditions on reference coverage and wrong references: added by the task that judges references."""
+    return []
+
+
+def decide_r_against_m(by: dict, stats: dict) -> list[str]:
+    """The proposed rule of R against M, on the valid pipelines pooled over topics and runs."""
+    if not by["R"] or not by["M"]:
+        return ["R against M: not applicable, R or M has no valid pipeline."]
+    r, m = stats["R"], stats["M"]
+    gap = run_gap(by["M"])
+    margin = max(R_RATE_MARGIN, gap)
+    checks = [(f"unsupported {r['rate']:.1f} <= M's {m['rate']:.1f} + max({R_RATE_MARGIN}, run gap {gap:.1f}) = "
+               f"{m['rate'] + margin:.1f}", r["rate"] <= m["rate"] + margin),
+              (f"pipeline cost {r['cost']:.3f} < {R_COST_FACTOR} x M's {m['cost']:.3f} = {R_COST_FACTOR * m['cost']:.3f}",
+               r["cost"] < R_COST_FACTOR * m["cost"])]
+    checks += reference_conditions(by["R"], by["M"])
+    runs = {a: len({x["run"] for x in by[a]}) for a in ("R", "M")}
+    notes = []
+    if min(runs.values()) < PRELIM_MIN_RUNS:
+        notes.append(f"fewer than {PRELIM_MIN_RUNS} runs per arm (R {runs['R']}, M {runs['M']})")
+    if gap > PRELIM_MAX_GAP:
+        notes.append(f"M's runs differ by {gap:.1f} points (> {PRELIM_MAX_GAP})")
+    lines = [f"  R against M: {text}: {'passed' if ok else 'FAILED'}" for text, ok in checks]
+    if notes:
+        lines.append("preliminary: " + "; ".join(notes))
+    ok = all(ok for _, ok in checks)
+    return lines + [f"Verdict R against M: {'PASS' if ok else 'FAIL'}" + (" (preliminary)" if notes else "")]
+
+
 def decide(rows: list[dict]) -> list[str]:
-    """The plan's decision rule (2026-11-17, prompts and loop): among L and M, the cheapest arm that qualifies against S,
-    on the valid pipelines pooled over topics and runs."""
+    """The plan's decision rule (2026-11-17, prompts and loop) among S, L and M, then R against M."""
     by = {a: [r for r in rows if r["arm"] == a and r["valid"]] for a in ARMS}
     lines, stats = [], {}
     for arm, rs in by.items():
@@ -275,11 +383,22 @@ def decide(rows: list[dict]) -> list[str]:
             continue
         stats[arm] = p = pooled(rs)
         lines.append(f"{arm} valid={p['n']} unsupported/100={p['rate']:.1f} claims checked={p['checked']:.0f} "
-                     f"words={p['words']:.0f} coverage={p['cover']:.0f}% mem check all 0={p['mem_ok']} "
+                     f"words={p['words']:.0f} tokens file={p['tok_stored']:.0f} shown={p['tok_shown']:.0f} "
+                     f"coverage={p['cover']:.0f}% mem check all 0={p['mem_ok']} "
                      f"pipeline cost={p['cost']:.3f} (judge {p['judge']:.3f}) run gap={spread(rs):.1f} points")
-    challengers = [a for a in LEAN if a in stats]
+    if by["R"]:
+        lines += decide_r_against_m(by, stats)
+    if "S" in stats or not by["R"]:
+        lines += decide_s(by, stats)
+    return lines
+
+
+def decide_s(by: dict, stats: dict) -> list[str]:
+    """Among L and M, the cheapest arm that qualifies against S."""
+    lines = []
+    challengers = [a for a in ("L", "M") if a in stats]
     if "S" not in stats or not challengers:
-        return lines + ["Decision rule: not applicable, S or both lean arms have no valid pipeline."]
+        return ["Decision rule: not applicable, S or both lean arms have no valid pipeline."]
     s, qualifying = stats["S"], {}
     for arm in challengers:
         h = stats[arm]
@@ -300,6 +419,113 @@ def decide(rows: list[dict]) -> list[str]:
 
 
 # --- self-check ----------------------------------------------------------------------------------------------
+
+DEMO = """---
+title: Demo
+topics: [demo]
+created: 2026-01-01
+updated: 2026-01-01
+---
+
+## Summary
+
+An invented summary. [Alpha note](../knowledge/x/a.md)
+
+## Alpha
+
+Spacing helps recall. [Alpha note](../knowledge/x/a.md) Testing helps too. [Beta note](../literature/b.md) [Alpha note](../knowledge/x/a.md)
+Practice is useful, see [Beta note](../literature/b.md) here.
+
+Sources: [Alpha note](../knowledge/x/a.md)
+
+## Beta
+
+Rest helps. [Beta note](../literature/b.md)
+
+Sources: [Beta note](../literature/b.md)
+"""
+
+
+def harness_checks(root: Path, env: dict) -> None:
+    """No model and no real store: frozen texts, the arms' files, the judge's copy, the store preparation, rule F."""
+    fill = dict(TOPIC="t", SLUG="t", STORE="s", WORK_DIR="w", REPORT_FILE="r")
+    for name in ("writer", "checker", "fixer"):
+        assert (FROZEN / f"{name}-brief.md").is_file(), name
+    assert (FROZEN / "SKILL.md").is_file() and (FROZEN / "README.md").is_file()
+    for arm in ARMS:
+        t = texts(arm)
+        for name in ("writer", "checker", "fixer"):
+            text = brief(name, t["writer"] if name == "writer" else t["briefs"], SKILL_FILE=str(t["skill"]), **fill)
+            assert not re.findall(r"\{[A-Z_]+\}", text), (arm, name)
+    assert "--stored" in (FROZEN / "fixer-brief.md").read_text() and "{UNITS_FILE}" not in (FROZEN / "checker-brief.md").read_text()
+    assert texts("M") == dict(writer=FROZEN, skill=FROZEN / "SKILL.md", briefs=FROZEN)
+    assert texts("R") == texts("S") == texts("L") == dict(writer=HERE, skill=sp.SKILL, briefs=sp.BRIEFS)
+    assert "M" in LEAN and "R" in LEAN and "R" not in DEFAULT_ARMS and WRITER["R"] == WRITER["M"]
+    # store preparation (D) on an invented store
+    store = root / "demo-store"
+    (store / "syntheses").mkdir(parents=True)
+    for rel in ("knowledge/x/a.md", "literature/b.md"):
+        (store / rel).parent.mkdir(parents=True, exist_ok=True)
+        (store / rel).write_text("note\n")
+    path = store / "syntheses" / "demo.md"
+    path.write_text(DEMO)
+    assert drop_unlisted_references(store) == 2   # Alpha's two Beta references; Beta's own and the Summary's stay
+    prepared = path.read_text()
+    assert prepared == DEMO.replace(" [Beta note](../literature/b.md) [Alpha", " [Alpha").replace("see [Beta note](../literature/b.md) here", "see Beta note here"), prepared
+    for part in syntheses.load_one(path).parts:
+        assert not [p for p in syntheses.validate_section(part.text, store) if "not on the `Sources:` line" in p], part.handle
+    assert drop_unlisted_references(store) == 0
+    # the judge's copy has no reference in a body while the run's file keeps them
+    path.write_text(DEMO)
+    stripped = without_references_text(path)
+    for section in syntheses.load_one(path).sections:
+        assert syntheses.references(section.text), section.handle
+    path.write_text(stripped)
+    assert all(not syntheses.references(sec.text) for sec in syntheses.load_one(path).sections)
+    assert [ln for ln in stripped.splitlines() if ln.startswith("Sources:")] == [ln for ln in DEMO.splitlines() if ln.startswith("Sources:")]
+    path.write_text(DEMO)
+    # judge_row with a stub session: sees the stripped file and the frozen checker brief, leaves the stored file back
+    base = root / "judge-fixture"
+    shutil.copytree(store, base / "store")
+    (base / "work").mkdir()
+    (base / "settings.json").write_text("{}")
+    seen = {}
+
+    def stub(claude, model, prompt, work, settings, env_, log, **kw):
+        seen["file"] = (base / "store" / "syntheses" / "demo.md").read_text()
+        seen["prompt"] = prompt
+        (work / "judge-report.md").write_text("COUNTS: checked=10 unsupported=1 used=1 unused=0\n")
+        return dict(model_usage={"claude-haiku-4-5": dict(costUSD=0.01)}, has_result=True, error="", cost=0.01, wall=1.0,
+                    writes=0, write_errors=0, denied=False, tool_errors=0, answer="")
+    original = globals()["run_session"]
+    globals()["run_session"] = stub
+    try:
+        (base / "store" / "syntheses" / "demo.md").write_text(DEMO)
+        row = judge_row("claude", base, env, "demo", "M", 1, "haiku",
+                        dict(sessions=[], why="", denominator=["knowledge/x/a.md"], arm_count=None, fixes=0))
+    finally:
+        globals()["run_session"] = original
+    seen_path = root / "seen.md"
+    seen_path.write_text(seen["file"])
+    assert all(not syntheses.references(sec.text) for sec in syntheses.load_one(seen_path).sections), seen["file"]
+    assert seen["file"].count("Sources:") == 2
+    assert (base / "store" / "syntheses" / "demo.md").read_text() == DEMO, "the run's file was not restored"
+    assert (FROZEN / "checker-brief.md").read_text().split("{")[0] in seen["prompt"] and JUDGE_EXTRA in seen["prompt"]
+    assert row["tokens_stored"] == len(DEMO) / 4 and row["tokens_shown"] == len(syntheses.shown_file(DEMO)) / 4
+    assert row["tokens_shown"] < row["tokens_stored"] and row["checked"] == 10, row
+    # rule F on three synthetic result sets
+    def runs(arm, rates, cost):
+        return [dict(topic="human-memory", arm=arm, run=n, valid=True, checked=100, unsupported=rate, used=6, denominator=6,
+                     words=3000, mem_check=0, cost=cost + 0.4, pipeline_cost=cost, judge_cost=0.4)
+                for n, rate in enumerate(rates, 1)]
+    ok = decide(runs("M", [5, 6], 0.4) + runs("R", [6, 7], 0.45))
+    assert ok[-1] == "Verdict R against M: PASS" and not any(x.startswith("preliminary") for x in ok), ok
+    bad = decide(runs("M", [5, 6], 0.4) + runs("R", [12, 12], 0.45))
+    assert bad[-1] == "Verdict R against M: FAIL" and any("FAILED" in x and "unsupported" in x for x in bad), bad
+    assert decide(runs("M", [5, 6], 0.4) + runs("R", [6, 7], 0.6))[-1] == "Verdict R against M: FAIL"   # cost 0.6 >= 1.3 x 0.4
+    assert decide(runs("M", [5], 0.4) + runs("R", [6], 0.45))[-1] == "Verdict R against M: PASS (preliminary)"
+    assert decide(runs("M", [3, 9], 0.4) + runs("R", [6, 7], 0.45))[-1].endswith("(preliminary)")
+    assert run_gap(runs("M", [3, 9], 0.4)) == 6.0 and run_gap(runs("M", [3], 0.4)) == 0.0
 
 def self_check() -> int:
     """No model: the copy, the deletion, the detachment and `mem synthesis new`; the owner's store is untouched."""
@@ -379,6 +605,7 @@ def self_check() -> int:
         assert decide([fake("S", 1.0, 2), fake("L", 0.7, 3), fake("M", 0.5, 6)])[-1].startswith("Verdict: ADOPT arm L")
         assert decide([fake("S", 1.0, 2), fake("L", 0.9, 3), fake("M", 0.85, 3)])[-1].startswith("Verdict: KEEP")
         assert decide([fake("S", 1.0, 2), fake("M", 0.4, 3, checked=30)])[-1].startswith("Verdict: KEEP")
+        harness_checks(root, env)
         assert trial_env._snapshot(real) == before, "a file of the owner's store changed"
     finally:
         trial_env.clean(root)
@@ -393,7 +620,7 @@ def main() -> int:
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     parser.add_argument("--self-check", action="store_true", help="no model: prove the fixture")
     parser.add_argument("--topic", action="append", default=[], help="topic id (repeatable)")
-    parser.add_argument("--arm", action="append", choices=ARMS, default=[], help="default: S, L and M")
+    parser.add_argument("--arm", action="append", choices=ARMS, default=[], help="default: S, L and M; R is M's models with the current texts")
     parser.add_argument("--judge-model", default="haiku", help=f"the judge's model (always at --effort {CHEAP})")
     parser.add_argument("--rejudge", type=Path, metavar="PIPELINE_DIR",
                         help="judge the final synthesis of a kept pipeline folder (runs/<topic>-<arm>-<n> of an "
@@ -408,7 +635,7 @@ def main() -> int:
         return self_check()
     if not args.claude:
         parser.error("--claude is required (no claude binary found)")
-    topics, arms = args.topic or list(DEFAULT_TOPICS), args.arm or list(ARMS)
+    topics, arms = args.topic or list(DEFAULT_TOPICS), args.arm or list(DEFAULT_ARMS)
     root = args.work.resolve() if args.work else trial_env.work_dir("mem-synthesis-")
     env = trial_env.make_env(root)
     state_file = root / STATE
@@ -445,10 +672,12 @@ def main() -> int:
     with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
         list(pool.map(task, todo))
     print("\n" + "\n".join(decide(rows)))
+    print(f"references removed from the trial copy of the store: {references_removed()}")
     print(f"total cost USD over all sessions: {sum(r['cost'] for r in rows):.3f}")
     # The rows outlive the work folder: a clean run must not lose its results (it did once).
     results = trial_env.TARGET / f"synthesis-results-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    results.write_text(json.dumps({"rows": rows, "decision": decide(rows)}, indent=1))
+    results.write_text(json.dumps({"rows": rows, "decision": decide(rows), "source_refs_removed": references_removed()},
+                                  indent=1))
     print(f"results: {results}")
     if all(r["valid"] for r in rows) and not args.keep:
         trial_env.clean(root)
