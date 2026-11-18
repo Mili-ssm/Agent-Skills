@@ -110,7 +110,12 @@ def test_the_sources_line_is_not_part_of_the_body():
     with_line, _ = parse(f"A claim.[a]({A})\n\n{SRC}\n")
     assert [u.n for u in with_line] == [1] and with_line[0].refs == [A]
     without, _ = parse("A claim. Another claim.")
-    assert len(without) == 2
+    assert [u.text for u in without] == ["A claim.", "Another claim."]
+
+
+def test_a_reference_inside_a_bold_label_has_no_owner():
+    found, orphans = parse(f"**See [a]({A}).** It works.")
+    assert [(u.text, u.refs) for u in found] == [("It works.", [])] and orphans == [A]
 
 
 # ---- fingerprint ---------------------------------------------------------------------------------------------

@@ -343,6 +343,8 @@ def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
         cs = _LIST_MARK.match(raw).end()
         if was_blank or cs > 0:
             if m := _BOLD_LABEL.match(raw, cs, ce):
+                # A reference inside a label supports no sentence: it has no owner.
+                orphans.extend(ref_of(lm, base, False) for s, (_, lm) in links.items() if cs <= s < m.end())
                 cs = m.end()
         pos = cs
 
