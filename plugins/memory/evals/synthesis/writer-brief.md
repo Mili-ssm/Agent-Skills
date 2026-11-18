@@ -6,7 +6,7 @@ You write one synthesis for one topic of the owner's note store, with the `mem` 
 
 A synthesis for topic `{TOPIC}`: one long, indexed document that gathers what that topic's notes say (origins, reasons, when a thing applies and when not), so a reader gets the whole subject without assembling the notes. Done when:
 - `mem synthesis list` shows it, with a summary and parts covering the topic's main subjects;
-- every part ends with a `Sources:` line linking the notes it rests on, and says nothing those notes do not support (no outside knowledge, no figures you did not read in a note or its source passage);
+- every part ends with a `Sources:` line linking the notes it rests on, each sentence that states a finding is followed by the link of the note it rests on (the skill's step 3), and the part says nothing those notes do not support (no outside knowledge, no figures you did not read in a note or its source passage);
 - `mem check` exits 0.
 
 Stop rule: reply `STOP: <reason>` and write nothing when `mem find --topic {TOPIC}` lists fewer than 5 notes, or when, after reading the conclusions, you cannot name 4 parts that each rest on 2 notes. A command that fails with an error you cannot act on: reply `STOP: <command and message>`.
@@ -20,7 +20,7 @@ Read `{SKILL_FILE}`, section "Writing a new synthesis", and follow it with these
 
 ## Accuracy rules
 
-The "Accuracy" section of {SKILL_FILE} applies to every part. A fact-checker compares every part with its cited notes after you finish, and its fixes are applied with mem synthesis edit.
+The "Accuracy" section of {SKILL_FILE} applies to every part. A fact-checker compares every sentence with the note linked after it after you finish, and its fixes are applied with mem synthesis edit.
 
 ## Scope and limits
 

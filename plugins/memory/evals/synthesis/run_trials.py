@@ -142,7 +142,10 @@ def judge_row(claude: str, base: Path, env: dict, topic: str, arm: str, run: int
         report = work / "judge-report.md"
         report.unlink(missing_ok=True)
         fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
-        s = run_session(claude, judge_model, brief("checker", **fill, REPORT_FILE=str(report)) + JUDGE_EXTRA, work,
+        units = work / "judge-units.md"
+        sp.write_units(synthesis, units)
+        s = run_session(claude, judge_model, brief("checker", **fill, REPORT_FILE=str(report), UNITS_FILE=str(units))
+                        + JUDGE_EXTRA, work,
                         settings, env, base / f"{len(sessions) + 1:02d}-judge.jsonl", effort=CHEAP)
         s.update(role="judge", model=judge_model, costs=cost_by_family(s["model_usage"]))
         sessions.append(summary(s))
