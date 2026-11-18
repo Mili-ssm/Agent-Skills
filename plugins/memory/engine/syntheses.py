@@ -541,6 +541,11 @@ def _bump(text: str, today: datetime.date) -> str:
     return head + text[m.end():]
 
 
+def bumped(text: str, today: datetime.date) -> str:
+    """The file text with `updated:` set to `today`."""
+    return _bump(text, today)
+
+
 def render_new(template: str, *, title: str, topics: Sequence[str], summary: str, today: datetime.date) -> str:
     """The template with `{frontmatter}` and `{summary}` filled in."""
     meta = {"title": title, "topics": list(topics), "created": today.isoformat(), "updated": today.isoformat()}
@@ -637,6 +642,85 @@ def _guard_shrink(old: str, new: str, *, sentences: bool = True, part: bool = Fa
             parts.append(f"the links {', '.join(lost)}")
         what = ", ".join(parts[:-1]) + (" and " if len(parts) > 1 else "") + parts[-1]
         raise ValueError(f"the new text drops {what}; use --shrink if that is meant.")
+
+
+def _link_on_sources(text: str, base: Path, target: str) -> tuple[str, str] | None:
+    """(label, target) as the part's `Sources:` line writes the note `target` names, or None."""
+    line = _sources_line(text) or ""
+    want = _resolved(base, target)
+    for m in _REF_LINK.finditer(line):
+        if _relative(m.group(2)) and _resolved(base, m.group(2)) == want:
+            return m.group(1), m.group(2)
+    return None
+
+
+def change_references(text: str, base: Path, proposals: Sequence[tuple[int, str, str]]) -> tuple[str, list[str | None]]:
+    """A part's text with references added or removed, and per proposal `(unit number, "add" | "remove", target)`
+    the reason it was refused or None when it was applied. Every number refers to `text` as given; no word changes.
+
+    An add writes the label and target of the note's link on the `Sources:` line at the end of the unit, after any
+    references already there; a remove takes a reference that follows its sentence's closing punctuation, with the
+    white space before it, and never one inside the sentence. `base` is the folder the part's links are relative to."""
+    found, refs, orphans, _ = _parse(text)
+    sources = {_resolved(base, m.group(2)) for m in _REF_LINK.finditer(_sources_line(text) or "") if _relative(m.group(2))}
+    orphan_at = {r.start for r in orphans}
+    reasons: list[str | None] = []
+    edits: list[tuple[int, int, int, str]] = []  # (position, input order, end, replacement)
+    seen: set[tuple[int, str, Path]] = set()
+    for order, (n, op, target) in enumerate(proposals):
+        resolved = _resolved(base, target)
+        if not 1 <= n <= len(found):
+            reasons.append(f"the part has no unit {n}")
+            continue
+        unit = found[n - 1]
+        if resolved not in sources:
+            reasons.append(f"{target} is not on the part's Sources line")
+            continue
+        own = [r for r in refs if unit.span[0] <= r.start < unit.span[1] and r.start not in orphan_at
+               and _resolved(base, r.target) == resolved]
+        if (n, op, resolved) in seen:
+            reasons.append(f"the unit is already changed by an earlier line for {target}")
+            continue
+        if op == "add":
+            if own:
+                reasons.append(f"unit {n} already carries {target}")
+            elif unit.text.lstrip().startswith("|"):
+                reasons.append(f"unit {n} is a table row")
+            else:
+                label, written = _link_on_sources(text, base, target)
+                edits.append((unit.span[1], order, unit.span[1], f" [{label}]({written})"))
+                seen.add((n, op, resolved))
+                reasons.append(None)
+            continue
+        trailing = [r for r in own if r.trailing]
+        if not own:
+            reasons.append(f"unit {n} does not carry {target}")
+        elif not trailing:
+            reasons.append(f"the reference to {target} in unit {n} is inside the sentence: it is part of its words")
+        else:
+            r = trailing[0]
+            start = r.start
+            while start > unit.span[0] and text[start - 1] in " \t":
+                start -= 1
+            edits.append((start, order, r.end, ""))
+            seen.add((n, op, resolved))
+            reasons.append(None)
+    out = text
+    for start, _, end, repl in sorted(edits, reverse=True):
+        out = out[:start] + repl + out[end:]
+    return out, reasons
+
+
+def apply_part_text(path_text: str, section: str, new_text: str) -> str:
+    """The file text with the body of `section` replaced by `new_text`; every other byte stays."""
+    lines, heads = _scan(path_text)
+    n = next(k for k, (_, h) in enumerate(heads) if section_handle(h) == section)
+    end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
+    region = "\n".join(lines[heads[n][0] + 1:end])
+    old = region.strip("\n")
+    at = region.find(old)
+    lines[heads[n][0] + 1:end] = (region[:at] + new_text + region[at + len(old):]).split("\n")
+    return "\n".join(lines)
 
 
 def _guard_references(old: str, new: str) -> None:
