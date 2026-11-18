@@ -71,7 +71,7 @@ Sonnet main (`--model sonnet`), 2 runs per case, `--case 'offload-*-with-policy'
 | `main` (old row) | 6/6 | 2/6 | 0.83 | 2/6 | 4/6 |
 | This change | 6/6 | 0/6 | 0.75 | 4/6 | 5/6 |
 
-Reading, with its limit: dispatch, the measure the eval protocol names ("fired"), did not move (6/6 on both sides). Runs passing every grader fell from 2/6 to 0/6, which is the protocol's revert threshold if that measure is the one meant; the failing graders judge what the `ui-verifier` report says about the page, a path this change does not touch, and they already fail on `main` in 4 of 6 runs against the 6/6 recorded on 2026-11-04. Whether this counts as a drop is the owner's ruling, recorded below when given. Separate finding, open: the case has degraded on `main` since its last record.
+Reading, with its limit: dispatch, the measure the eval protocol names ("fired"), did not move (6/6 on both sides). Runs passing every grader fell from 2/6 to 0/6, which is the protocol's revert threshold if that measure is the one meant; the failing graders judge what the `ui-verifier` report says about the page, a path this change does not touch, and they already fail on `main` in 4 of 6 runs against the 6/6 recorded on 2026-11-04. Owner's ruling (2026-11-18): dispatch is the measure, the change is accepted. Separate finding, open: the case has degraded on `main` since its last record.
 
 The changed `check-runner` case states the duration in its prompt, so it measures the row given that expectation, not the model's own estimate of how long a suite takes.
 

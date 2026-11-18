@@ -9,6 +9,7 @@ Source: [docs/studies/2026-11-18-weekly-usage.md](../../studies/2026-11-18-weekl
 - [x] **3c. Inline checks (G6, suspicion S3).** Measured over all 453 inline checks; figures in the study ("Inline checks, measured for suspicion S3").
 - [x] **3d. Checks row of the offload table (G6).** Narrowed at the owner's request; eval table in ADR 0010, Review 2026-11-18.
 - [ ] **3e. Re-paste the offload block** into the owner's `~/.claude/CLAUDE.md` after the G6 pull request merges (ADR 0021). Check: the block's commit marker names the merge commit.
+- [ ] **3f. `offload-ui-verifier-with-policy` degraded on `main`** (2 of 6 runs pass every grader against 6/6 on 2026-11-04; ADR 0010 Review 2026-11-18). Read one failing trace before any eval. Check: the cause named in ADR 0012 as a `## Review`.
 - [ ] **4. Issues #124 and #125 (G4), and the review route (G5).** The owner rules on each issue's open questions; then one plan per accepted agent change. Check: each issue closed or carrying the ruling.
 - [ ] **5. Seamless memory, stage 2.** Resume from "Where to resume: stages 2 to 5" in [2026-11-17-memory-seamless.md](2026-11-17-memory-seamless.md). Check: that plan's own.
 - [ ] **6. Kill read of the memory plugin, around 2026-12-01.** From the usage and hook logs, into ADR 0023 as a `## Review`. Check: the Review section exists.
