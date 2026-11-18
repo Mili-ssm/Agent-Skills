@@ -100,6 +100,9 @@ TOOL_MAP: dict[str, str | None] = {
     "WebSearch": "web",
     "WebFetch": "web",
     "Skill": None,
+    "mcp__fff__grep": None,
+    "mcp__fff__find_files": None,
+    "mcp__fff__multi_grep": None,
 }
 # Frontmatter fields the generator knows how to port; any other field stops it instead of being dropped silently.
 SKILL_FIELDS = {"name", "description"}
@@ -149,7 +152,8 @@ BASE_DIR_LINE = (
     "resolve its relative links (`references/…`, `scripts/…`) there."
 )
 # Codex has no tool names to allow, so the rule lists what each Claude tool lets the agent do.
-TOOL_CAPABILITY = {
+# None: an optional MCP server of the Claude machine (ADR 0024); the Codex tools rule leaves it out.
+TOOL_CAPABILITY: dict[str, str | None] = {
     "Read": "read files",
     "Grep": "search file contents",
     "Glob": "find files by name",
@@ -160,6 +164,9 @@ TOOL_CAPABILITY = {
     "WebSearch": "web search",
     "WebFetch": "fetch web pages",
     "Skill": "use skills",
+    "mcp__fff__grep": None,
+    "mcp__fff__find_files": None,
+    "mcp__fff__multi_grep": None,
 }
 # Command lines that state Claude-only facts; the ports drop them instead of carrying a false claim.
 CLAUDE_ONLY_LINE = re.compile(
@@ -302,6 +309,11 @@ def agent_tools(fm: dict) -> list[str]:
     """Claude tools an agent holds: `tools` minus `disallowedTools`, in source order."""
     blocked = set(as_list(fm.get("disallowedTools")))
     return [tool for tool in as_list(fm.get("tools")) if tool not in blocked]
+
+
+def codex_capabilities(fm: dict) -> str:
+    """The capabilities the Codex tools rule lists for an agent (optional MCP tools left out)."""
+    return ", ".join(c for t in agent_tools(fm) if (c := TOOL_CAPABILITY[t]))
 
 
 def needs_codex_shell(fm: dict) -> bool:
@@ -623,7 +635,7 @@ class Generator:
             base = BASE_DIR_LINE.format(root=target.root, skill=skill)
             parts.append(f"## Preloaded skill: {skill}\n\n{base}\n\n{body}")
         if target is CODEX:
-            tools = ", ".join(TOOL_CAPABILITY[t] for t in agent_tools(fm))
+            tools = codex_capabilities(fm)
             parts.append(
                 f"## Tools\n\nUse only these tools: {tools}. "
                 "Claude Code enforces this list; Codex does not, so it is your rule."
@@ -1059,7 +1071,7 @@ class Verifier:
         if not isinstance(instructions, str):
             return
         self.common(check, doc, CODEX, instructions)
-        tools = ", ".join(TOOL_CAPABILITY[t] for t in agent_tools(fm))
+        tools = codex_capabilities(fm)
         check.ok(
             f"## Tools\n\nUse only these tools: {tools}." in instructions,
             "tools rule missing or different",
@@ -1281,7 +1293,7 @@ def report(src: Sources) -> str:
         ),
         (
             "Agents: tools",
-            "`tools` = mapped aliases (`Skill` dropped, `disallowedTools` removed); enforced",
+            "`tools` = mapped aliases (`Skill` and the optional `mcp__fff__` tools dropped, `disallowedTools` removed); enforced",
             f"`## Tools` (what each tool allows, not Claude tool names) and `## Read-only` (project files unchanged, temp files allowed) rules in the text; `shell_tool = false` only without Bash, Read, Grep and Glob ({no_bash}), because Codex reads files through its shell",
             "Codex: no per-role tool allowlist; limits are rules, not enforcement",
         ),

@@ -24,6 +24,7 @@ You clear mechanical errors with minimal edits and stop when checks pass or a re
 - After about 24 rounds of tool use (parallel calls in one message count as one), stop with `PARTIAL` and list what is left under Remaining, because a partial report beats none.
 - Commit only when the brief asks; never push, switch branches, stash, reset or revert files, because the caller owns history and the working tree may hold the owner's uncommitted work.
 - Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
+- For a search or rewrite by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` (add `-r '<replacement>' -U` to rewrite) is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.
 
 ## Output
 
