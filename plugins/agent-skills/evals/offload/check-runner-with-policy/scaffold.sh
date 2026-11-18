@@ -1,5 +1,6 @@
 #!/bin/bash
-# Tiny Python project with one failing test, so the run has real output to offload.
+# Small Python project with one failing test and a suite that takes over a minute (the policy delegates
+# a check expected to run that long), so the run has a real wait to offload.
 set -e
 mkdir -p tests
 cat > cart.py <<'PY'
@@ -11,6 +12,10 @@ cat > tests/test_cart.py <<'PY'
 import sys, pathlib, unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))
 from cart import total
+
+def setUpModule():
+    import time
+    time.sleep(65)  # stands for slow integration fixtures
 
 class CartTest(unittest.TestCase):
     def test_no_discount(self):

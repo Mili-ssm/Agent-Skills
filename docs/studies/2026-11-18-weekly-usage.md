@@ -110,7 +110,7 @@ Order = expected gain against risk. Status values: `proposed`, `accepted`, `done
 | G3 | End the session at a plan boundary (a finished stage, a merged PR) and resume from the plan file and the memory | S1, S2 | owner habit | accepted as a habit; the owner declined a line in `user-config/routing.md`. Read the context medians again in the next study |
 | G4 | Decide issues #124 (`note-writer`) and #125 (`fact-checker` batch and apply mode) | general-purpose at 21% | new or widened agents | proposed |
 | G5 | Name the route for plan-task reviews so they stop going to general-purpose on Sonnet | 24 calls | `user-config/routing.md` | proposed |
-| G6 | Enforce the checks row, or narrow it to checks whose output is long or slow | S3 | `user-config/offload-policy.md` (a measured change, requirement N6 in [requirements.md](../requirements.md)) | accepted (owner, 2026-11-18), after the S3 measurement: delegate a check expected to run over a minute or to print more than a screen, run the rest inline with the output cut. Open until its eval cases are run (plan task 3d) |
+| G6 | Enforce the checks row, or narrow it to checks whose output is long or slow | S3 | `user-config/offload-policy.md` (a measured change, requirement N6 in [requirements.md](../requirements.md)) | accepted (owner, 2026-11-18), after the S3 measurement: delegate a check expected to run over a minute or to print more than a screen, run the rest inline with the output cut. Done: row narrowed and measured, [ADR 0010](../adr/0010-cheap-offload-workers.md) Review 2026-11-18. The owner's `~/.claude/CLAUDE.md` copy is re-pasted after the merge |
 | G7 | Wait one more week on the six skills with no load; then merge or remove `web-research` | S8 | skills | proposed |
 
 ## Limits
