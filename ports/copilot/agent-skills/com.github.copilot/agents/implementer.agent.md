@@ -30,6 +30,7 @@ Task and acceptance criteria · owned files (or area) · checks to run · constr
 - Commit only when the brief asks; never push or switch branches, because the caller owns history.
 - Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 - Leave no temporary files, because they would end up in the caller's diff.
+- For a search or rewrite by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` (add `-r '<replacement>' -U` to rewrite) is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.
 
 ## Output
 

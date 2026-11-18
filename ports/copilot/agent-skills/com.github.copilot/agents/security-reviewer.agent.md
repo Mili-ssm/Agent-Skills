@@ -36,6 +36,7 @@ Follow the review workflow in `security-principles`. Agent-specific additions:
 - Probe no real hosts or services (no live scans, requests or exploits against deployed systems), because a live probe can disrupt them and needs the owner's explicit approval. Scanners may download rules and advisory data.
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 - Prefer the safer fix when trade-offs exist, and say what it costs.
+- For a search by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.
 
 ## Output
 
