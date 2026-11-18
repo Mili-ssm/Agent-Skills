@@ -32,7 +32,7 @@ import synth_pipeline as sp
 
 DEPTHS = ("memory", "contrast", "deep")
 DEFAULT_DEPTH = "contrast"
-LIMITS = {"memory": (0.25, 180), "contrast": (0.50, 300), "deep": (2.00, 900)}   # (USD, seconds) for the whole run
+LIMITS = {"memory": (0.25, 180), "contrast": (0.50, 300), "deep": (2.00, 540)}   # (USD, seconds) for the whole run; under the 10 minutes a shell call of an agent may last
 PAGES = {"contrast": 5, "deep": 15}
 SHARE = {"memory": 0.15, "web": 0.55}   # of the budget, at most, per such session; the verdict gets what is left
 MAX_NOTES = 8            # notes contrasted in one run: the web prompt and the passages stay bounded

@@ -96,7 +96,7 @@ Stage 1 is built in two halves: **1a (done 2026-11-17)** the engine (disputed an
 | Fetching untrusted URLs | http and https only, public addresses only and re-checked at each redirect, a size cap, text types only (task 1) |
 | A finding whose claim says more than its quote, or carries an instruction, and then replaces an older memory through settling | A finding is written only when every number in its claim is in the quote and at least 70% of its content words are; settling never treats a record of origin `web` as the new side |
 | The question is sent to the web unchecked | The question passes the secret and forbidden-terms checks or the run stops; the queries and URLs of the web session are logged in the run folder |
-| No kill for a wrong "confirmed"; no budget per depth | Kill also when an altered-figure or own-experiment note is confirmed. Budgets: `contrast` 0.50 USD and 5 minutes, `deep` 2 USD and 15 minutes; the trial's local page is reached only through a host the trial names |
+| No kill for a wrong "confirmed"; no budget per depth | Kill also when an altered-figure or own-experiment note is confirmed. Budgets: `contrast` 0.50 USD and 5 minutes, `deep` 2 USD and 9 minutes (15 at first; lowered on 2026-11-18 because an agent's shell call lasts at most 10); the trial's local page is reached only through a host the trial names |
 
 Confirm and dispute work only on knowledge notes, so only those are contrasted.
 
