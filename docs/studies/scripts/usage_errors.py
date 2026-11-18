@@ -5,7 +5,8 @@ from datetime import datetime, timedelta, timezone
 ROOT = os.path.expanduser('~/.claude/projects')
 SINCE = datetime.now(timezone.utc) - timedelta(days=7)
 C = collections.Counter
-SELF = '8c256345-bb15-4981-a803-1fa9255afc53'
+import sys
+SELF = sys.argv[1] if len(sys.argv) > 1 else '\0'  # id of the session running the study, to exclude it
 def short(p): return p.rsplit('-Private-', 1)[-1].rsplit('-WORK-', 1)[-1][:22]
 
 ERR = [('sleep-blocked', 'Blocked: sleep'), ('no tool bash', 'No such tool available: bash'),

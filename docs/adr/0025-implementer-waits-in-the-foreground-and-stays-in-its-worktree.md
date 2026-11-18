@@ -18,8 +18,8 @@ The weekly usage study ([docs/studies/2026-11-18-weekly-usage.md](../studies/202
 
 Two rules in the body of `plugins/agent-skills/agents/implementer.md`, each with its reason:
 
-1. A long command runs in the foreground with the Bash `timeout` raised (up to 10 minutes); a command that cannot finish in that time is reported for the caller to run.
-2. In an isolated worktree, paths are relative to the working directory; a file that exists only outside it is opened with Read, and when a command itself needs it, it is missing input, reported instead of retried.
+1. A long command runs in the foreground with the Bash `timeout` set to its expected duration (at most 10 minutes); a command that cannot finish in that time is reported for the caller to run.
+2. In an isolated worktree, paths are relative to the working directory, and a path the brief gives inside the main checkout maps to the same file under it; a file that exists only outside it is opened with Read, and when a command itself needs it, it is missing input, reported instead of retried.
 
 The `description` is unchanged, so no eval case moves; the change ships **unmeasured** (requirement N6 in [requirements.md](../requirements.md)).
 
@@ -46,4 +46,4 @@ Kill criterion, read from the next usage study (`docs/studies/scripts/usage_erro
 | 1 | 34 `Blocked: sleep` + 10 `Monitor` = 44, or 16 per 100 runs | 8 per 100 runs |
 | 2 | 17 worktree refusals, or 6 per 100 runs | 3 per 100 runs |
 
-Over-stopping (a `BLOCKED` report where the run used to finish) has no count yet: the study's script does not read the workers' final reports. Revisit both rules if the owner or a plan-loop ledger shows `implementer` runs stopping for a long command or an outside file that the caller then ran without trouble.
+Over-stopping (a `BLOCKED` report where the run used to finish) has no baseline: the script's count of `BLOCKED` in the results returned to the main session was 0 in this window, and it does not tell agents apart. Revisit both rules if the owner or a plan-loop ledger shows `implementer` runs stopping for a long command or an outside file that the caller then ran without trouble.

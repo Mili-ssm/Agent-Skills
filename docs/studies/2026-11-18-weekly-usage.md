@@ -63,6 +63,7 @@ No load: `security-principles`, `qa-principles`, `observability`, `architecture-
 | zsh `= not found` | 160 | general-purpose 63, skeptical-reviewer 34, implementer 20, fact-checker 13, main 12 | unquoted `echo ===` used as a separator between commands |
 | zsh `no matches found` | 53 | general-purpose 14, fact-checker 13, implementer 10 | unquoted glob in an option, e.g. `--include=*.rs` |
 | zsh `defining function based on alias` | 15 | general-purpose 10 | a function named `g` or `gg`, which are aliases in the owner's profile |
+| zsh `bad substitution` | 2 | general-purpose 2 | not sampled |
 | `Blocked: sleep N followed by …` | 48 | implementer 34 | a command started in the background, then `sleep` plus `cat` of its output file |
 | `No such tool available: bash` | 27 | implementer 19 | tool name written in lower case |
 | `No such tool available: Monitor` | 10 | implementer 10 | waiting on a background command with a tool the agent does not have |
@@ -73,7 +74,7 @@ No load: `security-principles`, `qa-principles`, `observability`, `architecture-
 
 ### Inline checks, measured for suspicion S3
 
-All 453 inline checks of the window (`docs/studies/scripts/usage_inline_checks.py`; 2 more than the table above because the window moved between runs):
+All 453 inline checks of the window (`docs/studies/scripts/usage_inline_checks.py`; 2 more than the table above; the difference between the two scripts was not traced):
 
 | Measure | Value |
 |---|---|
@@ -82,7 +83,8 @@ All 453 inline checks of the window (`docs/studies/scripts/usage_inline_checks.p
 | Results over 4,000 characters | 18 |
 | All results together | 379,002 characters, about 95k tokens for the week |
 | Wall time: median / p90 / max | 5 s / 66 s / 475 s; 49 over 60 s; 179 minutes in total |
-| For comparison, one `check-runner` call | about 35k weighted tokens on Haiku (1.8 M over 51 calls) |
+| One `check-runner` call | about 35k weighted tokens on Haiku (1.8 M over 51 calls), plus its brief and report in the main context |
+| One inline check in weighted tokens (estimate, not measured) | a median result of about 100 tokens costs 125 to write and 10 per later turn that re-reads it: about 1,100 over 100 later turns, on the main model |
 
 ## 2. Suspicions
 
@@ -90,7 +92,7 @@ All 453 inline checks of the window (`docs/studies/scripts/usage_inline_checks.p
 |---|---|---|---|
 | S1 | The main session, not the subagents, is the largest cost once price is applied, because Opus and Fable cost more per token than Sonnet and Haiku and each main turn re-reads a context of 280k to 425k tokens | § 1 token and context tables; price ratios are assumed, not taken from a price list | pricing the same counts with the published rates |
 | S2 | Sessions run until the context is near its limit instead of ending at a plan boundary: 7 compactions in 5,852 main turns, maxima of 964k to 966k in three projects | context table | reading where the long sessions could have ended (a merged PR, a finished plan stage) |
-| S3 | The offload row for checks is not followed: 451 inline against 51 delegated. Either the row's trigger is too weak or inline is the better choice for short checks and the row is wrong | context table | measured on 2026-11-18 (table above): the inline checks are short and already cut, so in tokens inline is cheaper than a dispatch; what delegation would save is waiting time on the 49 checks over 60 s. The row, not the behavior, looks wrong for short checks |
+| S3 | The offload row for checks is not followed: 451 inline against 51 delegated. Either the row's trigger is too weak or inline is the better choice for short checks and the row is wrong | context table | measured on 2026-11-18 (table above): the inline checks are short and already cut, so by the estimate above a short inline check costs fewer tokens than a dispatch, whose brief and report also stay in the main context; what delegation would save is waiting time on the 49 checks over 60 s. The row, not the behavior, looks wrong for short checks |
 | S4 | The zsh errors are an environment mismatch, not a prompt defect: agents write bash, the Bash tool runs the owner's zsh profile | sampled commands | the same counts after G1 |
 | S5 | `implementer` has no rule on how to wait for a long command, so it backgrounds it and polls | 34 + 10 errors, and no line on this in `implementer.md` | the same counts after the rule ships |
 | S6 | The worktree refusals come from briefs that carry absolute paths of the main checkout | 4 sampled commands, all with such a path | reading the briefs of those runs |
@@ -103,12 +105,12 @@ Order = expected gain against risk. Status values: `proposed`, `accepted`, `done
 
 | # | Suggestion | Addresses | Where | Status (2026-11-18) |
 |---|---|---|---|---|
-| G1 | Make the Bash tool run bash: `CLAUDE_CODE_SHELL=/usr/bin/bash` in the `env` block of the owner's `~/.claude/settings.json` (the owner chose this over a quoting line in the agent bodies, which would not reach general-purpose). The aliases `g` and `gg` come from the zsh profile only | S4 | the owner's settings, outside this repository | done on the owner's machine; not yet verified in a new session or in a subagent |
+| G1 | Make the Bash tool run bash: `CLAUDE_CODE_SHELL=/usr/bin/bash` in the `env` block of the owner's `~/.claude/settings.json` (the owner chose this over a quoting line in the agent bodies, which would not reach general-purpose). The aliases `g` and `gg` come from the zsh profile only | S4 | the owner's settings, outside this repository | accepted; the setting is applied on the owner's machine, its verification in a new session and in a subagent is open (plan task 3b) |
 | G2 | `implementer`: run long commands in the foreground with a timeout instead of background plus polling; paths relative to its working directory | S5, S6 | `plugins/agent-skills/agents/implementer.md` | done, unmeasured ([ADR 0025](../adr/0025-implementer-waits-in-the-foreground-and-stays-in-its-worktree.md)) |
 | G3 | End the session at a plan boundary (a finished stage, a merged PR) and resume from the plan file and the memory | S1, S2 | owner habit | accepted as a habit; the owner declined a line in `user-config/routing.md`. Read the context medians again in the next study |
 | G4 | Decide issues #124 (`note-writer`) and #125 (`fact-checker` batch and apply mode) | general-purpose at 21% | new or widened agents | proposed |
 | G5 | Name the route for plan-task reviews so they stop going to general-purpose on Sonnet | 24 calls | `user-config/routing.md` | proposed |
-| G6 | Enforce the checks row, or narrow it to checks whose output is long or slow | S3 | `user-config/offload-policy.md` (a measured change, requirement N6 in [requirements.md](../requirements.md)) | S3 measured; suggested wording: delegate a check expected to run over a minute or to print more than a screen, run the rest inline with the output cut. Needs the owner's decision and the offload eval cases |
+| G6 | Enforce the checks row, or narrow it to checks whose output is long or slow | S3 | `user-config/offload-policy.md` (a measured change, requirement N6 in [requirements.md](../requirements.md)) | accepted (owner, 2026-11-18), after the S3 measurement: delegate a check expected to run over a minute or to print more than a screen, run the rest inline with the output cut. Open until its eval cases are run (plan task 3d) |
 | G7 | Wait one more week on the six skills with no load; then merge or remove `web-research` | S8 | skills | proposed |
 
 ## Limits
