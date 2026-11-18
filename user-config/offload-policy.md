@@ -5,7 +5,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Situation | Delegate to |
 |---|---|
 | Searching or reading more than 3 files, or an unfamiliar codebase | `Explore` |
-| Running tests, lint, typecheck, a build or another long read-only command (in the background while you keep working) | `agent-skills:check-runner` |
+| Running tests, lint, typecheck, a build or another read-only command that you expect to take over a minute or to print more than a screen of output (in the background while you keep working) | `agent-skills:check-runner` |
 | Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `agent-skills:summarizer` |
 | Any web search or web page | `agent-skills:researcher`, one per question, in parallel |
 | Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `agent-skills:implementer`: write its brief, then review its diff instead of writing the code yourself |
@@ -14,7 +14,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
 | Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `agent-skills:skeptical-reviewer` |
 
-Keep inline: decisions, edits under ~20 lines, integrating results, and reading a range you located with grep. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
 A worker sees none of this conversation, so its brief carries everything it needs:
 
