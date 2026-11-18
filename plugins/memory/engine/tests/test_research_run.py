@@ -209,7 +209,7 @@ def test_a_question_with_a_forbidden_term_stops_too(world, tmp_path):
 
 def test_dry_run_starts_nothing(world):
     done = go(world, "attention", "--dry-run", "--depth", "deep")
-    assert "would start" in done.stdout and "2.00 USD" in done.stdout and "15 min" in done.stdout
+    assert "would start" in done.stdout and "2.00 USD" in done.stdout and "9 min" in done.stdout
     assert kinds(world) == [] and not rp.runs_dir(world.store).exists()
 
 
