@@ -73,7 +73,7 @@ def backfill(ms, claude, store, handles=("s:attention",), dry_run=False):
 
 def marks(ms):
     """Every part marked done, as (store, synthesis, part) -> fingerprint."""
-    return {(s, n, p): fp for s, syns in bf.load_done(ms.done_file()).items() for n, parts in syns.items()
+    return {(s, n, p): fp for s, syns in bf.load_done(ms.done_file())[0].items() for n, parts in syns.items()
             for p, fp in parts.items()}
 
 
@@ -122,8 +122,8 @@ def test_valid_lines_apply_and_nothing_else_changes(ms, fake, full, tmp_path):
     code, lines, rows = backfill(ms, fake, full)
     (row,) = rows
     assert (code, row["status"]) == (0, "ok")
-    assert (row["parts"], row["proposed"], row["applied"], row["refused"], row["none"], row["unreadable"]) == \
-        (2, 5, 4, 1, 1, 1)
+    assert (row["parts"], row["proposed"], row["applied"], row["refused"], row["none"], row["unreadable"],
+            row["repeated"]) == (2, 5, 4, 1, 1, 1, 0)
     assert row["mem_check"] == before_check and row["cost"] == pytest.approx(0.02)
     path = full / "syntheses" / "attention.md"
     refs = {s.handle: {u.n: u.refs for u in syntheses.units(s.text)[0]} for s in syntheses.load_one(path).parts}
@@ -187,6 +187,108 @@ def test_dry_run_lists_the_parts_and_starts_no_session(ms, fake, full, tmp_path)
 
 
 def test_parse_answer_tolerates_fences_ticks_and_space():
-    found, bad = bf.parse_answer("```\n  alpha | 2 |  `../knowledge/x/y.md` \nalpha | 2 | ../knowledge/x/y.md\n"
-                                 "s:t#beta | 1 | none\nwords\n```\n")
+    found, bad, repeated, nothing = bf.parse_answer(
+        "```\n  alpha | 2 |  `../knowledge/x/y.md` \nalpha | 2 | ../knowledge/x/y.md\n"
+        "s:t#beta | 1 | none\nwords\n```\n")
     assert found == [("alpha", 2, "../knowledge/x/y.md"), ("beta", 1, "none")] and bad == 1
+    assert repeated == 1 and not nothing
+
+
+def test_nothing_answer_is_an_explicit_empty_result():
+    for text in ("nothing", " Nothing.\n", "NOTHING\n\n"):
+        assert bf.parse_answer(text) == ([], 0, 0, True), text
+    for text in ("", "\n", "nothing here\n", "nothing\nalpha | 1 | none\n"):
+        assert not bf.parse_answer(text).nothing, text
+
+
+def test_none_case_and_decorated_targets():
+    found, bad, _, _ = bf.parse_answer("alpha | 1 | None\nalpha | 2 | NONE\nalpha | 3 | `<../k/x.md>.`\n"
+                                       "alpha | 4 | <../k/y.md>\n")
+    assert found == [("alpha", 1, "none"), ("alpha", 2, "none"), ("alpha", 3, "../k/x.md"),
+                     ("alpha", 4, "../k/y.md")] and bad == 0
+
+
+def test_line_counts_add_up():
+    text = f"```\nalpha | 1 | {A}\nalpha | 1 | {A}\nalpha | 2 | none\nwords\nmore words\n\n```\n"
+    found, bad, repeated, _ = bf.parse_answer(text)
+    proposed = [f for f in found if f[2] != "none"]
+    nones = [f for f in found if f[2] == "none"]
+    assert len(proposed) + len(nones) + bad + repeated == 5
+
+
+def test_nothing_answer_marks_all_parts_done_and_second_run_is_free(ms, fake, full, tmp_path):
+    answer(tmp_path, "Nothing.\n")
+    code, _, rows = backfill(ms, fake, full)
+    assert (code, rows[0]["status"], rows[0]["proposed"]) == (0, "ok", 0)
+    assert {p for (_, _, p) in marks(ms)} == {"alpha", "beta"}
+    backfill(ms, fake, full)
+    assert len(sessions(tmp_path)) == 1
+
+
+def test_only_parts_named_by_a_readable_line_are_marked_when_a_line_is_unreadable(ms, fake, full, tmp_path):
+    answer(tmp_path, f"beta | 1 | {B}\nalpha is garbled\n")
+    backfill(ms, fake, full)
+    assert {p for (_, _, p) in marks(ms)} == {"beta"}
+    answer(tmp_path, f"beta | 1 | {B}\n")
+    backfill(ms, fake, full)
+    assert {p for (_, _, p) in marks(ms)} == {"alpha", "beta"}   # clean answer: every selected part
+
+
+def test_save_done_merges_only_its_entry(tmp_path):
+    path = tmp_path / "state" / "done.json"
+    bf.save_done(path, "/s", "one", {"a": "1"})
+    bf.save_done(path, "/s", "two", {"b": "2"})
+    bf.save_done(path, "/s", "one", {"c": "3"})   # another process wrote "two" meanwhile: kept
+    data, ok = bf.load_done(path)
+    assert ok and data == {"/s": {"one": {"a": "1", "c": "3"}, "two": {"b": "2"}}}
+    assert not list(path.parent.glob("*.tmp"))
+
+
+def test_corrupt_done_file_stops_before_any_session(ms, fake, full, tmp_path, capsys):
+    ms.done_file().parent.mkdir(parents=True, exist_ok=True)
+    ms.done_file().write_text("{not json")
+    for dry in (False, True):
+        code, _, rows = backfill(ms, fake, full, dry_run=dry)
+        assert code == 1 and rows == [] and not sessions(tmp_path)
+        err = capsys.readouterr().err
+        assert str(ms.done_file()) in err and "move" in err
+    assert bf.load_done(tmp_path / "missing.json") == ({}, True)
+
+
+def test_store_key_is_the_resolved_path(ms, fake, full, tmp_path):
+    link = tmp_path / "link"
+    link.symlink_to(full)
+    answer(tmp_path, f"beta | 1 | {B}\n")
+    backfill(ms, fake, link)
+    assert {s for (s, _, _) in marks(ms)} == {str(full.resolve())}
+
+
+def test_topic_or_self_check_with_backfill_is_an_error(ms, monkeypatch, capsys):
+    for flag in (["--topic", "x"], ["--self-check"]):
+        monkeypatch.setattr(sys, "argv", ["mem-synthesize", "--backfill", *flag])
+        with pytest.raises(SystemExit) as exc:
+            ms.main()
+        assert exc.value.code == 2
+        assert "--backfill takes synthesis handles" in capsys.readouterr().err
+
+
+def test_a_failed_done_list_write_does_not_skip_the_table_or_the_commit(ms, fake, full, tmp_path, monkeypatch):
+    answer(tmp_path, ANSWER)
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(bf, "save_done", boom)
+    commits = []
+    monkeypatch.setattr(ms, "history_commit", lambda store, env, message, log: commits.append(message))
+    code, lines, rows = backfill(ms, fake, full)
+    assert code == 1 and rows[0]["status"] == "ok, done list not saved: disk full"
+    assert any(l.startswith("synthesis") for l in lines)
+    assert commits[-1] == "mem-synthesize: after backfill attention"
+
+
+def test_rows_after_a_session_without_cost_say_why(ms, fake, full, tmp_path, monkeypatch):
+    for name in ("two",):
+        text = (full / "syntheses" / "attention.md").read_text()
+        (full / "syntheses" / f"{name}.md").write_text(text)
+    monkeypatch.setenv("FAKE_MODE", "silent")
+    _, _, rows = backfill(ms, fake, full, handles=("s:attention", "s:two"))
+    assert rows[1]["status"] == "not started: an earlier session returned no cost"

@@ -13,6 +13,7 @@ Rules:
 - A sentence that states no finding gets no line: reasoning (`Inference:`), a connecting sentence, a closing remark such as "Confidence: low.".
 - A sentence that already has the note linked after it gets no line for that note.
 - Only paths that stand on that part's `Sources:` line. Never a path from another part.
+- When no sentence gets a line, answer the single word `nothing`.
 
 Your whole answer is these lines, one per line, nothing before or after them: no heading, no code fence, no comment. Never dispatch subagents.
 

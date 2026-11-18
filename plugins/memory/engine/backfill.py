@@ -7,10 +7,12 @@ a wrong reference, never a changed sentence."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import synth_pipeline as sp
 
@@ -80,32 +82,57 @@ def run_session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
     return result
 
 
-def parse_answer(answer: str) -> tuple[list[tuple[str, int, str]], int]:
-    """(`(part, number, target or "none")` in order without repeats, count of unreadable lines). Blank lines and
-    code fence lines are ignored."""
-    found, unreadable = [], 0
+class Answer(NamedTuple):
+    found: list[tuple[str, int, str]]   # (part, number, target or "none") in order without repeats
+    unreadable: int
+    repeated: int   # readable lines dropped as repeats: found + unreadable + repeated = the non-blank, non-fence lines
+    nothing: bool   # the answer is exactly the word `nothing`: an explicit empty result
+
+
+def parse_answer(answer: str) -> Answer:
+    """Blank lines and code fence lines are ignored; `None`/`NONE` mean `none`; backticks, angle brackets and a
+    trailing full stop around a target are stripped."""
+    if re.fullmatch(r"\s*nothing\.?\s*", answer, re.IGNORECASE):
+        return Answer([], 0, 0, True)
+    found, unreadable, lines = [], 0, 0
     for line in answer.splitlines():
         if not line.strip() or FENCE_LINE.match(line):
             continue
+        lines += 1
         m = ANSWER_LINE.match(line)
         if not m:
             unreadable += 1
             continue
-        found.append((m["part"].removeprefix("s:").split("#")[-1], int(m["n"]), m["target"]))
-    return list(dict.fromkeys(found)), unreadable
+        target = m["target"].strip("`<>").removesuffix(".").strip("`<>")
+        if target.lower() == "none":
+            target = "none"
+        found.append((m["part"].removeprefix("s:").split("#")[-1], int(m["n"]), target))
+    unique = list(dict.fromkeys(found))
+    return Answer(unique, unreadable, len(found) - len(unique), False)
 
 
-def load_done(path: Path) -> dict:
-    """Store -> synthesis handle -> section handle -> fingerprint; empty when the file is missing or unreadable."""
+def load_done(path: Path) -> tuple[dict, bool]:
+    """(store -> synthesis handle -> section handle -> fingerprint, readable). A missing file is `({}, True)`; a file
+    that exists but is not that shape is `({}, False)`, so the caller can refuse to go on."""
     try:
         data = json.loads(path.read_text())
+    except FileNotFoundError:
+        return {}, True
     except (OSError, ValueError):
-        return {}
-    return data if isinstance(data, dict) else {}
+        return {}, False
+    ok = isinstance(data, dict) and all(
+        isinstance(syns, dict) and all(isinstance(parts, dict) and all(isinstance(fp, str) for fp in parts.values())
+                                       for parts in syns.values()) for syns in data.values())
+    return (data, True) if ok else ({}, False)
 
 
-def save_done(path: Path, data: dict) -> None:
+def save_done(path: Path, store: str, handle: str, entries: dict[str, str]) -> None:
+    """Merge one synthesis's part entries into the file as it is now, so a run on another synthesis keeps its own."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
+    data, ok = load_done(path)
+    if not ok:
+        raise ValueError(f"{path} is not a readable done list")
+    data.setdefault(store, {}).setdefault(handle, {}).update(entries)
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     tmp.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
     tmp.replace(path)

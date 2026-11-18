@@ -34,8 +34,8 @@ ESTIMATE_PER_TOPIC = 0.5   # USD: 0.25 measured at medium effort, doubled for th
 TOPIC_LINE = re.compile(r"^  (\S+)  (\d+) notes\s*$")
 ATTACH_LINE = re.compile(r"^(knowledge/\S+\.md)\t(s:[^\s#]+#[^\s#]+)\s*$")
 ESTIMATE_PER_BACKFILL = 0.15   # USD per synthesis session: a guess, unmeasured
-BACKFILL_HEADER = ("synthesis", "parts", "units", "proposed", "applied", "refused", "none", "unreadable", "mem check",
-                   "cost USD", "status")
+BACKFILL_HEADER = ("synthesis", "parts", "units", "proposed", "applied", "refused", "none", "unreadable", "repeated",
+                   "mem check", "cost USD", "status")
 HEADER = ("topic", "parts", "attached", "fixed", "deleted", "reverted", "mem check", "cost USD", "status")
 
 
@@ -253,7 +253,7 @@ def backfill_one(claude: str, env: dict, root: Path, store: Path, handle: str, p
     """One session for the selected `parts` of synthesis `handle`; the row never raises. Marks the parts in `done`
     (the synthesis's entry of the done list: part handle -> fingerprint) only when the answer was parsed."""
     row = dict(synthesis=handle, parts=len(parts), units=sum(len(p["units"]) for p in parts), proposed=0, applied=0,
-               refused=0, none=0, unreadable=0, mem_check="-", cost=0.0, status="ok")
+               refused=0, none=0, unreadable=0, repeated=0, mem_check="-", cost=0.0, status="ok")
     path = store / "syntheses" / f"{handle}.md"
     work = root / handle / "work"
     work.mkdir(parents=True)
@@ -271,8 +271,8 @@ def backfill_one(claude: str, env: dict, root: Path, store: Path, handle: str, p
         if s["error"]:
             row["status"] = "failed: session error"
             return row
-        found, row["unreadable"] = bf.parse_answer(s["answer"])
-        if not found:
+        found, row["unreadable"], row["repeated"], nothing = bf.parse_answer(s["answer"])
+        if not found and not nothing:
             row["status"] = "failed: no readable line in the answer"
             return row
         by_part = {p["handle"]: p for p in parts}
@@ -300,8 +300,12 @@ def backfill_one(claude: str, env: dict, root: Path, store: Path, handle: str, p
             row.update(applied=added, refused=refused)
         import syntheses
         now = {x.handle: syntheses.fingerprint(x.text) for x in syntheses.load_one(path).parts}
+        # A part is marked done when the answer had no unreadable line (every selected part, even one without a line:
+        # the session judged it had nothing to link) or when a readable line names it; with an unreadable line the
+        # other parts may be the ones it was about, so they are sent again next run.
+        named = {part for part, _, _ in found}
         for p in parts:   # the fingerprint ignores references, so adding them keeps it
-            if p["handle"] in now:
+            if p["handle"] in now and (not row["unreadable"] or p["handle"] in named):
                 done[p["handle"]] = now[p["handle"]]
     except Exception as exc:   # a failed synthesis must not stop the run
         row["status"] = f"failed: {type(exc).__name__}: {exc}"[:100]
@@ -312,8 +316,9 @@ def backfill_one(claude: str, env: dict, root: Path, store: Path, handle: str, p
 
 
 def backfill_table(rows: list[dict]) -> str:
-    cols = ("synthesis", "parts", "units", "proposed", "applied", "refused", "none", "unreadable", "mem_check")
-    total = ["total"] + [sum(r[c] for r in rows) for c in cols[1:8]] + ["", f"{sum(r['cost'] for r in rows):.3f}", ""]
+    cols = ("synthesis", "parts", "units", "proposed", "applied", "refused", "none", "unreadable", "repeated",
+            "mem_check")
+    total = ["total"] + [sum(r[c] for r in rows) for c in cols[1:9]] + ["", f"{sum(r['cost'] for r in rows):.3f}", ""]
     lines = [BACKFILL_HEADER] + [tuple(r[c] for c in cols) + (f"{r['cost']:.3f}", r["status"]) for r in rows] + [tuple(total)]
     widths = [max(len(str(line[i])) for line in lines) for i in range(len(BACKFILL_HEADER))]
     return "\n".join("  ".join(str(c).ljust(w) for c, w in zip(line, widths)).rstrip() for line in lines)
@@ -329,8 +334,13 @@ def run_backfill(claude: str | None, store: Path, handles: list[str], budget: fl
     if missing:
         print(f"mem-synthesize: no synthesis named {', '.join(missing)}", file=sys.stderr)
         return 2
-    all_done = bf.load_done(done_file())
-    done = all_done.setdefault(str(store), {})
+    all_done, readable = bf.load_done(done_file())
+    if not readable:
+        print(f"mem-synthesize: {done_file()} is not a readable done list; move it away (the next run then treats every "
+              f"part as due)", file=sys.stderr)
+        return 1
+    store_key = str(Path(store).resolve())
+    done = all_done.setdefault(store_key, {})
     due = {n: p for n in names if (p := bf.select(store / "syntheses" / f"{n}.md", done.get(n, {})))}
     skipped = len(names) - len(due)
     if not due:
@@ -366,13 +376,18 @@ def run_backfill(claude: str | None, store: Path, handles: list[str], budget: fl
     for n, parts in due.items():
         if spent >= budget or unknown:
             rows.append(dict(synthesis=n, parts=len(parts), units=0, proposed=0, applied=0, refused=0, none=0,
-                             unreadable=0, mem_check="-", cost=0.0, status="not started: budget"))
+                             unreadable=0, repeated=0, mem_check="-", cost=0.0,
+                             status="not started: " + ("an earlier session returned no cost" if unknown else "budget")))
         else:
             log(f"{n}: start (spent {spent:.3f})")
             rows.append(backfill_one(claude, env, root, store, n, parts, settings, log, budget - spent,
                                      done.setdefault(n, {})))
             spent += rows[-1]["cost"]
-            bf.save_done(done_file(), all_done)
+            if done[n]:
+                try:
+                    bf.save_done(done_file(), store_key, n, done[n])
+                except Exception as exc:   # the references are applied: keep going to the commit and the table
+                    rows[-1]["status"] = f"ok, done list not saved: {exc}"[:100]
             unknown = sp.NO_COST in rows[-1]["status"]
         if rows_out is not None:
             rows_out.append(rows[-1])
@@ -460,6 +475,10 @@ def main() -> int:
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     parser.add_argument("--self-check", action="store_true", help="no model: prove the parsers and a run with a fake claude")
     args = parser.parse_args()
+    if args.backfill is not None and args.topic:
+        parser.error("--backfill takes synthesis handles (s:<handle>), not --topic")
+    if args.backfill is not None and args.self_check:
+        parser.error("--backfill takes synthesis handles (s:<handle>), not --self-check")
     if args.self_check:
         return self_check()
     store = args.store.expanduser().resolve() if args.store else default_store()
