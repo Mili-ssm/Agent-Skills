@@ -31,7 +31,7 @@ Worth it when a subject has many notes that a reader would have to assemble (the
 
 Write from the notes and sources you read in this session, not from memory: a part with nothing to cite is a part to leave out.
 
-For many topics at once, run `mem-synthesize` in the background: it writes, fact-checks, fixes and attaches each synthesis in headless sessions and prints one table at the end (`--dry-run` lists the topics and the cost; `--topic T` picks them). For one topic without writing it yourself, dispatch the `memory-synthesizer` subagent.
+For many topics at once, run `mem-synthesize` in the background: it writes, fact-checks, fixes and attaches each synthesis in headless sessions and prints one table at the end (`--dry-run` lists the topics and the cost; `--topic T` picks them). For one topic without writing it yourself, dispatch the `memory-synthesizer` subagent. `mem-synthesize --backfill [s:<handle> ...]` adds inline references to existing syntheses by code, with one read-only session per synthesis (same `--dry-run` and `--budget`).
 
 Accuracy (in a measured trial 2-12% of claims were unsupported, of three kinds):
 - A sentence of your own reasoning starts with `Inference:`. "Holds by construction" and "should not replace" are inferences.

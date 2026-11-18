@@ -6,7 +6,11 @@ when claims remain -> `mem synthesis attach` for the writer's attach list. The s
 (`mem restore` undoes a step). Stdout: one line at the start and one table at the end; everything else goes to a log
 file whose path is printed. On demand only: it spends model usage (about 0.5 USD per topic, unmeasured at high effort).
 
+`--backfill [s:<handle> ...]` adds inline references to existing syntheses instead: one read-only Haiku session per
+synthesis proposes which source note supports each sentence, and code applies them (`mem synthesis refs`).
+
 Usage: mem-synthesize [--topic T]... [--budget USD (3)] [--dry-run] [--store PATH] [--claude PATH] | --self-check
+       mem-synthesize --backfill [s:<handle> ...] [--budget USD] [--dry-run] [--store PATH] [--claude PATH]
 """
 from __future__ import annotations
 
@@ -22,12 +26,16 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
+import backfill as bf  # noqa: E402
 import synth_pipeline as sp  # noqa: E402
 
 AGENT = "memory:memory-synthesizer"
 ESTIMATE_PER_TOPIC = 0.5   # USD: 0.25 measured at medium effort, doubled for the owner's high setting
 TOPIC_LINE = re.compile(r"^  (\S+)  (\d+) notes\s*$")
 ATTACH_LINE = re.compile(r"^(knowledge/\S+\.md)\t(s:[^\s#]+#[^\s#]+)\s*$")
+ESTIMATE_PER_BACKFILL = 0.15   # USD per synthesis session: a guess, unmeasured
+BACKFILL_HEADER = ("synthesis", "parts", "units", "proposed", "applied", "refused", "none", "unreadable", "mem check",
+                   "cost USD", "status")
 HEADER = ("topic", "parts", "attached", "fixed", "deleted", "reverted", "mem check", "cost USD", "status")
 
 
@@ -234,6 +242,146 @@ def run(claude: str | None, store: Path, topics: list[str], budget: float, dry_r
     return 0 if all(r["status"] == "ok" for r in rows) else 1
 
 
+# --- backfill ------------------------------------------------------------------------------------------------
+
+def done_file() -> Path:
+    return state_dir() / "backfill-done.json"
+
+
+def backfill_one(claude: str, env: dict, root: Path, store: Path, handle: str, parts: list[dict], settings: Path, log,
+                 budget_left: float, done: dict) -> dict:
+    """One session for the selected `parts` of synthesis `handle`; the row never raises. Marks the parts in `done`
+    (the synthesis's entry of the done list: part handle -> fingerprint) only when the answer was parsed."""
+    row = dict(synthesis=handle, parts=len(parts), units=sum(len(p["units"]) for p in parts), proposed=0, applied=0,
+               refused=0, none=0, unreadable=0, mem_check="-", cost=0.0, status="ok")
+    path = store / "syntheses" / f"{handle}.md"
+    work = root / handle / "work"
+    work.mkdir(parents=True)
+    try:
+        units, notes = bf.write_input(path, parts, work)
+        prompt = sp.brief("backfill", SLUG=handle, UNITS_FILE=str(units), NOTES_FILE=str(notes))
+        cmd = bf.session_cmd(claude, prompt, work, store, settings, budget_left)
+        s = bf.run_session(cmd, work, env, root / handle / "backfill.jsonl")
+        row["cost"] = s["cost"]
+        log(f"{handle}: session has_result={s['has_result']} error={s['error']} cost={s['cost']:.3f} "
+            f"wall={s['wall']:.0f}s denied={s['denied']} tool_errors={s['tool_errors']}")
+        if not s["has_result"]:
+            row["status"] = f"failed: {sp.NO_COST}"
+            return row
+        if s["error"]:
+            row["status"] = "failed: session error"
+            return row
+        found, row["unreadable"] = bf.parse_answer(s["answer"])
+        if not found:
+            row["status"] = "failed: no readable line in the answer"
+            return row
+        by_part = {p["handle"]: p for p in parts}
+        proposals = []
+        for part, number, target in found:
+            if target == "none":
+                row["none"] += 1
+                text = next((u.plain for u in by_part[part]["units"] if u.n == number), "?") if part in by_part else "?"
+                log(f"{handle}: none: {part} | {number} | {' '.join(text.split())}")
+            else:
+                proposals.append(f"{part} | {number} | add {target}")
+        row["proposed"] = len(proposals)
+        if proposals:
+            file = work / "proposals.txt"
+            file.write_text("".join(f"{ln}\n" for ln in proposals))
+            out = sp.mem(store, env, "synthesis", "refs", f"s:{handle}", "--file", str(file))
+            total = sp.REFS_TOTAL.findall(out.stdout)
+            for line in out.stdout.splitlines():
+                if line.startswith("refused: "):
+                    log(f"{handle}: {line}")
+            if out.returncode or not total:
+                row["status"] = "failed: refs: " + (out.stderr.strip() or out.stdout.strip() or f"exit {out.returncode}")[:80]
+                return row
+            added, _, refused = map(int, total[-1])
+            row.update(applied=added, refused=refused)
+        import syntheses
+        now = {x.handle: syntheses.fingerprint(x.text) for x in syntheses.load_one(path).parts}
+        for p in parts:   # the fingerprint ignores references, so adding them keeps it
+            if p["handle"] in now:
+                done[p["handle"]] = now[p["handle"]]
+    except Exception as exc:   # a failed synthesis must not stop the run
+        row["status"] = f"failed: {type(exc).__name__}: {exc}"[:100]
+    finally:
+        row["mem_check"] = sp.mem(store, env, "check").returncode
+        log(f"{handle}: {row}")
+    return row
+
+
+def backfill_table(rows: list[dict]) -> str:
+    cols = ("synthesis", "parts", "units", "proposed", "applied", "refused", "none", "unreadable", "mem_check")
+    total = ["total"] + [sum(r[c] for r in rows) for c in cols[1:8]] + ["", f"{sum(r['cost'] for r in rows):.3f}", ""]
+    lines = [BACKFILL_HEADER] + [tuple(r[c] for c in cols) + (f"{r['cost']:.3f}", r["status"]) for r in rows] + [tuple(total)]
+    widths = [max(len(str(line[i])) for line in lines) for i in range(len(BACKFILL_HEADER))]
+    return "\n".join("  ".join(str(c).ljust(w) for c, w in zip(line, widths)).rstrip() for line in lines)
+
+
+def run_backfill(claude: str | None, store: Path, handles: list[str], budget: float, dry_run: bool, out=say,
+                 root: Path | None = None, rows_out: list | None = None) -> int:
+    """Backfill inline references. `handles`: `s:<handle>` or bare handles; none means every synthesis of the store."""
+    import syntheses
+    env = session_env(store)
+    names = [h.removeprefix("s:") for h in handles] or [s.path.stem for s in syntheses.load(store / "syntheses")]
+    missing = [n for n in names if not (store / "syntheses" / f"{n}.md").is_file()]
+    if missing:
+        print(f"mem-synthesize: no synthesis named {', '.join(missing)}", file=sys.stderr)
+        return 2
+    all_done = bf.load_done(done_file())
+    done = all_done.setdefault(str(store), {})
+    due = {n: p for n in names if (p := bf.select(store / "syntheses" / f"{n}.md", done.get(n, {})))}
+    skipped = len(names) - len(due)
+    if not due:
+        out(f"mem-synthesize --backfill: nothing to do ({skipped} syntheses skipped: no due part)")
+        return 0
+    if dry_run:
+        for n, parts in due.items():
+            out(f"s:{n}: " + "; ".join(f"{p['handle']} ({len(p['bare'])} of {len(p['units'])} units without reference)"
+                                       for p in parts))
+        out(f"mem-synthesize --backfill dry run: {len(due)} syntheses ({skipped} skipped); estimated cost "
+            f"{len(due) * ESTIMATE_PER_BACKFILL:.2f} USD (budget {budget:.2f})")
+        return 0
+    if not claude:
+        print("mem-synthesize: no claude binary (use --claude, or CLAUDE_CODE_EXECPATH)", file=sys.stderr)
+        return 2
+    if root is None:
+        state_dir().mkdir(parents=True, exist_ok=True)
+        root = Path(tempfile.mkdtemp(prefix=f"backfill-{time.strftime('%Y%m%d-%H%M%S')}-", dir=state_dir()))   # mode 0700
+    else:
+        root.mkdir(mode=0o700, parents=True)
+    log_file = root / "log.txt"
+
+    def log(text: str) -> None:
+        with log_file.open("a") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+    out(f"mem-synthesize --backfill: {len(due)} syntheses ({', '.join(due)}), budget {budget:.2f} USD, log {log_file}")
+    settings = root / "settings.json"
+    settings.write_text(json.dumps({"disableAllHooks": True}))   # no session-end hook may commit between our two
+    label = ", ".join(due)
+    history_commit(store, env, f"mem-synthesize: before backfill {label}", log)
+    rows, spent, unknown = [], 0.0, False
+    for n, parts in due.items():
+        if spent >= budget or unknown:
+            rows.append(dict(synthesis=n, parts=len(parts), units=0, proposed=0, applied=0, refused=0, none=0,
+                             unreadable=0, mem_check="-", cost=0.0, status="not started: budget"))
+        else:
+            log(f"{n}: start (spent {spent:.3f})")
+            rows.append(backfill_one(claude, env, root, store, n, parts, settings, log, budget - spent,
+                                     done.setdefault(n, {})))
+            spent += rows[-1]["cost"]
+            bf.save_done(done_file(), all_done)
+            unknown = sp.NO_COST in rows[-1]["status"]
+        if rows_out is not None:
+            rows_out.append(rows[-1])
+    history_commit(store, env, f"mem-synthesize: after backfill {label}", log)
+    out(backfill_table(rows))
+    out(f"total cost USD {spent:.3f}; log {log_file}")
+    return 0 if all(r["status"] == "ok" for r in rows) else 1
+
+
 # --- self-check ----------------------------------------------------------------------------------------------
 
 def self_check() -> int:
@@ -302,6 +450,8 @@ def self_check() -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--backfill", nargs="*", metavar="s:HANDLE", help="add inline references to existing "
+                        "syntheses (the named ones, or all) with one read-only session each")
     parser.add_argument("--topic", action="append", default=[], help="topic id (repeatable; default: the topics "
                         "`mem curate --notes` lists without a synthesis)")
     parser.add_argument("--budget", type=float, default=3.0, help="USD; no new topic starts past it")
@@ -316,6 +466,8 @@ def main() -> int:
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-synthesize: no writable store at {store}", file=sys.stderr)
         return 2
+    if args.backfill is not None:
+        return run_backfill(args.claude, store, args.backfill, args.budget, args.dry_run)
     return run(args.claude, store, args.topic, args.budget, args.dry_run)
 
 
