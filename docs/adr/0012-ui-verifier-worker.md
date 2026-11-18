@@ -54,3 +54,17 @@ Offload evals: Sonnet main and 3 runs per case unless noted; `ui-verifier` has 6
 ## Review 2026-11-15
 
 ADR 0021 extends the single copy to `user-config/routing.md`: the owner's user-level file is `offload-policy.md` and `routing.md` verbatim plus personal sections, and the review rows that existed only in that file now live in `routing.md`.
+
+## Review 2026-11-18
+
+`offload-ui-verifier-with-policy` fell from 6/6 on every grader (2026-11-04, ADR 0017) to 2 of 6 runs passing every grader on `main` (ADR 0010 Review 2026-11-18). Two runs kept with `--keep-temp` show the same cause, the machine and not a prompt; the other failing runs are assumed, not shown, to share it:
+
+| Observed in both traces | Detail |
+|---|---|
+| The worker is dispatched and reports `BLOCKED` | No browser check runs; the main conversation says so and answers from reading `site/`, which the `faq-works` and `mobile-defect` judges fail unless the answer happens to state the result |
+| No Playwright library resolves | `import playwright` and `require('playwright')` fail, also with `NODE_PATH="$(npm root -g)"`. The owner's machine now has only the global package `@playwright/cli` (0.1.22); the global `playwright` package this ADR's Measurement relied on is gone |
+| `playwright-cli` cannot open a browser in the eval sandbox | It creates `~/.cache/ms-playwright` under the sandbox's home, which is read-only; the installed browsers live in the owner's real home, and setting `PLAYWRIGHT_BROWSERS_PATH` to a new writable directory finds none |
+
+Consequences: the case measures dispatch correctly (6/6) and nothing else until a driver resolves in the sandbox; its judge graders are not evidence about any prompt change meanwhile. Real sessions are not shown to be affected: `ui-verifier` ran 39 times in the week of the study, outside this sandbox.
+
+Options, not decided (owner): install the global `playwright` package again, which restores what the case was measured with; or make `playwright-cli`, which `ui-verifier.md` already names as its third driver, find the browsers of the real home from inside the sandbox (a browsers path in the body or in the case's sandbox), a change that needs its own trace.
