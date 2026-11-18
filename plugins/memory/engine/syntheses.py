@@ -666,6 +666,7 @@ def change_references(text: str, base: Path, proposals: Sequence[tuple[int, str,
     orphan_at = {r.start for r in orphans}
     reasons: list[str | None] = []
     edits: list[tuple[int, int, int, str]] = []  # (position, input order, end, replacement)
+    removed: dict[int, set[int]] = {}  # unit number -> starts of the trailing references to take out
     seen: set[tuple[int, str, Path]] = set()
     for order, (n, op, target) in enumerate(proposals):
         resolved = _resolved(base, target)
@@ -698,13 +699,19 @@ def change_references(text: str, base: Path, proposals: Sequence[tuple[int, str,
         elif not trailing:
             reasons.append(f"the reference to {target} in unit {n} is inside the sentence: it is part of its words")
         else:
-            r = trailing[0]
-            start = r.start
-            while start > unit.span[0] and text[start - 1] in " \t":
-                start -= 1
-            edits.append((start, order, r.end, ""))
+            removed.setdefault(n, set()).add(trailing[0].start)
             seen.add((n, op, resolved))
             reasons.append(None)
+    for n, gone in removed.items():
+        # Write the unit's run of trailing references again without the removed ones, a space before each: taking
+        # one out of `[a](x), [b](y)` must not leave its comma behind.
+        unit = found[n - 1]
+        run = [r for r in refs if r.trailing and r.start not in orphan_at and unit.span[0] <= r.start < unit.span[1]]
+        start = run[0].start
+        while start > unit.span[0] and text[start - 1] in _GAP:
+            start -= 1
+        kept = "".join(" " + text[r.start:r.end] for r in run if r.start not in gone)
+        edits.append((start, -1, run[-1].end, kept))
     out = text
     for start, _, end, repl in sorted(edits, reverse=True):
         out = out[:start] + repl + out[end:]

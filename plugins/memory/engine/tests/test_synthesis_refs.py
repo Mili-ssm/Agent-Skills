@@ -1,4 +1,6 @@
 """`mem synthesis refs`: references are added or removed by unit number and source target, never by text."""
+from pathlib import Path
+
 import pytest
 
 import mem
@@ -197,3 +199,15 @@ def test_restore_after_a_later_edit_of_a_restamped_note_is_refused_as_for_other_
     code, _, err = run("restore", "s:attention")
     assert code == 2 and "changed since refs" in err
     assert files(made) == after
+
+
+
+@pytest.mark.parametrize("gone, left", [(("a",), " [b]({B})"), (("b",), " [a]({A})"), (("a", "b"), ""), (("b", "a"), "")])
+def test_remove_from_a_pair_separated_by_a_comma_leaves_no_comma(gone, left):
+    A, B = "../knowledge/computing/one.md", "../knowledge/computing/two.md"
+    text = f"Alpha one. [a]({A}), [b]({B}) Alpha two.\n\nSources: [a]({A}), [b]({B})\n"
+    base = Path("/store/syntheses")
+    new, reasons = syntheses.change_references(text, base, [(1, "remove", {"a": A, "b": B}[g]) for g in gone])
+    assert reasons == [None] * len(gone)
+    assert new == text.replace(f" [a]({A}), [b]({B})", left.format(A=A, B=B), 1)
+    assert syntheses.without_references(new) == syntheses.without_references(text)
