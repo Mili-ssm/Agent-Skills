@@ -210,7 +210,7 @@ def test_a_note_stamped_with_the_old_fingerprint_is_current(run, made):
 
 
 def test_an_edit_that_only_adds_references_needs_no_shrink(run, made, tmp_path):
-    text = PART.replace("too, in this case.", f"too, in this case.[b]({B})")
+    text = PART.replace("too, in this case.", f"too, in this case.[b]({B})").replace(SRC, f"{SRC}, [b]({B})")
     code, out, err = edit(run, tmp_path, text)
     assert code == 0, err
     assert f"[b]({B})" in (made / "syntheses" / "attention.md").read_text(encoding="utf-8")
@@ -235,3 +235,95 @@ def test_drop_references_accepts_the_dropped_reference(run, made, tmp_path):
 def test_a_reference_may_go_with_its_changed_sentence(run, made, tmp_path):
     text = PART.replace("The first claim stands firmly.", "A rewritten first claim, now.").replace(f"[a]({A})", "")
     assert edit(run, tmp_path, text)[0] == 0
+
+
+# ---- rules on references and `mem show` ------------------------------------------------------------------------
+
+A_SPELLED = "../knowledge/computing/./attention-replaces-recurrence.md"
+
+
+def synth(made):
+    return made / "syntheses" / "attention.md"
+
+
+def rewrite(made, old, new):
+    path = synth(made)
+    path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+
+
+def test_a_clean_part_and_a_differently_spelled_path_pass(run, made, tmp_path):
+    assert run("check") == (0, "", "")
+    text = PART.replace(f"({A})", f"({A_SPELLED})")
+    assert edit(run, tmp_path, text, "--drop-references")[0] == 0
+    assert run("check")[0] == 0
+
+
+def test_a_reference_outside_the_sources_is_reported_and_refused(run, made, tmp_path):
+    rewrite(made, f"Sources: [attention]({A})", f"Sources: [paper]({B})")
+    code, out, _ = run("check")
+    assert code == 1 and f"reference {A} names a note that is not on the `Sources:` line" in out
+    assert "add the note to the `Sources:` line or remove the reference" in out
+    rewrite(made, f"Sources: [paper]({B})", f"Sources: [attention]({A})")
+    bad = PART.replace(f"[a]({A})", f"[a]({B})")
+    code, _, err = edit(run, tmp_path, bad, "--drop-references")
+    assert code == 1 and f"reference {B} names a note that is not on the `Sources:` line" in err
+    code, _, err = run("synthesis", "add", "s:attention", "--section", "Beta", "--body-file", text_file(tmp_path, bad, "b.md"))
+    assert code == 1 and "not on the `Sources:` line" in err
+    code, _, err = run("synthesis", "append", "s:attention#alpha", "--body-file",
+                       text_file(tmp_path, f"A third claim is made here.[c]({B})\n", "c.md"))
+    assert code == 1 and f"reference {B} names a note" in err
+
+
+def test_a_reference_without_an_owner_is_reported_and_refused(run, made, tmp_path):
+    orphan = f"[a]({A}) Starts with a reference.\n\n{SRC}\n"
+    rewrite(made, PART, orphan)
+    code, out, _ = run("check")
+    assert code == 1 and "a reference stands after the sentence it supports" in out
+    code, _, err = edit(run, tmp_path, orphan, "--shrink", "--drop-references")
+    assert code == 1 and "a reference stands after the sentence it supports" in err
+    code, _, err = run("synthesis", "add", "s:attention", "--section", "Beta", "--body-file", text_file(tmp_path, orphan, "b.md"))
+    assert code == 1 and "a reference stands after the sentence it supports" in err
+    code, _, err = run("synthesis", "append", "s:attention#alpha", "--body-file",
+                       text_file(tmp_path, f"[a]({A}) Another one.\n", "c.md"))
+    assert code == 1 and "a reference stands after the sentence it supports" in err
+
+
+def test_a_reference_in_the_summary_is_reported(run, made):
+    rewrite(made, "How attention works here.", f"How attention works here.[a]({A})")
+    code, out, _ = run("check")
+    assert code == 1 and "Summary, which is not a part" in out and "Sources:" not in out
+
+
+def test_a_superseded_reference_or_source_is_reported_with_the_successor(run, made, hub_root):
+    note = hub_root / "knowledge" / "computing" / "attention-replaces-recurrence.md"
+    text = note.read_text(encoding="utf-8")
+    assert text.startswith("---\n")
+    note.write_text(text.replace("---\n", "---\nsuperseded_by: one-note\n", 1), encoding="utf-8")
+    code, out, _ = run("check")
+    assert code == 1
+    assert f"reference {A} is superseded by one-note: point to it" in out
+    assert f"source {A} is superseded by one-note: point to it" in out
+
+
+def test_show_prints_labels_and_stored_prints_the_text(run, made):
+    code, out, _ = run("show", "s:attention#alpha")
+    assert code == 0 and "The first claim stands firmly.[a]" in out and A + ")" not in out.split("Sources:")[0]
+    assert f"Sources: [attention]({A})" in out
+    code, out, _ = run("show", "s:attention#alpha", "--stored")
+    assert f"firmly.[a]({A})" in out
+    rewrite(made, f"[a]({A})", f"[]({A})")
+    assert "firmly.[note] The second" in run("show", "s:attention", "--all")[1]
+    assert f"firmly.[]({A})" in run("show", "s:attention", "--all", "--stored")[1]
+
+
+def test_unify_of_a_referenced_note_leaves_the_part_current(run, made, tmp_path):
+    keep = "attention-beats-recurrence"
+    assert run("new", "knowledge", "--slug", keep, "--claim", "Attention beats recurrence", "--topics", "ml",
+               "--confidence", "low", "--level", "basic", "--origin", "experience", "--body-file",
+               text_file(tmp_path, note_body("Attention beats recurrence"), "k.md"))[0] == 0
+    code, _, err = run("unify", keep, "attention-replaces-recurrence", "--body-file",
+                       text_file(tmp_path, f"{note_body('Attention replaces and beats recurrence')}\n[v](../../{B[3:]})\n", "u.md"))
+    assert code == 0, err
+    assert f"{keep}.md" in synth(made).read_text(encoding="utf-8")
+    assert "s:attention#alpha" not in run("curate", "--notes")[1]
+    assert run("check") == (0, "", "")

@@ -1301,9 +1301,12 @@ def rule_handles(root: Path, notes: list[Note], topics: dict | None) -> list[Pro
 
 def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
     """Rule 15: each synthesis parses, repeats no section handle, uses known topics and ends every part with a
-    valid `Sources:` line."""
+    valid `Sources:` line; a reference names a source and has a sentence before it, and no reference or source
+    names a superseded note."""
     problems = []
     loaded = syntheses.load(root / syntheses.SYNTHESES_DIR)
+    superseded = {(root / n.rel).resolve(): n.meta["superseded_by"] for n in notes
+                  if n.error is None and isinstance(n.meta, dict) and isinstance(n.meta.get("superseded_by"), str)}
     for note in notes:
         part = note.meta.get("part_of") if note.error is None and isinstance(note.meta, dict) else None
         if isinstance(part, str) and _PART_OF.fullmatch(part):
@@ -1332,8 +1335,18 @@ def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[P
                                                        "rename one heading"))
             seen.add(sec.handle)
             if sec.handle != syntheses.SUMMARY:
-                for msg in syntheses.validate_section(sec.text, root):
-                    problems.append(Problem(rel, sec.line, f'section "{sec.heading}": {msg}'))
+                msgs = syntheses.validate_section(sec.text, root)
+                base = (root / syntheses.SYNTHESES_DIR).resolve()
+                cited = [("reference", t) for t in dict.fromkeys(syntheses.references(sec.text))]
+                cited += [("source", t) for t in sec.sources]
+                for kind, target in cited:
+                    successor = superseded.get(syntheses._resolved(base, target))
+                    if successor:
+                        msgs.append(f"{kind} {target} is superseded by {successor}: point to it")
+            else:
+                msgs = syntheses.summary_problems(sec.text)
+            for msg in msgs:
+                problems.append(Problem(rel, sec.line, f'section "{sec.heading}": {msg}'))
     return problems
 
 
@@ -2769,6 +2782,8 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
         print(f"mem: {path}: {syn.error}", file=sys.stderr)
         return None
     text = path.read_bytes().decode("utf-8", "replace")
+    if not args.stored:  # a reader gets `[label]`, not the 29-token reference; the line numbers do not change
+        text = syntheses.shown_file(text)
     lines = text.split("\n")
     if section is not None:
         found = [s for s in syn.sections if s.handle == section]
@@ -5772,6 +5787,8 @@ def build_parser() -> argparse.ArgumentParser:
                              help="with --outline: print start-end lines and word count per heading")
     show_parser.add_argument("--all", action="store_true", help="a synthesis: print the whole file, not its outline")
     show_parser.add_argument("--project", metavar="NAME", help="read a memory of this registered project")
+    show_parser.add_argument("--stored", action="store_true",
+                             help="a synthesis: print each reference as stored, not as its `[label]`")
     show_parser.set_defaults(func=cmd_show)
     topics_parser = sub.add_parser("topics", help="print the topic tree with note counts")
     topics_parser.add_argument("topic", nargs="?", metavar="ID", help="print only this topic's subtree")

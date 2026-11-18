@@ -185,6 +185,12 @@ def validate_section(text: str, store: Path) -> list[str]:
         return ["the `Sources:` line has no relative Markdown link to a note, https URL or `experience <date>`"]
     base, root = (store / SYNTHESES_DIR).resolve(), store.resolve()
     problems = []
+    sources = {_resolved(base, t) for t in targets}
+    for target in dict.fromkeys(references(text)):
+        if _resolved(base, target) not in sources:
+            problems.append(f"reference {target} names a note that is not on the `Sources:` line: add the note "
+                            "to the `Sources:` line or remove the reference")
+    problems += _orphan_problems(text)
     for target in targets:
         try:
             resolved = (base / _file_part(target)).resolve()
@@ -195,6 +201,56 @@ def validate_section(text: str, store: Path) -> list[str]:
         if not (rel.parts and rel.parts[0] in NOTE_FOLDERS and resolved.suffix == ".md" and resolved.is_file()):
             problems.append(f"source {target} is not an existing note of the store")
     return problems
+
+
+def _resolved(base: Path, target: str) -> Path:
+    """The file a link names, so that `a/x.md` and `a/./x.md` are the same note."""
+    try:
+        return (base / _file_part(target)).resolve()
+    except OSError:
+        return base / _file_part(target)
+
+
+def _orphan_problems(text: str) -> list[str]:
+    return [f"reference {t} has no sentence before it: a reference stands after the sentence it supports"
+            for t in dict.fromkeys(units(text)[1])]
+
+
+def summary_problems(text: str) -> list[str]:
+    """The `## Summary` is no part: it holds no reference, because there is no sentence a reference could support."""
+    return [f"reference {_file_part(r.target)} stands in the Summary, which is not a part: a reference stands "
+            "after the sentence it supports, in a part" for r in _parse(text)[1]]
+
+
+def references(text: str) -> list[str]:
+    """The targets (file part) of the references in a part's body, in order."""
+    return [_file_part(r.target) for r in _parse(text)[1]]
+
+
+def shown(text: str) -> str:
+    """`text` as a reader gets it: each reference reduced to `[label]` (`[note]` when it has none); the `Sources:`
+    line and everything else as stored. Line breaks stay where they are."""
+    _, every, _, _ = _parse(text)
+    out, pos = [], 0
+    for r in every:
+        out.append(text[pos:r.start] + f"[{r.label or 'note'}]")
+        pos = r.end
+    return "".join(out) + text[pos:]
+
+
+def shown_file(text: str) -> str:
+    """`shown` for each part of a whole synthesis file; the frontmatter and the headings stay as stored."""
+    lines, heads = _scan(text)
+    m = _FRONTMATTER.match(text)
+    first = text[:m.end()].count("\n") if m else 0
+    bounds = [first] + [i + 1 for i, _ in heads]
+    ends = [i for i, _ in heads] + [len(lines)]
+    out = lines[:first]
+    for n, start in enumerate(bounds):
+        out.extend(shown("\n".join(lines[start:ends[n]])).split("\n") if start < ends[n] else [])
+        if n < len(heads):
+            out.append(lines[heads[n][0]])
+    return "\n".join(out)
 
 
 def _is_date(value: str) -> bool:
