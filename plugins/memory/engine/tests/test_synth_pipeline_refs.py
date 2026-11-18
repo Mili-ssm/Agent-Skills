@@ -140,7 +140,7 @@ def test_a_report_of_ref_lines_only_is_applied_by_code_and_nothing_else_runs(mon
     assert ran == ["checker"] and done["fixes"] == 0 and done["deleted"] == 0 and done["why"] == ""
     assert f"First plain sentence here.[attention]({A})" in synthesis_text(store).replace("   ", " ") \
         or f"here. [attention]({A})" in synthesis_text(store)
-    assert done["refs"] == [dict(check=1, reported=1, lines=1, applied=1, refused=0, error="")]
+    assert done["refs"] == [dict(check=1, reported=1, malformed=0, lines=1, applied=1, refused=0, reasons=[], error="")]
     assert (work / "refs-1.txt").read_text() == f"alpha | 1 | add {A}\n"
 
 
@@ -216,3 +216,15 @@ def test_guard_parts_reverts_a_part_whose_fixer_version_added_a_reference(store)
     bad, back = sp.guard_parts(store, {}, "attention", before, after, ["alpha"])
     assert (bad, back) == (["beta"], ["beta"])
     assert sp.split_parts(path.read_text())["beta"].strip() == sp.split_parts(before)["beta"].strip()
+
+
+def test_ref_lines_in_a_bullet_or_backticks_are_read_and_do_not_count_as_unsupported(tmp_path):
+    report = tmp_path / "report.md"
+    report.write_text("- REF: alpha | 1 | missing | `../knowledge/a.md`.\n"
+                      "  `REF: alpha | 2 | wrong ../knowledge/a.md | None`\n"
+                      "REF: alpha | 3. | missing | ../knowledge/a.md\n"
+                      "PARTS:\nCOUNTS: checked=3 unsupported=2\n")
+    got = sp.parse_report(report)
+    assert [(r["number"], r["kind"], r["current"], r["target"]) for r in got["refs"]] == [
+        (1, "missing", None, "../knowledge/a.md"), (2, "wrong", "../knowledge/a.md", None)]
+    assert got["ref_malformed"] == 1 and got["claims"] == [] and got["unsupported"] == 0

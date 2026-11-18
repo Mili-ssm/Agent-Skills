@@ -171,19 +171,26 @@ def parse_report(path: Path) -> dict | None:
     for rel, state in NOTE_LINE.findall(text):
         at = rel.find("knowledge/")
         notes[rel[at:] if at >= 0 else rel] = state
-    claims = [m.groupdict() for ln in lines if not ln.startswith("REF:") and (m := CLAIM_LINE.match(ln))]
+    def ref_text(ln: str) -> str | None:
+        """A `REF:` line as the model may write it: after a bullet, indented, in backticks."""
+        s = ln.strip().lstrip("-*\u2022 \t").replace("`", "").strip()
+        return s if s.startswith("REF:") else None
+
+    def path(value: str | None) -> str | None:
+        value = (value or "").strip().rstrip(".").strip()
+        return None if value.lower() in ("", "none") else value
+
+    claims = [m.groupdict() for ln in lines if ref_text(ln) is None and (m := CLAIM_LINE.match(ln))]
     refs, malformed = [], 0
     for ln in lines:
-        if ln.startswith("REF:"):
-            m = REF_LINE.match(ln)
+        if (s := ref_text(ln)) is not None:
+            m = REF_LINE.match(s)
             if not m:
                 malformed += 1
                 continue
-            target = m["target"].strip()
             refs.append(dict(part=section_handle(m["part"].strip().removeprefix("s:").split("#")[-1]),
                              number=int(m["number"]), kind="missing" if m["missing"] else "wrong",
-                             current=(m["current"] or "").strip() or None,
-                             target=None if target in ("", "none") else target))
+                             current=path(m["current"]), target=path(m["target"])))
     listed = PARTS_LINE.search(text)
     # A model may write a heading where the brief asks for a handle: both become the handle `mem` gives the part.
     parts = [section_handle(h.strip().removeprefix("s:").split("#")[-1])
@@ -191,7 +198,12 @@ def parse_report(path: Path) -> dict | None:
     for claim in claims:
         claim["part"] = section_handle(claim["part"].strip().removeprefix("s:").split("#")[-1])
     parts = list(dict.fromkeys(parts + [c["part"] for c in claims]))
-    return dict(checked=int(found.group(1)), unsupported=int(found.group(2)), notes=notes, claims=claims, parts=parts,
+    unsupported = int(found.group(2))
+    if not claims and (refs or malformed):
+        # A checker that counted its reference problems as unsupported lists no claim: nothing is there to fix or
+        # delete, and the delete-only step must not run for it.
+        unsupported = 0
+    return dict(checked=int(found.group(1)), unsupported=unsupported, notes=notes, claims=claims, parts=parts,
                 refs=refs, ref_malformed=malformed)
 
 
@@ -306,15 +318,16 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
     def apply_refs(n: int, report: dict | None) -> None:
         """The report's `REF:` lines through `mem synthesis refs`, before anything changes the text their numbers
         refer to. A failure is recorded, never raised."""
-        if not report or not report["refs"]:
+        if not report or not (report["refs"] or report["ref_malformed"]):
             return
         lines = []
         for r in report["refs"]:
-            if r["kind"] == "wrong":
+            if r["kind"] == "wrong" and r["current"]:
                 lines.append(f"{r['part']} | {r['number']} | remove {r['current']}")
             if r["target"]:
                 lines.append(f"{r['part']} | {r['number']} | add {r['target']}")
-        row = dict(check=n, reported=len(report["refs"]), lines=len(lines), applied=0, refused=0, error="")
+        row = dict(check=n, reported=len(report["refs"]), malformed=report["ref_malformed"], lines=len(lines),
+                   applied=0, refused=0, reasons=[], error="")
         out["refs"].append(row)
         if not lines:
             return
@@ -330,7 +343,8 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
             row["error"] = (done.stderr.strip() or done.stdout.strip() or f"exit {done.returncode}")[:200]
         else:
             added, removed, refused = map(int, total[-1])
-            row.update(applied=added + removed, refused=refused)
+            row.update(applied=added + removed, refused=refused,
+                       reasons=[ln[len("refused: "):] for ln in done.stdout.splitlines() if ln.startswith("refused: ")])
 
     def guarded_fix(model: str, level: str | None, text: str, report: dict, role: str = "fixer") -> dict:
         """One fixer step; the parts it changed outside the report's PARTS are recorded and put back."""
