@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import os
+import posixpath
 import re
 import unicodedata
 import urllib.parse
@@ -218,13 +219,224 @@ def source_kinds(text: str) -> set[str]:
     return kinds
 
 
+_REF_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
+_LIST_MARK = re.compile(r"(?:>\s*)*(?:(?:[-*+]|\d+[.)])[ \t]+|#{1,6}[ \t]+)?")
+_BOLD_LABEL = re.compile(r"\*\*[^*\n]*[.!?:]\*\*(?=\s|$)")
+_TABLE_SEP = re.compile(r"\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*")
+_ABBREVIATION = re.compile(r"(?:^|[\s(\[])(?:e\.g|i\.e|et al|vs|cf)$", re.I)
+_CLOSERS = "\"'\u201d\u2019)]\u00bb"
+_GAP = " \t,;"
+
+
+@dataclass(frozen=True)
+class Unit:
+    """One sentence or table row of a part's body."""
+    n: int  # 1-based
+    text: str  # as stored, including the references that follow the sentence
+    plain: str  # without references: trailing ones dropped, inline ones reduced to their label
+    refs: list[str]  # targets (file part), in order
+    span: tuple[int, int]  # character offsets in the part text, [start, end)
+
+
+@dataclass(frozen=True)
+class _Ref:
+    start: int
+    end: int
+    label: str
+    target: str
+    trailing: bool  # follows the closing punctuation of its sentence: dropped, not reduced to its label
+
+
+def _is_ref(target: str) -> bool:
+    """A relative link into a note folder (the folders may be reached through leading `..`)."""
+    if not _relative(target) or target.startswith("/"):
+        return False
+    parts = [p for p in posixpath.normpath(_file_part(target)).split("/") if p not in ("", ".")]
+    while parts and parts[0] == "..":
+        parts.pop(0)
+    return len(parts) >= 2 and parts[0] in NOTE_FOLDERS and parts[-1].endswith(".md")
+
+
+def _inline(raw: str) -> list[tuple[int, int, str, re.Match | None]]:
+    """Code spans and links of a line, as (start, end, kind, match); nothing inside them splits or links."""
+    found, i = [], 0
+    while i < len(raw):
+        if raw[i] == "`":
+            n = len(raw[i:]) - len(raw[i:].lstrip("`"))
+            j = i + n
+            while (j := raw.find("`" * n, j)) != -1 and raw[j:j + n + 1] == "`" * (n + 1):
+                j += len(raw[j:]) - len(raw[j:].lstrip("`"))
+            if j != -1:
+                found.append((i, j + n, "code", None))
+                i = j + n
+                continue
+            i += n
+        elif raw[i] == "[" and (m := _REF_LINK.match(raw, i)):
+            found.append((i, m.end(), "link", m))
+            i = m.end()
+        else:
+            i += 1
+    return found
+
+
+def _remove(text: str, lo: int, hi: int, refs: Sequence[_Ref]) -> str:
+    out, pos = [], lo
+    for r in refs:
+        if r.trailing:
+            s = r.start
+            while s > pos and text[s - 1] in _GAP:
+                s -= 1
+            out.append(text[pos:s])
+        else:
+            out.append(text[pos:r.start] + r.label)
+        pos = r.end
+    return "".join(out) + text[pos:hi]
+
+
+def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
+    """(units, every reference of the body in order, the references without an owner, end of the body)."""
+    lines = text.split("\n")
+    offsets, o = [], 0
+    for ln in lines:
+        offsets.append(o)
+        o += len(ln) + 1
+    last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
+    count, body_end = len(lines), len(text)
+    if last is not None and lines[last].startswith("Sources:"):
+        count, body_end = last, offsets[last]
+    found: list[tuple[int, int, list[_Ref]]] = []
+    orphans: list[_Ref] = []
+    fence, prev_blank = None, True
+
+    def ref_of(m: re.Match, base: int, trailing: bool) -> _Ref:
+        return _Ref(base + m.start(), base + m.end(), m.group(1), m.group(2), trailing)
+
+    for i in range(count):
+        raw, base = lines[i].rstrip("\r"), offsets[i]
+        f = _FENCE.match(raw)
+        if f:
+            fence = None if fence and f.group(1)[0] == fence else (fence or f.group(1)[0])
+            prev_blank = False
+            continue
+        if fence:
+            continue
+        if not raw.strip():
+            prev_blank = True
+            continue
+        was_blank, prev_blank = prev_blank, False
+        spans = _inline(raw)
+        links = {s: (e, m) for s, e, kind, m in spans if kind == "link" and _is_ref(m.group(2))}
+        starts = {s: e for s, e, _, _ in spans}
+        ce = len(raw.rstrip())
+        if raw.lstrip().startswith("|"):
+            if _TABLE_SEP.fullmatch(raw) and "-" in raw:
+                continue
+            cs = len(raw) - len(raw.lstrip())
+            refs = []
+            for s, (e, m) in links.items():
+                k = s
+                while k > cs and raw[k - 1] in _GAP:
+                    k -= 1
+                refs.append(ref_of(m, base, k > cs and raw[k - 1] in ".!?" + _CLOSERS))
+            found.append((base + cs, base + ce, refs))
+            continue
+        cs = _LIST_MARK.match(raw).end()
+        if was_blank or cs > 0:
+            if m := _BOLD_LABEL.match(raw, cs, ce):
+                cs = m.end()
+        pos = cs
+
+        def skip_gap(p: int, chars: str = " \t") -> int:
+            while p < ce and raw[p] in chars:
+                p += 1
+            return p
+        pos = skip_gap(pos)
+        while pos in links:  # a reference with no sentence before it
+            end, m = links[pos]
+            orphans.append(ref_of(m, base, False))
+            pos = skip_gap(end, _GAP)
+        ustart, k = pos, pos
+        while k < ce:
+            if k in starts:
+                k = starts[k]
+                continue
+            if raw[k] not in ".!?":
+                k += 1
+                continue
+            j = k + 1
+            while j < ce and raw[j] in ".!?":
+                j += 1
+            t = j
+            while t < ce and raw[t] in _CLOSERS:
+                t += 1
+            if not (t >= ce or raw[t].isspace() or t in links) or (
+                    raw[k] == "." and j == k + 1 and _ABBREVIATION.search(raw[ustart:k])):
+                k = j
+                continue
+            if not re.search(r"\w", raw[ustart:k]):
+                k = ustart = skip_gap(t)
+                continue
+            end = t
+            while True:  # references that follow the closing punctuation
+                p = skip_gap(end, _GAP)
+                if p not in links:
+                    break
+                end = links[p][0]
+            refs = [ref_of(m, base, s >= t) for s, (e, m) in links.items() if ustart <= s < end]
+            found.append((base + ustart, base + end, refs))
+            k = ustart = skip_gap(end)
+        if ustart < ce and re.search(r"\w", raw[ustart:ce]):
+            refs = [ref_of(m, base, False) for s, (e, m) in links.items() if ustart <= s < ce]
+            found.append((base + ustart, base + ce, refs))
+    units = [Unit(n, text[a:b], _remove(text, a, b, refs), [_file_part(r.target) for r in refs], (a, b))
+             for n, (a, b, refs) in enumerate(found, 1)]
+    every = sorted([r for _, _, refs in found for r in refs] + orphans, key=lambda r: r.start)
+    return units, every, orphans, body_end
+
+
+def units(text: str) -> tuple[list[Unit], list[str]]:
+    """A part's body (everything but the closing `Sources:` line) as numbered units, and the targets of the
+    references that have no owner.
+
+    A unit is a sentence or a table row. A reference is a relative link into a note folder; one that follows a
+    sentence's closing punctuation (white space, `,` or `;` between) belongs to that sentence, and so does one
+    inside it. A bold label that opens a paragraph or list item (`**What it is.**`) belongs to no unit."""
+    found, _, orphans, _ = _parse(text)
+    return found, [_file_part(r.target) for r in orphans]
+
+
+def _body_without_references(text: str) -> tuple[str, int]:
+    _, every, _, body_end = _parse(text)
+    return _remove(text, 0, body_end, every), body_end
+
+
+def without_references(text: str) -> str:
+    """The part's text with the references of its body removed (the `Sources:` line stays as it is)."""
+    body, body_end = _body_without_references(text)
+    return body + text[body_end:]
+
+
 def fingerprint(text: str) -> str:
-    """A short hash of a section's text without its `Sources:` line and surrounding whitespace."""
+    """A short hash of a section's text without its `Sources:` line, its references and surrounding whitespace."""
+    return _hash(_body_without_references(text)[0])
+
+
+def _hash(body: str) -> str:
+    return hashlib.sha256(body.strip().encode("utf-8")).hexdigest()[:10]
+
+
+def fingerprint_legacy(text: str) -> str:
+    """The fingerprint before references existed: stored by notes stamped earlier, still accepted."""
     lines = text.split("\n")
     last = next((i for i in range(len(lines) - 1, -1, -1) if lines[i].strip()), None)
     if last is not None and lines[last].startswith("Sources:"):
         lines = lines[:last]
-    return hashlib.sha256("\n".join(lines).strip().encode("utf-8")).hexdigest()[:10]
+    return _hash("\n".join(lines))
+
+
+def is_current(stored: object, text: str) -> bool:
+    """Whether a note's `part_of_hash` matches the part's text, by the current or the legacy fingerprint."""
+    return stored in (fingerprint(text), fingerprint_legacy(text))
 
 
 def word_count(text: str) -> int:
@@ -349,13 +561,18 @@ def _sentences(text: str) -> list[str]:
     return [s for s in found if len(s.split()) >= 6]
 
 
-def _guard_shrink(old: str, new: str, *, sentences: bool = True) -> None:
+def _guard_shrink(old: str, new: str, *, sentences: bool = True, part: bool = False,
+                  drop_references: bool = False) -> None:
     """Refuse a text that drops over 20% of the words, a link or, when `sentences`, a sentence of the old one
-    (a one-sentence field such as a claim is checked without the sentence rule)."""
+    (a one-sentence field such as a claim is checked without the sentence rule). For a `part`, sentences are
+    compared without their references, and `drop_references` lets references go."""
     dropped = max(word_count(old) - word_count(new), 0)
     lost = list(dict.fromkeys(t for t in _links(old) if t not in set(_links(new))))
-    kept = set(_sentences(new))
-    gone = [s for s in dict.fromkeys(_sentences(old)) if s not in kept] if sentences else []
+    if drop_references:
+        lost = [t for t in lost if not _is_ref(t)]
+    old_s, new_s = (without_references(old), without_references(new)) if part else (old, new)
+    kept = set(_sentences(new_s))
+    gone = [s for s in dict.fromkeys(_sentences(old_s)) if s not in kept] if sentences else []
     if lost or gone or word_count(new) < SHRINK_RATIO * word_count(old):
         parts = [f"{n} {name}" for n, name in ((dropped, "words"), (len(gone), "sentences")) if n]
         if lost:
@@ -364,17 +581,33 @@ def _guard_shrink(old: str, new: str, *, sentences: bool = True) -> None:
         raise ValueError(f"the new text drops {what}; use --shrink if that is meant.")
 
 
-def edit_section(path: Path, section: str, text: str, today: datetime.date, *, shrink: bool = False) -> None:
+def _guard_references(old: str, new: str) -> None:
+    """Refuse a new part that loses a reference of a sentence (or table row) it keeps word for word."""
+    kept: dict[str, set[str]] = {}
+    for u in units(new)[0]:
+        kept.setdefault(" ".join(u.plain.split()), set()).update(u.refs)
+    for u in units(old)[0]:
+        key = " ".join(u.plain.split())
+        if key in kept and (gone := [r for r in dict.fromkeys(u.refs) if r not in kept[key]]):
+            raise ValueError(f"the new text drops the reference {gone[0]} from a sentence it keeps unchanged "
+                             f"(unit {u.n}: {key[:60]!r}); use --drop-references if that is meant.")
+
+
+def edit_section(path: Path, section: str, text: str, today: datetime.date, *, shrink: bool = False,
+                 drop_references: bool = False) -> None:
     """Replace the text under one section's heading; every other byte of the file stays. Logs the previous file.
 
-    Refused, unless `shrink`, when the new text has under 80% of the words or lacks a link of the old one."""
+    Refused, unless `shrink`, when the new text has under 80% of the words or lacks a link of the old one.
+    Refused, unless `drop_references` (whatever `shrink` says), when a sentence kept unchanged loses a reference."""
     syn, target = _target(path, section)
     text = _clean(text)
     if not text:
         raise ValueError("the section text is empty")
     _check_body(text)
+    if not drop_references:
+        _guard_references(target.text, text)
     if not shrink:
-        _guard_shrink(target.text, text)
+        _guard_shrink(target.text, text, part=True, drop_references=drop_references)
     _replace(path, syn, target, text, today, "edit")
 
 

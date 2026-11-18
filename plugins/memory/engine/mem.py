@@ -3967,7 +3967,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
         handle, _, section = part.partition("#")
         syn = next((x for x in synths if x.handle == handle), None)
         sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
-        if sec is not None and note.meta.get("part_of_hash") != syntheses.fingerprint(sec.text):
+        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text):
             stale.append(f"  {name}  s:{handle}#{section}")
     out = []
     if disputed:
@@ -4936,7 +4936,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                                 if section != syntheses.SUMMARY and body.strip() else [])
                     if problems:
                         raise ValueError("; ".join(problems))
-                    syntheses.edit_section(path, section, body, today, shrink=args.shrink)
+                    syntheses.edit_section(path, section, body, today, shrink=args.shrink,
+                                           drop_references=args.drop_references)
                     print(f"s:{handle}#{section}\tedited")
             _long_note(handle, path, new_handle if action == "add" else section)
     except (ValueError, OSError, FrontmatterError, yaml.YAMLError, NewNoteError) as exc:
@@ -5980,6 +5981,8 @@ def build_parser() -> argparse.ArgumentParser:
     syn_edit.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_edit.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
     syn_edit.add_argument("--shrink", action="store_true", help="allow a text with fewer words or links than before")
+    syn_edit.add_argument("--drop-references", action="store_true",
+                          help="allow a sentence kept unchanged to lose a reference (a note link in its body)")
     syn_append = synthesis_sub.add_parser("append", help="add text at the end of a section, before its Sources line")
     syn_append.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_append.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")

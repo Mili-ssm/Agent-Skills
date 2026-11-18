@@ -49,7 +49,7 @@ mem synthesis add s:<slug> --section "<heading>" --body-file "$d/<slug>-part.md"
 ```
 
 - New material for an existing part: `mem synthesis append s:<slug>#<section> --body-file -`. It adds to the end of the part; it does not retype it.
-- A correction: `mem synthesis edit s:<slug>#<section> --body-file -`. It refuses a text that loses much of the part or one of its links; `--shrink` only when the loss is meant.
+- A correction: `mem synthesis edit s:<slug>#<section> --body-file -`. It refuses a text that loses much of the part or one of its links; `--shrink` only when the loss is meant. It also refuses a sentence kept unchanged that loses a reference (a note link in its body), even with `--shrink`; `--drop-references` only when that is meant.
 - `mem new knowledge` on a covered topic writes the note and names the synthesis that covers it; attaching it is for the next curation pass.
 - A part under a wrong heading or one that no longer belongs: `mem synthesis rename s:<slug>#<section> "<new heading>"` or `remove s:<slug>#<section>`. A note that does not belong to its part: `mem synthesis detach <note>`. Topics: `mem synthesis topics s:<slug> A,B`.
 - Never edit a file under `syntheses/` by hand, and never replace a whole document: use the commands, which keep an undo (`mem restore s:<slug>`).
