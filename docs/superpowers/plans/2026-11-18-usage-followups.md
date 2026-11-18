@@ -8,9 +8,12 @@ Source: [docs/studies/2026-11-18-weekly-usage.md](../../studies/2026-11-18-weekl
 - [ ] **3b. Shell (G1).** `CLAUDE_CODE_SHELL=/usr/bin/bash` is set in the owner's `~/.claude/settings.json` (backup in `~/.claude/backups/settings-2026-11-18-before-shell.json`). Check, in a new session: `echo $0` and `echo ===` in the main session and in one subagent print without error.
 - [x] **3c. Inline checks (G6, suspicion S3).** Measured over all 453 inline checks; figures in the study ("Inline checks, measured for suspicion S3").
 - [x] **3d. Checks row of the offload table (G6).** Narrowed at the owner's request; eval table in ADR 0010, Review 2026-11-18.
-- [ ] **3e. Re-paste the offload block** into the owner's `~/.claude/CLAUDE.md` after the G6 pull request merges (ADR 0021). Check: the block's commit marker names the merge commit.
+- [x] **3e. Re-paste the offload block** into the owner's `~/.claude/CLAUDE.md` (done 2026-11-18; the marker names the commit that changed the file).
 - [ ] **3f. `offload-ui-verifier-with-policy` degraded on `main`** (2 of 6 runs pass every grader against 6/6 on 2026-11-04; ADR 0010 Review 2026-11-18). Read one failing trace before any eval. Check: the cause named in ADR 0012 as a `## Review`.
-- [ ] **4. Issues #124 and #125 (G4), and the review route (G5).** The owner rules on each issue's open questions; then one plan per accepted agent change. Check: each issue closed or carrying the ruling.
+- [x] **4a. Issue #125.** Owner's ruling: widen the `fact-checker` description to batches, keep it read-only. ADR 0018 Review 2026-11-18.
+- [ ] **4b. Issue #124 (`note-writer`).** Owner's ruling: wait; read the general-purpose note-writing calls again in the next usage study and create the agent only if they persist.
+- [ ] **4c. Review route (G5).** Not ruled on: 24 plan-task reviews went to general-purpose on Sonnet.
+- [ ] **4d. Offload policy from a session-start hook (G8, the owner's question).** Decide after reading the next usage study; see the study's suggestion G8.
 - [ ] **5. Seamless memory, stage 2.** Resume from "Where to resume: stages 2 to 5" in [2026-11-17-memory-seamless.md](2026-11-17-memory-seamless.md). Check: that plan's own.
 - [ ] **6. Kill read of the memory plugin, around 2026-12-01.** From the usage and hook logs, into ADR 0023 as a `## Review`. Check: the Review section exists.
 

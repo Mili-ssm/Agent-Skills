@@ -89,11 +89,16 @@ This replaces the Alternatives row "Haiku workers from `low` to `medium`" for `s
 
 `fact-checker` now names batches (issue #125, owner's ruling that day: widen the description, keep the agent read-only, no apply mode).
 
-Evidence, counted from the owner's transcripts of the two weeks to 2026-11-18: 76 dispatches named `fact-checker`, 89 fact-checks went to a general-purpose worker on Sonnet. Those 89 were batches: a median of 9 note files per dispatch (20 at most), with a prompt that points to a brief file shared by several checkers. `fact-checker` already runs on Sonnet, so the model does not explain the choice; its description spoke of "a written text" and its body of "a document" with a cap of about 40 claims per dispatch.
+Evidence, counted from the owner's transcripts of the two weeks to 2026-11-18: 76 dispatches named `fact-checker`, 89 fact-checks went to a general-purpose worker on Sonnet. Those 89 were batches: a median of 9 note files per dispatch (20 at most), with a prompt that points to a brief file shared by several checkers. `fact-checker` already runs on Sonnet, so the model does not explain the choice; its description spoke of "a written text" and its body of "a document" with one cap of about 40 claims.
 
 | Change | Text | Measured |
 |---|---|---|
 | `description` | "(a note or a batch of notes, …)" and "to check a group of notes written together in one dispatch (its brief may be a file that several checkers share)" | The five `neg-*` cases, Sonnet main, 2 runs each: silent 10/10 ($0.53; record 10/10 and 15/15, ADR 0017). No trigger or offload case names this agent |
 | Body | Inputs take several documents and a shared brief file; the 40-claim cap is per document, one document finished before the next; a batch report keeps the 60-line total with one count line per document and problem rows only | Unmeasured |
 
-Kill criteria, read from the next usage study: revert the description clause if general-purpose fact-check dispatches do not fall below the named ones (89 against 76 in this window; 45 against 77 in its last week), because the clause would then be read on every routing decision for nothing; revert the body change if a batch report read in a trace exceeds 60 lines or drops a `contradicted` row. Cheapest direct check of the body: one batch of 9 notes with seeded errors.
+Kill criteria:
+
+| Change | Read from | Revert if |
+|---|---|---|
+| Description clause | The next usage study, a window of 7 days after this ships (`docs/studies/scripts/`, dispatches classified by description as in the 2026-11-18 study) | General-purpose fact-check dispatches are still more than half of the named ones (they were 45 against 77 in the last 7 days before the change), because the clause would then be read on every routing decision for nothing |
+| Body | One trace of a real batch of at least 5 notes, or a batch of 9 notes with seeded errors | The report exceeds 60 lines, or a seeded or known `contradicted` claim is missing from it |
