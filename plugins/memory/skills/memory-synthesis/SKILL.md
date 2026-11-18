@@ -7,7 +7,7 @@ description: Writes and maintains a synthesis with the `mem` command - one long,
 
 **Core rule:** a synthesis is the long-term version, a note is the quick recall of one of its parts. The synthesis holds origins, reasons, and when a thing applies and when it does not; the note holds the one sentence someone needs while working. Notes are written freely as they come; building a synthesis, and joining a note to one, is curation work done afterwards.
 
-A synthesis is third-hand knowledge (source, note, synthesis): every part says what it rests on, and nothing in it is firmer than its sources.
+A synthesis is third-hand knowledge (source, note, synthesis): every sentence that states a finding says which note it rests on, every part lists its notes, and nothing in it is firmer than its sources.
 
 ## Reading
 
@@ -21,7 +21,11 @@ Worth it when a subject has many notes that a reader would have to assemble (the
 
 1. Gather: `mem find --topic <id>` and `mem search "<subject>" --links`; read the conclusions with `mem show <handle>... --section conclusion`, and a source's passages only where a part needs a figure.
 2. `mem synthesis new --title "…" --topics <id> --slug <slug> --summary-file -`: the summary is a few lines saying what the document covers and for whom.
-3. One part per call: `mem synthesis add s:<slug> --section "<heading>" --body-file -`. A part answers, in this order: what the practice or finding is; where it comes from; why it holds; when it applies; when it does not; what remains disputed. It ends with a line `Sources:` linking the notes it rests on (or a URL, or `experience <date>` for what comes from work). After each sentence that states a finding from a note, put that note's link, exactly as on the `Sources:` line, directly after the sentence's full stop and on the same line: `Short sleep cut the fat share of the weight lost. [sleep and fat loss](../knowledge/medicine/short-sleep-cut-fat-loss.md)`. Two notes behind one sentence: both links, one after the other. A later step reads these links to know which note supports which sentence, so a link at the end of a paragraph covers only its last sentence. A sentence of your own reasoning (`Inference:`), a connecting sentence and the `## Summary` take none.
+3. One part per call: `mem synthesis add s:<slug> --section "<heading>" --body-file -`. A part answers, in this order: what the practice or finding is; where it comes from; why it holds; when it applies; when it does not; what remains disputed. It ends with a line `Sources:` linking the notes it rests on (or a URL, or `experience <date>` for what comes from work).
+   - **A link after each finding.** After each sentence that states a finding from a note, put that note's link directly after the sentence's full stop, on the same line: `<Sentence that states the finding.> [<short label>](../knowledge/<domain>/<file of the note>.md)`. Use one link per note, the same in the sentences and on the part's `Sources:` line. Two notes behind one sentence: both links, one after the other.
+   - **Why:** a later step reads these links to know which note supports which sentence, so a link at the end of a paragraph covers only its last sentence, and a finding without a link counts as unreferenced.
+   - **No link** after a sentence of your own reasoning (`Inference:`), a connecting sentence, a sentence that rests on a URL or on `experience <date>`, or anything in the `## Summary`.
+   - `add` refuses a part where a link names a note that is not on its `Sources:` line, or stands with no sentence before it on its line: read the error and fix the part.
 4. Keep a part under about 800 words; split a longer one.
 5. `mem check` must pass before you stop.
 
