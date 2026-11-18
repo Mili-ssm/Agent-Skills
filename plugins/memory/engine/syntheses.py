@@ -212,7 +212,7 @@ def _resolved(base: Path, target: str) -> Path:
 
 
 def _orphan_problems(text: str) -> list[str]:
-    return [f"reference {t} has no sentence before it: a reference stands after the sentence it supports"
+    return [f"reference {t} has no sentence before it on its line: a reference stands after the sentence it supports, on the same line"
             for t in dict.fromkeys(units(text)[1])]
 
 
@@ -651,6 +651,17 @@ def _guard_references(old: str, new: str) -> None:
                              f"(unit {u.n}: {key[:60]!r}); use --drop-references if that is meant.")
 
 
+def _guard_shown(old: str, new: str) -> None:
+    """Refuse a new part written from the reader's form of the old one (`shown`), where a reference is only its label:
+    saving it would keep the label and lose the link."""
+    flat = " ".join(new.split())
+    for u in units(old)[0]:
+        if u.refs and re.search(re.escape(" ".join(shown(u.text).split())) + r"(?!\()", flat):
+            raise ValueError(f"the new text has only the label of a reference of the stored part (unit {u.n}: "
+                             f"{' '.join(u.plain.split())[:60]!r}); start from `mem show <part> --stored`, which "
+                             "prints the references with their links.")
+
+
 def edit_section(path: Path, section: str, text: str, today: datetime.date, *, shrink: bool = False,
                  drop_references: bool = False) -> None:
     """Replace the text under one section's heading; every other byte of the file stays. Logs the previous file.
@@ -662,6 +673,7 @@ def edit_section(path: Path, section: str, text: str, today: datetime.date, *, s
     if not text:
         raise ValueError("the section text is empty")
     _check_body(text)
+    _guard_shown(target.text, text)
     if not drop_references:
         _guard_references(target.text, text)
     if not shrink:

@@ -209,7 +209,7 @@ def test_a_note_stamped_with_the_old_fingerprint_is_current(run, made):
     assert "one-note  s:attention#alpha" not in run("curate", "--notes")[1]
 
 
-def test_an_edit_that_only_adds_references_needs_no_shrink(run, made, tmp_path):
+def test_an_edit_that_adds_a_reference_and_its_source_needs_no_shrink(run, made, tmp_path):
     text = PART.replace("too, in this case.", f"too, in this case.[b]({B})").replace(SRC, f"{SRC}, [b]({B})")
     code, out, err = edit(run, tmp_path, text)
     assert code == 0, err
@@ -222,6 +222,15 @@ def test_a_dropped_reference_on_an_unchanged_sentence_is_refused_with_and_withou
     for flags in ((), ("--shrink",)):
         code, _, err = edit(run, tmp_path, text, *flags)
         assert code == 1 and f"drops the reference {A}" in err and "--drop-references" in err
+    assert f"[a]({A})" in (made / "syntheses" / "attention.md").read_text(encoding="utf-8")
+
+
+def test_a_text_written_from_the_label_form_is_refused_whatever_the_flags(run, made, tmp_path):
+    text = syntheses.shown(PART)
+    assert f"]({A})" not in text.split("Sources:")[0]
+    for flags in ((), ("--shrink",), ("--shrink", "--drop-references")):
+        code, _, err = edit(run, tmp_path, text, *flags)
+        assert code == 1 and "--stored" in err
     assert f"[a]({A})" in (made / "syntheses" / "attention.md").read_text(encoding="utf-8")
 
 
