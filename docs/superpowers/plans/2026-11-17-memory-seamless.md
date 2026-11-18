@@ -2,7 +2,61 @@
 
 Owner, 2026-11-17: the global memory should work as an internal mechanism of the model, close to a black box: it researches and contrasts facts on the web to the extent the owner sets, keeps sibling notes in step, splits a synthesis that outgrows its topic (the specific part to a child, the generic part kept in the parent), and does this automatically. Project memory stays explicit.
 
-**Status:** planned; stage 1 next.
+**Status (2026-11-18):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stages 2 to 5 are not started: begin at "Where to resume: stages 2 to 5".
+
+## Where to resume: stages 2 to 5
+
+Start with stage 2: stages 3 and 4 need its inline references, and stage 5 only wires what the others measured. One branch per stage; a merge into `main` needs the owner's word each time.
+
+### State on 2026-11-18
+
+| Fact | Detail |
+|---|---|
+| `main` | `a65b322`; installed plugins updated to it (sessions started earlier need a restart) |
+| Owner settings | `auto_settle` and `auto_curation` on for `memory@mili-ssm`; `research_depth` unset (default `contrast`) |
+| Not yet seen in a real session | the write-path trigger of settling and its session start lines (tested with a fake `claude` only): check `mem-settle status` and `mem settle log` at the start of the next session |
+| Tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1137 passed, 4 skipped. `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (the curation log writes its date in UTC, the test expects the local date): an open low defect |
+| Open low items | three in `evals/settle/run_trial.py` (see "Results"); an unclosed `<script>` hides the rest of a fetched page (a false "quote not on the page"); the web session's own `official` label is trusted |
+
+### How each stage was built so far (repeat it)
+
+1. Write the stage's design into this file, then dispatch `agent-skills:pre-mortem` on that section and amend the text before any code.
+2. One `agent-skills:implementer` per task with a six-part brief; `agent-skills:skeptical-reviewer` after each commit, at most two rounds; rerun the tests yourself.
+3. Fix the trial's rule in this file before the run; run it on a store copy under the git-ignored `target/` through `plugins/memory/evals/trial_env.py`; write the numbers and their limits under "Results".
+4. Rules that held in every stage: no model session gets a shell (it writes a file, Python applies it); every automatic action is undoable with one command; a headless session needs `--tools` for which tools exist and `--allowedTools` for the permission to call them; trials never touch the real store.
+
+### Stage 2: inline note references in syntheses
+
+- **Intent:** every later step must know which note supports which sentence. Today a part cites its notes only in its `Sources:` line (see "A change to how syntheses are written").
+- **Bound by the pre-mortem of 2026-11-17:** a reference is a Markdown link to the note, never a bare handle (`mem rename` rewrites only links); `mem check` follows `superseded_by`, so a reference to a note that was unified away is reported with its successor; the 24 existing syntheses get a measured backfill step, they are not left to be upgraded "when next rewritten".
+- **Files:** writer prompt in `plugins/memory/agents/memory-synthesizer.md` (and `plugins/memory/evals/synthesis/writer-brief.md` for the trial); checker and fixer in `plugins/memory/engine/synth_briefs/`; the loop in `plugins/memory/engine/synth_pipeline.py` (`lean_loop`); `cmd_check` in `plugins/memory/engine/mem.py`; the pipeline command `plugins/memory/bin/mem-synthesize`.
+- **Tasks:** (a) decide the reference form and where it may stand (end of the sentence that states a finding); (b) `mem check` rule: every reference resolves to a live note that is in the part's `Sources:` line; (c) writer and checker briefs: the checker compares a sentence with its one referenced note; (d) backfill: a session proposes references for an existing part as a file, Python accepts a reference only when the note is in the part's `Sources:` and applies them through `mem synthesis edit`; (e) the trial.
+- **Trial:** `plugins/memory/evals/synthesis/run_trials.py`, the same three topics as the lean loop, whose recorded numbers are the baseline: Haiku writer at medium effort, 6.8 unsupported claims per 100 at 0.25 USD per synthesis (preliminary, one run). Rule to fix before the run; proposed: adopt when unsupported claims do not rise and cost rises by less than 30%; for the backfill, 0 references to a note that does not support its sentence in a judged sample of 40.
+- **Cost estimate:** about 0.3 USD per Haiku synthesis and 0.05 to 0.2 per judge; a three-topic run with judging about 1.5 to 3 USD. Earlier estimates in this project were low by 3 to 5 times: state the estimate to the owner before the run.
+
+### Stage 3: integration and sibling updates
+
+- **Intent:** a new note on a covered topic joins its synthesis without anyone asking, and the notes of that part stay in step.
+- **Bound:** a sibling note is stale only when a sentence that cites it changed (needs stage 2); siblings receive links, evidence lines and dispute marks, never a rewritten claim.
+- **Exists:** `mem curate --notes` lists unattached notes on a covered topic; `mem curate apply --safe` attaches a note only when the part's `Sources:` line already backs it; `mem synthesis append`, `attach`; `mem note confirm`, `mem note dispute` (stage 1a).
+- **Tasks:** (a) a session writes the sentence to append, with its reference, as a file; Python appends and attaches; (b) staleness by changed sentence; (c) the sibling step proposes links and evidence as a file, Python applies fixed commands.
+- **Trial:** a store copy with seeded notes: ones that belong to a part, ones on the topic that do not belong, and one that contradicts a sibling. Count wrong attachments and any claim that changed.
+
+### Stage 4: splitting a synthesis
+
+- **Intent (owner, 2026-11-17):** when enough notes of a synthesis are specific to a sub-subject, that part moves to a child synthesis; the parent keeps the generic part and a pointer; the two are linked. The owner's example: parallelism in the software-engineering synthesis stays generic, parallelism in a Rust synthesis is about Rust.
+- **Bound:** the conservation check is on references and numbers (every reference and every figure of the old part is in the parent or the child), not on sentences; the moved notes are re-pointed to the child; the split is one reversible step.
+- **Known facts:** notes carry several topics, and that is not duplication (all 11 programming-languages knowledge notes also sit in the software-engineering synthesis); the topic tree and the synthesis tree stay separate; no command deletes a whole synthesis, and an emptied one still holds its topic; the only concrete size rules found are Wikipedia's (split a subtopic that needs more detail than the parent can hold or is much larger than its siblings).
+- **Open, for the owner:** the thresholds (how many notes sharing a second topic, or what size, starts a split), and whether a split is applied automatically or proposed first. Present options with their trade-offs; do not pick silently.
+- **Tasks:** (a) detection by code in `mem curate --notes`; (b) a `mem synthesis split` command that moves whole parts with their notes and leaves a summary part with a pointer; (c) `memory-synthesizer` in split mode for a part that mixes generic and specific sentences; (d) the conservation check; (e) undo.
+- **Trial:** a store copy with a seeded sub-subject; kill when a reference or a figure is lost, or a note points at the wrong synthesis.
+
+### Stage 5: joining `mem-auto`
+
+- **Intent:** the owner does not ask for any of this; it runs within a bounded budget and a failure is visible.
+- **Rule:** a step joins only after its own trial, with its share of the run's budget (`plugins/memory/bin/mem-auto`, option `auto_curation_budget`, default 2 USD) and its own failure line at session start. Settling (stage W) already runs on its own trigger and stays apart.
+- **Decide with the owner before wiring web contrast in:** the trial confirmed 6 of 12 real notes, at the threshold; widening what the web session reaches comes first. An automatic contrast would also send note claims to a web search without a request: the owner sets how far that goes (the option `research_depth` exists; a separate option for automatic contrast is proposed).
+
 
 ## What the literature gives, and how it is adapted
 
