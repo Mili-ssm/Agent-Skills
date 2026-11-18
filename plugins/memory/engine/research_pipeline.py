@@ -550,14 +550,14 @@ def self_check() -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mem-research", description=__doc__.splitlines()[0])
     parser.add_argument("question", nargs="?")
-    option = os.environ.get("CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH")
+    option = os.environ.get("MEM_RESEARCH_DEPTH") or os.environ.get("CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH")
     parser.add_argument("--depth", choices=DEPTHS, default=option if option in DEPTHS else DEFAULT_DEPTH,
                         help="memory: only the memory; contrast: also 5 web pages; deep: 15 pages, papers asked for "
                              "(default: the plugin option research_depth, else contrast)")
     parser.add_argument("--contrast", nargs="+", default=[], metavar="NOTE", help="knowledge notes to check against the web "
                         "(replaces the choice of the memory step)")
     parser.add_argument("--store", type=Path, help="default: MEM_STORE, else the default store")
-    parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    parser.add_argument("--claude", default=os.environ.get("MEM_CLAUDE") or os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     parser.add_argument("--budget", help="USD for the whole run (default: contrast 0.50, deep 2, memory 0.25)")
     parser.add_argument("--allow-host", action="append", default=[], metavar="HOST",
                         help="a host fetched although it resolves to a non-public address (a local test page)")

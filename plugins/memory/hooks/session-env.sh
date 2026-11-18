@@ -43,6 +43,16 @@ else
   default_store
 fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
+# mem-research, run from a shell command of this session, needs the claude binary and the owner's default depth; the
+# hook's CLAUDE_PLUGIN_OPTION_* variables do not reach shell commands.
+[ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null
+if type find_claude >/dev/null 2>&1; then
+  research_claude="$(find_claude)"
+  [ -n "$research_claude" ] && export_var MEM_CLAUDE "$research_claude"
+fi
+case "${CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH:-}" in
+  memory|contrast|deep) export_var MEM_RESEARCH_DEPTH "$CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH" ;;
+esac
 # Background settling (option auto_settle, exactly "true"): the variables below are what lets the write path of this
 # session's shell commands start a settling run; no variable, no trigger (a trial or a test never has them).
 if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ]; then
