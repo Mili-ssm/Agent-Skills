@@ -170,7 +170,25 @@ def load(folder: Path | None) -> list[Synthesis]:
         return []
 
 
+_SHOWN_NUMBER = re.compile(r"\[\d+\](?![(\[])")
+_CODE_TEXT = re.compile(r"^(?:```|~~~).*?^(?:```|~~~)[^\n]*$|`[^`\n]*`", re.M | re.S)
+
+
+def _number_problems(text: str) -> list[str]:
+    """A bracketed number such as `[3]` in a part: the form in which `mem show` prints a reference (`shown`), so a
+    part that holds one was written from that form and lost the link."""
+    found = list(dict.fromkeys(_SHOWN_NUMBER.findall(_CODE_TEXT.sub("", text))))
+    return [f"{n} is how `mem show` prints a reference, not text to store: write the note's link in its place "
+            "(`mem show <part> --stored` prints the part with its links)" for n in found]
+
+
 def validate_section(text: str, store: Path) -> list[str]:
+    """Problems of a part: a bracketed number left from the form `mem show` prints, then those of
+    `_validate_sources`."""
+    return _number_problems(text) + _validate_sources(text, store)
+
+
+def _validate_sources(text: str, store: Path) -> list[str]:
     """Problems with a part's closing `Sources:` line: missing, citing nothing acceptable, or a note link that does
     not resolve to a note file (literature, knowledge or research) inside the store. A line may cite a note by a
     relative link, an `https` URL (link or bare), or `experience <YYYY-MM-DD>` for knowledge that has no note yet."""
@@ -244,11 +262,19 @@ def shown(text: str, numbers: Mapping[str, int] | None = None) -> str:
     """`text` as a reader gets it: a reference that follows its sentence becomes `[n]`, the place of its note on the
     part's `Sources:` line (`numbers`, read from `text` when not given); one inside a sentence keeps its label as the
     word it is, followed by `[n]`. A reference to a note that is not on that line keeps only its label (`[note]`
-    when it has none). The `Sources:` line and everything else stay as stored, line breaks included.
+    when it has none). On the `Sources:` line each note link is preceded by its number; everything else stays as
+    stored, line breaks included.
 
     A number costs about 2 tokens where the stored link costs about 29 and its label about 5 to 10."""
     numbers = source_numbers(text) if numbers is None else numbers
-    _, every, _, _ = _parse(text)
+    _, every, _, body_end = _parse(text)
+    line = _sources_line(text)
+    if line is not None and numbers:
+        # Each note on the `Sources:` line carries its number, so a reader need not count the entries.
+        at = text.rindex(line)
+        numbered = _REF_LINK.sub(lambda m: (f"[{numbers[k]}] " if (k := _note_key(m.group(2))) in numbers else "")
+                                 + m.group(0), line)
+        text = text[:at] + numbered + text[at + len(line):]
     out, pos = [], 0
     for r in every:
         n = numbers.get(_note_key(r.target))

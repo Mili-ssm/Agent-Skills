@@ -1,4 +1,6 @@
 """Inline note references in syntheses: the unit parser, the fingerprint that ignores them, and the edit guard."""
+from pathlib import Path
+
 import pytest
 
 import mem
@@ -317,8 +319,9 @@ def test_a_superseded_reference_or_source_is_reported_with_the_successor(run, ma
 def test_show_prints_source_numbers_and_stored_prints_the_text(run, made):
     code, out, _ = run("show", "s:attention#alpha")
     assert code == 0 and "The first claim stands firmly.[1] The second" in out and A + ")" not in out.split("Sources:")[0]
-    assert f"Sources: [attention]({A})" in out
+    assert f"Sources: [1] [attention]({A})" in out
     code, out, _ = run("show", "s:attention#alpha", "--stored")
+    assert f"Sources: [attention]({A})" in out
     assert f"firmly.[a]({A})" in out
     rewrite(made, f"[a]({A})", f"[]({A})")
     assert "firmly.[1] The second" in run("show", "s:attention", "--all")[1]
@@ -330,6 +333,21 @@ def test_shown_numbers_follow_the_sources_line_and_fall_back_to_the_label():
             f"Four. [](../knowledge/computing/absent.md)\n\nSources: [attention]({A}), [vaswani]({B})\n")
     assert syntheses.source_numbers(text) == {A: 1, B: 2}
     assert syntheses.shown(text).split("\n")[0] == "One. [2] Two uses the paper [1] here. Three. [y] Four. [note]"
+    assert syntheses.shown(text).split("\n")[2] == f"Sources: [1] [attention]({A}), [2] [vaswani]({B})"
+
+
+@pytest.mark.parametrize("flags", [(), ("--shrink",), ("--shrink", "--drop-references")])
+def test_a_reworded_text_from_the_shown_form_is_refused_by_its_bracketed_number(run, made, tmp_path, flags):
+    text = syntheses.shown(PART).replace("stands firmly", "stands very firmly")
+    code, _, err = edit(run, tmp_path, text, *flags)
+    assert code == 1 and "--stored" in err
+    assert f"[a]({A})" in (made / "syntheses" / "attention.md").read_text(encoding="utf-8")
+
+
+def test_a_bracketed_number_is_refused_in_a_part_but_not_inside_code():
+    base = Path("/nowhere")
+    assert any("[3]" in p for p in syntheses.validate_section("A claim. [3]\n\nSources: https://example.org/a\n", base))
+    assert syntheses.validate_section("Index `x[3]` and a link [3](https://example.org).\n\nSources: https://example.org/a\n", base) == []
 
 
 def test_unify_of_a_referenced_note_leaves_the_part_current(run, made, tmp_path):

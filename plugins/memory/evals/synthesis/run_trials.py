@@ -844,7 +844,7 @@ def reference_conditions(r_rows: list[dict], m_rows: list[dict]) -> list[tuple[s
              f"(best case {wrong_best:.3f}, {t['wrong']}/{t['pairs']})",
              t["pairs_worst"] > 0 and wrong_worst <= R_MAX_WRONG),
             (f"tokens shown {shown_r:.0f} <= {R_MAX_SHOWN_GROWTH} x M's {shown_m:.0f} = {R_MAX_SHOWN_GROWTH * shown_m:.0f}"
-             + (" (do not adopt: shorten the label rule first)" if grew else ""), not grew)]
+             + (" (do not adopt: shorten what `mem show` prints first)" if grew else ""), not grew)]
 
 
 def reference_notes(r_rows: list[dict]) -> tuple[list[str], list[str]]:
@@ -1547,7 +1547,7 @@ def ref_checks(root: Path) -> None:
     bad = decide(rows("M", 1000) + rows("R", 1000, **{**good, "wrong": 9}))
     assert bad[-1] == "Verdict R against M: FAIL" and any("wrong references" in x and "FAILED" in x for x in bad), bad
     big = decide(rows("M", 1000) + rows("R", 1200, **good))
-    assert big[-1] == "Verdict R against M: FAIL" and any("shorten the label rule first" in x and "FAILED" in x for x in big), big
+    assert big[-1] == "Verdict R against M: FAIL" and any("shorten what `mem show` prints first" in x and "FAILED" in x for x in big), big
     prelim = decide(rows("M", 1000) + rows("R", 1000, **good, planted=10, found=6))
     assert prelim[-1] == "Verdict R against M: PASS (preliminary)" and any("calibration is not valid" in x for x in prelim), prelim
     assert calibration_min(20) == 16 and calibration_min(10) == 8 and calibration_min(7) == 6 and calibration_valid(10, 8)
