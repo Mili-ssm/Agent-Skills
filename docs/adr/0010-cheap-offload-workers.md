@@ -54,17 +54,26 @@ The checks row of `user-config/offload-policy.md` is narrowed, at the owner's re
 
 The case `offload-check-runner-with-policy` changed with the row: its suite now takes over a minute (a 65-second module fixture) and the prompt says so, because the old two-test suite is what the new row keeps inline. Its earlier results are not comparable.
 
-Sonnet main, 2 runs per case, `--case 'offload-*-with-policy'`, $1.40:
+Sonnet main (`--model sonnet`), 2 runs per case, `--case 'offload-*-with-policy'`, $1.40:
 
 | Case | Last record | 2026-11-18 |
 |---|---|---|
 | `offload-check-runner-with-policy` (changed case) | 2/3, rerun 6/6 (ADR 0017) | 2/2 dispatched, nothing run inline, right answer |
 | `offload-summarizer-with-policy` · `-extract-` | 3/3 · 3/3 | 2/2 · 2/2 |
 | `offload-skeptical-reviewer-with-policy` | 2/6 | 2/2 |
-| `offload-ui-verifier-with-policy` | 2/3 (judge), rerun 6/6 | dispatched 2/2; one run lost two judge graders on the worker's report (score 0.83) |
-| `offload-implementer-with-policy` | 0.17 | 0.17 (no dispatch, as before; the owner sees it fire in real use) |
+| `offload-ui-verifier-with-policy` | 2/3 (judge), rerun 6/6 | dispatched 2/2, 1 of 2 runs passed every grader (case score 0.83); rerun at 6 below |
+| `offload-implementer-with-policy` | 0.17 | 0.17 (no dispatch, as before; the owner sees it fire in real use). Not rerun at 6: it sits at its floor, where a drop cannot show |
 
-No case fell below its record on dispatch, so no 6-run comparison was made. The `ui-verifier` judge misses concern the content of that worker's report, which this change does not touch.
+`offload-ui-verifier-with-policy` at 6 runs on both sides (same flags; `main` in a worktree), $2.52:
+
+| Side | Dispatched | Runs passing every grader | Case score | `faq-works` failed | `mobile-defect` failed |
+|---|---|---|---|---|---|
+| `main` (old row) | 6/6 | 2/6 | 0.83 | 2/6 | 4/6 |
+| This change | 6/6 | 0/6 | 0.75 | 4/6 | 5/6 |
+
+Reading, with its limit: dispatch, the measure the eval protocol names ("fired"), did not move (6/6 on both sides). Runs passing every grader fell from 2/6 to 0/6, which is the protocol's revert threshold if that measure is the one meant; the failing graders judge what the `ui-verifier` report says about the page, a path this change does not touch, and they already fail on `main` in 4 of 6 runs against the 6/6 recorded on 2026-11-04. Whether this counts as a drop is the owner's ruling, recorded below when given. Separate finding, open: the case has degraded on `main` since its last record.
+
+The changed `check-runner` case states the duration in its prompt, so it measures the row given that expectation, not the model's own estimate of how long a suite takes.
 
 Not measured: that a short check now stays inline (no case covers it; it is what the transcripts already show).
 
