@@ -16,7 +16,7 @@ import unicodedata
 import urllib.parse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Sequence
+from typing import Callable, Mapping, Sequence
 
 import yaml
 
@@ -227,13 +227,36 @@ def references(text: str) -> list[str]:
     return [_file_part(r.target) for r in _parse(text)[1]]
 
 
-def shown(text: str) -> str:
-    """`text` as a reader gets it: each reference reduced to `[label]` (`[note]` when it has none); the `Sources:`
-    line and everything else as stored. Line breaks stay where they are."""
+def _note_key(target: str) -> str:
+    return posixpath.normpath(urllib.parse.unquote(_file_part(target)))
+
+
+def source_numbers(text: str) -> dict[str, int]:
+    """The place (from 1) of each note on a part's `Sources:` line, by its link target."""
+    found: dict[str, int] = {}
+    for m in _REF_LINK.finditer(_sources_line(text) or ""):
+        if _is_ref(m.group(2)):
+            found.setdefault(_note_key(m.group(2)), len(found) + 1)
+    return found
+
+
+def shown(text: str, numbers: Mapping[str, int] | None = None) -> str:
+    """`text` as a reader gets it: a reference that follows its sentence becomes `[n]`, the place of its note on the
+    part's `Sources:` line (`numbers`, read from `text` when not given); one inside a sentence keeps its label as the
+    word it is, followed by `[n]`. A reference to a note that is not on that line keeps only its label (`[note]`
+    when it has none). The `Sources:` line and everything else stay as stored, line breaks included.
+
+    A number costs about 2 tokens where the stored link costs about 29 and its label about 5 to 10."""
+    numbers = source_numbers(text) if numbers is None else numbers
     _, every, _, _ = _parse(text)
     out, pos = [], 0
     for r in every:
-        out.append(text[pos:r.start] + f"[{r.label or 'note'}]")
+        n = numbers.get(_note_key(r.target))
+        if n is None:
+            seen = f"[{r.label or 'note'}]"
+        else:
+            seen = f"[{n}]" if r.trailing else f"{r.label} [{n}]".strip()
+        out.append(text[pos:r.start] + seen)
         pos = r.end
     return "".join(out) + text[pos:]
 
@@ -743,12 +766,12 @@ def _guard_references(old: str, new: str) -> None:
 
 
 def _guard_shown(old: str, new: str) -> None:
-    """Refuse a new part written from the reader's form of the old one (`shown`), where a reference is only its label:
-    saving it would keep the label and lose the link."""
-    flat = " ".join(new.split())
+    """Refuse a new part written from the reader's form of the old one (`shown`), where a reference is only a number
+    or a label: saving it would lose the link."""
+    flat, numbers = " ".join(new.split()), source_numbers(old)
     for u in units(old)[0]:
-        if u.refs and re.search(re.escape(" ".join(shown(u.text).split())) + r"(?!\()", flat):
-            raise ValueError(f"the new text has only the label of a reference of the stored part (unit {u.n}: "
+        if u.refs and re.search(re.escape(" ".join(shown(u.text, numbers).split())) + r"(?!\()", flat):
+            raise ValueError(f"the new text has only the number or label of a reference of the stored part (unit {u.n}: "
                              f"{' '.join(u.plain.split())[:60]!r}); start from `mem show <part> --stored`, which "
                              "prints the references with their links.")
 

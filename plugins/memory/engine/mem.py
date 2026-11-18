@@ -2782,7 +2782,7 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
         print(f"mem: {path}: {syn.error}", file=sys.stderr)
         return None
     text = path.read_bytes().decode("utf-8", "replace")
-    if not args.stored:  # a reader gets `[label]`, not the 29-token reference; the line numbers do not change
+    if not args.stored:  # a reader gets `[n]`, the note's place on the `Sources:` line, not the 29-token reference; line numbers stay
         text = syntheses.shown_file(text)
     lines = text.split("\n")
     if section is not None:
@@ -5890,7 +5890,7 @@ def build_parser() -> argparse.ArgumentParser:
     show_parser.add_argument("--all", action="store_true", help="a synthesis: print the whole file, not its outline")
     show_parser.add_argument("--project", metavar="NAME", help="read a memory of this registered project")
     show_parser.add_argument("--stored", action="store_true",
-                             help="a synthesis: print each reference as stored, not as its `[label]`")
+                             help="a synthesis: print each reference as stored, not as `[n]`, the place of its note on the `Sources:` line")
     show_parser.set_defaults(func=cmd_show)
     topics_parser = sub.add_parser("topics", help="print the topic tree with note counts")
     topics_parser.add_argument("topic", nargs="?", metavar="ID", help="print only this topic's subtree")

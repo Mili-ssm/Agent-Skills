@@ -314,15 +314,22 @@ def test_a_superseded_reference_or_source_is_reported_with_the_successor(run, ma
     assert f"source {A} is superseded by one-note: point to it" in out
 
 
-def test_show_prints_labels_and_stored_prints_the_text(run, made):
+def test_show_prints_source_numbers_and_stored_prints_the_text(run, made):
     code, out, _ = run("show", "s:attention#alpha")
-    assert code == 0 and "The first claim stands firmly.[a]" in out and A + ")" not in out.split("Sources:")[0]
+    assert code == 0 and "The first claim stands firmly.[1] The second" in out and A + ")" not in out.split("Sources:")[0]
     assert f"Sources: [attention]({A})" in out
     code, out, _ = run("show", "s:attention#alpha", "--stored")
     assert f"firmly.[a]({A})" in out
     rewrite(made, f"[a]({A})", f"[]({A})")
-    assert "firmly.[note] The second" in run("show", "s:attention", "--all")[1]
+    assert "firmly.[1] The second" in run("show", "s:attention", "--all")[1]
     assert f"firmly.[]({A})" in run("show", "s:attention", "--all", "--stored")[1]
+
+
+def test_shown_numbers_follow_the_sources_line_and_fall_back_to_the_label():
+    text = (f"One. [x]({B}) Two uses [the paper]({A}) here. Three. [y](../knowledge/computing/absent.md) "
+            f"Four. [](../knowledge/computing/absent.md)\n\nSources: [attention]({A}), [vaswani]({B})\n")
+    assert syntheses.source_numbers(text) == {A: 1, B: 2}
+    assert syntheses.shown(text).split("\n")[0] == "One. [2] Two uses the paper [1] here. Three. [y] Four. [note]"
 
 
 def test_unify_of_a_referenced_note_leaves_the_part_current(run, made, tmp_path):
