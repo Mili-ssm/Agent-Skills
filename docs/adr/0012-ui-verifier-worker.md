@@ -57,7 +57,7 @@ ADR 0021 extends the single copy to `user-config/routing.md`: the owner's user-l
 
 ## Review 2026-11-18
 
-`offload-ui-verifier-with-policy` fell from 6/6 on every grader (2026-11-04, ADR 0017) to 2 of 6 runs passing every grader on `main` (ADR 0010 Review 2026-11-18). Two runs kept with `--keep-temp` show the cause, and it is the machine, not a prompt:
+`offload-ui-verifier-with-policy` fell from 6/6 on every grader (2026-11-04, ADR 0017) to 2 of 6 runs passing every grader on `main` (ADR 0010 Review 2026-11-18). Two runs kept with `--keep-temp` show the same cause, the machine and not a prompt; the other failing runs are assumed, not shown, to share it:
 
 | Observed in both traces | Detail |
 |---|---|
@@ -67,4 +67,4 @@ ADR 0021 extends the single copy to `user-config/routing.md`: the owner's user-l
 
 Consequences: the case measures dispatch correctly (6/6) and nothing else until a driver resolves in the sandbox; its judge graders are not evidence about any prompt change meanwhile. Real sessions are not shown to be affected: `ui-verifier` ran 39 times in the week of the study, outside this sandbox.
 
-Options, not decided (owner): install the global `playwright` package again, which restores what the case was measured with; or name `playwright-cli` as a driver in `ui-verifier.md` with the browsers path of the real home, a body change that needs its own trace.
+Options, not decided (owner): install the global `playwright` package again, which restores what the case was measured with; or make `playwright-cli`, which `ui-verifier.md` already names as its third driver, find the browsers of the real home from inside the sandbox (a browsers path in the body or in the case's sandbox), a change that needs its own trace.
