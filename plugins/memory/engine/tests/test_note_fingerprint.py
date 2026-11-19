@@ -77,6 +77,8 @@ def edit(run, tmp_path, old, new):
 def test_fingerprint_shape_and_whole_part_fallback():
     assert syntheses.note_fingerprint(BODY, ONE).startswith("u:")
     assert syntheses.note_fingerprint(BODY, "../knowledge/computing/./one-note.md") == syntheses.note_fingerprint(BODY, ONE)
+    assert syntheses.note_fingerprint(BODY, "../knowledge/computing/one%2Dnote.md") == syntheses.note_fingerprint(BODY, ONE)
+    assert syntheses.note_fingerprint(BODY, "../knowledge/computing/one-note.md#part") == syntheses.note_fingerprint(BODY, ONE)
     assert syntheses.note_fingerprint(BODY, ONE) != syntheses.note_fingerprint(BODY, TWO)
     assert syntheses.note_fingerprint(BODY, FREE) == syntheses.fingerprint(BODY)  # (g)
 

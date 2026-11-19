@@ -146,10 +146,12 @@ The owner chose T1 alone; T2 to T5 stay designed above (with A3 to A7) and are b
 T1 as built, so that A1 and A2 hold without re-stamping in plain edits:
 
 - A note's stamp becomes a **per-note fingerprint**, `u:` plus a hash of the multiset (sorted, whitespace collapsed, references removed) of the units that cite the note and the table rows of the part (which cannot carry a reference). A note that no unit cites keeps today's whole-part fingerprint.
-- `is_current(stored, text, note)`: a `u:` stamp is compared with the note's fingerprint; any other stamp keeps today's meaning (whole part, or legacy). Old stamps therefore never turn current by this change (A1); they move to `u:` only when a command stamps the note again.
+- `is_current(stored, text, target)`: a `u:` stamp is compared with the note's fingerprint; any other stamp keeps today's meaning (whole part, or legacy). Old stamps therefore never turn current by this change (A1); they move to `u:` only when a command stamps the note again.
 - Stamps are written only where they are today (attach, `synthesis add` with a note, `refs` re-stamping members that were current before, `note edit` from the section), all of which log their note files, so `mem restore` brings stamps back with the text (A2). Plain `append` and `edit` stamp nothing; staleness follows from the text.
-- Effect: an edit to a sentence stales only the notes that sentence cites; a new sentence stales no note; a changed table row stales every note with a `u:` stamp in that part.
+- Effect: an edit to a sentence stales only the notes that sentence cites; a new sentence stales no cited note (a note no unit cites still goes stale on any change, A1); a changed table row stales every note with a `u:` stamp in that part.
 - Check: tests for each bullet, including "stale before, still stale after" and restore; `mem curate --notes` on a store copy lists no note that was not listed before the change.
+
+T1 result (2026-11-19, commit dbd399d plus a review round): 11 new tests (10 failed before the code); suite 1259 passed, 4 skipped; `mem curate --notes` on a copy of the real store printed the same 11 lines with the old and the new engine (A1 holds on real data). Review: uncited notes keep the whole-part rule (wording fixed in the changelog and above); `%2D` and `#fragment` targets now tested.
 
 ### Stage 4: splitting a synthesis
 
