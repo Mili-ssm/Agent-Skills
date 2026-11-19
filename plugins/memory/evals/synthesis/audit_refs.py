@@ -3,7 +3,8 @@
 
 Draws a random sample of the (synthesis, part, unit, note) references of every synthesis in the store and has the trial's
 reference judge (`ref-judge-brief.md`, one Haiku session per synthesis) say whether each linked note supports its sentence.
-A session reads a units file holding only the sampled units, each with only its sampled target. To see whether the judge
+A session reads a units file holding only the sampled units, each with all its references (a note may back one piece of
+a sentence and another reference the rest); only the sampled pair is counted. To see whether the judge
 still finds wrong references, calibration lines are mixed into those files: a unit that is not in the sample paired with
 a note from another part's `Sources:` line. The judge cannot tell them apart, and nothing is written to a synthesis.
 
@@ -99,8 +100,8 @@ def plan(store: Path, sample: int, planted: int, seed: int) -> dict:
     lines: dict[str, dict] = {}
     for syn, part, n, target in sampled:
         facts_part = dict((u[0], u) for u in facts[syn][part]["units"])
-        _, text, _ = facts_part[n]
-        lines.setdefault(syn, {}).setdefault((part, n), (text, [], False))[1].append(target)
+        _, text, own = facts_part[n]
+        lines.setdefault(syn, {}).setdefault((part, n), (text, list(own), False))   # every reference of the unit
     pool = {syn: plant_candidates(facts[syn], {(p, n) for p, n in lines[syn]}) for syn in lines}
     plants: list[Pair] = []
     while len(plants) < planted and any(pool.values()):   # one at a time over the files, so they share them evenly
@@ -110,7 +111,8 @@ def plan(store: Path, sample: int, planted: int, seed: int) -> dict:
             part, n, text, far = pool[syn].pop(rng.randrange(len(pool[syn])))
             target = rng.choice(far)
             pool[syn] = [c for c in pool[syn] if (c[0], c[1]) != (part, n)]
-            lines[syn][(part, n)] = (text, [target], True)
+            own = next(u[2] for u in facts[syn][part]["units"] if u[0] == n)
+            lines[syn][(part, n)] = (text, [*own, target], True)
             plants.append((syn, part, n, target))
     return dict(pairs=len(pairs), syntheses=len(facts), sampled=sampled, lines=lines, planted=plants, facts=facts)
 
@@ -342,7 +344,7 @@ def self_check() -> int:
         assert again["sampled"] == p["sampled"] and again["planted"] == p["planted"], "the draw is not reproducible"
         assert plan(store, 30, 12, 8)["sampled"] != p["sampled"], "another seed drew the same sample"
         assert trial_env._snapshot(store) == before, "planning wrote to the store"
-        # the units files hold the sampled units and targets plus the plants, nothing else
+        # the units files hold the sampled units with all their references, and the plants, nothing else
         sampled_keys = {(s, pt, n): set() for s, pt, n, _ in p["sampled"]}
         for s, pt, n, t in p["sampled"]:
             sampled_keys[(s, pt, n)].add(t)
@@ -359,7 +361,9 @@ def self_check() -> int:
             planted = {(s, pt, n): t for s, pt, n, t in p["planted"] if s == syn}
             assert set(shown) == {k for k in sampled_keys if k[0] == syn} | set(planted), "a unit is missing or extra"
             for key, targets in shown.items():
-                assert targets == (sampled_keys.get(key) or {planted[key]}), f"targets of {key}: {targets}"
+                own = {x for u in p["facts"][syn][key[1]]["units"] if u[0] == key[2] for x in u[2]}
+                assert targets == own | ({planted[key]} if key in planted else set()), f"targets of {key}: {targets}"
+                assert sampled_keys.get(key, set()) <= own and (key not in planted or planted[key] not in own)
         # a plant is a unit outside the sample, paired with a note of another part's sources and not of its own
         for syn, part, n, t in p["planted"]:
             assert (syn, part, n) not in sampled_keys, "a planted unit is in the sample"
