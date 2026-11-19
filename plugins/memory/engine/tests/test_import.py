@@ -195,6 +195,20 @@ def test_a_secret_in_a_non_markdown_research_file_is_flagged(source, tmp_path, c
     assert code == 0 and "flagged: 2 files" in out
     flagged = out.split("flagged:\n")[1]
     assert "notes.txt" in flagged and "run.json" in flagged and "blob.bin" not in flagged
+    for name in ("notes.txt", "run.json", "blob.bin"):
+        assert (tmp_path / "full" / "research" / "2026-11-llm-eval-methods" / name).is_file()
+
+
+def test_a_secret_in_a_bom_marked_utf16_file_is_flagged(source, tmp_path, capsys):
+    folder = source / "research" / "2026-11-llm-eval-methods"
+    key = "AKIA" + "ABCDEFGHIJKLMNOP"
+    (folder / "le.txt").write_bytes(f"key: {key}\n".encode("utf-16"))  # little-endian BOM on this platform
+    (folder / "be.txt").write_bytes(b"\xfe\xff" + f"key: {key}\n".encode("utf-16-be"))
+    full = tmp_path / "full"
+    assert mem.main(["init", str(full)]) == 0
+    code, out, _ = run(full, source, capsys, "--research-data")
+    assert code == 0 and "flagged: 2 files" in out
+    assert (full / "research" / "2026-11-llm-eval-methods" / "le.txt").is_file()
 
 
 def test_research_data_is_copied_only_on_request(source, tmp_path, capsys):

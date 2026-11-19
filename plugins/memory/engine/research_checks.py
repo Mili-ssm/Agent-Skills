@@ -270,7 +270,7 @@ class _Text(html.parser.HTMLParser):
             self.parts.append(data)
 
 
-_PAST_RAW = re.compile(r"</head\s*>|<body[\s>/]|</body\s*>|</html\s*>", re.I)
+_PAST_RAW = re.compile(r"<[a-z/]", re.I)
 
 
 def html_text(markup: str) -> str:
@@ -278,7 +278,7 @@ def html_text(markup: str) -> str:
     parser.feed(markup)
     parser.close()
     text = "".join(parser.parts)
-    if parser.raw_tag:   # a script/style never closed: its "content" runs to the end; resume where the page leaves the head
+    if parser.raw_tag:   # a script/style never closed: its "content" runs to the end; resume at the next tag start (known limit: script source before it may leak into the text)
         rest = "".join(parser.raw)
         if (end := _PAST_RAW.search(rest)) is not None:
             return text + html_text(rest[end.start():])

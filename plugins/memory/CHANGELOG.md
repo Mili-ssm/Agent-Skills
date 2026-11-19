@@ -10,10 +10,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Fixed
 
-- A web page whose `<script>` or `<style>` is never closed no longer hides the rest of its text, so a quote that follows it is found by the research checks.
+- A web page whose `<script>` or `<style>` is never closed no longer hides the text from its next tag on, so a quote there is found by the research checks; script source before that tag may still count as page text.
 - `mem import --research-data` now scans every text file it copies (`.txt`, `.json`, ...) for secrets and hard terms, not only Markdown.
-- A write to the global scope is refused, with a message, when neither `HOME` nor `XDG_CONFIG_HOME` is set, because the forbidden-terms list cannot be located; project writes are unaffected.
-- `mem memories --project NAME` says so on stderr and exits 2 when the registered project's folder was moved or deleted, instead of printing nothing.
+- A write to the global scope is refused, with a message, when neither `HOME` nor `XDG_CONFIG_HOME` is set (exit code 2, nothing written), because the forbidden-terms list cannot be located; project writes are unaffected.
+- `mem memories --project NAME` says so on stderr and exits 2 when the registered project's memory folder was moved or deleted, instead of printing nothing.
 
 ## [0.1.0] - 2026-11-19
 

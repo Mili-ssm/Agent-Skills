@@ -201,3 +201,11 @@ def test_writing_commands_take_no_project_option(two):
                  ["confirm", "m:x", "--project", "beta"]):
         with pytest.raises(SystemExit):
             mem.main(argv)
+
+
+def test_memories_of_a_project_without_its_memory_folder_is_an_error(two, capsys):
+    import shutil
+    _, beta = two
+    shutil.rmtree(beta / ".memory")  # the root stays, its memory folder is gone
+    code, out, err = run(capsys, "memories", "--project", "beta")
+    assert code == 2 and out == "" and ".memory" in err and "beta" in err

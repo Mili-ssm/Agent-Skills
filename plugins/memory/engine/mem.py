@@ -3875,8 +3875,8 @@ def cmd_memories(args: argparse.Namespace) -> int:
         if named is None:
             return 2
         folder = _named_folder(args.project)
-        if folder is not None and not folder.parent.is_dir():
-            print(f"mem: the folder of project {args.project} was not found: {folder.parent} (moved or deleted?)",
+        if folder is not None and not folder.is_dir():
+            print(f"mem: the memory folder of project {args.project} was not found: {folder} (moved or deleted?)",
                   file=sys.stderr)
             return 2
         folders = [("project", folder)]
@@ -5443,9 +5443,12 @@ def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
             raw = (src / rel).read_bytes()
         except OSError:
             continue
-        if b"\x00" in raw:
+        if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):   # a BOM-marked UTF-16 file holds NULs but is text
+            text = raw.decode("utf-16", errors="ignore")
+        elif b"\x00" in raw:
             continue
-        text = raw.decode("utf-8", errors="ignore")
+        else:
+            text = raw.decode("utf-8", errors="ignore")
         if records.secret_in([text]) is not None or (terms and any(not t.soft for t in records.term_hits([text], os.environ))):
             flagged.append(rel)
     return flagged
