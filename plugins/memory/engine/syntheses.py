@@ -458,6 +458,16 @@ def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
                 p += 1
             return p
         pos = skip_gap(pos)
+
+        def only_refs_follow(p: int) -> bool:
+            # `et al.` ends a unit when only references follow it on the line: the abbreviation stops splitting
+            # mid-sentence, but a reference added after it must not merge the unit into its own label.
+            p = skip_gap(p, _GAP)
+            if p >= ce or p not in links:
+                return False
+            while p in links:
+                p = skip_gap(links[p][0], _GAP)
+            return p >= ce
         while pos in links:  # a reference with no sentence before it
             end, m = links[pos]
             orphans.append(ref_of(m, base, False))
@@ -477,7 +487,8 @@ def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
             while t < ce and raw[t] in _CLOSERS:
                 t += 1
             if not (t >= ce or raw[t].isspace() or t in links) or (
-                    raw[k] == "." and j == k + 1 and _ABBREVIATION.search(raw[ustart:k])):
+                    raw[k] == "." and j == k + 1 and _ABBREVIATION.search(raw[ustart:k])
+                    and not only_refs_follow(t)):
                 k = j
                 continue
             if not re.search(r"\w", raw[ustart:k]):

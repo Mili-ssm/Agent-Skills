@@ -4860,17 +4860,30 @@ def _refs(args: argparse.Namespace) -> int:
             if why:
                 refused += [f"refused: {line}: {why}" for line, *_ in items]
                 continue
-            new, reasons = syntheses.change_references(part.text, folder, [(n, op, t) for _, n, op, t in items])
-            if new != part.text:
-                problem = None
-                if syntheses.without_references(new) != syntheses.without_references(part.text):
-                    problem = "the command would change a word of the part (a bug: nothing of it was written)"
-                elif syntheses.validate_section(new, root):
-                    problem = "the part would fail its checks: " + "; ".join(syntheses.validate_section(new, root))
-                if problem:
-                    refused += [f"refused: {line}: {problem}" for line, *_ in items]
-                    counts.append(f"s:{handle}#{name}: added 0, removed 0, refused {len(items)}")
-                    continue
+            def attempt(picked: list[int]) -> tuple[str, list[str | None], str | None]:
+                text, why_not = syntheses.change_references(
+                    part.text, folder, [(items[i][1], items[i][2], items[i][3]) for i in picked])
+                if text == part.text:
+                    return text, why_not, None
+                if syntheses.without_references(text) != syntheses.without_references(part.text):
+                    return text, why_not, "the command would change a word of the part (a bug: nothing of it was written)"
+                if found := syntheses.validate_section(text, root):
+                    return text, why_not, "the part would fail its checks: " + "; ".join(found)
+                return text, why_not, None
+
+            everyone = list(range(len(items)))
+            new, reasons, problem = attempt(everyone)
+            if problem:
+                # One line that breaks the part is refused alone; the others are applied unit by unit.
+                reasons, kept = list(reasons), []
+                for i in everyone:
+                    if reasons[i] is not None:
+                        continue
+                    if (trial := attempt([*kept, i]))[2]:
+                        reasons[i] = trial[2]
+                    else:
+                        kept.append(i)
+                new = attempt(kept)[0]
             added = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "add")
             removed = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "remove")
             failed = [f"refused: {line}: {r}" for (line, *_), r in zip(items, reasons) if r is not None]

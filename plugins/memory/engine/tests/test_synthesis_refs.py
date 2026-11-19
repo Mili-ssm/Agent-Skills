@@ -211,3 +211,45 @@ def test_remove_from_a_pair_separated_by_a_comma_leaves_no_comma(gone, left):
     assert reasons == [None] * len(gone)
     assert new == text.replace(f" [a]({A}), [b]({B})", left.format(A=A, B=B), 1)
     assert syntheses.without_references(new) == syntheses.without_references(text)
+
+
+GAMMA = (f"Retrieval hurt some answers (Mo et al., Ab et al. on PopQA); self-selected retrieval did better in Yu et al.\n\n"
+         f"- Chunking helped in Cy et al.\n\nSources: [attention]({A}), [vaswani]({B})")
+
+
+def test_a_reference_can_follow_a_unit_that_ends_in_an_abbreviation(run, made, tmp_path):
+    assert run("synthesis", "add", "s:attention", "--section", "Gamma",
+               "--body-file", text_file(tmp_path, GAMMA + "\n", "g.md"))[0] == 0
+    old = part(made, "gamma")
+    before = files(made)
+    shape = [(u.n, u.plain) for u in syntheses.units(old)[0]]
+    assert len(shape) == 2
+    code, out, err = refs(run, tmp_path, f"gamma | 1 | add {A}", f"gamma | 2 | add {B}")
+    assert (code, err) == (0, "")
+    assert out.splitlines()[0] == "s:attention#gamma: added 2, removed 0, refused 0"
+    new = part(made, "gamma")
+    assert f"in Yu et al. [attention]({A})\n" in new and f"Cy et al. [vaswani]({B})\n" in new
+    assert [(u.n, u.plain) for u in syntheses.units(new)[0]] == shape
+    assert syntheses.fingerprint(new) == syntheses.fingerprint(old)
+    assert run("check")[:2] == (0, "")
+    after = files(made)
+    code, out, err = refs(run, tmp_path, f"gamma | 1 | add {A}", f"gamma | 2 | add {B}")
+    assert (code, err) == (0, "") and "refused 2" in out and out.count("already carries") == 2
+    assert files(made) == after
+    assert run("restore", "s:attention")[0] == 0
+    assert files(made) == before
+
+
+def test_one_line_that_breaks_the_part_is_refused_alone(run, made, tmp_path, monkeypatch):
+    real = syntheses.validate_section
+    monkeypatch.setattr(syntheses, "validate_section",
+                        lambda text, root: ["broken"] if f"too. [vaswani]({B})" in text else real(text, root))
+    code, out, err = refs(run, tmp_path, f"alpha | 1 | add {A}", f"alpha | 3 | add {B}", f"alpha | 4 | add {B}")
+    assert (code, err) == (0, "")
+    got = out.splitlines()
+    assert got[0] == "s:attention#alpha: added 2, removed 0, refused 1"
+    assert got[-1] == "s:attention: added 2, removed 0, refused 1"
+    assert f"refused: alpha | 3 | add {B}: the part would fail its checks: broken" in got
+    new = part(made, "alpha")
+    assert f"here. [attention]({A_SPELLED}) Second" in new and f"in it. [vaswani]({B})" in new
+    assert f"too. [vaswani]" not in new
