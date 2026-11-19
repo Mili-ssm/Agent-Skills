@@ -595,7 +595,7 @@ def _part_of(v: Any) -> str | None:
 
 
 def _part_hash(v: Any) -> str | None:
-    return None if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{10}", v) else "set the 10-hex fingerprint of the section"
+    return None if isinstance(v, str) and re.fullmatch(r"(?:u:)?[0-9a-f]{10}", v) else "set the 10-hex fingerprint of the section (`u:` first for a per-note one)"
 
 
 def _handle_value(v: Any) -> str | None:
@@ -3982,7 +3982,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
         handle, _, section = part.partition("#")
         syn = next((x for x in synths if x.handle == handle), None)
         sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
-        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text):
+        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text, _note_target(note.rel)):
             stale.append(f"  {name}  s:{handle}#{section}")
     out = []
     if disputed:
@@ -4632,6 +4632,11 @@ def _log_note(root: Path, path: Path, rel: str, action: str) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _note_target(rel: str) -> str:
+    """How a synthesis part refers to the note stored at `rel` (a store-relative path)."""
+    return "../" + rel
+
+
 def _set_part_of(text: str, part_of: str, digest: str) -> str:
     m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
     if m is None:
@@ -4658,7 +4663,7 @@ def _attach(args: argparse.Namespace) -> int:
         syn, sec = _section_ref(root, args.target)
         text = _read_text(found)
         _log_note(root, found, rel, "attach")
-        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.fingerprint(sec.text)).encode("utf-8"))
+        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
     except (ValueError, OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -4892,11 +4897,11 @@ def _refs(args: argparse.Namespace) -> int:
             total_added, total_removed = total_added + added, total_removed + removed
             if new is not None and new != part.text:
                 new_file = syntheses.apply_part_text(new_file, name, new)
-                new_fp = syntheses.fingerprint(new)
                 for note, text in _part_of_notes(root, f"{handle}#{name}"):
                     stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
-                    if syntheses.is_current(stored, part.text) and stored != new_fp:
-                        rel = note.relative_to(root).as_posix()
+                    rel = note.relative_to(root).as_posix()
+                    new_fp = syntheses.note_fingerprint(new, _note_target(rel))
+                    if syntheses.is_current(stored, part.text, _note_target(rel)) and stored != new_fp:
                         notes[note] = (text.encode("utf-8"), _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"))
         if total_added or total_removed:
             changes = {path: (original, syntheses.bumped(new_file, today).encode("utf-8")), **notes}
@@ -4951,6 +4956,8 @@ def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str
                           claim=args.note_claim, confidence=args.confidence, level=args.level, origin=origin,
                           part_of=f"{handle}#{section_handle}", part_of_hash=syntheses.fingerprint(cleaned))
         rel = target.relative_to(root).as_posix()
+        if (stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))) != syntheses.fingerprint(cleaned):
+            target.write_text(_set_field(_read_text(target), "part_of_hash", stamp), encoding="utf-8")
         if found := [p for p in check(root) if p.path == rel]:
             raise NewNoteError(f"the note has {len(found)} problems, so nothing was written: "
                                + "; ".join(str(p) for p in found))
@@ -5093,6 +5100,10 @@ def cmd_new(args: argparse.Namespace) -> int:
             fields["part_of_hash"] = syntheses.fingerprint(sec.text)
         path = new_note(args.root, args.type, slug=args.slug, topics=topics,
                         today=datetime.date.today(), body=body, **fields)
+        if "part_of_hash" in fields:
+            stamp = syntheses.note_fingerprint(sec.text, _note_target(path.relative_to(args.root).as_posix()))
+            if stamp != fields["part_of_hash"]:
+                path.write_text(_set_field(_read_text(path), "part_of_hash", stamp), encoding="utf-8")
     except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1

@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- A note goes stale only when a sentence that cites it, or a table row of its part, changes; stamps written before keep the old whole-part rule until the note is stamped again.
+
 ## [0.1.0] - 2026-11-19
 
 ### Added
