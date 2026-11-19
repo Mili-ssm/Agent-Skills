@@ -6,4 +6,6 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [0.1.0] - 2026-11-19
 
-- First versioned release. PLACEHOLDER
+### Added
+
+- First versioned release: a progress card and a status line for the active implementation plan, shown only while one exists. License: MIT.

@@ -8,7 +8,7 @@
 # Environment variables (all optional):
 #   AGENT_SKILLS_MODS            mods to install, space-separated (ADR 0011), e.g. "tool-fold plan-progress"
 #   AGENT_SKILLS_OFFLOAD_POLICY  1 → write user-config/offload-policy.md into ~/.claude/CLAUDE.md (step 3b)
-#   AGENT_SKILLS_REF             branch, tag or commit of the marketplace to install (default: main)
+#   AGENT_SKILLS_REF             branch or tag of the marketplace to install (unset: main, the releases; the owner uses dev)
 
 warn() { echo "WARN [cloud-setup]: $*" >&2; }
 
@@ -24,9 +24,11 @@ shipped_file() {
   fi
 }
 
-# The marketplace ref: `Mili-ssm/Agent-Skills#<ref>` pins a branch or tag; unset keeps the default branch.
+# The marketplace ref (ADR 0027): `Mili-ssm/Agent-Skills#<ref>` follows a branch or tag; unset keeps the
+# default branch with the same command as before, so pasted copies and new ones behave alike.
 ref="${AGENT_SKILLS_REF:-main}"
-marketplace="Mili-ssm/Agent-Skills#$ref"
+marketplace="Mili-ssm/Agent-Skills"
+[ "$ref" = "main" ] || marketplace="$marketplace#$ref"
 
 # 1. Add the marketplace from GitHub and install the plugin (user scope).
 claude plugin install agent-skills --marketplace "$marketplace" \
