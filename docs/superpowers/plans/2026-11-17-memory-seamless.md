@@ -121,6 +121,24 @@ What exists and what is missing (code map, 2026-11-19): `_curate_notes` lists un
 
 Kill criteria, fixed now: any sibling claim changed; more than 1 wrong attachment in 10 seeded notes; more than 1 appended sentence in 10 that its notes do not back; cost above 0.05 USD per integrated note at Haiku.
 
+#### Pre-mortem of the stage 3 design (2026-11-19): amendments, which replace the rows above where they differ
+
+Measured on the real store the same day (`mem curate --notes`): no unattached note on a covered topic, 10 notes older than their section. On a store copy: exact topic matching selects 0 notes, 4 sit under a descendant of a covered topic; 29 of 354 attached notes are cited by no unit.
+
+| # | Failure (rating) | Amendment |
+|---|---|---|
+| A1 | T1 re-stamps a note an earlier edit had already made stale; notes cited by no unit or only by a table row would never go stale (high) | Re-stamp only a member that was current before (`is_current` against the old text) and is cited only by unchanged units; members cited by no unit, and all members when a changed unit has no reference (a table row), go stale. Compare units as a multiset with whitespace collapsed (the store holds duplicate units). Test: a note stale before stays stale |
+| A2 | `mem restore` of a plain `append` or `edit` brings back the text, not the new stamps (medium) | Re-stamp only inside commands that log one group (`integrate`, `refs`); plain `append` and `edit` keep today's behavior |
+| A3 | Two logs, two undos; unit numbers go stale while a live session edits the part (medium) | Build the change in memory and write it once through `_write_logged_changes` and `_log_group_ahead`, as `_refs` does; refuse when the note already has `part_of`, is superseded or disputed, or when the part's fingerprint differs from the one in the session's file; run the secret and forbidden-terms checks on the sentence |
+| A4 | Haiku checking Haiku misses the error a written sentence makes (extra detail), and its verdicts flip on about 13 in 100 pairs (high) | Python appends the note's own `claim` word for word with its reference; the session only picks a part, an existing unit or `none`. A written sentence would need the stage 1b Python pre-check and a Sonnet checker |
+| A5 | Superseded notes would be appended and break `mem check` store-wide; `mem-auto` can attach the same note mid-run; one run can trigger a paid `mem-auto` (high) | Skip superseded and disputed notes; a done list by note fingerprint; one session per synthesis; take the `mem-auto` run lock; leave integrate's writes out of `--new-since` |
+| A6 | Notes have no links section; a note-handle source can dangle after a rename; a sibling built on the same paper is circular evidence (medium) | Name the links section; Python checks the quote word for word; a contradiction from a sibling goes to the curation queue as a pair, not into `disputed`; a confirm only when the two notes have different sources |
+| A7 | No one-command undo of a run (medium) | `mem-integrate --undo <run>` restores the run's groups newest first; test it after a live edit of a member note |
+
+Revised kill criteria: at least 30 seeded notes, at least 15 meant to append, labelled before the run; any wrong attachment; more than 1 appended sentence its notes do not back (Sonnet audit); any change to a sibling outside Evidence, links, `disputed` or `part_of` (diffed in code); any note stale before and current after without a change to its part; one restore that does not return every file byte for byte; cost above twice the estimate given to the owner before the run (estimate from the pre-mortem: 0.07 to 0.15 USD per note with three sessions, before A4).
+
+Open for the owner: with no note to integrate today, whether to build only T1 now (sentence-level staleness, the 10 stale notes) and the integration when notes accumulate.
+
 ### Stage 4: splitting a synthesis
 
 - **Intent (owner, 2026-11-17):** when enough notes of a synthesis are specific to a sub-subject, that part moves to a child synthesis; the parent keeps the generic part and a pointer; the two are linked. The owner's example: parallelism in the software-engineering synthesis stays generic, parallelism in a Rust synthesis is about Rust.
