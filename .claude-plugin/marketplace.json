@@ -3,7 +3,7 @@
   "owner": {
     "name": "mili-ssm"
   },
-  "description": "mili-ssm's Claude Code plugins: agent-skills (specialist skills and agents) and opt-in mods.",
+  "description": "mili-ssm's Claude Code plugins: agent-skills (specialist skills and agents), memory (a note and memory store reachable from every repository) and opt-in mods.",
   "plugins": [
     {
       "name": "agent-skills",
