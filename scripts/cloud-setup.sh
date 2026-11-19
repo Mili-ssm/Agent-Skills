@@ -114,8 +114,12 @@ settings = json.loads(path.read_text()) if path.exists() else {}
 entry = settings.setdefault("extraKnownMarketplaces", {}).setdefault(
     "mili-ssm", {"source": {"source": "github", "repo": "Mili-ssm/Agent-Skills"}}
 )
+if not isinstance(entry.get("source"), dict):
+    entry["source"] = {"source": "github", "repo": "Mili-ssm/Agent-Skills"}
 if ref != "main":
     entry["source"]["ref"] = ref
+else:
+    entry["source"].pop("ref", None)
 entry["autoUpdate"] = True
 settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
 path.parent.mkdir(parents=True, exist_ok=True)

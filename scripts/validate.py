@@ -583,8 +583,12 @@ def version_key(version: str) -> tuple[tuple[int, ...], bool, str]:
 
 def check_release_tag(name: str, version: str | None, errors: list[str]) -> None:
     """ADR 0027, `--release`: the latest tag of the plugin matches its plugin.json, and an unchanged version has no changes."""
+    listed = git("tag", "--list", f"{name}-v*")
+    if listed.returncode != 0:
+        errors.append(f"{name}: cannot list git tags ({listed.stderr.strip()}); --release needs the git repository")
+        return
     tags = {}
-    for tag in git("tag", "--list", f"{name}-v*").stdout.split():
+    for tag in listed.stdout.split():
         match = TAG_VERSION.match(tag)
         if match and match["name"] == name:
             tags[tag] = match["version"]
@@ -599,9 +603,12 @@ def check_release_tag(name: str, version: str | None, errors: list[str]) -> None
         at_tag = None
     if at_tag != tags[tag]:
         errors.append(f"{manifest}: at tag {tag} the version is {at_tag!r}, the tag says {tags[tag]!r}")
+    if version and version_key(version) < version_key(tags[tag]):
+        errors.append(f"{manifest}: version {version} is below the latest tag {tag}")
     if version == tags[tag]:
         paths = [f"plugins/{name}", *EXTRA_RELEASE_PATHS.get(name, [])]
-        if git("diff", "--quiet", tag, "HEAD", "--", *paths).returncode != 0:
+        # Against the working tree, so uncommitted edits count too.
+        if git("diff", "--quiet", tag, "--", *paths).returncode != 0:
             errors.append(f"{name}: changes since {tag} under {', '.join(paths)} but the version is still {version}: bump it")
 
 
