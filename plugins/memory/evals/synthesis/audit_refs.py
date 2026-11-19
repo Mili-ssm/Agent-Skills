@@ -8,11 +8,13 @@ still finds wrong references, calibration lines are mixed into those files: a un
 a note from another part's `Sources:` line. The judge cannot tell them apart, and nothing is written to a synthesis.
 
 Works on a copy of the store under `target/mem-trials/`; the sessions get the trial environment and the tools and settings
-of `run_trials.ref_session`. Verdict: PASS (exit 0), FAIL (1) or PRELIMINARY (2, also a refusal before any session).
+of `run_trials.ref_session`, each capped at the reserve the budget holds for it. Verdict: PASS (exit 0), FAIL (1) or
+PRELIMINARY (2, also a refusal before any session); a crash exits 3. An invalid calibration gives PRELIMINARY even when
+the wrong count is over the limit: the judge was not shown to work.
 It costs model usage (about 1 to 3 USD at the defaults); --budget is a cap. Results: `target/mem-trials/ref-audit-<time>.json`.
 
 Usage: audit_refs.py [--store PATH] [--sample 100] [--planted 20] [--seed 0] [--budget 3.0] [--judge-model haiku]
-                     [--claude PATH] [--work DIR] [--dry-run] | --self-check
+                     [--claude PATH] [--work NEW_DIR] [--keep] [--dry-run] | --self-check
 """
 from __future__ import annotations
 
@@ -130,26 +132,28 @@ def units_file(synthesis: str, lines: dict, facts: dict) -> str:
 
 def audit_session(claude: str, base: Path, env: dict, handle: str, judge_model: str, text: str) -> tuple[dict | None, dict]:
     """What `run_trials.ref_session` does, on a units file that is `text` instead of the whole synthesis: same brief,
-    tools, settings, model, effort and cap. Returns the parsed report (None when unreadable) and the session summary."""
+    tools, settings, model and effort; the session's cap is the budget's reserve, so --budget holds. Returns the parsed report (None when unreadable) and the session summary."""
     store, work = base / "store", base / "work"
     units, report = work / f"audit-units-{handle}.md", work / f"audit-report-{handle}.md"
     report.unlink(missing_ok=True)
     units.write_text(text)
     prompt = rt.brief("ref-judge", rt.HERE, SLUG=handle, STORE=str(store), UNITS_FILE=str(units), REPORT_FILE=str(report))
     s = sp.run_session(claude, judge_model, prompt, work, base / "settings.json", env, base / f"audit-{handle}.jsonl",
-                       effort=sp.CHEAP, max_budget=rt.SESSION_CAP_USD)
+                       effort=sp.CHEAP, max_budget=rt.RESERVE["ref"])
     s.update(role="audit", model=judge_model, costs=sp.cost_by_family(s["model_usage"]))
     parsed = rt.parse_ref_report(report.read_text()) if report.is_file() else None
     if parsed is not None and not parsed["units"] and not parsed["pairs"]:
         parsed = None
-    return parsed, rt.capped_summary(s)
+    summary = rt.capped_summary(s)
+    summary["unreliable"] = parsed is None or bool(parsed["unreadable"]) or not parsed["counts_ok"]
+    return parsed, summary
 
 
 def judge_all(p: dict, session, budget: rt.Budget) -> dict:
     """One session per synthesis of the plan, as `session(handle, units file text)` -> (parsed report, summary), while
     the budget allows it. Returns the facts of the judgment."""
     verdicts: dict[Pair, bool] = {}
-    skipped, cost, sessions, planted_in_judged = [], 0.0, 0, []
+    skipped, cost, sessions, planted_in_judged, unreliable = [], 0.0, 0, [], []
     for syn in p["lines"]:
         if not budget.start("ref"):
             skipped.append(syn)
@@ -157,12 +161,15 @@ def judge_all(p: dict, session, budget: rt.Budget) -> dict:
         parsed, s = session(syn, units_file(syn, p["lines"][syn], p["facts"]))
         budget.finish("ref", s["cost"])
         cost, sessions = cost + s["cost"], sessions + 1
+        if s.get("unreliable"):
+            unreliable.append(syn)
         planted_in_judged += [x for x in p["planted"] if x[0] == syn]
         for (part, n), (_, targets, _) in p["lines"][syn].items():
             for t in targets:
                 if parsed is not None and (part, n, t) in parsed["pairs"]:
                     verdicts[(syn, part, n, t)] = parsed["pairs"][(part, n, t)]
-    return dict(verdicts=verdicts, skipped=skipped, cost=cost, sessions=sessions, planted_judged=planted_in_judged)
+    return dict(verdicts=verdicts, skipped=skipped, cost=cost, sessions=sessions, planted_judged=planted_in_judged,
+                unreliable=unreliable)
 
 
 def result(p: dict, j: dict) -> dict:
@@ -190,6 +197,7 @@ def result(p: dict, j: dict) -> dict:
                 unjudged_share=round(share, 3), planted=len(j["planted_judged"]), planted_found=found,
                 planted_not_judged=len(planted) - len(j["planted_judged"]), calibration_valid=cal, cost=round(j["cost"], 4),
                 sessions=j["sessions"], not_judged_syntheses=j["skipped"],
+                unreliable_reports=j.get("unreliable", []),
                 wrong_pairs=[dict(synthesis=s, part=pt, unit=n, target=t, sentence=sentence[(s, pt, n)])
                              for s, pt, n, t in wrong])
 
@@ -203,6 +211,8 @@ def report_lines(r: dict) -> list[str]:
            f"calibration: planted {r['planted']}, found {r['planted_found']}, valid {r['calibration_valid']}"
            + (f" ({r['planted_not_judged']} planted lines in files not judged)" if r["planted_not_judged"] else ""),
            f"cost USD {r['cost']:.3f} in {r['sessions']} sessions"]
+    if r["unreliable_reports"]:
+        out.append("reports with an unreadable line or a COUNTS line that disagrees: " + ", ".join(r["unreliable_reports"]))
     if r["not_judged_syntheses"]:
         out.append("not judged (budget): " + ", ".join(r["not_judged_syntheses"]))
     out += [f"wrong: {w['synthesis']} #{w['part']} unit {w['unit']} -> {w['target']}: {w['sentence']}" for w in r["wrong_pairs"]]
@@ -220,8 +230,8 @@ def dry_run(p: dict, budget: float) -> None:
               f"{sum(1 for v in lines.values() if v[2])} planted")
     print(f"planted lines: {len(p['planted'])} (a valid calibration needs {rt.CALIBRATION_MIN_PLANTED})")
     fit = int(budget // rt.RESERVE["ref"])
-    print(f"cost estimate: at most {files * rt.RESERVE['ref']:.2f} USD ({files} sessions, reserve {rt.RESERVE['ref']} each, "
-          f"cap {rt.SESSION_CAP_USD} each); --budget {budget:.2f} starts {min(fit, files)} of them")
+    print(f"cost estimate: at most {files * rt.RESERVE['ref']:.2f} USD ({files} sessions, capped at {rt.RESERVE['ref']} each); "
+          f"--budget {budget:.2f} starts {min(fit, files)} of them")
 
 
 def copy_store(real: Path, base: Path) -> Path:
@@ -242,8 +252,13 @@ def run(args, parser) -> int:
     if not args.claude:
         parser.error("--claude is required (no claude binary found)")
     root = args.work.resolve() if args.work else trial_env.work_dir("mem-refaudit-")
+    if root.exists() and any(root.iterdir()):   # the folder is deleted at the end: never one that holds something
+        print(f"refused: --work {root} exists and is not empty", file=sys.stderr)
+        return 2
+    if root == real or real in root.parents or root in real.parents:
+        print("refused: the work folder overlaps the store", file=sys.stderr)
+        return 2
     root.mkdir(parents=True, exist_ok=True)
-    assert root != real and real not in root.parents and root not in real.parents, "work folder overlaps the store"
     store = copy_store(real, root)
     p = plan(store, args.sample, args.planted, args.seed)
     if not p["sampled"]:
@@ -269,7 +284,8 @@ def run(args, parser) -> int:
     target.write_text(json.dumps(r, indent=1))
     print("\n".join(report_lines(r)))
     print(f"results: {target}")
-    trial_env.clean(root)
+    if not args.keep:
+        trial_env.clean(root)
     return EXIT[r["verdict"]]
 
 
@@ -395,13 +411,18 @@ def main() -> int:
                         "below the reference judgment's reserve")
     parser.add_argument("--judge-model", default="haiku")
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
-    parser.add_argument("--work", type=Path, help="work folder (default: a new one under target/mem-trials/)")
+    parser.add_argument("--work", type=Path, help="a new or empty work folder (default: a new one under target/mem-trials/)")
+    parser.add_argument("--keep", action="store_true", help="keep the work folder (store copy, units files, session logs)")
     parser.add_argument("--dry-run", action="store_true", help="no session: counts, the sample per synthesis, a cost estimate")
     parser.add_argument("--self-check", action="store_true", help="no model: prove the sampling, planting and verdicts")
     args = parser.parse_args()
     if args.self_check:
         return self_check()
-    return run(args, parser)
+    try:
+        return run(args, parser)
+    except Exception as exc:   # 1 is FAIL: a crash must not read as a verdict
+        print(f"crashed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 3
 
 
 if __name__ == "__main__":
