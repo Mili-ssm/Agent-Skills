@@ -240,6 +240,34 @@ def test_a_reference_can_follow_a_unit_that_ends_in_an_abbreviation(run, made, t
     assert files(made) == before
 
 
+DELTA = ("Alpha holds in general. Beta results, per setting, were:\n\n| c | m |\n|---|---|\n| x | y |\n\n"
+         "Gamma differs as follows:\n- item one\n- item two\n\n"
+         f"Sources: [attention]({A}), [vaswani]({B})")
+
+
+def test_a_reference_can_follow_a_unit_that_ends_in_a_colon_before_a_table_or_list(run, made, tmp_path):
+    assert run("synthesis", "add", "s:attention", "--section", "Delta",
+               "--body-file", text_file(tmp_path, DELTA + "\n", "d.md"))[0] == 0
+    old = part(made, "delta")
+    before = files(made)
+    shape = [(u.n, u.plain) for u in syntheses.units(old)[0]]
+    assert len(shape) == 7 and shape[1][1].endswith("were:") and shape[4][1] == "Gamma differs as follows:"
+    code, out, err = refs(run, tmp_path, f"delta | 2 | add {A}", f"delta | 5 | add {B}")
+    assert (code, err) == (0, "")
+    assert out.splitlines()[0] == "s:attention#delta: added 2, removed 0, refused 0"
+    new = part(made, "delta")
+    assert f"were: [attention]({A})\n" in new and f"as follows: [vaswani]({B})\n- item one" in new
+    assert [(u.n, u.plain) for u in syntheses.units(new)[0]] == shape
+    assert syntheses.fingerprint(new) == syntheses.fingerprint(old)
+    assert run("check")[:2] == (0, "")
+    after = files(made)
+    code, out, err = refs(run, tmp_path, f"delta | 2 | add {A}", f"delta | 5 | add {B}")
+    assert (code, err) == (0, "") and "refused 2" in out and out.count("already carries") == 2
+    assert files(made) == after
+    assert run("restore", "s:attention")[0] == 0
+    assert files(made) == before
+
+
 def test_one_line_that_breaks_the_part_is_refused_alone(run, made, tmp_path, monkeypatch):
     real = syntheses.validate_section
     monkeypatch.setattr(syntheses, "validate_section",
@@ -253,3 +281,18 @@ def test_one_line_that_breaks_the_part_is_refused_alone(run, made, tmp_path, mon
     new = part(made, "alpha")
     assert f"here. [attention]({A_SPELLED}) Second" in new and f"in it. [vaswani]({B})" in new
     assert f"too. [vaswani]" not in new
+
+
+@pytest.mark.parametrize("after", ["# A heading", "> A quote", "A plain paragraph."])
+def test_a_colon_line_before_anything_but_a_table_or_list_keeps_its_reference_inline(after):
+    import syntheses
+    text = f"Alpha holds: [x](../knowledge/x/a.md)\n\n{after}\n"
+    (unit, *_), _ = syntheses.units(text)
+    assert unit.plain.startswith("Alpha holds: x"), unit.plain
+
+
+def test_an_indented_list_after_a_colon_line_takes_a_trailing_reference():
+    import syntheses
+    text = "Alpha holds: [x](../knowledge/x/a.md)\n  - an item\n"
+    (unit, *_), _ = syntheses.units(text)
+    assert unit.plain == "Alpha holds:", unit.plain
