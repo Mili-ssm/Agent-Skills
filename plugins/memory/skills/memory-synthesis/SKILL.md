@@ -15,6 +15,8 @@ A synthesis is third-hand knowledge (source, note, synthesis): every part says w
 - A note that belongs to a synthesis shows `part of: s:<handle>#<section>`: open that part with `mem show s:<handle>#<section>` when the note is not enough.
 - `mem show s:<handle>` prints the outline with line ranges, not the whole document: read the one part you need.
 
+A `[n]` after a sentence of a part is a reference: the sentence rests on the n-th note of the part's `Sources:` line (`mem show ... --stored` prints the link itself). References are added after a synthesis is written and checked, by code and without changing a word: `mem-synthesize` does it as its last step, and `mem-synthesize --backfill [s:<handle> ...]` does it for syntheses that exist (one read-only session per synthesis; `--dry-run`, `--budget`). A writer is not asked to link while writing: in a measured trial that raised unsupported claims from 4.7 to 7.5 per 100.
+
 ## Writing a new synthesis
 
 Worth it when a subject has many notes that a reader would have to assemble (the curation queue says so at eight), or when the owner asks. Not for a subject with two or three notes.
@@ -49,9 +51,9 @@ mem synthesis add s:<slug> --section "<heading>" --body-file "$d/<slug>-part.md"
 ```
 
 - New material for an existing part: `mem synthesis append s:<slug>#<section> --body-file -`. It adds to the end of the part; it does not retype it.
-- A correction: `mem synthesis edit s:<slug>#<section> --body-file -`. It refuses a text that loses much of the part or one of its links; `--shrink` only when the loss is meant.
+- A correction: `mem synthesis edit s:<slug>#<section> --body-file -`, starting from `mem show s:<slug>#<section> --stored` (plain `mem show` prints a reference as `[n]`, the place of its note on the part's `Sources:` line, and a text written from that is refused). It refuses a text that loses much of the part or one of its links; `--shrink` only when the loss is meant. It also refuses a sentence kept unchanged that loses a reference (a note link in its body), even with `--shrink`; `--drop-references` only when that is meant.
 - `mem new knowledge` on a covered topic writes the note and names the synthesis that covers it; attaching it is for the next curation pass.
-- A part under a wrong heading or one that no longer belongs: `mem synthesis rename s:<slug>#<section> "<new heading>"` or `remove s:<slug>#<section>`. A note that does not belong to its part: `mem synthesis detach <note>`. Topics: `mem synthesis topics s:<slug> A,B`.
+- A part under a wrong heading or one that no longer belongs: `mem synthesis rename s:<slug>#<section> "<new heading>"` or `remove s:<slug>#<section>`. A note that does not belong to its part: `mem synthesis detach <note>`. Topics: `mem synthesis topics s:<slug> A,B`. Inline references: `mem synthesis refs s:<slug> --file F`, one line `<section> | <unit number> | add|remove <source target>` per proposal; it takes no text, refuses what does not fit and logs one group, so one `mem restore s:<slug>` undoes it.
 - Never edit a file under `syntheses/` by hand, and never replace a whole document: use the commands, which keep an undo (`mem restore s:<slug>`).
 
 ## Keeping notes and parts in step

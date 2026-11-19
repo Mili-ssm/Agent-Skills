@@ -44,7 +44,7 @@ import store_git
 import syntheses
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
-_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics")
+_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "signal", "projects",
                     "project-synthesis")
@@ -1301,9 +1301,12 @@ def rule_handles(root: Path, notes: list[Note], topics: dict | None) -> list[Pro
 
 def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
     """Rule 15: each synthesis parses, repeats no section handle, uses known topics and ends every part with a
-    valid `Sources:` line."""
+    valid `Sources:` line; a reference names a source and has a sentence before it, and no reference or source
+    names a superseded note."""
     problems = []
     loaded = syntheses.load(root / syntheses.SYNTHESES_DIR)
+    superseded = {(root / n.rel).resolve(): n.meta["superseded_by"] for n in notes
+                  if n.error is None and isinstance(n.meta, dict) and isinstance(n.meta.get("superseded_by"), str)}
     for note in notes:
         part = note.meta.get("part_of") if note.error is None and isinstance(note.meta, dict) else None
         if isinstance(part, str) and _PART_OF.fullmatch(part):
@@ -1332,8 +1335,18 @@ def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[P
                                                        "rename one heading"))
             seen.add(sec.handle)
             if sec.handle != syntheses.SUMMARY:
-                for msg in syntheses.validate_section(sec.text, root):
-                    problems.append(Problem(rel, sec.line, f'section "{sec.heading}": {msg}'))
+                msgs = syntheses.validate_section(sec.text, root)
+                base = (root / syntheses.SYNTHESES_DIR).resolve()
+                cited = [("reference", t) for t in dict.fromkeys(syntheses.references(sec.text))]
+                cited += [("source", t) for t in sec.sources]
+                for kind, target in cited:
+                    successor = superseded.get(syntheses._resolved(base, target))
+                    if successor:
+                        msgs.append(f"{kind} {target} is superseded by {successor}: point to it")
+            else:
+                msgs = syntheses.summary_problems(sec.text)
+            for msg in msgs:
+                problems.append(Problem(rel, sec.line, f'section "{sec.heading}": {msg}'))
     return problems
 
 
@@ -2769,6 +2782,8 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
         print(f"mem: {path}: {syn.error}", file=sys.stderr)
         return None
     text = path.read_bytes().decode("utf-8", "replace")
+    if not args.stored:  # a reader gets `[n]`, the note's place on the `Sources:` line, not the 29-token reference; line numbers stay
+        text = syntheses.shown_file(text)
     lines = text.split("\n")
     if section is not None:
         found = [s for s in syn.sections if s.handle == section]
@@ -3967,7 +3982,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
         handle, _, section = part.partition("#")
         syn = next((x for x in synths if x.handle == handle), None)
         sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
-        if sec is not None and note.meta.get("part_of_hash") != syntheses.fingerprint(sec.text):
+        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text):
             stale.append(f"  {name}  s:{handle}#{section}")
     out = []
     if disputed:
@@ -4786,6 +4801,106 @@ def _structure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _refs(args: argparse.Namespace) -> int:
+    """`mem synthesis refs s:<handle> --file F`: add or remove references by unit number and source target, never
+    by text. Every changed part, and each member note that stays current, is written as one logged group."""
+    root = args.root.resolve()
+    folder = root / syntheses.SYNTHESES_DIR
+    today = datetime.date.today()
+    try:
+        handle, section = syntheses.split_ref(args.target)
+        path = syntheses.path_of(folder, handle)
+        if path is None or not path.is_file():
+            print(f"mem: no synthesis named {args.target}", file=sys.stderr)
+            return 1
+        if section is not None:
+            raise ValueError("refs takes s:<handle>")
+        try:
+            raw = Path(args.file).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            print(f"mem: cannot read the file: {exc}", file=sys.stderr)
+            return 1
+        syn = syntheses.load_one(path)
+        if syn.error:
+            raise ValueError(f"{path.name}: {syn.error}")
+        original = path.read_bytes()
+        file_text = original.decode("utf-8")
+        _lf(file_text, path.name)
+        refused: list[str] = []
+        by_part: dict[str, list[tuple[str, int, str, str]]] = {}  # section -> (line, unit, op, target)
+        read = 0
+        for line in raw.splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            read += 1
+            cells = [c.strip() for c in line.split("|", 2)]
+            action = cells[2].split(None, 1) if len(cells) == 3 else []
+            if not (len(cells) == 3 and cells[1].isdigit() and len(action) == 2 and action[0] in ("add", "remove")):
+                refused.append(f"refused: {line.strip()}: not `<section> | <unit> | add|remove <target>`")
+                continue
+            by_part.setdefault(cells[0], []).append((line.strip(), int(cells[1]), action[0], action[1].strip()))
+        if not read:
+            print("mem: the file holds no proposal", file=sys.stderr)
+            return 1
+        sections = {s.handle: s for s in syn.sections}
+        counts: list[str] = []
+        total_added = total_removed = 0
+        new_file = file_text
+        notes: dict[Path, tuple[bytes, bytes]] = {}
+        for name, items in by_part.items():
+            part = sections.get(name)
+            if name == syntheses.SUMMARY:
+                why = "the Summary takes no references"
+            elif part is None:
+                why = f"no section {name!r}"
+            elif sum(1 for x in syn.sections if x.handle == name) > 1:
+                why = f"the handle {name!r} is repeated: rename one heading first"
+            else:
+                why = None
+            if why:
+                refused += [f"refused: {line}: {why}" for line, *_ in items]
+                continue
+            new, reasons = syntheses.change_references(part.text, folder, [(n, op, t) for _, n, op, t in items])
+            if new != part.text:
+                problem = None
+                if syntheses.without_references(new) != syntheses.without_references(part.text):
+                    problem = "the command would change a word of the part (a bug: nothing of it was written)"
+                elif syntheses.validate_section(new, root):
+                    problem = "the part would fail its checks: " + "; ".join(syntheses.validate_section(new, root))
+                if problem:
+                    refused += [f"refused: {line}: {problem}" for line, *_ in items]
+                    counts.append(f"s:{handle}#{name}: added 0, removed 0, refused {len(items)}")
+                    continue
+            added = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "add")
+            removed = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "remove")
+            failed = [f"refused: {line}: {r}" for (line, *_), r in zip(items, reasons) if r is not None]
+            refused += failed
+            counts.append(f"s:{handle}#{name}: added {added}, removed {removed}, refused {len(failed)}")
+            total_added, total_removed = total_added + added, total_removed + removed
+            if new is not None and new != part.text:
+                new_file = syntheses.apply_part_text(new_file, name, new)
+                new_fp = syntheses.fingerprint(new)
+                for note, text in _part_of_notes(root, f"{handle}#{name}"):
+                    stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
+                    if syntheses.is_current(stored, part.text) and stored != new_fp:
+                        rel = note.relative_to(root).as_posix()
+                        notes[note] = (text.encode("utf-8"), _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"))
+        if total_added or total_removed:
+            changes = {path: (original, syntheses.bumped(new_file, today).encode("utf-8")), **notes}
+            locked = [p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)]
+            if locked:
+                raise ValueError(f"not writable: {', '.join(locked)}")
+            _write_logged_changes(changes, root / records.CURATION_LOG, lambda: _log_group_ahead(root, changes, "refs"))
+    except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print("\n".join([*counts, *refused, f"s:{handle}: added {total_added}, removed {total_removed}, "
+                     f"refused {len(refused)}"]))
+    if total_added or total_removed:
+        log_usage(root, {"cmd": "synthesis", "action": "refs"})
+    return 0
+
+
 def _detached(text: str, rel: str) -> str:
     """The note's text without `part_of` and `part_of_hash`."""
     return _set_field(_set_field(_lf(text, rel), "part_of", None), "part_of_hash", None)
@@ -4863,6 +4978,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return _attach(args)
     if action in ("rename", "remove", "detach", "topics"):
         return _structure(args)
+    if action == "refs":
+        return _refs(args)
     note_group = [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level] \
         if action == "add" else []
     one_call = any(note_group)
@@ -4936,7 +5053,8 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                                 if section != syntheses.SUMMARY and body.strip() else [])
                     if problems:
                         raise ValueError("; ".join(problems))
-                    syntheses.edit_section(path, section, body, today, shrink=args.shrink)
+                    syntheses.edit_section(path, section, body, today, shrink=args.shrink,
+                                           drop_references=args.drop_references)
                     print(f"s:{handle}#{section}\tedited")
             _long_note(handle, path, new_handle if action == "add" else section)
     except (ValueError, OSError, FrontmatterError, yaml.YAMLError, NewNoteError) as exc:
@@ -5771,6 +5889,8 @@ def build_parser() -> argparse.ArgumentParser:
                              help="with --outline: print start-end lines and word count per heading")
     show_parser.add_argument("--all", action="store_true", help="a synthesis: print the whole file, not its outline")
     show_parser.add_argument("--project", metavar="NAME", help="read a memory of this registered project")
+    show_parser.add_argument("--stored", action="store_true",
+                             help="a synthesis: print each reference as stored, not as `[n]`, the place of its note on the `Sources:` line")
     show_parser.set_defaults(func=cmd_show)
     topics_parser = sub.add_parser("topics", help="print the topic tree with note counts")
     topics_parser.add_argument("topic", nargs="?", metavar="ID", help="print only this topic's subtree")
@@ -5980,6 +6100,8 @@ def build_parser() -> argparse.ArgumentParser:
     syn_edit.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_edit.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
     syn_edit.add_argument("--shrink", action="store_true", help="allow a text with fewer words or links than before")
+    syn_edit.add_argument("--drop-references", action="store_true",
+                          help="allow a sentence kept unchanged to lose a reference (a note link in its body)")
     syn_append = synthesis_sub.add_parser("append", help="add text at the end of a section, before its Sources line")
     syn_append.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_append.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
@@ -5993,6 +6115,10 @@ def build_parser() -> argparse.ArgumentParser:
     syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
     syn_detach.add_argument("note", metavar="NOTE")
+    syn_refs = synthesis_sub.add_parser("refs", help="add or remove inline note references from a file of proposals")
+    syn_refs.add_argument("target", metavar="s:HANDLE")
+    syn_refs.add_argument("--file", required=True, metavar="PATH",
+                          help="one proposal per line: SECTION | UNIT | add TARGET  or  SECTION | UNIT | remove TARGET")
     syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
     syn_topics.add_argument("target", metavar="s:HANDLE")
     syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")

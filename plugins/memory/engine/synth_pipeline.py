@@ -23,6 +23,9 @@ COUNTS = re.compile(r"^COUNTS: checked=(\d+) unsupported=(\d+)(?: used=(\d+) unu
 NOTE_LINE = re.compile(r"^NOTE: (\S+) (used|unused)\s*$", re.M)
 CLAIM_LINE = re.compile(r"^(?P<part>[^|\n]+?) \| (?P<start>[^|\n]*) \| (?P<kind>[^|\n]+?) \| (?P<note>[^|\n]*) \| (?P<fix>.*)$")
 PARTS_LINE = re.compile(r"^PARTS: ?(.*)$", re.M)
+REF_LINE = re.compile(r"^REF: (?P<part>[^|\n]+?) \| (?P<number>\d+) \| (?:(?P<missing>missing)|wrong (?P<current>[^|\n]+?)) \| "
+                      r"(?P<target>[^|\n]*?)\s*$")
+REFS_TOTAL = re.compile(r"^s:\S+: added (\d+), removed (\d+), refused (\d+)\s*$", re.M)
 DENIED = re.compile(r"requested permissions|haven't granted|permission.{0,40}denied|denied.{0,40}permission", re.I)
 
 
@@ -38,6 +41,7 @@ def brief(name: str, briefs: Path = BRIEFS, **values: str) -> str:
     text = (briefs / f"{name}-brief.md").read_text()
     values.setdefault("SKILL_FILE", str(SKILL))
     values.setdefault("PARTS", NOT_GIVEN)
+    values.setdefault("UNITS_FILE", NOT_GIVEN)
     for key, value in values.items():
         text = text.replace("{" + key + "}", value)
     left = re.findall(r"\{[A-Z_]+\}", text)
@@ -134,8 +138,26 @@ def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path
     return result
 
 
+def units_text(synthesis: Path) -> str:
+    """What the checker's `{UNITS_FILE}` holds: per part (not the Summary) `## <handle>`, one line per unit
+    `<number> | <text without references> | <targets, or ->`, then `Sources: <note targets>`."""
+    import syntheses   # lazy: it needs PyYAML, which the rest of this module does not
+    lines = []
+    for section in syntheses.load_one(synthesis).parts:
+        found, _ = syntheses.units(section.text)
+        lines.append(f"## {section.handle}")
+        lines += [f"{u.n} | {' '.join(u.plain.split())} | {', '.join(u.refs) or '-'}" for u in found]
+        lines.append("Sources: " + ", ".join(t for t in section.sources if syntheses._is_ref(t)))
+    return "\n".join(lines) + "\n"
+
+
+def write_units(synthesis: Path, target: Path) -> None:
+    target.write_text(units_text(synthesis))
+
+
 def parse_report(path: Path) -> dict | None:
-    """The checker's report: its last COUNTS line, the PARTS line, the claim lines and the judge's NOTE lines.
+    """The checker's report: its last COUNTS line, the PARTS line, the claim lines, the `REF:` lines (reference
+    problems, never claims; a malformed one is only counted in `ref_malformed`) and the judge's NOTE lines.
 
     None when the file or the COUNTS line is missing. A report with no unsupported claim holds only the COUNTS line."""
     if not path.is_file():
@@ -149,7 +171,26 @@ def parse_report(path: Path) -> dict | None:
     for rel, state in NOTE_LINE.findall(text):
         at = rel.find("knowledge/")
         notes[rel[at:] if at >= 0 else rel] = state
-    claims = [m.groupdict() for m in map(CLAIM_LINE.match, lines) if m]
+    def ref_text(ln: str) -> str | None:
+        """A `REF:` line as the model may write it: after a bullet, indented, in backticks."""
+        s = ln.strip().lstrip("-*\u2022 \t").replace("`", "").strip()
+        return s if s.startswith("REF:") else None
+
+    def path(value: str | None) -> str | None:
+        value = (value or "").strip().rstrip(".").strip()
+        return None if value.lower() in ("", "none") else value
+
+    claims = [m.groupdict() for ln in lines if ref_text(ln) is None and (m := CLAIM_LINE.match(ln))]
+    refs, malformed = [], 0
+    for ln in lines:
+        if (s := ref_text(ln)) is not None:
+            m = REF_LINE.match(s)
+            if not m:
+                malformed += 1
+                continue
+            refs.append(dict(part=section_handle(m["part"].strip().removeprefix("s:").split("#")[-1]),
+                             number=int(m["number"]), kind="missing" if m["missing"] else "wrong",
+                             current=path(m["current"]), target=path(m["target"])))
     listed = PARTS_LINE.search(text)
     # A model may write a heading where the brief asks for a handle: both become the handle `mem` gives the part.
     parts = [section_handle(h.strip().removeprefix("s:").split("#")[-1])
@@ -157,7 +198,13 @@ def parse_report(path: Path) -> dict | None:
     for claim in claims:
         claim["part"] = section_handle(claim["part"].strip().removeprefix("s:").split("#")[-1])
     parts = list(dict.fromkeys(parts + [c["part"] for c in claims]))
-    return dict(checked=int(found.group(1)), unsupported=int(found.group(2)), notes=notes, claims=claims, parts=parts)
+    unsupported = int(found.group(2))
+    if not claims and (refs or malformed):
+        # A checker that counted its reference problems as unsupported lists no claim: nothing is there to fix or
+        # delete, and the delete-only step must not run for it.
+        unsupported = 0
+    return dict(checked=int(found.group(1)), unsupported=unsupported, notes=notes, claims=claims, parts=parts,
+                refs=refs, ref_malformed=malformed)
 
 
 def scope_text(report: dict, fixer_answer: str) -> str:
@@ -211,7 +258,8 @@ def guard_parts(store: Path, env: dict, topic: str, before: str, after: str, all
     for handle in violations:
         if handle in old and handle in new:
             text = old[handle].split("\n", 1)[1].strip("\n") if "\n" in old[handle] else ""
-            done = mem(store, env, "synthesis", "edit", f"s:{topic}#{handle}", "--body-file", "-", "--shrink", stdin=text + "\n")
+            done = mem(store, env, "synthesis", "edit", f"s:{topic}#{handle}", "--body-file", "-", "--shrink",
+                       "--drop-references", stdin=text + "\n")
             if done.returncode == 0:
                 reverted.append(handle)
     return violations, reverted
@@ -231,18 +279,20 @@ NO_COST = "a session ended without a cost report"
 
 
 def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, settings: Path, topic: str,
-              sessions: list[dict], lean: bool = True, left=None) -> dict:
+              sessions: list[dict], lean: bool = True, left=None, briefs: Path = BRIEFS) -> dict:
     """Check, fix, and (lean) scoped check and delete-only step for the synthesis `s:<topic>` already in `store`.
 
     Each session's summary is appended to `sessions`; session streams go to `base/NN-<role>.jsonl`. Returns
     `arm_count` (first check, None when its report is unreadable), `why` (empty when every step worked), `fixes`,
-    `deleted`, `scope_violations`, `reverted` (the violations put back). `lean=False` is the trial's arm S: one Sonnet fixer, no second check.
+    `deleted`, `scope_violations`, `reverted` (the violations put back), `refs` (per check that reported `REF:` lines:
+    `check`, `reported` lines, proposal `lines` sent, `applied` and `refused` as `mem synthesis refs` printed them,
+    `error` when the command failed). `briefs` is the folder the brief files are read from. `lean=False` is the trial's arm S: one Sonnet fixer, no second check.
     `left` (a function: USD still allowed) caps every step: none starts when nothing is left, each session gets
     `--max-budget-usd` of what is left, and a session without a result event (killed at its timeout: its spend is
     unknown) ends the loop with `why` = NO_COST."""
     synthesis = store / "syntheses" / f"{topic}.md"
     fill = dict(TOPIC=topic, SLUG=topic, STORE=str(store), WORK_DIR=str(work))
-    out = dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[], reverted=[])
+    out = dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[], reverted=[], refs=[])
 
     def step(role: str, model: str, text: str, level: str | None = None) -> dict:
         remaining = left() if left else None
@@ -259,8 +309,42 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
     def check(n: int, scope: str = NOT_GIVEN) -> dict | None:
         report = work / f"report-{n}.md"
         report.unlink(missing_ok=True)
-        step("checker", "haiku", brief("checker", **fill, REPORT_FILE=str(report), PARTS=scope), CHEAP)
+        units = work / f"units-{n}.md"
+        write_units(synthesis, units)   # rewritten per check: the fixer changed the text
+        step("checker", "haiku", brief("checker", briefs, **fill, REPORT_FILE=str(report), PARTS=scope,
+                                       UNITS_FILE=str(units)), CHEAP)
         return parse_report(report)
+
+    def apply_refs(n: int, report: dict | None) -> None:
+        """The report's `REF:` lines through `mem synthesis refs`, before anything changes the text their numbers
+        refer to. A failure is recorded, never raised."""
+        if not report or not (report["refs"] or report["ref_malformed"]):
+            return
+        lines = []
+        for r in report["refs"]:
+            if r["kind"] == "wrong" and r["current"]:
+                lines.append(f"{r['part']} | {r['number']} | remove {r['current']}")
+            if r["target"]:
+                lines.append(f"{r['part']} | {r['number']} | add {r['target']}")
+        row = dict(check=n, reported=len(report["refs"]), malformed=report["ref_malformed"], lines=len(lines),
+                   applied=0, refused=0, reasons=[], error="")
+        out["refs"].append(row)
+        if not lines:
+            return
+        proposals = work / f"refs-{n}.txt"
+        proposals.write_text("".join(ln + "\n" for ln in lines))
+        try:
+            done = mem(store, env, "synthesis", "refs", f"s:{topic}", "--file", str(proposals))
+        except OSError as exc:
+            row["error"] = str(exc)
+            return
+        total = REFS_TOTAL.findall(done.stdout)
+        if done.returncode or not total:
+            row["error"] = (done.stderr.strip() or done.stdout.strip() or f"exit {done.returncode}")[:200]
+        else:
+            added, removed, refused = map(int, total[-1])
+            row.update(applied=added + removed, refused=refused,
+                       reasons=[ln[len("refused: "):] for ln in done.stdout.splitlines() if ln.startswith("refused: ")])
 
     def guarded_fix(model: str, level: str | None, text: str, report: dict, role: str = "fixer") -> dict:
         """One fixer step; the parts it changed outside the report's PARTS are recorded and put back."""
@@ -273,16 +357,18 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
 
     try:
         first = out["arm_count"] = check(1)
+        apply_refs(1, first)
         if first is None:
             out["why"] = "arm checker report unreadable"
         elif first["unsupported"]:
             out["fixes"] = 1
-            text = brief("fixer", **fill, REPORT_FILE=str(work / "report-1.md"))
+            text = brief("fixer", briefs, **fill, REPORT_FILE=str(work / "report-1.md"))
             if not lean:
                 guarded_fix("sonnet", None, text, first)
             else:
                 fixed = guarded_fix("haiku", CHEAP, text, first)
                 second = check(2, scope_text(first, fixed["answer"]))
+                apply_refs(2, second)
                 if second is None:
                     out["why"] = "scoped check report unreadable"
                 elif second["unsupported"]:
