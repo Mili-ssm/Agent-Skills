@@ -575,8 +575,27 @@ def fingerprint_legacy(text: str) -> str:
     return _hash("\n".join(lines))
 
 
-def is_current(stored: object, text: str) -> bool:
-    """Whether a note's `part_of_hash` matches the part's text, by the current or the legacy fingerprint."""
+def note_fingerprint(text: str, target: str) -> str:
+    """The stamp of one note in a part: `u:` plus a hash of the sorted multiset of the units that cite the note and
+    the part's table rows (they cannot carry a reference), each as plain text with white space collapsed. A note
+    that no unit cites gets `fingerprint(text)`, the whole-part rule.
+
+    `target` is the note as a reference names it: the relative link from the synthesis folder, `../knowledge/<d>/<f>.md`
+    (the entries of `Unit.refs`); spelling variants (`./`, `%20`, `#fragment`) compare equal."""
+    key = _note_key(target)
+    found = units(text)[0]
+    if not any(key in {_note_key(r) for r in u.refs} for u in found):
+        return fingerprint(text)
+    picked = [" ".join(u.plain.split()) for u in found
+              if key in {_note_key(r) for r in u.refs} or u.text.lstrip().startswith("|")]
+    return "u:" + _hash("\n".join(sorted(picked)))
+
+
+def is_current(stored: object, text: str, target: str | None = None) -> bool:
+    """Whether a note's `part_of_hash` matches the part's text. A `u:` stamp compares with `note_fingerprint`
+    (never current without a `target`); any other stamp is the whole part, by the current or the legacy fingerprint."""
+    if isinstance(stored, str) and stored.startswith("u:"):
+        return target is not None and stored == note_fingerprint(text, target)
     return stored in (fingerprint(text), fingerprint_legacy(text))
 
 
