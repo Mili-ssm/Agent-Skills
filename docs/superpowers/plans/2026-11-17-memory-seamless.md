@@ -278,3 +278,26 @@ Reading, with its limits:
 - The judge marked 197 of the 336 units as findings; coverage is over those.
 - What a reader is shown grew by 10% to 28%, because a label copied from the `Sources:` line is several words long. The writer trial's limit for the same measure is 15%. The owner accepted the proposal made here: `mem show` now prints a reference as the number of its note on the part's `Sources:` line (`[2]`), computed when shown; storage unchanged. On a store copy, the synthesis with 63 references shows as 53,303 characters against 61,149 stored (54,785 with labels).
 - From the measured cost per part, the backfill of the real store's 218 parts is estimated at about 1.5 USD without any judging.
+
+### Stage 2 writer trial, 2026-11-19 (`run_trials.py --arm M --arm R --runs 2 --jobs 2 --budget 15`, three topics, Haiku at high effort, branch at `7bca3e9`, control `main` at `7d190a1`)
+
+Verdict by the rule fixed before the run: **FAIL**, on one condition of six. The writer change is not adopted and the branch is not merged. Spent 11.90 USD of the 15 USD cap (1.50 of it the control's own judge sessions, which are not used).
+
+| Condition | M (control, `main`) | R (branch) | Rule | |
+|---|---|---|---|---|
+| Unsupported claims per 100, pooled over 6 syntheses | 4.7 (31 of 660) | 7.5 (35 of 469) | at most M's + max(2, gap of M's runs 1.4) = 6.7 | **failed** |
+| Mean pipeline cost, USD | 0.484 | 0.463 | below 1.3 times M's | passed |
+| `mem check` | 6 of 6 | 6 of 6 | every R synthesis | passed |
+| Findings that carry a reference (worst case) | 0 of 413 | 399 of 402 (99%) | at least 80% | passed |
+| Wrong references (worst case) | none to judge | 12 of 556 (2.2%) | at most 5% | passed |
+| Tokens as `mem show` prints them, mean | 5276 | 3883 | at most 1.15 times M's | passed |
+| Calibration of the reference judge | | 20 of 20 planted found, none weak, no unreliable report | at least 16 | valid |
+
+Per synthesis, unsupported per 100 (claims checked): M 5.6 (90), 8.2 (85), 3.0 (132), 6.2 (97), 4.0 (124), 3.0 (132); R 6.7 (60), 6.7 (89), 17.1 (70), 4.3 (93), 5.1 (78), 6.3 (79).
+
+Reading, with its limits:
+
+- The failed condition is the one the stage must not buy its references with. R is 2.8 points above M; with these counts the difference has a standard deviation near 1.5 points, so it is about two of them: likely real, not proven. One R synthesis (12 of 70) carries a third of R's unsupported claims; without it R would be 5.8 and pass, but a rule fixed beforehand does not drop a row afterwards.
+- R writes less: 2258 words and 78 checked claims per synthesis against 2986 and 110. Its shown text is shorter than M's because it has fewer words, not only because of `[n]`. Whether the shorter text is the cause of the higher rate was not measured.
+- References themselves work: 99% coverage and 2.2% wrong on text the writer linked while writing, 91% and 1 of 100 on text linked afterwards by the backfill (trial above).
+- Open, for the owner: both trials together point to linking after writing instead of while writing. Keep the writer, checker and fixer texts of `main` (the control's accuracy) and run the backfill step at the end of `mem-synthesize`, which the backfill trial measured on syntheses written by that same writer. It needs the texts of task 3 taken back, the backfill wired into the pipeline, and one confirming run. Not done: it is a change of design.
