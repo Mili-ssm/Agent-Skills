@@ -24,7 +24,7 @@ Decisions taken here (owner left them to the agent):
 - [x] 3. ADR 0027, public plugins released from `main` with per-plugin versions (supersedes 0006, amends 0008); Status lines of 0006 and 0008; `docs/requirements.md` Audience row; `CLAUDE.md` (PRs target `dev`, release steps, the `version` rule); README "Update" (auto-update opt-in, releases, changelogs) and "Develop" (branches, release checklist). Check: `grep -n '^Status' docs/adr/000[68]*.md docs/adr/002[67]*.md`; no live doc says "every commit is a version".
 - [x] 4. Tooling: `validate.py` iterates the marketplace entries (SemVer `version` per plugin, a `## [version]` section in its `CHANGELOG.md`, `[Unreleased]` allowed, no `version` on marketplace entries) and gets `--release`: fails when a plugin's files (agent-skills: also `ports/`, `user-config/`, `user-agents/`) changed since its last tag while its version still equals that tag's, or when a tag's `plugin.json` version differs from the tag name; `port.py` copies the version into the Copilot manifest, Codex stays without; `cloud-setup.sh` honors `AGENT_SKILLS_REF`. Check: `python3 scripts/port.py`, `python3 scripts/validate.py`, `python3 scripts/validate.py --release`, `claude plugin validate .`.
 - [x] 5. First release: versions and first changelog entries; owner confirms versions; PR to `main`, review, merge; annotated tags on the merge commit, pushed; `dev` created from `main`; owner's install moved to `#dev`. Check: `git tag -l '*-v*'`; the owner's install shows the versions after `claude plugin marketplace update mili-ssm`.
-- [ ] 6. Option C assessment reported to the owner (viability, need, convenience), no edits.
+- [x] 6. Option C assessment reported to the owner (viability, need, convenience), no edits.
 
 ## Kill criteria
 
