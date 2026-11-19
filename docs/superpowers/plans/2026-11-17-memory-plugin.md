@@ -4,25 +4,27 @@ Goal: sessions in any repository, and their subagents, recall from and write to 
 
 Each stage is installable and revertible on its own, ends with the owner's review, and gets its own task plan (Superpowers `writing-plans`) and one `pre-mortem` when it starts, not before: a detailed plan written now would be stale by then. Code is written on a branch of this repository and pushed; tests that write use a disposable copy of the notes, never the note repository itself.
 
-## Current state and where to resume (2026-11-17)
+## Current state and where to resume (2026-11-19)
 
-Read this section first; the stage list below is the history and the detail.
+Read this section first; the stage list below is the history and the detail. Check it against `git log --oneline --merges origin/dev`, because it drifts.
 
 | Fact | State |
 | --- | --- |
-| On `main` | Stages 0 to 3, 5, 5b and 6, and the import of stage 7 (PR #117, PR #118) |
-| Installed | `memory@mili-ssm` at user scope since 2026-11-17, no option set, so it uses the default store |
-| Default store | Holds the owner's imported notes (715 literature, 387 knowledge, 11 investigations, 60 topics); no remote yet. Its `check` reports 29 broken links, all to documents of the origin that are not notes and were not imported; `unify` passes over them |
-| Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 745 passed, 4 skipped on `main`; 820 passed, 4 skipped on the stage 10 branch |
+| Released | `memory` 0.1.0 (tag `memory-v0.1.0`, 2026-11-19, ADR 0027): work merges into `dev`, a release into `main` |
+| Merged | Stages 0 to 3, 5, 5b, 6, the import of stage 7, stage 10 (PR #119), edit commands (#121), store history in git (#122), prompts and loop (#123), descriptions (#126), the seamless plan's stages W, 1a, 1b and 2 (#128, #129, #136 to #139) |
+| Installed | `memory@mili-ssm` 0.1.0 at user scope, following `main`; options `auto_settle` and `auto_curation` on, `research_depth` unset (`contrast`) |
+| Default store | The owner's imported notes plus everything written since; its `check` reports 29 broken links to documents of the origin that were not imported; no remote yet |
+| Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1248 passed, 4 skipped on `dev` (2026-11-19, about 100 s); `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (UTC date in the curation log) |
 | Not registered | The signal hook of stage 6 (measured: no gain) |
+| Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
-Next, in the owner's order:
+Next, in the owner's order (2026-11-19):
 
-1. **Stage 10**, the project syntheses experiment, which the owner asked for before the kill read: Tasks 1 to 3 are built on its branch (not merged); the pilot of Task 4 stopped the experiment on 2026-11-17, and the staleness arms the owner then asked for showed no effect at their sample size ([its results](2026-11-17-memory-plugin-project-syntheses.md#results)). What to do with the code is the owner's decision.
-2. **Real use**: the owner works with the plugin installed; what the sessions do with it feeds the kill read.
-3. **Stage 4**, the kill read, around 2026-12-01 (two weeks after the install), from the usage and hook logs.
-4. **Stage 7**, the rest: a repository of its own as the remote of the default store.
-5. **Stage 9**, then **stage 8**.
+1. **Seamless stage 3**, integration and sibling updates ([the seamless plan](2026-11-17-memory-seamless.md#stage-3-integration-and-sibling-updates)): design, pre-mortem, then tasks.
+2. **Real use** feeds **stage 4**, the kill read, around 2026-12-01, written into ADR 0023 as a `## Review`.
+3. Then the **Codex port** (a new ADR first), **stage 7**'s remote, **stage 9**, **stage 8**.
+
+Command gaps raised on 2026-11-17 are closed except renaming a memory, which the owner dropped (2026-11-19).
 
 Open items, none blocking:
 
@@ -32,12 +34,12 @@ Open items, none blocking:
 | Under `mem import --research-data`, files that are not Markdown are not scanned for secrets | Small |
 | The forbidden-terms check is skipped when neither `HOME` nor `XDG_CONFIG_HOME` is set | Small |
 | `mem memories --project <name>` prints nothing, without a message, when the registered project's folder moved | Small |
-| A replaced part of a project synthesis cannot be undone (stage 10 leaves it out) | Decide after stage 10 |
+| A replaced part of a project synthesis cannot be undone (stage 10 leaves it out) | A decision for the owner |
 | The fixes of stage 5b's review round were confirmed by tests, not by a second review ([its results](2026-11-17-memory-plugin-stage-5b.md#results)) | One review |
 | Stage 6's check names a `## Measurement` section in ADR 0023; its figures are in the stage 6 plan's results and the ADR's `## Review 2026-11-17` | Reword the check or add the section |
 | Matching by meaning, and a paired evaluation of task outcomes with and without the plugin | Not planned yet |
 
-Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D24 on `main`, D25 on the stage 10 branch) and are not reopened without new evidence.
+Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `dev` or `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D25) and are not reopened without new evidence.
 
 ## Stages
 
