@@ -111,6 +111,15 @@ def test_a_failing_mem_check_after_the_references_fails_the_topic(ms, fake, pipe
     assert f"mem restore s:{TOPIC}" in row["status"] and row["refs"] == 2
 
 
+def test_a_failing_mem_check_with_no_reference_written_is_not_blamed_on_the_step(ms, fake, pipeline, store, tmp_path,
+                                                                                  monkeypatch):
+    monkeypatch.setenv("FAKE_MODE", "error")
+    real = ms.backfill_one
+    monkeypatch.setattr(ms, "backfill_one", lambda *a, **kw: dict(real(*a, **kw), mem_check=1))
+    code, _, (row,) = synthesize(ms, fake, store, tmp_path)
+    assert code == 0 and row["status"].startswith("ok, references not added: "), row
+
+
 def test_a_successful_step_is_marked_done_like_backfill_does(ms, fake, pipeline, store, tmp_path):
     answer(tmp_path, REFS)
     synthesize(ms, fake, store, tmp_path)

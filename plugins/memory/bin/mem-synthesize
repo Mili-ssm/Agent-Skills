@@ -214,8 +214,8 @@ def add_topic_references(claude: str, env: dict, base: Path, store: Path, topic:
         return 0.0
     row.update(refs=result["applied"], refs_refused=result["refused"], refs_none=result["none"],
                mem_check=result["mem_check"])
-    if result["mem_check"] != 0:
-        row["status"] = f"failed: mem check exit {result['mem_check']} after references (undo: mem restore s:{topic})"[:100]
+    if result["applied"] and result["mem_check"] != 0:   # the step wrote, and the store no longer checks
+        row["status"] = f"failed: mem check exit {result['mem_check']} after references (undo: mem restore s:{topic})"
     elif result["status"] != "ok":
         row["status"] = f"ok, references not added: {result['status'].removeprefix('failed: ')}"[:100]
     elif done:

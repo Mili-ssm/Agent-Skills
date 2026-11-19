@@ -15,7 +15,7 @@ Start with stage 2: stages 3 and 4 need its inline references, and stage 5 only 
 | `main` | `7d190a1`; the installed plugins are at `a65b322` |
 | Owner settings | `auto_settle` and `auto_curation` on for `memory@mili-ssm`; `research_depth` unset (default `contrast`) |
 | Settling in a real session | Seen on 2026-11-18: `mem-settle status` reports a run that day, state ok, 0 pairs, 0 USD, no failure. A run that judges pairs is still to be seen |
-| Tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1137 passed, 4 skipped on `main`; 1240 passed, 4 skipped on the stage 2 branch. `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (the curation log writes its date in UTC, the test expects the local date): an open low defect |
+| Tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1137 passed, 4 skipped on `main`; 1241 passed, 4 skipped on the stage 2 branch. `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (the curation log writes its date in UTC, the test expects the local date): an open low defect |
 | Open low items | three in `evals/settle/run_trial.py` (see "Results"); an unclosed `<script>` hides the rest of a fetched page (a false "quote not on the page"); the web session's own `official` label is trusted |
 
 ### How each stage was built so far (repeat it)
@@ -155,7 +155,7 @@ Proposed: each sentence that states a finding ends with the handle of the note i
   - **Built (2026-11-18, not yet measured):** `mem settle` (engine, two review rounds), `mem-settle` (the run), the trigger in the write path, the hooks, the session start lines, options `auto_settle` (off) and `auto_settle_minutes`.
   - **Kill criteria.** Switch off when a week of settling runs costs more than 1 USD, or when the owner undoes 2 settlings in a week.
 - [ ] **1. (1a and the `mem-research` pipeline done and measured; the agent change is left) Research on demand with the web, to a set depth.** A command `mem-research` chains headless sessions with separated roles: memory step (store, no web) answers and lists what is missing or to contrast; web step (web only, sees no store) returns quotes with URLs from official documentation and papers; writing step (store, no web) records findings with their URL and low confidence, and for a contrast adds confirmed evidence or marks a note disputed. Depth: `memory` (no web), `contrast` (few pages, default), `deep` (more pages, papers); an option of the plugin sets the default and the request can override it. `memory-researcher` loses its web tools and points to the command. Check: a trial with planted facts (a correct one, a contradicted one, one with no source, and a page that carries an instruction) shows the three verdicts, nothing written from the instruction, and no store text in the web step's input.
-- [ ] **2. Inline note references in syntheses.** Writer, checker and `mem check`; trial against the lean loop on the same three topics. *Built on `feat/memory-inline-refs` (2026-11-18); the trial is not run.*
+- [ ] **2. Inline note references in syntheses.** Writer, checker and `mem check`; trial against the lean loop on the same three topics. *Built and measured on `feat/memory-inline-refs`: backfill trial passed (2026-11-18), writer trial failed and the design changed to link after writing, confirming run passed (2026-11-19). Open: task 6 on the real store and the reference audit.*
 - [ ] **3. Integration and sibling updates.** An unattached note on a covered topic is added to its part and attached; the part's other notes get links, evidence and dispute marks, never claim rewrites. Trial on a store copy with seeded notes.
 - [ ] **4. Splitting a synthesis.** Detection in `mem curate --notes`; `memory-synthesizer` in split mode writes the child part and the revised parent part; conservation check; one reversible step. Trial on a copy with a seeded sub-subject.
 - [ ] **5. The steps join `mem-auto`**, each with its share of the run's budget, after its trial.
@@ -332,15 +332,15 @@ Pre-mortem of 2026-11-19 on this change (7 risks, 1 high), and what it added:
 
 | Condition | M | R | Limit | Result |
 |---|---|---|---|---|
-| Unsupported claims per 100 | 4.7 | 4.9 | 6.7 (M + 2.0) | passed |
-| Pipeline cost per synthesis, USD | 0.484 | 0.482 | below 0.630 | passed |
+| Unsupported claims per 100, pooled over the six rows | 4.7 | 4.9 | 6.7 (M + 2.0; M's gap between its two pooled runs is 1.4) | passed |
+| Pipeline cost per synthesis, USD | 0.484 | 0.482 | below 0.629 | passed |
 | `mem check` exits 0 | 6 of 6 | 6 of 6 | all | passed |
 | Findings that carry a reference | - | 393 of 472 (83%) | at least 80% | passed |
 | Wrong references | - | 36 of 741 (4.9%) | at most 5% | passed, one reference below the limit |
 | Tokens shown by `mem show`, mean | 5276 | 5236 | at most 6067 | passed |
 | Calibration of the reference judge | - | 19 of 20 planted found | at least 16 | valid |
 
-Per row, unsupported per 100: 5.7, 6.7, 3.8, 5.2, 7.1, 1.7 (gap between R's two runs 2.6 points; M's 2.3). The stored file grows from a mean of 5248 to 8747 tokens (+67%), which only `mem show --stored` and the engine read.
+Per row, unsupported per 100: 5.7, 6.7, 3.8, 5.2, 7.1, 1.7 (mean over topics of the gap between the two runs of one topic: R 2.6 points, M 2.3; the rule uses the other gap, between pooled runs). The stored file is 8747 tokens on average in R against 5248 in M (+67%), which only `mem show --stored` and the engine read.
 
 Limits, to read before building on this:
 
@@ -349,4 +349,4 @@ Limits, to read before building on this:
 - One synthesis left one part off its index (`unlisted` in the harness table) and still passed `mem check`; not looked into.
 - Two runs per topic; the unsupported difference between arms (0.2 points) is far inside the noise, as expected, since the judge reads text without references.
 
-After the run, before the merge, from the review of the wiring: the reference step does not start with less budget left than one session usually costs; an error while selecting parts leaves the topic a pass (`ok, references not added: ...`); a `mem check` that no longer exits 0 after references were written fails the topic and names the undo. Not done, low: the harness does not test that M and R hold the same (topic, run) pairs, nor mark a decision on fewer than six valid R rows as preliminary (this run had six).
+**The PASS covers `1db8f1b`.** Two commits follow it and no paid run exercised them; they change only paths this run did not take (too little budget, an error, a failing `mem check`), each covered by a test with a fake `claude`. From the review of the wiring: the reference step does not start with less budget left than one session usually costs; an error while selecting parts leaves the topic a pass (`ok, references not added: ...`); a `mem check` that no longer exits 0 after references were written fails the topic and names the undo, only when the step wrote a reference. Not done, low: the harness does not test that M and R hold the same (topic, run) pairs, nor mark a decision on fewer than six valid R rows as preliminary (this run had six).
