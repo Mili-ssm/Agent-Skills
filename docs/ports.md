@@ -26,15 +26,32 @@ Install steps for Copilot CLI and Codex are in the [README](../README.md#install
 
 ## Models
 
-Copilot runs the same Claude models: model and effort pass through (`haiku` → `claude-haiku-5.5`, `sonnet` → `claude-sonnet-5.5`, `opus` → `claude-opus-5.5`). Codex maps the (model, effort) pair together (owner, 2026-11; cost-optimized equivalences):
+Copilot runs the same Claude models: model and effort pass through (`haiku` → `claude-haiku-5.5`, `sonnet` → `claude-sonnet-5.5`, `opus` → `claude-opus-5.5`, `fable` → `claude-fable-5.2`; GitHub's docs give Fable only as a display name, so that id is unconfirmed). Codex maps the (model, effort) pair together (owner, 2026-11; cost-optimized equivalences):
 
 | Claude model | low | medium | high | xhigh | max |
 |---|---|---|---|---|---|
 | `haiku` | `gpt-6-luna` low | `gpt-6-luna` low | `gpt-6-luna` medium | `gpt-6-luna` high | `gpt-6-luna` xhigh |
-| `sonnet` | `gpt-6-luna` high | `gpt-6.1-terra` low | `gpt-6.1-terra` medium | `gpt-6.1-terra` high | `gpt-6.1-terra` xhigh |
-| `opus` | `gpt-6.1-terra` high | `gpt-6.2-sol` low | `gpt-6.2-sol` medium | `gpt-6.2-sol` high | `gpt-6.2-sol` xhigh |
+| `sonnet` | `gpt-6-luna` high | `gpt-6.1-terra` low | `gpt-6.1-terra` medium | `gpt-6.2-sol` low | `gpt-6.1-terra` xhigh |
+| `opus` | `gpt-6.2-sol` low | `gpt-6.2-sol` low | `gpt-6.2-sol` medium | `gpt-6.2-astra` low | `gpt-6.2-sol` xhigh |
+| `fable` | `gpt-6.2-astra` low | `gpt-6.2-astra` medium | `gpt-6.2-astra` high | `gpt-6.2-astra` xhigh | `gpt-6.2-astra` max |
 
-Each Claude pair maps to the cheapest Codex pair that matches or beats it (luna ×1 cost, terra ×2, sol ×5, ratios recorded for 6.1 and not re-checked for `gpt-6.2-sol`: `models.json` carries no prices); astra (`gpt-6.2-astra`, `gpt-6-astra`) has no Claude equivalent and is never mapped. Each tier uses its newest listed version; terra has no 6.2 release, so it stays on `gpt-6.1-terra`. As of 2026-11-19 (`codex-rs/models-manager/models.json`); change `CODEX_PAIRS` in `scripts/port.py` when the tools' model lists change. A pair missing from the table fails `port.py --check`. Copilot falls back to the session model when a listed model is unavailable.
+Each Claude pair maps to the cheapest Codex pair that matches or beats it. The two vendors' plans have different budgets, so prices are never compared across vendors: each scale below is relative to the cheapest model of its own vendor, so matching tiers (luna and Haiku, terra and Sonnet, sol and Opus, astra and Fable) have a similar place on each scale, a rough proxy for capability too; single cells trade some cost for capability.
+
+| Codex model | Relative cost per token |
+|---|---|
+| `gpt-6-luna` | 1 |
+| `gpt-6.1-terra` | 10 |
+| `gpt-6.2-sol` | 20 |
+| `gpt-6.2-astra` | 80 |
+
+| Claude model | Relative cost per token |
+|---|---|
+| Haiku 5.5 | 1 |
+| Sonnet 5.5 | 20 |
+| Opus 5.5 | 40 |
+| Fable 5.2 | 80 |
+
+Codex: plan credits per token (`learn.chatgpt.com/docs/pricing`, 2026-11-19; `gpt-6.1-sol` costs the same as `gpt-6.2-sol`). Claude: API list price per token (Haiku 5.5 $0.10/$0.50 per 1M up to 100K-token prompts, Sonnet $2/$10, Opus $4/$20, Fable $8/$40; Anthropic pricing, 2026-11). Effort does not change the price per token, only how many tokens a task uses. Each tier uses its newest listed version; terra has no 6.2 release, so it stays on `gpt-6.1-terra`. Owner 2026-11-19: the cells that gave terra `high` give `gpt-6.2-sol` `low`, the cell that gave sol `high` gives `gpt-6.2-astra` `low`, and Fable maps 1:1 by effort to astra; no agent uses those cells, which are kept current anyway; agents can only set `low`, `medium` or `high` today (`EFFORTS` in `scripts/port.py`), so `xhigh` and `max` need that list widened first. Models as of 2026-11-19 (`codex-rs/models-manager/models.json`); change `CODEX_PAIRS` in `scripts/port.py` when the tools' model lists change. A pair missing from the table fails `port.py --check`. Copilot falls back to the session model when a listed model is unavailable.
 
 ## Limits
 

@@ -47,15 +47,18 @@ COPILOT_MODELS = {
     "haiku": "claude-haiku-5.5",
     "sonnet": "claude-sonnet-5.5",
     "opus": "claude-opus-5.5",
+    "fable": "claude-fable-5.2",  # display name only in GitHub docs (2026-11-19); unknown ids fall back to the session model
 }
 # Claude (model, effort) -> Codex (model, effort). Source: owner, 2026-11; Codex models.json slugs.
-# Cost-optimized equivalences; Opus high stays on sol because astra costs more. If one agent needs an
-# exception, add a per-agent override here; none exists yet. A pair missing here is an error in --check.
+# Cost-optimized equivalences; the Codex side is measured in plan credits, not API prices. If one agent needs an exception, add a
+# per-agent override here; none exists yet. A pair missing here is an error in --check.
 CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
-    # Cheapest Codex pair that matches or beats each Claude pair, except Haiku medium below (owner, 2026-11): luna slightly above Haiku (x1
-    # cost), terra between luna and sol and the most cost-efficient (x2), sol above Opus (x5); astra has no Claude
-    # equivalent and is never mapped. Haiku medium maps to luna low (owner 2026-11-03, ADR 0017): global change, it
-    # also moves researcher to luna low; ADR 0014 early-stop risk (low effort stopping early) is watched.
+    # Cheapest Codex pair that matches or beats each Claude pair, except Haiku medium below (owner, 2026-11). Codex
+    # credits per token, luna = 1: terra 10, sol 20, astra 80; Claude scale in docs/ports.md § Models.
+    # Haiku medium maps to luna low (owner 2026-11-03, ADR 0017): global change, it also moves researcher to luna
+    # low; ADR 0014 early-stop risk (low effort stopping early) is watched. Owner 2026-11-19: the 6.2 models
+    # replace 6.1 where one exists (no 6.2 terra or luna); the cells that gave terra high now give sol low, the
+    # one that gave sol high gives astra low, and Fable maps 1:1 by effort to astra. No agent used those cells.
     ("haiku", "low"): ("gpt-6-luna", "low"),
     ("haiku", "medium"): ("gpt-6-luna", "low"),
     ("haiku", "high"): ("gpt-6-luna", "medium"),
@@ -64,13 +67,18 @@ CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
     ("sonnet", "low"): ("gpt-6-luna", "high"),
     ("sonnet", "medium"): ("gpt-6.1-terra", "low"),
     ("sonnet", "high"): ("gpt-6.1-terra", "medium"),
-    ("sonnet", "xhigh"): ("gpt-6.1-terra", "high"),
+    ("sonnet", "xhigh"): ("gpt-6.2-sol", "low"),
     ("sonnet", "max"): ("gpt-6.1-terra", "xhigh"),
-    ("opus", "low"): ("gpt-6.1-terra", "high"),
+    ("opus", "low"): ("gpt-6.2-sol", "low"),
     ("opus", "medium"): ("gpt-6.2-sol", "low"),
     ("opus", "high"): ("gpt-6.2-sol", "medium"),
-    ("opus", "xhigh"): ("gpt-6.2-sol", "high"),
+    ("opus", "xhigh"): ("gpt-6.2-astra", "low"),
     ("opus", "max"): ("gpt-6.2-sol", "xhigh"),
+    ("fable", "low"): ("gpt-6.2-astra", "low"),
+    ("fable", "medium"): ("gpt-6.2-astra", "medium"),
+    ("fable", "high"): ("gpt-6.2-astra", "high"),
+    ("fable", "xhigh"): ("gpt-6.2-astra", "xhigh"),
+    ("fable", "max"): ("gpt-6.2-astra", "max"),
 }
 # Text like "(Sonnet)" names a model, not an agent; it is rewritten with the model of the pair most agents use.
 CODEX_LABEL_EFFORT = {"haiku": "medium", "sonnet": "medium", "opus": "high"}
