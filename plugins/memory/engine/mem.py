@@ -5422,20 +5422,20 @@ def _note_kind(rel: str) -> str | None:
 
 
 def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
-    """Imported Markdown files whose text matches a secret pattern or a hard term."""
+    """Imported text files whose text matches a secret pattern or a hard term (a file with a NUL byte is binary: skipped)."""
     try:
         terms = [t for t in records.read_terms(os.environ) if not t.soft]
     except records.ForbiddenListError:
         terms = []
     flagged = []
     for rel in files:
-        if not rel.endswith(".md"):
-            continue
         try:
-            with (src / rel).open("rb") as f:
-                text = f.read().decode("utf-8")
-        except (OSError, UnicodeDecodeError):
+            raw = (src / rel).read_bytes()
+        except OSError:
             continue
+        if b"\x00" in raw:
+            continue
+        text = raw.decode("utf-8", errors="ignore")
         if records.secret_in([text]) is not None or (terms and any(not t.soft for t in records.term_hits([text], os.environ))):
             flagged.append(rel)
     return flagged

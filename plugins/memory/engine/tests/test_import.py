@@ -183,6 +183,20 @@ def test_a_file_with_a_secret_is_flagged_and_still_copied(source, dest, capsys):
     assert "AKIA" in (dest / "knowledge/computing/attention-replaces-recurrence.md").read_text(encoding="utf-8")
 
 
+def test_a_secret_in_a_non_markdown_research_file_is_flagged(source, tmp_path, capsys):
+    folder = source / "research" / "2026-11-llm-eval-methods"
+    key = "AKIA" + "ABCDEFGHIJKLMNOP"
+    (folder / "notes.txt").write_text(f"key: {key}\n", encoding="utf-8")
+    (folder / "run.json").write_text(json.dumps({"k": key}), encoding="utf-8")
+    (folder / "blob.bin").write_bytes(b"\x00" + key.encode())  # binary: not scanned
+    full = tmp_path / "full"
+    assert mem.main(["init", str(full)]) == 0
+    code, out, _ = run(full, source, capsys, "--research-data")
+    assert code == 0 and "flagged: 2 files" in out
+    flagged = out.split("flagged:\n")[1]
+    assert "notes.txt" in flagged and "run.json" in flagged and "blob.bin" not in flagged
+
+
 def test_research_data_is_copied_only_on_request(source, tmp_path, capsys):
     plain, full = tmp_path / "plain", tmp_path / "full"
     assert mem.main(["init", str(plain)]) == 0 and mem.main(["init", str(full)]) == 0
