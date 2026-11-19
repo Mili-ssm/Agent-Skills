@@ -183,7 +183,7 @@ def test_dry_run_lists_the_parts_and_starts_no_session(ms, fake, full, tmp_path)
     code, lines, rows = backfill(ms, fake, full, handles=(), dry_run=True)
     assert code == 0 and not sessions(tmp_path) and not marks(ms)
     assert lines[0].startswith("s:attention: alpha (3 of 5 units") and "beta (1 of 1" in lines[0]
-    assert "dry run: 1 syntheses" in lines[-1] and "estimated cost 0.15 USD" in lines[-1]
+    assert "dry run: 1 syntheses" in lines[-1] and "estimated cost 0.05 USD" in lines[-1]
 
 
 def test_parse_answer_tolerates_fences_ticks_and_space():

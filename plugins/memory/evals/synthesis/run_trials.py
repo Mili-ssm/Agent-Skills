@@ -11,7 +11,10 @@ The judge is blind to the arm; its count is the quality measure. Each step is it
 pipeline works on its own copy of a store snapshot under `target/mem-trials/` in which the topic's synthesis is gone and
 its notes are detached; the owner's store is read once, to make the snapshot, and never written.
 
-Arm R: M's models and effort with the current texts (writer brief, skill, checker and fixer briefs). Arm M is `main`
+Arm R: M's models and effort with the current texts (writer brief, skill, checker and fixer briefs), and the step
+`mem-synthesize` ends a topic with: after the loop, `add_references` (one read-only Haiku session, code applies the
+references) runs before every measurement, so sizes, judges and calibration see the final text; its cost is in the
+pipeline cost and a failure makes the row invalid. Arm M is `main`
 as shipped: its own harness, run from a git worktree of `main` (`target/mem-trials/main-worktree`), makes the synthesis
 and the pipeline cost, and this script only judges it, so M and R compare the pipeline before and after inline
 references. The judge is the same for every arm: the frozen checker brief (`frozen-main/`), reading the synthesis with
@@ -24,12 +27,14 @@ over the judged syntheses to see whether the judge finds them (calibration). `--
 `mem-synthesize --backfill` on a copy of the prepared store and checks what it did, then undoes it with `mem restore`.
 
 Usage: run_trials.py [--claude PATH] [--topic T]... [--arm S|L|M|R]... [--judge-model haiku] [--runs 1] [--jobs 2]
-                     [--budget USD (10)] [--work DIR (resume)] [--keep] [--no-ref-judge]
+                     [--budget USD (10)] [--work DIR (resume)] [--keep] [--no-ref-judge] [--control-results FILE]
        run_trials.py --backfill-trial [--synthesis HANDLE]... [--budget USD] [--claude PATH] [--keep] | --self-check
 It costs model usage (9 pipelines and 9 judges at the defaults, about 7 to 9 USD). --budget is a cap: before any
 pipeline, judge, reference judgment or calibration starts, the cost so far plus the reserve of the work in flight plus
 the step's reserve must fit under it, and every session this script starts gets `--max-budget-usd` SESSION_CAP_USD.
 --rejudge reuses a kept pipeline folder (run an earlier pipeline with --keep).
+--control-results FILE reuses the arm M rows of an earlier results file instead of running M, provided `plugins/memory`
+is the same in `main` and at the commit that file records (the control's code is unchanged); not paid again.
 """
 from __future__ import annotations
 
@@ -321,7 +326,7 @@ def judge_row(claude: str, base: Path, env: dict, topic: str, arm: str, run: int
         words=words, parts=parts, **size, used=len(used & set(denominator)), mem_check=check_exit, fix_rounds=prior["fixes"],
         arm_checked=arm_count["checked"] if arm_count else None,
         arm_unsupported=arm_count["unsupported"] if arm_count else None,
-        deleted=prior.get("deleted", 0), scope_violations=prior.get("scope_violations", []),
+        deleted=prior.get("deleted", 0), scope_violations=prior.get("scope_violations", []), backfill=prior.get("backfill"),
         costs=pooled, cost=sum(s["cost"] for s in sessions), cost_assumed=sum(bool(s.get("cost_assumed")) for s in sessions),
         pipeline_cost=sum(s["cost"] for s in sessions if s["role"] != "judge"),
         judge_cost=sum(s["cost"] for s in sessions if s["role"] == "judge"),
@@ -361,6 +366,40 @@ def judge_and_refs(claude: str, base: Path, env: dict, topic: str, arm: str, run
     return mark_lost(row, lost)
 
 
+_SYNTHESIZE = []
+
+
+def load_synthesize():
+    """The `mem-synthesize` script as a module (it has no .py suffix): the one implementation of the reference step."""
+    if not _SYNTHESIZE:
+        import importlib.machinery
+        import importlib.util
+        path = str(PLUGIN / "bin" / "mem-synthesize")
+        spec = importlib.util.spec_from_loader("mem_synthesize_bin", importlib.machinery.SourceFileLoader("mem_synthesize_bin", path))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _SYNTHESIZE.append(module)
+    return _SYNTHESIZE[0]
+
+
+def reference_backfill(claude: str, base: Path, env: dict, topic: str) -> dict:
+    """Run `mem-synthesize`'s reference step (`add_references`) on the synthesis in `base/store`; the facts for the row
+    (`status` is `ok`, `nothing due` or the failure) and the cost. The done list is not touched."""
+    settings = base / "settings-references.json"
+    settings.write_text(json.dumps({"disableAllHooks": True}))
+    start = time.monotonic()
+
+    def log(text: str) -> None:
+        with (base / "references-log.txt").open("a") as f:
+            f.write(text + "\n")
+    row = load_synthesize().add_references(claude, env, base / "references", base / "store", topic, settings, log,
+                                           SESSION_CAP_USD)
+    if row is None:
+        return dict(status="nothing due", proposed=0, applied=0, refused=0, none=0, cost=0.0, wall=0.0, ran=False)
+    return dict(status=row["status"], proposed=row["proposed"], applied=row["applied"], refused=row["refused"],
+                none=row["none"], cost=row["cost"], wall=time.monotonic() - start, ran=True)
+
+
 def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: int, keep: bool,
                  judge_model: str, ref_judge: bool = False, quota: Quota | None = None, budget: Budget | None = None) -> dict:
     assert arm != "M", "arm M is run by main's own harness (control_row)"
@@ -389,9 +428,19 @@ def one_pipeline(claude: str, root: Path, env: dict, topic: str, arm: str, run: 
         done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions, lean=arm in LEAN,
                             left=lambda: SESSION_CAP_USD)
         assume_cap(sessions)
+    refs = None
+    if arm == "R" and synthesis.is_file() and not done["why"]:   # the last step, before every measurement
+        refs = reference_backfill(claude, base, env, topic)
+        if refs["ran"]:
+            sessions.append(dict(role="backfill", model="haiku", costs={"haiku": refs["cost"]}, cost=refs["cost"],
+                                 wall=refs["wall"], writes=0, write_errors=0, denied=False, tool_errors=0,
+                                 ok=refs["status"] == "ok"))
+            assume_cap(sessions)
+        if refs["status"] not in ("ok", "nothing due"):
+            done["why"] = f"reference backfill failed: {refs['status']}"
     finished(budget, "pipeline", sum(x["cost"] for x in sessions))
     prior = dict(sessions=sessions, why=done["why"], denominator=denominator, arm_count=done["arm_count"],
-                 fixes=done["fixes"], deleted=done["deleted"], scope_violations=done["scope_violations"])
+                 fixes=done["fixes"], deleted=done["deleted"], scope_violations=done["scope_violations"], backfill=refs)
     (base / "pipeline.json").write_text(json.dumps(prior))   # what `--rejudge` needs besides the kept store
     row = judge_and_refs(claude, base, env, topic, arm, run, judge_model, prior, ref_judge, quota, budget)
     if not keep:
@@ -417,6 +466,28 @@ def ensure_main_worktree(path: Path = MAIN_WORKTREE, run_git=git) -> dict:
     else:
         run_git("worktree", "add", "--detach", str(path), "main")
     return dict(path=path, commit=run_git("rev-parse", "--short", "main"))
+
+
+def load_control_results(path: Path, run_git=git) -> dict:
+    """The arm M rows of an earlier results file (`--control-results`), reused instead of a new control run.
+
+    Reads `control_commit` (the `main` commit that produced them) and the rows with `arm == "M"`. Refused unless
+    `plugins/memory` is the same at that commit and in `main` now: the control's code must be unchanged. Returns the
+    rows (each marked `reused_from`), both commits and the file."""
+    data = json.loads(path.read_text())
+    recorded = data.get("control_commit")
+    if not recorded:
+        raise RuntimeError(f"{path} records no control_commit: it has no arm M rows from `main`'s harness")
+    try:
+        run_git("diff", "--quiet", recorded, "main", "--", "plugins/memory")
+    except subprocess.CalledProcessError as exc:
+        why = "differs" if exc.returncode == 1 else f"cannot be compared (git exit {exc.returncode})"
+        raise RuntimeError(f"plugins/memory {why} between {recorded} (recorded in {path.name}) and `main`: the control's "
+                           f"code changed, so its rows cannot stand for it; run arm M again") from None
+    rows = [dict(r, reused_from=str(path)) for r in data["rows"] if r["arm"] == "M"]
+    if not rows:
+        raise RuntimeError(f"{path} holds no arm M rows")
+    return dict(rows=rows, recorded=recorded, main=run_git("rev-parse", "--short", "main"), file=str(path))
 
 
 def control_env() -> dict:
@@ -1636,8 +1707,10 @@ def budget_checks(root: Path, env: dict) -> None:
     def loop(claude, env_, base, store, work, settings, topic, sessions, lean=True, left=None, briefs=None):
         seen["left"] = left() if left else None
         return dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[])
-    original, original_loop = globals()["run_session"], sp.lean_loop
+    original, original_loop, original_refs = globals()["run_session"], sp.lean_loop, globals()["reference_backfill"]
     globals()["run_session"], sp.lean_loop = fake_session(calls, cost=0.0, usage=False), loop
+    globals()["reference_backfill"] = lambda *a: dict(status="nothing due", proposed=0, applied=0, refused=0, none=0, cost=0.0,
+                                                      wall=0.0, ran=False)   # tested apart (reference_checks)
     try:
         row = one_pipeline("claude", root / "cap", env, "human-memory", "R", 1, False, "haiku", False, None, Budget(10.0))
         assert calls and all(c["max_budget"] == SESSION_CAP_USD for c in calls), calls
@@ -1654,7 +1727,7 @@ def budget_checks(root: Path, env: dict) -> None:
         out = decide([no_judge, none])
         assert out[0] == "rows lost to the budget (a step was not started, not valid for the decision): 2", out
     finally:
-        globals()["run_session"], sp.lean_loop = original, original_loop
+        globals()["run_session"], sp.lean_loop, globals()["reference_backfill"] = original, original_loop, original_refs
     # arm M: main's own harness makes the row; this file's pipeline is never called
     topic = "demo"
     control = dict(path=root / "no-main-worktree", commit="abc1234")
@@ -1766,6 +1839,103 @@ def budget_checks(root: Path, env: dict) -> None:
         globals()["run_session"], globals()["run_mem_synthesize"] = originals
 
 
+def reference_checks(root: Path, env: dict) -> None:
+    """No model: arm R's reference step (once, after the loop, before the judges, a failure invalidates the row) and
+    `--control-results` (the rows load, the decision is the one fresh rows give, the commit check)."""
+    order: list[str] = []
+    inner = fake_session([], cost=0.01)
+
+    def session(claude, model, prompt, work, settings, env_, log, **kw):
+        order.append("judge" if "judge" in log.name else "writer")
+        return inner(claude, model, prompt, work, settings, env_, log, **kw)
+    ran: list = []
+
+    def backfill_stub(status, cost=0.05):
+        def stub(claude, base, env_, topic):
+            order.append("backfill")
+            ran.append((arm_now[0], topic))
+            with (base / "store" / "syntheses" / f"{topic}.md").open("a") as f:
+                f.write("\nFive more words after references.\n")
+            return dict(status=status, proposed=3, applied=2, refused=1, none=4, cost=cost, wall=1.0, ran=True)
+        return stub
+    arm_now = ["R"]
+    loop_ok = dict(arm_count=None, why="", fixes=0, deleted=0, scope_violations=[])
+    state = dict(loop=loop_ok)
+    originals = globals()["run_session"], sp.lean_loop, globals()["reference_backfill"]
+    globals()["run_session"], sp.lean_loop = session, lambda *a, **kw: state["loop"]
+    try:
+        globals()["reference_backfill"] = backfill_stub("ok")
+        row = one_pipeline("claude", root / "refs", env, "human-memory", "R", 1, False, "haiku")
+        assert ran == [("R", "human-memory")] and order == ["writer", "backfill", "judge"], (ran, order)
+        assert row["valid"] and (row["backfill"]["applied"], row["backfill"]["refused"], row["backfill"]["none"]) == (2, 1, 4), row
+        assert abs(row["pipeline_cost"] - 0.06) < 1e-9 and row["sessions"][-2]["role"] == "backfill", row   # writer 0.01 + 0.05
+        assert row["words"] == len(DEMO.split()) + 5, row["words"]   # measured on the text after the step
+        for arm in ("S", "L"):   # only R runs the step
+            ran.clear()
+            arm_now[0] = arm
+            assert one_pipeline("claude", root / "refs", env, "human-memory", arm, 1, False, "haiku")["backfill"] is None and not ran
+        order.clear()
+        failed = None
+        globals()["reference_backfill"] = backfill_stub("failed: refs: boom", cost=0.02)
+        arm_now[0] = "R"
+        failed = one_pipeline("claude", root / "refs", env, "human-memory", "R", 1, False, "haiku")
+        assert not failed["valid"] and "reference backfill failed: failed: refs: boom" in failed["why"], failed
+        ran.clear()
+        state["loop"] = {**loop_ok, "why": "the checker failed"}   # a failed loop gets no step
+        one_pipeline("claude", root / "refs", env, "human-memory", "R", 1, False, "haiku")
+        assert not ran
+    finally:
+        globals()["run_session"], sp.lean_loop, globals()["reference_backfill"] = originals
+    # --control-results
+    def result_rows(arm, rates, cost, **extra):
+        ref = dict(findings=100, covered=90, pairs=100, wrong=1, findings_worst=100, pairs_worst=100, wrong_worst=1,
+                   unreliable=False, cal=dict(planted=20, found=20, weak_planted=0, weak_found=0))
+        return [dict(topic="human-memory", arm=arm, run=n, valid=True, checked=100, unsupported=rate, used=6, denominator=6,
+                     words=3000, mem_check=0, cost=cost + 0.4, pipeline_cost=cost, judge_cost=0.4, tokens_shown=1000,
+                     tokens_stored=2000, ref=ref if arm == "R" else None, **extra)
+                for n, rate in enumerate(rates, 1)]
+    m_rows, r_rows = result_rows("M", [5, 6], 0.4, control_commit="oldc0de"), result_rows("R", [6, 7], 0.45)
+    results = root / "earlier-results.json"
+    results.write_text(json.dumps(dict(rows=result_rows("S", [2], 1.0) + m_rows + r_rows, control_commit="oldc0de")))
+    gits: list = []
+
+    def git_stub(differing):
+        def run_git(*args, cwd=None):
+            gits.append(args)
+            if args[0] == "diff":
+                if args[2] in differing:
+                    raise subprocess.CalledProcessError(1, args)
+                return ""
+            return "aaaaaaa"
+        return run_git
+    loaded = load_control_results(results, git_stub(set()))
+    assert ("diff", "--quiet", "oldc0de", "main", "--", "plugins/memory") in gits, gits   # only plugins/memory is compared
+    assert (loaded["recorded"], loaded["main"], loaded["file"]) == ("oldc0de", "aaaaaaa", str(results)), loaded
+    assert [r["arm"] for r in loaded["rows"]] == ["M", "M"] and all(r["reused_from"] == str(results) for r in loaded["rows"])
+    assert decide(loaded["rows"] + r_rows) == decide(m_rows + r_rows) and decide(m_rows + r_rows)[-1].startswith("Verdict R against M")
+    try:
+        load_control_results(results, git_stub({"oldc0de"}))
+        raise AssertionError("a results file with changed control code was accepted")
+    except RuntimeError as exc:
+        assert "oldc0de" in str(exc) and "plugins/memory differs" in str(exc), exc
+    assert load_control_results(results, git_stub({"another"}))["recorded"] == "oldc0de"   # it differs elsewhere only
+    results.write_text(json.dumps(dict(rows=r_rows, control_commit=None)))
+    try:
+        load_control_results(results, git_stub(set()))
+        raise AssertionError("a file without a control commit was accepted")
+    except RuntimeError as exc:
+        assert "control_commit" in str(exc), exc
+    old_argv = sys.argv
+    sys.argv = ["run_trials.py", "--claude", "claude", "--arm", "M", "--control-results", str(results)]
+    try:
+        main()
+        raise AssertionError("--arm M with --control-results was accepted")
+    except SystemExit as exc:
+        assert exc.code == 2
+    finally:
+        sys.argv = old_argv
+
+
 def self_check() -> int:
     """No model: the copy, the deletion, the detachment and `mem synthesis new`; the owner's store is untouched."""
     real = real_store()
@@ -1847,6 +2017,7 @@ def self_check() -> int:
         harness_checks(root, env)
         ref_checks(root)
         budget_checks(root, env)
+        reference_checks(root, env)
         assert trial_env._snapshot(real) == before, "a file of the owner's store changed"
     finally:
         trial_env.clean(root)
@@ -1863,6 +2034,10 @@ def main() -> int:
     parser.add_argument("--topic", action="append", default=[], help="topic id (repeatable)")
     parser.add_argument("--arm", action="append", choices=ARMS, default=[], help="default: S, L and M; R is M's models with the current texts")
     parser.add_argument("--judge-model", default="haiku", help=f"the judge's model (always at --effort {CHEAP})")
+    parser.add_argument("--control-results", type=Path, metavar="FILE",
+                        help="reuse the arm M rows of an earlier results file instead of running M (not paid again); "
+                             "refused unless plugins/memory is the same in `main` as at the commit the file records; "
+                             "do not combine with --arm M")
     parser.add_argument("--rejudge", type=Path, metavar="PIPELINE_DIR",
                         help="judge the final synthesis of a kept pipeline folder (runs/<topic>-<arm>-<n> of an "
                              "earlier --keep run) again, recorded as arm S, run 1; needs --work")
@@ -1891,6 +2066,23 @@ def main() -> int:
     if not args.claude:
         parser.error("--claude is required (no claude binary found)")
     topics, arms = args.topic or list(DEFAULT_TOPICS), args.arm or list(DEFAULT_ARMS)
+    reused = None
+    if args.control_results:
+        if "M" in args.arm:
+            parser.error("--control-results replaces arm M: do not give --arm M with it")
+        arms = [a for a in arms if a != "M"]
+        try:
+            reused = load_control_results(args.control_results.resolve())
+        except (RuntimeError, OSError, ValueError, KeyError) as exc:
+            print(f"--control-results refused: {exc}", file=sys.stderr)
+            return 2
+        reused["rows"] = [r for r in reused["rows"] if r["topic"] in topics and r["run"] <= args.runs]
+        if not reused["rows"]:
+            print(f"--control-results refused: {args.control_results} has no arm M row for these topics and runs",
+                  file=sys.stderr)
+            return 2
+        print(f"arm M: {len(reused['rows'])} rows reused from {reused['file']}, run at `main` {reused['recorded']}; `main` is "
+              f"at {reused['main']} and plugins/memory is identical in both, so the control's code is unchanged", flush=True)
     if args.backfill_trial:
         root = args.work.resolve() if args.work else trial_env.work_dir("mem-backfill-")
         code = backfill_trial(args.claude, root, trial_env.make_env(root), args.synthesis or list(DEFAULT_TOPICS),
@@ -1905,6 +2097,8 @@ def main() -> int:
     state_file = root / STATE
     rows = json.loads(state_file.read_text()) if state_file.is_file() else []
     rows = [r for r in rows if r["valid"]]   # an invalid pipeline is rerun from scratch on resume
+    if reused:
+        rows = [r for r in rows if not r.get("reused_from")] + reused["rows"]
     if args.rejudge:
         if not args.work:
             parser.error("--rejudge needs --work (the folder whose state.json receives the row)")
@@ -1924,7 +2118,7 @@ def main() -> int:
             return 2
         print(f"arm M: `main` at {control['commit']}, run by its own harness in {control['path']}", flush=True)
     lock = threading.Lock()
-    budget = Budget(args.budget, spent=sum(row_cost(r) for r in rows))
+    budget = Budget(args.budget, spent=sum(row_cost(r) for r in rows if not r.get("reused_from")))   # reused rows were paid earlier
     ref_judge = not args.no_ref_judge
     quota = Quota(CALIBRATION_PLANTED, sum(1 for _, a, _ in todo if a == "R"))
     print(f"work folder: {root}; {len(todo)} pipelines to run, {len(done)} already done", flush=True)
@@ -1944,15 +2138,17 @@ def main() -> int:
     decision = decide(rows)
     print("\n" + "\n".join(decision))
     print(f"references removed from the trial copy of the store: {references_removed()}")
-    assumed = sum(r.get("cost_assumed", 0) for r in rows)
-    total = sum(row_cost(r) for r in rows)
+    assumed = sum(r.get("cost_assumed", 0) for r in rows if not r.get("reused_from"))
+    total = sum(row_cost(r) for r in rows if not r.get("reused_from"))
     print(f"total cost USD {total:.3f} of --budget {args.budget:.2f}, which covered pipelines, judges, reference judgments, "
           f"calibrations and arm M's control run with main's own judge ({sum(r.get('control_judge_cost', 0.0) for r in rows):.3f} "
           f"of it); {assumed} sessions returned no cost and are counted at their cap {SESSION_CAP_USD}")
     # The rows outlive the work folder: a clean run must not lose its results (it did once).
     results = trial_env.TARGET / f"synthesis-results-{time.strftime('%Y%m%d-%H%M%S')}.json"
     results.write_text(json.dumps({"rows": rows, "decision": decision, "source_refs_removed": references_removed(),
-                                   "control_commit": control["commit"] if control else None, "budget": args.budget,
+                                   "control_commit": control["commit"] if control else (reused["recorded"] if reused else None),
+                                   "control_results": reused and {k: reused[k] for k in ("file", "recorded", "main")},
+                                   "budget": args.budget,
                                    "total_cost": total, "sessions_assumed_at_cap": assumed}, indent=1))
     print(f"results: {results}")
     if all(r["valid"] for r in rows) and not args.keep:
