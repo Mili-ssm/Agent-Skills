@@ -468,6 +468,23 @@ def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
             while p in links:
                 p = skip_gap(links[p][0], _GAP)
             return p >= ce
+        def colon_intro_head(line: str, lo: int, hi: int, lk: dict) -> int | None:
+            """Where the references start when the rest of the line is `words:` plus only references."""
+            for s0 in sorted(lk):
+                if s0 < lo:
+                    continue
+                p = s0
+                while p > lo and line[p - 1] in _GAP:
+                    p -= 1
+                if p > lo and line[p - 1] == ":" and only_refs_follow(s0) and re.search(r"\w", line[lo:p]):
+                    return s0
+                break
+            return None
+
+        def introduces_block(n: int) -> bool:
+            nxt = next((lines[j].rstrip("\r") for j in range(n + 1, count) if lines[j].strip()), None)
+            return nxt is not None and (nxt.lstrip().startswith("|") or bool(_LIST_MARK.match(nxt).end()))
+
         while pos in links:  # a reference with no sentence before it
             end, m = links[pos]
             orphans.append(ref_of(m, base, False))
@@ -505,6 +522,10 @@ def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
             k = ustart = skip_gap(end)
         if ustart < ce and re.search(r"\w", raw[ustart:ce]):
             refs = [ref_of(m, base, False) for s, (e, m) in links.items() if ustart <= s < ce]
+            if (head := colon_intro_head(raw, ustart, ce, links)) is not None and introduces_block(i):
+                # A unit that ends in `:` before a table or list closes there: a reference added after the colon
+                # must not merge into the unit's own words.
+                refs = [ref_of(m, base, s >= head) for s, (e, m) in links.items() if ustart <= s < ce]
             found.append((base + ustart, base + ce, refs))
     units = [Unit(n, text[a:b], _remove(text, a, b, refs), [_file_part(r.target) for r in refs], (a, b))
              for n, (a, b, refs) in enumerate(found, 1)]
