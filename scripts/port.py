@@ -67,10 +67,10 @@ CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
     ("sonnet", "xhigh"): ("gpt-6.1-terra", "high"),
     ("sonnet", "max"): ("gpt-6.1-terra", "xhigh"),
     ("opus", "low"): ("gpt-6.1-terra", "high"),
-    ("opus", "medium"): ("gpt-6.1-sol", "low"),
-    ("opus", "high"): ("gpt-6.1-sol", "medium"),
-    ("opus", "xhigh"): ("gpt-6.1-sol", "high"),
-    ("opus", "max"): ("gpt-6.1-sol", "xhigh"),
+    ("opus", "medium"): ("gpt-6.2-sol", "low"),
+    ("opus", "high"): ("gpt-6.2-sol", "medium"),
+    ("opus", "xhigh"): ("gpt-6.2-sol", "high"),
+    ("opus", "max"): ("gpt-6.2-sol", "xhigh"),
 }
 # Text like "(Sonnet)" names a model, not an agent; it is rewritten with the model of the pair most agents use.
 CODEX_LABEL_EFFORT = {"haiku": "medium", "sonnet": "medium", "opus": "high"}
