@@ -14,7 +14,7 @@ PRELIMINARY (2, also a refusal before any session); a crash exits 3. An invalid 
 the wrong count is over the limit: the judge was not shown to work.
 It costs model usage (about 1 to 3 USD at the defaults); --budget is a cap. Results: `target/mem-trials/ref-audit-<time>.json`.
 
-Usage: audit_refs.py [--store PATH] [--sample 100] [--planted 20] [--seed 0] [--budget 3.0] [--judge-model haiku]
+Usage: audit_refs.py [--store PATH] [--sample 100] [--planted 20] [--seed 0] [--pairs FILE] [--max-wrong N] [--budget 3.0] [--judge-model haiku]
                      [--claude PATH] [--work NEW_DIR] [--keep] [--dry-run] | --self-check
 """
 from __future__ import annotations
@@ -91,12 +91,17 @@ def plant_candidates(parts: dict, sampled_units: set[tuple[str, int]]) -> list[t
     return out
 
 
-def plan(store: Path, sample: int, planted: int, seed: int) -> dict:
+def plan(store: Path, sample: int, planted: int, seed: int, only: list[Pair] | None = None) -> dict:
     """The audit's plan, a function of the store and the seed: `sampled` pairs, per synthesis the `lines` of its units
-    file ({(part, n): (text, [targets], planted?)}) and the `planted` pairs."""
+    file ({(part, n): (text, [targets], planted?)}) and the `planted` pairs. `only` replaces the draw with given pairs
+    (a second reading of pairs an earlier run flagged); each must still be in the store."""
     pairs, facts = collect(store)
     rng = random.Random(seed)
-    sampled = draw(pairs, sample, seed, rng)
+    if only is not None:
+        missing = set(only) - set(pairs)
+        if missing:
+            raise ValueError(f"{len(missing)} given pairs are not in the store, e.g. {sorted(missing)[0]}")
+    sampled = sorted(set(only)) if only is not None else draw(pairs, sample, seed, rng)
     lines: dict[str, dict] = {}
     for syn, part, n, target in sampled:
         facts_part = dict((u[0], u) for u in facts[syn][part]["units"])
@@ -182,7 +187,7 @@ def result(p: dict, j: dict) -> dict:
     wrong = [x for x in done if not j["verdicts"][x]]
     found = sum(1 for x in j["planted_judged"] if j["verdicts"].get(x) is False)
     judged, unjudged = len(done), len(sampled) - len(done)
-    limit = audit_limit(judged)
+    limit = p["max_wrong"] if p.get("max_wrong") is not None else audit_limit(judged)
     share = unjudged / len(sampled) if sampled else 1.0
     cal = rt.calibration_valid(len(j["planted_judged"]), found)
     if not cal:
@@ -243,13 +248,20 @@ def copy_store(real: Path, base: Path) -> Path:
     return store
 
 
+def given(path: Path | None) -> list[Pair] | None:
+    """The pairs of `--pairs`: a JSON list of {synthesis, part, unit, target}, as a results file's `wrong_pairs`."""
+    if path is None:
+        return None
+    return [(w["synthesis"], w["part"], int(w["unit"]), rt._norm(w["target"])) for w in json.loads(path.read_text())]
+
+
 def run(args, parser) -> int:
     real = (args.store or rt.real_store()).resolve()
     if not (real / "mem-store.yaml").is_file() or not (real / "syntheses").is_dir():
         print(f"refused: no store with syntheses at {real}", file=sys.stderr)
         return 2
     if args.dry_run:
-        dry_run(plan(real, args.sample, args.planted, args.seed), args.budget)
+        dry_run(plan(real, args.sample, args.planted, args.seed, given(args.pairs)), args.budget)
         return 0
     if not args.claude:
         parser.error("--claude is required (no claude binary found)")
@@ -262,7 +274,7 @@ def run(args, parser) -> int:
         return 2
     root.mkdir(parents=True, exist_ok=True)
     store = copy_store(real, root)
-    p = plan(store, args.sample, args.planted, args.seed)
+    p = plan(store, args.sample, args.planted, args.seed, given(args.pairs)) | dict(max_wrong=args.max_wrong)
     if not p["sampled"]:
         print("refused: the store holds no reference to judge", file=sys.stderr)
         trial_env.clean(root)
@@ -411,6 +423,10 @@ def main() -> int:
     parser.add_argument("--sample", type=int, default=100, help="references to judge")
     parser.add_argument("--planted", type=int, default=20, help="calibration lines mixed into the units files")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--pairs", type=Path, help="judge these pairs (JSON list of {synthesis, part, unit, target}) "
+                        "instead of a random sample")
+    parser.add_argument("--max-wrong", type=int, help="wrong pairs allowed, instead of the limit scaled from "
+                        f"{AUDIT_MAX_WRONG} per 100 judged")
     parser.add_argument("--budget", type=float, default=3.0, help="USD cap; no session starts when what is left is "
                         "below the reference judgment's reserve")
     parser.add_argument("--judge-model", default="haiku")
