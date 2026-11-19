@@ -1,5 +1,7 @@
 # Plan Step Tracking Implementation Plan
 
+Status: done · merged in #106, 2026-11-03 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Plan checks ask Haiku the current step and the minutes left in it, from richer evidence, with hard guards in code.
