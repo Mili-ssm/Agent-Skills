@@ -446,8 +446,8 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 
 1. On `dev`, for each plugin that changed since its last tag (`git log <name>-vX.Y.Z..dev -- plugins/<name>`; agent-skills also `ports/ user-config/ user-agents/`): pick the bump (breaking → major, feature → minor, fix → patch; under `0.y.z` a breaking change bumps the minor), set `version` in `plugins/<name>/.claude-plugin/plugin.json`, and turn `## [Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` above a new empty `[Unreleased]`.
 2. `python3 scripts/port.py`, `python3 scripts/validate.py --release`, `claude plugin validate .`.
-3. Pull request `dev` → `main`; merging it ships the release to everyone with auto-update.
-4. Tag the merge commit on `main` for each released plugin: `git tag -a <name>-vX.Y.Z -m "<name> X.Y.Z" && git push origin <name>-vX.Y.Z`.
+3. Pull request `dev` → `main` (`gh pr create --base main --head dev`), merged with a merge commit, not a squash, so `dev` can fast-forward to it; merging ships the release to everyone with auto-update.
+4. Tag the merge commit for each released plugin: `git fetch origin && git tag -a <name>-vX.Y.Z -m "<name> X.Y.Z" origin/main && git push origin <name>-vX.Y.Z`.
 5. Bring the merge commit back: `git switch dev && git merge --ff-only origin/main && git push origin dev`.
 
 ### Eval suites

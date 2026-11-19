@@ -8,7 +8,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Added
 
-- First versioned release. From now on an update arrives only with a new version: `main` holds releases and work integrates on `dev` (ADR 0027). License: MIT.
+- First versioned release. From now on an update brings only released content: `main` holds releases and work integrates on `dev` (ADR 0027); Claude Code and Copilot also see the version, Codex ports stay unversioned. License: MIT.
 - Contents: 17 agents (7 of them cheap offload workers), 15 skills and the commands in the README catalog; Copilot and Codex ports under `ports/`; the offload policy and the routing rules in `user-config/`.
 
 ### Changed

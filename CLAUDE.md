@@ -36,7 +36,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 - Pull requests target `dev`, never `main`: users and cloud sessions install whatever `main` holds (ADR 0027). Release steps: README § Develop.
 - Any change under `plugins/<name>/` (for agent-skills also `ports/`, `user-config/`, `user-agents/`), except a pure refactor, adds a line under `## [Unreleased]` in that plugin's `CHANGELOG.md`, written for users (impact, migration).
 - The version lives only in `plugins/<name>/.claude-plugin/plugin.json`, never in a marketplace entry; it changes only in a release.
-- Paths in `PUBLIC_PATHS` of `validate.py` (marketplace files, `user-config/*.md`, `user-agents/Explore.md`, README anchors) move only with an ADR and a stub at the old path (ADR 0026).
+- Paths in `PUBLIC_PATHS` of `validate.py` (marketplace files, `user-config/*.md`, `user-agents/Explore.md`, README anchors) move only with an ADR, a release note in the plugin's changelog and a stub at the old path (ADR 0026).
 - Only the seven workers (`WORKERS` in `validate.py`) say "Use proactively" (ADR 0007, 0010).
 - Vocabulary (ADR 0007): "owner" for the human, "subagent" for the mechanism, "quality attribute" in full, "findings" for defects, "risks" for plans; ratings `low | medium | high` unless a domain scale is declared.
 - Dense English, tables over prose, one home per fact with links elsewhere (ADR 0002). Cite ADRs by number.
