@@ -1,5 +1,6 @@
 {
   "name": "plan-progress",
+  "version": "0.1.0",
   "description": "Mod: a compact progress card next to the prompt (terminal and desktop) and a status line (all surfaces, incl. VS Code), shown only when an implementation plan (Superpowers writing-plans checkboxes) exists: overall bar, steps done and the active task.",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",

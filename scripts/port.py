@@ -391,7 +391,7 @@ def load_sources() -> tuple[Sources, list[str]]:
         errors.append(
             f"plugin.json: name is {plugin.get('name')!r}; PLUGIN_NAME says {PLUGIN_NAME!r}"
         )
-    for key in ("description", "author", "repository"):
+    for key in ("version", "description", "author", "repository"):
         if not plugin.get(key):
             errors.append(
                 f"plugins/{PLUGIN_NAME}/.claude-plugin/plugin.json: missing '{key}'"
@@ -575,12 +575,14 @@ class Generator:
             data = {
                 "$schema": AGENT_PLUGIN_SCHEMA,
                 "name": PLUGIN_NAME,
+                "version": plugin["version"],
                 "description": plugin["description"],
                 "author": plugin["author"],
                 "repository": plugin["repository"],
             }
             self.put(f"{target.dir}/plugin.json", dumps_json(data))
         else:
+            # No version on purpose: Codex caches an unversioned plugin under `local`, which CODEX_ROOT and the skills' printed paths rely on.
             data = {
                 "name": PLUGIN_NAME,
                 "description": plugin["description"],
@@ -1159,7 +1161,7 @@ class Verifier:
         return data if isinstance(data, dict) else None
 
     def manifests(self) -> None:
-        """Both plugin manifests carry the Claude plugin's name, description and (Copilot) author, repository."""
+        """Both plugin manifests carry the Claude plugin's name, description and (Copilot) version, author, repository."""
         plugin = self.src.plugin
         copilot_rel, codex_rel = (
             f"{COPILOT.dir}/plugin.json",
@@ -1170,9 +1172,9 @@ class Verifier:
             check.eq(
                 "keys",
                 list(got),
-                ["$schema", "name", "description", "author", "repository"],
+                ["$schema", "name", "version", "description", "author", "repository"],
             )
-            for key in ("name", "description", "author", "repository"):
+            for key in ("name", "version", "description", "author", "repository"):
                 check.eq(key, got.get(key), plugin.get(key))
         if (got := self.json_file(codex_rel)) is not None:
             check = Check(self.errors, codex_rel)
@@ -1337,7 +1339,7 @@ def report(src: Sources) -> str:
         ),
         (
             "Manifest, catalog",
-            "`plugin.json`; `.github/plugin/marketplace.json`",
+            "`plugin.json` (with version); `.github/plugin/marketplace.json`",
             "`.codex-plugin/plugin.json` (no version, no commands); `.agents/plugins/marketplace.json`",
             "Only agent-skills is listed",
         ),

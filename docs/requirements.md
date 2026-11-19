@@ -8,8 +8,8 @@ Current as of 2026-11-15. Source: owner conversations and `intent-elicitation` i
 |---|---|
 | Owner stack | Python, Rust; fullstack FastAPI + htmx, minimal JS |
 | Runtime | Claude Code (local and cloud) with Superpowers and Playwright (CLI/MCP plugin and Python library) |
-| Repo role | Marketplace: a plugin of generic skills and agents that works with both, opt-in UI mods (ADR 0011) and generated Copilot/Codex ports of the plugin (ADR 0015) |
-| Audience | Owner only. The repository is public, with no license and no support for others (ADR 0008) |
+| Repo role | Marketplace: a plugin of generic skills and agents that works with both, a memory plugin (ADR 0023), opt-in UI mods (ADR 0011) and generated Copilot/Codex ports of the skills-and-agents plugin (ADR 0015) |
+| Audience | Public: the owner and fewer than ten other users (2026-11-19); MIT license; releases from `main` with a version and changelog per plugin (ADR 0027); paths users rely on are a contract (ADR 0026) |
 
 ## Goals (functional, hard)
 

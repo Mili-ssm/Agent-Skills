@@ -6,3 +6,9 @@ plugins/*/tsconfig.json
 
 # Trial stores, data and work folders
 /target/
+
+# Per-repo memory store of the memory plugin (mem); local to each clone
+.memory/
+
+# Worktrees Claude Code creates for isolated subagents
+.claude/worktrees/
