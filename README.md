@@ -329,13 +329,15 @@ A PASS from `check-runner` is evidence when its report names the command and the
 
 ## Update
 
-No pinned version (ADR 0006): every commit on the default branch is a new version.
+Each plugin has its own version and changelog (`plugins/<name>/CHANGELOG.md`); `main` holds only releases, so an update brings a released version, never work in progress (ADR 0027). License: [MIT](LICENSE).
 
 | Method | Command |
 |---|---|
-| Manual (shell) | `claude plugin marketplace update mili-ssm && claude plugin update agent-skills@mili-ssm` (same for each mod), then `/reload-plugins` or a new session. `plugin update` alone does not refresh the marketplace copy |
+| Automatic (recommended) | `/plugin` → Marketplaces → `mili-ssm` → Enable auto-update; it checks in interactive sessions and applies on the next session or `/reload-plugins` (the cloud script enables it) |
+| Manual (shell) | `claude plugin marketplace update mili-ssm && claude plugin update agent-skills@mili-ssm` (same for each plugin), then `/reload-plugins` or a new session. `plugin update` alone does not refresh the marketplace copy |
 | Manual (session) | `/plugin` → Marketplaces → `mili-ssm` → Update marketplace (refreshes and updates) |
-| Automatic | `/plugin` → Marketplaces → `mili-ssm` → Enable auto-update (the cloud script enables it) |
+| Copilot CLI | `copilot plugin marketplace update mili-ssm && copilot plugin update agent-skills@mili-ssm` |
+| Codex | `codex plugin marketplace upgrade mili-ssm`, then copy the role files again ([Install](#install)) |
 
 ## Catalog
 
@@ -433,11 +435,20 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 
 | Step | Command |
 |---|---|
+| Branch | Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases. The owner's install follows `dev`: `claude plugin marketplace add Mili-ssm/Agent-Skills#dev` (cloud: `AGENT_SKILLS_REF=dev`) |
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |
 | Measure a description or prompt change before merging | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --case '<glob>'`; which cases and when to rerun: [`CLAUDE.md` § Eval protocol](CLAUDE.md#eval-protocol-adr-0007-review-2026-10-30) |
 | Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |
+
+### Release
+
+1. On `dev`, for each plugin that changed since its last tag (`git log <name>-vX.Y.Z..dev -- plugins/<name>`; agent-skills also `ports/ user-config/ user-agents/`): pick the bump (breaking → major, feature → minor, fix → patch; under `0.y.z` a breaking change bumps the minor), set `version` in `plugins/<name>/.claude-plugin/plugin.json`, and turn `## [Unreleased]` into `## [X.Y.Z] - YYYY-MM-DD` above a new empty `[Unreleased]`.
+2. `python3 scripts/port.py`, `python3 scripts/validate.py --release`, `claude plugin validate .`.
+3. Pull request `dev` → `main`; merging it ships the release to everyone with auto-update.
+4. Tag the merge commit on `main` for each released plugin: `git tag -a <name>-vX.Y.Z -m "<name> X.Y.Z" && git push origin <name>-vX.Y.Z`.
+5. Bring the merge commit back: `git switch dev && git merge --ff-only origin/main && git push origin dev`.
 
 ### Eval suites
 

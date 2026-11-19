@@ -7,6 +7,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 | When | Run |
 |---|---|
 | Before every commit (no CI or git hook enforces it, N5) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
+| Before a release pull request (`dev` → `main`) | `python3 scripts/validate.py --release` (a changed plugin without a bump, or a tag that disagrees with its `plugin.json`, fails) |
 | After changing agents, skills, commands, `user-config/offload-policy.md` or `user-config/routing.md` | `python3 scripts/port.py` (`--report` prints the mapping) |
 | After changing a mod | `claude plugin validate plugins/<mod>`, `claude plugin test plugins/<mod>`; type-check with `tsc -p plugins/<mod>` after one `claude --plugin-dir plugins/<mod>` |
 | Measuring a description or prompt change | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<glob>'` (cases from § Eval protocol; one glob per invocation, `{a,b}` is not supported); offload cases add `--scaffold --allow-tools Bash Edit Write` and a sandbox |
@@ -31,7 +32,9 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 
 - Measure every change to a `description` or to `user-config/offload-policy.md` before merging to `main` (N6, ADR 0007, 0020) with the § Eval protocol, and record the table in an ADR `## Review YYYY-MM-DD`. Any other prompt change may ship labeled unmeasured, with kill criteria in its ADR.
 - One commit per description change, so a regression can be reverted alone.
-- No `version` in any `plugin.json` or marketplace entry: every commit is a version (ADR 0006).
+- Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases, because users and cloud sessions install whatever `main` holds (ADR 0027). Release steps: README § Develop.
+- A user-visible change adds a line under `## [Unreleased]` in that plugin's `CHANGELOG.md`, written for users (impact, migration); `ports/`, `user-config/` and `user-agents/` count as agent-skills. The version lives only in `plugins/<name>/.claude-plugin/plugin.json`, never in a marketplace entry.
+- Paths in `PUBLIC_PATHS` of `validate.py` (marketplace files, `user-config/*.md`, `user-agents/Explore.md`, README anchors) move only with an ADR and a stub at the old path (ADR 0026).
 - Only the seven workers (`WORKERS` in `validate.py`) say "Use proactively" (ADR 0007, 0010).
 - Vocabulary (ADR 0007): "owner" for the human, "subagent" for the mechanism, "quality attribute" in full, "findings" for defects, "risks" for plans; ratings `low | medium | high` unless a domain scale is declared.
 - Dense English, tables over prose, one home per fact with links elsewhere (ADR 0002). Cite ADRs by number.

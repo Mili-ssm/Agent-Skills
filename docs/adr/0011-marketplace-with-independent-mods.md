@@ -1,6 +1,6 @@
 # 0011 One marketplace, independent plugins: agent-skills plus opt-in mods
 
-Status: accepted · Date: 2026-10-28 · Amends 0008 · Amended by 0012, 0015, 0016
+Status: accepted · Date: 2026-10-28 · Amends 0008 · Amended by 0012, 0015, 0016, 0026, 0027
 
 ## Context
 

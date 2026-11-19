@@ -1,6 +1,6 @@
 # 0006 Track commits, no pinned version
 
-Status: accepted · Date: 2026-10-27
+Status: superseded by 0027 · Date: 2026-10-27
 
 ## Context
 
