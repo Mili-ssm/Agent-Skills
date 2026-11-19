@@ -8,7 +8,7 @@
 # Environment variables (all optional):
 #   AGENT_SKILLS_MODS            mods to install, space-separated (ADR 0011), e.g. "tool-fold plan-progress"
 #   AGENT_SKILLS_OFFLOAD_POLICY  1 → write user-config/offload-policy.md into ~/.claude/CLAUDE.md (step 3b)
-#   AGENT_SKILLS_REF             branch or tag of the marketplace to install (unset: main, the releases; the owner uses dev)
+#   AGENT_SKILLS_REF             branch or tag of the marketplace to install (unset: main, the releases; a fresh cloud install takes the branch's current content)
 
 warn() { echo "WARN [cloud-setup]: $*" >&2; }
 

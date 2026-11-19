@@ -46,3 +46,7 @@ The owner's install follows `dev` (`Mili-ssm/Agent-Skills#dev`; `cloud-setup.sh`
 ## Revisit if
 
 Copilot stops updating once its port has a version (then drop it there, as for Codex); the owner releases more than twice a week only to reach their own fixes; or users need a channel that tracks `dev`.
+
+## Review 2026-11-19
+
+The Decision's line "the owner's install follows `dev` … so their own fixes do not wait for a release" is wrong for a persistent install: Claude Code updates a plugin only when its version string changes (Context), so an install that follows `dev` stays on the last version until a release bumps it. Only a fresh install (a cloud session) takes `dev`'s current content. The owner chose to follow `main` and update only on releases; unreleased work is tried with `claude --plugin-dir plugins/<name>`. `AGENT_SKILLS_REF` stays for cloud environments that want `dev`. A marketplace added with `#<ref>` is a single-branch clone: removing the ref later does not switch it back (the clone's fetch refspec must change, or the marketplace be re-added).
