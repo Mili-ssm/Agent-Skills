@@ -301,3 +301,19 @@ Reading, with its limits:
 - R writes less: 2258 words and 78 checked claims per synthesis against 2986 and 110. Its shown text is shorter than M's because it has fewer words, not only because of `[n]`. Whether the shorter text is the cause of the higher rate was not measured.
 - References themselves work: 99% coverage and 2.2% wrong on text the writer linked while writing, 91% and 1 of 100 on text linked afterwards by the backfill (trial above).
 - Open, for the owner: both trials together point to linking after writing instead of while writing. Keep the writer, checker and fixer texts of `main` (the control's accuracy) and run the backfill step at the end of `mem-synthesize`, which the backfill trial measured on syntheses written by that same writer. It needs the texts of task 3 taken back, the backfill wired into the pipeline, and one confirming run. Not done: it is a change of design.
+
+### Stage 2, change of design after the two trials (2026-11-19, owner: finish it and merge): link after writing
+
+The writer trial failed on unsupported claims while every reference measure passed, and the backfill passed on syntheses written by the writer of `main`. So references are added after the text is written and checked, by code, and the writer is no longer asked to link.
+
+| Decision | Choice | Reason |
+|---|---|---|
+| Writer, checker and fixer texts | Those of `main` again (`skills/memory-synthesis/SKILL.md` step 3 and its opening line, `agents/memory-synthesizer.md`, `evals/synthesis/writer-brief.md`, `synth_briefs/checker-brief.md`, `synth_briefs/fixer-brief.md`). One difference: the fixer copies a part with `mem show ... --stored` | They are the texts of the control, which measured 4.7 unsupported per 100. `mem show` no longer prints the stored text |
+| Where references come from | `mem-synthesize` runs the backfill on each synthesis it wrote, as its last step: after the loop, the attaching and `mem check`. The same code as `--backfill`, the same done list, inside the topic's budget | The backfill cannot change a word, so the text the loop checked is the text that stays; measured at 91% of findings linked and 1 wrong in 100 |
+| A writer that links anyway | Allowed: the engine's rules hold at write time, and the backfill skips a sentence that already carries the note | The Haiku writer wrote 65 references unprompted before this stage |
+| `REF:` lines in the loop | The code stays, unused while the checker brief is the one of `main` (it writes no `REF:` line); stage 3's checker is its expected user. Revisit when stage 3 is designed: delete it if stage 3 does not take it | Removing it now would be a second change to the loop before the confirming run |
+| Trial harness | Arm R is the branch's pipeline, so it gets the backfill step; its pipeline cost includes it. The judge of unsupported claims reads text without references, so it reads what the loop left | |
+
+Confirming run, rule fixed before it (the owner's word of 2026-11-19 covers it): the writer rule above, unchanged, with arm R redefined as this pipeline. Arm M is not run again: its six rows of 2026-11-19 are reused, because the control is the same code (`main` moved from `7d190a1` to `aca4e90` by a merge of documentation only) on the same store copy. Six new R rows (three topics, two runs), estimated at 6 to 7 USD under a cap of 8; the estimate given to the owner beforehand was 3 to 5 USD for one run, and two runs are what the rule needs to be more than preliminary. Limit of the reuse: the two arms are not from the same night.
+
+If it passes, the branch is merged. If it fails, it is not, and the numbers go to the owner.
