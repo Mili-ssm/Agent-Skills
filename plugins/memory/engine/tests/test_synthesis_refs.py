@@ -281,3 +281,18 @@ def test_one_line_that_breaks_the_part_is_refused_alone(run, made, tmp_path, mon
     new = part(made, "alpha")
     assert f"here. [attention]({A_SPELLED}) Second" in new and f"in it. [vaswani]({B})" in new
     assert f"too. [vaswani]" not in new
+
+
+@pytest.mark.parametrize("after", ["# A heading", "> A quote", "A plain paragraph."])
+def test_a_colon_line_before_anything_but_a_table_or_list_keeps_its_reference_inline(after):
+    import syntheses
+    text = f"Alpha holds: [x](../knowledge/x/a.md)\n\n{after}\n"
+    (unit, *_), _ = syntheses.units(text)
+    assert unit.plain.startswith("Alpha holds: x"), unit.plain
+
+
+def test_an_indented_list_after_a_colon_line_takes_a_trailing_reference():
+    import syntheses
+    text = "Alpha holds: [x](../knowledge/x/a.md)\n  - an item\n"
+    (unit, *_), _ = syntheses.units(text)
+    assert unit.plain == "Alpha holds:", unit.plain

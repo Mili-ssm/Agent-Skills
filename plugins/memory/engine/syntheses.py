@@ -325,6 +325,7 @@ def source_kinds(text: str) -> set[str]:
 
 
 _REF_LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
+_INTRO_ITEM = re.compile(r"[ \t]*(?:[-*+]|\d+[.)])[ \t]+")   # a list item a colon-final line may introduce
 _LIST_MARK = re.compile(r"(?:>\s*)*(?:(?:[-*+]|\d+[.)])[ \t]+|#{1,6}[ \t]+)?")
 _BOLD_LABEL = re.compile(r"\*\*[^*\n]*[.!?:]\*\*(?=\s|$)")
 _TABLE_SEP = re.compile(r"\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*")
@@ -483,7 +484,8 @@ def _parse(text: str) -> tuple[list[Unit], list[_Ref], list[_Ref], int]:
 
         def introduces_block(n: int) -> bool:
             nxt = next((lines[j].rstrip("\r") for j in range(n + 1, count) if lines[j].strip()), None)
-            return nxt is not None and (nxt.lstrip().startswith("|") or bool(_LIST_MARK.match(nxt).end()))
+            # a table row or a list item only: a heading or a quote after a colon introduces no block of this unit
+            return nxt is not None and (nxt.lstrip().startswith("|") or bool(_INTRO_ITEM.match(nxt)))
 
         while pos in links:  # a reference with no sentence before it
             end, m = links[pos]
