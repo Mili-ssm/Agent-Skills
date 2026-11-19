@@ -3255,7 +3255,8 @@ def cmd_signal(args: argparse.Namespace) -> int:
 
 def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
     """0 when a write to the global scope may go on, else its exit code after a message on stderr: 4 for a hard
-    term, 5 for a soft one the owner has not approved. A missing list is created, so it never blocks."""
+    term, 5 for a soft one the owner has not approved, 2 when the list cannot be read, created or located (no HOME and
+    no XDG_CONFIG_HOME). A missing list is created, so it never blocks."""
     if records.forbidden_file(os.environ) is None:
         print("mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
               file=sys.stderr)
@@ -3873,7 +3874,12 @@ def cmd_memories(args: argparse.Namespace) -> int:
         named = _other_projects([args.project], False)
         if named is None:
             return 2
-        folders = [("project", _named_folder(args.project))]
+        folder = _named_folder(args.project)
+        if folder is not None and not folder.parent.is_dir():
+            print(f"mem: the folder of project {args.project} was not found: {folder.parent} (moved or deleted?)",
+                  file=sys.stderr)
+            return 2
+        folders = [("project", folder)]
     else:
         folders = _memory_folders(args)
         if not args.all:
