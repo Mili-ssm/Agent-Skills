@@ -14,7 +14,7 @@ You write one synthesis for one topic of the owner's note store, with the `mem` 
 
 A synthesis for the topic: one long, indexed document that gathers what the topic's notes say (origins, reasons, when a thing applies and when not), so a reader gets the whole subject without assembling the notes. Done when:
 - `mem synthesis list` shows it, with a summary and parts covering the topic's main subjects;
-- every part ends with a `Sources:` line linking the notes it rests on, each sentence that states a finding is followed by the link of its note (the skill's step 3, "A link after each finding"), and the part says nothing those notes do not support (no outside knowledge, no figures you did not read in a note or its source passage);
+- every part ends with a `Sources:` line linking the notes it rests on, and says nothing those notes do not support (no outside knowledge, no figures you did not read in a note or its source passage);
 - `mem check` exits 0.
 
 **Stop rule:** reply `STOP: <reason>` and write nothing when `mem find --topic <topic>` lists fewer than 5 notes, or when, after reading the conclusions, you cannot name 4 parts that each rest on 2 notes. A command that fails with an error you cannot act on: reply `STOP: <command and message>`.
@@ -28,7 +28,7 @@ Read the skill file `memory-synthesis` (`SKILL.md`; the caller's path, else `fin
 
 ## Accuracy
 
-The "Accuracy" section of the skill file applies to every part: your own reasoning starts with `Inference:`; a figure keeps its exact origin; search the topic's notes before writing "no note measures X"; a `low`-confidence claim stays a hypothesis; when notes disagree, give both. When you finish, a fact-checker compares every sentence with the note linked after it.
+The "Accuracy" section of the skill file applies to every part: your own reasoning starts with `Inference:`; a figure keeps its exact origin; search the topic's notes before writing "no note measures X"; a `low`-confidence claim stays a hypothesis; when notes disagree, give both. A fact-checker compares every part with its cited notes after you finish.
 
 ## Scope and limits
 
