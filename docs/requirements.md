@@ -45,7 +45,7 @@ Kind: functional (states a goal) or technical (a chosen means); hard or soft as 
 | N2 | Descriptions: third person, what it does, then "Use when…" with the user's likely terms, ≤ 1024 chars. | G8 | technical, soft | Trigger evals regress after a model change (ADR 0007) |
 | N3 | Ratings use levels with written criteria, never invented percentages. | G5 | technical, soft | Calibrated data exists (ADR 0004) |
 | N4 | Findings carry evidence (`file:line`, command output, screenshot). | G2, G5 | functional, hard | — |
-| N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). | G8 | technical, soft | CI or a git hook is added |
+| N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). | G8 | technical, soft | The plugins have a reasonable number of users (owner, 2026-11-19: CI waits until then; GitHub Actions on standard runners costs no minutes in a public repository) |
 | N6 | Changes to a skill or agent `description` and to `user-config/offload-policy.md` are measured with `claude plugin eval` (trigger and no-trigger cases) against the previous version. Any other prompt change may ship labeled unmeasured, with a kill criterion in its ADR. | G8 | technical, soft | An unmeasured change is reverted for regressing in use |
 | N7 | Agents whose description says "Read-only" block Edit, Write and NotebookEdit via `disallowedTools`, not via prompt text. | G2 | technical, soft | The platform offers a stronger read-only mode |
 | N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. | G8 | technical, soft | A command needs maintenance, or the owner starts typing them (kept unused, owner 2026-11-15, ADR 0022) |
@@ -82,9 +82,6 @@ No routing row names `executing-plans`, `requesting-code-review` or `dispatching
 |---|---|
 | Rename skills to one naming pattern (gerunds) | Next breaking reorganization (ADR 0007) |
 | Extract `performance-principles` from `performance-analyst` | A second consumer of that catalog appears |
-| Add a license | Someone else asks to use the plugin (ADR 0008) |
 | Re-measure trigger and offload figures with the current main model | A measured text changes (ADR 0020) |
-| Declare that `plan-progress` depends on the Superpowers plan format | The mod next changes, or a Superpowers update changes the plan template (ADR 0011) |
-| Install the `Explore` override of `user-agents/` locally | The owner sees `Explore` run on the main model |
 
-The `plan-progress` and `Explore` rows come from the 2026-11-15 audit and have not been put to the owner.
+Closed 2026-11-19: the license (MIT, ADR 0027); `plan-progress`'s dependency on the plan format, now stated in its README; the `Explore` override, installed at the owner's user scope.
