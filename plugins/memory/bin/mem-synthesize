@@ -6,7 +6,8 @@ when claims remain -> `mem synthesis attach` for the writer's attach list. The s
 (`mem restore` undoes a step). Stdout: one line at the start and one table at the end; everything else goes to a log
 file whose path is printed. On demand only: it spends model usage (about 0.5 USD per topic, unmeasured at high effort).
 Its last step adds inline references (the `--backfill` step below, about 0.05 USD per synthesis); a failure there leaves
-the synthesis as the loop left it and does not fail the topic. `--no-references` skips the step.
+the synthesis as the loop left it and does not fail the topic; only a `mem check` that no longer exits 0 after the
+references were written does. `--no-references` skips the step.
 
 `--backfill [s:<handle> ...]` adds inline references to existing syntheses instead: one read-only Haiku session per
 synthesis proposes which source note supports each sentence, and code applies them (`mem synthesis refs`).
@@ -196,19 +197,26 @@ def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, setti
 
 def add_topic_references(claude: str, env: dict, base: Path, store: Path, topic: str, settings: Path, log, row: dict,
                          budget: float | None) -> float:
-    """Run the reference step after a successful topic and put its figures in `row`; returns its cost. It never fails
-    the topic. A success is marked in the done list as `--backfill` marks it; a failure is not, so a later `--backfill`
-    sends the synthesis."""
-    if budget is not None and budget <= 0:
+    """Run the reference step after a successful topic and put its figures in `row`; returns its cost. A step that
+    did not run or did not finish leaves the topic a pass (`ok, references not added: ...`); the one failure is a
+    `mem check` that no longer exits 0 after references were written. A success is marked in the done list as
+    `--backfill` marks it; a failure is not, so a later `--backfill` sends the synthesis."""
+    if budget is not None and budget < ESTIMATE_PER_BACKFILL:   # a session capped below its usual cost only spends
         row["status"] = "ok, references not added: budget spent"
         return 0.0
     done: dict = {}
-    result = add_references(claude, env, base / "references", store, topic, settings, log, budget, done)
+    try:
+        result = add_references(claude, env, base / "references", store, topic, settings, log, budget, done)
+    except Exception as exc:   # selecting the parts failed: the synthesis stays as the loop left it
+        row["status"] = f"ok, references not added: {type(exc).__name__}: {exc}"[:100]
+        return 0.0
     if result is None:
         return 0.0
     row.update(refs=result["applied"], refs_refused=result["refused"], refs_none=result["none"],
                mem_check=result["mem_check"])
-    if result["status"] != "ok":
+    if result["mem_check"] != 0:
+        row["status"] = f"failed: mem check exit {result['mem_check']} after references (undo: mem restore s:{topic})"[:100]
+    elif result["status"] != "ok":
         row["status"] = f"ok, references not added: {result['status'].removeprefix('failed: ')}"[:100]
     elif done:
         try:

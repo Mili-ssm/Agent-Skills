@@ -81,6 +81,36 @@ def test_a_failed_reference_step_keeps_the_synthesis_and_a_later_backfill_sends_
     assert len(sessions(tmp_path)) == 2 and rows[0]["applied"] == 2 and text(store) != after_loop
 
 
+def test_a_part_selection_that_raises_does_not_fail_the_topic(ms, fake, pipeline, store, tmp_path, monkeypatch):
+    def boom(*a, **kw):
+        raise ValueError("unreadable part")
+    monkeypatch.setattr(ms.bf, "select", boom)
+    code, _, (row,) = synthesize(ms, fake, store, tmp_path)
+    assert code == 0 and row["status"] == "ok, references not added: ValueError: unreadable part", row
+    assert not sessions(tmp_path)
+
+
+def test_no_reference_session_starts_below_its_usual_cost(ms, fake, pipeline, store, tmp_path):
+    answer(tmp_path, REFS)
+    lines, rows = [], []
+    budget = 0.3 + ms.ESTIMATE_PER_BACKFILL / 2   # the writer leaves less than one reference session costs
+    code = ms.run(str(fake), store, [TOPIC], budget, False, out=lines.append, root=tmp_path / "run", rows_out=rows)
+    assert code == 0 and rows[0]["status"] == "ok, references not added: budget spent", rows
+    assert not sessions(tmp_path)
+
+
+def test_a_failing_mem_check_after_the_references_fails_the_topic(ms, fake, pipeline, store, tmp_path, monkeypatch):
+    answer(tmp_path, REFS)
+    real = ms.backfill_one
+
+    def broken(*a, **kw):
+        return dict(real(*a, **kw), mem_check=1)
+    monkeypatch.setattr(ms, "backfill_one", broken)
+    code, _, (row,) = synthesize(ms, fake, store, tmp_path)
+    assert code == 1 and row["status"].startswith("failed: mem check exit 1 after references"), row
+    assert f"mem restore s:{TOPIC}" in row["status"] and row["refs"] == 2
+
+
 def test_a_successful_step_is_marked_done_like_backfill_does(ms, fake, pipeline, store, tmp_path):
     answer(tmp_path, REFS)
     synthesize(ms, fake, store, tmp_path)

@@ -2,7 +2,7 @@
 
 Owner, 2026-11-17: the global memory should work as an internal mechanism of the model, close to a black box: it researches and contrasts facts on the web to the extent the owner sets, keeps sibling notes in step, splits a synthesis that outgrows its topic (the specific part to a child, the generic part kept in the parent), and does this automatically. Project memory stays explicit.
 
-**Status (2026-11-18):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built on the branch `feat/memory-inline-refs` (not pushed, not measured): its trial, task 6 of "Stage 2 design", waits for the owner's word on the rule and the cost. Stages 3 to 5 are not started.
+**Status (2026-11-19):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built and measured on the branch `feat/memory-inline-refs`: references are added after writing, and the confirming run passed (see "Stage 2 confirming run" under "Results"). Open in stage 2: task 6 on the real store (the hand fix of one link, the plugin update, the backfill), each with the owner's word, and the reference audit before stage 3. Stages 3 to 5 are not started.
 
 ## Where to resume: stages 2 to 5
 
@@ -15,7 +15,7 @@ Start with stage 2: stages 3 and 4 need its inline references, and stage 5 only 
 | `main` | `7d190a1`; the installed plugins are at `a65b322` |
 | Owner settings | `auto_settle` and `auto_curation` on for `memory@mili-ssm`; `research_depth` unset (default `contrast`) |
 | Settling in a real session | Seen on 2026-11-18: `mem-settle status` reports a run that day, state ok, 0 pairs, 0 USD, no failure. A run that judges pairs is still to be seen |
-| Tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1137 passed, 4 skipped on `main`; 1222 passed, 4 skipped on the stage 2 branch. `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (the curation log writes its date in UTC, the test expects the local date): an open low defect |
+| Tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1137 passed, 4 skipped on `main`; 1240 passed, 4 skipped on the stage 2 branch. `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (the curation log writes its date in UTC, the test expects the local date): an open low defect |
 | Open low items | three in `evals/settle/run_trial.py` (see "Results"); an unclosed `<script>` hides the rest of a fetched page (a false "quote not on the page"); the web session's own `official` label is trusted |
 
 ### How each stage was built so far (repeat it)
@@ -252,7 +252,7 @@ Run 1 found two defects: the web session had its two tools but no permission to 
 
 Limits: one run per state; 12 notes of the kind easiest to check (standards, language documentation); half of the real notes still get no source (papers and pages the web session did not reach); the web session's own `official` label is trusted; `deep` was not run. Not yet done: `memory-researcher` without web tools (a measured description change), and joining `mem-auto`.
 
-Stage 2: built, trial pending (see "Stage 2 design"). Stages 3 to 5: pending.
+Stage 2: built and measured; the three trials are below. Stages 3 to 5: pending.
 
 ### Stage 2 backfill trial, 2026-11-18 (`run_trials.py --backfill-trial --budget 8`, three syntheses of a store copy, Haiku at high effort, one run)
 
@@ -325,3 +325,28 @@ Pre-mortem of 2026-11-19 on this change (7 risks, 1 high), and what it added:
 - **Before the merge:** `mem-auto` read the row status `ok, references not added: ...` as a failure, so most automatic runs would have shown a failure line: fixed. The four clarifications above.
 - **Task 6, in this order:** (1) fix the one link by hand and see `mem check` of the branch exit 0 on a store copy; (2) update the installed plugin; (3) the same day, `mem-synthesize --backfill --dry-run` and then the backfill, with the installed plugin and never from the checkout while the old plugin is installed (the old fingerprint hashes references, so attached notes would be listed as stale). The history commit "before backfill" is the way back: `mem restore` refuses a group once one of its files changed later. With the plugin updated before the link is fixed, the store-wide `mem check` exits 1 in every writer and fixer session.
 - **New task, before stage 3 uses references: a reference audit.** No step checks a reference after the backfill adds it: `mem check` only tests that its note is on the part's `Sources:` line, and the reference judge lives in the trial harness. The backfill trial bounds wrong references at about 5% (1 in a sample of 100, one run, one judge model), which on the real store may be tens of links. The audit judges a random sample of 100 references of the real store with `evals/synthesis/ref-judge-brief.md` and keeps the backfill's `none` lines as candidate unsupported claims. Kill: more than 2 wrong, and stage 3 does not act on references. Repeat before stage 4.
+
+### Stage 2 confirming run, 2026-11-19 (`run_trials.py --arm R --runs 2 --jobs 2 --budget 8 --control-results <the writer trial's results file>`, three topics, Haiku at high effort, branch at `1db8f1b`)
+
+**Verdict: PASS on the rule fixed before the run, with six valid R rows and no row lost to the budget.** Arm M is the six rows of the writer trial (`main` at `7d190a1`), reused. Cost 6.60 USD of the 8 USD cap, of which 1.50 is the control's judge counted again.
+
+| Condition | M | R | Limit | Result |
+|---|---|---|---|---|
+| Unsupported claims per 100 | 4.7 | 4.9 | 6.7 (M + 2.0) | passed |
+| Pipeline cost per synthesis, USD | 0.484 | 0.482 | below 0.630 | passed |
+| `mem check` exits 0 | 6 of 6 | 6 of 6 | all | passed |
+| Findings that carry a reference | - | 393 of 472 (83%) | at least 80% | passed |
+| Wrong references | - | 36 of 741 (4.9%) | at most 5% | passed, one reference below the limit |
+| Tokens shown by `mem show`, mean | 5276 | 5236 | at most 6067 | passed |
+| Calibration of the reference judge | - | 19 of 20 planted found | at least 16 | valid |
+
+Per row, unsupported per 100: 5.7, 6.7, 3.8, 5.2, 7.1, 1.7 (gap between R's two runs 2.6 points; M's 2.3). The stored file grows from a mean of 5248 to 8747 tokens (+67%), which only `mem show --stored` and the engine read.
+
+Limits, to read before building on this:
+
+- **Wrong references sit at the limit.** 4.9% here against 1 in a sample of 100 in the backfill trial. The two are not the same measure (every reference judged here, on text written the same hour; a sample there, on older syntheses), and one judge model produced both. At this rate the reference audit before stage 3 (kill at more than 2 wrong in 100) is likely to fire: stage 3 must not assume references are right until that audit says so.
+- **Coverage is lower on fresh text:** 83% against 91% in the backfill trial.
+- One synthesis left one part off its index (`unlisted` in the harness table) and still passed `mem check`; not looked into.
+- Two runs per topic; the unsupported difference between arms (0.2 points) is far inside the noise, as expected, since the judge reads text without references.
+
+After the run, before the merge, from the review of the wiring: the reference step does not start with less budget left than one session usually costs; an error while selecting parts leaves the topic a pass (`ok, references not added: ...`); a `mem check` that no longer exits 0 after references were written fails the topic and names the undo. Not done, low: the harness does not test that M and R hold the same (topic, run) pairs, nor mark a decision on fewer than six valid R rows as preliminary (this run had six).
