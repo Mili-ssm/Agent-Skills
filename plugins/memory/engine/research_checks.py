@@ -235,8 +235,12 @@ class _Text(html.parser.HTMLParser):
         self.skip = 0
         self.open: list[tuple[str, bool]] = []   # open non-void elements: (tag, hides its content)
         self.hidden = 0
+        self.raw_tag: str | None = None   # an open script/style: the parser hands everything up to its end tag as data
+        self.raw: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: Any) -> None:
+        if tag in ("script", "style"):
+            self.raw_tag, self.raw = tag, []
         if tag in _SKIP:
             self.skip += 1
         elif tag in _BLOCK:
@@ -247,6 +251,8 @@ class _Text(html.parser.HTMLParser):
             self.hidden += hides
 
     def handle_endtag(self, tag: str) -> None:
+        if tag == self.raw_tag:
+            self.raw_tag = None
         if tag in _SKIP:
             self.skip = max(0, self.skip - 1)
         elif tag in _BLOCK:
@@ -258,15 +264,25 @@ class _Text(html.parser.HTMLParser):
                 break
 
     def handle_data(self, data: str) -> None:
+        if self.raw_tag:
+            self.raw.append(data)
         if not self.skip and not self.hidden:
             self.parts.append(data)
+
+
+_PAST_RAW = re.compile(r"</head\s*>|<body[\s>/]|</body\s*>|</html\s*>", re.I)
 
 
 def html_text(markup: str) -> str:
     parser = _Text()
     parser.feed(markup)
     parser.close()
-    return "".join(parser.parts)
+    text = "".join(parser.parts)
+    if parser.raw_tag:   # a script/style never closed: its "content" runs to the end; resume where the page leaves the head
+        rest = "".join(parser.raw)
+        if (end := _PAST_RAW.search(rest)) is not None:
+            return text + html_text(rest[end.start():])
+    return text
 
 
 def _is_text_type(ctype: str) -> bool:
