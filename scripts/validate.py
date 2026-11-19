@@ -16,6 +16,9 @@ Checks (each is a small function whose docstring names the requirement it enforc
     `*-with-policy` cases embed user-config/offload-policy.md verbatim.
   - readme: the `## Catalog` tables in README.md list exactly the plugin's agents (with model and preloads), skills
     and commands.
+  - public paths: the files and README anchors installed users rely on exist (ADR 0026).
+  - versions: each plugin has a SemVer `version` in plugin.json and a CHANGELOG entry for it; catalogs carry none (ADR 0027).
+    `--release` adds git checks against the plugin's latest tag (a dev branch always differs from tags, so they are opt-in).
   - ports: `scripts/port.py --check` finds the Copilot and Codex copies under ports/ current and equivalent (ADR 0015).
 
 Standard library only so it runs in any fresh environment: `python3 scripts/validate.py`.
@@ -24,6 +27,8 @@ Exit code 0 = valid, 1 = at least one error (errors are printed one per line).
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
 import subprocess
 import sys
@@ -77,6 +82,19 @@ Frontmatter = dict
 
 class FrontmatterError(ValueError):
     """Frontmatter that the mini-parser would misread."""
+
+
+# Paths installed users rely on (ADR 0026): moving one breaks cloud-setup.sh, the skills' printed paths or the READMEs' links.
+CATALOGS = [".claude-plugin/marketplace.json", ".github/plugin/marketplace.json", ".agents/plugins/marketplace.json"]
+PUBLIC_PATHS = [*CATALOGS, "user-config/offload-policy.md", "user-config/routing.md", "user-agents/Explore.md", "LICENSE"]
+# README anchors other READMEs and the docs link to (ADR 0026).
+PUBLIC_README_HEADINGS = ["## Install", "## Update", "## Develop", "## Recommended prompt"]
+
+# Per-plugin versions (ADR 0027): plugin.json is the single source; pre-release suffixes such as `-rc.1` are allowed.
+SEMVER = re.compile(r"^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$")
+# A tag `<plugin>-vX.Y.Z` marks a release; the agent-skills release also ships these generated or shared folders.
+TAG_VERSION = re.compile(r"^(?P<name>.+)-v(?P<version>\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$")
+EXTRA_RELEASE_PATHS = {"agent-skills": ["ports/", "user-config/", "user-agents/"]}
 
 
 def unquote(value: str) -> str:
@@ -522,7 +540,114 @@ def check_readme_catalog(errors: list[str]) -> None:
         compare_names("Commands", [n for n in listed if n], {p.stem for p in PLUGIN.glob("commands/*.md")}, errors)
 
 
+def catalog_sources(rel: str) -> list[str]:
+    """`source` paths of one catalog; a source is a string or an object with a `path`."""
+    path = ROOT / rel
+    if not path.is_file():
+        return []
+    try:
+        plugins = json.loads(path.read_text(encoding="utf-8")).get("plugins", [])
+    except (json.JSONDecodeError, AttributeError):
+        return []
+    sources = []
+    for entry in plugins:
+        source = entry.get("source")
+        sources.append(source.get("path", "") if isinstance(source, dict) else source or "")
+    return [s for s in sources if s]
+
+
+def check_public_paths(errors: list[str]) -> None:
+    """ADR 0026: the paths installed users rely on exist, and the README keeps the anchors other docs link to."""
+    wanted = list(PUBLIC_PATHS)
+    for rel in CATALOGS:
+        wanted.extend(s.removeprefix("./") for s in catalog_sources(rel))
+    for rel in dict.fromkeys(wanted):
+        if not (ROOT / rel).exists():
+            errors.append(f"{rel}: public path is missing (ADR 0026)")
+    readme = ROOT / "README.md"
+    lines = readme.read_text(encoding="utf-8").splitlines() if readme.is_file() else []
+    for heading in PUBLIC_README_HEADINGS:
+        if heading not in (line.rstrip() for line in lines):
+            errors.append(f"README.md: missing heading '{heading}' (ADR 0026)")
+
+
+def git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", str(ROOT), *args], capture_output=True, text=True, check=False)
+
+
+def version_key(version: str) -> tuple[tuple[int, ...], bool, str]:
+    """Sort key: numeric parts, then a release after its own pre-releases."""
+    core, _, pre = version.partition("-")
+    return tuple(int(n) for n in core.split(".")), not pre, pre
+
+
+def check_release_tag(name: str, version: str | None, errors: list[str]) -> None:
+    """ADR 0027, `--release`: the latest tag of the plugin matches its plugin.json, and an unchanged version has no changes."""
+    tags = {}
+    for tag in git("tag", "--list", f"{name}-v*").stdout.split():
+        match = TAG_VERSION.match(tag)
+        if match and match["name"] == name:
+            tags[tag] = match["version"]
+    if not tags:
+        return
+    tag = max(tags, key=lambda t: version_key(tags[t]))
+    manifest = f"plugins/{name}/.claude-plugin/plugin.json"
+    shown = git("show", f"{tag}:{manifest}")
+    try:
+        at_tag = json.loads(shown.stdout).get("version") if shown.returncode == 0 else None
+    except json.JSONDecodeError:
+        at_tag = None
+    if at_tag != tags[tag]:
+        errors.append(f"{manifest}: at tag {tag} the version is {at_tag!r}, the tag says {tags[tag]!r}")
+    if version == tags[tag]:
+        paths = [f"plugins/{name}", *EXTRA_RELEASE_PATHS.get(name, [])]
+        if git("diff", "--quiet", tag, "HEAD", "--", *paths).returncode != 0:
+            errors.append(f"{name}: changes since {tag} under {', '.join(paths)} but the version is still {version}: bump it")
+
+
+def check_versions(errors: list[str], release: bool) -> None:
+    """ADR 0027: each plugin has a SemVer version in plugin.json and a CHANGELOG heading for it; catalogs carry no version."""
+    for rel in CATALOGS:
+        path = ROOT / rel
+        if not path.is_file():
+            continue
+        try:
+            plugins = json.loads(path.read_text(encoding="utf-8")).get("plugins", [])
+        except (json.JSONDecodeError, AttributeError):
+            errors.append(f"{rel}: not valid JSON")
+            continue
+        for entry in plugins:
+            if "version" in entry:
+                errors.append(f"{rel}: entry '{entry.get('name')}' carries 'version'; plugin.json is the only source (ADR 0027)")
+    try:
+        entries = json.loads((ROOT / CATALOGS[0]).read_text(encoding="utf-8")).get("plugins", [])
+    except (OSError, json.JSONDecodeError):
+        return
+    for entry in entries:
+        name = entry.get("name", "")
+        manifest = f"plugins/{name}/.claude-plugin/plugin.json"
+        try:
+            version = json.loads((ROOT / manifest).read_text(encoding="utf-8")).get("version")
+        except (OSError, json.JSONDecodeError):
+            errors.append(f"{manifest}: missing or not valid JSON")
+            continue
+        if not isinstance(version, str) or not SEMVER.match(version):
+            errors.append(f"{manifest}: 'version' is {version!r}, expected SemVer X.Y.Z (ADR 0027)")
+            version = None
+        changelog = ROOT / "plugins" / name / "CHANGELOG.md"
+        heading = rf"^## \[{re.escape(version or '')}\] - \d{{4}}-\d{{2}}-\d{{2}}\s*$"
+        if not changelog.is_file():
+            errors.append(f"plugins/{name}/CHANGELOG.md: missing (ADR 0027)")
+        elif version and not re.search(heading, changelog.read_text(encoding="utf-8"), re.MULTILINE):
+            errors.append(f"plugins/{name}/CHANGELOG.md: no heading '## [{version}] - YYYY-MM-DD' (ADR 0027)")
+        if release:
+            check_release_tag(name, version, errors)
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--release", action="store_true", help="also compare each plugin with its latest git tag (ADR 0027)")
+    release = parser.parse_args().release
     errors: list[str] = []
     skills = check_skills(errors)
     agents = check_agents(errors, skills)
@@ -530,6 +655,8 @@ def main() -> int:
     check_eval_graders(errors, skills, agents)
     check_offload_policy(errors)
     check_readme_catalog(errors)
+    check_public_paths(errors)
+    check_versions(errors, release)
     check_ports(errors)
     for err in errors:
         print(err)

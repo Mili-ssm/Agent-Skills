@@ -8,6 +8,7 @@
 # Environment variables (all optional):
 #   AGENT_SKILLS_MODS            mods to install, space-separated (ADR 0011), e.g. "tool-fold plan-progress"
 #   AGENT_SKILLS_OFFLOAD_POLICY  1 → write user-config/offload-policy.md into ~/.claude/CLAUDE.md (step 3b)
+#   AGENT_SKILLS_REF             branch, tag or commit of the marketplace to install (default: main)
 
 warn() { echo "WARN [cloud-setup]: $*" >&2; }
 
@@ -23,14 +24,18 @@ shipped_file() {
   fi
 }
 
+# The marketplace ref: `Mili-ssm/Agent-Skills#<ref>` pins a branch or tag; unset keeps the default branch.
+ref="${AGENT_SKILLS_REF:-main}"
+marketplace="Mili-ssm/Agent-Skills#$ref"
+
 # 1. Add the marketplace from GitHub and install the plugin (user scope).
-claude plugin install agent-skills --marketplace Mili-ssm/Agent-Skills \
+claude plugin install agent-skills --marketplace "$marketplace" \
   || warn "agent-skills plugin install failed"
 
 # 1b. Opt-in mods (ADR 0011): list them in the environment variable AGENT_SKILLS_MODS,
 #     e.g. AGENT_SKILLS_MODS="tool-fold plan-progress". Unset → no mods.
 for mod in ${AGENT_SKILLS_MODS:-}; do
-  claude plugin install "$mod" --marketplace Mili-ssm/Agent-Skills \
+  claude plugin install "$mod" --marketplace "$marketplace" \
     || warn "mod $mod install failed"
 done
 
@@ -99,13 +104,16 @@ fi
 
 # 4. Turn on auto-update for this marketplace, so sessions started from a cached snapshot
 #    pull new commits in the background (applied on the next session or /reload-plugins).
-python3 - <<'EOF' || warn "could not update ~/.claude/settings.json (auto-update, subagent model)"
-import json, pathlib
+python3 - "$ref" <<'EOF' || warn "could not update ~/.claude/settings.json (auto-update, subagent model)"
+import json, pathlib, sys
+ref = sys.argv[1]
 path = pathlib.Path.home() / ".claude" / "settings.json"
 settings = json.loads(path.read_text()) if path.exists() else {}
 entry = settings.setdefault("extraKnownMarketplaces", {}).setdefault(
     "mili-ssm", {"source": {"source": "github", "repo": "Mili-ssm/Agent-Skills"}}
 )
+if ref != "main":
+    entry["source"]["ref"] = ref
 entry["autoUpdate"] = True
 settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
 path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,6 @@
 {
   "name": "memory",
+  "version": "0.1.0",
   "description": "Notes and memories reachable from every repository and subagent: a `mem` command that searches and reads a configured store.",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
