@@ -1,5 +1,7 @@
 # Memory plugin, stage 3 (orient) Implementation Plan
 
+Status: done · merged in #117, 2026-11-17 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** every session and subagent starts knowing that the memory exists, how to ask it, and where each kind of thing to remember goes, in a few hundred characters.

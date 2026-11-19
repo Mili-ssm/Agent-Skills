@@ -1,5 +1,7 @@
 # Local git history for the store: plan
 
+Status: done · merged in #122, 2026-11-17; `mem history init` ran on the default store (it has a git history, checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every change `mem` makes to the default store is a git commit in the store's own local repository, made by `mem` itself, so the owner has a full history and a later remote backup is a plain `git push`.
@@ -72,8 +74,8 @@ Commit 4efb128 built a per-command hook in `main()`; the owner then chose commit
 **Files:** `plugins/memory/README.md`, `plugins/memory/skills/memory-curation/SKILL.md`.
 
 - [x] **Step 1:** README: what the history is, the three commit points, `mem history init|commit` and `mem history`, the 30-day trimming, `mem restore` as the undo, the remote later. Curation skill: one line that `mem curate --done` also commits and trims (bodies only, no `description:` change).
-- [ ] **Step 2:** After merge and plugin update, by the controller with the owner told first: back up the store, `mem history init` on the default store, check `git log` shows the first commit and that `curate --done` adds one.
-- [ ] **Step 3: Commit** `docs(memory): the store keeps a git history`.
+- [x] **Step 2:** After merge and plugin update, by the controller with the owner told first: back up the store, `mem history init` on the default store, check `git log` shows the first commit and that `curate --done` adds one.
+- [x] **Step 3: Commit** `docs(memory): the store keeps a git history`.
 
 ## Pre-mortem of 2026-11-17 and what changed
 

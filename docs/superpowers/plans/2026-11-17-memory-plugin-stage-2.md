@@ -1,5 +1,7 @@
 # Memory plugin, stage 2 (notes and memories) Implementation Plan
 
+Status: done · merged in #117, 2026-11-17 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** an agent writes a memory in one call, in the project it is working in or in the store, and `mem search` returns memories beside notes, labelled so a memory is never read as a fact.

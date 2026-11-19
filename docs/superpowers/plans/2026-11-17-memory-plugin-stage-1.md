@@ -1,5 +1,7 @@
 # Memory plugin, stage 1 (engine and reach) Implementation Plan
 
+Status: done · merged in #117, 2026-11-17 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** a `mem` command, available in every repository once the `memory` plugin is enabled, that searches and reads a configured store with the same results as the tool it was copied from.

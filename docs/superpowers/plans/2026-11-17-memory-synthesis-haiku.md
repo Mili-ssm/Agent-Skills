@@ -1,5 +1,7 @@
 # Synthesis writing on Haiku with a checker loop: experiment plan
 
+Status: done · merged in #123 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 **Goal:** Find out whether a synthesis written by Haiku, checked and fixed in a loop by Haiku, is as accurate and complete as one written by Sonnet with one Haiku fact-check (the pipeline of the 2026-11-17 curation), and at what cost. Owner's open items 1 (cost of curation) and 3 (an independent cheap checker that iterates with the writer).
 
 **Status:** done 2026-11-17 (preliminary): keep today's pipeline; quiet script-driven curation is the lead.

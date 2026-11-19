@@ -3255,7 +3255,12 @@ def cmd_signal(args: argparse.Namespace) -> int:
 
 def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
     """0 when a write to the global scope may go on, else its exit code after a message on stderr: 4 for a hard
-    term, 5 for a soft one the owner has not approved. A missing list is created, so it never blocks."""
+    term, 5 for a soft one the owner has not approved, 2 when the list cannot be read, created or located (no HOME and
+    no XDG_CONFIG_HOME). A missing list is created, so it never blocks."""
+    if records.forbidden_file(os.environ) is None:
+        print("mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
+              file=sys.stderr)
+        return 2
     try:
         records.ensure_terms_file(os.environ)
         hits = records.term_hits(texts, os.environ, kind)
@@ -3869,7 +3874,12 @@ def cmd_memories(args: argparse.Namespace) -> int:
         named = _other_projects([args.project], False)
         if named is None:
             return 2
-        folders = [("project", _named_folder(args.project))]
+        folder = _named_folder(args.project)
+        if folder is not None and not folder.is_dir():
+            print(f"mem: the memory folder of project {args.project} was not found: {folder} (moved or deleted?)",
+                  file=sys.stderr)
+            return 2
+        folders = [("project", folder)]
     else:
         folders = _memory_folders(args)
         if not args.all:
@@ -5422,20 +5432,23 @@ def _note_kind(rel: str) -> str | None:
 
 
 def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
-    """Imported Markdown files whose text matches a secret pattern or a hard term."""
+    """Imported text files whose text matches a secret pattern or a hard term (a file with a NUL byte is binary: skipped)."""
     try:
         terms = [t for t in records.read_terms(os.environ) if not t.soft]
     except records.ForbiddenListError:
         terms = []
     flagged = []
     for rel in files:
-        if not rel.endswith(".md"):
-            continue
         try:
-            with (src / rel).open("rb") as f:
-                text = f.read().decode("utf-8")
-        except (OSError, UnicodeDecodeError):
+            raw = (src / rel).read_bytes()
+        except OSError:
             continue
+        if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):   # a BOM-marked UTF-16 file holds NULs but is text
+            text = raw.decode("utf-16", errors="ignore")
+        elif b"\x00" in raw:
+            continue
+        else:
+            text = raw.decode("utf-8", errors="ignore")
         if records.secret_in([text]) is not None or (terms and any(not t.soft for t in records.term_hits([text], os.environ))):
             flagged.append(rel)
     return flagged

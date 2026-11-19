@@ -1,5 +1,7 @@
 # Memory plugin, stage 5b (consolidation: syntheses and unified notes) Implementation Plan
 
+Status: done · merged in #117, 2026-11-17 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** a subject that has gathered many notes gets one long document, a synthesis, that holds the extended knowledge (origins, reasons, when it applies and when not); notes on that subject become the short recall of one of its parts; and two or more notes that say the same are unified into one without breaking a link.

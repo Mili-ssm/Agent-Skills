@@ -188,8 +188,24 @@ def test_show_and_memories_read_a_named_project_only_on_request(two, capsys):
     assert run(capsys, "show", f"m:{handle}", "--project", "nope")[0] == 2
 
 
+def test_memories_of_a_project_whose_folder_moved_say_so(two, tmp_path, capsys):
+    alpha, beta = two
+    beta.rename(tmp_path / "beta-moved")
+    code, out, err = run(capsys, "memories", "--project", "beta")
+    assert code == 2 and out == ""
+    assert "beta" in err and str(beta.resolve()) in err and "not found" in err
+
+
 def test_writing_commands_take_no_project_option(two):
     for argv in (["remember", "--kind", "lesson", "--claim", "x y", "--project", "beta"],
                  ["confirm", "m:x", "--project", "beta"]):
         with pytest.raises(SystemExit):
             mem.main(argv)
+
+
+def test_memories_of_a_project_without_its_memory_folder_is_an_error(two, capsys):
+    import shutil
+    _, beta = two
+    shutil.rmtree(beta / ".memory")  # the root stays, its memory folder is gone
+    code, out, err = run(capsys, "memories", "--project", "beta")
+    assert code == 2 and out == "" and ".memory" in err and "beta" in err

@@ -239,6 +239,21 @@ def test_hidden_text_is_not_returned():
         assert word in text
 
 
+def test_an_unclosed_script_or_style_does_not_hide_the_page():
+    for tag in ("script", "style"):
+        markup = f"<html><head><{tag}>var JSONLY = 1;</head><body><p>{LONG}, said the maker.</p></body></html>"
+        text = rc.html_text(markup)
+        assert LONG in text and "JSONLY" not in text
+    assert "after" in rc.html_text("<html><head><script>x<1</head><BODY>after</body>")
+    assert "swallowed" not in rc.html_text("<p>shown</p><script>swallowed to the end")
+
+
+def test_an_unclosed_script_or_style_in_the_body_keeps_the_next_tag_text():
+    for tag in ("script", "style"):
+        text = rc.html_text(f"<p>before</p><{tag}>var a=1;<p>QUOTE SENTENCE here</p>")
+        assert "before" in text and "QUOTE SENTENCE here" in text
+
+
 def test_size_cap_and_plain_text(server, fetch_local):
     assert fetch_local(f"{server}/plain").startswith("plain text")
     big = fetch_local(f"{server}/big")

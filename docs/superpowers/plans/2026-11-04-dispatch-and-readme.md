@@ -1,5 +1,7 @@
 # Proactive Dispatch Wording + README Install and Prompt Implementation Plan
 
+Status: done · merged in #107, 2026-11-03 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Raise `skeptical-reviewer` proactive dispatch with a turn-end rule, and give the README collapsible install guides plus a generated "recommended prompt" for agents and skills.

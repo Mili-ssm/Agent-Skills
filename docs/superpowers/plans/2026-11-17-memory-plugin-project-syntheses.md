@@ -1,5 +1,7 @@
 # Project syntheses with freshness stamps: experiment plan
 
+Status: done · merged in #119 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Find out whether a few long-lived documents in a project's `.memory/`, each part stamped with the commit it was written at, let an agent find its way in a project with fewer reads and without trusting a part whose files changed.

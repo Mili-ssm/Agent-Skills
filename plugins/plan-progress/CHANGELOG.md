@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- The README states the plan format the card depends on, and what to check if Superpowers changes its plan template.
+
 ## [0.1.0] - 2026-11-19
 
 ### Added
