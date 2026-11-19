@@ -12,7 +12,8 @@ Works on a copy of the store under `target/mem-trials/`; the sessions get the tr
 of `run_trials.ref_session`, each capped at the reserve the budget holds for it. Verdict: PASS (exit 0), FAIL (1) or
 PRELIMINARY (2, also a refusal before any session); a crash exits 3. An invalid calibration gives PRELIMINARY even when
 the wrong count is over the limit: the judge was not shown to work.
-It costs model usage (about 1 to 3 USD at the defaults); --budget is a cap. Results: `target/mem-trials/ref-audit-<time>.json`.
+It costs model usage (about 1 to 3 USD at the defaults); --budget is a cap. `--pairs` judges a given list instead of a
+random sample (a second reading of flagged pairs) and `--max-wrong` sets an absolute limit for it. Results: `target/mem-trials/ref-audit-<time>.json`.
 
 Usage: audit_refs.py [--store PATH] [--sample 100] [--planted 20] [--seed 0] [--pairs FILE] [--max-wrong N] [--budget 3.0] [--judge-model haiku]
                      [--claude PATH] [--work NEW_DIR] [--keep] [--dry-run] | --self-check
@@ -249,10 +250,13 @@ def copy_store(real: Path, base: Path) -> Path:
 
 
 def given(path: Path | None) -> list[Pair] | None:
-    """The pairs of `--pairs`: a JSON list of {synthesis, part, unit, target}, as a results file's `wrong_pairs`."""
+    """The pairs of `--pairs`: a JSON list of {synthesis, part, unit, target}, or a results file (its `wrong_pairs`)."""
     if path is None:
         return None
-    return [(w["synthesis"], w["part"], int(w["unit"]), rt._norm(w["target"])) for w in json.loads(path.read_text())]
+    data = json.loads(path.read_text())
+    if isinstance(data, dict):
+        data = data["wrong_pairs"]
+    return [(w["synthesis"], w["part"], int(w["unit"]), rt._norm(w["target"])) for w in data]
 
 
 def run(args, parser) -> int:
@@ -260,8 +264,16 @@ def run(args, parser) -> int:
     if not (real / "mem-store.yaml").is_file() or not (real / "syntheses").is_dir():
         print(f"refused: no store with syntheses at {real}", file=sys.stderr)
         return 2
+    if args.max_wrong is not None and args.max_wrong < 0:
+        parser.error("--max-wrong must be 0 or more")
+    only = given(args.pairs)
+    try:   # given pairs that are no longer in the store refuse the run before anything is copied
+        checked = plan(real, args.sample, args.planted, args.seed, only)
+    except ValueError as exc:
+        print(f"refused: {exc}", file=sys.stderr)
+        return 2
     if args.dry_run:
-        dry_run(plan(real, args.sample, args.planted, args.seed, given(args.pairs)), args.budget)
+        dry_run(checked, args.budget)
         return 0
     if not args.claude:
         parser.error("--claude is required (no claude binary found)")
@@ -274,7 +286,7 @@ def run(args, parser) -> int:
         return 2
     root.mkdir(parents=True, exist_ok=True)
     store = copy_store(real, root)
-    p = plan(store, args.sample, args.planted, args.seed, given(args.pairs)) | dict(max_wrong=args.max_wrong)
+    p = plan(store, args.sample, args.planted, args.seed, only) | dict(max_wrong=args.max_wrong)
     if not p["sampled"]:
         print("refused: the store holds no reference to judge", file=sys.stderr)
         trial_env.clean(root)
@@ -292,7 +304,8 @@ def run(args, parser) -> int:
           f"{len(p['planted'])} planted", flush=True)
     j = judge_all(p, lambda syn, text: audit_session(args.claude, root, env, syn, args.judge_model, text),
                   rt.Budget(args.budget))
-    r = result(p, j) | dict(seed=args.seed, budget=args.budget, judge_model=args.judge_model)
+    r = result(p, j) | dict(seed=args.seed, budget=args.budget, judge_model=args.judge_model,
+                            pairs_file=str(args.pairs) if args.pairs else None, max_wrong=args.max_wrong)
     r["planted_pairs"] = [dict(synthesis=s, part=pt, unit=n, target=t) for s, pt, n, t in p["planted"]]
     target = trial_env.TARGET / f"ref-audit-{time.strftime('%Y%m%d-%H%M%S')}.json"
     target.write_text(json.dumps(r, indent=1))
@@ -310,7 +323,7 @@ NAMES = ("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu 
 
 
 def fixture(store: Path) -> None:
-    """Three syntheses of four parts of six referenced sentences each; part k of a synthesis cites three of the 24 notes."""
+    """Three syntheses of four parts of six referenced sentences each (the first with two references); part k of a synthesis cites three of the 24 notes."""
     (store / "knowledge" / "x").mkdir(parents=True)
     (store / "syntheses").mkdir()
     (store / "mem-store.yaml").write_text("")
@@ -322,7 +335,8 @@ def fixture(store: Path) -> None:
         for k in range(4):
             own = [NAMES[(s * 8 + k * 3 + i) % len(NAMES)] for i in range(3)]
             link = lambda n: f"[{n}](../knowledge/x/{n}.md)"
-            body += [f"## Part {k}", "", " ".join(f"Claim {i} of part {k} holds. {link(own[i % 3])}" for i in range(6)), "",
+            body += [f"## Part {k}", "", " ".join(f"Claim {i} of part {k} holds. {link(own[i % 3])}" + (f" {link(own[1])}" if i == 0 else "")
+                                                for i in range(6)), "",
                      "Sources: " + ", ".join(link(n) for n in own), ""]
         (store / "syntheses" / f"fixture-{s}.md").write_text("\n".join(body))
 
@@ -351,7 +365,7 @@ def self_check() -> int:
         fixture(store)
         before = trial_env._snapshot(store)
         p = plan(store, 30, 12, 7)
-        assert p["pairs"] == 72 and p["syntheses"] == 3 and len(p["sampled"]) == 30, (p["pairs"], len(p["sampled"]))
+        assert p["pairs"] == 84 and p["syntheses"] == 3 and len(p["sampled"]) == 30, (p["pairs"], len(p["sampled"]))
         again = plan(store, 30, 12, 7)
         assert again["sampled"] == p["sampled"] and again["planted"] == p["planted"], "the draw is not reproducible"
         assert plan(store, 30, 12, 8)["sampled"] != p["sampled"], "another seed drew the same sample"
@@ -397,6 +411,23 @@ def self_check() -> int:
         assert fail["verdict"] == "FAIL" and fail["wrong"] == limit + 1 and len(fail["wrong_pairs"]) == limit + 1, fail
         blind = result(p, judge(set()))
         assert blind["verdict"] == "PRELIMINARY" and not blind["calibration_valid"], blind
+        # another reference of a sampled sentence marked `no` is not counted: only the sampled pair is
+        others = {(s, pt, n, x) for s, pt, n, _ in p["sampled"] for x in next(u[2] for u in p["facts"][s][pt]["units"]
+                  if u[0] == n)} - set(p["sampled"])
+        assert others, "the fixture has no sentence with a second reference"
+        co = result(p, judge(plants | others))
+        assert co["verdict"] == "PASS" and co["wrong"] == 0, co
+        # --pairs and --max-wrong: a given list replaces the draw; an absolute limit replaces the scaled one
+        some = p["sampled"][:3]
+        q = plan(store, 30, 12, 7, some) | dict(max_wrong=2)
+        assert q["sampled"] == sorted(some) and not {(s, pt, n) for s, pt, n, _ in q["planted"]} & {x[:3] for x in some}
+        assert result(q, judge_all(q, lambda syn, text: (fake_report(q, syn, text, set(q["planted"]) | set(some[:2])),
+                                                           dict(cost=0.1)), rt.Budget(10.0)))["verdict"] == "PASS"
+        try:
+            plan(store, 30, 12, 7, [("fixture-0", "part-0", 999, "../knowledge/x/alpha.md")])
+            raise AssertionError("a pair not in the store was accepted")
+        except ValueError:
+            pass
         broke = result(p, judge_all(p, lambda syn, text: (None, dict(cost=0.1)), rt.Budget(10.0)))
         assert broke["verdict"] == "PRELIMINARY" and broke["unjudged"] == 30, broke
         # the budget starts no session under one reserve, and says which syntheses it left
