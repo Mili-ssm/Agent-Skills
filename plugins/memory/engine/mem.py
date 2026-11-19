@@ -3256,6 +3256,10 @@ def cmd_signal(args: argparse.Namespace) -> int:
 def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
     """0 when a write to the global scope may go on, else its exit code after a message on stderr: 4 for a hard
     term, 5 for a soft one the owner has not approved. A missing list is created, so it never blocks."""
+    if records.forbidden_file(os.environ) is None:
+        print("mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
+              file=sys.stderr)
+        return 2
     try:
         records.ensure_terms_file(os.environ)
         hits = records.term_hits(texts, os.environ, kind)

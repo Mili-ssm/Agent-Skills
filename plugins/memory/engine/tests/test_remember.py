@@ -313,6 +313,17 @@ def test_global_write_fails_closed_on_an_unreadable_forbidden_list(gfolder, tmp_
     assert not gfolder.exists()
 
 
+def test_global_write_fails_closed_when_no_folder_locates_the_forbidden_list(gfolder, repo, capsys, monkeypatch):
+    monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    assert remember("--global") == 2
+    err = capsys.readouterr().err
+    assert "HOME" in err and "XDG_CONFIG_HOME" in err and "nothing was written" in err
+    assert not gfolder.exists()
+    assert remember() == 0  # a project write needs no list
+    assert (repo / ".memory" / "retries-need-idempotency-keys.md").is_file()
+
+
 def test_forbidden_term_split_between_claim_and_body(gfolder, tmp_path, capsys, monkeypatch):
     forbid(tmp_path, "acme corp")
     monkeypatch.setattr("sys.stdin", io.StringIO("corp\n"))
