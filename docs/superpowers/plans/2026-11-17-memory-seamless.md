@@ -105,6 +105,22 @@ Pre-mortem of 2026-11-18 (12 risks, 8 rated high), each checked in the code befo
 - **Tasks:** (a) a session writes the sentence to append, with its reference, as a file; Python appends and attaches; (b) staleness by changed sentence; (c) the sibling step proposes links and evidence as a file, Python applies fixed commands.
 - **Trial:** a store copy with seeded notes: ones that belong to a part, ones on the topic that do not belong, and one that contradicts a sibling. Count wrong attachments and any claim that changed.
 
+#### Stage 3 design (2026-11-19, before its pre-mortem)
+
+Owner's order 2026-11-19: this stage first, then the kill read (stage 4 of the plugin plan), then the Codex port. It runs as a command the owner starts, `mem-integrate`; joining `mem-auto` stays stage 5.
+
+What exists and what is missing (code map, 2026-11-19): `_curate_notes` lists unattached knowledge notes whose own topics equal a synthesis topic; `append_section` adds text before `Sources:` and merges a `Sources:` line but does not re-stamp members, so after any append every attached note reads stale (`part_of_hash` hashes the whole part); `_attach` and `append` log to two different logs, so one integration needs two undos; no function returns the sentences that cite a note or the units that changed between two texts; `note confirm` and `note dispute` take only an http(s) source; no command adds a link between two notes.
+
+| Task | Builds | Rule |
+|---|---|---|
+| T1 Changed units | `changed_units(old, new)` over `units()` by plain text; `citing_units(text, note)`; after any write to a part (`append`, `edit`, `refs`), members cited only by unchanged units are re-stamped, members cited by a changed or removed unit stay stale | Replaces "any edit stales the whole part" with "a note is stale when a sentence citing it changed" (Bound above) |
+| T2 `mem synthesis integrate FILE` | One file per note: part, the sentence to append with its reference, or the number of an existing unit to which only the reference is added; Python runs the existing checks (note on `Sources:` or merged into it, no orphan, colon rule), appends or adds the reference, attaches, re-stamps (T1), and logs all of it as one group that `mem restore` undoes at once | No model text reaches the store without these checks; a sentence that already exists gets a reference, not a duplicate |
+| T3 `mem note link A B` | Adds B to A's links section (and back) through `_commit_note_edit`; `note confirm` and `note dispute` also accept a note handle as the source, quoting its claim | Siblings get links, evidence lines and dispute marks, never a rewritten claim |
+| T4 `bin/mem-integrate` | For each unattached note on a covered topic: a read-only session (Haiku, `--tools Read`) proposes the T2 file or `none`; a second read-only session checks the proposed sentence against every note the sentence cites, the new one included (owner's rule on references); only a `backs` verdict is applied. Then a read-only session proposes sibling actions (link, evidence, dispute) as rows that Python turns into fixed T3 commands (`plan_commands` pattern). Budget per run, before/after store commits, a summary table | Writer and checker are separate sessions; nothing is applied on a missing or malformed answer |
+| T5 Trial | Store copy under `target/` with seeded notes: belong to a part, on the topic but not belonging, one contradicting a sibling, one duplicating an existing sentence | Fixed before the run: wrong attachments, sentences a note does not back (Sonnet audit), changed claims, cost per note |
+
+Kill criteria, fixed now: any sibling claim changed; more than 1 wrong attachment in 10 seeded notes; more than 1 appended sentence in 10 that its notes do not back; cost above 0.05 USD per integrated note at Haiku.
+
 ### Stage 4: splitting a synthesis
 
 - **Intent (owner, 2026-11-17):** when enough notes of a synthesis are specific to a sub-subject, that part moves to a child synthesis; the parent keeps the generic part and a pointer; the two are linked. The owner's example: parallelism in the software-engineering synthesis stays generic, parallelism in a Rust synthesis is about Rust.
