@@ -15,6 +15,8 @@ A synthesis is third-hand knowledge (source, note, synthesis): every part says w
 - A note that belongs to a synthesis shows `part of: s:<handle>#<section>`: open that part with `mem show s:<handle>#<section>` when the note is not enough.
 - `mem show s:<handle>` prints the outline with line ranges, not the whole document: read the one part you need.
 
+A `[n]` after a sentence of a part is a reference: the sentence rests on the n-th note of the part's `Sources:` line (`mem show ... --stored` prints the link itself). References are added after a synthesis is written and checked, by code and without changing a word: `mem-synthesize` does it as its last step, and `mem-synthesize --backfill [s:<handle> ...]` does it for syntheses that exist (one read-only session per synthesis; `--dry-run`, `--budget`). A writer is not asked to link while writing: in a measured trial that raised unsupported claims from 4.7 to 7.5 per 100.
+
 ## Writing a new synthesis
 
 Worth it when a subject has many notes that a reader would have to assemble (the curation queue says so at eight), or when the owner asks. Not for a subject with two or three notes.
@@ -27,7 +29,7 @@ Worth it when a subject has many notes that a reader would have to assemble (the
 
 Write from the notes and sources you read in this session, not from memory: a part with nothing to cite is a part to leave out.
 
-For many topics at once, run `mem-synthesize` in the background: it writes, fact-checks, fixes and attaches each synthesis in headless sessions and prints one table at the end (`--dry-run` lists the topics and the cost; `--topic T` picks them). For one topic without writing it yourself, dispatch the `memory-synthesizer` subagent. The link from each finding to its note (a reference: the note's link after the sentence, shown by `mem show` as `[n]`) is added after the text is written and checked, by code and without changing a word: `mem-synthesize` does it as its last step, and `mem-synthesize --backfill [s:<handle> ...]` does it for syntheses that exist, with one read-only session per synthesis (same `--dry-run` and `--budget`). A writer is not asked to link while writing: in a measured trial that raised unsupported claims from 4.7 to 7.5 per 100.
+For many topics at once, run `mem-synthesize` in the background: it writes, fact-checks, fixes and attaches each synthesis in headless sessions and prints one table at the end (`--dry-run` lists the topics and the cost; `--topic T` picks them). For one topic without writing it yourself, dispatch the `memory-synthesizer` subagent.
 
 Accuracy (in a measured trial 2-12% of claims were unsupported, of three kinds):
 - A sentence of your own reasoning starts with `Inference:`. "Holds by construction" and "should not replace" are inferences.

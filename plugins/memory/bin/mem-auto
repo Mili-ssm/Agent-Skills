@@ -145,7 +145,8 @@ def run_steps(state: State, claude: str, run_budget: float, root: Path, log, acc
         finally:   # rows arrive one by one: whatever finished is counted even when the call raises
             for row in rows:
                 acct["cost"] += row["cost"]
-                if row["status"] not in ("ok", "not started: budget", "not started: unknown spend"):
+                # "ok, references not added: ..." is a written synthesis: `mem-synthesize --backfill` adds them later.
+                if row["status"].split(",")[0] not in ("ok", "not started: budget", "not started: unknown spend"):
                     acct["failures"].append(f"topic {row['topic']}: {row['status']}")
 
 
