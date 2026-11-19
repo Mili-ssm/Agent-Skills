@@ -2,7 +2,7 @@
 
 Owner, 2026-11-17: the global memory should work as an internal mechanism of the model, close to a black box: it researches and contrasts facts on the web to the extent the owner sets, keeps sibling notes in step, splits a synthesis that outgrows its topic (the specific part to a child, the generic part kept in the parent), and does this automatically. Project memory stays explicit.
 
-**Status (2026-11-19):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built and measured on the branch `feat/memory-inline-refs`: references are added after writing, and the confirming run passed (see "Stage 2 confirming run" under "Results"). Open in stage 2: task 6 on the real store (the hand fix of one link, the plugin update, the backfill), each with the owner's word, and the reference audit before stage 3. Stages 3 to 5 are not started.
+**Status (2026-11-19):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built and measured on the branch `feat/memory-inline-refs`: references are added after writing, and the confirming run passed (see "Stage 2 confirming run" under "Results"). Task 6 is done on the real store (2026-11-19: the link fixed, the plugin updated, 3572 references added), and the reference audit **failed** (15 wrong in 100, limit 2): stage 3 must not act on references until the open questions under "Stage 2 on the real store" are settled. Stages 3 to 5 are not started.
 
 ## Where to resume: stages 2 to 5
 
@@ -350,3 +350,25 @@ Limits, to read before building on this:
 - Two runs per topic; the unsupported difference between arms (0.2 points) is far inside the noise, as expected, since the judge reads text without references.
 
 **The PASS covers `1db8f1b`.** Two commits follow it and no paid run exercised them; they change only paths this run did not take (too little budget, an error, a failing `mem check`), each covered by a test with a fake `claude`. From the review of the wiring: the reference step does not start with less budget left than one session usually costs; an error while selecting parts leaves the topic a pass (`ok, references not added: ...`); a `mem check` that no longer exits 0 after references were written fails the topic and names the undo, only when the step wrote a reference. Not done, low: the harness does not test that M and R hold the same (topic, run) pairs, nor mark a decision on fewer than six valid R rows as preliminary (this run had six).
+
+### Stage 2 on the real store, 2026-11-19: task 6 and the reference audit
+
+Owner's word of 2026-11-19 for the four steps. The store is the owner's; every figure is from the run logs under the state folder and `target/mem-trials/`.
+
+| Step | Result |
+|---|---|
+| The one link outside its `Sources:` line | The note was added to that part's `Sources:` line with `mem synthesis edit`; `mem check` exits 0 with the old and the new engine |
+| Installed plugin | `memory` updated from `7d190a1` to `ad04b3f` |
+| Backfill, two passes (the first stopped at its 3 USD cap after 19 syntheses) | 24 syntheses, 218 parts: 3572 references added, 182 refused, 23 units answered `none`; 4.60 USD against an estimate of 1.5. `mem check` 0, no note behind its part, nothing left due. Rollback point: the store's history commit "before backfill" |
+| Reference audit (`evals/synthesis/audit_refs.py`, seed 0, 100 of 3637 references in 23 syntheses, 23 sessions, 0.34 USD) | **FAIL: 15 wrong of 100 judged (limit 2), none unjudged; calibration 20 of 20 planted found.** By the judge's own kind of sentence: 11 wrong of 88 on findings, 4 of 12 on other sentences |
+
+What the audit means: the kill criterion fired, so **stage 3 does not act on references**. The rate is three times the confirming run's 4.9% and far from the backfill trial's 1 in 100. Not explained yet; candidates, none tested: (1) the audit's judge reads a few sentences without the rest of the part, the trials' judge read the whole synthesis, so the two are not the same measure; (2) several of the 15 are sentences that list what a part does not cover or that open a part, where a note is on topic without stating the sentence; (3) the real store's older syntheses differ from the trial topics. The 15 pairs are in the results file under `target/mem-trials/` (not committed: it holds note names).
+
+Found by the backfill and fixed on the branch `feat/memory-ref-audit`: a sentence that ends in `et al.` (or another abbreviation the parser never splits on) made the engine refuse every reference of its part (105 of the first pass's 145 refusals, four parts; nothing wrong was written). Now such a sentence takes a reference, and one refused line no longer refuses its part. Those four parts are marked done in the done list: they get their references only when their entries are removed from it after the installed plugin holds the fix.
+
+Open:
+
+- The cause of the audit's rate (the three candidates above); the cheapest test is to judge the same 100 pairs with the whole-synthesis judge of the trial.
+- `quantitative-finance` got 25 proposals for 276 units in the costliest session (0.81 USD): probably a cut answer, not confirmed; its parts are marked done.
+- The 37 refusals of the second pass are not classified.
+- Cost: nine of 24 sessions cost 0.2 to 0.8 USD against 0.03 to 0.06 for the rest; `ESTIMATE_PER_BACKFILL` (0.05) is low by about four times on this store.
