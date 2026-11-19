@@ -435,7 +435,7 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 
 | Step | Command |
 |---|---|
-| Branch | Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases. The owner's install follows `dev`: `claude plugin marketplace add Mili-ssm/Agent-Skills#dev` (cloud: `AGENT_SKILLS_REF=dev`) |
+| Branch | Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases. An install that follows `dev` (`Mili-ssm/Agent-Skills#dev`; cloud: `AGENT_SKILLS_REF=dev`) still updates only when a version changes; to try unreleased work use `claude --plugin-dir plugins/<name>` |
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |
 | Measure a description or prompt change before merging | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --case '<glob>'`; which cases and when to rerun: [`CLAUDE.md` § Eval protocol](CLAUDE.md#eval-protocol-adr-0007-review-2026-10-30) |

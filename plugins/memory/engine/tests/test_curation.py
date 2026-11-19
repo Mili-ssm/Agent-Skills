@@ -347,8 +347,9 @@ def test_merge_logs_both_files_and_restore_undoes_each(project, capsys):
     kb, db = keep.read_bytes(), drop.read_bytes()
     assert run(capsys, "merge", "m:keep", "m:drop")[0] == 0
     assert {(ln["action"], ln["handle"]) for ln in log_lines(project)} == {("merge", "keep"), ("merge", "drop")}
+    logged_day = log_lines(project)[0]["t"][:10]  # the curation log dates in UTC, not local time
     code, out, _ = run(capsys, "restore", "m:keep")
-    assert code == 0 and out == f"m:keep\trestored to before merge of {TODAY.isoformat()}\n" and keep.read_bytes() == kb
+    assert code == 0 and out == f"m:keep\trestored to before merge of {logged_day}\n" and keep.read_bytes() == kb
     assert run(capsys, "restore", "drop")[0] == 0 and drop.read_bytes() == db
     assert [ln["action"] for ln in log_lines(project)].count("restore") == 2
 

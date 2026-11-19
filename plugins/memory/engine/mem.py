@@ -595,7 +595,7 @@ def _part_of(v: Any) -> str | None:
 
 
 def _part_hash(v: Any) -> str | None:
-    return None if isinstance(v, str) and re.fullmatch(r"[0-9a-f]{10}", v) else "set the 10-hex fingerprint of the section"
+    return None if isinstance(v, str) and re.fullmatch(r"(?:u:)?[0-9a-f]{10}", v) else "set the 10-hex fingerprint of the section (`u:` first for a per-note one)"
 
 
 def _handle_value(v: Any) -> str | None:
@@ -3255,7 +3255,12 @@ def cmd_signal(args: argparse.Namespace) -> int:
 
 def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
     """0 when a write to the global scope may go on, else its exit code after a message on stderr: 4 for a hard
-    term, 5 for a soft one the owner has not approved. A missing list is created, so it never blocks."""
+    term, 5 for a soft one the owner has not approved, 2 when the list cannot be read, created or located (no HOME and
+    no XDG_CONFIG_HOME). A missing list is created, so it never blocks."""
+    if records.forbidden_file(os.environ) is None:
+        print("mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
+              file=sys.stderr)
+        return 2
     try:
         records.ensure_terms_file(os.environ)
         hits = records.term_hits(texts, os.environ, kind)
@@ -3869,7 +3874,12 @@ def cmd_memories(args: argparse.Namespace) -> int:
         named = _other_projects([args.project], False)
         if named is None:
             return 2
-        folders = [("project", _named_folder(args.project))]
+        folder = _named_folder(args.project)
+        if folder is not None and not folder.is_dir():
+            print(f"mem: the memory folder of project {args.project} was not found: {folder} (moved or deleted?)",
+                  file=sys.stderr)
+            return 2
+        folders = [("project", folder)]
     else:
         folders = _memory_folders(args)
         if not args.all:
@@ -3982,7 +3992,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
         handle, _, section = part.partition("#")
         syn = next((x for x in synths if x.handle == handle), None)
         sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
-        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text):
+        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text, _note_target(note.rel)):
             stale.append(f"  {name}  s:{handle}#{section}")
     out = []
     if disputed:
@@ -4632,6 +4642,11 @@ def _log_note(root: Path, path: Path, rel: str, action: str) -> None:
         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
+def _note_target(rel: str) -> str:
+    """How a synthesis part refers to the note stored at `rel` (a store-relative path)."""
+    return "../" + rel
+
+
 def _set_part_of(text: str, part_of: str, digest: str) -> str:
     m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
     if m is None:
@@ -4658,7 +4673,7 @@ def _attach(args: argparse.Namespace) -> int:
         syn, sec = _section_ref(root, args.target)
         text = _read_text(found)
         _log_note(root, found, rel, "attach")
-        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.fingerprint(sec.text)).encode("utf-8"))
+        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
     except (ValueError, OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -4892,11 +4907,11 @@ def _refs(args: argparse.Namespace) -> int:
             total_added, total_removed = total_added + added, total_removed + removed
             if new is not None and new != part.text:
                 new_file = syntheses.apply_part_text(new_file, name, new)
-                new_fp = syntheses.fingerprint(new)
                 for note, text in _part_of_notes(root, f"{handle}#{name}"):
                     stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
-                    if syntheses.is_current(stored, part.text) and stored != new_fp:
-                        rel = note.relative_to(root).as_posix()
+                    rel = note.relative_to(root).as_posix()
+                    new_fp = syntheses.note_fingerprint(new, _note_target(rel))
+                    if syntheses.is_current(stored, part.text, _note_target(rel)) and stored != new_fp:
                         notes[note] = (text.encode("utf-8"), _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"))
         if total_added or total_removed:
             changes = {path: (original, syntheses.bumped(new_file, today).encode("utf-8")), **notes}
@@ -4951,6 +4966,8 @@ def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str
                           claim=args.note_claim, confidence=args.confidence, level=args.level, origin=origin,
                           part_of=f"{handle}#{section_handle}", part_of_hash=syntheses.fingerprint(cleaned))
         rel = target.relative_to(root).as_posix()
+        if (stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))) != syntheses.fingerprint(cleaned):
+            target.write_text(_set_field(_read_text(target), "part_of_hash", stamp), encoding="utf-8")
         if found := [p for p in check(root) if p.path == rel]:
             raise NewNoteError(f"the note has {len(found)} problems, so nothing was written: "
                                + "; ".join(str(p) for p in found))
@@ -5093,6 +5110,10 @@ def cmd_new(args: argparse.Namespace) -> int:
             fields["part_of_hash"] = syntheses.fingerprint(sec.text)
         path = new_note(args.root, args.type, slug=args.slug, topics=topics,
                         today=datetime.date.today(), body=body, **fields)
+        if "part_of_hash" in fields:
+            stamp = syntheses.note_fingerprint(sec.text, _note_target(path.relative_to(args.root).as_posix()))
+            if stamp != fields["part_of_hash"]:
+                path.write_text(_set_field(_read_text(path), "part_of_hash", stamp), encoding="utf-8")
     except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
@@ -5411,20 +5432,23 @@ def _note_kind(rel: str) -> str | None:
 
 
 def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
-    """Imported Markdown files whose text matches a secret pattern or a hard term."""
+    """Imported text files whose text matches a secret pattern or a hard term (a file with a NUL byte is binary: skipped)."""
     try:
         terms = [t for t in records.read_terms(os.environ) if not t.soft]
     except records.ForbiddenListError:
         terms = []
     flagged = []
     for rel in files:
-        if not rel.endswith(".md"):
-            continue
         try:
-            with (src / rel).open("rb") as f:
-                text = f.read().decode("utf-8")
-        except (OSError, UnicodeDecodeError):
+            raw = (src / rel).read_bytes()
+        except OSError:
             continue
+        if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):   # a BOM-marked UTF-16 file holds NULs but is text
+            text = raw.decode("utf-16", errors="ignore")
+        elif b"\x00" in raw:
+            continue
+        else:
+            text = raw.decode("utf-8", errors="ignore")
         if records.secret_in([text]) is not None or (terms and any(not t.soft for t in records.term_hits([text], os.environ))):
             flagged.append(rel)
     return flagged

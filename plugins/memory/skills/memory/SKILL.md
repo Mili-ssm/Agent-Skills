@@ -50,7 +50,7 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 - The global scope is for what holds anywhere. It does not hold a project's data: no names of its systems, people or clients, no figures, paths or incidents of it; at most a passing mention that the lesson came from a project.
 - Scope, one question: **would this be true and useful in another project?** No, or it names this project's systems, people or business: the project (the default). Yes, and it names no client, company, system or data: add `--global`. Both parts in one discovery: two memories.
 - When in doubt about scope or worth, write it to the project: a curation pass decides later what moves up.
-- Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree.
+- Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree. Exit code 2 from a global write when neither `HOME` nor `XDG_CONFIG_HOME` is set: nothing was written; set one of them.
 - When a memory you used proved right: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`.
 
 ## Not while working

@@ -1,5 +1,7 @@
 # Memory plugin, stage 6 (signal) Implementation Plan
 
+Status: done · merged in #117, 2026-11-17 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** a subagent learns from its own brief that records related to its task exist, by name and without their content, so it can open them; nothing is added when nothing relates.

@@ -1,5 +1,7 @@
 # Commands to edit notes, memories and syntheses: plan
 
+Status: done · merged in #121 · boxes left unticked during execution are not open work (checked 2026-11-19).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Agents change every record through `mem`, never by editing files: a command exists for each change that today needs a hand edit.
