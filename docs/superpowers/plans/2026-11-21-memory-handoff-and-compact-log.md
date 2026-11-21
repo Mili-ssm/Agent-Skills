@@ -39,9 +39,9 @@ No code enters the repository; the result is written into this plan's `## Result
 - Create (throwaway, git-ignored): `target/compact-spike/` with a plugin whose `PreCompact`, `PostCompact` and `SessionStart` hooks append a timestamped line, their input's top-level keys and their own name to one file, and whose `PostCompact` and `SessionStart` each print a distinct marker word.
 - Modify: this file, `## Results`.
 
-- [ ] **Step 1:** Build the throwaway plugin and run one session with `claude --plugin-dir target/compact-spike`, compact it once (`/compact`; try print mode first, an interactive session if print mode cannot compact).
-- [ ] **Step 2:** Record in `## Results`: the order of the three events; the keys `PostCompact` receives (expected: `session_id`, `cwd`, `trigger`, `compact_summary`); whether the model can quote the marker printed by `PostCompact`, and the one printed by `SessionStart` with source `compact`.
-- [ ] **Step 3:** Apply the decision rule and record the choice: `PostCompact` before `SessionStart` → Task 4 as written. `SessionStart` first, and `PostCompact`'s marker reaches the model → Task 4 changes to "`post-compact.sh` prints the lines itself", no state file. Neither → stop and report to the owner.
+- [ ] **Step 1:** Build the throwaway plugin, whose `PreCompact` prints the `INSTRUCTION` of Task 2, and run sessions with `claude --plugin-dir target/compact-spike` until three compactions happened: `/compact` (try print mode first, an interactive session if print mode cannot compact) and, if feasible, one automatic compaction. Save each `compact_summary` to the scratchpad, outside the repository.
+- [ ] **Step 2:** Record in `## Results`: the order of the three events; the keys `PostCompact` receives (expected: `session_id`, `cwd`, `trigger`, `compact_summary`); whether the model can quote the marker printed by `PostCompact`, and the one printed by `SessionStart` with source `compact`; for each summary, whether the block is there and how its marker and fields are written (bare, bold, list items, under a heading, in a code fence); whether the "not yet recorded:" lines are there.
+- [ ] **Step 3:** Apply the decision rule and record the choice: `PostCompact` before `SessionStart` → Task 4 as written. `SessionStart` first, and `PostCompact`'s marker reaches the model → Task 4 changes to "`post-compact.sh` prints the lines itself", no state file. Neither → Task 4 is dropped, Tasks 2, 3 and 5 still ship (the log and the metrics need no delivery), and the owner is told. If a summary writes the block in a shape Task 2's `parse` rules do not cover, add that shape to Task 2 as a test, with the summary's text replaced by invented text.
 - [ ] **Step 4:** Delete `target/compact-spike/`. Commit this file: `docs(plan): compaction event order (spike)`.
 
 ### Task 2: `handoff.py`: parse the block and find mismatches
@@ -54,9 +54,10 @@ No code enters the repository; the result is written into this plan's `## Result
 - Produces:
   - `FIELDS: tuple[str, ...] = ("task", "state", "next", "verified", "unverified", "plan")`
   - `INSTRUCTION: str` — the `PreCompact` text (Task 3 copies it into the shell script; a test keeps them equal).
-  - `parse(summary: str) -> dict[str, str]` — the fields found after the last line that is exactly `HANDOFF` (case-sensitive, surrounding `*`, `#`, `:` and spaces ignored); each field is a line `name: value`; a missing field is absent from the result; no block → `{}`.
+  - `parse(summary: str) -> dict[str, str]` — the fields found after the last marker line: a line that is the word `handoff` in any case once leading and trailing `#`, `*`, `-`, `>`, `` ` ``, `:` and spaces are removed. Each field is a line `name: value` where the name, in any case, may be preceded by `-`, `*`, `>` and spaces and wrapped in `**`; names are returned in lower case; a code fence line is skipped; a missing field is absent from the result; no marker → `{}`. Reason: a strict parser would report "no handoff block" for a model that complied in Markdown, and the kill criteria would then fire for the wrong cause.
+  - `has_marker(summary: str) -> bool` — the text contains `handoff` in any case, anywhere.
   - `unrecorded(summary: str) -> int` — the number of lines that contain `not yet recorded` (case-insensitive).
-  - `mismatches(found: dict[str, str], cwd: Path) -> list[str]` — the lines to show the agent, each under 150 characters, at most two.
+  - `mismatches(found: dict[str, str], cwd: Path) -> list[str]` — the lines to show the agent, each under 150 characters, at most one today.
 
 `INSTRUCTION`, exact copy:
 
@@ -77,10 +78,11 @@ Mismatch rules, in this order:
 | Condition | Line |
 |---|---|
 | `found` is empty | `The summary has no handoff block: state the task, its state and the next step before you continue.` |
-| `plan` names a file (not `no plan`, `none` or empty, after stripping quotes and backticks) that does not exist under `cwd` | `The handoff names a plan file that does not exist: <value, cut to 80 characters>. Find the plan before you continue.` |
-| `plan` exists, contains at least one `- [x]` and no `- [ ]`, and `next` is not empty, `none` or `done` | `Every task of the plan the handoff names is ticked, but the handoff has a next step: check the plan against the work.` |
+| `plan` holds a token that ends in `.md` (the first one, after stripping quotes, backticks and brackets), and that path is not a file under the project root | `The handoff names a plan file that does not exist: <token, cut to 80 characters>. Find the plan before you continue.` |
 
-A `plan` value that resolves outside `cwd` (absolute path elsewhere, `..`) is never read: no mismatch.
+The project root is the nearest ancestor of `cwd`, `cwd` included, that holds an entry named `.git` (file or folder; `git` is never run, and `records.project_root` is not used because it runs `git`), else `cwd`. A `plan` value with no `.md` token (`no plan`, `none`, prose) names nothing: no mismatch. A token that resolves outside the project root (absolute path elsewhere, `..`) is never looked up: no mismatch.
+
+Dropped after the pre-mortem: a rule for "every task of the plan is ticked but the handoff has a next step". The plan template's own header holds a literal `- [ ]`, and a finished plan's next step is usually "open the pull request", so the rule would be silent or wrong. It returns only if the compaction log shows a need.
 
 - [ ] **Step 1: Write the failing tests** in `test_handoff.py`:
 
@@ -96,6 +98,13 @@ def test_parse_reads_the_six_fields():
 
 def test_parse_tolerates_markdown_around_the_marker_and_takes_the_last_block():
     assert handoff.parse("HANDOFF\ntask: old\n\n## **HANDOFF**:\ntask: new\n") == {"task": "new"}
+
+def test_parse_tolerates_markdown_fields():
+    text = "## Handoff\n```\n- **Task:** add the retry\n* state: tests written\n> Next: implement backoff\n**Plan**: `docs/p.md`\n```\n"
+    assert handoff.parse(text) == {"task": "add the retry", "state": "tests written", "next": "implement backoff", "plan": "`docs/p.md`"}
+
+def test_has_marker():
+    assert handoff.has_marker("the Handoff follows") and not handoff.has_marker("nothing here")
 
 def test_parse_without_a_block_is_empty():
     assert handoff.parse("a summary that mentions handoff in prose") == {}
@@ -118,26 +127,28 @@ def test_a_missing_plan_is_named(tmp_path):
     assert len(lines) == 1 and "does not exist: docs/gone.md" in lines[0]
 
 def test_no_plan_gives_nothing(tmp_path):
-    for value in ("no plan", "None", '"no plan"', ""):
+    for value in ("no plan", "None", '"no plan"', "", "the plan we agreed on"):
         assert handoff.mismatches({"plan": value, "next": "b"}, tmp_path) == []
 
-def test_a_fully_ticked_plan_with_a_next_step(tmp_path):
-    (tmp_path / "p.md").write_text("- [x] a\n- [x] b\n")
-    assert len(handoff.mismatches({"plan": "p.md", "next": "write c"}, tmp_path)) == 1
-    assert handoff.mismatches({"plan": "p.md", "next": "none"}, tmp_path) == []
+def test_a_path_inside_prose_is_found_from_a_subdirectory_of_the_project(tmp_path):
+    (tmp_path / ".git").mkdir(); (tmp_path / "docs").mkdir(); (tmp_path / "src").mkdir()
+    (tmp_path / "docs" / "p.md").write_text("- [x] a\n")
+    assert handoff.mismatches({"plan": "docs/p.md (Task 3 of 5)"}, tmp_path / "src") == []
+    lines = handoff.mismatches({"plan": "see docs/gone.md, Task 3"}, tmp_path / "src")
+    assert len(lines) == 1 and "does not exist: docs/gone.md" in lines[0]
 
 def test_a_plan_outside_the_project_is_never_read(tmp_path):
     assert handoff.mismatches({"plan": "../../etc/passwd", "next": "b"}, tmp_path) == []
     assert handoff.mismatches({"plan": "/etc/hostname", "next": "b"}, tmp_path) == []
 
 def test_lines_are_short(tmp_path):
-    lines = handoff.mismatches({"plan": "x" * 500, "next": "b"}, tmp_path)
+    lines = handoff.mismatches({"plan": "x" * 500 + ".md", "next": "b"}, tmp_path)
     assert all(len(line) < 150 for line in lines)
 ```
 
 - [ ] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_handoff.py -q`. Expected: FAIL, `No module named 'handoff'`.
 - [ ] **Step 3:** Implement `handoff.py` with the interface above. Reading a plan file: at most 1 MB, errors ignored, any `OSError` → no mismatch.
-- [ ] **Step 4:** Run the same command. Expected: 11 passed.
+- [ ] **Step 4:** Run the same command. Expected: 13 passed.
 - [ ] **Step 5:** Commit: `feat(memory): parse the handoff block of a compaction summary`.
 
 ### Task 3: `mem compact-log` and the two hooks
@@ -149,15 +160,15 @@ def test_lines_are_short(tmp_path):
 - Test: `plugins/memory/engine/tests/test_compact_log.py`, `plugins/memory/engine/tests/test_plugin_shell.py`
 
 **Interfaces:**
-- Consumes: `handoff.parse`, `handoff.unrecorded`, `handoff.mismatches`, `handoff.FIELDS`, `handoff.INSTRUCTION`; `_hook_input()`, `_log_hook()`, `data_dir()` of `mem.py`.
+- Consumes: `handoff.parse`, `handoff.has_marker`, `handoff.unrecorded`, `handoff.mismatches`, `handoff.FIELDS`, `handoff.INSTRUCTION`; `_hook_input()`, `_log_hook()`, `data_dir()` of `mem.py`.
 - Produces:
   - `mem compact-log --hook`: reads the hook's JSON from standard input, prints nothing, returns 0.
-  - Log line: `{"hook": "post-compact", "trigger": <str or null>, "chars": <int>, "handoff": [<names of the fields present, in FIELDS order>], "plan_named": <bool>, "unrecorded": <int>, "mismatches": <int>, "ms": <int>}`.
+  - Log line: `{"hook": "post-compact", "trigger": <str or null>, "session": <the session id when it matches the pattern below, else null>, "chars": <int>, "marker": <bool, `handoff.has_marker`>, "handoff": [<names of the fields present, in FIELDS order>], "plan_named": <bool, a `.md` token was found>, "unrecorded": <int>, "mismatches": <int>, "ms": <int>}`. `session` joins this line to the transcript and to the next compaction of the same session; `marker` true with an empty `handoff` means the parser missed a block the model wrote.
   - State file, written only when `mismatches > 0` and the session id matches `^[A-Za-z0-9_-]{1,64}$`: `<data folder>/handoff/<session_id>.json` holding `{"t": <epoch seconds>, "lines": [<str>, ...]}`. With no mismatch an existing file for that session is deleted.
   - `handoff_state_path(data: Path, session_id: str) -> Path | None` in `mem.py`, used by Task 4.
 
 - [ ] **Step 1: Write the failing tests** in `test_compact_log.py`, running `bin/mem compact-log --hook` as a subprocess with `MEM_DATA` set to a temporary folder, the way `test_plugin_shell.py` runs `session-index`:
-  - `test_logs_one_line_without_text`: input with the `BLOCK` summary of Task 2, `cwd` a folder where `docs/plans/p.md` holds `- [ ] a`. Assert exit 0, empty stdout, and the last hook-log line equals, ignoring `t` and `ms`: `{"hook": "post-compact", "trigger": "auto", "chars": len(BLOCK), "handoff": ["task", "state", "next", "verified", "unverified", "plan"], "plan_named": True, "unrecorded": 1, "mismatches": 0}`; the raw log line contains neither `retry` nor `docs/plans`; no file under `handoff/`.
+  - `test_logs_one_line_without_text`: input with the `BLOCK` summary of Task 2, `cwd` a folder where `docs/plans/p.md` holds `- [ ] a`. Assert exit 0, empty stdout, and the last hook-log line equals, ignoring `t` and `ms`: `{"hook": "post-compact", "trigger": "auto", "session": "abc-123", "chars": len(BLOCK), "marker": True, "handoff": ["task", "state", "next", "verified", "unverified", "plan"], "plan_named": True, "unrecorded": 1, "mismatches": 0}`; the raw log line contains neither `retry` nor `docs/plans`; no file under `handoff/`.
   - `test_a_mismatch_writes_the_state_file`: the same with no plan file. Assert `handoff/<session_id>.json` holds one line that contains `does not exist`, and the log line has `"mismatches": 1`.
   - `test_agreement_deletes_an_old_state_file`.
   - `test_bad_input_is_silent` (parametrized: empty stdin, `not json`, `{}`, `{"compact_summary": 5}`, a `session_id` of `../x` with a summary that has no block): exit 0, empty stdout and stderr, no file outside `hooks/` in the data folder.
@@ -165,7 +176,7 @@ def test_lines_are_short(tmp_path):
 - [ ] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_compact_log.py -q`. Expected: FAIL, `invalid choice: 'compact-log'`.
 - [ ] **Step 3:** Implement `cmd_compact_log(args) -> int` and `handoff_state_path`; the whole body inside one `try`, as `cmd_session_index` does. Only the first 1,000,000 characters of the summary are parsed; `chars` is the full length.
 - [ ] **Step 4:** Run the command of Step 2. Expected: all pass.
-- [ ] **Step 5: Shell tests** in `test_plugin_shell.py`: add `post-compact.sh` to the parametrized list of executable scripts; `test_hooks_json_names_the_scripts` expects a `PostCompact` entry with timeout 5; replace `test_pre_compact_prints_its_line` with a test that the script's output equals `handoff.INSTRUCTION` plus a newline; `test_post_compact_hook_without_uv_is_silent` on the model of `test_session_index_hook_without_uv_is_silent`. Run them: FAIL.
+- [ ] **Step 5: Shell tests** in `test_plugin_shell.py`: add `post-compact.sh` to the parametrized list of executable scripts; `test_hooks_json_names_the_scripts` expects a `PostCompact` entry with timeout 5; remove the `PRE_COMPACT` constant and replace `test_pre_compact_prints_its_line` with a test that the script's output equals `handoff.INSTRUCTION` plus a newline; `test_post_compact_hook_without_uv_is_silent` on the model of `test_session_index_hook_without_uv_is_silent`. Run them: FAIL.
 - [ ] **Step 6:** Write `post-compact.sh` on the model of `signal.sh` (pass the options on, `timeout 4` around `mem compact-log --hook`, silent, exit 0); set `pre-compact.sh` to print the instruction with one quoted here-document and no interpreter; add the `PostCompact` group to `hooks.json` and extend its `description`. `git add` the new script with mode `100755`.
 - [ ] **Step 7:** Run the whole engine suite. Expected: all pass (1248 passed and 4 skipped before this plan, plus the new tests).
 - [ ] **Step 8:** Commit: `feat(memory): handoff instruction before a compaction and a log line after it`.
@@ -196,7 +207,7 @@ def test_lines_are_short(tmp_path):
 - Produces: a section `== outcome metrics ==` printed by the script:
   - M2 `sessions with web research before any mem search: N / sessions with web research` (a `WebSearch` or `WebFetch` call, or an `Agent` call whose `subagent_type` ends in `researcher`, earlier than the session's first `mem search`).
   - M3 `searches followed within 30 minutes by mem show of a returned record: N / searches` (usage log; the data folder from `MEM_DATA`, else `$XDG_STATE_HOME/agent-memory`, else `~/.local/state/agent-memory`).
-  - M5 `compactions: N; with a handoff block: N; with all six fields: N; unrecorded items: N; mismatch lines shown: N` (hook log, same window).
+  - M5 `compactions: N; with a handoff block: N; marker without a parsed block: N; with all six fields: N; unrecorded items: N; mismatch lines shown: N; post-compact ms p90: N` (hook log, same window). The script's existing transcript line `summaries with 'not yet recorded'` stays: it is the baseline (12 of 13) that the new instruction must not lower.
   - M8 `characters injected by session-index: median N, max N per call`.
 
 - [ ] **Step 1:** Add the four metrics; a missing log prints `no log` for its metric and the script still exits 0.
