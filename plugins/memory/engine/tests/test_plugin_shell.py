@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+import handoff
+
 MEM = Path(__file__).resolve().parents[2] / "bin" / "mem"
 HOOK = Path(__file__).resolve().parents[2] / "hooks" / "session-env.sh"
 
@@ -122,12 +124,9 @@ SUBAGENT_TEXT = (
     'mem search "<topic in English>", then mem show <handle>. Project memories are files in '
     '.memory/ at the repository root. A line marked [memory: ...] is experience, not fact. Do not run mem remember: '
     'tell your caller what is worth remembering, if anything.')
-PRE_COMPACT = ('Keep in the summary: the path of the active plan file (say "no plan" if there is none), and every '
-               'decision, constraint, pitfall or finding of this session that was not yet recorded with mem remember, '
-               'marked "not yet recorded", so that the next context can record them.')
 
 
-@pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "signal.sh", "subagent-start.sh", "pre-compact.sh", "session-end.sh"])
+@pytest.mark.parametrize("name", ["session-env.sh", "session-index.sh", "signal.sh", "subagent-start.sh", "pre-compact.sh", "post-compact.sh", "session-end.sh"])
 def test_hook_scripts_are_executable(name):
     assert os.access(HOOKS / name, os.X_OK)
 
@@ -141,6 +140,8 @@ def test_hooks_json_names_the_scripts():
     assert cfg["SubagentStart"][0]["hooks"][0]["command"].endswith("/hooks/subagent-start.sh")
     assert "PreToolUse" not in cfg  # the signal hook is built but not registered: it showed no gain (stage 6 plan)
     assert cfg["PreCompact"][0]["hooks"][0]["command"].endswith("/hooks/pre-compact.sh")
+    assert cfg["PostCompact"][0]["hooks"][0]["command"].endswith("/hooks/post-compact.sh")
+    assert cfg["PostCompact"][0]["hooks"][0]["timeout"] == 5
     assert cfg["SessionEnd"][0]["hooks"][0]["command"].endswith("/hooks/session-end.sh")
 
 
@@ -152,9 +153,9 @@ def test_subagent_start_prints_the_json_text():
     assert len(SUBAGENT_TEXT) <= 450
 
 
-def test_pre_compact_prints_its_line():
+def test_pre_compact_prints_the_handoff_instruction():
     r = run([str(HOOKS / "pre-compact.sh")], {})
-    assert r.returncode == 0 and r.stdout == PRE_COMPACT + "\n" and r.stderr == ""
+    assert r.returncode == 0 and r.stdout == handoff.INSTRUCTION + "\n" and r.stderr == ""
 
 
 @needs_uv
@@ -178,6 +179,14 @@ def test_session_index_hook_with_spaced_store_and_logs(hub_root, tmp_path):
 @pytest.mark.skipif(any(Path(d, "uv").exists() for d in ("/usr/bin", "/bin")), reason="uv is under /usr/bin or /bin")
 def test_session_index_hook_without_uv_is_silent(tmp_path):
     r = subprocess.run([str(HOOKS / "session-index.sh")], input="{}", env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+                       capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
+
+
+@pytest.mark.skipif(any(Path(d, "uv").exists() for d in ("/usr/bin", "/bin")), reason="uv is under /usr/bin or /bin")
+def test_post_compact_hook_without_uv_is_silent(tmp_path):
+    summary = json.dumps({"compact_summary": "A summary with no block.", "cwd": str(tmp_path)})  # prints when uv is present
+    r = subprocess.run([str(HOOKS / "post-compact.sh")], input=summary, env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
                        capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
 

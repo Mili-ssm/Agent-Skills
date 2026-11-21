@@ -1,5 +1,5 @@
 {
-  "description": "Passes the store path to shell commands of the session and opens sessions and subagents with the memory text",
+  "description": "Passes the store path to shell commands of the session, opens sessions and subagents with the memory text, and asks for a handoff block before a compaction and checks it after",
   "hooks": {
     "SessionStart": [
       {
@@ -39,6 +39,17 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/pre-compact.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/post-compact.sh",
             "timeout": 5
           }
         ]

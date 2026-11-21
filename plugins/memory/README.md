@@ -30,6 +30,15 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 | Other projects | A local registry, filled as memories are written (`mem projects list`) | Never read by default. `mem search "<q>" --project <name>` or `--all-projects` includes them, each under its own header; the registry holds names and paths, stays on this machine and is not synced |
 | Project memories | The main worktree's `.memory/` | Kept out of git through `.git/info/exclude`, added once when the folder is created; remove that line to commit the folder |
 
+## Compaction hooks
+
+| Hook | What it does |
+|---|---|
+| `PreCompact` | Asks the summary to end with a handoff block: task, state, next step, verified, unverified, plan file |
+| `PostCompact` | Reads the block from the summary and checks that the plan file it names exists. Logs one line per compaction to `hooks/log.jsonl` (counts, booleans, field names, the trigger and the session id; no text of the summary and no path). Speaks to the agent in two cases only: no handoff block, or the block names a plan file that does not exist |
+
+`docs/studies/scripts/memory_usage.py` reads these logs.
+
 ## Bringing in existing notes
 
 `mem import <folder> [--dry-run] [--overwrite] [--with-sources] [--research-data]` copies the `literature/` and `knowledge/` files, the Markdown files and figures of `research/` (its data and code only with `--research-data`) and the topics of an older folder of notes into the store, reading the source only. Files that differ stay as they are and are listed, unless `--overwrite`; imported text is not checked for secrets or terms, only reported.
