@@ -50,7 +50,7 @@ for f in glob.glob(root + "/**/*.jsonl", recursive=True):
                 s["skills"][inp.get("skill", "")] += 1
             elif name in ("Agent", "Task"):
                 s["agents"][inp.get("subagent_type", "general-purpose")] += 1
-                if (inp.get("subagent_type") or "").split(":")[-1] == "researcher" and s["first_web"] is None:  # not memory-researcher, which reads the memory first s["first_web"] = idx
+                if (inp.get("subagent_type") or "").split(":")[-1] == "researcher" and s["first_web"] is None: s["first_web"] = idx  # not memory-researcher, which reads the memory first
                 if inp.get("subagent_type") == "memory:memory-recorder" and s["followed"]: s["followed"][-1] = True
             elif name in ("WebSearch", "WebFetch"):
                 if s["first_web"] is None: s["first_web"] = idx
