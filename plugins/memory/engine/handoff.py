@@ -22,8 +22,10 @@ Before the block, list every decision, constraint, pitfall or finding of this se
 _MARKER_STRIP = "#*->`: \t"
 _FIELD = re.compile(r"^[\s\-*>]*(?:\*\*)?(" + "|".join(FIELDS) + r")(?:\*\*)?\s*:(?:\*\*)?\s*(.*)$", re.I)
 _UNRECORDED = "not yet recorded:"
-_PLAN_TOKEN = re.compile(r"[^\s'\"`\[\]()<>,;]+\.md(?!\w)", re.I)
+_PLAN_TOKEN = re.compile(r"[^\s'\"`\[\]()<>,;*]+\.md(?!\w)", re.I)
 _NO_BLOCK = "The summary has no handoff block: state the task, its state and the next step before you continue."
+_MAX_VALUE = 500  # bounds the regex work on hostile text
+_NONE = {"none", "nothing"}
 _MAX_TOKEN = 60  # keeps the whole line under 150 characters
 
 
@@ -45,7 +47,10 @@ def parse(summary: str) -> dict[str, str]:
             continue
         m = _FIELD.match(line)
         if m:
-            found.setdefault(m.group(1).lower(), m.group(2).strip())
+            value = m.group(2).strip()
+            if value.startswith("<") and value.endswith(">"):
+                continue  # an echoed template placeholder
+            found.setdefault(m.group(1).lower(), value[:_MAX_VALUE])
     return found
 
 
@@ -57,7 +62,7 @@ def unrecorded(summary: str) -> int:
         head = stripped.lstrip("-* \t")
         if head.lower().startswith(_UNRECORDED):
             rest = head[len(_UNRECORDED):].strip("*` \t")
-            if rest:
+            if rest and rest.rstrip(".").strip("*` \t").lower() not in _NONE:
                 count += 1
                 in_list = False
             else:
@@ -80,17 +85,23 @@ def _project_root(cwd: Path) -> Path:
 def mismatches(found: dict[str, str], cwd: Path) -> list[str]:
     if not found:
         return [_NO_BLOCK]
-    m = _PLAN_TOKEN.search(found.get("plan", ""))
+    plan = found.get("plan", "")[:_MAX_VALUE]
+    if "://" in plan:
+        return []
+    m = _PLAN_TOKEN.search(plan)
     if not m:
         return []
     token = m.group(0)
     root = _project_root(Path(cwd))
-    try:
-        target = Path(os.path.realpath(root / token))  # an absolute token replaces root
-        if root != target and root not in target.parents:
+    for candidate in (token, plan.strip("'\"`* \t")):
+        try:
+            target = Path(os.path.realpath(root / candidate))  # an absolute path replaces root
+            if root != target and root not in target.parents:
+                if candidate == token:
+                    return []
+                continue
+            if target.is_file():
+                return []
+        except (OSError, ValueError):
             return []
-        if target.is_file():
-            return []
-    except (OSError, ValueError):
-        return []
     return [f"The handoff names a plan file that does not exist: {token[:_MAX_TOKEN]}. Find the plan before you continue."]
