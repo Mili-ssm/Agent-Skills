@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ import synth_pipeline as sp  # noqa: E402
 DEFAULT_BUDGET = 0.25   # USD
 DEFAULT_MODEL = "haiku"
 SESSION_TIMEOUT = 600
+MAX_CANDIDATES_BYTES = 1_000_000
 MIN_OWNER_LINES = 3
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
@@ -62,12 +64,22 @@ Leave out: anything in recorded.txt or saying the same; what the code, the git h
 """
 
 
-def budget_of(value: str | float | None) -> float:
+def budget_arg(value: str) -> float:
     try:
         number = float(value)
-    except (TypeError, ValueError):
-        return DEFAULT_BUDGET
-    return number if number > 0 else DEFAULT_BUDGET
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {value!r}") from None
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number: {value!r}")
+    return number
+
+
+def repo_above(folder: Path) -> Path | None:
+    """The nearest folder, `folder` or an ancestor, that holds an entry named `.git`."""
+    for p in (folder, *folder.parents):
+        if os.path.lexists(p / ".git"):
+            return p
+    return None
 
 
 def private_dirs(folder: Path) -> None:
@@ -82,16 +94,18 @@ def private_dirs(folder: Path) -> None:
 
 
 def write_private(path: Path, text: str) -> None:
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    """Never follows a symlink at `path`; the mode is set on the descriptor before anything is written."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
+        os.fchmod(f.fileno(), 0o600)
         f.write(text)
-    os.chmod(path, 0o600)
 
 
 def recorded_claims(project: Path) -> list[str]:
-    """Claims of the project's live memories, one line each."""
+    """Claims of the live memories of the project and of the global scope (none when that cannot be located)."""
     today = datetime.date.today()
-    found = records.load_memories(records.project_dir(project), "project")
+    found = records.load_memories(records.project_dir(project), "project") + \
+        records.load_memories(records.memories_root(os.environ, None), "global")
     return [" ".join(m.claim.split()) for m in found if records.is_live(m, today) and m.claim]
 
 
@@ -121,6 +135,8 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
     if not path.is_file():
         return None, "the session wrote no candidates.json"
     try:
+        if path.stat().st_size > MAX_CANDIDATES_BYTES:
+            return None, "candidates file too large"
         rows = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None, "candidates.json is not valid JSON"
@@ -130,16 +146,28 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
 def cmd_run(args: argparse.Namespace) -> int:
     transcript = Path(args.transcript).expanduser()
     model = args.model or DEFAULT_MODEL
-    budget = budget_of(args.budget)
+    budget = args.budget
     since = max(args.since_line, 0)
     out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
-           "extract": {"chars": 0, "cut": False, "parts": 0, "lines": capture.counts("")},
+           "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "lines": capture.counts("")},
            "candidates": [], "dropped": [], "reason": None}
 
+    out_path = Path(args.out).expanduser()
+    repo = repo_above(out_path.parent.resolve())
+    if repo is not None:
+        print(f"mem-capture: --out is inside a repository ({repo}); the result holds session text", file=sys.stderr)
+        return 1
+    if out_path.is_symlink():
+        print("mem-capture: --out is a symlink; refusing to write through it", file=sys.stderr)
+        return 1
+
     def finish(code: int) -> int:
-        out_path = Path(args.out).expanduser()
-        private_dirs(out_path.parent)
-        write_private(out_path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+        try:
+            private_dirs(out_path.parent)
+            write_private(out_path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+        except OSError as exc:
+            print(f"mem-capture: cannot write {out_path.name}: {exc.strerror or exc}", file=sys.stderr)
+            return 1
         if code:
             print(f"mem-capture: {out['reason']}", file=sys.stderr)
         else:
@@ -153,8 +181,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         return finish(1)
     text, last = capture.extract(transcript, since)
     out["lines"] = [since + 1, last]
-    out["extract"] = {"chars": len(text), "cut": text.startswith(capture._MARKER),
-                      "parts": len(capture.parts(text)) if text else 0, "lines": capture.counts(text)}
+    out["extract"] = {"chars": len(text), "cut": text.startswith(capture.LEFT_OUT_MARKER),
+                      "parts": len(capture.parts(text)) if text else 0, "skipped": capture.last_skipped, "lines": capture.counts(text)}
     if out["extract"]["lines"]["OWNER"] < MIN_OWNER_LINES:
         out["reason"] = "too short"
         return finish(0)
@@ -173,7 +201,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         settings = root / "settings.json"
         write_private(settings, json.dumps({"disableAllHooks": True}))   # no hook of the session may run anything
         cmd = session_cmd(args.claude, work, BRIEF.replace("{work}", str(work)), settings, model, budget)
-        done = run_session(cmd, work)
+        try:
+            done = run_session(cmd, work)
+        except OSError as exc:
+            out["reason"] = f"cannot start claude ({args.claude}): {exc.strerror or exc}"
+            return finish(1)
         out["cost"] = done["cost"] if done["has_result"] else None
         if not done["has_result"]:
             out["reason"] = "the session ended without a cost report"
@@ -203,7 +235,7 @@ def main() -> int:
                                                        "(default: the current directory)")
     parser.add_argument("--since-line", type=int, default=0, help="read the transcript after this line")
     parser.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")
-    parser.add_argument("--budget", help=f"USD for the session (default {DEFAULT_BUDGET})")
+    parser.add_argument("--budget", type=budget_arg, default=DEFAULT_BUDGET, help=f"USD for the session (default {DEFAULT_BUDGET})")
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     parser.add_argument("--keep-work", action="store_true", help="keep the work folder (it holds session text)")
     return cmd_run(parser.parse_args())

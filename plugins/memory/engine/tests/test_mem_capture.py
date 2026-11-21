@@ -66,6 +66,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CALLS", str(tmp_path / "calls"))
     monkeypatch.setenv("FAKE_CANDIDATES", str(cands))
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
+    monkeypatch.setenv("MEM_MEMORIES", str(tmp_path / "gmem"))   # never the real global memories
     (tmp_path / "tmp").mkdir()
 
     class World:
@@ -114,7 +115,7 @@ def test_the_session_gets_no_bash_and_no_hooks(world):
     args = first["args"]
     work = first["cwd"]
     disallowed = args[args.index("--disallowedTools") + 1:args.index("--output-format")]
-    assert "Bash" in disallowed
+    assert {"Bash", "WebSearch", "WebFetch"} <= set(disallowed)
     allowed = args[args.index("--allowedTools") + 1:args.index("--disallowedTools")]
     assert [t.split("(")[0] for t in allowed] == ["Read", "Write", "Edit"] and all(work in t for t in allowed)
     assert json.loads(first["settings"])["disableAllHooks"] is True
@@ -175,3 +176,86 @@ def test_the_work_folder_is_removed(world):
     assert run(world, "--keep-work").returncode == 0
     kept = Path(world.calls()[1]["cwd"])
     assert (kept / "candidates.json").is_file() and (kept.stat().st_mode & 0o777) == 0o700
+
+
+def remember(w, *extra, claim):
+    env = {**os.environ, "MEM_PROJECT": str(w.project)}
+    done = subprocess.run([str(MEM), "remember", "--kind", "lesson", "--claim", claim, *extra], env=env,
+                          capture_output=True, text=True, cwd=w.project)
+    assert done.returncode == 0, done.stderr
+    return done.stdout
+
+
+def test_retired_memories_are_not_recorded_and_global_ones_are(world):
+    live, gone, glob = ("Always run the validator before a commit.", "Never bump the version outside a release.",
+                        "Briefs for subagents must carry their own acceptance criteria.")
+    remember(world, claim=live)
+    out = remember(world, claim=gone)
+    handle = next(w for w in out.split() if w.startswith("m:")).strip(".,;:")
+    env = {**os.environ, "MEM_PROJECT": str(world.project)}
+    done = subprocess.run([str(MEM), "forget", handle, "--because", "no longer true"], env=env, capture_output=True,
+                          text=True, cwd=world.project)
+    assert done.returncode == 0, done.stderr
+    remember(world, "--global", claim=glob)
+    copy = world.tmp / "recorded-copy.txt"
+    assert run(world, env={"FAKE_COPY_RECORDED": str(copy)}).returncode == 0
+    assert sorted(copy.read_text().splitlines()) == sorted([live, glob])
+
+
+def test_a_symlinked_out_is_refused_and_its_target_untouched(world):
+    target = world.tmp / "precious.txt"
+    target.write_text("keep me")
+    world.out = world.tmp / "link.json"
+    world.out.symlink_to(target)
+    done = run(world)
+    assert done.returncode == 1 and len(done.stderr.splitlines()) == 1 and done.stdout == ""
+    assert target.read_text() == "keep me" and world.calls() == []
+
+
+def test_an_existing_regular_out_is_replaced_with_mode_0600(world):
+    world.out.parent.mkdir(parents=True)
+    world.out.write_text("old")
+    world.out.chmod(0o644)
+    assert run(world).returncode == 0
+    assert (world.out.stat().st_mode & 0o777) == 0o600 and result(world)["transcript"] == "abc.jsonl"
+
+
+@pytest.mark.parametrize("claude", ["/nope/claude", "NOT-EXEC"])
+def test_a_missing_or_non_executable_claude_writes_a_reason(world, claude):
+    if claude == "NOT-EXEC":
+        claude = world.tmp / "plain"
+        claude.write_text("x")
+        claude.chmod(0o644)
+    world.fake = claude
+    done = run(world)
+    assert done.returncode == 1 and len(done.stderr.splitlines()) == 1 and "Traceback" not in done.stderr
+    r = result(world)
+    assert r["reason"] and r["candidates"] == [] and r["cost"] is None
+
+
+def test_out_inside_a_repository_is_refused(world):
+    (world.tmp / "repo" / ".git").mkdir(parents=True)
+    world.out = world.tmp / "repo" / "sub" / "out.json"
+    done = run(world)
+    assert done.returncode == 1 and len(done.stderr.splitlines()) == 1 and done.stdout == ""
+    assert not world.out.exists() and not world.out.parent.exists() and world.calls() == []
+
+
+def test_a_large_candidates_file_is_not_read(world):
+    world.cands.write_text(json.dumps([{**GOOD, "context": "x" * 1_000_001}]))
+    done = run(world)
+    assert done.returncode == 1 and len(done.stderr.splitlines()) == 1
+    assert result(world)["reason"] == "candidates file too large"
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "0", "-1", "abc"])
+def test_a_bad_budget_is_a_usage_error(world, value):
+    done = run(world, "--budget", value, mode="never")
+    assert done.returncode == 2 and world.calls() == [] and not world.out.exists()
+
+
+def test_unprocessable_lines_are_counted(world):
+    with world.transcript.open("a", encoding="utf-8") as f:
+        f.write("[" * 100_000 + "\n")
+    assert run(world).returncode == 0
+    assert result(world)["extract"]["skipped"] == 1

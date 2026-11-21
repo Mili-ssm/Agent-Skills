@@ -23,6 +23,7 @@ MAX_CANDIDATES = 5
 _OWNER_SIGNALS = ("owner_correction", "decision_with_reason")
 _LINE_KINDS = ("OWNER", "OWNER ANSWER", "REPORT", "AGENT", "TOOL", "TOOL ERROR", "TOOL OK")
 _MARKER = "[...] earlier lines left out"
+LEFT_OUT_MARKER = _MARKER
 last_skipped = 0  # lines the last extract() could not process, for the caller to report
 _KIND_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR|TOOL OK|TOOL)\b")
 _BODY_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR \S+|TOOL \S+): (.*)$")
