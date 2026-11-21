@@ -12,8 +12,9 @@ from collections import deque
 from pathlib import Path
 from typing import Sequence
 
-SIGNALS: tuple[str, ...] = ("owner_correction", "failed_then_passed", "verified_review_finding",
-                            "repeated_tool_error", "decision_with_reason")
+SIGNALS: tuple[str, ...] = ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
+                            "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
+REACHES: tuple[str, ...] = ("project", "general")
 KINDS: tuple[str, ...] = ("lesson", "pitfall", "decision")
 EXTRACT_LIMIT = 80_000
 PART_SIZE = 40_000
@@ -27,7 +28,8 @@ _BODY_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR \S+
 
 
 def _flat(text: str, limit: int) -> str:
-    return " ".join(text.split())[:limit].strip()
+    # cut before normalizing so memory does not follow the size of the line
+    return " ".join(text[:limit * 8].split())[:limit].strip()
 
 
 def _text_of(content: object) -> str:
@@ -102,10 +104,9 @@ def _events(entry: dict, names: dict, state: dict) -> list[str]:
     if not text.strip():
         return out
     origin = entry.get("origin")
-    okind = origin.get("kind") if isinstance(origin, dict) else None
-    if okind == "human" or (not isinstance(origin, dict) and not text.lstrip().startswith("<")):
+    if (isinstance(origin, dict) and origin.get("kind") == "human") or (origin is None and not text.lstrip().startswith("<")):
         out.append(f"OWNER: {_flat(text, 2000)}")
-    elif okind in ("task-notification", "peer"):
+    elif origin is not None:
         out.append(f"REPORT: {_flat(text, 800)}")
     return out
 
@@ -124,13 +125,12 @@ def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
             if n <= since_line:
                 continue
             last = n
-            try:
+            try:  # no line of any content may stop the extract
                 entry = json.loads(raw)
-            except ValueError:
+                events = _events(entry, names, state) if isinstance(entry, dict) else []
+            except Exception:
                 continue
-            if not isinstance(entry, dict):
-                continue
-            for ev in _events(entry, names, state):
+            for ev in events:
                 line = f"[{n}] {ev}"
                 lines.append(line)
                 size += len(line) + 1
@@ -177,6 +177,8 @@ def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str]) -> 
         return "kind"
     if item.get("signal") not in SIGNALS:
         return "signal"
+    if item.get("reach", "project") not in REACHES:
+        return "reach"
     claim = item.get("claim")
     if not isinstance(claim, str) or not 20 <= len(claim) <= 300:
         return "claim length"
@@ -205,13 +207,12 @@ def validate(candidates: object, extract_text: str, recorded: Sequence[str]) -> 
     kept: list[dict] = []
     dropped: list[dict] = []
     for item in candidates:
-        reason = _reason(item, bodies, done)
-        if not reason and len(kept) >= MAX_CANDIDATES:
-            reason = "over the limit"
+        reason = "over the limit" if len(kept) >= MAX_CANDIDATES else _reason(item, bodies, done)
         if reason:
             dropped.append({"candidate": item, "reason": reason})
         else:
             context = item.get("context")
-            kept.append({"kind": item["kind"], "signal": item["signal"], "claim": item["claim"],
+            kept.append({"kind": item["kind"], "signal": item["signal"],
+                         "reach": item.get("reach", "project"), "claim": item["claim"],
                          "context": context if isinstance(context, str) else "", "evidence": item["evidence"]})
     return kept, dropped

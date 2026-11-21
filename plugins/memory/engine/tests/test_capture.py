@@ -64,7 +64,7 @@ def test_extract_reads_tool_result_content_given_as_blocks(tmp_path):
     assert capture.extract(p)[0].splitlines()[-1] == "[2] TOOL ERROR Bash: no such file"
 
 EXTRACT = "[1] OWNER: no, always run the validator   before a commit\n[2] AGENT: understood"
-GOOD = {"kind": "lesson", "signal": "owner_correction", "claim": "Run the validator before every commit in this project",
+GOOD = {"kind": "lesson", "signal": "owner_correction", "reach": "project", "claim": "Run the validator before every commit in this project",
         "context": "the owner corrected a commit made without it", "evidence": "always run the validator before a commit"}
 
 def test_validate_keeps_a_good_candidate_and_tolerates_whitespace():
@@ -99,3 +99,54 @@ def test_validate_caps_the_kept_and_rejects_a_non_list():
     kept, dropped = capture.validate(many, EXTRACT, [])
     assert len(kept) == 5 and [d["reason"] for d in dropped] == ["over the limit"] * 2
     assert capture.validate({"a": 1}, EXTRACT, []) == ([], [{"candidate": {"a": 1}, "reason": "not a list"}])
+
+def test_a_non_dict_origin_is_a_report_never_the_owner(tmp_path):
+    for origin in ("peer", ["peer"], 7, {"kind": "system"}):
+        p = write(tmp_path, [{"type": "user", "message": {"content": "x"}, "origin": origin}])
+        assert capture.extract(p)[0] == "[1] REPORT: x", origin
+    p = write(tmp_path, [{"type": "user", "message": {"content": "x"}, "origin": None}])
+    assert capture.extract(p)[0] == "[1] OWNER: x"
+    ex = capture.extract(write(tmp_path, [{"type": "user", "message": {"content": "always run the validator before a commit"}, "origin": "peer"}]))[0]
+    kept, dropped = capture.validate([GOOD], ex, [])
+    assert kept == [] and dropped[0]["reason"] == "evidence is not the owner's words"
+
+def test_extract_never_raises_on_a_line(tmp_path):
+    p = write(tmp_path, ["[" * 100_000, agent(use("a", "Bash", command="ls")),
+                         {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": ["a"], "content": "x"}]}},
+                         "5", '"text"', "[1, 2]", user("fine")])
+    assert capture.extract(p) == ("[2] TOOL Bash: ls\n[7] OWNER: fine", 7)
+
+def test_extract_cuts_a_huge_text_to_the_limit(tmp_path):
+    p = write(tmp_path, [user("ab " * 1_666_667)])
+    out, _ = capture.extract(p)
+    assert len(out.split(": ", 1)[1]) == 2000
+
+def test_validate_matches_the_body_only_not_the_prefix():
+    kept, dropped = capture.validate([{**GOOD, "evidence": "OWNER: no, always run"}], EXTRACT, [])
+    assert kept == [] and dropped[0]["reason"] == "evidence not in the transcript"
+    kept, dropped = capture.validate([{**GOOD, "evidence": "[1] OWNER".ljust(15)}], "[1] OWNER: real following text here", [])
+    assert kept == [] and dropped[0]["reason"] == "evidence not in the transcript"
+    quoted = "[1] AGENT: the owner said always run the validator before a commit"
+    assert capture.validate([GOOD], quoted, [])[1][0]["reason"] == "evidence is not the owner's words"
+
+def test_validate_stops_scanning_once_the_cap_is_reached(monkeypatch):
+    many = [{**GOOD, "claim": GOOD["claim"] + f" ({i})"} for i in range(5)] + [{**GOOD, "claim": GOOD["claim"] + f" ({i})"} for i in range(5, 50)]
+    calls = []
+    real = capture._reason
+    monkeypatch.setattr(capture, "_reason", lambda *a: calls.append(1) or real(*a))
+    kept, dropped = capture.validate(many, EXTRACT, [])
+    assert len(kept) == 5 and len(calls) == 5 and {d["reason"] for d in dropped} == {"over the limit"}
+
+def test_validate_reach_and_the_new_signals():
+    kept, _ = capture.validate([{**GOOD, "reach": "general"}], EXTRACT, [])
+    assert kept[0]["reach"] == "general"
+    no_reach = {k: v for k, v in GOOD.items() if k != "reach"}
+    kept, _ = capture.validate([no_reach], EXTRACT, [])
+    assert kept == [GOOD] and list(kept[0]) == ["kind", "signal", "reach", "claim", "context", "evidence"]
+    bad = {**GOOD, "reach": "global"}
+    assert capture.validate([bad], EXTRACT, [])[1] == [{"candidate": bad, "reason": "reach"}]
+    ex = "[1] REPORT: the subagent failed to finish the task and left no diff"
+    item = {**GOOD, "signal": "delegation_failed", "evidence": "failed to finish the task and left no diff"}
+    assert capture.validate([item], ex, [])[0] != []
+    assert capture.SIGNALS == ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
+                               "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
