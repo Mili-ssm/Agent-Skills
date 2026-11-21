@@ -3,7 +3,7 @@
 Usage: python3 memory_usage.py [FIRST_DAY [LAST_DAY]]   (YYYY-MM-DD, by a session's first record; default: the last 14 days)
 Counts tool calls once per tool_use id. Prints project folder names: do not paste them into the repository.
 """
-import json, re, glob, os, collections, sys, datetime
+import json, re, glob, os, collections, sys, datetime, statistics
 SINCE = sys.argv[1] if len(sys.argv) > 1 else (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
 UNTIL = sys.argv[2] if len(sys.argv) > 2 else "9999-12-31"
 SINCE_TS = datetime.datetime.fromisoformat(SINCE).replace(tzinfo=datetime.timezone.utc).timestamp()
@@ -16,7 +16,7 @@ for f in glob.glob(root + "/**/*.jsonl", recursive=True):
     is_sub = "/subagents/" in f
     seen = set(); s = dict(file=f, proj=f.split("/projects/")[1].split("/")[0], cmds=collections.Counter(),
         skills=collections.Counter(), agents=collections.Counter(), automem=0, compacts=0, summ_nyr=0,
-        rem_after_compact=0, followed=[], first_edit=None, first_search=None, n=0, cwd=None, t0=None, t1=None, entry=None, prompts=0)
+        rem_after_compact=0, followed=[], first_edit=None, first_search=None, first_web=None, n=0, cwd=None, t0=None, t1=None, entry=None, prompts=0)
     idx = 0; compacted = False
     for line in open(f, errors="ignore"):
         try: d = json.loads(line)
@@ -50,7 +50,10 @@ for f in glob.glob(root + "/**/*.jsonl", recursive=True):
                 s["skills"][inp.get("skill", "")] += 1
             elif name in ("Agent", "Task"):
                 s["agents"][inp.get("subagent_type", "general-purpose")] += 1
+                if (inp.get("subagent_type") or "").endswith("researcher") and s["first_web"] is None: s["first_web"] = idx
                 if inp.get("subagent_type") == "memory:memory-recorder" and s["followed"]: s["followed"][-1] = True
+            elif name in ("WebSearch", "WebFetch"):
+                if s["first_web"] is None: s["first_web"] = idx
             elif name in ("Write", "Edit"):
                 p = inp.get("file_path", "")
                 if "/.claude/projects/" in p and "/memory/" in p: s["automem"] += 1
@@ -95,3 +98,38 @@ for s in inter:
 for k in sorted(dd): print(k, "sessions", dd[k][0], "with-search", dd[k][1], "searches", dd[k][2], "remembers", dd[k][3])
 print(f"\n== subagents == files {sub_files}, with mem call {sub_with_mem}; cmds {dict(sub.most_common())}")
 print("headless mem cmds:", dict(agg(headless, "cmds").most_common()))
+
+# Outcome metrics. Logs: $MEM_DATA, else $XDG_STATE_HOME/agent-memory, else ~/.local/state/agent-memory.
+DATA = os.environ.get("MEM_DATA") or os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "agent-memory")
+def read_log(rel):
+    """Lines of a JSON-lines log whose date (t) is inside the window; None when the log is missing."""
+    path = os.path.join(DATA, rel)
+    if not os.path.isfile(path): return None
+    out = []
+    for line in open(path, errors="ignore"):
+        try: d = json.loads(line)
+        except ValueError: continue
+        if isinstance(d, dict) and SINCE <= str(d.get("t", ""))[:10] <= UNTIL: out.append(d)
+    return out
+def ts(d):
+    try: return datetime.datetime.strptime(d["t"], "%Y-%m-%dT%H:%M:%SZ").timestamp()
+    except (KeyError, ValueError, TypeError): return None
+def pct(v, q):
+    v = sorted(v); return v[min(len(v) - 1, int(q * len(v)))] if v else 0
+print("\n== outcome metrics ==")
+web = [s for s in inter if s["first_web"]]
+print(f"M2 sessions with web research before any mem search: {sum(1 for s in web if not s['first_search'] or s['first_web'] < s['first_search'])} / sessions with web research: {len(web)}")
+usage = read_log("usage/log.jsonl")
+if usage is None: print("M3 no log")
+else:
+    searches = [d for d in usage if d.get("cmd") == "search" and ts(d) is not None]
+    shows = [(ts(d), set(d.get("paths") or [])) for d in usage if d.get("cmd") == "show" and ts(d) is not None]
+    hit = sum(1 for d in searches if any(0 <= t - ts(d) <= 1800 and p & set(d.get("results") or []) for t, p in shows))
+    print(f"M3 searches followed within 30 minutes by mem show of a returned record: {hit} / {len(searches)}")
+hooks = read_log("hooks/log.jsonl")
+if hooks is None: print("M5 no log\nM8 no log")
+else:
+    pc = [d for d in hooks if d.get("hook") == "post-compact"]
+    print(f"M5 compactions: {len(pc)}; with a handoff block: {sum(1 for d in pc if d.get('handoff'))}; marker without a parsed block: {sum(1 for d in pc if d.get('marker') and not d.get('handoff'))}; with all six fields: {sum(1 for d in pc if len(d.get('handoff') or []) == 6)}; unrecorded items: {sum(d.get('unrecorded') or 0 for d in pc)}; mismatch lines shown: {sum(d.get('mismatches') or 0 for d in pc)}; post-compact ms p90: {pct([d.get('ms') or 0 for d in pc], 0.9)}")
+    ch = [d["chars"] for d in hooks if d.get("hook") == "session-index" and isinstance(d.get("chars"), int)]
+    print(f"M8 characters injected by session-index: median {int(statistics.median(ch)) if ch else 0}, max {max(ch) if ch else 0} per call")
