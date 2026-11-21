@@ -24,7 +24,7 @@
 ## Review Focus
 
 - A summary with no handoff block (an older session, a model that ignored the instruction): one line asks for the task, state and next step; no crash, the log line says `"handoff": []`.
-- A handoff whose `plan:` value is prose, a quoted path, a path with spaces or a path outside the project: treated as named; "does not exist" only when the cleaned value resolves to no file under the hook's `cwd`.
+- A handoff whose `plan:` value is prose, a quoted path, a path with spaces or a path outside the project: treated as named; "does not exist" only when the cleaned value resolves to no file under the project root.
 - `compact_summary` missing, not a string, or several megabytes long: exit 0, a log line with `"chars"` only, under 0.5 s.
 - A `session_id` with characters outside `[A-Za-z0-9_-]`: logged as `null`.
 
@@ -150,8 +150,8 @@ def test_lines_are_short(tmp_path):
 ```
 
 - [x] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_handoff.py -q`. Expected: FAIL, `No module named 'handoff'`.
-- [x] **Step 3:** Implement `handoff.py` with the interface above. Reading a plan file: at most 1 MB, errors ignored, any `OSError` → no mismatch.
-- [x] **Step 4:** Run the same command. Expected: 14 passed.
+- [x] **Step 3:** Implement `handoff.py` with the interface above. Only the existence of the plan file is checked, never its content; any `OSError` → no mismatch.
+- [x] **Step 4:** Run the same command. Expected: 14 passed (24 after the two fix rounds).
 - [x] **Step 5:** Commit: `feat(memory): parse the handoff block of a compaction summary`.
 
 ### Task 3: `mem compact-log` and the two hooks
@@ -172,7 +172,7 @@ def test_lines_are_short(tmp_path):
   - `test_logs_one_line_without_text`: input with the `BLOCK` summary of Task 2, `cwd` a folder where `docs/plans/p.md` holds `- [x] a`. Assert exit 0, empty stdout, and the last hook-log line equals, ignoring `t` and `ms`: `{"hook": "post-compact", "trigger": "auto", "session": "abc-123", "chars": len(BLOCK), "marker": True, "handoff": ["task", "state", "next", "verified", "unverified", "plan"], "plan_named": True, "unrecorded": 1, "mismatches": 0}`; the raw log line contains neither `retry` nor `docs/plans`. The input's `session_id` is `abc-123`.
   - `test_a_mismatch_is_printed`: the same with no plan file. Assert stdout is one line that contains `does not exist`, under 300 characters, and the log line has `"mismatches": 1`.
   - `test_bad_input_is_silent` (parametrized: empty stdin, `not json`, `{}`, `{"compact_summary": 5}`): exit 0, empty stdout and stderr, no file outside `hooks/` in the data folder. `test_an_unsafe_session_id_is_logged_as_null`: a `session_id` of `../x` gives `"session": null`.
-  - `test_a_large_summary_stays_fast`: a 5 MB summary, under 2 s wall time for the subprocess.
+  - `test_a_large_summary_stays_fast`: a 5 MB summary, under 2 s wall time for the subprocess (the bound includes starting `uv` and Python; the hook itself logged 0 ms in the end-to-end run, against the 0.5 s constraint).
 - [x] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_compact_log.py -q`. Expected: FAIL, `invalid choice: 'compact-log'`.
 - [x] **Step 3:** Implement `cmd_compact_log(args) -> int`; the whole body inside one `try`, as `cmd_session_index` does. Only the first 1,000,000 characters of the summary are parsed; `chars` is the full length.
 - [x] **Step 4:** Run the command of Step 2. Expected: all pass.
@@ -218,6 +218,18 @@ Three manual compactions (`/compact` in print mode, which can compact) of one Ha
 | The block | 3 of 3 summaries end with a bare `HANDOFF` line and six bare `name: value` lines; `plan: no plan` where there was none |
 | The unrecorded items | 3 of 3 summaries list them, as one line `not yet recorded:` followed by `- ` items, not with the prefix on every line |
 
-Choice, by the rule of Step 3: `SessionStart` runs first and `PostCompact`'s output reaches the model, so `mem compact-log` prints the mismatch lines itself; there is no state file, and Task 4 is dropped. `handoff.unrecorded` counts the list form too (Task 2).
+Choice, by the rule of Step 3: `SessionStart` runs first and `PostCompact`'s output reaches the model, so `mem compact-log` prints the mismatch lines itself; there is no state file. Task 4 as a separate task is dropped: its delivery moved into Task 3, which is what the rule's second branch says. `handoff.unrecorded` counts the list form too (Task 2).
+
+### Execution (2026-11-21)
+
+| Fact | Evidence |
+|---|---|
+| End-to-end run: the real plugin (`--plugin-dir plugins/memory`), a headless Haiku session in an empty git folder, the prompt naming a plan file that does not exist, one manual `/compact` | Hook log line: `"hook": "post-compact", "trigger": "manual", "chars": 3359, "marker": true, "handoff": [all six], "plan_named": true, "unrecorded": 2, "mismatches": 1, "ms": 0`; the next reply asked for the plan's location |
+| Usage script on that log | `M5 compactions: 1; with a handoff block: 1; marker without a parsed block: 0; with all six fields: 1; unrecorded items: 2; mismatch lines shown: 1; post-compact ms p90: 0` |
+| Final checks on the branch (`check-runner`) | `1304 passed, 5 skipped`; `python3 scripts/validate.py` and `claude plugin validate .` pass |
+| Task 3's first commit wrote tests and code in one pass | Its "run it and see it fail" steps were not run; its fix round was test-first (4 tests failed, then passed) |
+| `test_post_compact_hook_without_uv_is_silent` | Skipped on the machine that ran the suite, where `uv` sits in a system folder, like its sibling |
+| `claude plugin validate .` | Not run before the three Task 2 commits (engine module and tests only); run and passing on the final state |
+| Added in the fix rounds, beyond the Interfaces above | `handoff.names_plan(value) -> bool`; values cut to 500 characters; a `<phrase with spaces>` value is a placeholder; `none`/`nothing` are not unrecorded items; `has_marker` needs a line of at most 40 characters; `trigger` is logged only as `manual` or `auto` |
 
 Not observed: an automatic compaction; a model other than Haiku; whether the `SessionStart` marker was quoted (the first reply was cut and no longer matters).

@@ -35,7 +35,7 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 | Hook | What it does |
 |---|---|
 | `PreCompact` | Asks the summary to end with a handoff block: task, state, next step, verified, unverified, plan file |
-| `PostCompact` | Reads the block from the summary and checks that the plan file it names exists. Logs one line per compaction to `hooks/log.jsonl` (counts and field names only, no text). Speaks to the agent in two cases only: no handoff block, or the block names a plan file that does not exist |
+| `PostCompact` | Reads the block from the summary and checks that the plan file it names exists. Logs one line per compaction to `hooks/log.jsonl` (counts, booleans, field names, the trigger and the session id; no text of the summary and no path). Speaks to the agent in two cases only: no handoff block, or the block names a plan file that does not exist |
 
 `docs/studies/scripts/memory_usage.py` reads these logs.
 

@@ -4,7 +4,7 @@ Usage: python3 memory_usage.py [FIRST_DAY [LAST_DAY]]   (YYYY-MM-DD, by a sessio
 Counts tool calls once per tool_use id. Prints project folder names: do not paste them into the repository.
 """
 import json, re, glob, os, collections, sys, datetime, statistics
-SINCE = sys.argv[1] if len(sys.argv) > 1 else (datetime.date.today() - datetime.timedelta(days=14)).isoformat()
+SINCE = sys.argv[1] if len(sys.argv) > 1 else (datetime.date.today() - datetime.timedelta(days=13)).isoformat()
 UNTIL = sys.argv[2] if len(sys.argv) > 2 else "9999-12-31"
 SINCE_TS = datetime.datetime.fromisoformat(SINCE).replace(tzinfo=datetime.timezone.utc).timestamp()
 root = os.path.expanduser("~/.claude/projects")
@@ -50,7 +50,7 @@ for f in glob.glob(root + "/**/*.jsonl", recursive=True):
                 s["skills"][inp.get("skill", "")] += 1
             elif name in ("Agent", "Task"):
                 s["agents"][inp.get("subagent_type", "general-purpose")] += 1
-                if (inp.get("subagent_type") or "").endswith("researcher") and s["first_web"] is None: s["first_web"] = idx
+                if (inp.get("subagent_type") or "").split(":")[-1] == "researcher" and s["first_web"] is None:  # not memory-researcher, which reads the memory first s["first_web"] = idx
                 if inp.get("subagent_type") == "memory:memory-recorder" and s["followed"]: s["followed"][-1] = True
             elif name in ("WebSearch", "WebFetch"):
                 if s["first_web"] is None: s["first_web"] = idx

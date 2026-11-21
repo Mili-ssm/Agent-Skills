@@ -44,6 +44,7 @@ def test_no_block_gives_one_line(tmp_path):
 def test_a_plan_that_exists_with_open_tasks_gives_nothing(tmp_path):
     (tmp_path / "docs").mkdir(); (tmp_path / "docs" / "p.md").write_text("- [x] a\n- [ ] b\n")
     assert handoff.mismatches({"plan": "`docs/p.md`", "next": "b"}, tmp_path) == []
+    assert handoff.mismatches({"plan": '"docs/p.md"', "next": "b"}, tmp_path) == []
 
 def test_a_missing_plan_is_named(tmp_path):
     lines = handoff.mismatches({"plan": "docs/gone.md", "next": "b"}, tmp_path)
