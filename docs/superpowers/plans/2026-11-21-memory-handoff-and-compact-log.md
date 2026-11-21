@@ -168,18 +168,18 @@ def test_lines_are_short(tmp_path):
   - `mem compact-log --hook`: reads the hook's JSON from standard input, prints the mismatch lines (joined by newlines, cut to 300 characters) or nothing, returns 0.
   - Log line: `{"hook": "post-compact", "trigger": <str or null>, "session": <the session id when it matches the pattern below, else null>, "chars": <int>, "marker": <bool, `handoff.has_marker`>, "handoff": [<names of the fields present, in FIELDS order>], "plan_named": <bool, a `.md` token was found>, "unrecorded": <int>, "mismatches": <int>, "ms": <int>}`. `session` joins this line to the transcript and to the next compaction of the same session; `marker` true with an empty `handoff` means the parser missed a block the model wrote.
 
-- [ ] **Step 1: Write the failing tests** in `test_compact_log.py`, running `bin/mem compact-log --hook` as a subprocess with `MEM_DATA` set to a temporary folder, the way `test_plugin_shell.py` runs `session-index`:
-  - `test_logs_one_line_without_text`: input with the `BLOCK` summary of Task 2, `cwd` a folder where `docs/plans/p.md` holds `- [ ] a`. Assert exit 0, empty stdout, and the last hook-log line equals, ignoring `t` and `ms`: `{"hook": "post-compact", "trigger": "auto", "session": "abc-123", "chars": len(BLOCK), "marker": True, "handoff": ["task", "state", "next", "verified", "unverified", "plan"], "plan_named": True, "unrecorded": 1, "mismatches": 0}`; the raw log line contains neither `retry` nor `docs/plans`. The input's `session_id` is `abc-123`.
+- [x] **Step 1: Write the failing tests** in `test_compact_log.py`, running `bin/mem compact-log --hook` as a subprocess with `MEM_DATA` set to a temporary folder, the way `test_plugin_shell.py` runs `session-index`:
+  - `test_logs_one_line_without_text`: input with the `BLOCK` summary of Task 2, `cwd` a folder where `docs/plans/p.md` holds `- [x] a`. Assert exit 0, empty stdout, and the last hook-log line equals, ignoring `t` and `ms`: `{"hook": "post-compact", "trigger": "auto", "session": "abc-123", "chars": len(BLOCK), "marker": True, "handoff": ["task", "state", "next", "verified", "unverified", "plan"], "plan_named": True, "unrecorded": 1, "mismatches": 0}`; the raw log line contains neither `retry` nor `docs/plans`. The input's `session_id` is `abc-123`.
   - `test_a_mismatch_is_printed`: the same with no plan file. Assert stdout is one line that contains `does not exist`, under 300 characters, and the log line has `"mismatches": 1`.
   - `test_bad_input_is_silent` (parametrized: empty stdin, `not json`, `{}`, `{"compact_summary": 5}`): exit 0, empty stdout and stderr, no file outside `hooks/` in the data folder. `test_an_unsafe_session_id_is_logged_as_null`: a `session_id` of `../x` gives `"session": null`.
   - `test_a_large_summary_stays_fast`: a 5 MB summary, under 2 s wall time for the subprocess.
-- [ ] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_compact_log.py -q`. Expected: FAIL, `invalid choice: 'compact-log'`.
-- [ ] **Step 3:** Implement `cmd_compact_log(args) -> int`; the whole body inside one `try`, as `cmd_session_index` does. Only the first 1,000,000 characters of the summary are parsed; `chars` is the full length.
-- [ ] **Step 4:** Run the command of Step 2. Expected: all pass.
-- [ ] **Step 5: Shell tests** in `test_plugin_shell.py`: add `post-compact.sh` to the parametrized list of executable scripts; `test_hooks_json_names_the_scripts` expects a `PostCompact` entry with timeout 5; remove the `PRE_COMPACT` constant and replace `test_pre_compact_prints_its_line` with a test that the script's output equals `handoff.INSTRUCTION` plus a newline; `test_post_compact_hook_without_uv_is_silent` on the model of `test_session_index_hook_without_uv_is_silent`. Run them: FAIL.
-- [ ] **Step 6:** Write `post-compact.sh` on the model of `signal.sh` (pass the options on, `timeout 4` around `mem compact-log --hook`, its standard output passed through, standard error dropped, exit 0); set `pre-compact.sh` to print the instruction with one quoted here-document and no interpreter; add the `PostCompact` group to `hooks.json` and extend its `description`. `git add` the new script with mode `100755`.
-- [ ] **Step 7:** Run the whole engine suite. Expected: all pass (1248 passed and 4 skipped before this plan, plus the new tests).
-- [ ] **Step 8:** Commit: `feat(memory): handoff instruction before a compaction and a log line after it`.
+- [x] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_compact_log.py -q`. Expected: FAIL, `invalid choice: 'compact-log'`.
+- [x] **Step 3:** Implement `cmd_compact_log(args) -> int`; the whole body inside one `try`, as `cmd_session_index` does. Only the first 1,000,000 characters of the summary are parsed; `chars` is the full length.
+- [x] **Step 4:** Run the command of Step 2. Expected: all pass.
+- [x] **Step 5: Shell tests** in `test_plugin_shell.py`: add `post-compact.sh` to the parametrized list of executable scripts; `test_hooks_json_names_the_scripts` expects a `PostCompact` entry with timeout 5; remove the `PRE_COMPACT` constant and replace `test_pre_compact_prints_its_line` with a test that the script's output equals `handoff.INSTRUCTION` plus a newline; `test_post_compact_hook_without_uv_is_silent` on the model of `test_session_index_hook_without_uv_is_silent`. Run them: FAIL.
+- [x] **Step 6:** Write `post-compact.sh` on the model of `signal.sh` (pass the options on, `timeout 4` around `mem compact-log --hook`, its standard output passed through, standard error dropped, exit 0); set `pre-compact.sh` to print the instruction with one quoted here-document and no interpreter; add the `PostCompact` group to `hooks.json` and extend its `description`. `git add` the new script with mode `100755`.
+- [x] **Step 7:** Run the whole engine suite. Expected: all pass (1248 passed and 4 skipped before this plan, plus the new tests).
+- [x] **Step 8:** Commit: `feat(memory): handoff instruction before a compaction and a log line after it`.
 
 ### Task 4: dropped
 
@@ -198,11 +198,11 @@ Dropped by the spike (Results, Task 1): `mem compact-log` prints the mismatch li
   - M5 `compactions: N; with a handoff block: N; marker without a parsed block: N; with all six fields: N; unrecorded items: N; mismatch lines shown: N; post-compact ms p90: N` (hook log, same window). The script's existing transcript line `summaries with 'not yet recorded'` stays: it is the baseline (12 of 13) that the new instruction must not lower.
   - M8 `characters injected by session-index: median N, max N per call`.
 
-- [ ] **Step 1:** Add the four metrics; a missing log prints `no log` for its metric and the script still exits 0.
-- [ ] **Step 2:** Run `python3 docs/studies/scripts/memory_usage.py 2026-11-17 2026-11-20`. Expected: the earlier figures unchanged (13 / 16 sessions with a search, 12 summaries with unrecorded items) and the four new lines; M5 reports `compactions: 0` for that window, because no `post-compact` line existed yet.
-- [ ] **Step 3:** Update the four documents. The CHANGELOG line, for users: after a compaction the summary ends with a handoff block; the agent is told only when that block is missing or disagrees with the plan file; nothing to migrate.
-- [ ] **Step 4:** Run `python3 scripts/validate.py` and `claude plugin validate .`. Expected: both pass.
-- [ ] **Step 5:** Commit: `docs(memory): outcome metrics in the usage script; handoff and compaction log documented`.
+- [x] **Step 1:** Add the four metrics; a missing log prints `no log` for its metric and the script still exits 0.
+- [x] **Step 2:** Run `python3 docs/studies/scripts/memory_usage.py 2026-11-17 2026-11-20`. Expected: the earlier figures unchanged (13 / 16 sessions with a search, 12 summaries with unrecorded items) and the four new lines; M5 reports `compactions: 0` for that window, because no `post-compact` line existed yet.
+- [x] **Step 3:** Update the four documents. The CHANGELOG line, for users: after a compaction the summary ends with a handoff block; the agent is told only when that block is missing or disagrees with the plan file; nothing to migrate.
+- [x] **Step 4:** Run `python3 scripts/validate.py` and `claude plugin validate .`. Expected: both pass.
+- [x] **Step 5:** Commit: `docs(memory): outcome metrics in the usage script; handoff and compaction log documented`.
 
 ## Results
 
