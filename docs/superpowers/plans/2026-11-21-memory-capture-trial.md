@@ -252,4 +252,37 @@ The gate does not measure: what the capture missed beyond the owner's rough coun
 
 ## Results
 
-Empty until Task 3.
+### The run (2026-11-21)
+
+`mem-capture run`, model `haiku`, budget 0.25 USD per run, on 10 main-session transcripts of the last 30 days: 5 projects (A to E), at most 3 per project, 1 about this plugin (B), 9 in which the extract shows no `mem remember`.
+
+| Transcript | Project | Extract (characters) | Cut | `OWNER` lines | `REPORT` lines | Kept | Dropped | Cost (USD) |
+|---|---|---|---|---|---|---|---|---|
+| t01 | A | 79,891 | yes | 10 | 9 | 5 | 0 | 0.020 |
+| t02 | A | 79,823 | yes | 17 | 18 | 5 | 0 | 0.018 |
+| t03 | A | 79,887 | yes | 19 | 5 | 5 | 0 | 0.020 |
+| t04 | B | 79,916 | yes | 11 | 10 | 4 | 0 | 0.022 |
+| t05 | C | 79,584 | yes | 12 | 2 | 5 | 0 | 0.020 |
+| t06 | C | 79,816 | yes | 16 | 8 | 5 | 0 | 0.020 |
+| t07 | C | 79,968 | yes | 12 | 4 | 5 | 0 | 0.023 |
+| t08 | D | 79,954 | yes | 21 | 3 | 5 | 0 | 0.019 |
+| t09 | D | 75,720 | no | 15 | 3 | 5 | 0 | 0.017 |
+| t10 | E | 67,863 | no | 22 | 65 | 3 | 0 | 0.017 |
+
+Totals: 47 candidates, none dropped by validation, 0.196 USD.
+
+| Split of the 47 | Counts |
+|---|---|
+| Signal | `owner_correction` 12, `failed_then_passed` 8, `delegation_failed` 7, `plan_changed_by_review` 5, `verified_review_finding` 5, `rework` 4, `repeated_tool_error` 3, `decision_with_reason` 3 |
+| Reach | `general` 26, `project` 21 |
+| Kind | `lesson` 25, `pitfall` 19, `decision` 3 |
+| Line kind of the evidence | `AGENT` 21, `OWNER` 15, `TOOL ERROR` 8, `REPORT` 3 |
+
+What the run shows before the owner's marks:
+
+- 8 of 10 extracts were cut: only the end of those sessions was read. Phase B reads a session in windows (from an offset), so this is a limit of the trial, not of the design; the trial says nothing about the earlier part of a long session.
+- 8 of 10 runs returned exactly 5, the cap: "an empty list is a good answer" did not restrain the model, so the cap decides how many there are.
+- 21 of 47 quote the agent's own words as evidence. That is allowed for the signals that are not the owner's, but then the evidence is the agent's account of a failure, not the failure.
+- No candidate was dropped by validation: the model copied its quotes correctly every time.
+
+Owner's marks (true, keep, duplicate, missed, by reach): pending. The review sheet is a private local file and is not part of the repository.
