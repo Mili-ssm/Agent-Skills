@@ -23,12 +23,14 @@ MAX_CANDIDATES = 5
 _OWNER_SIGNALS = ("owner_correction", "decision_with_reason")
 _LINE_KINDS = ("OWNER", "OWNER ANSWER", "REPORT", "AGENT", "TOOL", "TOOL ERROR", "TOOL OK")
 _MARKER = "[...] earlier lines left out"
+last_skipped = 0  # lines the last extract() could not process, for the caller to report
 _KIND_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR|TOOL OK|TOOL)\b")
 _BODY_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR \S+|TOOL \S+): (.*)$")
 
 
 def _flat(text: str, limit: int) -> str:
-    # cut before normalizing so memory does not follow the size of the line
+    # cut before normalizing so memory does not follow the size of the line; a text that is mostly
+    # whitespace can come out shorter than `limit` with its tail lost, which is accepted
     return " ".join(text[:limit * 8].split())[:limit].strip()
 
 
@@ -63,9 +65,11 @@ def _events(entry: dict, names: dict, state: dict) -> list[str]:
         att = entry.get("attachment")
         if (isinstance(att, dict) and att.get("type") == "queued_command" and att.get("commandMode") == "prompt"
                 and not att.get("isMeta") and not entry.get("isMeta")):
-            text = _flat(_text_of(att.get("prompt")), 2000)
+            origin = att.get("origin", entry.get("origin"))  # the origin of a queued command sits on the attachment
+            human = origin is None or (isinstance(origin, dict) and origin.get("kind") == "human")
+            text = _flat(_text_of(att.get("prompt")), 2000 if human else 800)
             if text:
-                out.append(f"OWNER: {text}")
+                out.append(f"OWNER: {text}" if human else f"REPORT: {text}")
         return out
     msg = entry.get("message")
     content = msg.get("content") if isinstance(msg, dict) else None
@@ -104,10 +108,12 @@ def _events(entry: dict, names: dict, state: dict) -> list[str]:
     if not text.strip():
         return out
     origin = entry.get("origin")
-    if (isinstance(origin, dict) and origin.get("kind") == "human") or (origin is None and not text.lstrip().startswith("<")):
-        out.append(f"OWNER: {_flat(text, 2000)}")
-    elif origin is not None:
-        out.append(f"REPORT: {_flat(text, 800)}")
+    human = (isinstance(origin, dict) and origin.get("kind") == "human") or (origin is None and not text.lstrip().startswith("<"))
+    body = _flat(text, 2000 if human else 800)
+    if body and human:
+        out.append(f"OWNER: {body}")
+    elif body and origin is not None:
+        out.append(f"REPORT: {body}")
     return out
 
 
@@ -120,6 +126,7 @@ def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
     names: dict = {}
     state: dict = {}
     last = since_line
+    skipped = 0
     with open(transcript, encoding="utf-8", errors="replace") as f:
         for n, raw in enumerate(f, 1):
             if n <= since_line:
@@ -128,7 +135,10 @@ def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
             try:  # no line of any content may stop the extract
                 entry = json.loads(raw)
                 events = _events(entry, names, state) if isinstance(entry, dict) else []
+            except json.JSONDecodeError:
+                continue  # a line that is not JSON is ordinary
             except Exception:
+                skipped += 1  # anything else may be a defect here: counted, so an emptied extract is noticed
                 continue
             for ev in events:
                 line = f"[{n}] {ev}"
@@ -139,6 +149,8 @@ def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
                     left_out = True
     if left_out:
         lines.appendleft(_MARKER)
+    global last_skipped
+    last_skipped = skipped
     return "\n".join(lines), last
 
 

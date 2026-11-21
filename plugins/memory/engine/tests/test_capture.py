@@ -124,7 +124,7 @@ def test_extract_cuts_a_huge_text_to_the_limit(tmp_path):
 def test_validate_matches_the_body_only_not_the_prefix():
     kept, dropped = capture.validate([{**GOOD, "evidence": "OWNER: no, always run"}], EXTRACT, [])
     assert kept == [] and dropped[0]["reason"] == "evidence not in the transcript"
-    kept, dropped = capture.validate([{**GOOD, "evidence": "[1] OWNER".ljust(15)}], "[1] OWNER: real following text here", [])
+    kept, dropped = capture.validate([{**GOOD, "evidence": "[1] OWNER: real following"}], "[1] OWNER: real following text here", [])
     assert kept == [] and dropped[0]["reason"] == "evidence not in the transcript"
     quoted = "[1] AGENT: the owner said always run the validator before a commit"
     assert capture.validate([GOOD], quoted, [])[1][0]["reason"] == "evidence is not the owner's words"
@@ -150,3 +150,18 @@ def test_validate_reach_and_the_new_signals():
     assert capture.validate([item], ex, [])[0] != []
     assert capture.SIGNALS == ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
                                "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
+
+
+def test_a_queued_command_is_the_owner_only_with_a_human_origin(tmp_path):
+    def q(text, origin):
+        return {"type": "attachment", "attachment": {"type": "queued_command", "commandMode": "prompt", "prompt": text, "origin": origin}}
+    p = write(tmp_path, [q("typed by the owner", {"kind": "human"}), q("a background task is done", {"kind": "task-notification"}),
+                         q("from another agent", "peer"), user("   " * 6000 + "tail")])
+    assert capture.extract(p)[0].splitlines() == ["[1] OWNER: typed by the owner", "[2] REPORT: a background task is done",
+                                                  "[3] REPORT: from another agent"]
+
+
+def test_lines_that_fail_for_another_reason_than_json_are_counted(tmp_path):
+    p = write(tmp_path, ["not json", "[" * 100000, user("fine")])
+    assert capture.extract(p)[0] == "[3] OWNER: fine" and capture.last_skipped == 1
+    assert capture.extract(write(tmp_path, [user("fine")]))[0] == "[1] OWNER: fine" and capture.last_skipped == 0
