@@ -100,6 +100,10 @@ Plugin option `auto_settle` (exactly `true` turns it on) and `auto_settle_minute
 
 **Where to look:** `mem-settle status`, `mem-settle run --dry-run`, `mem-settle ack` (clears a failure line); state in `<state folder>/settle/<id>/` (runs kept 30 days). The session start text shows one line while unacknowledged settlings exist (`settled since <date>: 2 merged, 1 superseded, 1 left; see mem settle log, undo with mem settle undo <n>, hide with mem settle ack`) and a failure line after a failed run. **Not measured:** the 40-record trial of the plan decides whether it is turned on; kill criteria there.
 
+### Capture trial (`mem-capture run`; trial, writes nothing to the store)
+
+`mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--model NAME] [--budget USD]` reduces one session transcript to an extract and has one headless session (no Bash, no hooks) propose memory candidates; a program keeps only those whose evidence is copied from the transcript. The result file (mode 0600) holds the kept and dropped candidates, the cost and the line range; it holds session text, so keep it private. No hook runs it and nothing is written to the memory store.
+
 ## Research with the web (`mem-research`; not yet measured)
 
 `mem-research "QUESTION" [--depth memory|contrast|deep] [--contrast NOTE ...] [--store DIR] [--claude PATH] [--budget USD] [--allow-host HOST ...] [--dry-run] [--self-check]` answers from the memory and, by depth, checks knowledge notes and the question against the web (stage 1b of `docs/superpowers/plans/2026-11-17-memory-seamless.md`; the stage's trial decides whether anything else uses it). It prints what the memory says (with references), what the web added (marked **new and unconfirmed**, with its URL), a table of the contrasted notes (confirmed / contradicted / no source), what was dropped and why, and the cost. Plugin option `research_depth` sets the default depth.
