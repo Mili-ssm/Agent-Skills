@@ -66,3 +66,12 @@ Accepted by the owner the same day, by asking for the branch to be merged and th
 
 Measured, with one or two runs per case on a Sonnet-class model, which the owner takes as a sufficient reference: routing 9 of 9, recall 8 of 8, delegated recall 9 of 9. No measurement shows that the plugin makes tasks come out better; the field research found none for comparable systems either. The kill criteria of the [plan](../superpowers/plans/2026-11-17-memory-plugin.md) are read after two weeks of use.
 
+
+## Review 2026-11-21
+
+The owner accepted the order of [the learning loop study](../studies/2026-11-21-memory-learning-loop.md): L1 outcome metrics and a `PostCompact` log line, L2 a handoff block written by the agent and checked by a hook, L3 capture anchored in evidence (stage 9, after a spike), L4 graduation of repeated lessons; L5, hooks during a run, is deferred. The owner's goal behind it: the agent learns locally after each session and compaction, with the least context.
+
+- A deterministic "active plan and next open task" injection after a compaction was declined by the owner: it can name the wrong plan or read progress that was not ticked. L2 replaces it.
+- The study's usage read (2026-11-17 to 2026-11-20, four days) is a preview, not the kill read of stage 4, which stays due around 2026-12-01.
+- L2 changes the `PreCompact` text and adds a conditional line after a compaction. No eval suite covers hooks, so it ships unmeasured (N6) with these kill criteria, read from the `PostCompact` log at the kill read: fewer than half of the summaries carry the handoff block → reword once, then revert to the previous text; the conditional line fires after more than half of the compactions → the check is wrong, disable it; summaries stop carrying "not yet recorded" items (12 of 13 before the change) → revert.
+- L3 is adopted only by stage 9's own check: most provisional records kept at the next curation pass.
