@@ -69,3 +69,23 @@ def test_a_large_summary_stays_fast(tmp_path):
     r = run_compact(tmp_path, {"session_id": "s", "cwd": str(project(tmp_path)), "compact_summary": "x" * 5_000_000})
     assert r.returncode == 0 and time.monotonic() - started < 2
     assert last_log(tmp_path)[1]["chars"] == 5_000_000
+
+
+def test_free_text_in_the_trigger_is_not_logged(tmp_path):
+    run_compact(tmp_path, {"session_id": "s", "trigger": "Keep the key sk-EXAMPLE here", "cwd": str(project(tmp_path)),
+                           "compact_summary": BLOCK})
+    raw, entry = last_log(tmp_path)
+    assert entry["trigger"] is None and "sk-EXAMPLE" not in raw
+
+
+def test_a_session_id_with_a_trailing_newline_is_logged_as_null(tmp_path):
+    run_compact(tmp_path, {"session_id": "abc\n", "trigger": "manual", "cwd": str(project(tmp_path)), "compact_summary": BLOCK})
+    assert last_log(tmp_path)[1]["session"] is None
+
+
+def test_a_summary_without_a_block_prints_the_request(tmp_path):
+    r = run_compact(tmp_path, {"session_id": "s", "trigger": "manual", "cwd": str(project(tmp_path)),
+                               "compact_summary": "We fixed the parser and moved on."})
+    assert r.returncode == 0 and r.stdout.count("\n") == 1 and "The summary has no handoff block" in r.stdout
+    entry = last_log(tmp_path)[1]
+    assert entry["handoff"] == [] and entry["mismatches"] == 1 and entry["marker"] is False

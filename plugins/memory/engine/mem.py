@@ -3186,7 +3186,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
 
 _COMPACT_PARSE_LIMIT = 1_000_000
 _COMPACT_OUT_LIMIT = 300
-_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
 def cmd_compact_log(args: argparse.Namespace) -> int:
@@ -3207,11 +3207,11 @@ def cmd_compact_log(args: argparse.Namespace) -> int:
         if lines:
             print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
         if args.hook:
-            _log_hook({"hook": "post-compact", "trigger": trigger if isinstance(trigger, str) else None,
-                       "session": session if isinstance(session, str) and _SESSION_ID.match(session) else None,
+            _log_hook({"hook": "post-compact", "trigger": trigger if trigger in ("manual", "auto") else None,
+                       "session": session if isinstance(session, str) and _SESSION_ID.fullmatch(session) else None,
                        "chars": len(summary), "marker": handoff.has_marker(text),
                        "handoff": [f for f in handoff.FIELDS if f in found],
-                       "plan_named": bool(handoff._PLAN_TOKEN.search(found.get("plan", ""))),
+                       "plan_named": handoff.names_plan(found.get("plan", "")),
                        "unrecorded": handoff.unrecorded(text), "mismatches": len(lines),
                        "ms": int((time.monotonic() - started) * 1000)})
     except Exception:

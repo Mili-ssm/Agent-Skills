@@ -17,6 +17,13 @@ def test_parse_tolerates_markdown_fields():
 
 def test_has_marker():
     assert handoff.has_marker("the Handoff follows") and not handoff.has_marker("nothing here")
+    assert handoff.has_marker("## Handoff block:") and handoff.has_marker("HANDOFF")
+    assert not handoff.has_marker("We discussed the handoff of the parser and its many edge cases.")
+
+def test_names_plan():
+    assert handoff.names_plan("docs/p.md (Task 3)")
+    assert not handoff.names_plan("no plan") and not handoff.names_plan("")
+    assert not handoff.names_plan("https://example.org/a.md")
 
 def test_parse_without_a_block_is_empty():
     assert handoff.parse("a summary that mentions handoff in prose") == {}

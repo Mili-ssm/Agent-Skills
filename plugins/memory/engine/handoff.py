@@ -26,11 +26,13 @@ _PLAN_TOKEN = re.compile(r"[^\s'\"`\[\]()<>,;*]+\.md(?!\w)", re.I)
 _NO_BLOCK = "The summary has no handoff block: state the task, its state and the next step before you continue."
 _MAX_VALUE = 500  # bounds the regex work on hostile text
 _NONE = {"none", "nothing"}
+_MARKER_LINE = 40
 _MAX_TOKEN = 60  # keeps the whole line under 150 characters
 
 
 def has_marker(summary: str) -> bool:
-    return "handoff" in summary.lower()
+    """True when a short line (a heading or label) names the handoff; the word inside a sentence does not count."""
+    return any("handoff" in line.lower() and len(line.strip()) <= _MARKER_LINE for line in summary.splitlines())
 
 
 def parse(summary: str) -> dict[str, str]:
@@ -81,16 +83,25 @@ def _project_root(cwd: Path) -> Path:
     return cwd
 
 
+def _plan_token(value: str) -> str | None:
+    value = value[:_MAX_VALUE]
+    if "://" in value:
+        return None
+    m = _PLAN_TOKEN.search(value)
+    return m.group(0) if m else None
+
+
+def names_plan(value: str) -> bool:
+    return _plan_token(value) is not None
+
+
 def mismatches(found: dict[str, str], cwd: Path) -> list[str]:
     if not found:
         return [_NO_BLOCK]
     plan = found.get("plan", "")[:_MAX_VALUE]
-    if "://" in plan:
+    token = _plan_token(plan)
+    if token is None:
         return []
-    m = _PLAN_TOKEN.search(plan)
-    if not m:
-        return []
-    token = m.group(0)
     root = _project_root(Path(cwd))
     for candidate in (token, plan.strip("'\"`* \t")):
         try:

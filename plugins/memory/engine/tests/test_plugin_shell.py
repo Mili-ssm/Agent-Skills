@@ -183,8 +183,10 @@ def test_session_index_hook_without_uv_is_silent(tmp_path):
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
 
 
+@pytest.mark.skipif(any(Path(d, "uv").exists() for d in ("/usr/bin", "/bin")), reason="uv is under /usr/bin or /bin")
 def test_post_compact_hook_without_uv_is_silent(tmp_path):
-    r = subprocess.run([str(HOOKS / "post-compact.sh")], input="{}", env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
+    summary = json.dumps({"compact_summary": "A summary with no block.", "cwd": str(tmp_path)})  # prints when uv is present
+    r = subprocess.run([str(HOOKS / "post-compact.sh")], input=summary, env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path)},
                        capture_output=True, text=True)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
 
