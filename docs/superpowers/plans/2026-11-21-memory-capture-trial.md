@@ -60,7 +60,7 @@
     When the text exceeds `EXTRACT_LIMIT`, the oldest lines are dropped (the cut falls on a line boundary) and the first line becomes `[...] earlier lines left out`.
   - `validate(candidates: object, extract_text: str, recorded: Sequence[str]) -> tuple[list[dict], list[dict]]` — kept and dropped. A dropped item is `{"candidate": <the item>, "reason": <str>}`. Reasons, checked in this order: `not a list` (one dropped item holding the whole value), `not an object`, `kind`, `signal`, `claim length` (outside 20 to 300 characters), `evidence not in the transcript` (the evidence, at least 15 characters, with runs of whitespace collapsed, must occur inside one line of the extract, after that line's `[n] KIND: ` prefix), `evidence is not the owner's words` (the signal is `owner_correction` or `decision_with_reason` and that line is not an `OWNER` or `OWNER ANSWER` line: a subagent's report quoted as the owner would pass the first check), `already recorded` (the claim equals a recorded claim, ignoring case and whitespace), `over the limit` (beyond `MAX_CANDIDATES` kept). A kept item has exactly the keys `kind`, `signal`, `reach`, `claim`, `context`, `evidence` (`context` defaults to `""`, `reach` to `"project"`; another `reach` value is dropped with the reason `reach`, checked after `signal`). `REACHES: tuple[str, ...] = ("project", "general")`.
 
-- [ ] **Step 1: Write the failing tests** in `test_capture.py`, with a helper that writes invented JSONL entries to `tmp_path`:
+- [x] **Step 1: Write the failing tests** in `test_capture.py`, with a helper that writes invented JSONL entries to `tmp_path`:
 
 ```python
 import json
@@ -166,10 +166,10 @@ def test_validate_caps_the_kept_and_rejects_a_non_list():
     assert capture.validate({"a": 1}, EXTRACT, []) == ([], [{"candidate": {"a": 1}, "reason": "not a list"}])
 ```
 
-- [ ] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_capture.py -q`. Expected: FAIL, `No module named 'capture'`.
-- [ ] **Step 3:** Implement `capture.py`. The transcript is read line by line; the extract is built in a bounded deque of lines so that memory follows `EXTRACT_LIMIT`, not the file size.
-- [ ] **Step 4:** Run the same command. Expected: 13 passed.
-- [ ] **Step 5:** Commit: `feat(memory): extract of a session transcript and validation of capture candidates`.
+- [x] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_capture.py -q`. Expected: FAIL, `No module named 'capture'`.
+- [x] **Step 3:** Implement `capture.py`. The transcript is read line by line; the extract is built in a bounded deque of lines so that memory follows `EXTRACT_LIMIT`, not the file size.
+- [x] **Step 4:** Run the same command. Expected: 13 passed.
+- [x] **Step 5:** Commit: `feat(memory): extract of a session transcript and validation of capture candidates`.
 
 ### Task 2: `bin/mem-capture run`
 
@@ -220,7 +220,7 @@ Each object has these keys:
 Leave out: anything in recorded.txt or saying the same; what the code, the git history or the project's documents already state; progress reports ("task 3 is done"); personal preferences of the owner about tone or language; secrets, tokens, names of people or clients.
 ```
 
-- [ ] **Step 1: Write the failing tests** in `test_mem_capture.py`, running `bin/mem-capture` as a subprocess with a fake `claude` (a script in `tmp_path` passed with `--claude`), as the `mem-settle` tests do (read `plugins/memory/engine/tests/` for the existing fake and reuse it or its shape):
+- [x] **Step 1: Write the failing tests** in `test_mem_capture.py`, running `bin/mem-capture` as a subprocess with a fake `claude` (a script in `tmp_path` passed with `--claude`), as the `mem-settle` tests do (read `plugins/memory/engine/tests/` for the existing fake and reuse it or its shape):
   - `test_run_writes_validated_candidates`: the fake writes `candidates.json` with one good and one paraphrased candidate; assert exit 0, the result file has 1 candidate and 1 dropped with reason `evidence not in the transcript`, mode 0600, `transcript` is a bare file name, and the summary line on standard output.
   - `test_the_session_gets_no_bash_and_no_hooks`: the fake records its arguments; assert `Bash` is in the disallowed tools, the allowed tools name `Read`, `Write` and `Edit` with the work folder, the settings file passed holds `"disableAllHooks": true`, `--model haiku`, `--max-budget-usd 0.2500`; a second run with `--model sonnet --budget 0.75` shows `--model sonnet` and `--max-budget-usd 0.7500`.
   - `test_a_long_extract_is_given_in_parts`: a transcript whose extract exceeds `PART_SIZE`; the fake lists the work folder; assert `extract-1.txt` and `extract-2.txt` exist and the result's `extract.parts` is 2.
@@ -228,20 +228,20 @@ Leave out: anything in recorded.txt or saying the same; what the code, the git h
   - `test_a_short_session_is_not_sent`: 2 owner lines; the fake fails if called; assert exit 0, `reason` `too short`.
   - `test_failures_write_a_reason` (parametrized: the fake writes nothing; writes `not json`; exits 1; `--transcript` missing file): exit 1, one line on standard error, the result file has `reason` and no candidates.
   - `test_the_work_folder_is_removed`.
-- [ ] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_mem_capture.py -q`. Expected: FAIL (no such file `mem-capture`).
-- [ ] **Step 3:** Implement `bin/mem-capture` with the interface above.
-- [ ] **Step 4:** Run the whole engine suite. Expected: all pass (1304 passed and 5 skipped before this plan, plus the new tests).
-- [ ] **Step 5:** Add the CHANGELOG line (for users: a trial command `mem-capture run` that proposes memory candidates from a session transcript into a local file; it writes nothing to the store and no hook runs it) and the README entry. Run `python3 scripts/validate.py` and `claude plugin validate .`.
-- [ ] **Step 6:** Commit: `feat(memory): mem-capture run, an offline trial of capture from a transcript`.
+- [x] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_mem_capture.py -q`. Expected: FAIL (no such file `mem-capture`).
+- [x] **Step 3:** Implement `bin/mem-capture` with the interface above.
+- [x] **Step 4:** Run the whole engine suite. Expected: all pass (1304 passed and 5 skipped before this plan, plus the new tests).
+- [x] **Step 5:** Add the CHANGELOG line (for users: a trial command `mem-capture run` that proposes memory candidates from a session transcript into a local file; it writes nothing to the store and no hook runs it) and the README entry. Run `python3 scripts/validate.py` and `claude plugin validate .`.
+- [x] **Step 6:** Commit: `feat(memory): mem-capture run, an offline trial of capture from a transcript`.
 
 ### Task 3: The trial over 10 transcripts
 
 Run by the controller with the owner; no code enters the repository except this file's `## Results`.
 
-- [ ] **Step 1:** Choose 10 main-session transcripts by their `OWNER` line count from `capture.counts` (not by raw user entries, most of which are reports): the most recent ones with at least 10 `OWNER` lines, at most 3 per project, from at least 3 projects, at most 1 about building this plugin, and 2 in which the session recorded no memory. Run `mem-capture run` on each with `--project` set to that session's project folder and `--out` in a folder of mode 0700 outside every repository. Budget ceiling for the trial: 5 USD. Stop and fix the sizing if more than 2 of the 10 runs end without a candidates file or over budget.
-- [ ] **Step 2:** Build one review sheet in that same folder: per candidate its kind, signal, reach, claim, context, evidence, and the 3 closest existing records from `mem search` (project and global), so a duplicate worded differently is visible. The owner marks each candidate `true` or `false`, `keep` or `drop`, and `duplicate` where a record already says it; and, per transcript, up to 3 lessons the capture missed, as a rough measure of what it does not see.
-- [ ] **Step 3:** Record in `## Results`, without any transcript text, project name or claim: per transcript the counts (extract size, cut or not, lines per kind, kept by validation, dropped by reason, cost), then the owner's totals (true, keep, drop, duplicate, missed) and the share kept, each split by reach.
-- [ ] **Step 4:** Apply the gate of the design: at least 60% kept and no kept duplicate → phase B gets its plan. The result is inconclusive, not a pass, with fewer than 15 candidates in all or fewer than 5 transcripts that produced one: widen to 10 more transcripts before deciding. Else one change of the brief or of the model (`--model sonnet --budget 0.75`), one more run on the same transcripts, then stop. A kept candidate that the code contradicts stops the trial for a re-plan. Write the figures into ADR 0023 as a `## Review`, and set the study's L3 status.
+- [x] **Step 1:** Choose 10 main-session transcripts by their `OWNER` line count from `capture.counts` (not by raw user entries, most of which are reports): the most recent ones with at least 10 `OWNER` lines, at most 3 per project, from at least 3 projects, at most 1 about building this plugin, and 2 in which the session recorded no memory. Run `mem-capture run` on each with `--project` set to that session's project folder and `--out` in a folder of mode 0700 outside every repository. Budget ceiling for the trial: 5 USD. Stop and fix the sizing if more than 2 of the 10 runs end without a candidates file or over budget.
+- [x] **Step 2:** Build one review sheet in that same folder: per candidate its kind, signal, reach, claim, context, evidence, and the 3 closest existing records from `mem search` (project and global), so a duplicate worded differently is visible. The owner marks each candidate `true` or `false`, `keep` or `drop`, and `duplicate` where a record already says it; and, per transcript, up to 3 lessons the capture missed, as a rough measure of what it does not see.
+- [x] **Step 3:** Record in `## Results`, without any transcript text, project name or claim: per transcript the counts (extract size, cut or not, lines per kind, kept by validation, dropped by reason, cost), then the owner's totals (true, keep, drop, duplicate, missed) and the share kept, each split by reach.
+- [x] **Step 4:** Apply the gate of the design: at least 60% kept and no kept duplicate → phase B gets its plan. The result is inconclusive, not a pass, with fewer than 15 candidates in all or fewer than 5 transcripts that produced one: widen to 10 more transcripts before deciding. Else one change of the brief or of the model (`--model sonnet --budget 0.75`), one more run on the same transcripts, then stop. A kept candidate that the code contradicts stops the trial for a re-plan. Write the figures into ADR 0023 as a `## Review`, and set the study's L3 status.
 - [ ] **Step 5:** Commit: `docs(plan): results of the capture trial`.
 
 The gate does not measure: what the capture missed beyond the owner's rough count; whether a claim is true against the code; variation between runs; a transcript read from a saved offset (phase B).
@@ -285,4 +285,26 @@ What the run shows before the owner's marks:
 - 21 of 47 quote the agent's own words as evidence. That is allowed for the signals that are not the owner's, but then the evidence is the agent's account of a failure, not the failure.
 - No candidate was dropped by validation: the model copied its quotes correctly every time.
 
-Owner's marks (true, keep, duplicate, missed, by reach): pending. The review sheet is a private local file and is not part of the repository.
+### The owner's marks (2026-11-22)
+
+Given in five rounds in conversation; the review sheet and the marks are private local files.
+
+| | All | `general` | `project` |
+|---|---|---|---|
+| Candidates | 47 | 26 | 21 |
+| True | 47 | 26 | 21 |
+| Kept | 38 (81%) | 23 (88%) | 15 (71%) |
+| Not kept: duplicate of an existing record, rule or sibling candidate | 5 | 2 | 3 |
+| Not kept: not a lesson (a technical note about one component) or one request taken for a rule | 4 | 1 | 3 |
+
+Kept per signal: `delegation_failed` 7 of 7, `plan_changed_by_review` 5 of 5, `rework` 4 of 4, `repeated_tool_error` 3 of 3, `failed_then_passed` 7 of 8, `verified_review_finding` 4 of 5, `owner_correction` 7 of 12, `decision_with_reason` 1 of 3.
+
+**Gate: passed** (81% kept against 60%; no duplicate kept; 47 candidates from 10 transcripts). Phase B gets its plan.
+
+What the marks show:
+
+- The two owner signals are the weakest (8 of 15 kept): a single sentence of the owner was turned into a standing rule, or a project decision already in the project's documents was proposed again. The capture sees neither the project's documents nor the owner's context file.
+- The same lesson came back as separate candidates: a subagent that stops at its turn limit with no report (4 sessions, 3 projects), a refusal by the permission classifier (4 sessions, 2 projects), a pre-mortem that changed a plan (3 sessions, 3 projects), a pattern that matches its own shell (2 projects). Phase B must count these as sightings of one lesson.
+- The "closest existing records" column of the sheet was of no use: a search with the whole claim returned unrelated notes.
+
+Limits of this result: the owner judged with the controller's reading of each round in front of them and mostly agreed with it, so the marks are not independent of the controller; no candidate was marked false, and "true" was not checked against code except one (a claim about `pgrep -f`, verified by running it); missed lessons were not collected; 8 of 10 sessions were read only at their end; the brief did not yet ask for the calibrated wording of C11 to C16.
