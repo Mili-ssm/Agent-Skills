@@ -48,8 +48,8 @@ def parse(summary: str) -> dict[str, str]:
         m = _FIELD.match(line)
         if m:
             value = m.group(2).strip()
-            if value.startswith("<") and value.endswith(">"):
-                continue  # an echoed template placeholder
+            if value.startswith("<") and value.endswith(">") and " " in value:
+                continue  # an echoed template placeholder is a phrase; <docs/p.md> is a path
             found.setdefault(m.group(1).lower(), value[:_MAX_VALUE])
     return found
 
@@ -62,11 +62,10 @@ def unrecorded(summary: str) -> int:
         head = stripped.lstrip("-* \t")
         if head.lower().startswith(_UNRECORDED):
             rest = head[len(_UNRECORDED):].strip("*` \t")
-            if rest and rest.rstrip(".").strip("*` \t").lower() not in _NONE:
+            none = rest.rstrip(".").strip("*` \t").lower() in _NONE
+            if rest and not none:
                 count += 1
-                in_list = False
-            else:
-                in_list = True
+            in_list = not rest  # only a bare header opens a list; "none" closes it
         elif in_list and stripped[:1] in ("-", "*"):
             count += 1
         else:

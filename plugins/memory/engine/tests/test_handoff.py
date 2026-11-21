@@ -95,3 +95,13 @@ def test_unrecorded_none_is_not_an_item():
     for text in ("not yet recorded: none", "not yet recorded: Nothing.", "- not yet recorded: **None**"):
         assert handoff.unrecorded(text) == 0
     assert handoff.unrecorded("not yet recorded: none of the caches expire") == 1
+
+
+def test_a_none_header_ends_the_list():
+    assert handoff.unrecorded("not yet recorded: none\n- tests pass\n- lint clean") == 0
+
+
+def test_an_autolink_path_is_a_value_not_a_placeholder(tmp_path):
+    assert handoff.parse("HANDOFF\nplan: <docs/gone.md>") == {"plan": "<docs/gone.md>"}
+    lines = handoff.mismatches({"task": "x", "plan": "<docs/gone.md>"}, tmp_path)
+    assert len(lines) == 1 and "does not exist: docs/gone.md" in lines[0]
