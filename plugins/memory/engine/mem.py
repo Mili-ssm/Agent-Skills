@@ -36,6 +36,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 import yaml
 
 import auto_state
+import handoff
 import project_syntheses
 import records
 import settle
@@ -46,7 +47,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "signal", "projects",
+                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
                     "project-synthesis")
 
 
@@ -3183,6 +3184,41 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     return 0
 
 
+_COMPACT_PARSE_LIMIT = 1_000_000
+_COMPACT_OUT_LIMIT = 300
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def cmd_compact_log(args: argparse.Namespace) -> int:
+    """Never fails and prints nothing on bad input. Prints the handoff mismatch lines and logs counts only."""
+    started = time.monotonic()
+    try:
+        data = _hook_input() if args.hook else {}
+        summary = data.get("compact_summary")
+        if not isinstance(summary, str):
+            return 0
+        text = summary[:_COMPACT_PARSE_LIMIT]
+        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
+        if not cwd.is_dir():
+            cwd = Path.cwd()
+        found = handoff.parse(text)
+        lines = handoff.mismatches(found, cwd)
+        trigger, session = data.get("trigger"), data.get("session_id")
+        if lines:
+            print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
+        if args.hook:
+            _log_hook({"hook": "post-compact", "trigger": trigger if isinstance(trigger, str) else None,
+                       "session": session if isinstance(session, str) and _SESSION_ID.match(session) else None,
+                       "chars": len(summary), "marker": handoff.has_marker(text),
+                       "handoff": [f for f in handoff.FIELDS if f in found],
+                       "plan_named": bool(handoff._PLAN_TOKEN.search(found.get("plan", ""))),
+                       "unrecorded": handoff.unrecorded(text), "mismatches": len(lines),
+                       "ms": int((time.monotonic() - started) * 1000)})
+    except Exception:
+        pass
+    return 0
+
+
 _SIGNAL_LIMIT = 400
 _SIGNAL_HANDLES = 3
 
@@ -6033,6 +6069,9 @@ def build_parser() -> argparse.ArgumentParser:
     index_cmd.add_argument("--list", type=int, default=0, metavar="N",
                            help="also list up to N of the project's newest memories")
     index_cmd.set_defaults(func=cmd_session_index)
+    compact_cmd = sub.add_parser("compact-log", help="check the handoff block of a compaction summary and log counts")
+    compact_cmd.add_argument("--hook", action="store_true", help="read the hook's JSON from standard input")
+    compact_cmd.set_defaults(func=cmd_compact_log)
     signal_cmd = sub.add_parser("signal", help="print the records related to a brief read from standard input")
     signal_cmd.add_argument("--hook", action="store_true",
                             help="read a PreToolUse hook's JSON from standard input and print the brief with the signal appended")
