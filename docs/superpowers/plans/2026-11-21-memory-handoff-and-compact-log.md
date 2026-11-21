@@ -77,13 +77,13 @@ Mismatch rules, in this order:
 | Condition | Line |
 |---|---|
 | `found` is empty | `The summary has no handoff block: state the task, its state and the next step before you continue.` |
-| `plan` holds a token that ends in `.md` (the first one, after stripping quotes, backticks and brackets), and that path is not a file under the project root | `The handoff names a plan file that does not exist: <token, cut to 80 characters>. Find the plan before you continue.` |
+| `plan` holds a token that ends in `.md` (the first one, after stripping quotes, backticks and brackets), and that path is not a file under the project root | `The handoff names a plan file that does not exist: <token, cut to 60 characters>. Find the plan before you continue.` |
 
 The project root is the nearest ancestor of `cwd`, `cwd` included, that holds an entry named `.git` (file or folder; `git` is never run, and `records.project_root` is not used because it runs `git`), else `cwd`. A `plan` value with no `.md` token (`no plan`, `none`, prose) names nothing: no mismatch. A token that resolves outside the project root (absolute path elsewhere, `..`) is never looked up: no mismatch.
 
-Dropped after the pre-mortem: a rule for "every task of the plan is ticked but the handoff has a next step". The plan template's own header holds a literal `- [ ]`, and a finished plan's next step is usually "open the pull request", so the rule would be silent or wrong. It returns only if the compaction log shows a need.
+Dropped after the pre-mortem: a rule for "every task of the plan is ticked but the handoff has a next step". The plan template's own header holds a literal `- [x]`, and a finished plan's next step is usually "open the pull request", so the rule would be silent or wrong. It returns only if the compaction log shows a need.
 
-- [ ] **Step 1: Write the failing tests** in `test_handoff.py`:
+- [x] **Step 1: Write the failing tests** in `test_handoff.py`:
 
 ```python
 import handoff
@@ -122,7 +122,7 @@ def test_no_block_gives_one_line(tmp_path):
         "The summary has no handoff block: state the task, its state and the next step before you continue."]
 
 def test_a_plan_that_exists_with_open_tasks_gives_nothing(tmp_path):
-    (tmp_path / "docs").mkdir(); (tmp_path / "docs" / "p.md").write_text("- [x] a\n- [ ] b\n")
+    (tmp_path / "docs").mkdir(); (tmp_path / "docs" / "p.md").write_text("- [x] a\n- [x] b\n")
     assert handoff.mismatches({"plan": "`docs/p.md`", "next": "b"}, tmp_path) == []
 
 def test_a_missing_plan_is_named(tmp_path):
@@ -149,10 +149,10 @@ def test_lines_are_short(tmp_path):
     assert all(len(line) < 150 for line in lines)
 ```
 
-- [ ] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_handoff.py -q`. Expected: FAIL, `No module named 'handoff'`.
-- [ ] **Step 3:** Implement `handoff.py` with the interface above. Reading a plan file: at most 1 MB, errors ignored, any `OSError` → no mismatch.
-- [ ] **Step 4:** Run the same command. Expected: 14 passed.
-- [ ] **Step 5:** Commit: `feat(memory): parse the handoff block of a compaction summary`.
+- [x] **Step 2:** Run `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_handoff.py -q`. Expected: FAIL, `No module named 'handoff'`.
+- [x] **Step 3:** Implement `handoff.py` with the interface above. Reading a plan file: at most 1 MB, errors ignored, any `OSError` → no mismatch.
+- [x] **Step 4:** Run the same command. Expected: 14 passed.
+- [x] **Step 5:** Commit: `feat(memory): parse the handoff block of a compaction summary`.
 
 ### Task 3: `mem compact-log` and the two hooks
 
