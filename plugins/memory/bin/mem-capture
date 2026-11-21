@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""mem-capture: an offline trial of memory capture from one session transcript.
+
+`run` reduces the transcript to an extract (`capture.extract`), gives it with the claims already recorded in the project's
+memory to ONE headless session that has no Bash and no hooks, and keeps the candidates that `capture.validate` accepts
+in a local JSON file. It writes nothing to the memory store and no hook runs it: it is started by hand.
+
+Usage: mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--model NAME] [--budget USD]
+                       [--claude PATH] [--keep-work]
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "engine"))
+import capture  # noqa: E402
+import records  # noqa: E402
+import synth_pipeline as sp  # noqa: E402
+
+DEFAULT_BUDGET = 0.25   # USD
+DEFAULT_MODEL = "haiku"
+SESSION_TIMEOUT = 600
+MIN_OWNER_LINES = 3
+SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
+                "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
+
+BRIEF = """You read the record of one coding session and find what a later session in this project should not have to learn again.
+
+Files in {work}:
+- extract-1.txt, extract-2.txt, ...: the session in order, one event per line. Read every one of them before you write. OWNER is the human, OWNER ANSWER the human's answer to a question, AGENT the assistant, REPORT a message from a subagent or another agent (not the human), TOOL lines the assistant's tool calls, TOOL ERROR a call that failed, TOOL OK the same tool succeeding after an error. The bracket and the label at the start of a line are positions, not content.
+- recorded.txt: claims already in the project's memory, one per line.
+
+Write {work}/candidates.json: a JSON list of at most 5 objects, or [] when nothing qualifies. An empty list is a good answer: most sessions hold little worth keeping.
+
+Each object has these keys:
+- "signal": what in the session backs it. One of
+  "owner_correction" (the owner corrected the agent or rejected its approach; the evidence must come from an OWNER line),
+  "failed_then_passed" (a check or command failed, the agent changed something, it passed),
+  "verified_review_finding" (a review found a defect that was then confirmed and fixed),
+  "plan_changed_by_review" (a pre-mortem, a review or the owner changed a plan or a design before it was built),
+  "delegation_failed" (a subagent returned no report, stopped at a limit, misread its brief, or its report proved wrong),
+  "rework" (work declared done had to be redone or fixed right after),
+  "repeated_tool_error" (the same kind of tool error happened more than once),
+  "decision_with_reason" (the owner decided something and said why; the evidence must come from an OWNER or OWNER ANSWER line).
+  Without one of these there is no candidate: an idea the agent had about itself, with nothing outside confirming it, is not kept.
+- "kind": "lesson" (how to work), "pitfall" (something that breaks or misleads here), or "decision" (a choice and its reason).
+- "reach": "project" when it is about this codebase, its tools or its rules; "general" when it is about how the agent itself works in any project: how it plans, frames a request, briefs or checks a subagent, uses a skill or a plugin, verifies before claiming, or reasons about the owner's intent. Look for the general ones on purpose: a slip in method teaches more than the bug it caused. A general claim names no file, project or person.
+- "claim": one sentence of 20 to 300 characters that stands on its own in six months: name the thing, say what to do or what is true, and why. English.
+- "context": one sentence on when it applies.
+- "evidence": a passage copied character for character from inside one line of an extract file, without the bracket and label, 15 to 300 characters, that shows the signal. A paraphrase, or a passage that spans two lines, is rejected by a program.
+
+Leave out: anything in recorded.txt or saying the same; what the code, the git history or the project's documents already state; progress reports ("task 3 is done"); personal preferences of the owner about tone or language; secrets, tokens, names of people or clients.
+"""
+
+
+def budget_of(value: str | float | None) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_BUDGET
+    return number if number > 0 else DEFAULT_BUDGET
+
+
+def private_dirs(folder: Path) -> None:
+    """`folder` and the parents it lacks, mode 0700 (`mkdir(parents=True)` gives the parents the default mode)."""
+    missing = []
+    for p in (folder, *folder.parents):
+        if p.exists():
+            break
+        missing.append(p)
+    for p in reversed(missing):
+        p.mkdir(mode=0o700, exist_ok=True)
+
+
+def write_private(path: Path, text: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(text)
+    os.chmod(path, 0o600)
+
+
+def recorded_claims(project: Path) -> list[str]:
+    """Claims of the project's live memories, one line each."""
+    today = datetime.date.today()
+    found = records.load_memories(records.project_dir(project), "project")
+    return [" ".join(m.claim.split()) for m in found if records.is_live(m, today) and m.claim]
+
+
+def session_cmd(claude: str, work: Path, brief: str, settings: Path, model: str, max_budget: float) -> list[str]:
+    """One session. Tools: Read and Write/Edit inside `work` only (`//` is an absolute path in a permission rule; a new
+    file needs the Edit rule beside Write); no Bash, no web, hooks disabled by `settings`."""
+    return [claude, "-p", brief, "--model", model, "--effort", "medium", "--settings", str(settings),
+            "--setting-sources", "project",
+            "--allowedTools", f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)",
+            "--disallowedTools", "Bash", "WebSearch", "WebFetch",
+            "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+            "--max-budget-usd", f"{max_budget:.4f}"]
+
+
+def run_session(cmd: list[str], work: Path) -> dict:
+    env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
+    try:
+        done = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=SESSION_TIMEOUT)
+        raw = done.stdout
+    except subprocess.TimeoutExpired as exc:
+        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+    return sp.parse(raw)
+
+
+def read_candidates(path: Path) -> tuple[object, str | None]:
+    if not path.is_file():
+        return None, "the session wrote no candidates.json"
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, "candidates.json is not valid JSON"
+    return (rows, None) if isinstance(rows, list) else (None, "candidates.json is not a JSON list")
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    transcript = Path(args.transcript).expanduser()
+    model = args.model or DEFAULT_MODEL
+    budget = budget_of(args.budget)
+    since = max(args.since_line, 0)
+    out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
+           "extract": {"chars": 0, "cut": False, "parts": 0, "lines": capture.counts("")},
+           "candidates": [], "dropped": [], "reason": None}
+
+    def finish(code: int) -> int:
+        out_path = Path(args.out).expanduser()
+        private_dirs(out_path.parent)
+        write_private(out_path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+        if code:
+            print(f"mem-capture: {out['reason']}", file=sys.stderr)
+        else:
+            cost = "unknown" if out["cost"] is None else f"{out['cost']:.3f}"
+            print(f"mem-capture: {len(out['candidates'])} kept, {len(out['dropped'])} dropped, "
+                  f"lines {out['lines'][0]}-{out['lines'][1]}, cost {cost}")
+        return code
+
+    if not transcript.is_file():
+        out["reason"] = f"no transcript at {transcript.name}"
+        return finish(1)
+    text, last = capture.extract(transcript, since)
+    out["lines"] = [since + 1, last]
+    out["extract"] = {"chars": len(text), "cut": text.startswith(capture._MARKER),
+                      "parts": len(capture.parts(text)) if text else 0, "lines": capture.counts(text)}
+    if out["extract"]["lines"]["OWNER"] < MIN_OWNER_LINES:
+        out["reason"] = "too short"
+        return finish(0)
+    if not args.claude:
+        out["reason"] = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
+        return finish(1)
+
+    root = Path(tempfile.mkdtemp(prefix="mem-capture-"))   # mode 0700
+    try:
+        work = root / "work"
+        work.mkdir(mode=0o700)
+        for number, piece in enumerate(capture.parts(text), 1):
+            write_private(work / f"extract-{number}.txt", piece + "\n")
+        recorded = recorded_claims(Path(args.project).expanduser().resolve())
+        write_private(work / "recorded.txt", "".join(f"{c}\n" for c in recorded))
+        settings = root / "settings.json"
+        write_private(settings, json.dumps({"disableAllHooks": True}))   # no hook of the session may run anything
+        cmd = session_cmd(args.claude, work, BRIEF.replace("{work}", str(work)), settings, model, budget)
+        done = run_session(cmd, work)
+        out["cost"] = done["cost"] if done["has_result"] else None
+        if not done["has_result"]:
+            out["reason"] = "the session ended without a cost report"
+            return finish(1)
+        if done["error"]:
+            out["reason"] = "the session failed"
+            return finish(1)
+        rows, why = read_candidates(work / "candidates.json")
+        if why:
+            out["reason"] = why
+            return finish(1)
+        out["candidates"], out["dropped"] = capture.validate(rows, text, recorded)
+        return finish(0)
+    finally:
+        if args.keep_work:
+            print(f"mem-capture: work folder kept at {root}", file=sys.stderr)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("command", choices=["run"])
+    parser.add_argument("--transcript", required=True, help="the session transcript (JSONL)")
+    parser.add_argument("--out", required=True, help="the result file (mode 0600)")
+    parser.add_argument("--project", default=".", help="project folder whose memories are the claims already recorded "
+                                                       "(default: the current directory)")
+    parser.add_argument("--since-line", type=int, default=0, help="read the transcript after this line")
+    parser.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")
+    parser.add_argument("--budget", help=f"USD for the session (default {DEFAULT_BUDGET})")
+    parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    parser.add_argument("--keep-work", action="store_true", help="keep the work folder (it holds session text)")
+    return cmd_run(parser.parse_args())
+
+
+if __name__ == "__main__":
+    sys.exit(main())
