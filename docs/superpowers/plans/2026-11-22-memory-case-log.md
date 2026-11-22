@@ -286,7 +286,7 @@ git commit -m "feat(memory): the corroboration pass carries each session's cases
   - `mem rules` (no option), after its present output: the heading line `Failed after it loaded:` and one line `m:<handle>\t<mark_words>` per lesson of the choice, loaded or left out, whose `mark_words` is not empty. Nothing when there is none.
   - `mem rules --more`: one more column at the end of each row, `mark_words(m)` or `-`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Drive the commands as `test_rules_session.py` does (read how it builds a store and runs `mem`). `mem.py` reads the date with `datetime.date.today()`: compute the dates of the fixtures and the expected day counts from it.
 
@@ -298,15 +298,15 @@ Drive the commands as `test_rules_session.py` does (read how it builds a store a
 | `test_rules_more_has_the_column` | `-` for a lesson without a failure, the words for one with |
 | `test_session_start_block_is_unchanged` | the rules block inside `mem session-index` is byte-identical with and without cases |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run the tests of this file, then the whole suite**
+- [x] **Step 4: Run the tests of this file, then the whole suite**
 
 Expected: both pass. Tests that assert the columns of `mem rules --more` or the whole output of `mem show` are updated and named.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine
