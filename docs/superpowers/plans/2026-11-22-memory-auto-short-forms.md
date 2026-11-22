@@ -292,6 +292,8 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 
 ## After the tasks
 
+- [x] Whole suite on the last commit of the branch: see the pull request's checks line (recorded when it is opened).
+- [ ] Open on the owner's store: three of the short forms applied on 2026-11-22 are commands (the visual fix, the inline rules, the user's access) and still load; the owner prefers them reworded. The gate's second run produced accepted forms for two of them. Replacing them needs the owner's word.
 - [x] The six tasks built on 2026-11-22, each reviewed after its commit, with two fix rounds on the automatic fill (the path where the apply raises; a load the owner changed during a run; a partial answer of the checker) and one rule added by the docs review: the pass never touches a lesson that already has a valid short form, even without a topic. Whole suite: 1875 passed, 5 skipped before the last small fixes.
 - [x] **Gate, on a private copy of the real store, outside the repository** (run twice on 2026-11-22: [Results](#results)). The rule is fixed here, before any run (C62).
 
@@ -353,6 +355,15 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 ## Results
 
 ### Gate, 2026-11-22 (two runs; the second after the one revision the rule allows)
+
+**How the run departed from the rule fixed in "After the tasks", so this pass is weaker than the rule intended:**
+
+| The rule said | What was run | Why |
+|---|---|---|
+| Labels: the 10 short forms the owner read; the 5 the author set reported apart | All 15, read again by the owner during the gate | No record said which 10 had been read |
+| 20 stronger variants, two per form | 30 (two per form over 15), so the thresholds are read as shares: at most 10% of the faithful refused by code, at least 90% passed by the checker, at least 85% of the stronger refused | The set grew with the labels |
+| Labels fixed before the first run | One label was found unfaithful in the reading before run 1's results; three more (command forms) were set aside by the owner after run 1, once its results were known | The owner's standard on tone was stated only then; run 2 was scored on the final labels, with its thresholds restated before it ran |
+| The owner calls none of the applied forms stronger than its claim | Run 1: one called a command, which used the revision. Run 2: accepted | |
 
 Material: the 15 short forms applied on the owner's store that day, read by the owner in three batches during the gate (the earlier record of which 10 had been read was lost, so the owner read all 15 again). Scripts and outputs are kept outside the repository; this section holds counts only.
 
