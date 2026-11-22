@@ -60,7 +60,7 @@ except Exception as _exc:   # noqa: BLE001
 
 DEFAULT_BUDGET = 0.25   # USD per session
 PROPOSE_MODEL = VERIFY_MODEL = "haiku"
-CHECK_MODEL = "haiku"   # the second session of the automatic fill; the gate may change it to "sonnet"
+CHECK_MODEL = "sonnet"   # the second session of the automatic fill; chosen by the gate of 2026-11-22 (the plan's Results)
 SESSION_TIMEOUT = 600
 MAX_FILE_BYTES = 1_000_000
 MEM = HERE / "mem"
