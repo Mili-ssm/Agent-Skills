@@ -257,42 +257,47 @@ def apply_all(items: list[dict], transcript: Path, project: Path) -> list[dict]:
     return rows
 
 
-def cmd_run(args: argparse.Namespace) -> int:
-    transcript = Path(args.transcript).expanduser()
-    given = Path(args.project or ".").expanduser().resolve()
-    if args.project is not None and not given.is_dir():
+def run_window(transcript: Path, out_path: Path, project: Path | None, since_line: int, model: str, budget: float,
+               claude: str | None, forward: bool, write: bool, no_rules: bool = False, keep_work: bool = False,
+               allow_out_in_repo: bool = False, quiet: bool = False) -> tuple[dict, int]:
+    """One window of one transcript: the result dict (also written to `out_path`) and the exit code.
+
+    `allow_out_in_repo` skips only the refusal of an `--out` inside a repository (a symlink is always refused);
+    `quiet` suppresses only the summary line on standard output; `project=None` is `--project` absent."""
+    transcript = Path(transcript).expanduser()
+    given = Path(project or ".").expanduser().resolve()
+    out: dict = {"reason": None}
+    if project is not None and not given.is_dir():
         print(f"mem-capture: --project is not a folder: {given.name}", file=sys.stderr)
-        return 2
+        return out, 2
     # an explicit --project wins over MEM_PROJECT in the caller's environment
-    env = os.environ if args.project is None else {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
+    env = os.environ if project is None else {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     project = records.project_root(given, env) or given
-    model = args.model or DEFAULT_MODEL
-    budget = args.budget
-    since = max(args.since_line, 0)
+    since = max(since_line, 0)
     out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
            "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "more": False, "lines": capture.counts(""),
                        "rules_chars": 0, "rules_cut": False},
            "candidates": [], "dropped": [], "reason": None, "project": project.name}
 
-    out_path = Path(args.out).expanduser()
-    repo = repo_above(out_path.parent.resolve())
+    out_path = Path(out_path).expanduser()
+    repo = None if allow_out_in_repo else repo_above(out_path.parent.resolve())
     if repo is not None:
         print(f"mem-capture: --out is inside a repository ({repo}); the result holds session text", file=sys.stderr)
-        return 1
+        return out, 1
     if out_path.is_symlink():
         print("mem-capture: --out is a symlink; refusing to write through it", file=sys.stderr)
-        return 1
+        return out, 1
 
-    def finish(code: int) -> int:
+    def finish(code: int) -> tuple[dict, int]:
         try:
             private_dirs(out_path.parent)
             write_private(out_path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
         except OSError as exc:
             print(f"mem-capture: cannot write {out_path.name}: {exc.strerror or exc}", file=sys.stderr)
-            return 1
+            return out, 1
         if code:
             print(f"mem-capture: {out['reason']}", file=sys.stderr)
-        else:
+        elif not quiet:
             cost = "unknown" if out["cost"] is None else f"{out['cost']:.3f}"
             line = (f"mem-capture: {len(out['candidates'])} kept, {len(out['dropped'])} dropped, "
                     f"lines {out['lines'][0]}-{out['lines'][1]}, cost {cost}")
@@ -300,12 +305,12 @@ def cmd_run(args: argparse.Namespace) -> int:
                 n = [sum(w["outcome"] == k for w in out["written"]) for k in ("remembered", "sighting", "skipped")]
                 line += f", written {n[0]} new, {n[1]} sightings, {n[2]} skipped"
             print(line)
-        return code
+        return out, code
 
     if not transcript.is_file():
         out["reason"] = f"no transcript at {transcript.name}"
         return finish(1)
-    text, last = capture.extract(transcript, since, args.forward)
+    text, last = capture.extract(transcript, since, forward)
     out["lines"] = [since + 1, last]
     out["extract"] = {"chars": len(text), "cut": text.startswith(capture.LEFT_OUT_MARKER),
                       "parts": len(capture.parts(text)) if text else 0, "skipped": capture.last_skipped, "more": capture.last_more, "lines": capture.counts(text),
@@ -313,7 +318,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     if out["extract"]["lines"]["OWNER"] < MIN_OWNER_LINES:
         out["reason"] = "too short"
         return finish(0)
-    if not args.claude:
+    if not claude:
         out["reason"] = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
         return finish(1)
 
@@ -325,16 +330,16 @@ def cmd_run(args: argparse.Namespace) -> int:
             write_private(work / f"extract-{number}.txt", piece + "\n")
         recorded, handles = recorded_lines(project)
         write_private(work / "recorded.txt", "".join(f"{c}\n" for c in recorded))
-        rules, rules_cut = ("", False) if args.no_rules else rules_text(project)
+        rules, rules_cut = ("", False) if no_rules else rules_text(project)
         write_private(work / "rules.txt", rules)
         out["extract"]["rules_chars"], out["extract"]["rules_cut"] = len(rules), rules_cut
         settings = root / "settings.json"
         write_private(settings, json.dumps({"disableAllHooks": True}))   # no hook of the session may run anything
-        cmd = session_cmd(args.claude, work, BRIEF.replace("{work}", str(work)), settings, model, budget)
+        cmd = session_cmd(claude, work, BRIEF.replace("{work}", str(work)), settings, model, budget)
         try:
             done = run_session(cmd, work)
         except OSError as exc:
-            out["reason"] = f"cannot start claude ({args.claude}): {exc.strerror or exc}"
+            out["reason"] = f"cannot start claude ({claude}): {exc.strerror or exc}"
             return finish(1)
         out["cost"] = done["cost"] if done["has_result"] else None
         if not done["has_result"]:
@@ -348,32 +353,40 @@ def cmd_run(args: argparse.Namespace) -> int:
             out["reason"] = why
             return finish(1)
         out["candidates"], out["dropped"] = capture.validate(rows, text, [c.split("\t", 1)[1] for c in recorded], handles)
-        if args.write:
+        if write:
             out["written"] = apply_all(out["candidates"], transcript, project)
         return finish(0)
     finally:
-        if args.keep_work:
+        if keep_work:
             print(f"mem-capture: work folder kept at {root}", file=sys.stderr)
         else:
             shutil.rmtree(root, ignore_errors=True)
 
 
+def cmd_run(args: argparse.Namespace) -> int:
+    return run_window(Path(args.transcript), Path(args.out), args.project, args.since_line, args.model or DEFAULT_MODEL,
+                      args.budget, args.claude, args.forward, args.write, args.no_rules, args.keep_work)[1]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("command", choices=["run"])
-    parser.add_argument("--transcript", required=True, help="the session transcript (JSONL)")
-    parser.add_argument("--out", required=True, help="the result file (mode 0600)")
-    parser.add_argument("--project", default=None, help="project folder whose memories are the claims already recorded "
-                                                       "(default: the current directory)")
-    parser.add_argument("--since-line", type=int, default=0, help="read the transcript after this line")
-    parser.add_argument("--forward", action="store_true", help="read a window from --since-line forward, not the newest lines")
-    parser.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")
-    parser.add_argument("--budget", type=budget_arg, default=DEFAULT_BUDGET, help=f"USD for the session (default {DEFAULT_BUDGET})")
-    parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
-    parser.add_argument("--no-rules", action="store_true", help="leave rules.txt empty (the instruction files are not given)")
-    parser.add_argument("--write", action="store_true", help="record the kept candidates in the project's memory (via bin/mem)")
-    parser.add_argument("--keep-work", action="store_true", help="keep the work folder (it holds session text)")
-    return cmd_run(parser.parse_args())
+    commands = parser.add_subparsers(dest="command", required=True)
+    run = commands.add_parser("run", help="read one transcript and keep the validated candidates")
+    run.add_argument("--transcript", required=True, help="the session transcript (JSONL)")
+    run.add_argument("--out", required=True, help="the result file (mode 0600)")
+    run.add_argument("--project", default=None, help="project folder whose memories are the claims already recorded "
+                                                    "(default: the current directory)")
+    run.add_argument("--since-line", type=int, default=0, help="read the transcript after this line")
+    run.add_argument("--forward", action="store_true", help="read a window from --since-line forward, not the newest lines")
+    run.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")
+    run.add_argument("--budget", type=budget_arg, default=DEFAULT_BUDGET, help=f"USD for the session (default {DEFAULT_BUDGET})")
+    run.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    run.add_argument("--no-rules", action="store_true", help="leave rules.txt empty (the instruction files are not given)")
+    run.add_argument("--write", action="store_true", help="record the kept candidates in the project's memory (via bin/mem)")
+    run.add_argument("--keep-work", action="store_true", help="keep the work folder (it holds session text)")
+    run.set_defaults(func=cmd_run)
+    args = parser.parse_args()
+    return args.func(args)
 
 
 if __name__ == "__main__":

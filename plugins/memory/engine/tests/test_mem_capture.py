@@ -599,3 +599,16 @@ def test_run_forward_reports_more(world):
     assert r["lines"][1] < total and r["extract"]["more"] is True
     assert run(world).returncode == 0
     assert result(world)["extract"]["more"] is False
+
+
+def test_run_window_is_importable_and_quiet(world, capsys):
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    spec = importlib.util.spec_from_loader("mem_capture_module", SourceFileLoader("mem_capture_module", str(CAPTURE)))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    transcript(world.transcript, [OWNER, "go on"])
+    result_dict, code = mod.run_window(world.transcript, world.out, world.project, 0, "haiku", 0.25, None, False,
+                                       False, quiet=True)
+    assert code == 0 and result_dict["reason"] == "too short"
+    assert capsys.readouterr().out == "" and result(world)["reason"] == "too short"
