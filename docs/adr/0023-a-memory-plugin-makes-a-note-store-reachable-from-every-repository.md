@@ -91,4 +91,4 @@ Stage B1 of the capture design is built ([plan and results](../superpowers/plans
 
 The texts given to models changed without an eval suite (N6): the capture brief, one sentence in the `memory` skill, one in the `memory-curation` skill and one in the `memory-curator` agent. Kill criteria are in the plan; the one already read (the model still returned its ceiling of five in 6 of 10 runs) led to the single revision it allows.
 
-Open after this stage: a lesson said again in other words is still recorded twice; a `light` lesson is established by one session, which includes lessons drawn from one comment of the owner; the owner's marks on the first three matches the model made.
+Open after this stage: a lesson said again in other words is still recorded twice; a `light` lesson is established by one session, which includes lessons drawn from one comment of the owner (the owner confirmed on 2026-11-22 that this is intended). The owner marked the first three matches the model made as correct.

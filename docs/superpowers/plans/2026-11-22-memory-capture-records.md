@@ -217,12 +217,12 @@ Two sessions of this repository's project, one after the other, into its project
 | Session B | 5 | 5 new | 0 | 0 | 0.040 |
 | Session A again | 4 (1 dropped) | 1 new | 0 | 3, `this session already counted` | 0.054 |
 
-- The sighting rule held: on the second run of session A the model named three of the records the first run had written (`same_as`), all three were refused as already counted, and no existing memory file changed (compared by content before and after). The controller read the three pairs as correct matches; the owner's marks on them are pending.
+- The sighting rule held: on the second run of session A the model named three of the records the first run had written (`same_as`), all three were refused as already counted, and no existing memory file changed (compared by content before and after). The owner marked the three pairs as correct matches (2026-11-22).
 - A second run of the same session is not idempotent in what it adds: the model chose one lesson the first run had not, and it was written as a new record. Stage B2 reads each part of a session once, from an offset, so this does not arise there; a manual rerun can add to a session's records.
 - Of the 11 records, both positive signals appeared (`effective_practice`, `owner_approval`).
 - Session B's records about the owner's rulings say again, in other words, what the agent had already recorded in the global scope during that session: the "already recorded" list did not stop them. A duplicate worded differently is still not caught.
-- Weight `light` establishes a record at its first session, by C20: several of the 11 are established at once, including lessons drawn from one comment of the owner.
+- Weight `light` establishes a record at its first session, by C20: 7 of the 11 are established at once, including lessons drawn from one comment of the owner. The owner confirmed this on 2026-11-22: a correction of theirs may be `light`.
 
 Engine suite at the end of the stage: `1409 passed, 5 skipped`; `python3 scripts/validate.py` and `claude plugin validate .` pass.
 
-Kill criteria read: no record changed on a rerun (holds); no `same_as` marked wrong (the owner's marks pending); no record established with one session and a weight other than `light` (holds by construction, checked on the written files); the ceiling: 6 of 10 before the revision, not measured after it; the curator's text: no curation pass has run since.
+Kill criteria read: no record changed on a rerun (holds); no `same_as` marked wrong (3 of 3 marked right by the owner); no record established with one session and a weight other than `light` (holds by construction, checked on the written files); the ceiling: 6 of 10 before the revision, not measured after it; the curator's text: no curation pass has run since.
