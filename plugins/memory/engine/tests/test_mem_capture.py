@@ -410,3 +410,156 @@ def test_same_as_reaches_the_result_and_the_brief_names_the_files(world):
     assert result(world)["candidates"][0]["same_as"] == handle
     prompt = world.calls()[0]["args"][world.calls()[0]["args"].index("-p") + 1]
     assert "rules.txt" in prompt and '"same_as"' in prompt
+
+
+# --- --write: code applies the kept candidates to the project's memory through bin/mem ---
+
+CLAIM2 = "Pin the tool version in the lockfile: in one session an unpinned update broke the build."
+OWNER2 = "Please pin the tool version in the lockfile, an unpinned update broke the build yesterday."
+TWO = (OWNER, OWNER2, "run the suite again")
+SECOND = {**GOOD, "claim": CLAIM2, "evidence": "pin the tool version in the lockfile", "context": "before a release"}
+TOKEN = "ghp_" + "a" * 36   # built from parts: obviously fake
+
+
+def reworded(item):
+    """The same claim for mem (equal words) that capture's own check does not drop as already recorded."""
+    return {**item, "claim": item["claim"].replace(":", " -")}
+
+
+def go(w, cands, *extra, **kw):
+    w.cands.write_text(json.dumps(cands))
+    return run(w, "--write", *extra, **kw)
+
+
+def mem(w, *args, stdin=None):
+    env = {**os.environ, "MEM_PROJECT": str(w.project)}
+    return subprocess.run([str(MEM), *args], env=env, capture_output=True, text=True, cwd=w.project, input=stdin)
+
+
+def handle_of(out):
+    return next(x for x in out.split() if x.startswith("m:")).strip(".,;:")
+
+
+def written(w):
+    return result(w)["written"]
+
+
+def files(w):
+    return sorted((w.project / ".memory").glob("*.md")) if (w.project / ".memory").is_dir() else []
+
+
+def other_session(w, claim, origin=("--origin", "transcript"), weight="medium"):
+    done = mem(w, "remember", "--kind=lesson", f"--claim={claim}", *origin, "--reach", "project", "--weight", weight,
+               "--source", "session other", "--body-file", "-", stdin="Signal: x\n")
+    assert done.returncode == 0, done.stderr
+    return handle_of(done.stdout)
+
+
+def test_a_new_lesson_is_written_with_its_fields(world):
+    done = go(world, [GOOD])
+    assert done.returncode == 0, done.stderr
+    w = written(world)
+    assert len(w) == 1 and w[0]["outcome"] == "remembered" and w[0]["reason"] is None
+    assert w[0]["claim"] == GOOD["claim"][:80]
+    listed = mem(world, "memories").stdout
+    assert f"{w[0]['handle']}\t" in listed and "from transcript, unconfirmed" in listed and GOOD["claim"] in listed
+    (path,) = files(world)
+    text = path.read_text()
+    assert "reach: project" in text and "weight: medium" in text and "session abc" in text
+    assert "Signal: owner_correction\nForm: recommendation\nEvidence: “never mock the database in these tests”" in text
+    assert done.stdout == "mem-capture: 1 kept, 0 dropped, lines 1-6, cost 0.030, written 1 new, 0 sightings, 0 skipped\n"
+
+
+def test_same_as_adds_this_session_and_establishes_a_medium_record(world):
+    handle = other_session(world, GOOD["claim"])
+    before = files(world)
+    done = go(world, [{**GOOD, "same_as": handle}])
+    assert done.returncode == 0, done.stderr
+    assert written(world) == [{"claim": GOOD["claim"][:80], "outcome": "sighting", "handle": handle, "reason": None}]
+    assert files(world) == before
+    text = before[0].read_text()
+    assert "session abc" in text and "session other" in text and "Seen again (owner_correction)" in text
+    assert "from transcript, unconfirmed" not in mem(world, "memories").stdout
+    assert "written 0 new, 1 sightings, 0 skipped" in done.stdout
+
+
+def test_a_second_run_counts_nothing_twice(world):
+    first = go(world, [GOOD, SECOND], transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", TWO))
+    assert first.returncode == 0, first.stderr
+    handles = [x["handle"] for x in written(world)]
+    assert [x["outcome"] for x in written(world)] == ["remembered", "remembered"]
+    snapshot = {p.name: p.read_text() for p in files(world)}
+    same_as = [{**GOOD, "same_as": handles[0]}, {**SECOND, "same_as": handles[1]}]
+    for cands in (same_as, [reworded(GOOD), reworded(SECOND)]):
+        again = go(world, cands, transcript_path=world.transcript)
+        assert again.returncode == 0, again.stderr
+        assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "this session already counted")] * 2
+        assert {p.name: p.read_text() for p in files(world)} == snapshot
+        assert "written 0 new, 0 sightings, 2 skipped" in again.stdout
+
+
+def test_two_candidates_with_one_claim_count_once(world):
+    assert go(world, [GOOD, {**GOOD}]).returncode == 0
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == \
+        [("remembered", None), ("skipped", "this session already counted")]
+    assert len(files(world)) == 1
+
+
+def test_a_claim_the_owners_agent_wrote_by_hand_is_not_touched(world):
+    remember(world, claim=GOOD["claim"])
+    before = files(world)[0].read_text()
+    assert go(world, [reworded(GOOD)]).returncode == 0
+    assert [(x["outcome"], x["reason"], x["handle"]) for x in written(world)] == \
+        [("skipped", "same claim already recorded", None)]
+    assert files(world)[0].read_text() == before
+
+
+def test_the_same_claim_from_another_session_without_same_as_is_a_sighting(world):
+    handle = other_session(world, GOOD["claim"], weight="strong")
+    assert go(world, [reworded(GOOD)]).returncode == 0
+    assert [(x["outcome"], x["handle"]) for x in written(world)] == [("sighting", handle)]
+    assert "session abc" in files(world)[0].read_text() and len(files(world)) == 1
+
+
+def test_a_secret_is_refused_and_the_next_candidate_is_still_written(world):
+    secret = {**GOOD, "claim": f"Do not paste {TOKEN} into a test: it was leaked once in a log of this project."}
+    done = go(world, [secret, SECOND], transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", TWO))
+    assert done.returncode == 0, done.stderr
+    r = result(world)
+    if not r["candidates"] or r["candidates"][0]["claim"] != secret["claim"]:
+        pytest.skip("capture.validate drops the token before it reaches --write")
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == \
+        [("skipped", "refused: a secret"), ("remembered", None)]
+    assert len(files(world)) == 1 and TOKEN not in files(world)[0].read_text()
+
+
+def test_a_claim_starting_with_a_dash_is_written(world):
+    dashed = {**GOOD, "claim": "- Do not mock the database in this project's tests: a mock hid a broken migration."}
+    assert go(world, [dashed]).returncode == 0
+    assert written(world)[0]["outcome"] == "remembered", written(world)
+
+
+def test_a_subfolder_writes_into_the_project_roots_memory(world):
+    subprocess.run(["git", "init", "-q", str(world.project)], check=True)
+    sub = world.project / "src" / "deep"
+    sub.mkdir(parents=True)
+    root = world.project
+    world.project = sub
+    assert go(world, [GOOD]).returncode == 0
+    assert written(world)[0]["outcome"] == "remembered"
+    assert len(list((root / ".memory").glob("*.md"))) == 1 and not (sub / ".memory").exists()
+
+
+def test_without_write_nothing_is_stored(world):
+    done = run(world)
+    assert done.returncode == 0, done.stderr
+    assert "written" not in result(world) and files(world) == [] and "written" not in done.stdout
+
+
+def test_a_failing_mem_is_a_skipped_outcome_and_not_a_failed_run(world):
+    (world.project / ".memory").write_text("a file where the memory folder should be")
+    done = go(world, [GOOD, SECOND], transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", TWO))
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["handle"]) for x in written(world)] == [("skipped", None)] * 2
+    assert all(x["reason"].startswith("mem failed (") for x in written(world))
+    assert "written 0 new, 0 sightings, 2 skipped" in done.stdout

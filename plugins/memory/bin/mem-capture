@@ -5,8 +5,11 @@
 memory to ONE headless session that has no Bash and no hooks, and keeps the candidates that `capture.validate` accepts
 in a local JSON file. It writes nothing to the memory store and no hook runs it: it is started by hand.
 
+With `--write`, code (never the model) then applies each kept candidate to the PROJECT's memory through `bin/mem`, so
+every check that command makes at writing applies unchanged; nothing else runs it.
+
 Usage: mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--model NAME] [--budget USD]
-                       [--claude PATH] [--no-rules] [--keep-work]
+                       [--claude PATH] [--no-rules] [--keep-work] [--write]
 """
 from __future__ import annotations
 
@@ -34,6 +37,8 @@ MAX_CANDIDATES_BYTES = 1_000_000
 MIN_OWNER_LINES = 3
 RULES_LIMIT = 30_000
 LAPSED_DAYS = 60   # a lapsed unconfirmed transcript memory can still be revived by a new sighting this long
+MEM = HERE / "mem"
+MEM_TIMEOUT = 60
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
 
@@ -196,6 +201,49 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
     return (rows, None) if isinstance(rows, list) else (None, "candidates.json is not a JSON list")
 
 
+def apply_one(item: dict, session: str, env: dict) -> tuple[str, str | None, str | None]:
+    """Apply one kept candidate with `bin/mem`: (outcome, handle, reason). Text arguments use `--name=value`
+    because a claim may start with `-`."""
+    if item["same_as"]:
+        cmd = [str(MEM), "confirm", item["same_as"], f"--source={session}",
+               f"--note=Seen again ({item['signal']}): “{item['evidence']}”"]
+        stdin = None
+    else:
+        cmd = [str(MEM), "remember", f"--kind={item['kind']}", f"--claim={item['claim']}",
+               f"--context={item['context']}", "--origin", "transcript", "--reach", item["reach"],
+               "--weight", item["weight"], f"--source={session}", "--body-file", "-"]
+        stdin = f"Signal: {item['signal']}\nForm: {item['form']}\nEvidence: “{item['evidence']}”\n"
+    try:
+        done = subprocess.run(cmd, env=env, input=stdin, capture_output=True, text=True, timeout=MEM_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return "skipped", None, "mem could not run"
+    handle = done.stdout.split("\t", 1)[0].strip() if done.stdout.startswith("m:") else None
+    if done.returncode == 0:
+        return ("sighting" if item["same_as"] else "remembered"), handle, None
+    if done.returncode == 3:
+        if item["same_as"]:
+            return "skipped", None, "this session already counted"
+        first = done.stdout.strip().splitlines()[0].split("\t") if done.stdout.strip() else []
+        if len(first) == 2 and first[1] == "sighting":
+            return "sighting", first[0], None
+        if len(first) == 2 and first[1] == "already counted":
+            return "skipped", first[0], "this session already counted"
+        return "skipped", None, "same claim already recorded"
+    if done.returncode == 4:
+        return "skipped", None, "refused: a secret"
+    return "skipped", None, f"mem failed ({done.returncode})"
+
+
+def apply_all(items: list[dict], transcript: Path, project: Path) -> list[dict]:
+    session = f"session {transcript.stem}"
+    env = {**os.environ, "MEM_PROJECT": str(project)}
+    rows = []
+    for item in items:
+        outcome, handle, reason = apply_one(item, session, env)
+        rows.append({"claim": item["claim"][:80], "outcome": outcome, "handle": handle, "reason": reason})
+    return rows
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     transcript = Path(args.transcript).expanduser()
     given = Path(args.project or ".").expanduser().resolve()
@@ -233,8 +281,12 @@ def cmd_run(args: argparse.Namespace) -> int:
             print(f"mem-capture: {out['reason']}", file=sys.stderr)
         else:
             cost = "unknown" if out["cost"] is None else f"{out['cost']:.3f}"
-            print(f"mem-capture: {len(out['candidates'])} kept, {len(out['dropped'])} dropped, "
-                  f"lines {out['lines'][0]}-{out['lines'][1]}, cost {cost}")
+            line = (f"mem-capture: {len(out['candidates'])} kept, {len(out['dropped'])} dropped, "
+                    f"lines {out['lines'][0]}-{out['lines'][1]}, cost {cost}")
+            if "written" in out:
+                n = [sum(w["outcome"] == k for w in out["written"]) for k in ("remembered", "sighting", "skipped")]
+                line += f", written {n[0]} new, {n[1]} sightings, {n[2]} skipped"
+            print(line)
         return code
 
     if not transcript.is_file():
@@ -283,6 +335,8 @@ def cmd_run(args: argparse.Namespace) -> int:
             out["reason"] = why
             return finish(1)
         out["candidates"], out["dropped"] = capture.validate(rows, text, [c.split("\t", 1)[1] for c in recorded], handles)
+        if args.write:
+            out["written"] = apply_all(out["candidates"], transcript, project)
         return finish(0)
     finally:
         if args.keep_work:
@@ -303,6 +357,7 @@ def main() -> int:
     parser.add_argument("--budget", type=budget_arg, default=DEFAULT_BUDGET, help=f"USD for the session (default {DEFAULT_BUDGET})")
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     parser.add_argument("--no-rules", action="store_true", help="leave rules.txt empty (the instruction files are not given)")
+    parser.add_argument("--write", action="store_true", help="record the kept candidates in the project's memory (via bin/mem)")
     parser.add_argument("--keep-work", action="store_true", help="keep the work folder (it holds session text)")
     return cmd_run(parser.parse_args())
 
