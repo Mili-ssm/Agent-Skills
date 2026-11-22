@@ -215,7 +215,7 @@ You check one-sentence short forms of lessons against the lessons they were draw
 Read {pairs}: one block per lesson, with an id, a claim, sometimes a context that says when the lesson applies, and a short.
 For each block answer in this order:
 - reason: one sentence comparing what the claim asks, and when, with what the short asks, and when.
-- faithful: true only if the short asks for nothing the claim does not, in no wider a situation, with no more certainty (a "may" or "once" in the claim is still there in the short), as a suggestion and not an order unless the claim is an order, and names no project, person or company. A short that leaves out examples or alternatives is still faithful; one that leaves out the situation the claim is about is not.
+- faithful: true only if the short asks for nothing the claim does not, in no wider a situation, with no more certainty (a "may" or "once" in the claim is still there in the short), as a suggestion and not an order unless the claim is an order (a command addressed to the reader, such as "remove the files" or "confirm it first", is an order even when a "may" stands elsewhere in the sentence), and names no project, person or company. A short that leaves out examples or alternatives is still faithful; one that leaves out the situation the claim is about is not.
 Write {out} as JSON: {{"verdicts": [{{"id": "g:example", "reason": "...", "faithful": true}}]}}
 One entry per block. Write nothing else and use no other tool.
 ```
