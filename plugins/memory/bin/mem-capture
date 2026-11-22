@@ -8,8 +8,16 @@ in a local JSON file. It writes nothing to the memory store and no hook runs it:
 With `--write`, code (never the model) then applies each kept candidate to the PROJECT's memory through `bin/mem`, so
 every check that command makes at writing applies unchanged; nothing else runs it.
 
+`auto --trigger {pre-compact,session-end}` is what a hook starts, detached and with its output discarded, when the plugin
+option `auto_capture` is exactly `true`: it reads the hook JSON from standard input and the session from its saved
+offset, in up to MAX_WINDOWS windows, and records what the windows hold in the project's memory (`run --write` per
+window). It always exits 0 and prints nothing: it leaves `<data folder>/capture/status.json`, `log.jsonl` (counts only)
+and `runs/<stamp>/`. `ack` clears the failure it left.
+
 Usage: mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--forward] [--model NAME] [--budget USD]
                        [--claude PATH] [--no-rules] [--keep-work] [--write]
+       mem-capture auto --trigger {pre-compact,session-end} [--claude PATH] < hook.json
+       mem-capture ack
 """
 from __future__ import annotations
 
@@ -22,15 +30,23 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
-import capture  # noqa: E402
-import records  # noqa: E402
-import synth_pipeline as sp  # noqa: E402
+import auto_state as au  # noqa: E402
+import capture_state as cs  # noqa: E402
 
-DEFAULT_BUDGET = 0.25   # USD
+try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
+    import capture  # noqa: E402
+    import records  # noqa: E402
+    import synth_pipeline as sp  # noqa: E402
+    IMPORT_ERROR: Exception | None = None
+except Exception as _exc:   # noqa: BLE001
+    IMPORT_ERROR = _exc
+
+DEFAULT_BUDGET = 0.25   # USD; also the default of `auto`
 DEFAULT_MODEL = "haiku"
 SESSION_TIMEOUT = 600
 MAX_CANDIDATES_BYTES = 1_000_000
@@ -371,6 +387,202 @@ def cmd_run(args: argparse.Namespace) -> int:
                       args.budget, args.claude, args.forward, args.write, args.no_rules, args.keep_work)[1]
 
 
+def data_dir() -> Path:
+    """The data folder, resolved as `mem-auto` does."""
+    if os.environ.get("MEM_DATA"):
+        return Path(os.environ["MEM_DATA"])
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "agent-memory"
+
+
+def seconds_env(name: str, default: float) -> float:
+    try:
+        value = float(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+    return value if math.isfinite(value) and value >= 0 else default
+
+
+def save_status(cdir: Path, **changes) -> dict:
+    au.private_dir(cdir)
+    data = {**au.read_json(cdir / au.STATUS_NAME), **changes}
+    for key in [k for k, v in data.items() if k == "failure" and v is None]:
+        del data[key]
+    au.write_json(cdir / au.STATUS_NAME, data)
+    return data
+
+
+def append_log(cdir: Path, line: dict) -> None:
+    au.private_dir(cdir)
+    fd = os.open(cdir / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def hook_input() -> tuple[Path, Path] | None:
+    """(transcript, cwd-as-given) from the hook JSON on standard input, or None when either is unusable."""
+    try:
+        data = json.load(sys.stdin)
+    except Exception:   # noqa: BLE001
+        return None
+    if not isinstance(data, dict):
+        return None
+    path, cwd = data.get("transcript_path"), data.get("cwd")
+    if not isinstance(path, str) or not path or not Path(path).expanduser().is_file():
+        return None
+    return Path(path).expanduser(), Path(cwd).expanduser() if isinstance(cwd, str) and cwd else Path("")
+
+
+def window_failure(res: dict, code: int) -> str | None:
+    """Why a window counts as failed, else None: a failed run, or candidates that `mem` could not record at all."""
+    if code != 0:
+        return str(res.get("reason") or f"exit code {code}")
+    rows = res.get("written") or []
+    reasons = [str(w.get("reason") or "") for w in rows]
+    if res["candidates"] and rows and all(r.startswith(("mem could not run", "mem failed")) for r in reasons):
+        return reasons[0]
+    return None
+
+
+def auto(trigger: str, claude: str | None) -> None:
+    """The whole of `auto`; see the module docstring. Never raises and never prints."""
+    if os.environ.get(cs.OPTION) != "true":
+        return
+    given = hook_input()
+    if given is None:
+        return
+    transcript, cwd = given
+    data = data_dir()
+    cdir = cs.capture_dir(data)
+    start = time.time()
+    session = transcript.stem
+    line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "trigger": trigger,
+                  "session": session, "windows": 0, "kept": 0, "written": {"remembered": 0, "sighting": 0, "skipped": 0},
+                  "cost": None, "offset": 0, "more": False, "skipped": None, "failed": None, "given_up": 0, "ms": 0}
+
+    def finish_log() -> None:
+        line["ms"] = int((time.time() - start) * 1000)
+        append_log(cdir, line)
+
+    lock = None
+    try:
+        if IMPORT_ERROR is not None:
+            reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
+            line["failed"] = reason
+            save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
+            finish_log()
+            return
+        if not cwd.is_dir():
+            return
+        project = records.project_root(cwd.resolve(), os.environ)
+        if project is None or not records.project_dir(project).is_dir():
+            line["skipped"] = "the project has no memory folder"
+            finish_log()
+            return
+        if trigger == "pre-compact":
+            time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
+        deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", cs.LOCK_WAIT_SECONDS)
+        lock = au.take_run_lock(cdir)
+        while lock is None and time.time() < deadline:
+            time.sleep(min(5.0, max(deadline - time.time(), 0.0)))
+            lock = au.take_run_lock(cdir)
+        if lock is None:
+            line["skipped"] = "another capture is running"
+            finish_log()
+            return
+        run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+        au.private_dir(run)
+
+        def log(text: str) -> None:
+            fd = os.open(run / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+        save_status(cdir, state="running", started=start, log=str(run))
+        try:
+            budget = float(os.environ[cs.BUDGET_OPTION])
+            if not math.isfinite(budget) or budget <= 0:
+                budget = DEFAULT_BUDGET
+        except (KeyError, ValueError):
+            budget = DEFAULT_BUDGET
+        saved = cs.read_session(data, session)
+        offset, attempts = saved["offset"], saved["attempts"]
+        with open(transcript, "rb") as f:
+            total = sum(1 for _ in f)
+        if total < offset:
+            offset, attempts = 0, 0
+        new = modeled = 0
+        failed: str | None = None
+        for number in range(1, cs.MAX_WINDOWS + 1):
+            if new >= cs.MAX_NEW_PER_TRIGGER:
+                break
+            res, code = run_window(transcript, run / f"window-{number}.json", project, offset, "haiku", budget, claude,
+                                   True, True, allow_out_in_repo=True, quiet=True)
+            line["windows"] += 1
+            if res.get("cost") is not None:
+                line["cost"] = (line["cost"] or 0.0) + res["cost"]
+            line["kept"] += len(res["candidates"])
+            for row in res.get("written") or []:
+                line["written"][row["outcome"]] += 1
+            new += sum(w["outcome"] == "remembered" for w in res.get("written") or [])
+            more = bool(res["extract"]["more"])
+            reason = window_failure(res, code)
+            log(f"window {number}: lines {res['lines'][0]}-{res['lines'][1]}, kept {len(res['candidates'])}, "
+                f"dropped {len(res['dropped'])}, written {len(res.get('written') or [])}, more {more}"
+                + (f", failed: {reason}" if reason else ""))
+            if reason:
+                failed, line["more"] = reason, True
+                attempts += 1
+                if attempts < cs.MAX_ATTEMPTS:
+                    cs.save_session(data, session, offset, attempts)
+                else:
+                    offset, attempts = res["lines"][1], 0
+                    cs.save_session(data, session, offset, 0)
+                    line["given_up"] += 1
+                break
+            line["more"] = more
+            if res["reason"] == "too short" and not more:
+                break
+            modeled += res["reason"] != "too short"
+            offset, attempts = res["lines"][1], 0
+            cs.save_session(data, session, offset, 0)
+            if not more:
+                break
+        line["offset"], line["failed"] = offset, failed
+        done = time.time()
+        end: dict = {"state": "failed" if failed else "ok", "finished": done, "cost": line["cost"]}
+        if failed:
+            end["failure"] = {"at": done, "reason": failed, "log": str(run)}
+        elif modeled:
+            end["failure"] = None
+        save_status(cdir, **end)
+        finish_log()
+        cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
+    except Exception as exc:   # noqa: BLE001 - a background process reports and ends
+        try:
+            reason = type(exc).__name__
+            save_status(cdir, state="failed", finished=time.time(),
+                        failure={"at": time.time(), "reason": reason, "log": str(au.read_json(cdir / au.STATUS_NAME).get("log") or "")})
+        except Exception:   # noqa: BLE001
+            pass
+    finally:
+        if lock is not None:
+            os.close(lock)
+
+
+def cmd_ack() -> int:
+    cdir = cs.capture_dir(data_dir())
+    if au.read_json(cdir / au.STATUS_NAME):
+        save_status(cdir, failure=None)
+    print("acknowledged: the failure line is cleared")
+    return 0
+
+
+def cmd_auto(args: argparse.Namespace) -> int:
+    auto(args.trigger, args.claude)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -388,7 +600,16 @@ def main() -> int:
     run.add_argument("--write", action="store_true", help="record the kept candidates in the project's memory (via bin/mem)")
     run.add_argument("--keep-work", action="store_true", help="keep the work folder (it holds session text)")
     run.set_defaults(func=cmd_run)
+    auto_cmd = commands.add_parser("auto", help="what a hook starts: read a session from its saved offset, in the background")
+    auto_cmd.add_argument("--trigger", required=True, choices=["pre-compact", "session-end"])
+    auto_cmd.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    auto_cmd.set_defaults(func=cmd_auto)
+    ack = commands.add_parser("ack", help="clear the failure line left by a failed automatic capture")
+    ack.set_defaults(func=lambda _args: cmd_ack())
     args = parser.parse_args()
+    if IMPORT_ERROR is not None and args.command == "run":
+        print(f"mem-capture: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
+        return 1
     return args.func(args)
 
 
