@@ -63,9 +63,11 @@ class Memory:
     weight: str | None = None  # "light", "medium" or "strong": how much it weighs
     owner_confirmed: datetime.date | None = None  # the owner vouched for the lesson: it is established
     triage: str | None = None  # "pending": a global record that left quarantine and awaits triage
+    triage_reason: str | None = None  # why a lesson is held at triage; meaningful only while triage is "pending"
     released: datetime.date | None = None  # the day a global record left quarantine
     general: str | None = None  # handle of the global record a project record was generalized into
     short: str | None = None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
+    short_by: str | None = None  # "model": the short form was written by a model and the owner has not read it
     topic: str | None = None  # one or two lowercase words that group rules
     load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
 
@@ -258,6 +260,14 @@ def valid_short(text) -> bool:
         and len(text.splitlines()) == 1
 
 
+TRIAGE_REASON_LIMIT = 200
+
+
+def valid_triage_reason(text) -> bool:
+    return isinstance(text, str) and bool(text.strip()) and text == text.strip() and len(text) <= TRIAGE_REASON_LIMIT \
+        and len(text.splitlines()) == 1
+
+
 def valid_topic(text) -> bool:
     return isinstance(text, str) and len(text) <= TOPIC_LIMIT and text != "other" and _TOPIC.fullmatch(text) is not None
 
@@ -304,6 +314,8 @@ def _parse(path: Path, scope: str) -> Memory:
         general = meta.get("general")
         general = general if isinstance(general, str) and general.strip() else None
         short = meta.get("short") if valid_short(meta.get("short")) else None  # a bad value reads as absent
+        short_by = "model" if meta.get("short_by") == "model" else None  # any other value reads as absent
+        triage_reason = meta.get("triage_reason") if triage == "pending" and valid_triage_reason(meta.get("triage_reason")) else None
         topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
         raw_load = meta.get("load")
         load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
@@ -315,8 +327,8 @@ def _parse(path: Path, scope: str) -> Memory:
             released = _date(meta.get("released"), "released")
         except ValueError:
             released = None
-        return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage,
-                       released=released, general=general, short=short, topic=topic, load=load, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage, triage_reason=triage_reason,
+                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -362,12 +374,16 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["owner_confirmed"] = m.owner_confirmed.isoformat()
     if m.triage:
         meta["triage"] = m.triage
+    if m.triage_reason:
+        meta["triage_reason"] = m.triage_reason
     if m.released:
         meta["released"] = m.released.isoformat()
     if m.general:
         meta["general"] = m.general
     if m.short:
         meta["short"] = m.short
+    if m.short_by:
+        meta["short_by"] = m.short_by
     if m.topic:
         meta["topic"] = m.topic
     if m.load:
@@ -381,7 +397,7 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
                  context: str | None = None, valid_until: datetime.date | None = None,
                  sources: Sequence[str] = (), origin: str | None = None,
                  reach: str | None = None, weight: str | None = None,
-                 short: str | None = None, topic: str | None = None) -> Memory:
+                 short: str | None = None, topic: str | None = None, short_by: str | None = None) -> Memory:
     if short is not None and not valid_short(short):
         raise ValueError(f"the short form must be one line of at most {SHORT_LIMIT} characters")
     if topic is not None and not valid_topic(topic):
@@ -420,7 +436,7 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
                    list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
-                   reach=reach, weight=weight, triage=triage, released=released, short=short, topic=topic)
+                   reach=reach, weight=weight, triage=triage, released=released, short=short, short_by=short_by if short else None, topic=topic)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))

@@ -41,6 +41,7 @@ import corroborate
 import handoff
 import project_syntheses
 import records
+import shortcheck
 import rules
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
 import settle
@@ -2754,6 +2755,10 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
         out.append(f"sources: {', '.join(m.sources)}")
     if m.short:
         out.append(f"short: {m.short}")
+    if m.short_by:
+        out.append(f"short_by: {m.short_by}")
+    if m.triage_reason:
+        out.append(f"held at triage: {m.triage_reason}")
     if m.topic:
         out.append(f"topic: {m.topic}")
     if m.load:
@@ -3426,6 +3431,20 @@ def _check_short_topic(args: argparse.Namespace) -> int | None:
     return None
 
 
+def _check_short_claim(args: argparse.Namespace, claim: str) -> int | None:
+    """2 after a message when `--user-read` has no `--short`, or a short form the owner did not read is stronger
+    than the claim it will sit on; else None."""
+    user_read = getattr(args, "user_read", False)
+    if user_read and args.short is None:
+        print("mem: --user-read goes with --short: it says the owner read that text.", file=sys.stderr)
+        return 2
+    if args.short and not user_read and (reasons := shortcheck.problems(claim, args.short)):
+        print("mem: the short form is refused: " + "; ".join(reasons) + ". Reword it, or pass --user-read if the "
+              "owner read this text.", file=sys.stderr)
+        return 2
+    return None
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3439,6 +3458,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print(f"mem: unknown kind {args.kind!r}.", file=sys.stderr)
         return 2
     if (refused := _check_short_topic(args)) is not None:
+        return refused
+    if (refused := _check_short_claim(args, args.claim)) is not None:
         return refused
     if args.is_global:
         folder = records.memories_root(os.environ, store)
@@ -3519,7 +3540,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                  context=args.context, valid_until=args.valid_until, sources=args.source,
                                  origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
                                  weight=getattr(args, "weight", None), short=args.short or None,
-                                 topic=args.topic or None)
+                                 topic=args.topic or None,
+                                 short_by="model" if args.short and not getattr(args, "user_read", False) else None)
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3755,7 +3777,7 @@ def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
         raise ValueError(f"reject failed while unlinking the project records ({exc}); unlinked so far: "
                          f"{', '.join(done) or 'none'}; the global record is still active") from exc
     try:
-        _text_change(found, "forgotten", "Forgotten", None, today, triage=None)
+        _text_change(found, "forgotten", "Forgotten", None, today, triage=None, triage_reason=None)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         raise ValueError(f"reject failed while retiring m:{m.handle} ({exc}); the project records were already "
                          f"unlinked: {', '.join(done) or 'none'}; the global record is still active") from exc
@@ -3766,9 +3788,24 @@ def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
 def cmd_triage(args: argparse.Namespace) -> int:
     """Accept or reject a general lesson that left quarantine; both act on the global scope."""
     args.is_global = True
+    because = None
+    if args.triage_command == "hold":
+        because = " ".join((args.because or "").split())
+        if not because or not records.valid_triage_reason(because):
+            print(f"mem: hold needs --because, one line of at most {records.TRIAGE_REASON_LIMIT} characters.",
+                  file=sys.stderr)
+            return 2
 
     def apply(found, today):
         m = found[0]
+        if args.triage_command == "hold":
+            if m.status != "active":
+                raise ValueError(f"m:{m.handle} is {m.status}: only an active lesson can be held")
+            if records.quarantined(m):
+                raise ValueError(f"m:{m.handle} is in quarantine: it is not shown anyway until corroborated")
+            records.log_before(m, "triage")
+            records.update(m, today, triage="pending", triage_reason=because)
+            return [f"m:{m.handle}\theld"]
         if m.status != "active":
             raise ValueError(f"m:{m.handle} is {m.status}: only an active general lesson awaits triage")
         if m.triage != "pending":
@@ -3778,10 +3815,10 @@ def cmd_triage(args: argparse.Namespace) -> int:
             raise ValueError(f"m:{m.handle} was already accepted or never awaited triage")
         if args.triage_command == "accept":
             records.log_before(m, "triage")
-            records.update(m, today, triage=None)
+            records.update(m, today, triage=None, triage_reason=None)
             return [f"m:{m.handle}\taccepted"]
         return _reject(found, today)
-    return _act(args, [args.handle], apply, f"triage-{args.triage_command}")
+    return _act(args, [args.handle], apply, f"triage-{args.triage_command}", because)
 
 
 def _two(args: argparse.Namespace, first: str, second: str, name: str, apply) -> int:
@@ -3831,6 +3868,8 @@ def cmd_memory(args: argparse.Namespace) -> int:
         print(f"mem: m:{m.handle} is {m.status}: run mem restore m:{m.handle} to bring it back before editing it.",
               file=sys.stderr)
         return 2
+    if (refused := _check_short_claim(args, claim if claim is not None else m.claim)) is not None:
+        return refused
     if m.scope == "global" and texts:
         if refused := _check_terms(texts, m.kind, getattr(args, "owner_approved", False)):
             return refused
@@ -3856,9 +3895,11 @@ def cmd_memory(args: argparse.Namespace) -> int:
             what.append("body")
         if args.short is not None:
             changes["short"] = args.short or None
+            changes["short_by"] = "model" if args.short and not args.user_read else None
             what.append("short")
         elif claim is not None and claim != m.claim and m.short:
             changes["short"] = None  # a short form never outlives the claim it was drawn from
+            changes["short_by"] = None
             what.append("short removed")
             short_removed = True
         if args.topic is not None:
@@ -4231,9 +4272,49 @@ def _rules_off() -> bool:
     return os.environ.get("MEM_LOADED_RULES") == "off"
 
 
+def _rules_unread(args: argparse.Namespace, today: datetime.date) -> int:
+    """`--unread` lists the short forms a model wrote that nobody read; `--read` marks them read."""
+    if args.unread and args.read:
+        print("mem: --unread and --read cannot be used together.", file=sys.stderr)
+        return 2
+    scopes = _loaded(_memory_folders(args))
+    pool = [m for _, _, loaded in scopes for m in loaded if m.error is None and records.is_live(m, today)]
+    unread = [m for m in pool if m.short_by == "model" and m.short]
+    if args.unread:
+        for m in unread:
+            print(f"m:{m.handle}\t{m.scope}\t{m.short}\n\tclaim: {_flat(m.claim)}")
+        if not unread:
+            print("No short form is waiting to be read.")
+        return 0
+    if args.read == ["all"]:
+        targets = unread
+    else:
+        targets = []
+        for raw in args.read:
+            name = raw.removeprefix("m:")
+            hit = next((m for m in pool if m.handle == name), None)  # project first: the order of the scopes
+            if hit is None:
+                print(f"mem: no live memory named {raw}", file=sys.stderr)
+                return 2
+            targets.append(hit)
+    store = _optional_store(args)
+    for m in targets:
+        if _read_only_store(store, m.path.resolve()):
+            print(_READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+            return 2
+    for m in targets:
+        if m.short_by:
+            records.log_before(m, "edit")
+            records.update(m, today, short_by=None)
+        print(f"m:{m.handle}\tread")
+    return 0
+
+
 def cmd_rules(args: argparse.Namespace) -> int:
     """Print the rules block and the line after it exactly as session start does; --more lists what was left out."""
     today = datetime.date.today()
+    if args.unread or args.read:
+        return _rules_unread(args, today)
     (_, _, project), (_, _, global_) = _loaded(_memory_folders(args))
     choice = rules.choose(project, global_, today)
     if _rules_off():
@@ -4657,6 +4738,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
             n, p = len(records.sessions(m)), len(records.projects(m))
             out.append(f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
                        f"{_flat(m.claim)}")
+            if m.triage_reason:
+                out.append(f"    held: {m.triage_reason}")
     held = sum(1 for m in every if m.status == "active" and records.quarantined(m))  # a lapsed one is still stored
     if held:
         out.append(f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
@@ -4668,6 +4751,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
         for m in waiting:
             n = len(records.sessions(m))
             out.append(f"  m:{m.handle}  {m.weight or 'medium'}, {n} session{'' if n == 1 else 's'}  {_flat(m.claim)}")
+    unread = [m for m in live if m.short_by == "model" and m.short]
+    if unread:
+        out.append(f"short forms nobody read: {len(unread)} (mem rules --unread)")
     if not args.is_global:
         out += _curate_project_syntheses(scopes, today)
     if out:
@@ -6250,6 +6336,10 @@ _NEW_FIELDS = {
 _OWNER_APPROVED = "the owner agreed to a write that mentions a soft term: never add it on your own"
 
 
+_USER_READ = ("with --short: the owner read this text, so it skips the code check and carries no mark; "
+              "without it the short form is checked against the claim and marked as written by a model")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mem", description="Memory engine: search and read a store of notes.")
     parser.add_argument("--root", default=None, help="store folder (default: $MEM_STORE, then the config file)")
@@ -6414,6 +6504,7 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--body-file", metavar="PATH", help="text (or - for standard input); may be empty")
     remember_parser.add_argument("--context")
     remember_parser.add_argument("--short", metavar="TEXT", help="the claim as one line of at most 120 characters, loaded at session start")
+    remember_parser.add_argument("--user-read", action="store_true", help=_USER_READ)
     remember_parser.add_argument("--topic", metavar="TEXT", help="one or two lowercase words that group rules")
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
@@ -6468,6 +6559,11 @@ def build_parser() -> argparse.ArgumentParser:
         description="Triage is deciding what a corroborated general lesson becomes: one seen in two projects leaves "
                     "quarantine and waits here (mem curate --global lists it).")
     triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
+    triage_hold = triage_sub.add_parser(
+        "hold", help="keep a general lesson out of the rules until the owner decides",
+        description="Hold: a global lesson is set to await triage, with the reason, and stops loading as a rule.")
+    triage_hold.add_argument("handle", metavar="m:HANDLE")
+    triage_hold.add_argument("--because", metavar="TEXT", help="why it is held (one line, at most 200 characters)")
     for verb, text in (("accept", "a general lesson that awaits triage stays a general lesson every project may read"),
                        ("reject", "a general lesson that awaits triage is retired (mem restore brings it back), and "
                                   "its project records are marked so they are not promoted again")):
@@ -6505,6 +6601,10 @@ def build_parser() -> argparse.ArgumentParser:
     rules_parser = sub.add_parser("rules", help="print the rules that load at session start; --more lists the rest")
     rules_parser.add_argument("--more", nargs="?", const=True, default=None, metavar="TOPIC",
                               help="the lessons left out, grouped by topic; with TOPIC only that group (other: no topic)")
+    rules_parser.add_argument("--unread", action="store_true",
+                              help="list the short forms a model wrote that nobody read, with their claims")
+    rules_parser.add_argument("--read", nargs="+", metavar="HANDLE",
+                              help="mark short forms as read: the handles, or all of those --unread lists")
     rules_parser.set_defaults(func=cmd_rules)
     curate_parser.add_argument("--notes", action="store_true",
                                help="list notes to attach to a synthesis part, and notes older than their part")
@@ -6630,6 +6730,7 @@ def build_parser() -> argparse.ArgumentParser:
     memory_edit.add_argument("--context", metavar="TEXT", help="the new context; an empty text removes it")
     memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
     memory_edit.add_argument("--short", metavar="TEXT", help="the one-line rule loaded at session start; an empty text removes it")
+    memory_edit.add_argument("--user-read", action="store_true", help=_USER_READ)
     memory_edit.add_argument("--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it")
     load_switch = memory_edit.add_mutually_exclusive_group()
     load_switch.add_argument("--no-load", action="store_true", help="never load this lesson as a rule")

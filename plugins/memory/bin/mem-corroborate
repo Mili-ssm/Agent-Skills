@@ -882,7 +882,7 @@ def fill_items(args) -> int:
             watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # an edit of a global record may update it
             before = applier.journal.watch(watched)
             done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []),
-                                f"--short={short}", f"--topic={topic}",
+                                f"--short={short}", "--user-read", f"--topic={topic}",
                                 *{"yes": ["--load"], "index": ["--index-only"], "no": ["--no-load"]}.get(load, [])], project, drop_env=SETTLE_VARS)
             applier.journal.commit("fill", before)
             if done is not None and done.returncode == 0:

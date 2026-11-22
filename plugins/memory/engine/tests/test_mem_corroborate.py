@@ -892,6 +892,18 @@ def test_fill_items_write_exactly_the_file_and_undo_puts_them_back(w):
     assert snapshot(w) == before and not (w.cdir / "seen.json").exists()
 
 
+def test_fill_items_applies_a_read_file_without_the_mark(w):
+    g = fill_world(w)
+    proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    written = [m for m in [*project_records(w.pa).values(), *globals_(w)] if m.short]
+    assert written and all(m.short_by is None for m in written)
+
+
 def test_fill_items_write_the_second_project_of_a_shared_handle(w):
     g = fill_world(w)
     shared, _gid = proposal(w, g)
