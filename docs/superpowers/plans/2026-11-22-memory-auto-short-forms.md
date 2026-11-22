@@ -292,7 +292,7 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 
 ## After the tasks
 
-- [x] Whole suite on the last commit of the branch: see the pull request's checks line (recorded when it is opened).
+- [x] Whole suite on the last code commit of the branch (2026-11-22): 1876 passed, 5 skipped; `scripts/validate.py` and `claude plugin validate .` pass. `validate.py --release` asks for a version bump, as it should: the version changes only in the release.
 - [ ] Open on the owner's store: three of the short forms applied on 2026-11-22 are commands (the visual fix, the inline rules, the user's access) and still load; the owner prefers them reworded. The gate's second run produced accepted forms for two of them. Replacing them needs the owner's word.
 - [x] The six tasks built on 2026-11-22, each reviewed after its commit, with two fix rounds on the automatic fill (the path where the apply raises; a load the owner changed during a run; a partial answer of the checker) and one rule added by the docs review: the pass never touches a lesson that already has a valid short form, even without a topic. Whole suite: 1875 passed, 5 skipped before the last small fixes.
 - [x] **Gate, on a private copy of the real store, outside the repository** (run twice on 2026-11-22: [Results](#results)). The rule is fixed here, before any run (C62).
