@@ -379,3 +379,12 @@ def test_a_retired_record_gets_no_sighting(project, capsys):
         assert mem.main(["confirm", f"m:{m.handle}", "--source=session z"]) == 2
         assert (m.path.read_text(), reload(m).observed) == before
         assert reload(m).status in capsys.readouterr().err
+
+
+def test_a_repeated_source_still_lets_until_through_on_an_ordinary_memory(project, capsys):
+    assert mem.main(["remember", "--kind", "lesson", "--claim", "An ordinary memory with a date."]) == 0
+    h = "an-ordinary-memory-with-a-date"
+    assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/x"]) == 0
+    assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/x", "--until", "2030-01-01"]) == 3
+    m = next(x for x in records.load_memories(project, "project") if x.handle == h)
+    assert m.valid_until == datetime.date(2030, 1, 1) and m.observed == 2 and m.sources == ["https://example.org/x"]

@@ -3569,7 +3569,11 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         seen = {records.session_key(s) or s.strip() for s in found[0].sources}
         if source is not None and (key or source.strip()) in seen:
             repeated.append(True)
-            return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
+            if until is None:
+                return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
+            records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set
+            records.update(found[0], today, valid_until=until)
+            return [f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"]
         records.log_before(found[0], "confirm")
         if source is not None and from_transcript:
             updated, _ = records.add_sighting(found[0], source, today, args.note)

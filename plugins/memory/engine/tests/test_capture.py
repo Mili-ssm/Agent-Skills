@@ -242,3 +242,8 @@ def test_a_calibrated_claim_may_run_to_400_characters():
     long = "In one session " + "x" * 385  # 400 characters
     assert capture.validate([{**GOOD, "claim": long}], EXTRACT, [])[0][0]["claim"] == long
     assert capture.validate([{**GOOD, "claim": long + "y"}], EXTRACT, [])[1][0]["reason"] == "claim length"
+
+
+def test_claim_length_is_measured_after_whitespace_is_collapsed():
+    kept, dropped = capture.validate([{**GOOD, "claim": "Run" + " " * 25 + "it"}], EXTRACT, [])
+    assert kept == [] and dropped[0]["reason"] == "claim length"
