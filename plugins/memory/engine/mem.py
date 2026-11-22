@@ -39,6 +39,7 @@ import auto_state
 import handoff
 import project_syntheses
 import records
+from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
 import settle
 import settle_state
 import store_git
@@ -1458,13 +1459,6 @@ RECALL_TRIGGER = 0.8  # below these, revisit the search design (C-6 in docs/requ
 MRR_TRIGGER = 0.6
 FIELD_WEIGHTS = {"title": 8.0, "body": 1.0}
 FIELD_B = {"title": 0.3, "body": 0.75}
-_TOKEN = re.compile(r"[a-z0-9]+")
-
-
-def tokenize(text: str) -> list[str]:
-    """Lowercase [a-z0-9]+ tokens after NFKD with combining marks removed (García -> garcia)."""
-    decomposed = unicodedata.normalize("NFKD", text)
-    return _TOKEN.findall("".join(c for c in decomposed if not unicodedata.combining(c)).lower())
 
 
 def _fields(note: Note) -> dict[str, str]:

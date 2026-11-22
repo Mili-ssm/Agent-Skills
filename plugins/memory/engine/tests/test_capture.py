@@ -202,3 +202,19 @@ def test_validate_a_sighting_skips_already_recorded_and_is_kept_once_per_record(
     assert capture.validate([GOOD], EXTRACT, claim_line, HANDLES)[1][0]["reason"] == "already recorded"
     kept, dropped = capture.validate([item, {**item, "claim": GOOD["claim"] + " (again)"}], EXTRACT, [], HANDLES)
     assert kept == [item] and [d["reason"] for d in dropped] == ["same_as repeated"]
+
+def test_a_hedged_sighting_is_kept_and_an_unrelated_record_is_not():
+    hedged = {**GOOD, "claim": "In one session the agent merged a schema change without checking migrations, so consider "
+                               "checking them first.", "same_as": "m:migrations"}
+    handles = {"m:migrations": "Check migrations before merging schema changes.", "m:cooking": "Rinse the rice before cooking it."}
+    kept, dropped = capture.validate([hedged], EXTRACT, [], handles)
+    assert kept == [hedged] and dropped == []
+    other = {**hedged, "same_as": "m:cooking"}
+    assert capture.validate([other], EXTRACT, [], handles)[1] == [{"candidate": other, "reason": "same_as mismatch"}]
+
+def test_capture_imports_the_records_module_only():
+    import ast
+    names = {a.name for n in ast.walk(ast.parse(Path(capture.__file__).read_text())) if isinstance(n, ast.Import) for a in n.names}
+    assert "mem" not in names and "records" in names
+    import mem
+    assert mem.tokenize is capture.records.tokenize

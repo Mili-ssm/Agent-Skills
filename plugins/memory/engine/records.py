@@ -805,6 +805,15 @@ POSSIBLE = 0.5  # counted only, never named
 MIN_TERMS = 2
 
 
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def tokenize(text: str) -> list[str]:
+    """Lowercase [a-z0-9]+ tokens after NFKD with combining marks removed (García -> garcia)."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return _TOKEN.findall("".join(c for c in decomposed if not unicodedata.combining(c)).lower())
+
+
 def containment(claim_tokens: Iterable[str], text_tokens: Collection[str]) -> float:
     """Share of the claim's distinct non-stop-word terms found in the text; 0.0 under MIN_TERMS terms.
 

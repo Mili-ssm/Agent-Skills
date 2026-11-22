@@ -147,7 +147,11 @@ def rules_text(project: Path) -> tuple[str, bool]:
     cut = False
     for path in (project / "CLAUDE.md", project / "AGENTS.md", config_dir / "CLAUDE.md"):
         try:
-            text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            if path.is_file():
+                with path.open(encoding="utf-8", errors="replace") as f:
+                    text = f.read(RULES_LIMIT + 1)   # never the whole of a huge file
+            else:
+                text = ""
         except OSError:
             text = ""
         if not text.strip():
@@ -194,13 +198,20 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
 
 def cmd_run(args: argparse.Namespace) -> int:
     transcript = Path(args.transcript).expanduser()
+    given = Path(args.project or ".").expanduser().resolve()
+    if args.project is not None and not given.is_dir():
+        print(f"mem-capture: --project is not a folder: {given.name}", file=sys.stderr)
+        return 2
+    # an explicit --project wins over MEM_PROJECT in the caller's environment
+    env = os.environ if args.project is None else {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
+    project = records.project_root(given, env) or given
     model = args.model or DEFAULT_MODEL
     budget = args.budget
     since = max(args.since_line, 0)
     out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
            "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "lines": capture.counts(""),
                        "rules_chars": 0, "rules_cut": False},
-           "candidates": [], "dropped": [], "reason": None}
+           "candidates": [], "dropped": [], "reason": None, "project": project.name}
 
     out_path = Path(args.out).expanduser()
     repo = repo_above(out_path.parent.resolve())
@@ -247,8 +258,6 @@ def cmd_run(args: argparse.Namespace) -> int:
         work.mkdir(mode=0o700)
         for number, piece in enumerate(capture.parts(text), 1):
             write_private(work / f"extract-{number}.txt", piece + "\n")
-        given = Path(args.project).expanduser().resolve()
-        project = records.project_root(given, os.environ) or given
         recorded, handles = recorded_lines(project)
         write_private(work / "recorded.txt", "".join(f"{c}\n" for c in recorded))
         rules, rules_cut = ("", False) if args.no_rules else rules_text(project)
@@ -287,7 +296,7 @@ def main() -> int:
     parser.add_argument("command", choices=["run"])
     parser.add_argument("--transcript", required=True, help="the session transcript (JSONL)")
     parser.add_argument("--out", required=True, help="the result file (mode 0600)")
-    parser.add_argument("--project", default=".", help="project folder whose memories are the claims already recorded "
+    parser.add_argument("--project", default=None, help="project folder whose memories are the claims already recorded "
                                                        "(default: the current directory)")
     parser.add_argument("--since-line", type=int, default=0, help="read the transcript after this line")
     parser.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")

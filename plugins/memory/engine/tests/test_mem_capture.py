@@ -304,11 +304,60 @@ def test_a_lapsed_unconfirmed_transcript_memory_is_listed_and_an_old_one_is_not(
     assert "Rotate the log files" not in text
 
 
-def test_a_retired_lapsed_memory_is_not_listed(world):
-    m = lapsed_memory(world, "Pin the tool version in the lockfile before a release.", 10)
-    path = m.path
-    path.write_text(path.read_text().replace("status: active", "status: retired"))
-    assert "Pin the tool version" not in recorded_of(world)
+def test_a_refuted_memory_is_not_listed_and_the_lapse_window_is_60_days(world):
+    refuted = lapsed_memory(world, "Pin the tool version in the lockfile before a release.", 10)
+    refuted.path.write_text(refuted.path.read_text().replace("status: active", "status: refuted"))
+    recent = lapsed_memory(world, "Rotate the log files on the weekly schedule here.", 59)
+    old = lapsed_memory(world, "Name the feature flags after their owner team.", 61)
+    text = recorded_of(world)
+    assert "Pin the tool version" not in text and "Name the feature flags" not in text
+    assert f"m:{recent.handle}\tRotate the log files on the weekly schedule here." in text
+
+
+def test_a_missing_project_folder_is_a_usage_error(world):
+    world.project = world.tmp / "nowhere"
+    done = run(world, mode="never")
+    assert done.returncode == 2 and world.calls() == [] and len(done.stderr.splitlines()) == 1
+    assert not world.out.exists()
+
+
+def test_the_project_flag_wins_over_mem_project_and_only_its_name_is_recorded(world):
+    other = world.tmp / "other"
+    other.mkdir()
+    subprocess.run(["git", "init", "-q", str(other)], check=True)
+    subprocess.run(["git", "init", "-q", str(world.project)], check=True)
+    remember(world, claim="Always run the validator before a commit.")
+    base = {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
+    copy = world.tmp / "recorded-copy.txt"
+    cmd = [sys.executable, "-I", str(CAPTURE), "run", "--transcript", str(world.transcript), "--out", str(world.out),
+           "--project", str(world.project), "--claude", str(world.fake)]
+    done = subprocess.run(cmd, env={**base, "MEM_PROJECT": str(other), "FAKE_MODE": "good",
+                                    "FAKE_COPY_RECORDED": str(copy)}, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert "Always run the validator" in copy.read_text()
+    assert result(world)["project"] == "project"
+
+
+def test_a_huge_instruction_file_is_read_only_up_to_the_cap(world, monkeypatch):
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("mem_capture_bin", str(CAPTURE))
+    spec = importlib.util.spec_from_loader("mem_capture_bin", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    (world.project / "CLAUDE.md").write_text("x" * 100_000)
+    seen = []
+    real = Path.open
+    def spy(self, *a, **k):
+        f = real(self, *a, **k)
+        if self.name == "CLAUDE.md":
+            inner = f.read
+            f.read = lambda n=-1: seen.append(n) or inner(n)
+        return f
+    monkeypatch.setattr(Path, "open", spy)
+    text, cut = module.rules_text(world.project)
+    assert cut and seen and all(0 < n <= module.RULES_LIMIT + 1 for n in seen)
+    assert text.count("x") == module.RULES_LIMIT
 
 
 def test_rules_hold_the_project_and_the_config_instruction_files(world):

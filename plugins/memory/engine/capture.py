@@ -1,7 +1,7 @@
 """Reduce a Claude Code session transcript to a compact extract and validate
 the memory candidates a model proposes from it.
 
-Pure; standard library plus the engine's own modules. The transcript is read line by line and the
+Pure; standard library and `records` only. The transcript is read line by line and the
 extract is bounded while reading, because transcripts reach hundreds of
 megabytes. Who is the owner is decided by `origin.kind`, not by the entry
 type: most string user entries are subagent reports.
@@ -12,14 +12,13 @@ from collections import deque
 from pathlib import Path
 from typing import Mapping, Sequence
 
-import mem
 import records
 
 SIGNALS: tuple[str, ...] = ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
                             "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
 REACHES = records.REACHES
 FORMS: tuple[str, ...] = ("suggestion", "recommendation")
-SAME_AS_MIN = 0.3  # share of the candidate's claim terms found in the claim it says it repeats
+SAME_AS_MIN = 0.3  # the larger share of one claim's terms found in the other, in either direction
 KINDS: tuple[str, ...] = ("lesson", "pitfall", "decision")
 EXTRACT_LIMIT = 80_000
 PART_SIZE = 40_000
@@ -210,7 +209,7 @@ def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str], han
     claim = item.get("claim")
     if not isinstance(claim, str) or not 20 <= len(claim) <= 300:
         return "claim length"
-    if same_as is not None and records.containment(mem.tokenize(claim), set(mem.tokenize(handles[same_as]))) < SAME_AS_MIN:
+    if same_as is not None and _overlap(claim, handles[same_as]) < SAME_AS_MIN:
         return "same_as mismatch"
     evidence = item.get("evidence")
     ev = " ".join(evidence.split()) if isinstance(evidence, str) else ""
@@ -225,6 +224,12 @@ def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str], han
     elif _norm(claim) in recorded:
         return "already recorded"
     return ""
+
+
+def _overlap(claim: str, other: str) -> float:
+    """How much two claims share, from either side: a hedged candidate is longer than the record it repeats."""
+    a, b = records.tokenize(claim), records.tokenize(other)
+    return max(records.containment(a, set(b)), records.containment(b, set(a)))
 
 
 def validate(candidates: object, extract_text: str, recorded: Sequence[str],
