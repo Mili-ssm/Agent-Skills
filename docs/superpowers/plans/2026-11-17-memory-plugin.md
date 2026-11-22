@@ -10,13 +10,13 @@ Read this section first; the stage list below is the history and the detail. Che
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.3.0 (tag `memory-v0.3.0`, 2026-11-22: handoff block, transcript records, background capture behind `auto_capture`; 0.2.0 and 0.1.0 on 2026-11-19; ADR 0027): work merges into `dev`, a release into `main` |
+| Released | `memory` 0.4.0 (tag `memory-v0.4.0`, 2026-11-22: corroboration pass, quarantine, triage, sweep of sessions left open); 0.3.0 (2026-11-22: handoff block, transcript records, background capture behind `auto_capture`; 0.2.0 and 0.1.0 on 2026-11-19; ADR 0027): work merges into `dev`, a release into `main` |
 | Merged | Stages 0 to 3, 5, 5b, 6, the import of stage 7, stage 10 (PR #119), edit commands (#121), store history in git (#122), prompts and loop (#123), descriptions (#126), the seamless plan's stages W, 1a, 1b and 2 (#128, #129, #136 to #139) |
 | Installed | `memory@mili-ssm` 0.1.0 at user scope, following `main`; options `auto_settle` and `auto_curation` on, `research_depth` unset (`contrast`) |
 | Default store | The owner's imported notes plus everything written since; its `check` reports 29 broken links to documents of the origin that were not imported; no remote yet |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1248 passed, 4 skipped on `dev` (2026-11-19, about 100 s); `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (UTC date in the curation log) |
 | Compaction | `PreCompact` asks for a handoff block; `PostCompact` logs one line per compaction and speaks only when the block is missing or names a missing plan file ([plan](2026-11-21-memory-handoff-and-compact-log.md)); outcome metrics in `docs/studies/scripts/memory_usage.py` |
-| Capture | Lessons drawn from a session transcript as unconfirmed project memories; with the option `auto_capture`, the `PreCompact` and `SessionEnd` hooks run it in the background (released in 0.3.0). Stage B3, built on 2026-11-22 on `feat/memory-capture-corroboration` and not merged: a corroboration pass (`mem-corroborate`), quarantine of an unconfirmed general lesson, triage, and a sweep of sessions left open ([design](../specs/2026-11-21-memory-capture-design.md), [plan and results](2026-11-22-memory-capture-corroboration.md)). B4 open |
+| Capture | Lessons drawn from a session transcript as unconfirmed project memories; with the option `auto_capture`, the `PreCompact` and `SessionEnd` hooks run it in the background (released in 0.3.0). Stage B3, released in 0.4.0: a corroboration pass (`mem-corroborate`), quarantine of an unconfirmed general lesson, triage, and a sweep of sessions left open ([design](../specs/2026-11-21-memory-capture-design.md), [plan and results](2026-11-22-memory-capture-corroboration.md)). B4 open |
 | Not registered | The signal hook of stage 6 (measured: no gain) |
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
