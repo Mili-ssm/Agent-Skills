@@ -304,3 +304,22 @@ def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
     assert mem.main(["rules", "--more", "docs"]) == 0
     (row,) = capsys.readouterr().out.splitlines()
     assert row.split("\t")[:4] == [f"m:{h}", "global", "index only", "docs"]
+
+
+def test_an_index_only_global_lesson_does_not_hide_its_twin_in_the_project():
+    base = _base()
+    glob = dataclasses.replace(base, scope="global", handle="g", owner_confirmed=TODAY, load="index", topic="ui")
+    twin = dataclasses.replace(base, scope="project", handle="p", general="g", owner_confirmed=TODAY)
+    choice = rules.choose([twin], [glob], TODAY)
+    assert [m.handle for m in choice.loaded] == ["p"]
+    assert [(m.handle, why) for m, why in choice.left] == [("g", "index only")]
+
+
+def test_mem_rules_prints_the_index_line_when_no_rule_loads(project, gfolder, capsys):
+    write("Index only lesson about shells.", short="Quote heredoc delimiters.", topic="shell")
+    handle = load(gfolder, "global")["Index only lesson about shells."].handle
+    assert mem.main(["memory", "edit", f"m:{handle}", "--global", "--index-only"]) == 0
+    capsys.readouterr()
+    assert mem.main(["rules"]) == 0
+    out = capsys.readouterr().out
+    assert out.splitlines() == ["No rules loaded.", "1 more recommendation by topic: shell 1 (mem rules --more <topic>)"]

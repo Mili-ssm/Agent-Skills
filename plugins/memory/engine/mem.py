@@ -4243,15 +4243,12 @@ def cmd_rules(args: argparse.Namespace) -> int:
             print(unready)
         return 0
     lines = rules.block(choice)
-    if not lines:
-        print("No rules loaded.")
-        if choice.unready:
-            print(unready)
-        return 0
-    print("\n".join(lines))
+    print("\n".join(lines) if lines else "No rules loaded.")
     more = rules.more_line(choice)
-    if more:
+    if more:  # also alone: index-only lessons are reachable when no rule loads
         print(more)
+    if not lines and choice.unready:
+        print(unready)
     return 0
 
 

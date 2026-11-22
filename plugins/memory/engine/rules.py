@@ -59,7 +59,8 @@ def line(m: Memory) -> str:
 def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime.date) -> Choice:
     out = Choice()
     globals_ = [m for m in global_ if eligible(m, today)]
-    names = {m.handle for m in globals_ if m.triage != "pending" and records.valid_short(m.short)}  # ready to load
+    # ready to load and competing: an index-only global lesson must not hide its twin in the project it came from
+    names = {m.handle for m in globals_ if m.triage != "pending" and records.valid_short(m.short) and m.load is None}
     projects_ = [m for m in project if eligible(m, today) and (m.general or "").removeprefix("m:") not in names]
     ready: list[Memory] = []
     for m in [*projects_, *globals_]:
