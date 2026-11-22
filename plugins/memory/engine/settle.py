@@ -76,12 +76,13 @@ def locked(folder: Path):
 
 
 def load_state(folder: Path) -> dict:
-    """The settle state. The first use (no state file) records every memory that exists as judged: only records
-    written after that are new. This writes the file, so an unwritable folder raises OSError. A file that exists
-    but cannot be read as a state raises ValueError and is never replaced."""
+    """The settle state. The first use (no state file) records every memory that exists as judged, except those in
+    quarantine, which are new once released: only records written after that are new. This writes the file, so an
+    unwritable folder raises OSError. A file that exists but cannot be read as a state raises ValueError and is never
+    replaced."""
     path = folder / STATE_NAME
     if not path.exists():
-        state = {"judged": _stems(folder), "last_apply": None, "acked": 0, "offered": None}
+        state = {"judged": _unjudged_stems(folder, set()), "last_apply": None, "acked": 0, "offered": None}
         save_state(folder, state)
         return state
     try:
@@ -121,7 +122,7 @@ def _unjudged_stems(folder: Path, judged: set[str]) -> list[str]:
 
 
 def unjudged_count(folder: Path, state: dict, today: datetime.date) -> int:
-    """Live memories not yet judged, other than those of origin pipeline or web. Parses only the files whose handle is not in the judged list."""
+    """Live memories not yet judged, other than those of origin pipeline or web or in quarantine. Parses only the files whose handle is not in the judged list."""
     judged = set(state["judged"])
     count = 0
     for stem in _stems(folder):

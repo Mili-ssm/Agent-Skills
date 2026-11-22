@@ -146,7 +146,20 @@ def test_settle_state_ignores_quarantine_until_release(gfolder, capsys):
     capsys.readouterr()
     q = next(m for m in records.load_memories(gfolder, "global") if m.claim == QUARANTINED)
     assert not records.quarantined(q)
-    assert settle.unjudged_count(gfolder, settle.load_state(gfolder), TODAY) == 1
+    state = settle.load_state(gfolder)
+    assert settle.unjudged_count(gfolder, state, TODAY) == 1
+    assert write_established(QUARANTINED + " Indeed.") == 0  # a twin of the released record, to pair with it
+    loaded = records.load_memories(gfolder, "global")
+    assert any(q.handle in (p["a"], p["b"]) for p in settle.pending(loaded, state, TODAY, tokenize=mem.tokenize))
+
+
+def test_first_use_does_not_judge_a_quarantined_record(gfolder):
+    assert write_quarantined() == 0
+    assert write_established() == 0
+    q = next(m for m in records.load_memories(gfolder, "global") if records.quarantined(m))
+    e = next(m for m in records.load_memories(gfolder, "global") if not records.quarantined(m))
+    judged = settle.load_state(gfolder)["judged"]  # first use: no state file yet
+    assert e.handle in judged and q.handle not in judged
 
 
 def test_quarantine_listing_hides_a_forgotten_record(both, capsys):
