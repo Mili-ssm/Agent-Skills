@@ -796,6 +796,8 @@ def fill_dry_run(args) -> int:
             kept, reasons = corroborate.validate_fill(read_object(out), list(by_id))
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
+    for ident in by_id:
+        kept.setdefault(ident, {"short": "", "topic": "", "problem": "no proposal"})
     items = []
     for ident, fields in kept.items():
         m = by_id[ident]
@@ -803,9 +805,10 @@ def fill_dry_run(args) -> int:
         items.append({"id": ident, "handle": m.handle, "scope": "global" if project is None else names.get(project, str(project)),
                       "claim": m.claim, "short": fields["short"], "topic": fields["topic"],
                       "load": "index" if m.load == "index" else "yes",
-                      "claim_digest": corroborate.claim_digest(m)})
+                      "claim_digest": corroborate.claim_digest(m), **({"problem": fields["problem"]} if "problem" in fields else {})})
+    to_edit = sum("problem" in i for i in items)
     write_private(Path(args.out).expanduser(), json.dumps(items, ensure_ascii=False, indent=1) + "\n")
-    print(f"mem-corroborate: fill: {len(candidates)} lessons asked, {len(items)} kept, {len(reasons)} dropped, "
+    print(f"mem-corroborate: fill: {len(candidates)} lessons asked, {len(items) - to_edit} kept, {to_edit} to edit, {len(reasons)} dropped, "
           f"cost {cost:.3f} USD; read {args.out}, edit or cut it, then run fill --items {args.out}")
     for why in reasons:
         print(f"  not kept: {why}", file=sys.stderr)

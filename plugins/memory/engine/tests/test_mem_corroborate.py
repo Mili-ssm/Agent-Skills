@@ -784,6 +784,11 @@ def fill_run(w, *args, **kw):
     return run(w, *args, cmd="fill", **kw)
 
 
+def cut_problems(out):
+    """The owner cuts the items the dry run marked with a problem."""
+    out.write_text(json.dumps([i for i in json.loads(out.read_text()) if "problem" not in i]))
+
+
 def proposal(w, g):
     ids = fill_ids(w)
     handle = records.load_memories(records.project_dir(w.pa), "project")[0].handle
@@ -791,7 +796,7 @@ def proposal(w, g):
     assert len(shared) == 2
     gid = ids[("g", g.handle)]
     fill_answer(w, [{"id": shared[0], "short": SHORT, "topic": "process"},
-                    {"id": shared[1], "short": SHORT + " ", "topic": "Process"},   # invalid: dropped
+                    {"id": shared[1], "short": SHORT + " ", "topic": "Process"},   # invalid: kept for the owner, with a problem
                     {"id": gid, "short": "Read a failing test output to the end before changing code.", "topic": "testing"},
                     {"id": "g:nothing", "short": SHORT, "topic": "process"}])
     return shared, gid
@@ -804,9 +809,11 @@ def test_fill_dry_run_writes_the_proposal_and_changes_nothing(w):
     out = w.tmp / "proposal.json"
     done = fill_run(w, "--dry-run", "--out", str(out))
     assert done.returncode == 0, done.stderr
-    assert "4 lessons asked, 2 kept, 2 dropped" in done.stdout, done.stdout
+    assert "4 lessons asked, 2 kept, 2 to edit, 1 dropped" in done.stdout, done.stdout
     items = json.loads(out.read_text())
-    assert [(i["id"], i["scope"]) for i in items] == [(shared[0], w.pa.name), (gid, "global")]
+    assert {(i["id"], i["scope"]) for i in items if "problem" not in i} == {(shared[0], w.pa.name), (gid, "global")}
+    assert len([i for i in items if "problem" in i]) == 2   # the invalid one and the lesson with no proposal
+    items = [i for i in items if "problem" not in i]
     first = items[0]
     assert set(first) == {"id", "handle", "scope", "claim", "short", "topic", "load", "claim_digest"}
     assert (first["claim"], first["short"], first["topic"], first["load"]) == (SAME, SHORT, "process", "yes")
@@ -816,6 +823,37 @@ def test_fill_dry_run_writes_the_proposal_and_changes_nothing(w):
     call = json.loads(w.calls_file.read_text().splitlines()[0])
     assert call["args"][call["args"].index("--tools") + 1] == "Read,Write" and "fill.json" not in call["files"]
     assert "lessons.txt" in call["files"] and not any(v.startswith("CLAUDE_PLUGIN") for v in call["mem_vars"])
+
+
+def test_fill_dry_run_keeps_what_needs_editing_with_its_problem_and_apply_ignores_the_field(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    other = next(i for (k, h), i in fill_ids(w).items() if k != "g" and i not in shared)
+    fill_answer(w, [{"id": shared[0], "short": "x" * 134, "topic": "process"},
+                    {"id": gid, "short": "Read a failing test output to the end before changing code.", "topic": "Testing"},
+                    {"id": "g:nothing", "short": SHORT, "topic": "process"}])
+    out = w.tmp / "proposal.json"
+    done = fill_run(w, "--dry-run", "--out", str(out))
+    assert done.returncode == 0, done.stderr
+    assert "4 lessons asked, 0 kept, 4 to edit, 1 dropped" in done.stdout, done.stdout
+    by_id = {i["id"]: i for i in json.loads(out.read_text())}
+    assert set(by_id) == {shared[0], shared[1], gid, other}
+    assert by_id[shared[0]]["problem"] == "short has 134 characters, at most 120" and by_id[shared[0]]["short"] == "x" * 134
+    assert by_id[gid]["problem"] == "topic must be one or two lowercase words" and by_id[gid]["topic"] == "Testing"
+    assert by_id[shared[1]] ["problem"] == by_id[other]["problem"] == "no proposal"
+    assert (by_id[other]["short"], by_id[other]["topic"]) == ("", "")
+    assert {"id", "handle", "scope", "claim", "short", "topic", "load", "claim_digest", "problem"} == set(by_id[other])
+    # the owner repairs one item and leaves the others: `problem` is ignored, the rest is validated as ever
+    items = list(by_id.values())
+    for i in items:
+        if i["id"] == shared[0]:
+            i["short"] = SHORT
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 4, "written": 1, "dropped": 3, "failed": 0}
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    assert (a.short, a.topic) == (SHORT, "process")
 
 
 def test_fill_dry_run_asks_for_no_lesson_that_has_nothing_to_fill(w):
@@ -828,6 +866,7 @@ def test_fill_items_write_exactly_the_file_and_undo_puts_them_back(w):
     shared, gid = proposal(w, g)
     out = w.tmp / "proposal.json"
     assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
     before = snapshot(w)
     items = json.loads(out.read_text())
     for i in items:
@@ -859,6 +898,7 @@ def test_fill_items_write_the_second_project_of_a_shared_handle(w):
     fill_answer(w, [{"id": shared[1], "short": SHORT, "topic": "process"}])
     out = w.tmp / "proposal.json"
     assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
     assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
     a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
     b = next(m for m in project_records(w.pb).values() if m.claim == SAME)
@@ -870,6 +910,7 @@ def test_fill_items_refuse_an_item_whose_claim_changed(w):
     proposal(w, g)
     out = w.tmp / "proposal.json"
     assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
     a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
     records.update(a, TODAY, claim=SAME + " Provisional.")
     done = fill_run(w, "--items", str(out), claude=False, mode="never")
@@ -917,6 +958,7 @@ def fill_file(w, g, **change):
     shared, gid = proposal(w, g)
     out = w.tmp / "proposal.json"
     assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
     items = [{**i, **change} for i in json.loads(out.read_text())]
     out.write_text(json.dumps(items))
     return out, shared, gid

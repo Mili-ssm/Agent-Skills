@@ -335,33 +335,45 @@ def fill_lines(candidates: Sequence[tuple[str, records.Memory]]) -> str:
     return "\n\n".join(blocks) + ("\n" if blocks else "")
 
 
+def fill_problem(short: str, topic: str) -> str | None:
+    """Why a proposed short form or topic cannot be applied, in English, or None when both can."""
+    found = []
+    if not short.strip():
+        found.append("short is empty")
+    elif short != short.strip():
+        found.append("short has spaces at its ends")
+    elif len(short.splitlines()) != 1:
+        found.append("short must be one line")
+    elif not records.valid_short(short):
+        found.append(f"short has {len(short)} characters, at most {records.SHORT_LIMIT}")
+    if not records.valid_topic(topic):
+        found.append("topic must be one or two lowercase words")
+    return "; ".join(found) or None
+
+
 def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict], list[str]]:
-    """`payload` is the model's whole answer, {"items": [{"id", "short", "topic"}]}. The kept items by id, as
-    {"short", "topic"}, and a reason for each dropped one (unknown or repeated id, invalid short or topic)."""
+    """`payload` is the model's whole answer, {"items": [{"id", "short", "topic"}]}. The items by id, as {"short",
+    "topic"} plus a "problem" (see `fill_problem`) when either is invalid: that item keeps the model's text (a
+    short cut to 300 characters, a value that is not a string as "") so the owner can repair it. The first item of
+    a known id decides. A reason for each dropped item: no usable id, unknown id, repeated id."""
     items = payload.get("items") if isinstance(payload, dict) else None
     if not isinstance(items, list):
         return {}, ["the answer is not an object with a list `items`"]
     known = set(ids)
     kept: dict[str, dict] = {}
     reasons: list[str] = []
-    seen: set[str] = set()  # the first item of an id that was kept decides; a later one is dropped
     for n, item in enumerate(items, start=1):
         ident = item.get("id") if isinstance(item, dict) else None
-        short = item.get("short") if isinstance(item, dict) else None
-        topic = item.get("topic") if isinstance(item, dict) else None
-        if not isinstance(ident, str) or not isinstance(short, str) or not isinstance(topic, str):
-            why = "not an object with id, short and topic"
+        if not isinstance(ident, str):
+            reasons.append(f"item {n}: not an object with an id")
         elif ident not in known:
-            why = f"unknown id {ident}"
-        elif ident in seen:
-            why = f"repeats {ident}"
-        elif not records.valid_short(short):
-            why = "short is not one line of at most 120 characters"
-        elif not records.valid_topic(topic):
-            why = "topic is not one or two lowercase words"
+            reasons.append(f"item {n}: unknown id {ident}")
+        elif ident in kept:
+            reasons.append(f"item {n}: repeats {ident}")
         else:
-            kept[ident] = {"short": short, "topic": topic}
-            seen.add(ident)
-            continue
-        reasons.append(f"item {n}: {why}")
+            short, topic = item.get("short"), item.get("topic")
+            short = short if isinstance(short, str) else ""
+            topic = topic if isinstance(topic, str) else ""
+            problem = fill_problem(short, topic)
+            kept[ident] = {"short": short[:300], "topic": topic, **({"problem": problem} if problem else {})}
     return kept, reasons
