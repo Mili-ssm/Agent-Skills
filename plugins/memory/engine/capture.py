@@ -211,7 +211,7 @@ def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str], han
     if same_as is not None and (not isinstance(same_as, str) or same_as not in handles):
         return "same_as"
     claim = item.get("claim")
-    if not isinstance(claim, str) or not 20 <= len(claim) <= 300:
+    if not isinstance(claim, str) or not 20 <= len(claim) <= 400:
         return "claim length"
     if same_as is not None and _overlap(claim, handles[same_as]) < SAME_AS_MIN:
         return "same_as mismatch"

@@ -236,3 +236,9 @@ def test_validate_turns_an_identical_claim_into_a_sighting_of_its_record():
     assert len(kept) == 1 and [d["reason"] for d in dropped] == ["same_as repeated"]
     # a claim recorded with no handle (a general memory) stays "already recorded"
     assert capture.validate([GOOD], EXTRACT, [GOOD["claim"]], {})[1][0]["reason"] == "already recorded"
+
+
+def test_a_calibrated_claim_may_run_to_400_characters():
+    long = "In one session " + "x" * 385  # 400 characters
+    assert capture.validate([{**GOOD, "claim": long}], EXTRACT, [])[0][0]["claim"] == long
+    assert capture.validate([{**GOOD, "claim": long + "y"}], EXTRACT, [])[1][0]["reason"] == "claim length"
