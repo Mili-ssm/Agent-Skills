@@ -134,14 +134,14 @@ The texts given to models changed without an eval suite (N6): the proposal and v
 
 Stage B4 is built on the branch `feat/memory-loaded-rules`, not merged and not released ([plan and gate](../superpowers/plans/2026-11-22-memory-loaded-rules.md); capture design, C46 to C48, C52 to C55): established lessons load at session start as short rules, built by code from the records, followed by one line that counts what did not fit by topic. The first release is the small one (C54): a lesson loads only with a short form that the owner read; a lesson has three load states (C55). Reminders were built and parked on a branch (C51). The automatic writing of short forms (C52) and the usefulness of a loaded lesson (C49) have no plan yet.
 
-Measurement (C53, [results](../superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)): one small task, three runs a condition, a real model. No rules: 0 of 3; three rules: 3 of 3; the same three among twelve unrelated ones: 3 of 3, at about 7% more cost. Not measured then: a rule that conflicts with other instructions, a long session, the owner's own instruction files beside the rules.
+Measurement (C53, [results](../superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)): one small task, three runs a condition, a real model, the rules printed by a throwaway hook and not by the plugin. No rules: 0 of 3; three rules: 3 of 3; the same three among twelve unrelated ones: 3 of 3, at about 7% more cost than with no rules. Not measured then: a rule that conflicts with other instructions, a long session, the owner's own instruction files beside the rules.
 
 Gate, on a private copy of the real global lessons:
 
 | Measure | Result |
 |---|---|
 | Short forms proposed by the small model | 15 asked, 13 kept, 2 dropped for passing 120 characters (they are proposed again by the next dry run); 0.004 USD. The 13 keep the hedges of their claims (the author's reading; the owner's reading is pending) |
-| Rules loaded on the copy | 6; the real hook printed 1692 characters (about 650 before). All 15 lessons tied on every order key, so the six were the first by handle: the reason for the index-only state (C55) |
+| Rules loaded on the copy | 6; the real hook printed 1692 characters (about 650 before). Thirteen of the 15 lessons tied on every order key, so most of the six were the first by handle: the reason for the index-only state (C55) |
 | Runs with a real model, five general rules loaded, a task with an ambiguous term | Without rules the model stated its reading in 2 of 3 runs, with rules in 2 of 3, with the owner's instruction file beside them in 0 of 1. No reply announced a rule it did not follow and none went against the instruction file. No effect measurable on this task, whose base rate is high; no harm |
 
 The first batch of runs was void: with no store option the hook switches to the default store, which the test's temporary folders had created empty.

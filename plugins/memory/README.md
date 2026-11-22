@@ -148,7 +148,7 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 
 ## Loaded rules (on a branch, not released; nothing loads until lessons have a short form)
 
-**What it does:** an established lesson that has a short form loads as one line of the session start text, so an agent that never searches still sees it. The text is built by code from the records at each session start; no model rewrites the list. `mem rules` prints the same block.
+**What it does:** an established lesson that has a short form loads as one line of the session start text, so an agent that never searches still sees it. The text is built by code from the records at each session start; no model rewrites the list. `mem rules` prints the same block, or `No rules loaded.` when none loads.
 
 ```
 memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.
@@ -165,13 +165,13 @@ memory: rules learned in earlier sessions. Follow them unless you have a reason 
 | Index line | The line after the rules: how many more recommendations there are, by topic, ending with `(mem rules --more <topic>)`. At most 200 characters |
 | Load state | Absent: the lesson competes for a place. `index` (`--index-only`): never among the rules, counted in the index line. `no` (`--no-load`): nowhere. `--load` removes the field |
 
-**What loads:** a lesson of origin `transcript` that is live, established (not in quarantine), has a valid short form and is not `no` or `index`. A global lesson must also be past triage (`mem triage accept <h>`) or confirmed by the owner; a project lesson needs two sessions or the owner's confirmation. At most 6 rules and 900 characters of rule lines. A project lesson that was generalized never loads twice: its global twin loads, unless the twin is index only or off.
+**What loads:** a lesson of origin `transcript` that is live, established (not in quarantine), has a valid short form and is not `no` or `index`. A global lesson must also be past triage (`mem triage accept <h>`) or confirmed by the owner; a project lesson needs two sessions or the owner's confirmation. At most 6 rules and 900 characters of rule lines. A project lesson that was generalized never loads twice: when its global twin can itself load and competes for a place, only the twin loads; when the twin awaits triage, has no short form, is index only or is off, the project lesson loads in its own project.
 
 **Order:** confirmed by the owner first, then weight (`strong`, `medium`, `light`), then the number of projects that saw it, then of sessions, then the latest sighting, then the handle. The three best project lessons get the first places. A lesson that does not fit stops the line: nothing ranked lower jumps ahead of it.
 
-**What never loads:** a lesson in quarantine; a lesson with no short form (counted nowhere at session start); a lesson that awaits triage (the `Triage:` line announces it; `mem rules --more` lists it as "awaits triage"); a project lesson seen in one session and not confirmed; a lesson with load state `no`.
+**What never loads:** a lesson in quarantine; a lesson with no short form (counted nowhere at session start, unless it is index only: the index line counts an index-only lesson with or without one); a lesson that awaits triage (the `Triage:` line announces it; `mem rules --more` lists it as "awaits triage"); a project lesson seen in one session and not confirmed; a lesson with load state `no`.
 
-**The index line** counts the lessons that qualify and did not fit, plus the index-only ones. A lesson with no topic is counted as `other`.
+**The index line** counts the lessons that qualify and did not fit, plus the index-only ones. A lesson with no topic is counted as `other`, which is why `other` is refused as a topic; when no left-out lesson has a topic the line reads `N more recommendations: mem rules --more`.
 
 | Command | Use |
 | --- | --- |
@@ -183,7 +183,7 @@ memory: rules learned in earlier sessions. Follow them unless you have a reason 
 | `mem memory edit <h> [--global] --no-load` | Turn one rule off; the lesson stays stored and searchable |
 | `mem memory edit <h> [--global] --index-only` | Keep it out of the rules but counted by topic in the index line |
 | `mem memory edit <h> [--global] --load` | Remove `--no-load` or `--index-only` |
-| `mem-corroborate fill --dry-run --out FILE` | One model session proposes a short form, a topic and a load state for up to 30 lessons that qualify and lack them; changes no record |
+| `mem-corroborate fill --dry-run --out FILE` | One model session proposes a short form and a topic for up to 30 lessons that qualify and lack either (a lesson with a short form and no topic gets both proposed, and applying the file replaces its short form); the file also carries each lesson's load state, copied from the record, for the owner to set; changes no record |
 | `mem-corroborate fill --items FILE` | Apply the file as you left it; starts no model session |
 
 **Giving lessons a short form:** the owner runs `fill --dry-run --out FILE` (the file must not be inside a repository: it holds lesson text), reads it, then runs `fill --items FILE`. Each item holds `id`, `handle`, `scope`, `claim`, `short`, `topic`, `claim_digest` and `load` (`yes`, `index` or `no`). Edit `short`, `topic` and `load`, or delete an item to skip that lesson. An item is dropped when its handle or scope does not match its id, or its record cannot load; it fails when the claim changed since the file was made. A proposal that is not valid (a short form of more than 120 characters, a bad topic) or missing stays in the file with a `problem` field saying why: shorten or fix it, then apply; `fill --items` ignores `problem` and drops an item that is still invalid. `mem-corroborate undo <stamp>` (printed by `fill --items`) puts every written record back while its run folder exists; a later pass may prune old run folders.
@@ -203,7 +203,7 @@ memory: rules learned in earlier sessions. Follow them unless you have a reason 
 | The session start text grows by up to about 1200 characters when six rules load | The limits above (115 for the header, 900 for the rules, 200 for the index line) |
 | Whether a loaded lesson stops its failure from recurring is read by hand from the capture log | No date on each sighting yet |
 
-**Evidence:** one small task, three runs a condition, a real model. With no rules, none of three checkable practices was followed (0 of 3 each); with three rules in the session start text, all three in 3 of 3 runs; with the same three among twelve unrelated rules, again 3 of 3, at about 7% more cost ([measurement](../../docs/superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)). Not measured: a rule that conflicts with another instruction, a long session, and several rules at once in real work. On a private copy of 15 real lessons the small model proposed 13 short forms and 2 passed 120 characters and were dropped; the owner's reading of them is pending.
+**Evidence:** one small task, three runs a condition, a real model, with the rules printed by a throwaway hook, not by this plugin. With no rules, none of three checkable practices was followed (0 of 3 each); with three rules in the session start text, all three in 3 of 3 runs; with the same three among twelve unrelated rules, again 3 of 3, at about 7% more cost than with no rules ([measurement](../../docs/superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)). Not measured: a rule that conflicts with another instruction, a long session, and several rules at once in real work. On a private copy of 15 real lessons the small model proposed 13 short forms and 2 passed 120 characters (then dropped; now kept in the file marked with a problem); the owner's reading of them is pending. With this plugin and five of those rules loaded, three runs on one task showed no measurable effect and no harm (the model stated its reading of an ambiguous term in 2 of 3 runs with the rules and in 2 of 3 without); so the evidence that rules are followed is the first measurement, not a run of this plugin.
 
 ## Research with the web (`mem-research`; not yet measured)
 
