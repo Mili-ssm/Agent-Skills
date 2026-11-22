@@ -367,3 +367,17 @@ def test_a_same_as_naming_a_global_record_is_kept_like_a_project_one():
     assert kept == [item] and dropped == []
     other = {**item, "same_as": "g:cooking"}
     assert capture.validate([other], EXTRACT, [], handles)[1][0]["reason"] == "same_as"
+
+
+def test_a_known_global_handle_with_too_few_shared_terms_is_dropped_as_a_mismatch():
+    handles = {"g:cooking": "Rinse the rice before cooking it."}
+    item = {**GOOD, "same_as": "g:cooking"}
+    kept, dropped = capture.validate([item], EXTRACT, [], handles)
+    assert kept == [] and dropped[0]["reason"] == "same_as mismatch"
+
+
+def test_an_identical_claim_in_a_project_and_a_global_record_links_to_the_global_one():
+    claim = "Check migrations before merging schema changes."
+    for handles in ({"m:a": claim, "g:a": claim}, {"g:a": claim, "m:a": claim}):
+        kept, dropped = capture.validate([{**GOOD, "claim": claim}], EXTRACT, [], handles)
+        assert dropped == [] and kept[0]["same_as"] == "g:a", handles
