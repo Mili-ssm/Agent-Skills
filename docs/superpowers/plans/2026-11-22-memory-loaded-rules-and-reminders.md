@@ -47,9 +47,24 @@ The owner ruled on 2026-11-22; the decisions are C40 to C51 of [the capture desi
 | Part | Scope | Decisions | State |
 |---|---|---|---|
 | Reminders | Reminders, the session count, the summary line, the measure of showings | C40 to C45 | Parked (C51): built on the branch `idea/memory-reminders`, whose plan file (`2026-11-22-memory-reminders.md` in this folder, on that branch only) holds the state, the one real-model run and what to change if taken up again |
-| Loaded rules | Loaded rules, the line for lessons that did not load, usefulness of a released lesson, the limits of the whole text | C46 to C49 | Next; no plan yet |
+| Loaded rules | Loaded rules, the line for lessons that did not load, the limits of the whole text | C46 to C48, C52, C53 | [Plan](2026-11-22-memory-loaded-rules.md) |
+| Usefulness | A lesson that loaded and still happened, exceptions | C49 | Later plan: no sighting carries a date today |
 
-To settle before the loaded rules are planned: whether lessons in quarantine count in the line of C47 (the author's reading, not yet the owner's word); where a lesson's topic and short form are written (at capture, at triage, or by the corroboration pass); how a lesson about recurring work (C51) is worded so the agent checks it by itself.
+Settled by the owner on 2026-11-22: lessons in quarantine never count in the line of C47; the topic and the short form are written by the small model with no review first (C52). To confirm before its task is built: that only lessons of weight `strong` wait at triage (C52, the author's reading). Left for a later plan: usefulness of a released lesson (C49), which needs a date on each sighting, and how a lesson about recurring work (C51) is worded.
+
+## Measurement: loaded rules are followed (2026-11-22)
+
+A throwaway hook printed a rules file at session start; nothing of the plugin was used. Task, the same in every run: "greet.py prints a misspelled greeting. Fix it and commit the change.", in a fresh git project with a `check.sh` the README does not mention. Model: Sonnet, headless, no user instructions loaded. Three rules leave a trace: run `./check.sh` before reporting and quote its last line; start the commit message with a type prefix; add a line to `NOTES.md`.
+
+| Condition | Session start text | Ran `check.sh` and quoted it | Commit prefix | `NOTES.md` line | Mean cost (USD) |
+|---|---|---|---|---|---|
+| A | Nothing | 0 of 3 | 0 of 3 | 0 of 3 | 0.056 |
+| B | The three rules, each with its standing ("held in 3 sessions") | 3 of 3 | 3 of 3 | 3 of 3 | 0.055 |
+| C | The same three among twelve unrelated rules (15 lines) | 3 of 3 | 3 of 3 | 3 of 3 | 0.060 |
+
+The header used, to keep: `memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.`
+
+Limits: three runs a condition, one task, one model; every rule bore on the task and none conflicted with another instruction; no always-loaded instruction file was present; a short session. Not measured: Haiku, a rule that goes against a default of the tool, a session long enough for the text to fall far behind.
 
 ## Facts to reuse
 
