@@ -64,8 +64,9 @@ def test_extract_reads_tool_result_content_given_as_blocks(tmp_path):
     assert capture.extract(p)[0].splitlines()[-1] == "[2] TOOL ERROR Bash: no such file"
 
 EXTRACT = "[1] OWNER: no, always run the validator   before a commit\n[2] AGENT: understood"
-GOOD = {"kind": "lesson", "signal": "owner_correction", "reach": "project", "claim": "Run the validator before every commit in this project",
-        "context": "the owner corrected a commit made without it", "evidence": "always run the validator before a commit"}
+GOOD = {"kind": "lesson", "signal": "owner_correction", "reach": "project", "weight": "medium", "form": "recommendation",
+        "claim": "Run the validator before every commit in this project",
+        "context": "the owner corrected a commit made without it", "evidence": "always run the validator before a commit", "same_as": None}
 
 def test_validate_keeps_a_good_candidate_and_tolerates_whitespace():
     kept, dropped = capture.validate([GOOD], EXTRACT, [])
@@ -142,14 +143,15 @@ def test_validate_reach_and_the_new_signals():
     assert kept[0]["reach"] == "general"
     no_reach = {k: v for k, v in GOOD.items() if k != "reach"}
     kept, _ = capture.validate([no_reach], EXTRACT, [])
-    assert kept == [GOOD] and list(kept[0]) == ["kind", "signal", "reach", "claim", "context", "evidence"]
+    assert kept == [GOOD] and list(kept[0]) == ["kind", "signal", "reach", "weight", "form", "claim", "context", "evidence", "same_as"]
     bad = {**GOOD, "reach": "global"}
     assert capture.validate([bad], EXTRACT, [])[1] == [{"candidate": bad, "reason": "reach"}]
     ex = "[1] REPORT: the subagent failed to finish the task and left no diff"
     item = {**GOOD, "signal": "delegation_failed", "evidence": "failed to finish the task and left no diff"}
     assert capture.validate([item], ex, [])[0] != []
     assert capture.SIGNALS == ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
-                               "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
+                               "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason",
+                               "owner_approval", "effective_practice")
 
 
 def test_a_queued_command_is_the_owner_only_with_a_human_origin(tmp_path):
@@ -165,3 +167,94 @@ def test_lines_that_fail_for_another_reason_than_json_are_counted(tmp_path):
     p = write(tmp_path, ["not json", "[" * 100000, user("fine")])
     assert capture.extract(p)[0] == "[3] OWNER: fine" and capture.last_skipped == 1
     assert capture.extract(write(tmp_path, [user("fine")]))[0] == "[1] OWNER: fine" and capture.last_skipped == 0
+
+
+HANDLES = {"m:validator": "Run the validator before every commit in this project, as the owner asked.",
+           "m:other": "Pin the tool version in the lockfile before a release."}
+
+def test_validate_defaults_and_the_exact_keys_of_a_kept_item():
+    bare = {k: v for k, v in GOOD.items() if k not in ("weight", "form", "same_as", "context")}
+    kept, _ = capture.validate([bare], EXTRACT, [])
+    assert kept == [{**GOOD, "context": ""}]
+    assert list(kept[0]) == ["kind", "signal", "reach", "weight", "form", "claim", "context", "evidence", "same_as"]
+    assert capture.REACHES == capture.records.REACHES and capture.FORMS == ("suggestion", "recommendation")
+
+def test_validate_new_reasons():
+    cases = [({**GOOD, "weight": "heavy"}, "weight"), ({**GOOD, "form": "instruction"}, "form"), ({**GOOD, "form": "order"}, "form"),
+             ({**GOOD, "kind": "decision", "reach": "general"}, "a decision is a project record"),
+             ({**GOOD, "same_as": "m:missing"}, "same_as"), ({**GOOD, "same_as": 7}, "same_as"),
+             ({**GOOD, "same_as": "m:other"}, "same_as mismatch")]
+    for item, reason in cases:
+        kept, dropped = capture.validate([item], EXTRACT, [], HANDLES)
+        assert kept == [] and dropped == [{"candidate": item, "reason": reason}]
+
+def test_validate_orders_reasons_reach_weight_form():
+    item = {**GOOD, "reach": "world", "weight": "heavy", "form": "order"}
+    assert capture.validate([item], EXTRACT, [])[1][0]["reason"] == "reach"
+    assert capture.validate([{**item, "reach": "project"}], EXTRACT, [])[1][0]["reason"] == "weight"
+    assert capture.validate([{**item, "reach": "project", "weight": "light"}], EXTRACT, [])[1][0]["reason"] == "form"
+    both = {**GOOD, "kind": "decision", "reach": "general", "same_as": "m:missing"}
+    assert capture.validate([both], EXTRACT, [], HANDLES)[1][0]["reason"] == "a decision is a project record"
+
+def test_validate_a_sighting_skips_already_recorded_and_is_kept_once_per_record():
+    item = {**GOOD, "same_as": "m:validator"}
+    claim_line = [GOOD["claim"]]
+    assert capture.validate([item], EXTRACT, claim_line, HANDLES)[0] == [item]
+    assert capture.validate([GOOD], EXTRACT, claim_line, HANDLES)[1][0]["reason"] == "already recorded"
+    kept, dropped = capture.validate([item, {**item, "claim": GOOD["claim"] + " (again)"}], EXTRACT, [], HANDLES)
+    assert kept == [item] and [d["reason"] for d in dropped] == ["same_as repeated"]
+
+def test_a_hedged_sighting_is_kept_and_an_unrelated_record_is_not():
+    hedged = {**GOOD, "claim": "In one session the agent merged a schema change without checking migrations, so consider "
+                               "checking them first.", "same_as": "m:migrations"}
+    handles = {"m:migrations": "Check migrations before merging schema changes.", "m:cooking": "Rinse the rice before cooking it."}
+    kept, dropped = capture.validate([hedged], EXTRACT, [], handles)
+    assert kept == [hedged] and dropped == []
+    other = {**hedged, "same_as": "m:cooking"}
+    assert capture.validate([other], EXTRACT, [], handles)[1] == [{"candidate": other, "reason": "same_as mismatch"}]
+
+def test_capture_imports_the_records_module_only():
+    import ast
+    names = {a.name for n in ast.walk(ast.parse(Path(capture.__file__).read_text())) if isinstance(n, ast.Import) for a in n.names}
+    assert "mem" not in names and "records" in names
+    import mem
+    assert mem.tokenize is capture.records.tokenize
+
+
+def test_validate_collapses_whitespace_and_cuts_the_context():
+    item = {**GOOD, "claim": "Run the validator\n  before every commit in this project ",
+            "evidence": "always run the validator\nbefore a commit", "context": " the owner\n corrected  it " + "x" * 400}
+    kept, dropped = capture.validate([item], EXTRACT, [])
+    assert dropped == [] and kept[0]["claim"] == GOOD["claim"] and kept[0]["evidence"] == GOOD["evidence"]
+    assert kept[0]["context"] == ("the owner corrected it " + "x" * 400)[:300] and "\n" not in kept[0]["context"]
+
+
+def test_validate_turns_an_identical_claim_into_a_sighting_of_its_record():
+    handles = {"m:validator": "  run the VALIDATOR before every   commit in this project"}
+    kept, dropped = capture.validate([GOOD], EXTRACT, [GOOD["claim"]], handles)
+    assert dropped == [] and kept == [{**GOOD, "same_as": "m:validator"}]
+    kept, dropped = capture.validate([GOOD, {**GOOD}], EXTRACT, [GOOD["claim"]], handles)
+    assert len(kept) == 1 and [d["reason"] for d in dropped] == ["same_as repeated"]
+    # a claim recorded with no handle (a general memory) stays "already recorded"
+    assert capture.validate([GOOD], EXTRACT, [GOOD["claim"]], {})[1][0]["reason"] == "already recorded"
+
+
+def test_a_calibrated_claim_may_run_to_400_characters():
+    long = "In one session " + "x" * 385  # 400 characters
+    assert capture.validate([{**GOOD, "claim": long}], EXTRACT, [])[0][0]["claim"] == long
+    assert capture.validate([{**GOOD, "claim": long + "y"}], EXTRACT, [])[1][0]["reason"] == "claim length"
+
+
+def test_claim_length_is_measured_after_whitespace_is_collapsed():
+    kept, dropped = capture.validate([{**GOOD, "claim": "Run" + " " * 25 + "it"}], EXTRACT, [])
+    assert kept == [] and dropped[0]["reason"] == "claim length"
+
+
+def test_what_worked_is_a_signal_too():
+    ex = "[1] OWNER: this way of splitting the brief worked really well, keep doing it\n[2] TOOL OK Bash\n[3] AGENT: the narrow briefs all returned complete reports on the first try"
+    praised = {**GOOD, "signal": "owner_approval", "evidence": "this way of splitting the brief worked really well"}
+    assert capture.validate([praised], ex, [])[0] != []
+    assert capture.validate([{**praised, "evidence": "the narrow briefs all returned complete reports"}], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
+    paid_off = {**GOOD, "signal": "effective_practice", "evidence": "the narrow briefs all returned complete reports on the first try"}
+    assert capture.validate([paid_off], ex, [])[0] != []
+    assert capture.SIGNALS[-2:] == ("owner_approval", "effective_practice")
