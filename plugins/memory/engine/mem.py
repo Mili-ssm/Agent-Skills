@@ -1049,6 +1049,7 @@ def _markdown_files(root: Path) -> list[Path]:
             if not d.startswith(".")
             and not (len(rel) == 2 and rel[0] == "research" and d == "code")
             and not (rel == ("tools", "tests") and d == "fixtures")
+            and not (rel == ("memories",) and d == reminders.FOLDER)  # a reminder is not a note: its links are free text
         )
         found += [Path(dirpath) / f for f in sorted(filenames)
                   if f.endswith(".md") and not f.startswith(".")]
@@ -2922,7 +2923,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         return 2
     if args.project and _other_projects([args.project], False) is None:
         return 2
-    if any(a.startswith(("s:", "p:")) or _is_memory_arg(args, a) for a in args.paths):
+    if any(a.startswith(("s:", "p:", "r:")) or _is_memory_arg(args, a) for a in args.paths):
         blocks, shown, ok, refused = [], [], True, False
         for arg in args.paths:
             if arg.startswith("p:"):
@@ -2941,6 +2942,15 @@ def cmd_show(args: argparse.Namespace) -> int:
                     blocks.append(f"== {arg}\n(not found)")
                     ok = False
                     refused = refused or not isinstance(exc, project_syntheses.Unavailable)
+                continue
+            if arg.startswith("r:"):
+                found = _find_reminder(arg, False)
+                if found is None:
+                    print(f"mem: no reminder {arg}", file=sys.stderr)
+                    blocks.append(f"== {arg}\n(not found)")
+                    ok = False
+                else:
+                    blocks.append(_reminder_text(found, *_reminder_context(found)))
                 continue
             if arg.startswith("s:"):
                 block = _synthesis_block(args, arg)
@@ -3608,17 +3618,55 @@ def cmd_remind(args: argparse.Namespace) -> int:
     return 0
 
 
+def _median(values: Sequence[int]) -> int:
+    return sorted(values)[(len(values) - 1) // 2]
+
+
+def _kind_line(label: str, values: Sequence[int], count: int) -> str:
+    if not values:
+        return f"{label} {count}"
+    m = _median(values)
+    return f"{label} {count} (median {m} showing{'' if m == 1 else 's'})"
+
+
+def _reminder_stats(everyone: Sequence[reminders.Reminder], today: datetime.date) -> list[str]:
+    ok = [r for r in everyone if r.error is None]
+    ended = {s: [r for r in ok if r.status == s] for s in ("done", "closed")}
+    put_off = [n for r in ok for n in r.shown_before]
+    lines = [f"live {sum(1 for r in ok if reminders.is_live(r, today))}"]
+    for status in ("done", "closed"):
+        lines.append(_kind_line(status, [r.shown_at_end for r in ended[status] if r.shown_at_end is not None],
+                                len(ended[status])))
+    lines.append(_kind_line("put off", put_off, len(put_off)))
+    lines.append(f"lapsed {sum(1 for r in ok if r.status == 'active' and r.until is not None and r.until < today)}")
+    return lines
+
+
 def cmd_reminders(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     state = session_count.read(data_dir(os.environ))
     project = None if args.is_global else records.project_root(Path.cwd(), os.environ)
-    due, waiting = [], []
+    due, waiting, everyone = [], [], []
     for scope, folder in _reminder_folders(args.is_global, _optional_store(args)):
         count = session_count.count_for(state, records.project_key(project) if scope == "project" and project else None)
         for r in reminders.load(folder, scope):
+            everyone.append(r)
             if reminders.is_live(r, today):
                 (due if reminders.is_due(r, today, count) else waiting).append((r, count))
-    if not due and not waiting:
+    if args.stats:
+        print("\n".join(_reminder_stats(everyone, today)))
+        return 0
+    others = []
+    if args.all:
+        for r in everyone:
+            if r.error is not None:
+                others.append(f"r:{r.handle}\t{r.scope}\t{r.handle}\tcannot be read ({r.error})")
+            elif r.status != "active":
+                others.append(f"r:{r.handle}\t{r.scope}\t{r.topic}\t{r.status}"
+                              f"{f' {r.ended.isoformat()}' if r.ended else ''}")
+            elif not reminders.is_live(r, today):
+                others.append(f"r:{r.handle}\t{r.scope}\t{r.topic}\tlapsed, ended {r.until.isoformat()}")
+    if not due and not waiting and not others:
         print("No reminders.")
         return 0
     for r, count in due:
@@ -3628,8 +3676,100 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         print(f"  {' '.join(r.body.split())}")
     for r, count in waiting:
         print(f"r:{r.handle}\t{r.scope}\t{r.topic}\t{_reminder_wait(r, today, count)}")
+    for line in others:
+        print(line)
     if due:
         print(_REMINDER_RULE)
+    return 0
+
+
+def _reminder_text(r: reminders.Reminder, today: datetime.date, count: int) -> str:
+    """What `mem reminder show` prints: a header line, the dates and the body."""
+    if r.error is not None:
+        return f"r:{r.handle}\t{r.scope}\tcannot be read ({r.error})"
+    head = [f"r:{r.handle}\t{r.scope}\t{r.topic}\t{r.status}\teffort {r.effort}\trisk {r.risk}"]
+    if r.status == "active":
+        head.append(_reminder_wait(r, today, count))
+    else:
+        head.append(f"ended {r.ended.isoformat() if r.ended else '?'}; "
+                    f"{r.done_note if r.status == 'done' else r.closed_reason}")
+    return "\n".join([*head, r.body.rstrip()])
+
+
+def _reminder_context(r: reminders.Reminder) -> tuple[datetime.date, int]:
+    project = records.project_root(Path.cwd(), os.environ) if r.scope == "project" else None
+    key = records.project_key(project) if project else None
+    return datetime.date.today(), session_count.count_for(session_count.read(data_dir(os.environ)), key)
+
+
+def _showings_to_store(name: str) -> int | None:
+    """Showings of a reminder for its record: None when they cannot be known (no data folder, or a count file that
+    exists and does not parse), never 0 in their place."""
+    data = data_dir(os.environ)
+    if data is None:
+        return None
+    path = data / session_count.COUNT_NAME
+    try:
+        if path.exists() and not isinstance(json.loads(path.read_text(encoding="utf-8")), dict):
+            return None
+    except (OSError, ValueError):
+        return None
+    return session_count.showings(session_count.read(data), name)
+
+
+def cmd_reminder(args: argparse.Namespace) -> int:
+    handle = args.handle.removeprefix("r:")
+    r = _find_reminder(handle, args.is_global)
+    if r is None:
+        print(f"mem: no reminder r:{handle}", file=sys.stderr)
+        return 2
+    today, count = _reminder_context(r)
+    if args.action == "show":
+        print(_reminder_text(r, today, count))
+        return 1 if r.error is not None else 0
+    if args.action == "restore":
+        entry = records.last_log_entry(r)
+        if entry is None:
+            print(f"mem: no logged text for r:{r.handle}: nothing to restore", file=sys.stderr)
+            return 2
+        if entry["skipped"]:
+            print(f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr)
+        try:
+            records.restore(r, entry)
+        except OSError as exc:
+            print(f"mem: {exc}", file=sys.stderr)
+            return 2
+        print(f"r:{r.handle}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}")
+        return 0
+    text = " ".join((args.note if args.action == "done" else args.reason if args.action == "close" else "").split())
+    if args.action != "snooze":
+        if not text:
+            print("mem: the text must not be empty.", file=sys.stderr)
+            return 2
+        if _refuse_secret([text]):
+            return 4
+        if r.scope == "global":
+            refused = _check_terms([text], "lesson", False)
+            if refused:
+                return refused
+    project = records.project_root(Path.cwd(), os.environ) if r.scope == "project" else None
+    name = _reminder_key(r, project)
+    shown = _showings_to_store(name)
+    try:
+        if args.action == "done":
+            reminders.done(r, today, count, text, shown)
+        elif args.action == "close":
+            reminders.close(r, today, text, shown)
+        else:
+            after = args.to if args.to is not None else (
+                today + datetime.timedelta(days=args.days) if args.days is not None else None)
+            reminders.snooze(r, today, count, shown, sessions=args.sessions, after=after)
+    except (ValueError, OSError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    session_count.forget_shown(data_dir(os.environ), name)
+    updated = _find_reminder(handle, args.is_global) or r
+    print(f"r:{r.handle}\t{args.action}\t{_reminder_wait(updated, today, count) if updated.status == 'active' else updated.status}")
     return 0
 
 
@@ -6472,7 +6612,27 @@ def build_parser() -> argparse.ArgumentParser:
     remind_parser.set_defaults(func=cmd_remind)
     reminders_parser = sub.add_parser("reminders", help="list the reminders that are due, then those that wait")
     reminders_parser.add_argument("--global", dest="is_global", action="store_true", help="only the global ones")
+    reminders_parser.add_argument("--all", action="store_true", help="also the ended, lapsed and broken ones")
+    reminders_parser.add_argument("--stats", action="store_true", help="count each kind with its median showings")
     reminders_parser.set_defaults(func=cmd_reminders)
+    reminder_parser = sub.add_parser("reminder", help="show, finish, close, put off or restore one reminder")
+    reminder_sub = reminder_parser.add_subparsers(dest="action", required=True)
+    for action, helptext in (("show", "print one reminder"), ("done", "finish it (a repeating one waits for its next time)"),
+                             ("close", "end it without doing it"), ("snooze", "put it off"),
+                             ("restore", "undo the last change to it")):
+        one = reminder_sub.add_parser(action, help=helptext)
+        one.add_argument("handle")
+        one.add_argument("--global", dest="is_global", action="store_true", help="look only in the global scope")
+        if action == "done":
+            one.add_argument("--note", required=True, help="what was done")
+        elif action == "close":
+            one.add_argument("--reason", required=True, help="why it ends")
+        elif action == "snooze":
+            when = one.add_mutually_exclusive_group(required=True)
+            when.add_argument("--sessions", type=_reminder_count, default=None, metavar="N")
+            when.add_argument("--days", type=_reminder_count, default=None, metavar="N")
+            when.add_argument("--to", type=_today, default=None, metavar="YYYY-MM-DD")
+        one.set_defaults(func=cmd_reminder)
     index_cmd = sub.add_parser("session-index", help="print the text that opens a session: usage rules and counts")
     index_cmd.add_argument("--hook", action="store_true",
                            help="read the hook's JSON from standard input (its cwd locates the project) and log the call")
@@ -6694,7 +6854,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "search" and args.scope == "memories" and (root is None or not root.is_dir()):
         args.root = None  # memories need no store; only a project or a global folder
         return args.func(args)
-    if args.command == "show" and all(a.startswith(("m:", "p:")) or _find_memory(args, a) for a in args.paths) and (root is None or not root.is_dir()):
+    if args.command == "show" and all(a.startswith(("m:", "p:", "r:")) or _find_memory(args, a) for a in args.paths) and (root is None or not root.is_dir()):
         args.root = None
         return args.func(args)
     if root is None:
