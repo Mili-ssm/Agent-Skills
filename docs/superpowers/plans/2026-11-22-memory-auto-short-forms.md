@@ -35,7 +35,7 @@
 
 - Everything in the loaded rules plan's Global Constraints still holds, except its line "nothing writes a `short` without the owner having read it", which C52 replaces.
 - Session start runs no model and its text does not change in this plan.
-- The automatic step runs only when `mem-corroborate auto` runs (option `auto_capture` is `true`) and `CLAUDE_PLUGIN_OPTION_LOADED_RULES` is not `false`. With either off, no session starts and nothing is written.
+- The automatic step runs only when `mem-corroborate auto` runs (option `auto_capture` is `true`) and the option `loaded_rules` is not off. With either off, no session starts and nothing is written.
 - `cmd_auto` never raises and never prints. A failure of the fill step never undoes or fails the matching pass that ran before it, and never touches the pass's `seen.json`, status failure line or retry count.
 - A short form is written only from the claim and context of its record. No brief receives an existing short form.
 - The pass applies a short form only when all hold: `corroborate.fill_problem` returns `None`, `shortcheck.problems` returns `[]`, the checker answered `faithful: true` for its id, and the record's claim digest is the one the writer saw.
@@ -67,7 +67,7 @@
 - Test: `plugins/memory/engine/tests/test_shortcheck.py`
 
 **Interfaces:**
-- Produces: `shortcheck.problems(claim: str, short: str) -> list[str]`: English reasons in the table's order, `[]` when the short form passes. `shortcheck.HEDGES: frozenset[str]`, `shortcheck.ABSOLUTES: frozenset[str]`.
+- Produces: `shortcheck.problems(claim: str, short: str) -> list[str]`: English reasons in the table's order, `[]` when the short form passes. `shortcheck.HEDGES: frozenset[str]`, `shortcheck.ABSOLUTES: frozenset[str]`. Length and the one-line rule stay where they are (`records.valid_short`, `corroborate.fill_problem`, `_check_short_topic`); this module adds the rules below.
 
 Words are compared whole and lowercase; a word keeps its apostrophe (`can't` is not `can`, `maybe` is not `may`).
 
@@ -119,7 +119,7 @@ def test_case_and_punctuation_do_not_hide_a_word(): ...      # "MAY," in the cla
   - A claim edit that removes `short` removes `short_by` too.
   - `mem rules --unread`: one block per live lesson with `short_by == "model"` and a valid `short`, project scope first then global, as `m:<handle>\t<scope>\t<short>` then `\tclaim: <claim on one line>`; with none, the line `No short form is waiting to be read.` Exit 0.
   - `mem rules --read <handle>... | --read all`: removes `short_by` from the named lessons (or from every lesson `--unread` lists), logging before each change as the edit command does; prints `m:<handle>\tread` per lesson; an unknown handle exits 2 and changes nothing.
-  - `mem triage hold <handle> --because TEXT`: global scope, an active lesson that is not in quarantine; sets `triage: pending` and `triage_reason`; logged as the other triage commands. `mem triage accept` and `reject` clear `triage_reason`. `mem curate --global` and `mem show` print the reason after a lesson that has one.
+  - `mem triage hold <handle> --because TEXT` (a third subcommand in the triage parser, beside `accept` and `reject`): global scope, an active lesson that is not in quarantine; sets `triage: pending` and `triage_reason`; logged as the other triage commands. `mem triage accept` and `reject` clear `triage_reason`. `mem curate --global` and `mem show` print the reason after a lesson that has one.
   - `mem curate` (both scopes) adds one line when any exist: `short forms nobody read: <N> (mem rules --unread)`.
   - `mem show m:<h>` prints `short_by: model` when set.
 
@@ -152,7 +152,7 @@ def test_a_held_lesson_does_not_load_and_curate_prints_its_reason(gfolder, capsy
 ### Task 3: The pure parts of the automatic fill
 
 **Files:**
-- Modify: `plugins/memory/engine/corroborate.py`, `plugins/memory/bin/mem-corroborate` (`stable_key` moves to the engine; the applying core of `fill_items` becomes one function)
+- Modify: `plugins/memory/engine/corroborate.py`, `plugins/memory/bin/mem-corroborate` (`stable_key` calls the engine's new `fill_key`; the applying core of `fill_items` becomes one function)
 - Test: `plugins/memory/engine/tests/test_fill_auto.py`, `plugins/memory/engine/tests/test_mem_corroborate.py`
 
 **Interfaces:**
@@ -163,7 +163,7 @@ def test_a_held_lesson_does_not_load_and_curate_prints_its_reason(gfolder, capsy
   - `check_lines(items: Sequence[tuple[str, str, str | None, str]]) -> str`: blocks of `id:`, `claim:`, `context:` (when there is one), `short:`, each on one line, separated by a blank line.
   - `validate_check(payload: object, ids: Sequence[str]) -> dict[str, bool] | None`: for `{"verdicts": [{"id", "reason", "faithful"}]}`, id → faithful; an id that is missing, repeated or unknown, or whose `faithful` is not exactly `true`, is `False`. `None` when `payload` is not an object with a list `verdicts` (an unusable answer).
   - `validate_fill` keeps its return, and its caller treats the reason `the answer is not an object with a list \`items\`` as an unusable answer.
-- Produces, in `bin/mem-corroborate`: `apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dict` with the counts `written`, `dropped`, `failed`: the journal, the digest guard and the `mem memory edit` calls `fill_items` has today; `user_read=True` adds `--user-read`. `fill_items` calls it with `user_read=True`. A run folder of a fill is named `<stamp>-<pid>-fill`.
+- Produces, in `bin/mem-corroborate`: `apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dict`, returning `{"written": int, "dropped": int, "failed": int, "applied": list[str]}` (`applied` holds the `id` of each item written): the journal, the digest guard, the empty marker file `run / "fill"` that makes `undo` leave the pass's `seen.json` alone, and the `mem memory edit` calls `fill_items` has today; `user_read=True` adds `--user-read`. `fill_items` calls it with `user_read=True`. A run folder of a fill is named `<stamp>-<pid>-fill`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -194,18 +194,19 @@ def test_fill_items_and_undo_behave_as_before_through_apply_fill(world): ...
 
 **Interfaces:**
 - Consumes: Task 1 (`shortcheck.problems`), Task 2 (`mem triage hold --because`; a plain `--short` edit marks `short_by: model`), Task 3 (`fill_candidates(attempts=...)`, `fill_key`, `check_lines`, `validate_check`, `apply_fill`).
-- Produces: `CHECK_BRIEF` (text below, verbatim) and `CHECK_MODEL = "haiku"` beside `FILL_BRIEF` (the gate may change `CHECK_MODEL` to `"sonnet"`); `fill_auto(claude: str | None, budget: float) -> dict` with the counts `{"asked", "written", "refused_code", "refused_check", "to_triage", "left", "cost", "failed"}` (`failed` is `None` or a short reason). State in `<corroborate dir>/fill-attempts.json`, a private file: `{"lessons": {<fill_key>: {"digest", "count"}}, "failures": {"count", "fingerprint"}}`.
+- Produces: `CHECK_BRIEF` (text below, verbatim) and `CHECK_MODEL = "haiku"` beside `FILL_BRIEF` (the gate may change `CHECK_MODEL` to `"sonnet"`); `fill_auto(claude: str | None, budget: float) -> dict` returning `{"asked", "written", "dropped", "refused_code", "refused_check", "to_triage", "left", "cost", "stopped"}`: numbers, except `stopped`, which is `None` or a short reason why the step did not finish (`apply_fill`'s `failed` count is added to `left`). It saves the same dict with `save_status(cdir, fill=...)` and writes the handles applied to `applied.json` in its run folder, so what the owner later rewords or turns off can be counted. State in `<corroborate dir>/fill-attempts.json`, a private file: `{"lessons": {<fill_key>: {"digest", "count"}}, "failures": {"count", "fingerprint"}}`.
 
-Flow of `fill_auto`. It takes the run lock itself (`au.take_run_lock`), after the pass released it; with the lock taken it returns `failed: "a run is going"` and writes nothing.
+Flow of `fill_auto`. It takes the run lock itself (`au.take_run_lock`), after the pass released it; with the lock taken it returns `stopped: "a run is going"` and writes nothing.
 
-1. Candidates: `fill_candidates(..., attempts=state["lessons"])`. None: return zeros, start no session. If `state["failures"]["count"] >= FILL_FAILURES` and the fingerprint (a digest of the sorted `fill_key` and claim digest of the candidates) is the stored one: return `failed: "waiting for the lessons to change"`, start no session.
-2. Writer session (`PROPOSE_MODEL`, `FILL_BRIEF`), then `validate_fill`. No result, an error, or an unusable answer: go to step 8.
+1. Candidates: `fill_candidates(..., attempts=state["lessons"])`. None: return zeros, start no session. If `state["failures"]["count"] >= FILL_FAILURES` and the fingerprint (a digest of the sorted `fill_key` and claim digest of the candidates) is the stored one: return `stopped: "waiting for the lessons to change"`, start no session.
+2. Writer session (`PROPOSE_MODEL`, `FILL_BRIEF`), then `validate_fill`. No result, an error, or an unusable answer: go to step 9.
 3. For each item without a `problem`: `shortcheck.problems(claim, short)`; an item with any reason counts in `refused_code`.
-4. Checker session (`CHECK_MODEL`, `CHECK_BRIEF`) over the items that passed step 3 only; with none, no session. `validate_check`. No result, an error, or `None`: go to step 8. A `False` counts in `refused_check`.
+4. Checker session (`CHECK_MODEL`, `CHECK_BRIEF`) over the items that passed step 3 only; with none, no session. `validate_check`. No result, an error, or `None`: go to step 9. A `False` counts in `refused_check`.
 5. `apply_fill(passed, ..., user_read=False)`. A dropped item (its claim digest changed) gets no attempt.
 6. Attempts, saved after the apply: an applied lesson gets `{"digest", "count": FILL_ATTEMPTS}`; a lesson asked and refused (no proposal, a `problem`, refused by code or by the checker) gets its count raised by one.
-7. A refused lesson whose count reached `FILL_ATTEMPTS`: a global one gets `mem triage hold m:<handle> --because "<the last reason, cut to 200 characters>"` (counted in `to_triage`); a project one is counted in `left`. Reasons: the `problem`, the first `shortcheck` reason, or `the checker did not find the short form faithful to the claim`. Then `failures` is reset to zero.
-8. A failed session: `failed` set, no attempt counted for any lesson, `failures.count` raised by one with the fingerprint, nothing applied from this run.
+7. A refused lesson whose count reached `FILL_ATTEMPTS`: a global one gets `mem triage hold m:<handle> --because "<the last reason, cut to 200 characters>"` (counted in `to_triage`); a project one is counted in `left`. Reasons: the `problem`, the first `shortcheck` reason, or `the checker did not find the short form faithful to the claim`.
+8. A run that reached step 5 (every session it started gave a usable answer) resets `failures` to zero, whatever was refused.
+9. A failed session: `stopped` set, no attempt counted for any lesson, `failures.count` raised by one with the fingerprint, nothing applied from this run.
 
 `CHECK_BRIEF`, verbatim:
 
@@ -235,6 +236,8 @@ def test_an_index_only_lesson_keeps_its_load_and_a_turned_off_lesson_is_not_aske
 def test_an_unusable_writer_answer_counts_no_attempt_and_sends_nothing_to_triage(world, bad): ...
 def test_an_unusable_checker_answer_counts_no_attempt_and_applies_nothing(world): ...
 def test_after_three_failed_sessions_no_session_starts_until_the_candidates_change(world): ...
+def test_a_good_run_between_failures_starts_the_count_of_failures_again(world): ...   # fail, good, fail, fail: a session still starts
+def test_the_run_folder_keeps_the_fill_marker_and_the_applied_handles(world): ...
 def test_fill_auto_with_the_lock_taken_writes_nothing(world): ...
 def test_two_fill_runs_in_the_same_second_keep_separate_run_folders(world): ...
 def test_undo_of_an_automatic_fill_run_restores_the_records(world): ...
@@ -254,8 +257,8 @@ def test_undo_of_an_automatic_fill_run_restores_the_records(world): ...
 **Interfaces:**
 - Consumes: `fill_auto` (Task 4).
 - Produces:
-  - `cmd_auto`: after `execute(...)`, whatever its result, calls `fill_auto` in its own `try` unless `os.environ.get("CLAUDE_PLUGIN_OPTION_LOADED_RULES") == "false"`; appends one line `{"t", "fill": {...counts}, "ms"}` with `append_log`; the run folder keeps the handles applied (`applied.json`), so what the owner later rewords or turns off can be counted.
-  - `mem-corroborate status` adds one line when the last fill wrote, refused or failed: `last fill: <written> written, <refused_code + refused_check> refused, <to_triage> to triage` plus `, failed: <reason>` when it failed.
+  - `cmd_auto`: after `execute(...)`, whatever its result, calls `fill_auto` in its own `try` unless the loaded rules are off (`os.environ.get("CLAUDE_PLUGIN_OPTION_LOADED_RULES") == "false"` or `os.environ.get("MEM_LOADED_RULES") == "off"`, the two forms the hooks use); appends one line `{"t", "fill": {...the dict of fill_auto}, "ms"}` with `append_log`.
+  - `mem-corroborate status` reads the `fill` entry `fill_auto` saved in the status file and adds one line when that fill wrote, refused or stopped: `last fill: <written> written, <refused_code + refused_check> refused, <to_triage> to triage` plus `, stopped: <reason>`.
   - `records.standing_changes`: on the first establishment of a global record, `triage: "pending"` only when `(after.weight or "medium") == "strong"` and the owner has not confirmed it. A `light` or `medium` one gets `released` and no triage.
   - `cmd_rules` `unready` wording: `<N> established lesson(s) have no short form yet: the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).`
 
@@ -300,11 +303,11 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
   |---|---|
   | `shortcheck.problems` on Read | at most 1 of 10 refused |
   | The checker on Read, Haiku and Sonnet, 2 runs each | at least 9 of 10 faithful in both runs |
-  | Code and checker together on Stronger | at least 17 of 20 refused in both runs |
+  | Code and checker together on Stronger, with each of the two models, 2 runs each | at least 17 of 20 refused in both runs |
   | `fill_auto` on the copy with every `short` removed | every applied short form is shown to the owner beside its claim in one table; the owner calls none stronger than its claim |
 
-  The checker is Haiku if Haiku passes, else Sonnet if Sonnet passes. One revision of `CHECK_BRIEF` or the word lists is allowed after a miss; the whole table then runs again on a new Stronger set from a new session. A second miss: stop and put the figures to the owner; do not ship the automatic step. Ten labels can catch a bad checker; they cannot prove a good one, which is why the kill criteria below keep counting after release.
-- [ ] One run of `mem-corroborate auto` from the installed copy of the branch (`claude --plugin-dir`), not only from the repository tests: its log line, and that `CLAUDE_PLUGIN_OPTION_LOADED_RULES` reaches the detached process.
+  The checker is Haiku if Haiku passes its rows on both sets, else Sonnet if Sonnet does. One revision of `CHECK_BRIEF` or the word lists is allowed after a miss; the whole table then runs again on a new Stronger set from a new session. A second miss: stop and put the figures to the owner; do not ship the automatic step. Ten labels can catch a bad checker; they cannot prove a good one, which is why the kill criteria below keep counting after release.
+- [ ] One run of `mem-corroborate auto` from the installed copy of the branch (`claude --plugin-dir`), not only from the repository tests: its log line, and, with the option `loaded_rules` set to false, that the detached process skips the fill.
 - [ ] On the owner's store, before the first automatic run: how many established lessons lack a short form (the first run loads up to 30 at once) and that none of weight `light` or `medium` is at `triage: pending`.
 - [ ] Narrow reviews in parallel (the fill flow, the record fields and commands, the docs against the code, the process), one fix wave.
 - [ ] Results written into this file under `## Results`; the design rows C59 to C62 corrected if the gate changed them.
