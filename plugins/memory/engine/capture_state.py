@@ -20,6 +20,11 @@ LOCK_WAIT_SECONDS = 900
 PRE_COMPACT_DELAY_SECONDS = 300
 KEEP_RUNS = 20
 KEEP_RUN_DAYS = 14
+SWEEP_IDLE_SECONDS = 6 * 3600    # a session this recently changed may still be open and live
+SWEEP_MAX_AGE_DAYS = 7
+SWEEP_MAX_SESSIONS = 2           # sessions swept at one start
+SWEEP_MAX_PER_DAY = 4            # sessions swept per UTC day for one data folder
+SWEEP_DAY_NAME = "sweep-day.json"
 OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE"
 BUDGET_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE_BUDGET"
 
@@ -44,10 +49,44 @@ def read_session(data: Path, session: str) -> dict:
     return {"offset": _count(offset), "attempts": _count(attempts)}
 
 
+def swept_size(data: Path, session: str) -> int | None:
+    """The file's size at its last sweep, None when it was never swept."""
+    found = auto_state.read_json(session_path(data, session)).get("swept_size")
+    return _count(found) if found is not None else None
+
+
 def save_session(data: Path, session: str, offset: int, attempts: int) -> None:
     path = session_path(data, session)
     auto_state.private_dir(path.parent)
-    auto_state.write_json(path, {"session": session, "offset": offset, "attempts": attempts, "updated": time.time()})
+    state = {"session": session, "offset": offset, "attempts": attempts, "updated": time.time()}
+    swept = swept_size(data, session)
+    if swept is not None:
+        state["swept_size"] = swept   # a capture keeps what the last sweep saw
+    auto_state.write_json(path, state)
+
+
+def save_swept_size(data: Path, session: str, size: int) -> None:
+    """Remember the file's size at its sweep, next to the offset, so an unchanged file is not swept again."""
+    path = session_path(data, session)
+    auto_state.private_dir(path.parent)
+    found = read_session(data, session)
+    auto_state.write_json(path, {"session": session, "offset": found["offset"], "attempts": found["attempts"],
+                                 "swept_size": size, "updated": time.time()})
+
+
+def _utc_day(now: float) -> str:
+    return datetime.datetime.fromtimestamp(now, datetime.timezone.utc).date().isoformat()
+
+
+def sweeps_today(data: Path, now: float) -> int:
+    found = auto_state.read_json(capture_dir(data) / SWEEP_DAY_NAME)
+    return _count(found.get("count")) if found.get("day") == _utc_day(now) else 0
+
+
+def note_sweep(data: Path, now: float) -> None:
+    """Count one swept session against today's cap."""
+    auto_state.private_dir(capture_dir(data))
+    auto_state.write_json(capture_dir(data) / SWEEP_DAY_NAME, {"day": _utc_day(now), "count": sweeps_today(data, now) + 1})
 
 
 def failure_line(data: Path | None, now: float) -> str | None:

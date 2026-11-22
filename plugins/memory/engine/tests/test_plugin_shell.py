@@ -425,3 +425,56 @@ def test_session_end_starts_capture_when_the_commit_hangs(world):
 def test_hooks_return_fast_with_capture_on(world, name):
     done, took = _run_hook(world, name, "true", extra={"FAKE_SLEEP": "5"})
     assert done.returncode == 0 and took < 2
+
+
+def _session_index(w, option, extra=None):
+    env = _capture_env(w, option, extra)
+    env["MEM_PROJECT"] = str(w.project)
+    return subprocess.run([str(HOOKS / "session-index.sh")], input=capture_hook(w, transcript=w.tmp / "sessions" / "start-here.jsonl"),
+                          env=env, capture_output=True, text=True, timeout=30)
+
+
+def _idle_session(w):
+    old = w.tmp / "sessions" / "old.jsonl"
+    old.write_text("".join(json.dumps({**json.loads(x), "cwd": str(w.project)}) + "\n"
+                           for x in w.transcript.read_text().splitlines()))
+    stamp = time.time() - 86400
+    os.utime(old, (stamp, stamp))
+
+
+@needs_uv
+def test_session_index_text_is_the_same_with_capture_on_and_off(world):
+    on = _session_index(world, "true")
+    off = _session_index(world, None)
+    assert on.returncode == 0 and off.returncode == 0 and on.stderr == off.stderr == ""
+    assert on.stdout == off.stdout and on.stdout.startswith("memory: the mem command")
+
+
+@needs_uv
+def test_session_index_starts_the_sweep_only_when_on(world):
+    _idle_session(world)
+    off = _session_index(world, None)
+    time.sleep(1.5)
+    assert off.returncode == 0 and world.calls() == []
+    on = _session_index(world, "true")
+    assert on.returncode == 0 and on.stdout == off.stdout
+    assert len(_wait_calls(world, 1)) == 1
+
+
+@needs_uv
+def test_session_index_exits_0_when_mem_capture_is_missing(world, tmp_path):
+    plugin = tmp_path / "plugin"
+    shutil.copytree(HOOKS.parent, plugin, ignore=shutil.ignore_patterns("tests", "__pycache__", "mem-capture"))
+    env = _capture_env(world, "true")
+    env["MEM_PROJECT"] = str(world.project)
+    done = subprocess.run([str(plugin / "hooks" / "session-index.sh")], input=capture_hook(world), env=env,
+                          capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0 and done.stdout.startswith("memory: the mem command")
+
+
+@needs_uv
+def test_session_index_returns_fast_with_capture_on(world):
+    _idle_session(world)
+    started = time.monotonic()
+    done = _session_index(world, "true", extra={"FAKE_SLEEP": "15"})
+    assert done.returncode == 0 and time.monotonic() - started < 8   # mem is bounded by 4 s; the sweep is not waited on

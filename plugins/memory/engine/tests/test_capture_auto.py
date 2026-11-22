@@ -24,6 +24,9 @@ SECOND = {**GOOD, "claim": "Keep the fixtures small: the large ones made the sui
           "evidence": "the large ones are slow"}
 
 
+SPEC = "OAOAOAOAOAAA"
+
+
 def lines_for(spec, start=0, pad=0):
     """One JSONL line per letter: O is an owner line (`pad` characters longer), A an assistant line."""
     out = []
@@ -451,3 +454,78 @@ def test_budget_option_reaches_the_session(world):
     assert auto(world, extra={capture_state.BUDGET_OPTION: "lots"}).returncode == 0
     args = world.calls()[1]["args"]
     assert float(args[args.index("--max-budget-usd") + 1]) == pytest.approx(0.25)
+
+
+def load_capture(monkeypatch, world, started):
+    """mem-capture as a module in this process, with `mem-corroborate` replaced by a script that records its arguments."""
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("mem_capture_pass", str(CAPTURE))
+    module = importlib.util.module_from_spec(importlib.util.spec_from_loader("mem_capture_pass", loader))
+    loader.exec_module(module)
+    fake = world.tmp / "fake-corroborate"
+    fake.write_text(f'#!/bin/sh\necho "$@" >> {started}\n')
+    fake.chmod(0o755)
+    monkeypatch.setattr(module, "CORROBORATE", fake)
+    for name, value in (("FAKE_MODE", "good"), (capture_state.OPTION, "true")):
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("MEM_PROJECT", raising=False)
+    return module
+
+
+def wait_for(path, seconds=10):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline and not path.exists():
+        time.sleep(0.05)
+    return path.exists()
+
+
+def test_a_capture_that_wrote_starts_the_corroboration_pass(world, monkeypatch):
+    started = world.tmp / "started"
+    module = load_capture(monkeypatch, world, started)
+    module.auto_run("session-end", world.transcript, world.project, str(world.fake))
+    assert wait_for(started)
+    assert started.read_text().split() == ["auto", "--claude", str(world.fake)]
+    assert log_lines(world)[-1]["written"]["remembered"] == 1
+
+
+def test_a_capture_that_wrote_nothing_does_not_start_it(world, monkeypatch):
+    started = world.tmp / "started"
+    module = load_capture(monkeypatch, world, started)
+    set_cands(world, [])
+    module.auto_run("session-end", world.transcript, world.project, str(world.fake))
+    time.sleep(1)
+    assert not started.exists() and log_lines(world)[-1]["written"] == {"remembered": 0, "sighting": 0, "skipped": 0}
+
+
+def test_a_failed_capture_does_not_start_it(world, monkeypatch):
+    started = world.tmp / "started"
+    module = load_capture(monkeypatch, world, started)
+    monkeypatch.setenv("FAKE_MODE", "exit1")
+    module.auto_run("session-end", world.transcript, world.project, str(world.fake))
+    time.sleep(1)
+    assert not started.exists() and status(world)["state"] == "failed"
+
+
+def test_a_pass_that_cannot_start_leaves_the_capture_result_alone(world, monkeypatch):
+    module = load_capture(monkeypatch, world, world.tmp / "started")
+    monkeypatch.setattr(module, "CORROBORATE", world.tmp / "does-not-exist")
+    module.auto_run("session-end", world.transcript, world.project, str(world.fake))
+    assert status(world)["state"] == "ok" and log_lines(world)[-1]["failed"] is None and offset_of(world) == 12
+
+
+def test_the_pass_starts_after_the_lock_is_released(world, monkeypatch):
+    started = world.tmp / "started"
+    module = load_capture(monkeypatch, world, started)
+    held = []
+    monkeypatch.setattr(module, "start_corroboration", lambda claude: held.append(au_lock_free(world)))
+    module.auto_run("session-end", world.transcript, world.project, str(world.fake))
+    assert held == [True]
+
+
+def au_lock_free(world):
+    fd = auto_state.take_run_lock(world.cdir)
+    if fd is None:
+        return False
+    os.close(fd)
+    return True

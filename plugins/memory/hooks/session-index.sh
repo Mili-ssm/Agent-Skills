@@ -10,12 +10,27 @@ if [ -z "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then # no option: the default store
 fi
 [ -n "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" ] && export MEM_MEMORIES="$CLAUDE_PLUGIN_OPTION_MEMORIES"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # read once, never wait on an input left open
+# Sweep (option auto_capture, exactly "true"): start mem-capture sweep detached, as session-end.sh starts `auto`. It
+# captures sessions of this folder that were left open and never ended; nothing here waits on it.
+if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ] && [ -n "$here" ]; then
+  . "$here/find-claude.sh" 2>/dev/null
+  type find_claude >/dev/null 2>&1 || find_claude() { :; }   # the helper is missing: no claude path, never a failure
+  claude="$(find_claude)"
+  set -- sweep
+  [ -n "$claude" ] && set -- "$@" --claude "$claude"
+  if command -v setsid >/dev/null 2>&1; then
+    (setsid nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+  else
+    (nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+  fi
+fi
 out=""
 if [ -n "$here" ]; then
   if command -v timeout >/dev/null 2>&1; then
-    out="$(timeout 4 "$here/../bin/mem" session-index --hook 2>/dev/null)" || out=""   # bounded, like the first-run init
+    out="$(timeout 4 "$here/../bin/mem" session-index --hook 2>/dev/null <<<"$input")" || out=""   # bounded, like the first-run init
   else
-    out="$("$here/../bin/mem" session-index --hook 2>/dev/null)" || out=""
+    out="$("$here/../bin/mem" session-index --hook 2>/dev/null <<<"$input")" || out=""
   fi
 fi
 if [ -n "$out" ]; then

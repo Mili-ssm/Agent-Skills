@@ -54,6 +54,7 @@ MIN_OWNER_LINES = 3
 RULES_LIMIT = 30_000
 LAPSED_DAYS = 60   # a lapsed unconfirmed transcript memory can still be revived by a new sighting this long
 MEM = HERE / "mem"
+CORROBORATE = HERE / "mem-corroborate"
 MEM_TIMEOUT = 60
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
@@ -494,13 +495,28 @@ def window_failure(res: dict, code: int) -> str | None:
 
 
 def auto(trigger: str, claude: str | None) -> None:
-    """The whole of `auto`; see the module docstring. Never raises and never prints."""
+    """What a hook starts: read the hook JSON, then `auto_run`. Never raises and never prints."""
     if os.environ.get(cs.OPTION) != "true":
         return
     given = hook_input()
-    if given is None:
-        return
-    transcript, cwd = given
+    if given is not None:
+        auto_run(trigger, given[0], given[1], claude)
+
+
+def start_corroboration(claude: str | None) -> None:
+    """Start `mem-corroborate auto` detached; a failure to start it is swallowed."""
+    try:
+        cmd = [str(CORROBORATE), "auto", *(["--claude", claude] if claude else [])]
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except Exception:   # noqa: BLE001
+        pass
+
+
+def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> None:
+    """The whole of `auto` for one transcript; see the module docstring. Never raises and never prints.
+    After a run that wrote a record and did not fail, and once the capture lock is released, it starts the
+    corroboration pass."""
     data = data_dir()
     cdir = cs.capture_dir(data)
     start = time.time()
@@ -517,6 +533,7 @@ def auto(trigger: str, claude: str | None) -> None:
     logged: list[bool] = []
     lock = None
     usable = False
+    corroborate = False
     try:
         if IMPORT_ERROR is not None:
             if not has_memory_folder(cwd.resolve()):
@@ -612,6 +629,7 @@ def auto(trigger: str, claude: str | None) -> None:
         save_status(cdir, **end)
         finish_log()
         cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
+        corroborate = not failed and bool(line["written"]["remembered"] or line["written"]["sighting"])
     except Exception as exc:   # noqa: BLE001 - a background process reports and ends
         try:
             reason = type(exc).__name__
@@ -628,6 +646,73 @@ def auto(trigger: str, claude: str | None) -> None:
     finally:
         if lock is not None:
             os.close(lock)
+    if corroborate:
+        start_corroboration(claude)
+
+
+def count_lines(path: Path) -> int:
+    with open(path, "rb") as f:
+        return sum(1 for _ in f)
+
+
+def first_cwd(path: Path) -> Path | None:
+    """The first `cwd` value in the file's own JSON lines, when it is an existing directory; read line by line."""
+    with open(path, "rb") as f:
+        for raw in f:
+            if b'"cwd"' not in raw:
+                continue
+            try:
+                item = json.loads(raw)
+            except ValueError:
+                continue
+            value = item.get("cwd") if isinstance(item, dict) else None
+            if isinstance(value, str) and value:
+                folder = Path(value).expanduser()
+                return folder if folder.is_dir() else None
+    return None
+
+
+def sweep(claude: str | None) -> None:
+    """Capture sessions of the starting session's folder that were left open and never ended. Never raises, never prints."""
+    try:
+        if os.environ.get(cs.OPTION) != "true":
+            return
+        data = json.load(sys.stdin)
+        path = data.get("transcript_path") if isinstance(data, dict) else None
+        if not isinstance(path, str) or not path:
+            return
+        transcript = Path(path).expanduser()
+        folder = transcript.parent
+        if not folder.is_dir():
+            return
+        store, now, swept = data_dir(), time.time(), 0
+        found = []
+        for item in folder.iterdir():
+            if item.suffix != ".jsonl" or not item.is_file() or item.stem == transcript.stem:
+                continue
+            info = item.stat()
+            if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
+                found.append((info.st_mtime, info.st_size, item))
+        for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
+            if swept >= cs.SWEEP_MAX_SESSIONS or cs.sweeps_today(store, now) >= cs.SWEEP_MAX_PER_DAY:
+                break
+            state = cs.read_session(store, item.stem)
+            if cs.swept_size(store, item.stem) == size or count_lines(item) <= state["offset"]:
+                continue
+            cwd = first_cwd(item)
+            if cwd is None:
+                continue
+            cs.note_sweep(store, now)
+            swept += 1
+            auto_run("sweep", item, cwd, claude)
+            cs.save_swept_size(store, item.stem, size)
+    except Exception:   # noqa: BLE001 - a background process ends quietly
+        pass
+
+
+def cmd_sweep(args: argparse.Namespace) -> int:
+    sweep(args.claude)
+    return 0
 
 
 def cmd_ack() -> int:
@@ -670,6 +755,9 @@ def main() -> int:
     auto_cmd.add_argument("--trigger", required=True, choices=["pre-compact", "session-end"])
     auto_cmd.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     auto_cmd.set_defaults(func=cmd_auto)
+    sweep_cmd = commands.add_parser("sweep", help="what the session start launches: read sessions of the folder left open")
+    sweep_cmd.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    sweep_cmd.set_defaults(func=cmd_sweep)
     ack = commands.add_parser("ack", help="clear the failure line left by a failed automatic capture")
     ack.set_defaults(func=lambda _args: cmd_ack())
     args = parser.parse_args()
