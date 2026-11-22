@@ -435,7 +435,7 @@ def test_fill_candidates_leave_out_what_cannot_load(tmp_path):
     put(f1, "project", "has no topic", weight="light", sources=("session a", "session b"), short=SHORT)
     put(glob, "global", "established global", sources=TWO, triage=None)
     put(glob, "global", "quarantined global", sources=(TWO[0],))
-    put(glob, "global", "awaiting triage", sources=TWO)  # a released global record starts as pending
+    put(glob, "global", "awaiting triage", sources=(*TWO, f"session c project {K1}"), weight="strong")  # only a strong one waits
     got = corroborate.fill_candidates([p1, p2], glob, TODAY)
     claims = {m.claim for _i, m in got}
     assert claims == {"project lesson seen twice", "confirmed once", "has no topic", "established global"}, claims

@@ -32,9 +32,9 @@ def world(tmp_path, monkeypatch):
 
 
 def remember(*sources, claim=CLAIM):
-    args = ["remember", "--global", "--origin", "transcript", "--reach", "general", "--weight", "light",
+    args = ["remember", "--global", "--origin", "transcript", "--reach", "general", "--weight", "strong",
             "--kind", "lesson", "--claim", claim]
-    for s in sources:
+    for s in (*sources, f"session c project {KEYS[0]}"):   # a strong lesson needs three sessions
         args += ["--source", s]
     return mem.main(args)
 
@@ -64,7 +64,7 @@ def test_curate_global_lists_the_record_awaiting_triage(world, capsys):
     out = capsys.readouterr().out
     assert ("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage reject <h>, "
             "or reword it with mem memory edit <h> --global and then accept)") in out
-    assert f"m:{m.handle}  2 sessions, 2 projects  {CLAIM}" in out
+    assert f"m:{m.handle}  3 sessions, 2 projects  {CLAIM}" in out
     assert "from a transcript, not confirmed yet" not in out
     assert "in quarantine" not in out
 
@@ -255,6 +255,14 @@ def test_forget_removes_the_pending_field(world, capsys):
     assert after.status == "forgotten" and after.triage is None
 
 
+def test_forget_removes_the_hold_reason_from_the_file_too(world, capsys):
+    m = released(capsys)
+    records.update(m, TODAY, triage="pending", triage_reason="invented reason")
+    assert "triage_reason:" in m.path.read_text()
+    assert mem.main(["forget", m.handle, "--global", "--because", "invented reason"]) == 0
+    assert "triage" not in m.path.read_text()
+
+
 @pytest.mark.parametrize("verb", ["accept", "reject"])
 def test_a_record_in_quarantine_says_how_it_leaves(world, capsys, verb):
     assert remember("session a") == 0
@@ -356,3 +364,62 @@ def test_the_triage_help_explains_triage_without_the_docs(capsys):
             mem.main(argv)
         out = " ".join(capsys.readouterr().out.split())
         assert needle in out and "as mem forget does" not in out
+
+
+def active_global(world, claim="Zebra caches may expire under load; consider a retry."):
+    m = records.write_memory(world.gmem, "global", kind="lesson", claim=claim, body="b\n", today=TODAY)
+    return m.handle
+
+
+def global_record(handle):
+    return {m.handle: m for m in records.load_memories(Path(mem.os.environ["MEM_MEMORIES"]), "global")}[handle]
+
+
+def test_hold_sets_pending_with_its_reason_and_accept_clears_both(world, capsys):
+    h = active_global(world)
+    assert mem.main(["triage", "hold", f"m:{h}", "--because", "the user wants to reword it"]) == 0
+    assert capsys.readouterr().out.strip() == f"m:{h}\theld"
+    m = global_record(h)
+    assert (m.triage, m.triage_reason) == ("pending", "the user wants to reword it")
+    assert mem.main(["show", f"m:{h}"]) == 0
+    assert "the user wants to reword it" in capsys.readouterr().out
+    assert mem.main(["triage", "accept", f"m:{h}"]) == 0
+    m = global_record(h)
+    assert (m.triage, m.triage_reason) == (None, None)
+    assert "triage_reason" not in m.path.read_text()
+    assert records.CURATION_LOG and (world.gmem / records.CURATION_LOG).read_text().count('"action": "triage"') == 2
+    assert mem.main(["triage", "hold", f"m:{h}", "--because", "again"]) == 0
+    assert mem.main(["triage", "reject", f"m:{h}"]) == 0
+    assert global_record(h).triage_reason is None
+
+
+def test_hold_refuses_a_lesson_in_quarantine_and_a_missing_reason(world, capsys):
+    h = active_global(world)
+    before = global_record(h).path.read_bytes()
+    for extra in ([], ["--because", ""], ["--because", "x" * 201]):
+        assert mem.main(["triage", "hold", f"m:{h}", *extra]) == 2
+    assert global_record(h).path.read_bytes() == before
+    assert remember("session a project " + KEYS[0]) == 0
+    (q,) = [m for m in records.load_memories(world.gmem, "global") if m.claim == CLAIM]
+    assert records.quarantined(q)
+    capsys.readouterr()
+    assert mem.main(["triage", "hold", f"m:{q.handle}", "--because", "wait"]) == 2
+    assert "quarantine" in capsys.readouterr().err
+    assert global_record(q.handle).triage is None
+
+
+def test_a_held_lesson_does_not_load_and_curate_prints_its_reason(world, capsys):
+    h = released(capsys).handle
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--short", "Consider a retry; zebra caches may expire.",
+                     "--user-read"]) == 0
+    assert mem.main(["triage", "accept", f"m:{h}"]) == 0
+    capsys.readouterr()
+    assert mem.main(["rules"]) == 0
+    assert "Consider a retry" in capsys.readouterr().out
+    assert mem.main(["triage", "hold", f"m:{h}", "--because", "the wording is doubtful"]) == 0
+    capsys.readouterr()
+    assert mem.main(["rules"]) == 0
+    assert "Consider a retry" not in capsys.readouterr().out
+    assert mem.main(["curate", "--global"]) == 0
+    out = capsys.readouterr().out
+    assert f"m:{h}" in out and "the wording is doubtful" in out

@@ -37,6 +37,8 @@ def write(claim, *, short=None, weight="light", scope="global", confirm=True):
     """A transcript lesson; a global one is confirmed by the owner and accepted, so it loads when it has a short form."""
     args = ["remember", "--kind", "lesson", "--claim", claim, "--origin", "transcript", "--weight", weight,
             "--reach", "general", "--source", f"session a project {K1}", "--source", f"session b project {K2}"]
+    if weight == "strong":   # a strong lesson needs three sessions
+        args += ["--source", f"session c project {K1}"]
     if scope == "global":
         args.append("--global")
     if short:
@@ -156,7 +158,7 @@ def test_the_hook_log_counts_rules(project, gfolder, capsys, monkeypatch):
 
 def test_a_lesson_awaiting_triage_is_not_counted_in_the_line_or_the_log(project, gfolder, capsys):
     write("Ready lesson.", short="Ready rule.")
-    write("Waiting lesson.", short="Waiting rule.", confirm=False)  # last: no triage accept follows
+    write("Waiting lesson.", short="Waiting rule.", weight="strong", confirm=False)  # last: no triage accept follows
     folder = records.project_dir(project)
     stats = {}
     text = mem.session_index(None, folder, gfolder, datetime.date.today(), stats=stats)
