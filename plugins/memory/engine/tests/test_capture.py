@@ -150,7 +150,8 @@ def test_validate_reach_and_the_new_signals():
     item = {**GOOD, "signal": "delegation_failed", "evidence": "failed to finish the task and left no diff"}
     assert capture.validate([item], ex, [])[0] != []
     assert capture.SIGNALS == ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
-                               "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
+                               "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason",
+                               "owner_approval", "effective_practice")
 
 
 def test_a_queued_command_is_the_owner_only_with_a_human_origin(tmp_path):
