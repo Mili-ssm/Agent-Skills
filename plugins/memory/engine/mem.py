@@ -3399,6 +3399,12 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                args.kind, args.owner_approved)
         if refused:
             return refused
+    if getattr(args, "origin", None) == "transcript":
+        for source in args.source:
+            if " ".join(source.split()).lower().startswith(records.SESSION_PREFIX) and records.sighting(source) is None:
+                print(f"mem: --source {source!r} is not a session entry: write 'session <id>' or "
+                      f"'session <id> project <{records.PROJECT_KEY_LEN} hex characters>'.", file=sys.stderr)
+                return 2
     from_session = getattr(args, "origin", None) == "transcript" and any(map(records.session_key, args.source))
     if getattr(args, "origin", None) == "transcript" and args.valid_until is not None:
         draft = records.Memory(scope, folder, "", args.kind, args.claim, today, 1, "active", None, None,
@@ -3566,6 +3572,8 @@ def cmd_confirm(args: argparse.Namespace) -> int:
             if m.origin != "transcript":
                 raise ValueError(f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
                                  "lesson captured from one")
+            if m.status != "active":
+                raise ValueError(f"m:{m.handle} is {m.status}: the owner confirms only an active memory")
             if m.owner_confirmed:
                 repeated.append(True)
                 return [f"m:{m.handle}\talready confirmed by the owner: nothing changed"]

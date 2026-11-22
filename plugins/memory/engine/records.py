@@ -463,15 +463,21 @@ def session_key(source: str) -> str | None:
 
 
 def normalized_sources(sources: Iterable[str]) -> list[str]:
-    """Session entries in their normalized form, one per session (the one with a project when both forms occur);
-    other sources unchanged; order kept."""
+    """Session entries in their normalized form, one per session (the first one with a project when several
+    occur: one session is one sighting, so it cannot count as two projects); other sources unchanged; order kept."""
     parsed = [(s, sighting(s)) for s in sources]
-    with_project = {f[0] for _, f in parsed if f and f[1]}
+    first_key: dict[str, str] = {}
+    for _, f in parsed:
+        if f and f[1]:
+            first_key.setdefault(f[0], f[1])
     out = []
     for s, f in parsed:
         if f is None:
             out.append(s)
-        elif f[1] or f[0] not in with_project:
+        elif f[0] in first_key:
+            if f[1] == first_key[f[0]]:
+                out.append(sighting_entry(*f))
+        else:
             out.append(sighting_entry(*f))
     return list(dict.fromkeys(out))
 
@@ -514,10 +520,13 @@ def standing_changes(before: Memory | None, after: Memory, today: datetime.date)
     (that confirmation is the triage). `before` is None for a record being written."""
     established = standing(after) == "established"
     changes: dict = {"valid_until": None if established else today + datetime.timedelta(days=UNCONFIRMED_DAYS)}
-    if after.scope == "global" and established and (before is None or before.released is None):
-        changes["released"] = today
-        if not after.owner_confirmed:
-            changes["triage"] = "pending"
+    if after.scope == "global" and established:
+        if before is None or before.released is None:
+            changes["released"] = today
+            if not after.owner_confirmed:
+                changes["triage"] = "pending"
+        if after.owner_confirmed:
+            changes["triage"] = None
     return changes
 
 

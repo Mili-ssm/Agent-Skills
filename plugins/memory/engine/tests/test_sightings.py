@@ -1,4 +1,6 @@
+import dataclasses
 import datetime
+import hashlib
 
 import pytest
 
@@ -39,6 +41,7 @@ def test_project_key_is_twelve_hex_of_the_path(tmp_path):
     key = records.project_key(tmp_path)
     assert len(key) == records.PROJECT_KEY_LEN and int(key, 16) >= 0
     assert key == records.project_key(tmp_path / ".")
+    assert key == hashlib.sha1(str(tmp_path.resolve()).encode("utf-8")).hexdigest()[:12]
 
 
 def test_normalized_sources_keep_the_project():
@@ -63,7 +66,7 @@ def test_global_standing(tmp_path, weight, entries, expected):
 def test_owner_confirmation_establishes(tmp_path):
     m = make(tmp_path, "global", weight="strong", sources=["session a project " + K1])
     assert records.standing(m) == "unconfirmed"
-    assert records.standing(__import__("dataclasses").replace(m, owner_confirmed=TODAY)) == "established"
+    assert records.standing(dataclasses.replace(m, owner_confirmed=TODAY)) == "established"
 
 
 def test_release_marks_triage_once(tmp_path):
@@ -103,3 +106,38 @@ def test_new_fields_round_trip_and_unknown_triage_is_none(tmp_path):
     m = records.update(m, TODAY, owner_confirmed=TODAY, released=TODAY, triage="pending", general="some-handle")
     assert (m.owner_confirmed, m.released, m.triage, m.general) == (TODAY, TODAY, "pending", "some-handle")
     assert records.update(m, TODAY, triage="done").triage is None
+
+
+def test_entry_written_before_this_stage_loads(tmp_path):
+    folder = tmp_path / "project"
+    folder.mkdir()
+    path = folder / "retries-need-keys.md"
+    path.write_text("---\nkind: lesson\nclaim: Retries need keys.\ncreated: '2026-11-01'\nobserved: 1\n"
+                    "status: active\nsources:\n- session a\n- session b\norigin: transcript\nweight: medium\n---\n")
+    (m,) = records.load_memories(folder, "project")
+    assert m.error is None
+    assert records.sessions(m) == ["session a", "session b"] and records.projects(m) == []
+    assert records.standing(m) == "established"
+
+
+def test_one_session_is_one_sighting():
+    assert records.normalized_sources(["session a project " + K1, "Session A project " + K2]) == \
+        ["session a project " + K1]
+    assert records.normalized_sources(["session a", "session a project " + K2, "session a project " + K1]) == \
+        ["session a project " + K2]
+
+
+def test_one_session_with_two_keys_is_one_project(tmp_path):
+    m = make(tmp_path, "global", weight="light", sources=["session a project " + K1, "session a project " + K2])
+    assert records.standing(m) == "unconfirmed"
+    m, added = records.add_sighting(m, "session a project " + K2, TODAY)
+    assert not added and records.projects(m) == [K1]
+
+
+def test_owner_confirmation_of_a_released_record_ends_triage(tmp_path):
+    m = make(tmp_path, "global", weight="medium", sources=["session a project " + K1, "session b project " + K2])
+    assert m.released == TODAY and m.triage == "pending"
+    after = dataclasses.replace(m, owner_confirmed=TODAY)
+    changes = records.standing_changes(m, after, TODAY)
+    assert changes["triage"] is None and "released" not in changes
+    assert records.update(m, TODAY, owner_confirmed=TODAY, **changes).triage is None

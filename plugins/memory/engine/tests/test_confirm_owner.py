@@ -64,3 +64,41 @@ def test_remember_with_two_projects_is_released(gfolder):
                     "--source", "session b project " + K2) == 0
     m = only(gfolder)
     assert m.released == datetime.date.today() and m.triage == "pending" and m.valid_until is None
+
+
+def test_by_owner_on_a_released_record_ends_triage(gfolder):
+    assert remember("--weight", "light", "--source", "session a project " + K1,
+                    "--source", "session b project " + K2) == 0
+    m = only(gfolder)
+    assert m.triage == "pending"
+    released = m.released
+    assert mem.main(["confirm", "--global", m.handle, "--by-owner"]) == 0
+    m = only(gfolder)
+    assert m.triage is None and m.released == released and m.owner_confirmed == datetime.date.today()
+
+
+def test_by_owner_refuses_an_inactive_record(gfolder, capsys):
+    assert remember("--source", "session s project " + K1) == 0
+    handle = only(gfolder).handle
+    assert mem.main(["refute", "--global", handle]) == 0
+    assert mem.main(["confirm", "--global", handle, "--by-owner"]) == 2
+    assert "refuted" in capsys.readouterr().err
+    assert only(gfolder).owner_confirmed is None
+
+
+def test_merge_of_one_session_with_two_keys_is_one_project(gfolder):
+    assert remember("--weight", "light", "--source", "session a project " + K1) == 0
+    assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", "Other claim entirely about queues.",
+                     "--origin", "transcript", "--weight", "light", "--source", "session a project " + K2]) == 0
+    keep, drop = sorted(records.load_memories(gfolder, "global"), key=lambda m: m.claim != CLAIM)
+    assert mem.main(["merge", "--global", keep.handle, drop.handle, "--force"]) == 0
+    (m,) = [x for x in records.load_memories(gfolder, "global") if x.status == "active"]
+    assert records.sessions(m) == ["session a"] and len(records.projects(m)) == 1
+    assert records.standing(m) == "unconfirmed" and m.triage is None
+
+
+@pytest.mark.parametrize("source", ["session a project short", "session a project " + K1 + "zz"])
+def test_remember_refuses_a_malformed_sighting(gfolder, capsys, source):
+    assert remember("--source", source) == 2
+    assert "session <id>" in capsys.readouterr().err
+    assert records.load_memories(gfolder, "global") == []
