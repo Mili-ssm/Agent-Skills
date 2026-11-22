@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- The background capture and the corroboration pass now find the global memories folder from the store (`MEM_STORE`, or the default store) as `mem` does. Before, with no `MEM_MEMORIES` set, they saw no global memory: since 0.3.0 the capture could propose again a lesson that a global memory already held, and in 0.4.0 the pass could not add a sighting to a global record. Nothing to migrate; the next capture and pass read them.
+
 ## [0.4.0] - 2026-11-22
 
 ### Added
