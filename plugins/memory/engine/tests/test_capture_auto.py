@@ -341,3 +341,11 @@ def test_log_line_has_no_text(world):
     assert auto(world).returncode == 0
     raw = (world.cdir / "log.jsonl").read_text()
     assert GOOD["claim"][:30] not in raw and "never mock" not in raw and str(world.tmp) not in raw
+
+
+def test_session_index_shows_the_failure_line(world):
+    assert auto(world, mode="exit1").returncode == 0
+    assert "Automatic capture failed on" in mem(world, "session-index")
+    ack = subprocess.run([sys.executable, "-I", str(CAPTURE), "ack"], env=env_of(world), capture_output=True, text=True)
+    assert ack.returncode == 0
+    assert "Automatic capture failed on" not in mem(world, "session-index")

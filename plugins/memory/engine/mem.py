@@ -36,6 +36,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 import yaml
 
 import auto_state
+import capture_state
 import handoff
 import project_syntheses
 import records
@@ -3159,6 +3160,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notices = []
         for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
                      lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
+                     lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
                      lambda: settle_state.settled_line(memories)):
             try:
                 found = make()
