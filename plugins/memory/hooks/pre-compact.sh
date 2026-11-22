@@ -19,7 +19,7 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ]; then
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
   [ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null
   type find_claude >/dev/null 2>&1 || find_claude() { :; }
-  input=$(cat 2>/dev/null)
+  if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # never wait on an input left open
   if [ -n "$here" ]; then
     claude="$(find_claude)"
     set -- auto --trigger pre-compact

@@ -43,13 +43,13 @@
     "auto_capture": {
       "type": "boolean",
       "title": "Automatic capture",
-      "description": "After each compaction and when the session ends, a background run reads the new part of the session's transcript with a small model and writes lessons as unconfirmed project memories (only in a project that already has its memory folder). Sends transcript text of the session to a small model through your own claude and spends model usage; off by default. Not yet measured."
+      "description": "When a compaction starts and when the session ends, a background run reads the new part of the session's transcript with a small model and writes lessons as unconfirmed project memories (only in a project that already has its memory folder). Sends transcript text of the session to a small model through your own claude and spends model usage; off by default. Not yet measured."
     },
     "auto_capture_budget": {
       "type": "number",
       "title": "Automatic capture budget (USD per window)",
       "default": 0.25,
-      "description": "Most one capture window may spend. Default 0.25."
+      "description": "Upper limit of what one capture window (one model session) may spend. Default 0.25."
     },
     "research_depth": {
       "type": "string",

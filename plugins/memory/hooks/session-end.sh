@@ -16,7 +16,7 @@ type find_claude >/dev/null 2>&1 || find_claude() { :; }   # the helper is missi
 # standard input, before the commit (which can take seconds and the hook's time may run out; capture writes the
 # project, not the store). It checks its own limits, so nothing here waits on a model.
 if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ] && [ -n "$here" ]; then
-  input=$(cat 2>/dev/null)
+  if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # never wait on an input left open
   claude="$(find_claude)"
   set -- auto --trigger session-end
   [ -n "$claude" ] && set -- "$@" --claude "$claude"
