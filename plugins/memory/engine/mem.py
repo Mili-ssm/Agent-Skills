@@ -3342,15 +3342,16 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
     target = next((m for m in same if m.origin == "transcript"), None)
     if target is None or getattr(args, "origin", None) != "transcript" or not keys:
         return False
-    rel = target.path.relative_to(project if project is not None else folder).as_posix()
-    print(f"m:{target.handle}\t{rel}")
+    added = False
     for key in keys:
         if key in records.sessions(target):
             print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
         target, _ = records.add_sighting(target, key, today)
+        added = True
         print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
+    print(f"m:{target.handle}\t{'sighting' if added else 'already counted'}")
     return True
 
 
@@ -3402,11 +3403,22 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                args.kind, args.owner_approved)
         if refused:
             return refused
+    from_session = getattr(args, "origin", None) == "transcript" and any(map(records.session_key, args.source))
+    if getattr(args, "origin", None) == "transcript" and args.valid_until is not None:
+        draft = records.Memory(scope, folder, "", args.kind, args.claim, today, 1, "active", None, None,
+                               records.normalized_sources(args.source), "", None, origin="transcript",
+                               weight=getattr(args, "weight", None))
+        if records.standing(draft) != "established":
+            print(f"mem: --valid-until is refused: the life of a record from a transcript is "
+                  f"{records.UNCONFIRMED_DAYS} days from the last session that showed it.", file=sys.stderr)
+            return 2
     claim_tokens = tokenize(args.claim)
     existing = records.load_memories(folder, scope)
     live = [m for m in existing if records.is_live(m, today)]
     if not args.force:
-        same = [m for m in live if _same_claim(m.claim, args.claim)]
+        lapsed = [m for m in existing if from_session and m.error is None and m.status == "active"
+                  and m.origin == "transcript" and m not in live]
+        same = [m for m in live + lapsed if _same_claim(m.claim, args.claim)]
         if same:
             seen = _add_sightings(same, args, today, folder, project)
             if seen:
@@ -3525,6 +3537,17 @@ def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list
     return 0
 
 
+def _add_plain_source(memory: records.Memory, source: str, today: datetime.date, note: str | None) -> records.Memory:
+    """A source (URL, path or session) appended once to a memory that is not from a transcript, with the note."""
+    changes: dict = {}
+    if source not in memory.sources:
+        changes["sources"] = [*memory.sources, source]
+    if note and note.strip():
+        head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+        changes["body"] = f"{head}{' '.join(note.split())}\n"
+    return records.update(memory, today, **changes) if changes else memory
+
+
 def cmd_confirm(args: argparse.Namespace) -> int:
     repeated: list[bool] = []
 
@@ -3538,19 +3561,25 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         source = getattr(args, "source", None)
         if source is None and getattr(args, "note", None):
             raise ValueError("--note needs --source")
-        if source is not None and (key := records.session_key(source)) is None:
+        from_transcript = found[0].origin == "transcript"
+        key = records.session_key(source) if source is not None else None
+        if source is not None and not source.strip():
+            raise ValueError("--source is empty")
+        if source is not None and from_transcript and key is None:
             raise ValueError(f"--source takes a session ('session <id>'), not {source!r}")
         if until is not None and records.standing(found[0]) == "unconfirmed":
             raise ValueError("a record from a transcript is confirmed only by another session showing it: "
                              "use --source 'session <id>', not --until")
-        if source is not None and key in records.sessions(found[0]):
+        if source is not None and from_transcript and key in records.sessions(found[0]):
             repeated.append(True)
             return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
         records.log_before(found[0], "confirm")
-        if source is not None:
+        if source is not None and from_transcript:
             updated, _ = records.add_sighting(found[0], source, today, args.note)
         else:
             updated = records.observe(found[0], today)
+            if source is not None:
+                updated = _add_plain_source(updated, source.strip(), today, args.note)
         if until is not None:
             updated = records.update(updated, today, valid_until=until)
         return [f"m:{updated.handle}\tobserved {updated.observed}"]

@@ -397,11 +397,16 @@ def observe(memory: Memory, today: datetime.date) -> Memory:
     return update(memory, today, observed=memory.observed + 1, last_observed=today)
 
 
+MAX_SESSION_ID = 200  # characters of the id after "session "; longer is not a session
+
+
 def session_key(source: str) -> str | None:
     """The normalized form of a session source (stripped, whitespace collapsed, lower-cased) when it is
     "session <id>", else None: two spellings of one session are one key."""
     key = " ".join(source.split()).lower()
-    return key if key.startswith(SESSION_PREFIX) and len(key) > len(SESSION_PREFIX) else None
+    if not key.startswith(SESSION_PREFIX) or len(key) == len(SESSION_PREFIX):
+        return None
+    return key if len(key) - len(SESSION_PREFIX) <= MAX_SESSION_ID else None
 
 
 def normalized_sources(sources: Iterable[str]) -> list[str]:

@@ -279,13 +279,13 @@ def test_remember_of_an_identical_claim_adds_the_session(project, capsys):
     capsys.readouterr()
     assert remember_t(source="session b") == 3
     cap = capsys.readouterr()
-    assert cap.out.startswith(f"m:{HANDLE}\t") and "added" in cap.err
+    assert cap.out == f"m:{HANDLE}\tsighting\n" and "added" in cap.err
     sources, until, standing = state_of(project, HANDLE)
     assert (sources, until, standing) == (["session a", "session b"], None, "established")
     assert len(list(project.glob("*.md"))) == 1
     assert remember_t(source="session  B") == 3
     cap = capsys.readouterr()
-    assert cap.out.startswith(f"m:{HANDLE}\t") and "already counted" in cap.err
+    assert cap.out == f"m:{HANDLE}\talready counted\n" and "already counted" in cap.err
     assert state_of(project, HANDLE)[0] == ["session a", "session b"]
     # any other case exits 3 as before: nothing on stdout, nothing added
     assert mem.main(["remember", "--kind", "lesson", f"--claim=Pagination cursors must be opaque."]) == 3
@@ -300,3 +300,56 @@ def test_a_repeated_session_writes_no_undo_entry(project):
     assert mem.main(["confirm", f"m:{HANDLE}", "--source", "session a"]) == 3
     after = names(), [p.read_bytes() for p in project.parent.rglob("*") if "log" in p.name.lower() and p.is_file()]
     assert after == before
+
+
+# Fix round 2.
+
+def test_an_explicit_end_date_needs_an_established_record(project, capsys):
+    capsys.readouterr()
+    assert remember_t("--valid-until", "2099-01-01") == 2
+    err = capsys.readouterr().err
+    assert len([ln for ln in err.splitlines() if ln.strip()]) == 1 and "30 days" in err
+    assert not list(project.glob("*.md"))
+    assert remember_t("--valid-until", "2099-01-01", claim="Settled by a light weight.", weight="light") == 0
+    assert state_of(project, "settled-by-a-light-weight")[1] == datetime.date(2099, 1, 1)
+    assert mem.main(["remember", "--kind", "lesson", "--claim", "Not from a transcript.", "--valid-until",
+                     "2099-01-01"]) == 0
+
+
+def test_a_new_session_revives_a_lapsed_record_and_writes_no_second_file(project):
+    old = make(project, weight="strong")
+    path = old.path
+    raw = path.read_text().replace(f"valid_until: {days(30).isoformat()}", "valid_until: 2020-01-01")
+    path.write_text(raw)
+    assert not records.is_live(reload(old), TODAY)
+    assert remember_t(claim=old.claim, source="session b") == 3
+    assert len(list(project.glob("*.md"))) == 1
+    got = reload(old)
+    assert records.sessions(got) == ["session a", "session b"] and records.is_live(got, TODAY)
+    assert got.valid_until == TODAY + datetime.timedelta(days=30)
+
+
+def test_refuted_and_forgotten_records_are_not_revived(project):
+    for status, claim in (("refuted", "Refuted lessons stay refuted."), ("forgotten", "Forgotten lessons stay gone.")):
+        old = make(project, claim=claim, weight="strong")
+        old.path.write_text(old.path.read_text().replace("status: active", f"status: {status}"))
+        assert remember_t(claim=claim, source="session b") == 0
+        assert len(list(project.glob(f"{old.handle}*.md"))) == 2
+        assert records.sessions(reload(old)) == ["session a"]
+
+
+def test_confirm_source_is_free_for_a_memory_that_is_not_from_a_transcript(project, capsys):
+    assert mem.main(["remember", "--kind", "lesson", "--claim", "A plain session memory."]) == 0
+    h = "a-plain-session-memory"
+    assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/x", "--note", "seen there"]) == 0
+    m = next(x for x in records.load_memories(project, "project") if x.handle == h)
+    assert m.sources == ["https://example.org/x"] and m.observed == 2
+    assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/x"]) == 0
+    m = next(x for x in records.load_memories(project, "project") if x.handle == h)
+    assert m.sources == ["https://example.org/x"] and m.observed == 3
+
+
+def test_a_session_id_has_a_length_cap():
+    assert records.session_key("session " + "a" * 200) is not None
+    assert records.session_key("session " + "a" * 201) is None
+    assert records.session_key("session " + "a" * 201 + "   ") is None
