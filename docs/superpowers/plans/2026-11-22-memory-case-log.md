@@ -73,7 +73,7 @@
   - `add_sighting(memory, session, today, note=None, *, outcome: str = "seen", on: datetime.date | None = None)`: does what it does today and also `add_case` with `on or today`, in the same file write where it writes one. A session already counted still gets its case; the returned flag keeps its present meaning (a new session was counted).
   - `write_memory(..., outcome: str | None = None, on: datetime.date | None = None)`: when `outcome` is given, the record gets one entry per session among its `sources`, with that outcome and `on or today`; without it the record gets no `log` (a caller with several sessions of different outcomes adds each case afterwards, Task 4).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Build memories with the helpers `test_records.py` already uses for a transcript record (read its first 60 lines; do not write a second fixture).
 
@@ -109,20 +109,20 @@ Then, each on a transcript memory in `tmp_path`:
 | `test_an_old_file_is_not_rewritten_by_a_read` | a file without `log`: `load_memories` leaves its bytes unchanged and `cases(m) == []` |
 | `test_sources_and_standing_ignore_the_log` | two memories that differ only in `log`: equal `sessions`, `projects`, `standing` |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
 Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_case_log.py -q`
 Expected: FAIL, `records.case_entry` does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `_render` writes `log` only when it is not empty. `add_sighting` computes the new `log` value and puts it in the `changes` it already builds; in its early return for a counted session it writes only when a case was added.
 
-- [ ] **Step 4: Run the tests of this file, then the whole suite**
+- [x] **Step 4: Run the tests of this file, then the whole suite**
 
 Expected: both pass. A test that compares the whole frontmatter of a transcript record after `add_sighting` or `write_memory` now sees `log`: update it and name it in the report.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine
