@@ -3334,13 +3334,13 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
                    project: Path | None) -> bool:
     """An identical claim from another session: when both the existing record and this call come from a transcript,
     the session goes onto the existing record. True when the call was handled (the caller still exits 3)."""
-    keys = [k for k in map(records.session_key, args.source) if k]
+    keys = [records.sighting_entry(*f) for f in map(records.sighting, args.source) if f]
     target = next((m for m in same if m.origin == "transcript"), None)
     if target is None or getattr(args, "origin", None) != "transcript" or not keys:
         return False
     added = False
     for key in keys:
-        if key in records.sessions(target):
+        if records.counted(target, key):
             print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
@@ -3559,6 +3559,20 @@ def cmd_confirm(args: argparse.Namespace) -> int:
             raise ValueError("--note needs --source")
         from_transcript = found[0].origin == "transcript"
         key = records.session_key(source) if source is not None else None
+        if getattr(args, "by_owner", False):
+            if source is not None or until is not None:
+                raise ValueError("--by-owner stands alone: it takes no --source or --until")
+            m = found[0]
+            if m.origin != "transcript":
+                raise ValueError(f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
+                                 "lesson captured from one")
+            if m.owner_confirmed:
+                repeated.append(True)
+                return [f"m:{m.handle}\talready confirmed by the owner: nothing changed"]
+            records.log_before(m, "confirm")
+            after = dataclasses.replace(m, owner_confirmed=today)
+            records.update(m, today, owner_confirmed=today, **records.standing_changes(m, after, today))
+            return [f"m:{m.handle}\tconfirmed by the owner"]
         if source is not None and not source.strip():
             raise ValueError("--source is empty")
         if source is not None and from_transcript and key is None:
@@ -3569,7 +3583,9 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         if source is not None and found[0].status != "active":
             raise ValueError(f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory")
         seen = {records.session_key(s) or s.strip() for s in found[0].sources}
-        if source is not None and (key or source.strip()) in seen:
+        already = records.counted(found[0], source) if from_transcript and source is not None else (
+            source is not None and (key or source.strip()) in seen)
+        if already:
             repeated.append(True)
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
@@ -3719,10 +3735,9 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
         changes["sources"] = sources
         if keep.origin == "transcript":
             after = dataclasses.replace(keep, sources=sources)
-            if records.standing(after) == "established":
-                changes["valid_until"] = None  # enough sessions now: no end date
-            elif len(records.sessions(after)) > len(records.sessions(keep)):
-                changes["valid_until"] = today + datetime.timedelta(days=records.UNCONFIRMED_DAYS)
+            standing_changes = records.standing_changes(keep, after, today)
+            if records.standing(after) == "established" or len(records.sessions(after)) > len(records.sessions(keep)):
+                changes.update(standing_changes)  # enough evidence now, or a new session renews the 30 days
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
@@ -6191,6 +6206,8 @@ def build_parser() -> argparse.ArgumentParser:
         confirm_parser.add_argument("--source", metavar="'session ID'",
                                     help="another session shows it: add it as a source (exit 3 when already one)")
         confirm_parser.add_argument("--note", metavar="TEXT", help="with --source: a line added to the body")
+        confirm_parser.add_argument("--by-owner", action="store_true",
+                                    help="the owner vouches for a transcript lesson: it is established (exit 3 when already)")
         confirm_parser.set_defaults(func=cmd_confirm)
     memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
     memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
