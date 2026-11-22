@@ -62,6 +62,7 @@ The background curator never runs `mem triage`: a main session or the owner acce
 - `mem forget` is for what stopped being true or useful. For something that was wrong from the start, `mem refute` with the reason: the reason is what stops it being written again.
 - A decision or a constraint does not go stale by age: the queue never lists them as unconfirmed, and you do not forget one because it is old.
 - A memory or note that is wrong in a detail, not as a whole: `mem memory edit m:<h> --claim "…"` or `mem note edit <note> --claim "…"`. A retired memory is restored before it is edited.
+- A loaded rule (a line of the session start text, see `mem rules`) that is wrong or no longer useful: turn it off with `mem memory edit <h> --no-load` (with `--global` for a global lesson, on every command of this line), move it to the index line with `--index-only`, or reword it with `--claim` then `--short`, since a new claim removes the short form. `mem forget` is for a lesson that is false.
 - Undo: `mem restore m:<handle>` puts a memory back as it was before the last action on it; run it again to go back one more step.
 
 ## Report

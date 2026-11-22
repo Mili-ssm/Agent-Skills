@@ -41,6 +41,7 @@ import corroborate
 import handoff
 import project_syntheses
 import records
+import rules
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
 import settle
 import settle_state
@@ -50,7 +51,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
+                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "rules", "compact-log", "signal", "projects",
                     "project-synthesis")
 
 
@@ -2751,6 +2752,12 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
     out = [f"== m:{m.handle} ({m.scope})", facts]
     if m.sources:
         out.append(f"sources: {', '.join(m.sources)}")
+    if m.short:
+        out.append(f"short: {m.short}")
+    if m.topic:
+        out.append(f"topic: {m.topic}")
+    if m.load:
+        out.append(f"load: {m.load}")
     out += ["", "## Claim", " ".join(m.claim.split())]
     if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
         out += ["", m.body.rstrip("\n")]
@@ -3067,11 +3074,14 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
-                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None) -> str:
+                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
+                  stats: dict[str, int] | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
-    `notice` is one more line after the rules (the failure of the automatic curation run)."""
+    `notice` is one more line after the rules (the failure of the automatic curation run).
+    The lessons that load as rules follow the notice; `stats`, when given, receives their numbers (rules, rules_left,
+    rules_chars). `limit` and `_INDEX_LIMIT` apply to the text without them."""
     try:
         has_store = store is not None and store.is_dir()
         has_memories = memories is not None and memories.is_dir()
@@ -3079,6 +3089,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         has_store = has_memories = False
     head = [_INDEX_HEAD]
     due = 0
+    loaded_global: list[records.Memory] = []
 
     def due_in(folder: Path, loaded: list[records.Memory]) -> int:
         return records.curation_due(loaded, (passes or {}).get(str(folder.resolve())), today)
@@ -3110,6 +3121,17 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
+    extra: list[str] = []
+    try:
+        choice = rules.choose(loaded_project, loaded_global, today)
+        extra = rules.block(choice)
+        more = rules.more_line(choice)
+        if more:
+            extra.append(more)
+        if stats is not None:
+            stats.update(rules=len(choice.loaded), rules_left=len(rules.not_fitted(choice)), rules_chars=len("\n".join(extra)))
+    except Exception:
+        extra = []
     if mine and limit > 0:
         rows = []
         for m in mine:
@@ -3123,9 +3145,9 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             tail = [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories'] if shown < len(rows) else []
             text = "\n".join(lines + rows[:shown] + tail)
             if len(text) <= _INDEX_LIMIT or shown == 0:
-                return text
+                return "\n".join(lines + extra + rows[:shown] + tail)
             shown -= 1
-    return "\n".join(lines)
+    return "\n".join(lines + extra)
 
 
 def _hook_input() -> dict[str, Any]:
@@ -3173,6 +3195,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
     started = time.monotonic()
     data = _hook_input() if args.hook else {}
+    stats: dict[str, int] = {}
     try:
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
@@ -3198,14 +3221,17 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice)
+                             notice=notice, stats=stats)
     except Exception:
         text = _INDEX_RULES
+        stats.clear()
     print(text)
     if args.hook:
         source = data.get("source")
         _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
-                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text)})
+                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text),
+                   "rules": stats.get("rules", 0), "rules_left": stats.get("rules_left", 0),
+                   "rules_chars": stats.get("rules_chars", 0)})
     return 0
 
 
@@ -3378,6 +3404,24 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
     return True
 
 
+def _check_short_topic(args: argparse.Namespace) -> int | None:
+    """Collapse the whitespace of `args.short`, then 2 after a message when it or `args.topic` is not valid
+    (empty is allowed: it means none), else None."""
+    if args.short and len(args.short.splitlines()) > 1:
+        print("mem: the short form must be one line: it has a line break.", file=sys.stderr)
+        return 2
+    if args.short is not None:
+        args.short = " ".join(args.short.split())
+    if args.short and not records.valid_short(args.short):
+        print(f"mem: the short form must be one line of at most {records.SHORT_LIMIT} characters.", file=sys.stderr)
+        return 2
+    if args.topic and not records.valid_topic(args.topic):
+        print(f"mem: the topic must be one or two lowercase words, at most {records.TOPIC_LIMIT} characters, "
+              f'not "other".', file=sys.stderr)
+        return 2
+    return None
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3390,6 +3434,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if args.kind not in records.KINDS:
         print(f"mem: unknown kind {args.kind!r}.", file=sys.stderr)
         return 2
+    if (refused := _check_short_topic(args)) is not None:
+        return refused
     if args.is_global:
         folder = records.memories_root(os.environ, store)
         if folder is None:
@@ -3419,10 +3465,10 @@ def cmd_remember(args: argparse.Namespace) -> int:
     except (OSError, UnicodeDecodeError) as exc:
         print(f"mem: cannot read the body: {exc}", file=sys.stderr)
         return 2
-    if _refuse_secret([args.claim, args.context or "", body, *args.source]):
+    if _refuse_secret([args.claim, args.context or "", body, *args.source, args.short or ""]):
         return 4
     if args.is_global:
-        refused = _check_terms([args.claim, args.context or "", body, *args.source, records.slug_of(args.claim)],
+        refused = _check_terms([args.claim, args.context or "", body, *args.source, records.slug_of(args.claim), args.short or ""],
                                args.kind, args.owner_approved)
         if refused:
             return refused
@@ -3468,7 +3514,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
         m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
                                  context=args.context, valid_until=args.valid_until, sources=args.source,
                                  origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
-                                 weight=getattr(args, "weight", None))
+                                 weight=getattr(args, "weight", None), short=args.short or None,
+                                 topic=args.topic or None)
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3754,8 +3801,9 @@ def cmd_supersede(args: argparse.Namespace) -> int:
 
 def cmd_memory(args: argparse.Namespace) -> int:
     """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
-    if args.claim is None and args.context is None and args.body_file is None:
-        build_parser().error("memory edit needs --claim, --context or --body-file")
+    if (args.claim is None and args.context is None and args.body_file is None and args.short is None
+            and args.topic is None and not args.no_load and not args.load and not args.index_only):
+        build_parser().error("memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load")
     claim = " ".join(args.claim.split()) if args.claim is not None else None
     context = " ".join(args.context.split()) if args.context is not None else None
     try:
@@ -3766,7 +3814,9 @@ def cmd_memory(args: argparse.Namespace) -> int:
     if claim is not None and not claim:
         print("mem: the claim is empty.", file=sys.stderr)
         return 2
-    texts = [t for t in (claim, context, body) if t]
+    if (refused := _check_short_topic(args)) is not None:
+        return refused
+    texts = [t for t in (claim, context, body, args.short) if t]
     if _refuse_secret(texts):
         return 4
     found = _memory_of(args, [args.handle])
@@ -3785,6 +3835,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
     try:
         original = m.path.read_bytes()
         what = []
+        short_removed = False
         changes: dict[str, Any] = {}
         if claim is not None:
             if not args.shrink:
@@ -3799,6 +3850,25 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 syntheses._guard_shrink(m.body.strip("\n"), body.strip("\n"))
             changes["body"] = body
             what.append("body")
+        if args.short is not None:
+            changes["short"] = args.short or None
+            what.append("short")
+        elif claim is not None and claim != m.claim and m.short:
+            changes["short"] = None  # a short form never outlives the claim it was drawn from
+            what.append("short removed")
+            short_removed = True
+        if args.topic is not None:
+            changes["topic"] = args.topic or None
+            what.append("topic")
+        if args.no_load:
+            changes["load"] = "no"
+            what.append("load")
+        elif args.index_only:
+            changes["load"] = "index"
+            what.append("load")
+        elif args.load:
+            changes["load"] = None
+            what.append("load")
         updating = False
         try:
             records.log_before(m, "edit")
@@ -3819,6 +3889,8 @@ def cmd_memory(args: argparse.Namespace) -> int:
         return 2
     if m.scope == "project":
         _register_project(records.project_root(Path.cwd(), os.environ))
+    if short_removed:
+        print("mem: the short form was removed with the old claim: write a new one with --short", file=sys.stderr)
     print(f"m:{m.handle}\tedited {', '.join(what)}")
     log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
     if m.scope == "global" and m.origin != "pipeline":
@@ -4145,6 +4217,38 @@ def cmd_memories(args: argparse.Namespace) -> int:
         print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
               f"{', quarantine' if args.quarantine else ''}"
               f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
+    return 0
+
+
+def cmd_rules(args: argparse.Namespace) -> int:
+    """Print the rules block and the line after it exactly as session start does; --more lists what was left out."""
+    today = datetime.date.today()
+    (_, _, project), (_, _, global_) = _loaded(_memory_folders(args))
+    choice = rules.choose(project, global_, today)
+    unready = (f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form: "
+               "mem-corroborate fill --dry-run --out FILE proposes them.")
+    if args.more is not None:
+        topic = None if args.more is True else args.more
+        shown = [(m, why) for m, why in choice.left
+                 if topic is None or (m.topic or "other") == topic or (topic == "other" and not m.topic)]
+        order = [t for t, _ in rules.topic_counts(choice)] + [None]
+        for group in order:
+            for m, why in (x for x in shown if x[0].topic == group):
+                claim = _flat(m.claim)
+                claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
+                print(f"m:{m.handle}\t{m.scope}\t{why}\t{m.topic or '-'}\t{claim}")
+        if not shown:
+            print("No lessons left out" + (f" under {topic}." if topic else "."))
+        if choice.unready:
+            print(unready)
+        return 0
+    lines = rules.block(choice)
+    print("\n".join(lines) if lines else "No rules loaded.")
+    more = rules.more_line(choice)
+    if more:  # also alone: index-only lessons are reachable when no rule loads
+        print(more)
+    if not lines and choice.unready:
+        print(unready)
     return 0
 
 
@@ -6294,6 +6398,8 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--claim", required=True)
     remember_parser.add_argument("--body-file", metavar="PATH", help="text (or - for standard input); may be empty")
     remember_parser.add_argument("--context")
+    remember_parser.add_argument("--short", metavar="TEXT", help="the claim as one line of at most 120 characters, loaded at session start")
+    remember_parser.add_argument("--topic", metavar="TEXT", help="one or two lowercase words that group rules")
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
     remember_parser.add_argument("--origin", choices=records.ORIGINS,
@@ -6381,6 +6487,10 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="only the global lessons in quarantine (not shown anywhere else until corroborated)")
     memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
     memories_parser.set_defaults(func=cmd_memories)
+    rules_parser = sub.add_parser("rules", help="print the rules that load at session start; --more lists the rest")
+    rules_parser.add_argument("--more", nargs="?", const=True, default=None, metavar="TOPIC",
+                              help="the lessons left out, grouped by topic; with TOPIC only that group (other: no topic)")
+    rules_parser.set_defaults(func=cmd_rules)
     curate_parser.add_argument("--notes", action="store_true",
                                help="list notes to attach to a synthesis part, and notes older than their part")
     curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
@@ -6504,6 +6614,13 @@ def build_parser() -> argparse.ArgumentParser:
     memory_edit.add_argument("--claim", metavar="TEXT", help="the new claim (one sentence)")
     memory_edit.add_argument("--context", metavar="TEXT", help="the new context; an empty text removes it")
     memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
+    memory_edit.add_argument("--short", metavar="TEXT", help="the one-line rule loaded at session start; an empty text removes it")
+    memory_edit.add_argument("--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it")
+    load_switch = memory_edit.add_mutually_exclusive_group()
+    load_switch.add_argument("--no-load", action="store_true", help="never load this lesson as a rule")
+    load_switch.add_argument("--index-only", action="store_true",
+                             help="never load this lesson as a rule, but count it in the index line by topic")
+    load_switch.add_argument("--load", action="store_true", help="remove --no-load and --index-only")
     memory_edit.add_argument("--shrink", action="store_true",
                              help="accept a text that drops over 20%% of the words, a sentence or a link")
     memory_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)

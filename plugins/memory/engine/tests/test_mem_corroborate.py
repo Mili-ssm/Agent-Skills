@@ -32,7 +32,7 @@ with open(os.environ["FAKE_CALLS"], "a") as f:
                         "path": os.environ.get("PATH", "")}) + "\\n")
 brief = sys.argv[sys.argv.index("-p") + 1]
 out = re.search(r"Write (\\S+) as JSON", brief).group(1)
-src = os.environ.get("FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_GROUPS")
+src = os.environ.get("FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_FILL" if out.endswith("fill.json") else "FAKE_GROUPS")
 if mode == "exit1":
     sys.exit(1)
 if src and os.path.exists(src):
@@ -750,3 +750,347 @@ def test_old_run_folders_are_pruned_when_a_run_skips(w):
         os.utime(d, (old - i * 60,) * 2)
     assert run(w, mode="never").returncode == 0 and log_lines(w)[-1]["skipped"] == "nothing new"
     assert len(runs_of(w)) == capture_state.KEEP_RUNS
+
+
+# ---- fill: a short form and a topic proposed into a file the owner reads ------------------------------------------
+
+SAME = "Hand a subagent the acceptance check before it starts, as it may help it tell when it is done."
+SHORT = "Give a subagent the acceptance check first, as it may help it know when it is done."
+
+
+def fill_world(w):
+    """The same claim (so the same handle) in two projects, one global lesson and one that stays out of the file."""
+    lesson(w, w.pa, SAME, ("s1", "s2"))
+    lesson(w, w.pb, SAME, ("s3", "s4"))
+    g = records.write_memory(w.gmem, "global", kind="lesson", claim="Read the whole failing test output before you change any code.",
+                             body="b\n", today=TODAY, origin="transcript", reach="general", weight="light",
+                             sources=[f"session s5 project {records.project_key(w.pa)}",
+                                      f"session s6 project {records.project_key(w.pb)}"])
+    g = records.update(g, TODAY, triage=None)   # a released global record starts as pending
+    lesson(w, w.pa, "Run the narrowest test that covers a change before the whole suite, as it may save time.", ("s7", "s8"))
+    return g
+
+
+def fill_ids(w):
+    return {(x.id.split(":")[0], x.memory.handle): x.id for x in lessons(w)}
+
+
+def fill_answer(w, items):
+    (w.tmp / "fill-answer.json").write_text(items if isinstance(items, str) else json.dumps({"items": items}))
+    os.environ["FAKE_FILL"] = str(w.tmp / "fill-answer.json")
+
+
+def fill_run(w, *args, **kw):
+    return run(w, *args, cmd="fill", **kw)
+
+
+def cut_problems(out):
+    """The owner cuts the items the dry run marked with a problem."""
+    out.write_text(json.dumps([i for i in json.loads(out.read_text()) if "problem" not in i]))
+
+
+def proposal(w, g):
+    ids = fill_ids(w)
+    handle = records.load_memories(records.project_dir(w.pa), "project")[0].handle
+    shared = [i for (kind, h), i in ids.items() if kind != "g" and h == handle]
+    assert len(shared) == 2
+    gid = ids[("g", g.handle)]
+    fill_answer(w, [{"id": shared[0], "short": SHORT, "topic": "process"},
+                    {"id": shared[1], "short": SHORT + " ", "topic": "Process"},   # invalid: kept for the owner, with a problem
+                    {"id": gid, "short": "Read a failing test output to the end before changing code.", "topic": "testing"},
+                    {"id": "g:nothing", "short": SHORT, "topic": "process"}])
+    return shared, gid
+
+
+def test_fill_dry_run_writes_the_proposal_and_changes_nothing(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    before = snapshot(w)
+    out = w.tmp / "proposal.json"
+    done = fill_run(w, "--dry-run", "--out", str(out))
+    assert done.returncode == 0, done.stderr
+    assert "4 lessons asked, 2 kept, 2 to edit, 1 dropped" in done.stdout, done.stdout
+    items = json.loads(out.read_text())
+    assert {(i["id"], i["scope"]) for i in items if "problem" not in i} == {(shared[0], w.pa.name), (gid, "global")}
+    assert len([i for i in items if "problem" in i]) == 2   # the invalid one and the lesson with no proposal
+    items = [i for i in items if "problem" not in i]
+    first = items[0]
+    assert set(first) == {"id", "handle", "scope", "claim", "short", "topic", "load", "claim_digest"}
+    assert (first["claim"], first["short"], first["topic"], first["load"]) == (SAME, SHORT, "process", "yes")
+    assert first["claim_digest"] == corroborate.claim_digest(
+        next(m for m in project_records(w.pa).values() if m.claim == SAME))
+    assert snapshot(w) == before and calls(w) == 1 and not log_lines(w) and not (w.cdir / "runs").exists()
+    call = json.loads(w.calls_file.read_text().splitlines()[0])
+    assert call["args"][call["args"].index("--tools") + 1] == "Read,Write" and "fill.json" not in call["files"]
+    assert "lessons.txt" in call["files"] and not any(v.startswith("CLAUDE_PLUGIN") for v in call["mem_vars"])
+
+
+def test_fill_dry_run_keeps_what_needs_editing_with_its_problem_and_apply_ignores_the_field(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    other = next(i for (k, h), i in fill_ids(w).items() if k != "g" and i not in shared)
+    fill_answer(w, [{"id": shared[0], "short": "x" * 134, "topic": "process"},
+                    {"id": gid, "short": "Read a failing test output to the end before changing code.", "topic": "Testing"},
+                    {"id": "g:nothing", "short": SHORT, "topic": "process"}])
+    out = w.tmp / "proposal.json"
+    done = fill_run(w, "--dry-run", "--out", str(out))
+    assert done.returncode == 0, done.stderr
+    assert "4 lessons asked, 0 kept, 4 to edit, 1 dropped" in done.stdout, done.stdout
+    by_id = {i["id"]: i for i in json.loads(out.read_text())}
+    assert set(by_id) == {shared[0], shared[1], gid, other}
+    assert by_id[shared[0]]["problem"] == "short has 134 characters, at most 120" and by_id[shared[0]]["short"] == "x" * 134
+    assert by_id[gid]["problem"] == "topic must be one or two lowercase words" and by_id[gid]["topic"] == "Testing"
+    assert by_id[shared[1]] ["problem"] == by_id[other]["problem"] == "no proposal"
+    assert (by_id[other]["short"], by_id[other]["topic"]) == ("", "")
+    assert {"id", "handle", "scope", "claim", "short", "topic", "load", "claim_digest", "problem"} == set(by_id[other])
+    # the owner repairs one item and leaves the others: `problem` is ignored, the rest is validated as ever
+    items = list(by_id.values())
+    for i in items:
+        if i["id"] == shared[0]:
+            i["short"] = SHORT
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 4, "written": 1, "dropped": 3, "failed": 0}
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    assert (a.short, a.topic) == (SHORT, "process")
+
+
+def test_fill_dry_run_asks_for_no_lesson_that_has_nothing_to_fill(w):
+    done = fill_run(w, "--dry-run", "--out", str(w.tmp / "p.json"), mode="never")
+    assert done.returncode == 0 and json.loads((w.tmp / "p.json").read_text()) == []
+
+
+def test_fill_items_write_exactly_the_file_and_undo_puts_them_back(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    before = snapshot(w)
+    items = json.loads(out.read_text())
+    for i in items:
+        i["topic"] = "review"   # the owner edits the file
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    b = next(m for m in project_records(w.pb).values() if m.claim == SAME)
+    assert a.handle == b.handle   # the same handle, in two projects
+    assert (a.short, a.topic) == (SHORT, "review") and (b.short, b.topic) == (None, None)   # only the project of the item
+    (g_now,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert g_now.short.startswith("Read a failing test") and g_now.topic == "review"
+    other = [m for m in project_records(w.pa).values() if m.claim.startswith("Run the narrowest")]
+    assert other[0].short is None
+    line = log_lines(w)[-1]
+    assert line["fill"] == {"asked": 2, "written": 2, "dropped": 0, "failed": 0} and "t" in line and "ms" in line
+    assert not (w.cdir / "seen.json").exists() and not (w.cdir / "status.json").exists()
+    (stamp,) = [p.name for p in (w.cdir / "runs").iterdir()]
+    assert stamp in done.stdout
+    undone = run(w, stamp, cmd="undo", claude=False)
+    assert undone.returncode == 0, undone.stderr
+    assert snapshot(w) == before and not (w.cdir / "seen.json").exists()
+
+
+def test_fill_items_write_the_second_project_of_a_shared_handle(w):
+    g = fill_world(w)
+    shared, _gid = proposal(w, g)
+    fill_answer(w, [{"id": shared[1], "short": SHORT, "topic": "process"}])
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    b = next(m for m in project_records(w.pb).values() if m.claim == SAME)
+    assert (a.short, b.short, b.topic) == (None, SHORT, "process")
+
+
+def test_fill_items_refuse_an_item_whose_claim_changed(w):
+    g = fill_world(w)
+    proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    records.update(a, TODAY, claim=SAME + " Provisional.")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 1
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 1, "dropped": 0, "failed": 1}
+    a = next(m for m in project_records(w.pa).values() if m.claim.startswith(SAME))
+    assert a.short is None
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert "changed its claim" in (run_dir / "log.txt").read_text()
+
+
+def test_fill_items_drop_what_is_invalid_or_unknown_and_rewrite_a_filled_record(w):
+    g = fill_world(w)
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    records.update(a, TODAY, short="An older short form that the owner chose to rewrite.", topic="docs")
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    ids = fill_ids(w)
+    pid = ids[("p", a.handle)] if ("p", a.handle) in ids else next(i for (k, h), i in ids.items() if h == a.handle and k != "g")
+    digest = corroborate.claim_digest(a)
+    good = {"id": pid, "handle": a.handle, "scope": w.pa.name, "claim": SAME, "short": SHORT, "topic": "process", "claim_digest": digest}
+    file = w.tmp / "items.json"
+    file.write_text(json.dumps([good, {**good, "short": "x" * 121}, {**good, "id": "g:nothing"}, {**good}, "nonsense",
+                                {**good, "id": "p9:" + a.handle}]))
+    done = fill_run(w, "--items", str(file), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 6, "written": 1, "dropped": 5, "failed": 0}
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    assert (a.short, a.topic) == (SHORT, "process")
+
+
+def test_fill_alone_or_with_a_bad_file_exits_2(w):
+    fill_world(w)
+    done = fill_run(w, mode="never")
+    assert done.returncode == 2 and "usage" in done.stderr and not log_lines(w)
+    assert fill_run(w, "--dry-run", mode="never").returncode == 2
+    assert fill_run(w, "--out", str(w.tmp / "x.json"), mode="never").returncode == 2
+    assert fill_run(w, "--items", str(w.tmp / "none.json"), "--dry-run", mode="never").returncode == 2
+    (w.tmp / "bad.json").write_text("{}")
+    assert fill_run(w, "--items", str(w.tmp / "bad.json"), claude=False, mode="never").returncode == 2
+    assert not (w.cdir / "runs").exists()
+
+
+def fill_file(w, g, **change):
+    """The proposal file of `proposal`, with the changes applied to every item."""
+    shared, gid = proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    items = [{**i, **change} for i in json.loads(out.read_text())]
+    out.write_text(json.dumps(items))
+    return out, shared, gid
+
+
+def test_fill_items_drop_an_item_whose_handle_or_scope_disagrees_with_its_id(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    items = json.loads(out.read_text())
+    items[0]["handle"] = "other-handle"
+    items[1]["scope"] = w.pb.name
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("handle or scope does not match its id") == 2
+    assert all(m.short is None for m in project_records(w.pa).values()) and all(m.short is None for m in globals_(w))
+
+
+def test_fill_items_apply_an_item_without_handle_and_scope_by_its_id(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    items = [{k: v for k, v in i.items() if k not in ("handle", "scope")} for i in json.loads(out.read_text())]
+    out.write_text(json.dumps(items))
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 2, "dropped": 0, "failed": 0}
+
+
+def test_fill_items_start_no_settling_run(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    seen_env = w.tmp / "seen-env"
+    broken = fake_plugin(w, f'if [ "$1" = memory ]; then echo "$MEM_SETTLE_AUTO|$MEM_SETTLE_MINUTES|$MEM_SETTLE_CLAUDE" >> {seen_env}; fi')
+    env = {"MEM_SETTLE_AUTO": "1", "MEM_SETTLE_MINUTES": "5", "MEM_SETTLE_CLAUDE": "/bin/true"}
+    done = run(w, "--items", str(out), cmd="fill", claude=False, mode="never", corr=broken, env=env)
+    assert done.returncode == 0, done.stderr
+    assert seen_env.read_text().split() == ["||"] * 2
+
+
+def test_fill_items_drop_a_record_that_cannot_load(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    (g_now,) = [m for m in globals_(w) if m.handle == g.handle]
+    records.update(g_now, TODAY, triage="pending")
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    records.update(a, TODAY, origin="web")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("not a lesson that can load") == 2
+
+
+def test_fill_dry_run_checks_the_output_folder_before_the_session(w):
+    fill_world(w)
+    done = fill_run(w, "--dry-run", "--out", str(w.tmp / "missing" / "p.json"))
+    assert done.returncode == 2 and len(done.stderr.strip().splitlines()) == 1 and calls(w) == 0
+    locked = w.tmp / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        if os.access(locked, os.W_OK):
+            pytest.skip("permissions are not enforced here")
+        done = fill_run(w, "--dry-run", "--out", str(locked / "p.json"))
+        assert done.returncode == 2 and len(done.stderr.strip().splitlines()) == 1 and calls(w) == 0
+    finally:
+        locked.chmod(0o700)
+
+
+def _a(w):
+    return next(m for m in project_records(w.pa).values() if m.claim == SAME)
+
+
+def test_fill_dry_run_writes_index_for_an_index_only_lesson(w):
+    g = fill_world(w)
+    records.update(_a(w), TODAY, load="index")
+    out, shared, gid = fill_file(w, g)
+    assert {i["id"]: i["load"] for i in json.loads(out.read_text())}[shared[0]] == "index"
+
+
+def test_fill_items_apply_the_load_value(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    items = json.loads(out.read_text())
+    items[0]["load"] = "index"
+    items[1]["load"] = "no"
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 2, "dropped": 0, "failed": 0}
+    assert (_a(w).short, _a(w).load) == (SHORT, "index")
+    (gl,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert gl.short and gl.load == "no"
+    items[0]["load"] = "yes"
+    out.write_text(json.dumps(items[:1]))
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    assert _a(w).load is None and _a(w).short == SHORT
+
+
+def test_fill_items_load_alone_with_unchanged_short_and_topic(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    records.update(_a(w), TODAY, short=SHORT, topic="process")
+    item = {"id": shared[0], "handle": _a(w).handle, "scope": w.pa.name, "claim": SAME, "short": SHORT, "topic": "process",
+            "load": "index", "claim_digest": corroborate.claim_digest(_a(w))}
+    out.write_text(json.dumps([item]))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert (_a(w).short, _a(w).topic, _a(w).load) == (SHORT, "process", "index")
+
+
+def test_fill_items_drop_a_bad_load_value(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g, load="maybe")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("load must be yes, index or no") == 2
+    assert _a(w).short is None
+
+
+def test_fill_items_turn_on_a_record_that_was_turned_off(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    records.update(_a(w), TODAY, load="no")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")   # the items say load yes
+    assert done.returncode == 0, done.stderr
+    assert (_a(w).short, _a(w).load) == (SHORT, None)
+    records.update(_a(w), TODAY, load="no")
+    items = [{k: v for k, v in i.items() if k != "load"} for i in json.loads(out.read_text())][:1]
+    out.write_text(json.dumps(items))   # no load value: a rule turned off stays off
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    assert _a(w).load == "no" and log_lines(w)[-1]["fill"]["dropped"] == 1
