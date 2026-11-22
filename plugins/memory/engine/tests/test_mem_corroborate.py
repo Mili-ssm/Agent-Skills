@@ -1455,10 +1455,20 @@ def test_a_fill_that_raises_leaves_the_pass_result_seen_and_status_alone(w, monk
 
     monkeypatch.setattr(mod, "fill_auto", boom)
     monkeypatch.setenv(OPTION, "true")
+    kept = {}
+    real = mod.execute
+
+    def execute_then_look(*args, **kw):   # what the pass left, read before the fill runs
+        out = real(*args, **kw)
+        kept.update(seen=(w.cdir / "seen.json").read_bytes(), status=(w.cdir / "status.json").read_bytes())
+        return out
+
+    monkeypatch.setattr(mod, "execute", execute_then_look)
     assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
     (line,) = log_lines(w)
     assert "fill" not in line and line["failed"] is None and line["written"] == 1 and len(globals_(w)) == 1
-    assert (w.cdir / "seen.json").exists()
+    assert (w.cdir / "seen.json").read_bytes() == kept["seen"]
+    assert (w.cdir / "status.json").read_bytes() == kept["status"]
     assert status(w)["state"] == "ok" and "fill" not in status(w) and "failure" not in status(w)
 
 
@@ -1470,8 +1480,11 @@ def test_status_shows_the_last_fill_and_its_failure(w, capsys):
     assert corr_module().cmd_status() == 0
     out = capsys.readouterr().out
     assert "last fill: 2 written, 2 refused, 1 to triage, stopped: over budget\n" in out
-    auto_state.write_json(w.cdir / "status.json", {"state": "ok", "fill": {**fill, "written": 0, "refused_code": 0,
-                                                    "refused_check": 0, "stopped": None}})
+    quiet = {**fill, "written": 0, "refused_code": 0, "refused_check": 0, "stopped": None}
+    auto_state.write_json(w.cdir / "status.json", {"state": "ok", "fill": quiet})   # a run that only held a lesson
+    assert corr_module().cmd_status() == 0
+    assert "last fill: 0 written, 0 refused, 1 to triage\n" in capsys.readouterr().out
+    auto_state.write_json(w.cdir / "status.json", {"state": "ok", "fill": {**quiet, "to_triage": 0}})
     assert corr_module().cmd_status() == 0
     assert "last fill" not in capsys.readouterr().out
 

@@ -1206,7 +1206,7 @@ def cmd_status() -> int:
         print(f"unacknowledged failure: {failure.get('reason')} (mem-corroborate ack clears it)")
     fill = data.get("fill")
     if isinstance(fill, dict) and (fill.get("written") or fill.get("refused_code") or fill.get("refused_check")
-                                   or fill.get("stopped")):
+                                   or fill.get("to_triage") or fill.get("stopped")):
         refused = (fill.get("refused_code") or 0) + (fill.get("refused_check") or 0)
         stopped = f", stopped: {fill['stopped']}" if fill.get("stopped") else ""
         print(f"last fill: {fill.get('written') or 0} written, {refused} refused, {fill.get('to_triage') or 0} to triage{stopped}")

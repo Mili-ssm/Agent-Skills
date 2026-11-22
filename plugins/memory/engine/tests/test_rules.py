@@ -357,6 +357,6 @@ def test_a_medium_general_lesson_is_released_without_triage_and_a_strong_one_wai
 def test_a_released_medium_lesson_loads_once_it_has_a_short_form(gfolder):
     write("Medium lesson with a short form.", short="Medium rule that loads.", weight="medium")
     (m,) = records.load_memories(gfolder, "global")
-    assert m.triage is None
+    assert m.triage is None and m.released is not None
     choice = rules.choose([], [m], datetime.date.today())
     assert [x.handle for x in choice.loaded] == [m.handle]
