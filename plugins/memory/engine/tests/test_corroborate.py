@@ -512,3 +512,32 @@ def test_fill_candidates_still_propose_for_an_index_only_lesson(tmp_path):
     put(f1, "project", "index only complete", weight="light", sources=("session a", "session b"), short=SHORT, topic="process", load="index")
     got = corroborate.fill_candidates([p1, p2], glob, TODAY)
     assert {m.claim for _i, m in got} == {"index only no topic", "index only no short"}
+
+
+def test_a_global_sighting_carries_its_cases(tmp_path):
+    p = project(tmp_path, "one")
+    glob = tmp_path / "global"
+    glob.mkdir()
+    put(glob, "global", "shared", sources=("session a",))
+    cases = ["2026-11-20 session b failed", "2026-11-22 session b worked"]
+    put(records.project_dir(p), "project", "local", sources=("session a", "session b"),
+        log=cases + ["2026-11-21 session z seen"])
+    got = lessons_of([p], glob)
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
+    (sight,) = [a for a in acts if a.kind == "sighting" and a.entry.startswith("session b")]
+    assert sight.cases == cases
+    # a member without a log gives no case
+    p2 = project(tmp_path, "two")
+    put(records.project_dir(p2), "project", "plain", sources=("session c",))
+    got = lessons_of([p2], glob)
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
+    assert all(a.cases == [] for a in acts)
+
+
+def test_a_new_general_lesson_carries_the_cases_of_each_session(tmp_path):
+    p1, p2 = project(tmp_path, "one"), project(tmp_path, "two")
+    put(records.project_dir(p1), "project", "x one", sources=("session a",), log=["2026-11-20 session a failed"])
+    put(records.project_dir(p2), "project", "x two", sources=("session b",), log=["2026-11-21 session b worked"])
+    got = lessons_of([p1, p2])
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
+    assert sorted(acts[0].cases) == ["2026-11-20 session a failed", "2026-11-21 session b worked"]

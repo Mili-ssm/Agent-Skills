@@ -218,8 +218,9 @@ class Action:
     merge_global: `keep`, `drop` (lesson ids of two global records).
     write_global: `claim`, `context`, `record_kind`, `weight`, `entries` (sighting entries, each session once with
         the key of the first project that holds it), `members` (ids of the kept project records that stand for it,
-        after merges).
-    sighting: `target` (a global handle; None when the target is this group's write_global), `entry`.
+        after merges), `cases` (raw `log` entries of the member records for these sessions).
+    sighting: `target` (a global handle; None when the target is this group's write_global), `entry`, `cases` (raw
+        `log` entries of the member records for its session).
     link: `member` (lesson id), `project`, `target` (as for sighting)."""
     kind: str
     keep: str | None = None
@@ -234,10 +235,17 @@ class Action:
     target: str | None = None
     entry: str | None = None
     member: str | None = None
+    cases: list[str] = field(default_factory=list)
 
 
 def _oldest(lessons: Sequence[Lesson]) -> Lesson:
     return min(lessons, key=lambda x: (x.memory.created or datetime.date.max, x.memory.handle))
+
+
+def _cases_of(lessons: Sequence[Lesson], sessions: set[str]) -> list[str]:
+    """The raw `log` entries of `lessons` whose case is for one of `sessions`, each once, in order."""
+    found = ((e, records.case(e)) for y in lessons for e in y.memory.log)
+    return list(dict.fromkeys(e for e, c in found if c and c.session in sessions))
 
 
 def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
@@ -286,13 +294,15 @@ def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
         weights = [y.memory.weight or "medium" for x in general for y in stands[x.id]]
         out.append(Action("write_global", claim=group.claim, context=group.context or None,
                           record_kind=origin.memory.kind, weight=max(weights, key=records.WEIGHTS.index),
-                          entries=entries, members=[x.id for x in general]))
+                          entries=entries, members=[x.id for x in general],
+                          cases=_cases_of([y for x in general for y in stands[x.id]], set(first))))
         handle = None
     else:
         handle = target.handle
         for e in entries:
             if not records.counted(target, e):
-                out.append(Action("sighting", target=handle, entry=e))
+                held = [y for x in general for y in stands[x.id]]
+                out.append(Action("sighting", target=handle, entry=e, cases=_cases_of(held, {records.session_key(e)})))
     for x in general:
         out.append(Action("link", member=x.id, project=x.project, target=handle))
     return out

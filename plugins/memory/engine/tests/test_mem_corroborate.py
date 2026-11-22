@@ -1715,3 +1715,41 @@ def test_an_unusable_writer_answer_twice_sends_nothing_to_triage(w, monkeypatch)
     for _ in range(2):
         assert auto(w)["to_triage"] == 0
     assert [m.triage for m in globals_(w) if m.handle == g.handle] == [None] and attempts(w)["lessons"] == {}
+
+
+def _records_only(w):
+    # the settle state is a side file that a global write creates and an undo leaves
+    return {k: v for k, v in snapshot(w).items() if not Path(k).name.startswith(".")}
+
+
+def _with_log(w, project, claim, session, log):
+    m = lesson(w, project, claim, (session,))
+    return records.update(m, TODAY, log=log)
+
+
+def test_the_pass_applies_cases_to_the_global_record(w):
+    # a write_global with two sessions, then a sighting for a third on the record it made
+    _with_log(w, w.pa, BRIEF, "s1", ["2026-11-20 session s1 failed"])
+    _with_log(w, w.pb, BRIEF2, "s2", ["2026-11-21 session s2 worked"])
+    a, b = ident(w, "Brief the subagent"), ident(w, "Give a subagent")
+    model(w, [group(a, b)])
+    before = _records_only(w)
+    assert run(w).returncode == 0
+    (g,) = globals_(w)
+    assert sorted(records.sessions(g)) == ["session s1", "session s2"]
+    assert sorted(g.log) == ["2026-11-20 session s1 failed", "2026-11-21 session s2 worked"]
+    assert log_lines(w)[-1]["written"] == 1 and log_lines(w)[-1]["sightings"] == 0
+    stamp = Path(status(w)["log"]).name
+    assert run(w, stamp, cmd="undo", claude=False).returncode == 0
+    assert _records_only(w) == before
+    # a sighting: a global record exists and the project member of s2 brings its session with its case
+    glob(w, BRIEF, ("s1",), project=w.pa)
+    (gm,) = [m for m in globals_(w)]
+    model(w, [group(f"g:{gm.handle}", ident(w, "Give a subagent"))])
+    before = _records_only(w)
+    assert run(w).returncode == 0
+    (g,) = globals_(w)
+    assert records.sessions(g).count("session s2") == 1 and "2026-11-21 session s2 worked" in g.log
+    assert log_lines(w)[-1]["sightings"] == 1
+    assert run(w, Path(status(w)["log"]).name, cmd="undo", claude=False).returncode == 0
+    assert _records_only(w) == before

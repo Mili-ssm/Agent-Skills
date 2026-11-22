@@ -378,6 +378,21 @@ class Applier:
     def handle(self, lesson_id: str) -> str:
         return f"m:{self.lessons[lesson_id].memory.handle}"
 
+    def add_cases(self, target: str, entries: list[str], cases: list[str]) -> bool:
+        """One `mem confirm` per case of the action, for the session's entry; exit 3 (the case is already there) is
+        fine. False when a call failed."""
+        by_session = {records.session_key(e): e for e in reversed(entries)}
+        for raw in cases:
+            c = records.case(raw)
+            entry = by_session.get(c.session) if c else None
+            if c is None or entry is None:
+                continue
+            done = self.mem(["confirm", target, "--global", f"--source={entry}", f"--outcome={c.outcome}",
+                             f"--seen-on={c.on.isoformat()}"])
+            if done is None or done.returncode not in (0, 3):
+                return False
+        return True
+
     def path(self, lesson_id: str) -> Path:
         return self.lessons[lesson_id].memory.path
 
@@ -405,10 +420,13 @@ class Applier:
                 body = "Written by the corroboration pass; its sightings are the sessions and projects in `sources`.\n"
                 before = self.journal.watch_folder(self.gfolder) if self.gfolder else {}
                 done = self.mem(args, stdin=body)
+                first = done.stdout.strip().splitlines()[0].split("\t") if done and done.stdout.strip() else []
+                cases_ok = True
+                if done is not None and done.returncode in (0, 3) and first and first[0].startswith("m:"):
+                    cases_ok = self.add_cases(first[0], a.entries, a.cases)
                 self.journal.commit("write_global", before, self.gfolder)
-                if done is None:
+                if done is None or not cases_ok:
                     return self.fail()
-                first = done.stdout.strip().splitlines()[0].split("\t") if done.stdout.strip() else []
                 if done.returncode == 0 and first and first[0].startswith("m:"):
                     written = first[0]
                     self.counts["written"] += 1
@@ -426,7 +444,12 @@ class Applier:
                 path = self.gfolder / f"{target[2:]}.md"
                 before = self.journal.watch([path])
                 done = self.mem(["confirm", target, "--global", f"--source={a.entry}"])
+                cases_ok = True
+                if done is not None and done.returncode in (0, 3):
+                    cases_ok = self.add_cases(target, [a.entry], a.cases)
                 self.journal.commit("sighting", before)
+                if not cases_ok:
+                    return self.fail()
                 if done is not None and done.returncode == 0:
                     self.counts["sightings"] += 1
                 elif done is None or done.returncode != 3:
