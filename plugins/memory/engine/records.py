@@ -72,6 +72,8 @@ class Memory:
     topic: str | None = None  # one or two lowercase words that group rules
     load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
     log: list[str] = field(default_factory=list)  # valid case entries "<date> session <id> <outcome>", in file order
+    versions: list[str] = field(default_factory=list)  # valid entries "<date> <short form>", sorted by date
+    reviewed: datetime.date | None = None  # the day the owner looked at a lesson that got worse
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -321,6 +323,12 @@ def _parse(path: Path, scope: str) -> Memory:
         topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
         raw_log = meta.get("log")
         log = [e for e in raw_log if isinstance(e, str) and case(e)] if isinstance(raw_log, list) else []  # a bad value reads as absent
+        raw_versions = meta.get("versions")
+        versions = sorted((e for e in raw_versions if _version(e)), key=lambda e: e[:10]) if isinstance(raw_versions, list) else []
+        try:
+            reviewed = _date(meta.get("reviewed"), "reviewed")
+        except ValueError:  # a bad value reads as absent
+            reviewed = None
         raw_load = meta.get("load")
         load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
         try:
@@ -332,7 +340,7 @@ def _parse(path: Path, scope: str) -> Memory:
         except ValueError:
             released = None
         return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage, triage_reason=triage_reason,
-                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, log=log, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, log=log, versions=versions, reviewed=reviewed, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -394,6 +402,10 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["load"] = m.load
     if m.log:
         meta["log"] = list(m.log)
+    if m.versions:
+        meta["versions"] = list(m.versions)
+    if m.reviewed:
+        meta["reviewed"] = m.reviewed.isoformat()
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -447,7 +459,8 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
                    list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
-                   reach=reach, weight=weight, triage=triage, released=released, short=short, short_by=short_by if short else None, topic=topic, log=log)
+                   reach=reach, weight=weight, triage=triage, released=released, short=short, short_by=short_by if short else None, topic=topic, log=log,
+                   versions=[version_entry(today, short)] if short else [])
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))
@@ -477,6 +490,12 @@ def update(memory: Memory, today: datetime.date, **changes) -> Memory:
     the keys they change, as dates are written as ISO strings. Returns the memory read back from the file."""
     meta, body = _split(memory.path.read_text(encoding="utf-8"))
     body = changes.pop("body", body)
+    new_short = changes.get("short")
+    if new_short is not None:
+        current = _parse(memory.path, memory.scope)
+        if new_short != current.short:
+            kept = [(on, text) for on, text in version_list(current) if on != today]
+            meta["versions"] = [version_entry(on, text) for on, text in sorted([*kept, (today, new_short)], key=lambda v: v[0])]
     for key, value in changes.items():
         if value is None:
             meta.pop(key, None)
@@ -652,6 +671,81 @@ def case_entry(on: datetime.date, session: str, outcome: str) -> str:
 def cases(memory: Memory) -> list[Case]:
     """The valid cases of the log by date; entries of one day keep their file order."""
     return sorted((c for c in map(case, memory.log) if c), key=lambda c: c.on)
+
+
+def _version(entry) -> tuple[datetime.date, str] | None:
+    """(date, short form) of a version entry "<YYYY-MM-DD> <short form>", else None."""
+    if not isinstance(entry, str):
+        return None
+    day, _, text = entry.partition(" ")
+    try:
+        on = datetime.date.fromisoformat(day)
+    except ValueError:
+        return None
+    return (on, text) if len(day) == 10 and valid_short(text) else None
+
+
+def version_entry(on: datetime.date, short: str) -> str:
+    return f"{on.isoformat()} {short}"
+
+
+def version_list(memory: Memory) -> list[tuple[datetime.date, str]]:
+    """The versions of the short form by date; a lesson written before versions existed reads as one version dated
+    `released`, or `created`."""
+    found = [v for v in map(_version, memory.versions) if v]
+    if found:
+        return found
+    on = memory.released or memory.created
+    return [(on, memory.short)] if memory.short and on else []
+
+
+class Tally(NamedTuple):
+    number: int
+    since: datetime.date
+    text: str
+    worked: int
+    failed: int
+
+    @property
+    def balance(self) -> int:
+        return self.worked - self.failed
+
+
+FAILED_TO_LIST = 2
+
+
+def tallies(memory: Memory) -> list[Tally]:
+    """One tally per version; a case counts for the last version dated earlier than the case."""
+    versions = version_list(memory)
+    counts = [[0, 0] for _ in versions]
+    for c in cases(memory):
+        if c.outcome == "seen":
+            continue
+        owners = [i for i, (on, _) in enumerate(versions) if on < c.on]
+        if owners:
+            counts[owners[-1]][c.outcome == "failed"] += 1
+    return [Tally(i + 1, on, text, w, f) for i, ((on, text), (w, f)) in enumerate(zip(versions, counts))]
+
+
+def got_worse(memory: Memory) -> bool:
+    """The current version failed at least FAILED_TO_LIST times since `reviewed`, and failed more than it worked or
+    stands below the version before it."""
+    found = tallies(memory)
+    if not found:
+        return False
+    cur, prev = found[-1], found[-2] if len(found) > 1 else None
+    since = memory.reviewed
+    recent = sum(1 for c in cases(memory) if c.outcome == "failed" and (since is None or c.on > since)
+                 and c.on > cur.since)
+    return recent >= FAILED_TO_LIST and (cur.failed > cur.worked or (prev is not None and cur.balance < prev.balance))
+
+
+def mark_words(memory: Memory) -> str:
+    found = tallies(memory)
+    if not found or not found[-1].failed:
+        return ""
+    cur = found[-1]
+    return f"version {cur.number}: worked {cur.worked}, failed {cur.failed}"
 
 
 def _log_with(memory: Memory, key: str, on: datetime.date, outcome: str) -> list[str] | None:

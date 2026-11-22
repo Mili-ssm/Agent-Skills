@@ -3959,6 +3959,13 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
             standing_changes = records.standing_changes(keep, after, today)
             if records.standing(after) == "established" or len(records.sessions(after)) > len(records.sessions(keep)):
                 changes.update(standing_changes)  # enough evidence now, or a new session renews the 30 days
+    log = list(dict.fromkeys([*keep.log, *drop.log]))
+    log.sort(key=lambda e: e[:10])
+    if log != keep.log:
+        changes["log"] = log
+    versions = sorted(dict.fromkeys([*keep.versions, *drop.versions]), key=lambda e: e[:10])
+    if versions != keep.versions:
+        changes["versions"] = versions
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
