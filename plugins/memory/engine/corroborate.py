@@ -319,7 +319,8 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
     """(id, memory) of the lessons that could load as a rule (`rules.eligible`) and are not awaiting triage, but
     lack a valid short form or topic. The confirmed first, then the most corroborated; at most `cap`.
     With `attempts` (`fill_key` -> {"digest", "count"}), the automatic fill's view: a lesson tried `FILL_ATTEMPTS`
-    times on its present claim, and a strong project lesson the owner has not confirmed, leave before the cap."""
+    times on its present claim, a strong project lesson the owner has not confirmed, and a lesson that already has
+    a valid short form (it may be one the owner read: the pass never replaces a short form), leave before the cap."""
     found = []
     for i, p, m in fill_records(projects, global_folder):
         if not (rules.eligible(m, today) and m.triage != "pending"
@@ -329,6 +330,8 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
             if attempt_count(attempts.get(fill_key(p, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS:
                 continue
             if p is not None and m.weight == "strong" and m.owner_confirmed is None:
+                continue
+            if records.valid_short(m.short):
                 continue
         found.append((i, m))
     found.sort(key=lambda x: (x[1].owner_confirmed is None, -len(records.projects(x[1])),

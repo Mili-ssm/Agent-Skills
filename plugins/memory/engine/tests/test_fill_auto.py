@@ -132,3 +132,10 @@ def test_a_strong_project_lesson_with_three_sessions_waits_for_the_owner(world):
     assert [x.handle for _i, x in world.candidates(attempts={})] == []
     records.update(strong, TODAY, owner_confirmed=TODAY.isoformat())
     assert [x.handle for _i, x in world.candidates(attempts={})] == [strong.handle]
+
+
+def test_a_lesson_with_a_short_form_and_no_topic_is_not_a_candidate_of_the_automatic_fill(world):
+    """The pass never replaces a short form: it may be one the owner read."""
+    m = records.update(world.put("Read the plan before each task."), TODAY, short="Read the plan before each task.")
+    assert [x.handle for _i, x in world.candidates()] == [m.handle]   # `fill --dry-run` still proposes its topic
+    assert world.candidates(attempts={}) == []

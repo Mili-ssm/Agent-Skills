@@ -80,7 +80,7 @@ Words are compared whole and lowercase; a word keeps its apostrophe (`can't` is 
 
 `HEDGES`: may, might, can, could, sometimes, often, usually, once, untested, provisional, seems, seemed, likely, probably, consider, perhaps. `ABSOLUTES`: always, never, must, every, all, only, none, cannot, can't, guarantees, ensures, proves.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 @pytest.mark.parametrize("claim,short,expected", [
@@ -99,10 +99,10 @@ def test_two_problems_are_both_reported_hedge_first(): ...   # hedge dropped and
 def test_case_and_punctuation_do_not_hide_a_word(): ...      # "MAY," in the claim, "Never." in the short
 ```
 
-- [ ] **Step 2: Run and see them fail** — `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_shortcheck.py -q`.
-- [ ] **Step 3: Implement** `shortcheck.py`, pure, no import from the engine.
-- [ ] **Step 4: Run the file's tests**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): a code check that a short form is not stronger than its claim`
+- [x] **Step 2: Run and see them fail** — `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_shortcheck.py -q`.
+- [x] **Step 3: Implement** `shortcheck.py`, pure, no import from the engine.
+- [x] **Step 4: Run the file's tests**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): a code check that a short form is not stronger than its claim`
 
 ### Task 2: `short_by`, the unread list, and holding a lesson at triage
 
@@ -123,7 +123,7 @@ def test_case_and_punctuation_do_not_hide_a_word(): ...      # "MAY," in the cla
   - `mem curate` (both scopes) adds one line when any exist: `short forms nobody read: <N> (mem rules --unread)`.
   - `mem show m:<h>` prints `short_by: model` when set.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_a_plain_short_edit_is_checked_and_marked_as_the_models(gfolder, capsys): ...
@@ -144,10 +144,10 @@ def test_hold_refuses_a_lesson_in_quarantine_and_a_missing_reason(gfolder, capsy
 def test_a_held_lesson_does_not_load_and_curate_prints_its_reason(gfolder, capsys): ...
 ```
 
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the two files' tests, `test_short_topic.py`, `test_memory_edit.py`, `test_rules.py`, `test_rules_session.py`, `test_mem_corroborate.py`**; expected: all pass (tests that store a short form by hand add `--user-read` or use a short form that passes the check).
-- [ ] **Step 5: Commit** — `feat(memory): a mark on a short form nobody read, the unread list, and mem triage hold`
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the two files' tests, `test_short_topic.py`, `test_memory_edit.py`, `test_rules.py`, `test_rules_session.py`, `test_mem_corroborate.py`**; expected: all pass (tests that store a short form by hand add `--user-read` or use a short form that passes the check).
+- [x] **Step 5: Commit** — `feat(memory): a mark on a short form nobody read, the unread list, and mem triage hold`
 
 ### Task 3: The pure parts of the automatic fill
 
@@ -165,7 +165,7 @@ def test_a_held_lesson_does_not_load_and_curate_prints_its_reason(gfolder, capsy
   - `validate_fill` keeps its return, and its caller treats the reason `the answer is not an object with a list \`items\`` as an unusable answer.
 - Produces, in `bin/mem-corroborate`: `apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dict`, returning `{"written": int, "dropped": int, "failed": int, "applied": list[str]}` (`applied` holds the `id` of each item written): the journal, the digest guard, the empty marker file `run / "fill"` that makes `undo` leave the pass's `seen.json` alone, and the `mem memory edit` calls `fill_items` has today; `user_read=True` adds `--user-read`. `fill_items` calls it with `user_read=True`. A run folder of a fill is named `<stamp>-<pid>-fill`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 # test_fill_auto.py
@@ -181,10 +181,10 @@ def test_check_lines_puts_each_field_on_one_line_and_omits_an_empty_context(): .
 def test_fill_items_and_undo_behave_as_before_through_apply_fill(world): ...
 ```
 
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `test_fill_auto.py`, `test_mem_corroborate.py`, `test_corroborate.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `refactor(memory): the fill's applying core and candidates take what the automatic fill needs`
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `test_fill_auto.py`, `test_mem_corroborate.py`, `test_corroborate.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `refactor(memory): the fill's applying core and candidates take what the automatic fill needs`
 
 ### Task 4: The automatic fill
 
@@ -220,7 +220,7 @@ Write {out} as JSON: {{"verdicts": [{{"id": "g:example", "reason": "...", "faith
 One entry per block. Write nothing else and use no other tool.
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_fill_auto_writes_a_checked_short_form_marked_as_the_models(world): ...   # short, topic, short_by: model; load untouched
@@ -243,10 +243,10 @@ def test_two_fill_runs_in_the_same_second_keep_separate_run_folders(world): ...
 def test_undo_of_an_automatic_fill_run_restores_the_records(world): ...
 ```
 
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `test_mem_corroborate.py`, `test_fill_auto.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): the pass writes and checks short forms by itself`
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `test_mem_corroborate.py`, `test_fill_auto.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): the pass writes and checks short forms by itself`
 
 ### Task 5: The pass runs the fill, and only a strong lesson waits
 
@@ -262,7 +262,7 @@ def test_undo_of_an_automatic_fill_run_restores_the_records(world): ...
   - `records.standing_changes`: on the first establishment of a global record, `triage: "pending"` only when `(after.weight or "medium") == "strong"` and the owner has not confirmed it. A `light` or `medium` one gets `released` and no triage.
   - `cmd_rules` `unready` wording: `<N> established lesson(s) have no short form yet: the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_auto_runs_the_fill_after_the_pass_and_logs_its_counts(world): ...
@@ -274,24 +274,25 @@ def test_a_released_medium_lesson_loads_once_it_has_a_short_form(gfolder): ...  
 def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ...
 ```
 
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.** The tests of `test_triage.py` and `test_quarantine.py` that expect a `medium` lesson at triage now use `strong`.
-- [ ] **Step 4: Run the whole suite**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): the background pass fills short forms; only a strong lesson waits at triage`
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.** The tests of `test_triage.py` and `test_quarantine.py` that expect a `medium` lesson at triage now use `strong`.
+- [x] **Step 4: Run the whole suite**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): the background pass fills short forms; only a strong lesson waits at triage`
 
 ### Task 6: Documentation
 
 **Files:**
 - Modify: `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md`, `plugins/memory/skills/memory/SKILL.md` and `plugins/memory/skills/memory-curation/SKILL.md` only where they describe `fill`, `--short`, triage or `mem rules`; `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table and "Next")
 
-- [ ] **Step 1:** README: how a short form now comes to load (written and checked by the pass, marked, listed by `mem rules --unread`, read with `mem rules --read`, switched off with `--no-load` or the option `loaded_rules`); what waits for the owner (a `strong` lesson; a lesson refused twice, with its reason at triage). Mark what the gate measured apart from what is not measured.
-- [ ] **Step 2:** Changelog under `## [Unreleased]`, for users: short forms load without being read first when `auto_capture` is on; how to list, read and switch them off; a `medium` or `light` general lesson no longer waits at triage; `mem memory edit --short` now checks the text and marks it unread unless `--user-read` is given.
-- [ ] **Step 3:** The curation skill: the curator lists `mem rules --unread` in its table and proposes; it never runs `--read` and never passes `--user-read`, which are the owner's.
-- [ ] **Step 4:** `python3 scripts/validate.py` and `claude plugin validate .` pass.
-- [ ] **Step 5: Commit** — `docs(memory): short forms written by the pass, and what still waits for the owner`
+- [x] **Step 1:** README: how a short form now comes to load (written and checked by the pass, marked, listed by `mem rules --unread`, read with `mem rules --read`, switched off with `--no-load` or the option `loaded_rules`); what waits for the owner (a `strong` lesson; a lesson refused twice, with its reason at triage). Mark what the gate measured apart from what is not measured.
+- [x] **Step 2:** Changelog under `## [Unreleased]`, for users: short forms load without being read first when `auto_capture` is on; how to list, read and switch them off; a `medium` or `light` general lesson no longer waits at triage; `mem memory edit --short` now checks the text and marks it unread unless `--user-read` is given.
+- [x] **Step 3:** The curation skill: the curator lists `mem rules --unread` in its table and proposes; it never runs `--read` and never passes `--user-read`, which are the owner's.
+- [x] **Step 4:** `python3 scripts/validate.py` and `claude plugin validate .` pass.
+- [x] **Step 5: Commit** — `docs(memory): short forms written by the pass, and what still waits for the owner`
 
 ## After the tasks
 
+- [x] The six tasks built on 2026-11-22, each reviewed after its commit, with two fix rounds on the automatic fill (the path where the apply raises; a load the owner changed during a run; a partial answer of the checker) and one rule added by the docs review: the pass never touches a lesson that already has a valid short form, even without a topic. Whole suite: 1875 passed, 5 skipped before the last small fixes.
 - [ ] **Gate, on a private copy of the real store, outside the repository.** The rule is fixed here, before any run (C62).
 
   | Set | What it is |

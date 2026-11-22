@@ -6,12 +6,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Added
 
-- With `auto_capture` on (and `loaded_rules` not `false`), the background pass now writes the short form and topic of established lessons that lack one, and they load at the next session start **before anyone has read them**. Code refuses a short form that drops its claim's hedge, adds an absolute word, holds a link or says "owner"; a second model session checks the rest against their claims. A short form is tried twice at most per wording of a claim; a refused general lesson waits at triage with the reason (`mem triage hold <h> --because TEXT` does it by hand). A `strong` project lesson is filled only after you confirm it. The feature is unmeasured. To see what loaded unread: `mem rules --unread` (also counted by `mem curate`); to mark them read: `mem rules --read <h>...` or `--read all`; to switch one off: `mem memory edit <h> --no-load`; to switch all off: option `loaded_rules` to `false`. `mem-corroborate status` prints a `last fill:` line.
+- With `auto_capture` on (and `loaded_rules` not `false`), the background pass now writes the short form and topic of established lessons that lack one, and they load at the next session start **before anyone has read them**. Code refuses a short form that drops its claim's hedge, adds an absolute word, holds a link or says "owner"; a second model session checks the rest against their claims. A short form is tried twice at most per wording of a claim; after the second refusal a general lesson waits at triage with the reason (`mem triage hold <h> --because TEXT` does it by hand). A `strong` project lesson is filled only after you confirm it. The feature is unmeasured. To see what loaded unread: `mem rules --unread` (also counted by `mem curate`); to mark them read: `mem rules --read <h>...` or `--read all`; to switch one off: `mem memory edit <h> --no-load`; to switch all off: option `loaded_rules` to `false`. `mem-corroborate status` prints a `last fill:` line.
 
 ### Changed
 
 - A general lesson waits at triage on its first establishment only when its weight is `strong`; a `medium` or `light` one is released and may load once it has a short form. Pending ones stay pending.
-- `mem memory edit --short` and `mem remember --short` now check the text against the claim and mark it as unread by a person; pass `--user-read` for a text you read yourself (no check, no mark). Nothing to migrate.
+- `mem memory edit --short` and `mem remember --short` now check the text against the claim: a text that drops the claim's hedge, adds an absolute word, holds a link or says "owner" is refused (exit 2, with the reason), and an accepted one is marked as unread by a person. Pass `--user-read` for a text you read yourself (no check, no mark). Stored short forms are not touched.
 
 ## [0.5.0] - 2026-11-22
 
