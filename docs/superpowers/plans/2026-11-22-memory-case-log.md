@@ -2,129 +2,136 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A lesson records the date of each sighting and of each version of its short form, shows "K repetitions after version N", and is listed for the owner at two repetitions while it keeps loading.
+**Goal:** A lesson records each later case with its date and outcome (`worked`, `failed`, `seen`) and each version of its short form with its text, shows the tally of each version, and is listed for the owner when its present version got worse, while it keeps loading.
 
-**Architecture:** The date rides on the existing `sources` entry and is read by `records.sighting_date`; `records.sighting` keeps its return type, so the functions built on it are unchanged. A frontmatter list `live` is appended in the two functions that write a short form (`records.update`, `records.write_memory`), so every command and the background pass get it without their own code. The repetition count is computed from the record at each read; nothing stores it.
+**Architecture:** Two frontmatter lists that only grow, `log` and `versions`, beside the untouched `sources`: an older plugin keeps keys it does not know, so it reads a store written by this change exactly as before. `records.add_sighting` records the case and `records.update` records the version, so every command and background pass gets both without code of its own. Tallies and the listing are computed from the record at each read; nothing stores them.
 
 **Tech Stack:** Python 3 standard library and PyYAML, pytest. Engine in `plugins/memory/engine/`, commands in `plugins/memory/bin/`.
 
-**Spec:** [the case log design](../specs/2026-11-22-memory-case-log-design.md), rows C64 to C71. Read it before any task.
+**Spec:** [the case log design](../specs/2026-11-22-memory-case-log-design.md), rows C64 to C72. Read it before any task. C72 (the automatic attempt) is a later plan: build nothing of it.
 
 ## Global Constraints
 
 - Branch `feat/memory-case-log`; one local commit per task; no push, no pull request, no merge (each needs the owner's word).
+- `sources` entries keep their present form: `session <id>` or `session <id> project <key>`. `records.sighting`, `sighting_entry`, `sessions`, `projects`, `counted`, `normalized_sources`, `standing` and `standing_changes` are not changed.
 - A record file written before this change is read with the same result as before and is never rewritten by a read.
-- `records.sighting(source)` keeps returning `tuple[str, str | None] | None`: the session key and the project key.
-- One session is one sighting, whatever its date and spelling.
-- The block printed at session start does not change by one character (C69).
-- `triage` is not set by this change (C68).
+- A wrong value in `log`, `versions` or `reviewed` reads as absent and never hides the memory.
+- The block printed at session start does not change by one character (C69). `triage` is not set by this change (C68).
+- Comparisons of dates are exactly those of C67 and C71 ("later than"). A test that does not pass is fixed by changing its dates, never the comparison.
 - The repository is public: no home path, private repository name, client name or note title in code, tests or docs.
 - Fast check while working: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_case_log.py -q`. The whole suite takes about two minutes: run it once at the end of each task, `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`, and report its summary line. `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight; that is known and not yours.
-- Existing tests that assert an exact output this plan changes are updated in the task that changes it, and named in its report.
+- An existing test that asserts an exact output this plan changes is updated in the task that changes it and named in its report.
+
+## Stop and report (kill criteria, from the pre-mortem of 2026-11-22)
+
+| Observation | Action |
+|---|---|
+| An existing test of standing, sessions, projects or `sources` changes its result | Stop: `sources` must not move |
+| `mem session-index` prints no rules block in a test where it printed one before | Stop |
+| A read-only command changes the bytes of a memory file | Stop |
+| Anything under the owner's real store or data folder changes during Task 6 | Stop |
+| On the copy of Task 6, most listed lessons have only `worked` cases | Stop: the mapping of C65 or the rule of C68 is wrong; re-plan with the owner |
 
 ## Review Focus
 
 | Input or condition | Expected | Pinned in |
 |---|---|---|
-| A session id that is itself a date, `session 2026-11-22` | Stays a session with that id and no date, as before | Task 1 |
-| A last token that looks like a date and is not one, `session abc 2026-13-40` | Stays part of the session id, as before | Task 1 |
-| A session recorded before a version and seen again after it (a long session captured at each compaction) | Keeps its earliest date and is never a repetition of the later version | Task 1, Task 2 |
-| `live` or `reviewed` holding a wrong value in a file | The memory loads; the bad value reads as absent | Task 2 |
-| `mem restore` after an edit that added a version | `live` returns to its earlier value, as the rest of the file does | Task 2 |
+| One session captured at each compaction, first as `failed`, later as `failed` again and as `worked` | Two cases: one `failed`, one `worked`; `observed` and `sources` as today | Task 1 |
+| `log`, `versions` or `reviewed` holding a wrong value in a file | The memory loads; the bad entry is dropped, the good ones kept | Task 1, Task 2 |
+| A short form holding a date-like first word, or a colon and quotes | Round-trips through `versions` unchanged | Task 2 |
+| `mem restore` after an edit that added a version | `versions` returns to its earlier value, as the rest of the file does | Task 2 |
+| A fault in the new code at session start (a malformed entry that slips through) | The sentence of C68 is absent; the rules block and the rest of the text are as before | Task 5 |
 
 ## File Structure
 
 | File | Change |
 |---|---|
-| `plugins/memory/engine/records.py` | The date of a sighting entry, the fields `live` and `reviewed`, `baseline`, `versions`, `repetitions`, `still_happens`, `repeat_words` |
-| `plugins/memory/engine/mem.py` | `mem show`, `mem rules`, `mem curate`, the session start text, `mem triage accept`, the merge |
-| `plugins/memory/engine/corroborate.py`, `plugins/memory/bin/mem-capture` | The callers pass the date they know |
+| `plugins/memory/engine/records.py` | `log`, `versions`, `reviewed`; cases, versions, tallies, `got_worse`, `mark_words` |
+| `plugins/memory/engine/capture.py` | The mapping from a capture signal to an outcome |
+| `plugins/memory/engine/mem.py` | `mem confirm` and `mem remember` options, the merge, `mem show`, `mem rules`, `mem curate`, the session start text, `mem triage accept` |
+| `plugins/memory/engine/corroborate.py`, `plugins/memory/bin/mem-corroborate`, `plugins/memory/bin/mem-capture` | The callers pass the outcome and the date they know |
 | `plugins/memory/engine/tests/test_case_log.py` | New: every test of this plan that is not an update of an existing one |
-| `plugins/memory/skills/memory-curation/SKILL.md`, `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md`, the two design and plan files of Task 5 | The new category and its three answers |
+| `plugins/memory/skills/memory-curation/SKILL.md`, `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md`, the design and plan files named in Task 6 | The new category and its four answers |
 
 ---
 
-### Task 1: A sighting entry carries its date (C64)
+### Task 1: The log of cases (C64)
 
 **Files:**
-- Modify: `plugins/memory/engine/records.py` (`sighting`, `sighting_entry`, `normalized_sources`, `add_sighting`, and a new `sighting_date`)
+- Modify: `plugins/memory/engine/records.py` (`Memory`, `_parse`, `_render`, `add_sighting`, `write_memory`, new functions)
 - Test: `plugins/memory/engine/tests/test_case_log.py` (create)
 
 **Interfaces:**
 - Produces:
-  - `sighting(source: str) -> tuple[str, str | None] | None`: unchanged type; a last token that is a valid ISO date, after at least one token of session id, is left out of the key.
-  - `sighting_date(source: str) -> datetime.date | None`: that date, or None for an entry without one or a text that is no sighting.
-  - `sighting_entry(session: str, key: str | None, date: datetime.date | None = None) -> str`: `"<session>[ project <key>][ <YYYY-MM-DD>]"`.
-  - `add_sighting(memory, session, today, note=None)`: signature unchanged. A new session is stored with the date its entry carries, else with `today`.
-  - `normalized_sources(sources)`: one entry per session, carrying the earliest date found among its spellings, or none when no spelling has one.
+  - `OUTCOMES = ("worked", "failed", "seen")`.
+  - `class Case(NamedTuple)`: `on: datetime.date`, `session: str` (the normalized `session <id>`), `outcome: str`.
+  - `case(entry: str) -> Case | None`: parses `"<YYYY-MM-DD> session <id> <outcome>"`; None for anything else.
+  - `case_entry(on: datetime.date, session: str, outcome: str) -> str`.
+  - `Memory.log: list[str]`, default empty: the valid entries of the frontmatter list `log`, in file order.
+  - `cases(memory) -> list[Case]`, sorted by date, file order kept among equal dates.
+  - `add_case(memory, session: str, on: datetime.date, outcome: str, today: datetime.date) -> tuple[Memory, bool]`: `session` is any spelling of a session source. Adds the entry unless the session already has one with that outcome, or the outcome is `seen` and the session has any entry; False and no write then. `ValueError` for a text that is no session or an outcome outside `OUTCOMES`.
+  - `add_sighting(memory, session, today, note=None, *, outcome: str = "seen", on: datetime.date | None = None)`: does what it does today and also `add_case` with `on or today`, in the same file write where it writes one. A session already counted still gets its case; the returned flag keeps its present meaning (a new session was counted).
+  - `write_memory(..., outcome: str | None = None, on: datetime.date | None = None)`: a record of origin `transcript` gets one entry per session among its `sources`, with `outcome or "seen"` and `on or today`. Other origins get no `log`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Build the memory with the helpers `test_records.py` already uses for a transcript record (read its first 60 lines and reuse them, do not write a second fixture).
+Build memories with the helpers `test_records.py` already uses for a transcript record (read its first 60 lines; do not write a second fixture).
 
 ```python
 import datetime
 from engine import records  # same import form as test_records.py
 
 D1, D2 = datetime.date(2026, 11, 20), datetime.date(2026, 11, 25)
-KEY = "0123456789ab"
 
 
-def test_a_dated_entry_is_the_same_session_as_an_undated_one():
-    assert records.sighting("session abc 2026-11-20") == ("session abc", None)
-    assert records.sighting(f"session abc project {KEY} 2026-11-20") == ("session abc", KEY)
-    assert records.sighting_date(f"session abc project {KEY} 2026-11-20") == D1
-    assert records.sighting_date("session abc") is None
-    assert records.sighting_date("a book, page 3") is None
+def test_case_round_trip():
+    entry = records.case_entry(D1, "session abc", "failed")
+    assert entry == "2026-11-20 session abc failed"
+    assert records.case(entry) == records.Case(D1, "session abc", "failed")
 
 
-def test_a_date_alone_or_a_wrong_date_stays_in_the_session_id():
-    assert records.sighting("session 2026-11-20") == ("session 2026-11-20", None)
-    assert records.sighting_date("session 2026-11-20") is None
-    assert records.sighting("session abc 2026-13-40") == ("session abc 2026-13-40", None)
-
-
-def test_entry_round_trip():
-    assert records.sighting_entry("session abc", KEY, D1) == f"session abc project {KEY} 2026-11-20"
-    assert records.sighting_entry("session abc", None, D1) == "session abc 2026-11-20"
-    assert records.sighting_entry("session abc", KEY) == f"session abc project {KEY}"
-
-
-def test_normalized_sources_keeps_one_entry_per_session_with_the_earliest_date():
-    out = records.normalized_sources(["session abc 2026-11-25", f"session abc project {KEY} 2026-11-20", "session z"])
-    assert out == [f"session abc project {KEY} 2026-11-20", "session z"]
-    assert records.normalized_sources(["session abc", "session abc 2026-11-25"]) == ["session abc 2026-11-25"]
+def test_what_is_not_a_case():
+    for text in ("2026-13-40 session abc failed", "2026-11-20 session abc", "2026-11-20 session abc broken",
+                 "session abc failed", "2026-11-20 a book failed", ""):
+        assert records.case(text) is None
 ```
 
-Add three tests on a transcript memory written to `tmp_path`:
+Then, each on a transcript memory in `tmp_path`:
 
-- `test_add_sighting_dates_a_new_session_with_today`: `add_sighting(m, "session s2", D2)` stores `"session s2 2026-11-25"`.
-- `test_add_sighting_keeps_the_date_the_entry_carries`: `add_sighting(m, "session s2 2026-11-20", D2)` stores `"session s2 2026-11-20"`.
-- `test_a_counted_session_is_not_counted_again_under_a_later_date`: after the first, `add_sighting(m, "session s2 2026-11-25", D2)` returns `(memory, False)`, `observed` is unchanged and the stored date is still `2026-11-20`; and a counted session that gains a project keeps its date.
+| Test | Asserts |
+|---|---|
+| `test_add_sighting_records_the_case_of_a_new_session` | `add_sighting(m, "session s2 project <key>", D2, outcome="failed")`: `sources` gains `session s2 project <key>` exactly as today, `log` gains `2026-11-25 session s2 failed`, one file write |
+| `test_the_day_of_the_session_wins_over_today` | with `on=D1`: the entry is dated D1 while `last_observed` is D2 |
+| `test_a_counted_session_still_gets_its_case` | the same session again with `outcome="worked"`: returns False, `observed` and `sources` unchanged, `log` has both entries |
+| `test_one_session_gives_one_case_per_outcome` | `failed` twice: one entry. `seen` after `failed`: no entry. `failed` after `seen`: both kept |
+| `test_a_new_transcript_record_starts_its_log` | `write_memory(origin="transcript", sources=["session s1 project <key>"], outcome="failed", today=D1)`: `log == ["2026-11-20 session s1 failed"]`; without `outcome` the entry says `seen`; a record of another origin has no `log` key in its file |
+| `test_a_wrong_log_value_reads_as_absent` | files with `log: yes`, and `log: ["2026-11-20 session a failed", "nonsense", 7]`: `error is None`; `log` is `[]` and the one valid entry |
+| `test_an_old_file_is_not_rewritten_by_a_read` | a file without `log`: `load_memories` leaves its bytes unchanged and `cases(m) == []` |
+| `test_sources_and_standing_ignore_the_log` | two memories that differ only in `log`: equal `sessions`, `projects`, `standing` |
 
 - [ ] **Step 2: Run them and see them fail**
 
 Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_case_log.py -q`
-Expected: FAIL, `sighting_date` does not exist.
+Expected: FAIL, `records.case_entry` does not exist.
 
 - [ ] **Step 3: Implement**
 
-In `sighting`, split the date off the normalized text before any other test, with one helper used by `sighting` and `sighting_date`, so the two cannot disagree. Parse the date with `datetime.date.fromisoformat` on a token that matches `\d{4}-\d{2}-\d{2}` exactly. Where `normalized_sources` and `add_sighting` rebuild an entry with `sighting_entry(*f)`, pass the date as well; grep the engine and `bin/` for every other `sighting_entry(` call and leave those that build a new entry from a caller's values (Task 4 owns them).
+`_render` writes `log` only when it is not empty. `add_sighting` computes the new `log` value and puts it in the `changes` it already builds; in its early return for a counted session it writes only when a case was added.
 
 - [ ] **Step 4: Run the tests of this file, then the whole suite**
 
-Expected: this file passes; the suite's summary line shows no new failure. An existing test that asserted an undated entry after `add_sighting` now sees a date: update it to the dated entry and name it in the report.
+Expected: both pass. A test that compares the whole frontmatter of a transcript record after `add_sighting` or `write_memory` now sees `log`: update it and name it in the report.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/memory/engine/records.py plugins/memory/engine/tests
-git commit -m "feat(memory): a sighting entry carries the date it was recorded"
+git add plugins/memory/engine
+git commit -m "feat(memory): a lesson logs each case with its date and outcome"
 ```
 
 ---
 
-### Task 2: Versions of the loaded text and the repetition count (C65, C67, C70, C71)
+### Task 2: Versions, tallies and "got worse" (C66, C67, C68, C70, C71)
 
 **Files:**
 - Modify: `plugins/memory/engine/records.py` (`Memory`, `_parse`, `_render`, `update`, `write_memory`, new functions)
@@ -132,173 +139,234 @@ git commit -m "feat(memory): a sighting entry carries the date it was recorded"
 - Test: `plugins/memory/engine/tests/test_case_log.py`
 
 **Interfaces:**
-- Consumes: `sighting`, `sighting_date` of Task 1.
+- Consumes: `Case`, `cases`, `Memory.log` of Task 1.
 - Produces:
-  - `Memory.live: list[datetime.date]` (default empty) and `Memory.reviewed: datetime.date | None`, read from and written to the frontmatter keys `live` (a list of ISO dates) and `reviewed`.
-  - `REPEAT_TRIAGE = 2`.
-  - `baseline(memory) -> datetime.date | None`: `live[-1]` when `live` is not empty; else `released` when the memory has a valid short form; else None.
-  - `versions(memory) -> int`: `len(live)`, or 1 when `live` is empty and `baseline` is not None, or 0.
-  - `repetitions(memory, since: datetime.date | None = None) -> int`: the distinct sessions whose date is later than the later of `baseline(memory)` and `since`; 0 without a baseline. A session without a date never counts.
-  - `still_happens(memory) -> bool`: `repetitions(memory, memory.reviewed) >= REPEAT_TRIAGE`.
-  - `repeat_words(memory) -> str`: `""` at zero repetitions, else `"1 repetition after version 2"` or `"3 repetitions after version 2"`, counted from the baseline only.
-  - `update(memory, today, **changes)`: when `changes` holds a `short` that is not None and differs from `memory.short`, `today` is added to `live` (no repeated date). `write_memory(..., short=...)` writes `live: [today]` when it is given a short form.
+  - `Memory.versions: list[str]`, default empty: the valid entries of the frontmatter list `versions`, each `"<YYYY-MM-DD> <short form>"`, sorted by date. `Memory.reviewed: datetime.date | None`.
+  - `version_list(memory) -> list[tuple[datetime.date, str]]`: the parsed `versions`; when that is empty and the memory has a valid short form and `released`, `[(released, short)]`; else `[]`.
+  - `class Tally(NamedTuple)`: `number: int` (from 1), `since: datetime.date`, `text: str`, `worked: int`, `failed: int`; property `balance` = `worked - failed`.
+  - `tallies(memory) -> list[Tally]`: one per version of `version_list`; a case counts for the last version whose date is earlier than the case's date.
+  - `FAILED_TO_LIST = 2`.
+  - `got_worse(memory) -> bool`: False without a version. With `cur` the last tally and `prev` the one before it: the `failed` cases of `cur` later than `reviewed` (all of them when `reviewed` is None) number at least `FAILED_TO_LIST`, and `cur.failed > cur.worked` or (`prev` exists and `cur.balance < prev.balance`).
+  - `mark_words(memory) -> str`: `""` when the last tally has no `failed` case, else `"version 2: worked 1, failed 3"`.
+  - `update(memory, today, **changes)`: when `changes` holds a `short` that is not None and differs from `memory.short`, the entry `"<today> <short>"` is added to `versions`, replacing an entry of the same day. `write_memory(..., short=...)` writes `versions` with one entry when given a short form.
 
 - [ ] **Step 1: Write the failing tests**
 
-Each on a transcript memory in `tmp_path`, with dates passed as `today`:
+Each on a transcript memory in `tmp_path`, dates passed as `today`; build cases with `add_case`.
 
 | Test | Asserts |
 |---|---|
-| `test_live_grows_with_each_different_short_form` | first short form, a different one the next day, removal (`short=None`), the first text again a day later: `len(live)` is 1, 2, 2, 3 |
-| `test_two_changes_on_one_day_are_one_version` | two different short forms with the same `today`: `len(live) == 1`, `versions == 1` |
-| `test_the_same_short_form_written_again_adds_no_version` | `update(m, d, short=m.short)` leaves `live` as it was |
-| `test_remember_with_a_short_form_starts_the_list` | `write_memory(..., short="...", today=D1)` gives `live == [D1]` |
-| `test_a_wrong_live_or_reviewed_value_reads_as_absent` | files with `live: yes`, `live: [2026-11-20, nonsense]`, `reviewed: soon`: the memory loads with `error is None`; `live` is `[]`, `[D1]`; `reviewed` is None |
-| `test_an_old_file_is_not_rewritten_by_a_read` | a file without `live`: `load_memories` leaves its bytes unchanged |
-| `test_repetitions_count_sessions_dated_after_the_last_version` | `live == [D1]`; entries dated D1 − 1 day, D1 and undated count 0; one dated D2 counts 1; a second version on D2 sets the count to 0 |
-| `test_a_lesson_without_live_counts_from_released` | short form, `released: D1`, no `live`: an entry dated D2 counts 1 and `versions == 1`; without a short form the count is 0 and `versions == 0` |
-| `test_still_happens_at_two_and_again_two_after_a_review` | two entries after the baseline: True; `reviewed` set to the later entry's date: False while `repeat_words` still says `"2 repetitions after version 1"`; two more after it: True |
-| `test_a_session_seen_before_and_after_a_version_is_no_repetition` | session `s1` dated D1 − 1, version on D1, `add_sighting` of `s1` dated D2: `repetitions == 0` |
-| `test_merge_joins_the_live_lists` | through the `mem merge` command as `test_curation.py` drives it: `live` of the kept record is the sorted union without repeated dates |
-| `test_restore_brings_live_back` | `mem memory edit --short` that adds a version, then `mem restore`: `live` is as before the edit |
+| `test_versions_grow_with_each_different_short_form` | first short form, a different one the next day, `short=None`, the first text again a day later: 1, 2, 2, 3 entries, and the third holds the first text |
+| `test_two_changes_on_one_day_are_one_version_with_the_later_text` | one entry, holding the second text |
+| `test_the_same_short_form_written_again_adds_no_version` | `update(m, d, short=m.short)` leaves `versions` as it was |
+| `test_a_short_form_with_odd_characters_round_trips` | `"2026-01-01: check \"real\" data first"` as a short form: `version_list` returns it unchanged |
+| `test_remember_with_a_short_form_starts_the_list` | `write_memory(..., short="...", today=D1)`: one version dated D1 |
+| `test_a_wrong_versions_or_reviewed_value_reads_as_absent` | `versions: yes`, `versions: ["2026-11-20 text", "nonsense"]`, `reviewed: soon`: `error is None`; one valid version; `reviewed` None |
+| `test_a_lesson_written_before_reads_as_one_version_from_released` | short form, `released: D1`, no `versions`: `version_list == [(D1, short)]`, file bytes unchanged; without a short form `[]` |
+| `test_a_case_counts_for_the_version_before_it` | version on D1: cases dated D1 − 1 and D1 are in no tally; `failed` on D1 + 1 and `worked` on D1 + 2 give `worked 1, failed 1`; `seen` counts nowhere; after a second version on D2 a case on D2 + 1 counts for version 2 only |
+| `test_marked_at_one_failure_not_listed` | one `failed`: `mark_words == "version 1: worked 0, failed 1"`, `got_worse` False |
+| `test_listed_when_failures_outnumber_the_good_cases` | version 1 with `worked 3, failed 2`: False; with `worked 1, failed 2`: True |
+| `test_listed_when_the_balance_is_below_the_version_before` | version 1 at `worked 4, failed 1`, version 2 at `worked 3, failed 2`: True (balance 1 below 3); version 2 at `worked 5, failed 2`: False |
+| `test_a_new_version_clears_the_listing` | a listed lesson gets a new short form the day after its last case: `got_worse` False, `mark_words == ""` |
+| `test_reviewed_asks_for_two_more_failures` | listed; `reviewed` set to the date of its last case: False while `mark_words` still counts every case; two more `failed` later than `reviewed`: True |
+| `test_merge_joins_log_and_versions` | through the `mem merge` command as `test_curation.py` drives it: both lists of the kept record are the sorted union without repeated entries |
+| `test_restore_brings_versions_back` | `mem memory edit --short` that adds a version, then `mem restore`: `versions` as before the edit |
 
 - [ ] **Step 2: Run them and see them fail**
 
-Expected: FAIL, `Memory` has no `live`.
+Expected: FAIL, `Memory` has no `versions`.
 
 - [ ] **Step 3: Implement**
 
-`_parse` reads `live` as a sorted list without repeats of the entries that are dates or ISO date strings, and drops the others; PyYAML may hand over `datetime.date` objects or strings, accept both. `_render` and `update` write ISO strings. `update` reads the current list from the file's own frontmatter, as it does for every other key. In `_merge_pair`, add `live` to `changes` when the two lists differ from the kept one.
+A version entry is split at its first space. PyYAML may hand `reviewed` over as a `datetime.date` or a string: accept both, as `_date` does. `update` reads the current `versions` from the file's own frontmatter, as it does for every key. In `_merge_pair`, add `log` and `versions` to `changes` when the union differs from the kept record's list.
 
 - [ ] **Step 4: Run the tests of this file, then the whole suite**
 
-Expected: both pass; `test_memory_edit.py` and `test_short_by.py` may assert whole frontmatter after a short form is set: update them to include `live` and name them in the report.
+Expected: both pass; `test_memory_edit.py`, `test_short_by.py` and `test_fill_auto.py` may compare whole frontmatter after a short form is set: update them to include `versions` and name them.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/memory/engine plugins/memory/engine/tests
-git commit -m "feat(memory): versions of a lesson's short form and repetitions after the last one"
+git add plugins/memory/engine
+git commit -m "feat(memory): versions of a lesson's short form with the tally of each"
 ```
 
 ---
 
-### Task 3: The mark, the category and the answer (C68, C69, C71)
+### Task 3: The callers say what happened and when (C65)
 
 **Files:**
-- Modify: `plugins/memory/engine/mem.py` (`_memory_block`, `cmd_rules`, `cmd_curate`, the session start text near the `Triage:` sentence, `cmd_triage` and its parser)
+- Modify: `plugins/memory/engine/capture.py` (the mapping)
+- Modify: `plugins/memory/engine/mem.py` (`cmd_confirm`, `cmd_remember`, `_add_sightings`, their parsers)
+- Modify: `plugins/memory/bin/mem-capture` (every place that calls `mem confirm` or `mem remember` for a candidate)
+- Modify: `plugins/memory/engine/corroborate.py`, `plugins/memory/bin/mem-corroborate` (the actions `sighting` and `write_global`)
+- Test: `plugins/memory/engine/tests/test_case_log.py`, `test_mem_capture.py`, `test_corroborate.py`, `test_mem_corroborate.py`
+
+**Interfaces:**
+- Consumes: `records.add_sighting(..., outcome=, on=)`, `records.write_memory(..., outcome=, on=)`, `records.add_case`, `records.cases` of Task 1.
+- Produces:
+  - `capture.outcome(signal: str) -> str`: the mapping of C65; an unknown signal gives `"seen"`.
+  - `mem confirm` and `mem remember` accept `--outcome {worked,failed,seen}` (default `seen`) and `--seen-on YYYY-MM-DD` (default today; a wrong date is a usage error, exit 2). They reach `add_sighting`, `_add_sightings` and `write_memory`. When `mem confirm --source` names a session that is already a source, the case is still added and the present message is unchanged.
+  - `mem-capture`: each call for a candidate passes `--outcome` from the candidate's signal and `--seen-on` with the day of the transcript file's last change, in local time.
+  - Corroboration: a session that the pass carries from project records to a global record takes its cases with it. `Action` gains `cases: list[str]` (the `log` entries of the member records for that session) on `sighting` and on `write_global`; `mem-corroborate` applies each with `--outcome` and `--seen-on`, the first call adding the sighting and the others only their case.
+
+- [ ] **Step 1: Write the failing tests**
+
+| Test | File | Asserts |
+|---|---|---|
+| `test_every_signal_of_the_brief_has_an_outcome` | `test_case_log.py` | each of the eleven signal names quoted in the brief of `bin/mem-capture` maps as C65 says; `"other"` gives `seen` |
+| `test_confirm_records_outcome_and_day` | `test_case_log.py` | `mem confirm m:<h> --source "session s2" --outcome failed --seen-on 2026-11-20` on a transcript record: the entry `2026-11-20 session s2 failed`; a second call with `--outcome worked` adds the second case and leaves `observed` |
+| `test_confirm_refuses_a_wrong_day` | `test_case_log.py` | `--seen-on 2026-13-40`: exit 2, nothing written |
+| `test_remember_of_a_known_claim_passes_the_case` | `test_case_log.py` | the path through `_add_sightings`: the existing record gains the session and the `failed` case with its day |
+| `test_capture_passes_signal_and_transcript_day` | `test_mem_capture.py` | a transcript file whose modification time is set with `os.utime` to three days ago, one candidate of signal `rework` for a lesson the project has and one of `effective_practice` for a new lesson: the records hold a `failed` and a `worked` case, both dated that day |
+| `test_a_global_sighting_carries_its_cases` | `test_corroborate.py` | a member record with `log` entries `failed` and `worked` for one session: the emitted `sighting` action lists both; a member without `log` gives an empty list |
+| `test_the_pass_applies_cases_to_the_global_record` | `test_mem_corroborate.py` | after the pass, the global record has the session once in `sources` and both cases in `log`, with the member's dates; the same for a `write_global` |
+
+- [ ] **Step 2: Run them and see them fail**
+
+- [ ] **Step 3: Implement**
+
+Read how `mem-corroborate` applies a `sighting` action and a `write_global` before changing them: both go through `mem` subcommands and a journal, and the journal must still undo the whole action.
+
+- [ ] **Step 4: Run the four test files, then the whole suite**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugins/memory
+git commit -m "feat(memory): capture and corroboration record whether a lesson worked or failed, and on which day"
+```
+
+---
+
+### Task 4: The record is shown (C69)
+
+**Files:**
+- Modify: `plugins/memory/engine/mem.py` (`_memory_block`, `cmd_rules`)
 - Test: `plugins/memory/engine/tests/test_case_log.py`
 
 **Interfaces:**
-- Consumes: `records.versions`, `records.repetitions`, `records.still_happens`, `records.repeat_words`, `Memory.live`, `Memory.reviewed` of Task 2; `rules.choose` and its `Choice.loaded` and `Choice.left` (existing).
+- Consumes: `records.tallies`, `records.mark_words`, `records.Tally` of Task 2.
 - Produces, as exact output:
-  - `mem show`: after the `short:` line, `versions: 2 (2026-11-20, 2026-11-25)` when `live` is not empty, then the line `repeat_words(m)` when it is not empty.
-  - `mem rules` (no option): after its present output, one line per lesson of the choice (loaded or left out) with at least one repetition: `m:<handle>\t<repeat_words>`, under the heading line `Loaded and it still happened:`. Nothing is printed when no lesson has one.
-  - `mem rules --more`: one more column at the end of each row, `repeat_words(m)` or `-`.
-  - `mem curate`: a category for the lessons `listed` (below), heading `loaded and it still happened (decide: reword it with mem memory edit <h> --short, drop it with mem forget <h>, or keep the wording with mem triage accept <h>)`, one row each: `  m:<handle>  <repeat_words>, <loaded | left out by the cap>  <claim, flattened>`.
-  - Session start text: after the `Triage:` sentence, `Still happening: N loaded lesson repeats after it loaded (mem curate).` with `lessons repeat` for N above 1; absent at N = 0. It counts project and global lessons together.
-  - `mem triage accept <h>`: for a lesson that `still_happens` and is not `pending`, writes `reviewed: <today>` and prints `m:<handle>\tkept as worded`. A new flag `--project` makes `accept` act on the project scope, where this is its only use. A pending lesson is accepted as today.
-- `listed`: a lesson that `rules.choose` put in `loaded`, or in `left` with the reason of the cap (`OVER`), and for which `records.still_happens` is true.
+  - `mem show`, after the `short:` line, one line per tally, and nothing for a lesson without a version:
+    `version 2 since 2026-11-25 (12 days): worked 1, failed 3: <text of that version>`. The days run to the next version's date, or to today for the last.
+  - `mem rules` (no option), after its present output: the heading line `Failed after it loaded:` and one line `m:<handle>\t<mark_words>` per lesson of the choice, loaded or left out, whose `mark_words` is not empty. Nothing when there is none.
+  - `mem rules --more`: one more column at the end of each row, `mark_words(m)` or `-`.
 
 - [ ] **Step 1: Write the failing tests**
 
-Drive the commands as `test_rules_session.py` and `test_curation.py` do (read how each builds a store and runs `mem`).
+Drive the commands as `test_rules_session.py` does (read how it builds a store and runs `mem`).
 
 | Test | Asserts |
 |---|---|
-| `test_show_prints_versions_and_the_mark` | the two lines above, and neither for a lesson with no `live` and no repetition |
-| `test_rules_lists_a_lesson_with_one_repetition_and_the_block_is_unchanged` | the lines before `Loaded and it still happened:` equal the output of the same store with the sighting removed |
-| `test_session_start_block_is_unchanged` | the rules block inside `mem session-index` is byte-identical with and without repetitions |
-| `test_curate_lists_at_two_not_at_one` | absent with one repetition, present with two; the row says `loaded`; `triage` is still unset in the file and the lesson is still in `mem rules` |
-| `test_curate_lists_a_project_lesson` | the same for a project lesson that loads, with `mem curate` and no `--global` |
-| `test_a_lesson_that_does_not_load_is_not_listed` | `load: no`, index-only, pending and quarantined lessons with two repetitions are absent |
-| `test_session_start_counts_still_happening` | the sentence with N = 1 and N = 2, absent at 0 |
-| `test_accept_keeps_the_wording` | exit 0, `reviewed` is today, the lesson leaves the category and the count; after two more dated sightings it is back |
-| `test_accept_on_a_project_lesson_needs_the_flag` | `mem triage accept <h> --project` works; without the flag the present error is unchanged |
-| `test_a_new_short_form_clears_the_listing` | `mem memory edit <h> --short "..."` on a listed lesson: gone from the category, `versions` one higher |
+| `test_show_prints_each_version_with_its_tally` | two lines for two versions, with the day counts; none for a lesson with no short form |
+| `test_show_of_a_lesson_written_before_this_change` | one line, `version 1 since <released>` |
+| `test_rules_names_a_lesson_that_failed_and_the_block_is_unchanged` | the lines before `Failed after it loaded:` equal the whole output for the same store with an empty `log` |
+| `test_rules_more_has_the_column` | `-` for a lesson without a failure, the words for one with |
+| `test_session_start_block_is_unchanged` | the rules block inside `mem session-index` is byte-identical with and without cases |
 
 - [ ] **Step 2: Run them and see them fail**
 
 - [ ] **Step 3: Implement**
-
-One helper in `mem.py` returns the `listed` lessons for the loaded project and global memories; `cmd_curate` and the session start text both call it, so the count and the category cannot disagree. `mem curate` runs on one scope: list the lessons of that scope only. If the session start text passes its own limit of 1500 characters in a test, stop and report it instead of cutting another sentence.
 
 - [ ] **Step 4: Run the tests of this file, then the whole suite**
 
-Expected: both pass. Tests that assert the columns of `mem rules --more` or the whole output of `mem curate` are updated and named.
+Expected: both pass. Tests that assert the columns of `mem rules --more` or the whole output of `mem show` are updated and named.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/memory/engine plugins/memory/engine/tests
-git commit -m "feat(memory): a lesson that still happens after it loaded is marked at one repetition and listed at two"
+git add plugins/memory/engine
+git commit -m "feat(memory): mem show and mem rules print the tally of each version of a lesson"
 ```
 
 ---
 
-### Task 4: The callers pass the date they know
+### Task 5: The owner's queue and the answer (C68, C71)
 
 **Files:**
-- Modify: `plugins/memory/bin/mem-capture` (the two places that build `--source` for `mem confirm` and `mem remember`)
-- Modify: `plugins/memory/engine/corroborate.py` (where a project record's sessions become entries of the global record)
-- Test: `plugins/memory/engine/tests/test_mem_capture.py`, `plugins/memory/engine/tests/test_corroborate.py`
+- Modify: `plugins/memory/engine/mem.py` (`cmd_curate`, `session_index` near the `Triage:` sentence, `cmd_triage` and its parser)
+- Test: `plugins/memory/engine/tests/test_case_log.py`
 
 **Interfaces:**
-- Consumes: `records.sighting_entry(session, key, date)`, `records.sighting_date` of Task 1.
-- Produces: no new name. A session captured from a transcript is recorded with the date of the transcript file's last change, in local time; an entry copied from a project record to a global one keeps the date it had, or none.
+- Consumes: `records.got_worse`, `records.tallies`, `Memory.reviewed` of Task 2; `rules.choose`, `Choice.loaded`, `Choice.left` and the reason `OVER` (existing).
+- Produces:
+  - One helper in `mem.py`, `_got_worse(project: Sequence[Memory], global_: Sequence[Memory], today) -> list[tuple[Memory, bool]]`: the lessons that `rules.choose`, called with both scopes, put in `loaded` or left out with `OVER`, and for which `records.got_worse` is true; the flag says "loaded".
+  - `mem curate`: a category with the heading `loaded and its balance got worse (decide: reword it or go back with mem memory edit <h> --short, drop it with mem forget <h>, or keep the wording with mem triage accept <h>)`. Per lesson, the row `  m:<handle>  <loaded | left out by the cap>  <claim, flattened>`, then one indented line per tally of the present version and the one before, in the form of Task 4's `mem show` line. The command lists the lessons of the scopes it was asked for; the helper is still called with both.
+  - Session start text: after the `Triage:` sentence, `Got worse: N loaded lesson needs a decision (mem curate).`, with `lessons need` above 1; absent at 0. It is computed in a `try` of its own: on any exception the sentence is absent and everything else is as before.
+  - `mem triage accept <h>`: for a lesson for which `got_worse` is true and `triage` is not `pending`, writes `reviewed` with the date of today and prints `m:<handle>\tkept as worded`. A new flag `--project-scope` (argparse dest `project_scope`, not `project`, which `_find_memory` reads as a project name) makes `accept` act on the project scope, where this is its only use. A pending lesson is accepted as today; every present error message stays.
 
 - [ ] **Step 1: Write the failing tests**
 
-- `test_capture_dates_a_sighting_with_the_transcripts_date` in `test_mem_capture.py`: a transcript file whose modification time is set with `os.utime` to three days ago; after a run with `--write`, the entry on the record ends with that day, not today. One case through `mem confirm` (a lesson the project already has) and one through `mem remember` (a new lesson).
-- `test_a_global_entry_keeps_the_date_of_the_project_entry` in `test_corroborate.py`: a project record with `session a project <key> 2026-11-20`; the action that the pass emits for the global record names `session a project <key> 2026-11-20`. And an undated project entry gives an undated global one.
+Drive the commands as `test_curation.py` and `test_session_index.py` do. Date the versions and cases in the past (a version 10 days ago, cases after it) so that `accept` and a new short form, both dated today, fall after them.
+
+| Test | Asserts |
+|---|---|
+| `test_curate_lists_a_lesson_that_got_worse` | absent with one failure, present with two and no good case; the row says `loaded`, with the tally line; `triage` is unset in the file and the lesson is still in `mem rules` |
+| `test_curate_shows_the_version_before` | two versions: two tally lines, the earlier text in the second |
+| `test_curate_lists_a_project_lesson` | the same for a project lesson that loads, in `mem curate` without `--global` |
+| `test_a_lesson_that_does_not_load_is_not_listed` | `load: no`, index-only, pending and quarantined lessons that `got_worse` are absent |
+| `test_session_start_counts_what_got_worse` | the sentence at 1 and at 2, absent at 0 |
+| `test_a_fault_in_the_count_leaves_the_rules_block` | with `records.got_worse` patched to raise, `mem session-index` prints the same text as for a store without cases |
+| `test_accept_keeps_the_wording` | exit 0, `reviewed` is today, the lesson leaves the category and the sentence; two more `failed` cases dated after today (written into the file) bring it back |
+| `test_accept_on_a_project_lesson_needs_the_flag` | `mem triage accept <h> --project-scope` works; without the flag the present error is unchanged |
+| `test_a_new_short_form_clears_the_listing` | `mem memory edit <h> --short "..."` on a listed lesson: gone from the category, `mem show` has one more version line |
 
 - [ ] **Step 2: Run them and see them fail**
 
 - [ ] **Step 3: Implement**
 
-`mem remember` and `mem confirm` already pass `--source` through `records.sighting` and `add_sighting`, which keep a date the entry carries (Task 1): check it with the tests before changing either command, and change them only if a date is lost on the way.
+If the session start text passes its limit of 1500 characters in a test, stop and report it instead of cutting another sentence.
 
-- [ ] **Step 4: Run the two test files, then the whole suite**
+- [ ] **Step 4: Run the tests of this file, then the whole suite**
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/memory/bin/mem-capture plugins/memory/engine
-git commit -m "feat(memory): capture and corroboration record a sighting with the date of its session"
+git add plugins/memory/engine
+git commit -m "feat(memory): a lesson whose balance got worse is listed for the owner and keeps loading"
 ```
 
 ---
 
-### Task 5: One run on a copy of a real store, and the documents
+### Task 6: An older plugin, one run on a copy, and the documents
 
 **Files:**
-- Modify: `plugins/memory/skills/memory-curation/SKILL.md` (the new category and its three answers, in the table or list where the triage category is described)
-- Modify: `plugins/memory/README.md` (one row or sentence where the loaded rules are described)
-- Modify: `plugins/memory/CHANGELOG.md` (one line under `## [Unreleased]`, written for users: what they will see, and that records written before the change keep working)
-- Modify: `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (the Phases row B4: usefulness, first half, built)
+- Modify: `plugins/memory/skills/memory-curation/SKILL.md` (the new category and its four answers, where the triage category is described)
+- Modify: `plugins/memory/README.md` (where the loaded rules are described)
+- Modify: `plugins/memory/CHANGELOG.md` (one line under `## [Unreleased]`, for users: what they will see, and that records and plugins of before keep working)
+- Modify: `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (the Phases row B4: the first half of C49 is built by this plan)
 - Modify: `docs/superpowers/plans/2026-11-17-memory-plugin.md` (the Capture row and the "Next" paragraph of "Current state and where to resume")
 - Modify: this file (`## Results`)
 
-- [ ] **Step 1: Run the scenario on a disposable copy**
+- [ ] **Step 1: Make a disposable copy and isolate the environment**
 
-Copy the default store's `memories` folder to a temporary folder (never write to the real one; find the variables that point `mem` at another store and another global memories folder in `plugins/memory/engine/tests/conftest.py`). On the copy: pick one global lesson that loads; add two sightings dated tomorrow and the day after with `mem confirm --source`; record the output of `mem show`, `mem rules`, `mem curate --global` and `mem session-index`; run `mem triage accept`; record `mem curate --global` again; then `mem memory edit --short` with a new wording and record `mem show`.
+Copy the owner's global memories folder and this project's memory folder to a temporary folder. Run every command of this task with the variables that point `mem` at the copies (`MEM_STORE`, `MEM_MEMORIES`, `MEM_PROJECT`, `MEM_DATA`: read `plugins/memory/engine/tests/conftest.py` for their meaning) and with `MEM_SETTLE_AUTO` unset, so that no background pass starts. Record a checksum of every file under the real folders before and after the task: they must be equal.
 
-Expected: the mark and the category appear at the second sighting, the lesson stays in the block, `accept` removes it from the category, the new short form shows one more version and no repetition.
+- [ ] **Step 2: An older plugin reads what this one writes**
 
-- [ ] **Step 2: Write the outputs into `## Results`**
+On the copy, write cases and versions with this branch's `mem` (`mem confirm --outcome`, `mem memory edit --short`). Then load every memory of the copy twice, once with this branch's `records.py` and once with `git show main:plugins/memory/engine/records.py` saved to a temporary folder, and compare `standing`, `sessions` and `projects` of each.
+Expected: no difference for any memory.
 
-Numbers and command lines only: replace every handle, claim and path of the owner's store with a placeholder.
+- [ ] **Step 3: Run the scenario**
 
-- [ ] **Step 3: Write the documents**
+On the copy: pick one global lesson that loads. Edit its file so that its version is dated 10 days ago, and add with `mem confirm --source --outcome failed --seen-on` two cases on two days after it. Record the output of `mem show`, `mem rules`, `mem curate --global` and `mem session-index`; compare the bytes of the files before and after these four read-only commands. Run `mem triage accept`; record `mem curate --global`. Then `mem memory edit --short` with a new wording; record `mem show`.
+Expected: marked at the first case, listed at the second and still in the block; `accept` removes it from the category; the new short form shows one more version with an empty tally.
+
+- [ ] **Step 4: Write the outputs into `## Results`**
+
+Numbers and command lines only: replace every handle, claim and path of the owner's store with a placeholder. Add how many lessons of the copy have a case of each outcome.
+
+- [ ] **Step 5: Write the documents**
 
 One home per fact: the skill says what to do with a listed lesson, the README says the feature exists, the changelog says what changes for a user, and each links to the design for the rules. No line numbers.
 
-- [ ] **Step 4: Run the project's checks**
+- [ ] **Step 6: Run the project's checks**
 
-Run: `python3 scripts/validate.py` and `claude plugin validate .` (the `claude` binary is not on `PATH` on the owner's machine: if the command is missing, report it as not run), then `python3 scripts/port.py --check`.
+Run: `python3 scripts/validate.py`, `claude plugin validate .` (if the `claude` command is missing, report it as not run) and `python3 scripts/port.py --check`.
 Expected: `0 errors`; the ports unchanged (the memory plugin has no port).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add plugins/memory docs
@@ -309,4 +377,4 @@ git commit -m "docs(memory): the case log in the curation skill, the README and 
 
 ## Results
 
-Filled by Task 5.
+Filled by Task 6.
