@@ -136,6 +136,6 @@ The first release of stage B4 is built on branch `feat/memory-reminders` ([plan]
 The prompt text of the skill's `## Reminders` section ships unmeasured. Kill criteria, from the plan's pre-mortem:
 
 - `mem reminders --stats`, over at least 10 ended reminders, shows a median of more than 3 showings before `done`, or more closed than done: the line is not acted on; revisit C42 to C44.
-- After release, the hook's `ms` at the 99th percentile in `hooks/log.jsonl` is over 1500 (742 before): move the reminder load or the count out of the hook.
-- `count` is null on more than 10% of counted hook lines in the first week: re-plan the count.
+- After release, the hook's `ms` at the 99th percentile in `hooks/log.jsonl` is over 1500 (the slowest run seen before was 742): move the reminder load or the count out of the hook.
+- `count` is null on more than 10% of the hook lines whose `source` is `startup`, `clear` or `compact` in the first week: re-plan the count.
 - A file under `.memory/reminders` appears in a project's `git status`: stop and patch before further use.

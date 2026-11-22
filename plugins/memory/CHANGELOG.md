@@ -6,7 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Added
 
-- Reminders: ask a later session for a piece of work. `mem remind <topic> --body TEXT` writes one (due now, or after `--in-sessions N`, `--in-days N`, `--after DATE`; `--every 30d` or `--every 10s` repeats it; `--effort` and `--risk` say how big and how risky the work is); `mem reminders` lists what is due with the rule for acting on it (`--all`, `--stats`); `mem reminder done|close|snooze|restore <handle>` ends or undoes one. A session start now counts sessions per project in the data folder (`startup`, `clear` and `compact`, not a resume). When a reminder is due, the session start text gains one line, at most 300 characters. A store or project without reminders behaves as before, and nothing changes in the text. Nothing to migrate.
+- Reminders: ask a later session for a piece of work. `mem remind <topic> --body TEXT` writes one (due now, or after `--in-sessions N`, `--in-days N`, `--after DATE`; `--every 30d` or `--every 10s` repeats it; `--effort` and `--risk` say how big and how risky the work is); `mem reminders` lists what is due with the rule for acting on it (`--all`, `--stats`); `mem reminder done|close|snooze|restore <handle>` ends or undoes one. A session start now counts sessions per project in the data folder (`startup`, `clear` and `compact`, not a resume). When a reminder is due, the session start text gains one line, at most 300 characters. Without reminders the session start text is unchanged; the data folder gains a count of sessions (`sessions.json`), raised at each session start. Nothing to migrate.
 
 ## [0.4.1] - 2026-11-22
 

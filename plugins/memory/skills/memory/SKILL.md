@@ -61,9 +61,9 @@ A reminder asks for work that belongs to a later session: a finding deferred fro
 mem remind "<topic, up to 40 characters>" --body "the work and why" --effort low --risk low
 ```
 
-Add one condition when it should wait: `--in-sessions 3`, `--in-days 14` or `--every 30d` (`10s` counts sessions). Give `--effort` and `--risk` (`low`, `medium`, `high`) honestly: they decide whether a later session starts the work by itself.
+Add a condition when it should wait: `--in-sessions 3` or `--in-days 14`. `--every 30d` (days) or `--every 10s` (sessions) repeats it after each `done`; alone it is due at once, so add a wait to delay the first time. Give `--effort` and `--risk` (`low`, `medium`, `high`; `medium` when left out) honestly: they decide whether a later session starts the work by itself or asks the owner first.
 
-When the session start text shows `Reminders:`, finish the current task, run `mem reminders` and follow the rule it prints. End each reminder you act on with `mem reminder done <handle> --note "<what was done>"`, `mem reminder snooze <handle> --sessions 2` or `mem reminder close <handle> --reason "<why>"`. One left open is shown again and again, and a line that never changes is learned to be ignored.
+When the session start text shows `Reminders:`, finish the current task, run `mem reminders` and follow the rule it prints. End each reminder you act on with `mem reminder done <handle> --note "<what was done>"`, `mem reminder snooze <handle> --sessions 2` or `mem reminder close <handle> --reason "<why>"`. When the line says `ask the owner: keep or close`, ask the owner that question and act on the answer. One left open is shown at every session start, which is the noise this design tries to avoid.
 
 ## Not while working
 

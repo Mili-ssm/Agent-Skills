@@ -231,3 +231,13 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
     assert list((store / "memories" / "reminders").glob("*.md"))
     last = (data / "hooks" / "log.jsonl").read_text().splitlines()[-1]
     assert json.loads(last)["due"] == 2
+
+
+def test_reminders_names_the_ones_to_ask_the_owner_about(project, capsys):
+    assert mem.main(["remind", "old chore", "--body", "b"]) == 0
+    key = records.project_key(project)
+    for n in range(5):
+        session_count.bump(Path(os.environ["MEM_DATA"]), key, [f"project:{key}:old-chore"], session=f"s{n}")
+    capsys.readouterr()
+    assert mem.main(["reminders"]) == 0
+    assert "Shown 5 times or more with no action: ask the owner whether to keep or close r:old-chore." in capsys.readouterr().out

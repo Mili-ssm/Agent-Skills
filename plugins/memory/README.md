@@ -70,15 +70,15 @@ The start text every other subagent receives is not given to these four: they ca
 
 ## Reminders
 
-**What it is:** a reminder asks for a piece of work in a later session: a finding deferred from a review, an item left open, a periodic check. It is not a fact (that is a memory) and it is never part of search, curation or the loaded rules. It has a topic of at most 40 characters, a body that says the work and why, and optional conditions. It lives in a `reminders` folder beside the memories, in the project or (`--global`) the global scope, with the same history and restore as a memory. The owner and the agent write them; no background pass does.
+**What it is:** a reminder asks for a piece of work in a later session: a finding deferred from a review, an item left open, a periodic check. It is not a fact (that is a memory) and it is never part of search, curation or the loaded rules. It has a topic of at most 40 characters, a body that says the work and why, and optional conditions. It lives in a `reminders` folder inside the memory folder, in the project or (`--global`) the global scope, with the same history and restore as a memory. The owner and the agent write them; no background pass does.
 
 | Command | What it does |
 | --- | --- |
 | `mem remind <topic> --body TEXT` | Writes one; due now unless a condition says otherwise. `--after YYYY-MM-DD`, `--in-days N` (1 to 999, `mem` computes the date), `--in-sessions N` (1 to 999), `--until YYYY-MM-DD` (the reminder ends on that date), `--every Nd` or `--every Ns` (repeats once done), `--effort` and `--risk` (`low`, `medium`, `high`), `--global` |
 | `mem reminders` | Lists the live ones with the text of each due one and the rule for acting on it. `--global` lists only the global ones; `--all` adds ended, lapsed and broken ones; `--stats` counts each kind (live, done, closed, put off or repeated, lapsed) with its median showings |
-| `mem reminder show\|done\|close\|snooze\|restore <handle>` | Handles are `r:<topic>`; `--global` looks only in the global scope |
+| `mem reminder show\|done\|close\|snooze\|restore <handle>` | A handle is `r:` and the topic as a slug (`r:check-the-thing`); `--global` looks only in the global scope |
 
-**The line at session start:** only when one is due, and at most 300 characters: `Reminders: 1 due (check the thing, 0 sessions); 2 waiting. After the current task: mem reminders.` It names how many are due, up to 4 topics with the sessions since each was written, and how many wait. Topics are ordered by most showings, then most sessions; the ones that do not fit are counted as `+N more`. A topic shown at 5 session starts with no ending gets `, ask the owner: keep or close` after it. `mem reminders` prints the rule for a due one: low effort and low risk, do it after the current task and say so; otherwise propose it to the owner first.
+**The line at session start:** only when one is due, and at most 300 characters: `Reminders: 1 due (check the thing, 3 sessions); 2 waiting. After the current task: mem reminders.` It names how many are due, up to 4 topics with the sessions since each was written, and how many wait. Topics are ordered by most showings, then most sessions; the ones that do not fit are counted as `+N more`. A topic shown at 5 session starts with no ending gets `, ask the owner: keep or close` after it. `mem reminders` prints the rule for a due one: low effort and low risk, do it after the current task and say so; otherwise propose it to the owner first.
 
 **Four endings, each restorable with `mem reminder restore`:**
 

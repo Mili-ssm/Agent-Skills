@@ -3767,8 +3767,11 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         if broken and not args.all:
             print(f"{broken} reminder file(s) cannot be read: mem reminders --all")
         return status
+    ask = []
     for r, count in due:
         shown = session_count.showings(state, _reminder_key(r, project))
+        if shown >= reminders.ASK_AFTER:
+            ask.append(f"r:{r.handle}")
         print(f"r:{r.handle}\t{r.scope}\t{r.topic}\teffort {r.effort}\trisk {r.risk}\t"
               f"{reminders.sessions_since(r, count)} sessions since armed\tshown {shown}x\t{_reminder_wait(r, today, count)}")
         print(f"  {' '.join(r.body.split())}")
@@ -3778,6 +3781,8 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         print(line)
     if due:
         print(_REMINDER_RULE)
+    if ask:
+        print(f"Shown {reminders.ASK_AFTER} times or more with no action: ask the owner whether to keep or close {', '.join(ask)}.")
     if broken and not args.all:
         print(f"{broken} reminder file(s) cannot be read: mem reminders --all")
     return status
