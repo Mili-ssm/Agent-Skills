@@ -139,6 +139,7 @@ def test_first_run_writes_and_saves_offset(world):
     assert offset_of(world) == 12 and status(world)["state"] == "ok"
     (line,) = log_lines(world)
     assert line["windows"] == 1 and line["written"]["remembered"] == 1 and line["trigger"] == "session-end"
+    assert line["kept"] == 1 and line["offset"] == 12 and line["cost"] == pytest.approx(0.03)
     assert (world.cdir.stat().st_mode & 0o777) == 0o700 and ((world.cdir / "status.json").stat().st_mode & 0o777) == 0o600
     assert (Path(status(world)["log"]) / "log.txt").is_file()
 
@@ -178,6 +179,7 @@ def test_long_stretch_stops_at_max_windows(world):
     assert len(world.calls()) == 3
     assert offset_of(world) == window(world, 3)["lines"][1] < 220
     assert log_lines(world)[-1]["more"] is True and log_lines(world)[-1]["windows"] == 3
+    assert log_lines(world)[-1]["cost"] == pytest.approx(0.09)   # the sum of the three windows
     stopped = offset_of(world)
     assert auto(world).returncode == 0
     assert len(world.calls()) > 3 and window(world)["lines"][0] == stopped + 1
@@ -290,24 +292,32 @@ def test_waits_for_the_lock_then_continues(world):
     cmd = [sys.executable, "-I", str(CAPTURE), "auto", "--trigger", "session-end", "--claude", str(world.fake)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, env=env_of(world, extra={"MEM_CAPTURE_LOCK_WAIT": "20"}),
                             text=True)
+    began = time.time()
     proc.stdin.write(hook(world))
     proc.stdin.close()
     time.sleep(2)
     os.close(fd)
     assert proc.wait(timeout=60) == 0
-    assert offset_of(world) == 12 and len(world.calls()) == 1
+    assert time.time() - began >= 2   # it could not start before the lock was released
+    assert offset_of(world) == 12 and len(world.calls()) == 1 and log_lines(world)[-1]["skipped"] is None
+    assert status(world)["started"] >= began + 2
 
 
-def test_pre_compact_waits_before_reading(world):
-    cmd = [sys.executable, "-I", str(CAPTURE), "auto", "--trigger", "pre-compact", "--claude", str(world.fake)]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, env=env_of(world, extra={"MEM_CAPTURE_DELAY": "4"}), text=True)
-    proc.stdin.write(hook(world))
-    proc.stdin.close()
+def test_pre_compact_waits_then_reads_the_memory(world):
     mem(world, "remember", "--kind", "lesson", "--claim", GOOD["claim"])
-    assert proc.wait(timeout=60) == 0
-    # the memory written during the wait was read: the identical claim is a sighting of it, not a second record
+    began = time.time()
+    assert auto(world, trigger="pre-compact", extra={"MEM_CAPTURE_DELAY": "1"}).returncode == 0
+    assert time.time() - began >= 1
+    assert status(world)["started"] >= began + 1   # `started` is when the lock was taken, after the delay
+    assert log_lines(world)[-1]["trigger"] == "pre-compact"
+
+
+def test_identical_claim_becomes_a_sighting(world):
+    mem(world, "remember", "--kind", "lesson", "--claim", GOOD["claim"])
+    assert auto(world).returncode == 0
     assert [c["same_as"] for c in window(world)["candidates"]] == ["m:do-not-mock-the-database-in-this-project"]
-    assert log_lines(world)[-1]["trigger"] == "pre-compact" and log_lines(world)[-1]["written"]["remembered"] == 0
+    written = log_lines(world)[-1]["written"]
+    assert written["remembered"] == 0 and written["sighting"] == 1
 
 
 def test_engine_import_failure_is_reported(world):
@@ -349,3 +359,95 @@ def test_session_index_shows_the_failure_line(world):
     ack = subprocess.run([sys.executable, "-I", str(CAPTURE), "ack"], env=env_of(world), capture_output=True, text=True)
     assert ack.returncode == 0
     assert "Automatic capture failed on" not in mem(world, "session-index")
+
+
+def run_raw(world, stdin, cwd, extra=None, python=(sys.executable, "-I")):
+    cmd = [*python, str(CAPTURE), "auto", "--trigger", "session-end", "--claude", str(world.fake)]
+    return subprocess.run(cmd, input=stdin, env=env_of(world, extra=extra), capture_output=True, text=True, cwd=cwd)
+
+
+@pytest.mark.parametrize("cwd", [None, "", 5, "NOPE"])
+def test_a_missing_or_bad_cwd_ends_the_run(world, cwd):
+    data = {"transcript_path": str(world.transcript)}
+    if cwd is not None:
+        data["cwd"] = str(world.tmp / "nope") if cwd == "NOPE" else cwd
+    done = run_raw(world, json.dumps(data), world.project)   # the process's own folder is a project: it must not be used
+    assert done.returncode == 0 and done.stdout == "" and world.calls() == [] and not world.cdir.exists()
+
+
+def test_a_path_stays_out_of_the_log_line(world):
+    world.fake = Path("/nonexistent/claude")
+    assert auto(world).returncode == 0
+    (line,) = log_lines(world)
+    assert line["failed"] and "/" not in line["failed"]
+    assert "/nonexistent/claude" in status(world)["failure"]["reason"]
+
+
+def stale_status(world, age, state="running"):
+    auto_state.private_dir(world.cdir)
+    auto_state.write_json(world.cdir / "status.json", {"state": state, "started": time.time() - age, "log": "somewhere"})
+
+
+def ack(world):
+    done = subprocess.run([sys.executable, "-I", str(CAPTURE), "ack"], env=env_of(world), capture_output=True, text=True)
+    assert done.returncode == 0
+
+
+def test_ack_clears_a_run_that_did_not_finish(world):
+    stale_status(world, auto_state.STALE_RUNNING_SECONDS + 60)
+    assert "did not finish" in capture_state.failure_line(world.data, time.time())
+    ack(world)
+    assert capture_state.failure_line(world.data, time.time()) is None
+    assert status(world)["state"] == "failed" and status(world)["log"] == "somewhere"
+
+
+def test_ack_leaves_a_recent_running_state(world):
+    stale_status(world, 60)
+    ack(world)
+    assert status(world)["state"] == "running"
+
+
+def test_ack_without_a_status_creates_nothing(world):
+    ack(world)
+    assert not world.cdir.exists()
+
+
+def test_an_unexpected_error_leaves_a_log_line(world):
+    auto_state.private_dir(world.cdir)
+    (world.cdir / "runs").write_text("a file where the run folders go")
+    assert auto(world).returncode == 0
+    assert status(world)["state"] == "failed" and status(world)["failure"]["reason"]
+    (line,) = log_lines(world)
+    assert line["failed"] and "/" not in line["failed"] and world.calls() == []
+
+
+def test_an_error_on_unusable_input_creates_nothing(world):
+    assert auto(world, stdin="[]").returncode == 0 and not world.cdir.exists()
+
+
+def test_import_failure_outside_a_project_writes_nothing(world):
+    shadow = world.tmp / "shadow"
+    shadow.mkdir()
+    (shadow / "yaml.py").write_text("raise ImportError('shadowed for the test')\n")
+    plain = world.tmp / "plain"
+    plain.mkdir()
+    done = run_raw(world, hook(world, cwd=plain), plain, extra={"PYTHONPATH": str(shadow)},
+                   python=(sys.executable,))   # -I would ignore PYTHONPATH
+    assert done.returncode == 0 and done.stdout == "" and not world.cdir.exists()
+
+
+def test_a_success_clears_an_earlier_failure(world):
+    assert auto(world, mode="exit1").returncode == 0 and status(world)["state"] == "failed"
+    assert auto(world).returncode == 0
+    assert status(world)["state"] == "ok" and "failure" not in status(world)
+
+
+def test_budget_option_reaches_the_session(world):
+    assert auto(world, extra={capture_state.BUDGET_OPTION: "0.1"}).returncode == 0
+    args = world.calls()[0]["args"]
+    assert float(args[args.index("--max-budget-usd") + 1]) == pytest.approx(0.1)
+    world.transcript.write_text(lines_for("OAOAOAOAOAAA"))
+    capture_state.save_session(world.data, "abc", 0, 0)
+    assert auto(world, extra={capture_state.BUDGET_OPTION: "lots"}).returncode == 0
+    args = world.calls()[1]["args"]
+    assert float(args[args.index("--max-budget-usd") + 1]) == pytest.approx(0.25)

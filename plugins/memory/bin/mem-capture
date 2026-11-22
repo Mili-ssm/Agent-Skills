@@ -420,7 +420,7 @@ def append_log(cdir: Path, line: dict) -> None:
 
 
 def hook_input() -> tuple[Path, Path] | None:
-    """(transcript, cwd-as-given) from the hook JSON on standard input, or None when either is unusable."""
+    """(transcript, cwd) from the hook JSON on standard input, or None when either is missing or unusable."""
     try:
         data = json.load(sys.stdin)
     except Exception:   # noqa: BLE001
@@ -430,7 +430,20 @@ def hook_input() -> tuple[Path, Path] | None:
     path, cwd = data.get("transcript_path"), data.get("cwd")
     if not isinstance(path, str) or not path or not Path(path).expanduser().is_file():
         return None
-    return Path(path).expanduser(), Path(cwd).expanduser() if isinstance(cwd, str) and cwd else Path("")
+    if not isinstance(cwd, str) or not cwd or not Path(cwd).expanduser().is_dir():
+        return None
+    return Path(path).expanduser(), Path(cwd).expanduser()
+
+
+def without_paths(reason: str) -> str:
+    """`reason` with every token that holds a `/` replaced, so a log line carries no path."""
+    return " ".join("(path)" if "/" in token else token for token in reason.split())
+
+
+def has_memory_folder(cwd: Path) -> bool:
+    """Standard library only, for when the engine cannot be imported: a `.memory` folder in `cwd` or a parent."""
+    name = ".memory"   # records.PROJECT_DIR
+    return any((folder / name).is_dir() for folder in (cwd, *cwd.parents))
 
 
 def window_failure(res: dict, code: int) -> str | None:
@@ -463,22 +476,27 @@ def auto(trigger: str, claude: str | None) -> None:
     def finish_log() -> None:
         line["ms"] = int((time.time() - start) * 1000)
         append_log(cdir, line)
+        logged.append(True)
 
+    logged: list[bool] = []
     lock = None
+    usable = False
     try:
         if IMPORT_ERROR is not None:
+            if not has_memory_folder(cwd.resolve()):
+                return
             reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
-            line["failed"] = reason
+            line["failed"] = without_paths(reason)
             save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
             finish_log()
             return
-        if not cwd.is_dir():
-            return
         project = records.project_root(cwd.resolve(), os.environ)
         if project is None or not records.project_dir(project).is_dir():
+            usable = True
             line["skipped"] = "the project has no memory folder"
             finish_log()
             return
+        usable = True
         if trigger == "pre-compact":
             time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
         deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", cs.LOCK_WAIT_SECONDS)
@@ -498,7 +516,7 @@ def auto(trigger: str, claude: str | None) -> None:
             with os.fdopen(fd, "a", encoding="utf-8") as f:
                 f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
 
-        save_status(cdir, state="running", started=start, log=str(run))
+        save_status(cdir, state="running", started=time.time(), log=str(run))
         try:
             budget = float(os.environ[cs.BUDGET_OPTION])
             if not math.isfinite(budget) or budget <= 0:
@@ -548,7 +566,7 @@ def auto(trigger: str, claude: str | None) -> None:
             cs.save_session(data, session, offset, 0)
             if not more:
                 break
-        line["offset"], line["failed"] = offset, failed
+        line["offset"], line["failed"] = offset, without_paths(failed) if failed else None
         done = time.time()
         end: dict = {"state": "failed" if failed else "ok", "finished": done, "cost": line["cost"]}
         if failed:
@@ -565,6 +583,12 @@ def auto(trigger: str, claude: str | None) -> None:
                         failure={"at": time.time(), "reason": reason, "log": str(au.read_json(cdir / au.STATUS_NAME).get("log") or "")})
         except Exception:   # noqa: BLE001
             pass
+        if not logged and (usable or cdir.exists()):
+            try:
+                line["failed"] = type(exc).__name__
+                finish_log()
+            except Exception:   # noqa: BLE001
+                pass
     finally:
         if lock is not None:
             os.close(lock)
@@ -572,8 +596,14 @@ def auto(trigger: str, claude: str | None) -> None:
 
 def cmd_ack() -> int:
     cdir = cs.capture_dir(data_dir())
-    if au.read_json(cdir / au.STATUS_NAME):
-        save_status(cdir, failure=None)
+    current = au.read_json(cdir / au.STATUS_NAME)
+    if current:
+        changes: dict = {"failure": None}
+        started = current.get("started")
+        if (current.get("state") == "running" and isinstance(started, (int, float))
+                and time.time() - started > au.STALE_RUNNING_SECONDS):
+            changes["state"] = "failed"   # a run that was killed: without this its "did not finish" line would stay
+        save_status(cdir, **changes)
     print("acknowledged: the failure line is cleared")
     return 0
 
