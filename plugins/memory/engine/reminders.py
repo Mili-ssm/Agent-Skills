@@ -293,17 +293,18 @@ def snooze(r: Reminder, today: datetime.date, count: int, shown: int | None, *, 
     return _change(r, "snooze", armed_count=count, shown_before=_shown(r, shown), **when)
 
 
-def summary_line(due: Sequence[tuple[Reminder, int, int]], waiting: int) -> str | None:
-    """The one line of session start: (reminder, sessions since, showings including this one) per due reminder.
+def line_parts(due: Sequence[tuple[Reminder, int, int]], waiting: int) -> tuple[str | None, list[Reminder]]:
+    """The one line of session start and the reminders whose topics it names.
 
+    `due` holds (reminder, sessions since, showings including this one) per due reminder.
     Most showings first, then most sessions, then handle; topics are dropped from the end until the line fits."""
     if not due:
-        return None
+        return None, []
     ranked = sorted(due, key=lambda t: (-t[2], -t[1], t[0].handle))
 
     def item(entry: tuple[Reminder, int, int]) -> str:
         r, since, shown = entry
-        text = f"{r.topic}, {since} session{'' if since == 1 else 's'}"
+        text = f"{r.topic}, {since} session{'' if since == 1 else 's'}" if since else r.topic
         return text + (", ask the owner: keep or close" if shown >= ASK_AFTER else "")
 
     def render(n: int) -> str:
@@ -318,4 +319,8 @@ def summary_line(due: Sequence[tuple[Reminder, int, int]], waiting: int) -> str 
     while len(text) > LINE_LIMIT and n > 0:
         n -= 1
         text = render(n)
-    return text
+    return text, [e[0] for e in ranked[:n]]
+
+
+def summary_line(due: Sequence[tuple[Reminder, int, int]], waiting: int) -> str | None:
+    return line_parts(due, waiting)[0]

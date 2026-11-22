@@ -100,6 +100,72 @@ def test_line_stays_within_300_characters_with_ten_due_long_topics(project, caps
     assert line.startswith("Reminders: 10 due (")
 
 
+def test_showings_rise_only_for_the_reminders_the_line_named(project, monkeypatch, capsys):
+    for n in range(6):
+        remind(f"topic {n}")
+    capsys.readouterr()
+    out = start(monkeypatch, capsys, project)
+    assert "+2 more" in out
+    named = [h for h in (f"topic-{n}" for n in range(6)) if f"topic {h[-1]}," in out or f"topic {h[-1]};" in out
+             or f"topic {h[-1]})" in out]
+    assert len(named) == 4
+    for n in range(6):
+        handle = f"topic-{n}"
+        assert shown(key_of(project, handle)) == (1 if handle in named else 0)
+
+
+def test_a_zero_session_reminder_prints_its_topic_without_a_count(project, monkeypatch, capsys):
+    remind("review the docs")
+    capsys.readouterr()
+    assert "(review the docs)" in start(monkeypatch, capsys, project, source="resume")
+    out = start(monkeypatch, capsys, project, session="s9")
+    assert "(review the docs, 1 session)" in out
+
+
+def test_no_showing_is_counted_when_the_text_falls_back_to_the_rules(project, monkeypatch, capsys):
+    remind("tidy up")
+    capsys.readouterr()
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mem, "session_index", boom)
+    out = start(monkeypatch, capsys, project)
+    assert "Reminders:" not in out
+    state = session_count.read(data_folder())
+    assert state["total"] == 1 and state["shown"] == {}
+
+
+@pytest.mark.parametrize("failing", ["project", "global"])
+def test_one_scope_failing_keeps_the_other_scopes_reminders(failing, project, gfolder, monkeypatch, capsys):
+    remind("project one")
+    remind("global one", "--global")
+    capsys.readouterr()
+    real = reminders.load
+
+    def load(root, scope):
+        if scope == failing:
+            raise OSError("boom")
+        return real(root, scope)
+
+    monkeypatch.setattr(reminders, "load", load)
+    out = start(monkeypatch, capsys, project)
+    other = "global one" if failing == "project" else "project one"
+    assert "Reminders: 1 due (" + other in out
+
+
+def test_the_text_prints_when_the_reminders_folder_cannot_be_read(project, monkeypatch, capsys):
+    remind("tidy up")
+    capsys.readouterr()
+    folder = project / ".memory" / "reminders"
+    folder.chmod(0)
+    try:
+        out = start(monkeypatch, capsys, project)
+    finally:
+        folder.chmod(0o755)
+    assert "memory: the mem command" in out and "Reminders:" not in out
+
+
 def test_the_line_survives_the_text_limit(project, capsys):
     folder = project / ".memory"
     folder.mkdir(exist_ok=True)
@@ -161,5 +227,7 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
     run = subprocess.run(["bash", str(ROOT / "hooks" / "session-index.sh")], input=payload, env=env, cwd=tmp_path,
                          capture_output=True, text=True, timeout=60)
     assert run.returncode == 0 and "Reminders: 2 due" in run.stdout, run.stdout + run.stderr
+    assert "project one" in run.stdout and "global one" in run.stdout
+    assert list((store / "memories" / "reminders").glob("*.md"))
     last = (data / "hooks" / "log.jsonl").read_text().splitlines()[-1]
     assert json.loads(last)["due"] == 2

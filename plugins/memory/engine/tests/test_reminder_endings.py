@@ -157,13 +157,13 @@ def test_stats_reports_each_kind_with_its_median(project, capsys):
     capsys.readouterr()
     assert mem.main(["reminders", "--stats"]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        "live 2", "done 4 (median 1 showing)", "closed 1 (median 5 showings)", "put off 3 (median 2 showings)",
+        "live 2", "done 4 (median 1 showing)", "closed 1 (median 5 showings)", "put off or repeated 3 (median 2 showings)",
         "lapsed 1"]
 
 
 def test_stats_with_nothing_prints_counts_only(project, capsys):
     assert mem.main(["reminders", "--stats"]) == 0
-    assert capsys.readouterr().out.splitlines() == ["live 0", "done 0", "closed 0", "put off 0", "lapsed 0"]
+    assert capsys.readouterr().out.splitlines() == ["live 0", "done 0", "closed 0", "put off or repeated 0", "lapsed 0"]
 
 
 def test_all_lists_ended_lapsed_and_broken(project, capsys):
@@ -345,3 +345,16 @@ def test_snooze_by_a_date_refuses_an_ended_reminder(project, capsys):
     capsys.readouterr()
     assert mem.main(["reminder", "snooze", "e", "--days", "1"]) == 2
     assert "ended on" in capsys.readouterr().err
+
+
+def test_restore_refuses_when_the_scope_holds_ten_live_reminders(project, capsys):
+    mem.main(["remind", "drop me", "--body", "b"])
+    assert mem.main(["reminder", "close", "drop-me", "--reason", "not needed"]) == 0
+    for n in range(10):
+        assert mem.main(["remind", f"live {n}", "--body", "b"]) == 0
+    capsys.readouterr()
+    assert mem.main(["reminder", "restore", "drop-me"]) == 2
+    assert "mem: 10 reminders are live in this scope: finish or close one first (mem reminders)" in capsys.readouterr().err
+    assert load_one(project, "drop-me").status == "closed"
+    assert mem.main(["reminder", "close", "live-0", "--reason", "x"]) == 0
+    assert mem.main(["reminder", "restore", "drop-me"]) == 0

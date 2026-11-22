@@ -3186,8 +3186,9 @@ def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
 
 
 def _session_reminders(project: Path | None, memories: Path | None, data: dict[str, Any],
-                       will_count: bool) -> tuple[str | None, list[str]]:
-    """The reminder line and the keys of the due reminders, as the state will be after this start.
+                       will_count: bool) -> tuple[str | None, list[str], int]:
+    """The reminder line, the keys of the reminders it names and the number of due ones, as the state will be after
+    this start.
 
     Counts rise by one when this start is counted. An unreadable count makes the reminders that wait for sessions
     not due; the ones that wait for a date or for nothing still are. Broken files are skipped."""
@@ -3200,21 +3201,26 @@ def _session_reminders(project: Path | None, memories: Path | None, data: dict[s
     pkey = records.project_key(project) if project else None
     scopes = [("project", records.project_dir(project) if project else None, session_count.count_for(state, pkey) + bump),
               ("global", memories, session_count.count_for(state, None) + bump)]
-    due, waiting, keys = [], 0, []
+    due, waiting = [], 0
     for scope, root, count in scopes:
-        for r in reminders.load(root, scope):
-            if r.error is not None or not reminders.is_live(r, today):
-                continue
-            if reminders.is_due(r, today, count) and (trusted or r.in_sessions is None):
-                name = _reminder_key(r, project)
-                shown = session_count.showings(state, name, session if will_count else None)
-                if will_count and session is None:
-                    shown += 1
-                due.append((r, reminders.sessions_since(r, count), shown))
-                keys.append(name)
-            else:
-                waiting += 1
-    return reminders.summary_line(due, waiting), keys
+        try:  # one scope failing must not remove the other's reminders
+            found, wait = [], 0
+            for r in reminders.load(root, scope):
+                if r.error is not None or not reminders.is_live(r, today):
+                    continue
+                if reminders.is_due(r, today, count) and (trusted or r.in_sessions is None):
+                    shown = session_count.showings(state, _reminder_key(r, project), session if will_count else None)
+                    if will_count and session is None:
+                        shown += 1
+                    found.append((r, reminders.sessions_since(r, count), shown))
+                else:
+                    wait += 1
+        except Exception:
+            continue
+        due += found
+        waiting += wait
+    line, named = reminders.line_parts(due, waiting)
+    return line, [_reminder_key(r, project) for r in named], len(due)
 
 
 def cmd_session_index(args: argparse.Namespace) -> int:
@@ -3224,7 +3230,8 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     project = None
     session = data.get("session_id") if isinstance(data.get("session_id"), str) else None
     will_count = bool(args.hook and data.get("source") in session_count.COUNTED_SOURCES)
-    due_keys: list[str] = []
+    due_count = 0
+    shown_keys: list[str] = []
     try:
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
@@ -3248,14 +3255,15 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             if found:
                 notices.append(found)
         notice = "\n".join(notices) or None
-        line, due_keys = None, []
+        line, named_keys = None, []
         try:
-            line, due_keys = _session_reminders(project, memories, data, will_count)
+            line, named_keys, due_count = _session_reminders(project, memories, data, will_count)
         except Exception:
-            line, due_keys = None, []
+            line, named_keys, due_count = None, [], 0
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
                              notice=notice, reminder=line)
+        shown_keys = named_keys  # counted only when the text with the line was built
     except Exception:
         text = _INDEX_RULES
     print(text)
@@ -3263,7 +3271,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     if will_count:
         try:
             key = records.project_key(project) if project else None
-            after = session_count.bump(data_dir(os.environ), key, shown=due_keys, session=session)
+            after = session_count.bump(data_dir(os.environ), key, shown=shown_keys, session=session)
             counted = after["total"] if after else None
         except Exception:
             counted = None
@@ -3271,7 +3279,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         source = data.get("source")
         _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
                    "ms": int((time.monotonic() - started) * 1000), "chars": len(text), "count": counted,
-                   "due": len(due_keys)})
+                   "due": due_count})
     return 0
 
 
@@ -3716,7 +3724,7 @@ def _reminder_stats(everyone: Sequence[reminders.Reminder], today: datetime.date
     for status in ("done", "closed"):
         lines.append(_kind_line(status, [r.shown_at_end for r in ended[status] if r.shown_at_end is not None],
                                 len(ended[status])))
-    lines.append(_kind_line("put off", put_off, len(put_off)))
+    lines.append(_kind_line("put off or repeated", put_off, len(put_off)))
     lines.append(f"lapsed {sum(1 for r in ok if r.status == 'active' and r.until is not None and r.until < today)}")
     return lines
 
@@ -3818,6 +3826,14 @@ def cmd_reminder(args: argparse.Namespace) -> int:
             return 2
         if entry["skipped"]:
             print(f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr)
+        if not reminders.is_live(r, today):
+            scope_folder = dict(_reminder_folders(args, args.is_global)).get(r.scope)
+            live = sum(1 for o in reminders.load(scope_folder, r.scope)
+                       if o.path != r.path and (o.error is not None or reminders.is_live(o, today)))
+            if live >= reminders.LIVE_LIMIT:
+                print(f"mem: {reminders.LIVE_LIMIT} reminders are live in this scope: finish or close one first "
+                      "(mem reminders)", file=sys.stderr)
+                return 2
         try:
             records.restore(r, entry)
         except OSError as exc:

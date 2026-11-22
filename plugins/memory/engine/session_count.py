@@ -85,7 +85,8 @@ def _write(data: Path, state: dict[str, Any]) -> None:
 
 
 def _locked(data: Path | None, change) -> Any:
-    """Run `change(state)` on the stored state under the lock and write it; None when nothing was written."""
+    """Run `change(state)` on the stored state under the lock and write it when it changed; None when the lock or
+    the file could not be used."""
     if data is None:
         return None
     fd = None
@@ -109,8 +110,10 @@ def _locked(data: Path | None, change) -> Any:
             state = _clean(raw)
         else:
             state = _clean(None)
+        before = json.dumps(state, sort_keys=True)
         result = change(state)
-        _write(data, state)
+        if json.dumps(state, sort_keys=True) != before:  # nothing changed: write nothing
+            _write(data, state)
         return result
     except (OSError, ValueError):
         return None

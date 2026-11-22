@@ -25,6 +25,15 @@ def test_bump_counts_showings_and_forget_returns_them(tmp_path):
     assert session_count.forget_shown(tmp_path, "project:k:x") == 0
 
 
+def test_forgetting_an_absent_name_writes_nothing(tmp_path):
+    assert session_count.forget_shown(tmp_path, "project:k:x") == 0
+    assert not (tmp_path / "sessions.json").exists()
+    session_count.bump(tmp_path, "k")
+    before = (tmp_path / "sessions.json").read_text()
+    assert session_count.forget_shown(tmp_path, "project:k:x") == 0
+    assert (tmp_path / "sessions.json").read_text() == before
+
+
 def test_a_compaction_in_the_same_session_raises_the_count_but_not_the_showing(tmp_path):
     for _ in range(3):
         state = session_count.bump(tmp_path, "k", ["project:k:x"], session="s1")
@@ -67,10 +76,10 @@ def test_no_temporary_file_is_left_behind(tmp_path):
 def test_a_held_lock_gives_up_within_a_second(tmp_path):
     with open(tmp_path / "sessions.lock", "w") as held:
         fcntl.flock(held, fcntl.LOCK_EX)
-        started = time.monotonic()
-        assert session_count.bump(tmp_path, "k") is None
-        assert session_count.forget_shown(tmp_path, "x") is None
-        assert time.monotonic() - started < 1.5  # two calls, at most 0.5 s each
+        for call in (lambda: session_count.bump(tmp_path, "k"), lambda: session_count.forget_shown(tmp_path, "x")):
+            started = time.monotonic()
+            assert call() is None
+            assert time.monotonic() - started < 1.0  # at most 0.5 s each
     assert not (tmp_path / "sessions.json").exists()
     assert session_count.bump(tmp_path, "k")["total"] == 1
 
@@ -107,10 +116,13 @@ def test_session_index_without_hook_raises_nothing(monkeypatch, capsys, tmp_path
 
 def test_the_printed_text_does_not_change_when_the_count_cannot_be_written(monkeypatch, capsys, tmp_path):
     project = tmp_path / "mem-project"
-    project.mkdir()
+    (project / ".memory").mkdir(parents=True)
+    (project / ".memory" / "m1.md").write_text(
+        "---\nkind: lesson\nclaim: a claim\ncreated: 2026-11-01\nobserved: 1\nstatus: active\n---\n", encoding="utf-8")
     payload = json.dumps({"cwd": str(project), "source": "startup"})
     hook(monkeypatch, payload)
     counted = capsys.readouterr().out
+    assert "This project" in counted  # the full text, not the fallback rules
     data = tmp_path / "mem-data"
     (data / "sessions.json").write_text("{not json")
     hook(monkeypatch, payload)
