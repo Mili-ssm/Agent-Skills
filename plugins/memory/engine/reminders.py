@@ -81,6 +81,13 @@ def _opt_str(value, name: str) -> str | None:
     return value
 
 
+def _in_sessions(value) -> int | None:
+    n = _opt_int(value, "in_sessions", 1)
+    if n is not None and n > MAX_SESSIONS:
+        raise ValueError(f"in_sessions must be at most {MAX_SESSIONS}")
+    return n
+
+
 def _parse(path: Path, scope: str) -> Reminder:
     base = Reminder(scope, path, path.stem, "", "")
     try:
@@ -99,13 +106,14 @@ def _parse(path: Path, scope: str) -> Reminder:
         every = _opt_str(meta.get("every"), "every")
         if every is not None:
             parse_every(every)
-        shown_before = meta.get("shown_before") or []
+        shown_before = meta.get("shown_before")
+        shown_before = [] if shown_before is None else shown_before
         if not isinstance(shown_before, list):
             raise ValueError("shown_before must be a list of integers")
         return replace(
             base, topic=topic.strip(), body=body, created=_date(meta.get("created"), "created"), status=status,
             armed_count=_int(meta.get("armed_count", 0), "armed_count"), after=_date(meta.get("after"), "after"),
-            in_sessions=_opt_int(meta.get("in_sessions"), "in_sessions", 1), until=_date(meta.get("until"), "until"),
+            in_sessions=_in_sessions(meta.get("in_sessions")), until=_date(meta.get("until"), "until"),
             every=every, effort=effort, risk=risk, done_note=_opt_str(meta.get("done_note"), "done_note"),
             closed_reason=_opt_str(meta.get("closed_reason"), "closed_reason"), ended=_date(meta.get("ended"), "ended"),
             shown_at_end=_opt_int(meta.get("shown_at_end"), "shown_at_end"),
@@ -155,9 +163,9 @@ def _render(r: Reminder) -> str:
     return f"---\n{head}---\n{r.body}"
 
 
-def _save(r: Reminder) -> None:
+def _save(r: Reminder, text: str) -> None:
     tmp = r.path.with_name(f".{r.path.name}.tmp")
-    tmp.write_text(_render(r), encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, r.path)
 
 
@@ -200,9 +208,10 @@ def write(memory_folder: Path, scope: str, *, topic: str, body: str, today: date
         path = folder / f"{handle}.md"
         r = Reminder(scope, path, handle, topic, body + "\n", today, "active", count, after, in_sessions, until, every,
                      effort, risk)
+        text = _render(r)  # before the file exists: a failure leaves no empty file holding the handle
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
-                f.write(_render(r))
+                f.write(text)
             return r
         except FileExistsError:
             n += 1
@@ -226,32 +235,51 @@ def _shown(r: Reminder, shown: int | None) -> list[int]:
     return r.shown_before if shown is None else [*r.shown_before, shown]
 
 
+def _guard(r: Reminder) -> None:
+    if r.error:
+        raise ValueError(f"r:{r.handle} cannot be read ({r.error}): repair the file or restore it")
+    if r.status != "active":
+        raise ValueError(f"r:{r.handle} is already {r.status}: mem reminder restore {r.handle} brings it back")
+
+
 def _change(r: Reminder, action: str, **changes) -> Reminder:
-    log_before(r, action)
     new = replace(r, **changes)
-    _save(new)
+    text = _render(new)  # render, then log, then write: a failure never leaves a log entry for a change that did not happen
+    log_before(r, action)
+    _save(new, text)
     return new
 
 
 def done(r: Reminder, today: datetime.date, count: int, note: str, shown: int | None) -> Reminder:
+    _guard(r)
+    end = dict(status="done", ended=today, done_note=note, shown_at_end=shown)
     if r.every is None:
-        return _change(r, "done", status="done", ended=today, done_note=note, shown_at_end=shown)
+        return _change(r, "done", **end)
     n, unit = parse_every(r.every)
-    when = (dict(after=today + datetime.timedelta(days=n), in_sessions=None) if unit == "d"
-            else dict(in_sessions=n, after=None))
+    if unit == "d":
+        next_date = today + datetime.timedelta(days=n)
+        if r.until is not None and next_date > r.until:  # it would never be due again
+            return _change(r, "done", **end)
+        when = dict(after=next_date, in_sessions=None)
+    else:
+        when = dict(in_sessions=n, after=None)
     return _change(r, "done", times_done=r.times_done + 1, armed_count=count, shown_before=_shown(r, shown), **when)
 
 
 def close(r: Reminder, today: datetime.date, reason: str, shown: int | None) -> Reminder:
+    _guard(r)
     return _change(r, "close", status="closed", ended=today, closed_reason=reason, shown_at_end=shown)
 
 
 def snooze(r: Reminder, today: datetime.date, count: int, shown: int | None, *, sessions: int | None = None,
            after: datetime.date | None = None) -> Reminder:
+    _guard(r)
     if (sessions is None) == (after is None):
         raise ValueError("snooze takes exactly one of sessions or after")
     if sessions is not None:
         _check_sessions(sessions)
+        if r.until is not None and r.until < today:
+            raise ValueError(f"r:{r.handle} ended on {r.until}: close it or write a new one")
         when = dict(in_sessions=sessions, after=None)
     else:
         if r.until is not None and after > r.until:

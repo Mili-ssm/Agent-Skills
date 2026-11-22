@@ -142,3 +142,95 @@ def test_unknown_front_matter_keys_survive_a_rewrite(tmp_path):
     reminders.snooze(loaded, T, 1, 0, sessions=2)
     after = reminders.load(tmp_path, "project")[0]
     assert after.extra == {"owner_hint": "keep me"} and after.in_sessions == 2 and after.body == "Body text.\n"
+
+
+def _broken_with_body(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="Body text.", today=T, count=0)
+    text = r.path.read_text(encoding="utf-8").replace("status: active", "status: maybe") + "tail\n"
+    r.path.write_text(text, encoding="utf-8")
+    return reminders.load(tmp_path, "project")[0], text
+
+
+@pytest.mark.parametrize("act", [lambda r: reminders.done(r, T, 1, "n", None), lambda r: reminders.close(r, T, "x", None),
+                                 lambda r: reminders.snooze(r, T, 1, None, sessions=2)])
+def test_a_broken_record_is_refused_untouched(act, tmp_path):
+    r, text = _broken_with_body(tmp_path)
+    with pytest.raises(ValueError, match=r"^r:t cannot be read \(.*unknown status.*\): repair the file or restore it$"):
+        act(r)
+    assert r.path.read_text(encoding="utf-8") == text
+    assert not (reminders.folder_of(tmp_path) / ".curation-log").exists()
+
+
+def test_a_file_that_is_not_utf8_is_refused_without_a_crash(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0)
+    r.path.write_bytes(b"---\ntopic: \xff\xfe\n---\nb\n")
+    broken = reminders.load(tmp_path, "project")[0]
+    assert broken.error
+    with pytest.raises(ValueError, match="cannot be read"):
+        reminders.close(broken, T, "x", None)
+
+
+@pytest.mark.parametrize("act", [lambda r: reminders.done(r, T, 1, "n", None), lambda r: reminders.close(r, T, "x", None),
+                                 lambda r: reminders.snooze(r, T, 1, None, sessions=2)])
+@pytest.mark.parametrize("first", ["done", "close"])
+def test_transitions_refuse_a_record_that_is_not_active(act, first, tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0)
+    ended = reminders.done(r, T, 1, "n", None) if first == "done" else reminders.close(r, T, "x", None)
+    text = ended.path.read_text(encoding="utf-8")
+    log = reminders.folder_of(tmp_path) / ".curation-log"
+    entries = log.read_text(encoding="utf-8")
+    with pytest.raises(ValueError, match=rf"^r:t is already {ended.status}: mem reminder restore t brings it back$"):
+        act(ended)
+    assert ended.path.read_text(encoding="utf-8") == text and log.read_text(encoding="utf-8") == entries
+
+
+def test_an_ended_but_active_reminder_may_be_done_or_closed_not_snoozed(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0, until=T + DAY)
+    later = T + 3 * DAY
+    with pytest.raises(ValueError, match="after is later than until"):
+        reminders.snooze(r, later, 1, None, after=later)
+    with pytest.raises(ValueError, match=rf"^r:t ended on {r.until}: close it or write a new one$"):
+        reminders.snooze(r, later, 1, None, sessions=2)
+    assert reminders.close(r, later, "x", None).status == "closed"
+    assert reminders.done(r, later, 1, "n", None).status == "done"
+
+
+def test_done_ends_a_day_repeat_that_would_pass_its_end_date(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0, every="30d", until=T + 10 * DAY)
+    ended = reminders.done(r, T, 4, "fine", 2)
+    assert (ended.status, ended.ended, ended.done_note, ended.shown_at_end) == ("done", T, "fine", 2)
+    fits = reminders.write(tmp_path, "project", topic="u", body="b", today=T, count=0, every="10d", until=T + 10 * DAY)
+    assert reminders.done(fits, T, 4, "n", None).status == "active"
+    by_sessions = reminders.write(tmp_path, "project", topic="v", body="b", today=T, count=0, every="5s", until=T + 2 * DAY)
+    assert reminders.done(by_sessions, T, 4, "n", None).status == "active"
+
+
+def test_a_render_failure_changes_nothing(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0)
+    text = r.path.read_text(encoding="utf-8")
+    bad = reminders.replace(r, extra={"x": object()})
+    with pytest.raises(Exception):
+        reminders.close(bad, T, "x", None)
+    assert r.path.read_text(encoding="utf-8") == text
+    assert not (reminders.folder_of(tmp_path) / ".curation-log").exists()
+
+
+def test_write_renders_before_it_creates_the_file(tmp_path, monkeypatch):
+    def boom(_):
+        raise RuntimeError("render failed")
+    monkeypatch.setattr(reminders, "_render", boom)
+    with pytest.raises(RuntimeError):
+        reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0)
+    assert not list(reminders.folder_of(tmp_path).glob("*"))
+
+
+@pytest.mark.parametrize("value, ok", [("", True), ("shown_before: null\n", True), ("shown_before: []\n", True),
+                                       ("shown_before: [1, 2]\n", True), ("shown_before: 0\n", False),
+                                       ("shown_before: ''\n", False), ("shown_before: false\n", False),
+                                       ("shown_before: [-1]\n", False), ("shown_before: [true]\n", False),
+                                       ("in_sessions: 1000\n", False), ("in_sessions: 999\n", True)])
+def test_shown_before_and_in_sessions_are_validated_on_load(value, ok, tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0)
+    r.path.write_text(f"---\ntopic: t\n{value}---\nb\n", encoding="utf-8")
+    loaded = reminders.load(tmp_path, "project")[0]
+    assert (loaded.error is None) is ok
