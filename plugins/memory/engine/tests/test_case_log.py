@@ -378,7 +378,7 @@ def test_confirm_records_outcome_and_day(project):
     assert reload(m).log == ["2026-11-20 session s2 failed"]
     again = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--outcome", "worked",
                     "--seen-on", "2026-11-21")
-    assert again.returncode == 3 and "is already a source: nothing changed" in again.stdout
+    assert again.returncode == 0 and again.stdout == f"m:{m.handle}\tcase worked added\n"
     got = reload(m)
     assert got.log == ["2026-11-20 session s2 failed", "2026-11-21 session s2 worked"]
     assert f"observed {got.observed}" in first.stdout and got.observed == 2
@@ -399,3 +399,39 @@ def test_remember_of_a_known_claim_passes_the_case(project):
     assert done.returncode == 3 and "sighting" in done.stdout, done.stderr
     got = reload(m)
     assert "session s2" in " ".join(got.sources) and got.log == ["2026-11-22 session s2 failed"]
+
+
+def test_confirm_adds_a_case_to_a_counted_session_and_says_so(project):
+    m = transcript(project)
+    m, _ = records.add_sighting(m, "session s1", D1, outcome="failed")
+    first = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s1", "--outcome", "worked",
+                    "--seen-on", "2026-11-21")
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == f"m:{m.handle}\tcase worked added\n"
+    got = reload(m)
+    assert (got.observed, got.sources) == (m.observed, m.sources)
+    assert got.log == ["2026-11-20 session s1 failed", "2026-11-21 session s1 worked"]
+    logs = lambda: [p.read_bytes() for p in sorted(project.rglob(records.CURATION_LOG))]
+    before, journal = got.path.read_bytes(), logs()
+    assert journal   # the first call journaled its change
+    again = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s1", "--outcome", "worked")
+    assert again.returncode == 3 and "is already a source: nothing changed" in again.stdout
+    assert got.path.read_bytes() == before and logs() == journal
+
+
+def test_confirm_of_a_counted_session_without_outcome_changes_nothing(project):
+    m = transcript(project)
+    before = m.path.read_bytes()
+    done = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s1")
+    assert done.returncode == 3 and "is already a source: nothing changed" in done.stdout
+    assert m.path.read_bytes() == before
+
+
+def test_remember_of_a_known_claim_adds_a_case_to_a_counted_session(project):
+    m = transcript(project)
+    done = run_mem(project, "remember", "--kind=lesson", f"--claim={m.claim}", "--origin", "transcript",
+                   "--source", "session s1", "--outcome", "failed", "--seen-on", "2026-11-22")
+    assert done.returncode == 3, done.stderr
+    assert "is already counted" in done.stderr and f"case failed added to m:{m.handle}." in done.stderr
+    got = reload(m)
+    assert got.observed == m.observed and got.log == ["2026-11-22 session s1 failed"]

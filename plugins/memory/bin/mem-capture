@@ -296,7 +296,7 @@ def apply_one(item: dict, session: str, env: dict, day: str | None = None) -> tu
         if item["same_as"]:
             return "skipped", None, "this session already counted"
         first = done.stdout.strip().splitlines()[0].split("\t") if done.stdout.strip() else []
-        if len(first) == 2 and first[1] == "sighting":
+        if len(first) == 2 and first[1] in ("sighting", "case"):
             return "sighting", first[0], None
         if len(first) == 2 and first[1] == "already counted":
             return "skipped", first[0], "this session already counted"

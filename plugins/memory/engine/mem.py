@@ -3400,17 +3400,24 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
     target = next((m for m in same if m.origin == "transcript"), None)
     if target is None or getattr(args, "origin", None) != "transcript" or not keys:
         return False
-    added = False
+    added = cased = False
     for key in keys:
         if records.counted(target, key):
             print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
+            explicit = getattr(args, "outcome", None)
+            sid = records.session_key(key)
+            if explicit and sid and not records.has_case(target, sid, explicit):
+                records.log_before(target, "confirm")
+                target, _ = records.add_case(target, key, getattr(args, "seen_on", None) or today, explicit, today)
+                cased = True
+                print(f"mem: case {explicit} added to m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
         target, _ = records.add_sighting(target, key, today, outcome=getattr(args, "outcome", None) or "seen",
                                          on=getattr(args, "seen_on", None))
         added = True
         print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
-    print(f"m:{target.handle}\t{'sighting' if added else 'already counted'}")
+    print(f"m:{target.handle}\t{'sighting' if added else 'case' if cased else 'already counted'}")
     return True
 
 
@@ -3699,10 +3706,13 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         seen_on = getattr(args, "seen_on", None)          # a counted session gets a case only on request
         if already:
             repeated.append(True)
-            mine = [c.outcome for c in records.cases(found[0]) if c.session == key]
-            if from_transcript and key and getattr(args, "outcome", None) and outcome not in mine and not (outcome == "seen" and mine):
-                records.log_before(found[0], "confirm")   # a new case is written; the message stays as it was
+            if (from_transcript and key and getattr(args, "outcome", None)
+                    and not records.has_case(found[0], key, outcome)):
+                records.log_before(found[0], "confirm")
                 found[0], _ = records.add_case(found[0], source, seen_on or today, outcome, today)
+                if until is None:
+                    repeated.pop()   # a case was written: the call changed something
+                    return [f"m:{found[0].handle}\tcase {outcome} added"]
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
             records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set

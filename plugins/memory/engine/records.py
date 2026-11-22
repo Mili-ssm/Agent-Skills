@@ -760,11 +760,16 @@ def mark_words(memory: Memory) -> str:
     return f"version {cur.number}: worked {cur.worked}, failed {cur.failed}"
 
 
-def _log_with(memory: Memory, key: str, on: datetime.date, outcome: str) -> list[str] | None:
-    """The log after adding the case of session `key`, or None when it adds nothing: the session has an entry with
-    that outcome, or the outcome is `seen` and the session has any entry."""
+def has_case(memory: Memory, key: str, outcome: str) -> bool:
+    """True when a case of session `key` with `outcome` adds nothing: the session has an entry with that outcome,
+    or the outcome is `seen` and the session has any entry."""
     mine = [c.outcome for c in cases(memory) if c.session == key]
-    if outcome in mine or (outcome == "seen" and mine):
+    return outcome in mine or (outcome == "seen" and bool(mine))
+
+
+def _log_with(memory: Memory, key: str, on: datetime.date, outcome: str) -> list[str] | None:
+    """The log after adding the case of session `key`, or None when it adds nothing (see `has_case`)."""
+    if has_case(memory, key, outcome):
         return None
     return [*memory.log, case_entry(on, key, outcome)]
 
