@@ -187,7 +187,7 @@ def test_transitions_refuse_a_record_that_is_not_active(act, first, tmp_path):
 def test_an_ended_but_active_reminder_may_be_done_or_closed_not_snoozed(tmp_path):
     r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0, until=T + DAY)
     later = T + 3 * DAY
-    with pytest.raises(ValueError, match="after is later than until"):
+    with pytest.raises(ValueError, match=rf"^r:t ended on {r.until}: close it or write a new one$"):
         reminders.snooze(r, later, 1, None, after=later)
     with pytest.raises(ValueError, match=rf"^r:t ended on {r.until}: close it or write a new one$"):
         reminders.snooze(r, later, 1, None, sessions=2)
@@ -234,3 +234,20 @@ def test_shown_before_and_in_sessions_are_validated_on_load(value, ok, tmp_path)
     r.path.write_text(f"---\ntopic: t\n{value}---\nb\n", encoding="utf-8")
     loaded = reminders.load(tmp_path, "project")[0]
     assert (loaded.error is None) is ok
+
+
+def test_every_done_on_a_repeat_counts_including_the_one_that_ends_it(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0, every="30d", until=T + 10 * DAY)
+    ended = reminders.done(r, T, 4, "fine", 2)
+    assert (ended.status, ended.times_done) == ("done", 1)
+
+
+def test_done_ends_a_session_repeat_whose_end_date_has_passed(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0, every="2s", until=T + DAY)
+    assert reminders.done(r, T + 3 * DAY, 4, "n", 1).status == "done"
+
+
+def test_snooze_refuses_any_ended_reminder(tmp_path):
+    r = reminders.write(tmp_path, "project", topic="t", body="b", today=T, count=0, until=T + DAY)
+    with pytest.raises(ValueError, match=rf"^r:t ended on {r.until}: close it or write a new one$"):
+        reminders.snooze(r, T + 3 * DAY, 1, None, after=T + 3 * DAY)

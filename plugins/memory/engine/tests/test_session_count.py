@@ -116,3 +116,26 @@ def test_the_printed_text_does_not_change_when_the_count_cannot_be_written(monke
     hook(monkeypatch, payload)
     assert capsys.readouterr().out == counted
     assert last_log(data)["count"] is None
+
+
+def test_readable_tells_a_missing_file_from_one_that_cannot_be_used(tmp_path):
+    assert session_count.readable(None) is False
+    assert session_count.readable(tmp_path) is True  # no file yet
+    assert session_count.readable(tmp_path / "absent") is True
+    (tmp_path / "sessions.json").write_text("{}")
+    assert session_count.readable(tmp_path) is True
+    (tmp_path / "sessions.json").write_text("[1]")
+    assert session_count.readable(tmp_path) is False
+    (tmp_path / "sessions.json").write_text("{not json")
+    assert session_count.readable(tmp_path) is False
+    (tmp_path / "sessions.json").write_text("{}")
+    (tmp_path / "sessions.json").chmod(0)
+    try:
+        assert session_count.readable(tmp_path) is False
+    finally:
+        (tmp_path / "sessions.json").chmod(0o600)
+    tmp_path.chmod(0)
+    try:
+        assert session_count.readable(tmp_path) is False
+    finally:
+        tmp_path.chmod(0o700)

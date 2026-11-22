@@ -252,8 +252,9 @@ def _change(r: Reminder, action: str, **changes) -> Reminder:
 
 def done(r: Reminder, today: datetime.date, count: int, note: str, shown: int | None) -> Reminder:
     _guard(r)
-    end = dict(status="done", ended=today, done_note=note, shown_at_end=shown)
-    if r.every is None:
+    times = r.times_done + (1 if r.every is not None else 0)
+    end = dict(status="done", ended=today, done_note=note, shown_at_end=shown, times_done=times)
+    if r.every is None or (r.until is not None and r.until < today):
         return _change(r, "done", **end)
     n, unit = parse_every(r.every)
     if unit == "d":
@@ -263,7 +264,7 @@ def done(r: Reminder, today: datetime.date, count: int, note: str, shown: int | 
         when = dict(after=next_date, in_sessions=None)
     else:
         when = dict(in_sessions=n, after=None)
-    return _change(r, "done", times_done=r.times_done + 1, armed_count=count, shown_before=_shown(r, shown), **when)
+    return _change(r, "done", times_done=times, armed_count=count, shown_before=_shown(r, shown), **when)
 
 
 def close(r: Reminder, today: datetime.date, reason: str, shown: int | None) -> Reminder:
@@ -276,10 +277,10 @@ def snooze(r: Reminder, today: datetime.date, count: int, shown: int | None, *, 
     _guard(r)
     if (sessions is None) == (after is None):
         raise ValueError("snooze takes exactly one of sessions or after")
+    if r.until is not None and r.until < today:
+        raise ValueError(f"r:{r.handle} ended on {r.until}: close it or write a new one")
     if sessions is not None:
         _check_sessions(sessions)
-        if r.until is not None and r.until < today:
-            raise ValueError(f"r:{r.handle} ended on {r.until}: close it or write a new one")
         when = dict(in_sessions=sessions, after=None)
     else:
         if r.until is not None and after > r.until:

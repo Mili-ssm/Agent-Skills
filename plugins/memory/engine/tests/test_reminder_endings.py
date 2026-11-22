@@ -231,3 +231,117 @@ def test_check_accepts_a_store_whose_memories_hold_a_reminder_with_a_link_in_its
     assert (memories / "reminders" / "linked.md").is_file()
     assert mem.main(["--root", str(hub_root), "check"]) == before
     assert capsys.readouterr().out == ""
+
+
+def test_global_reminders_are_found_when_only_mem_store_names_the_store(project, hub_root, monkeypatch, capsys):
+    monkeypatch.delenv("MEM_MEMORIES", raising=False)
+    monkeypatch.setenv("MEM_STORE", str(hub_root))
+    assert mem.main(["remind", "x", "--body", "b", "--global"]) == 0
+    assert (hub_root / "memories" / "reminders" / "x.md").is_file()
+    capsys.readouterr()
+    assert mem.main(["reminders", "--global"]) == 0
+    assert "r:x" in capsys.readouterr().out
+    assert mem.main(["reminder", "show", "x", "--global"]) == 0
+    assert "r:x" in capsys.readouterr().out
+    assert mem.main(["show", "r:x"]) == 0
+    assert "r:x" in capsys.readouterr().out
+    assert mem.main(["reminder", "done", "x", "--note", "n", "--global"]) == 0
+    capsys.readouterr()
+
+
+def unreadable_count(monkeypatch, tmp_path):
+    counts = tmp_path / "bad-data"
+    counts.mkdir()
+    (counts / session_count.COUNT_NAME).write_text("{not json", encoding="utf-8")
+    monkeypatch.setenv("MEM_DATA", str(counts))
+    return counts
+
+
+@pytest.mark.parametrize("argv", [["remind", "w", "--body", "b", "--in-sessions", "2"],
+                                  ["remind", "w", "--body", "b", "--every", "3s"]])
+def test_arming_by_sessions_is_refused_when_the_count_cannot_be_read(argv, project, monkeypatch, tmp_path, capsys):
+    counts = unreadable_count(monkeypatch, tmp_path)
+    assert mem.main(argv) == 2
+    assert capsys.readouterr().err == (f"mem: the session count cannot be read ({counts / 'sessions.json'}): "
+                                       "use a date, or repair that file\n")
+    assert not folder(project).exists() or not list(folder(project).glob("*.md"))
+
+
+def test_snooze_by_sessions_and_done_on_a_session_repeat_are_refused_when_the_count_cannot_be_read(
+        project, monkeypatch, tmp_path, capsys):
+    mem.main(["remind", "w", "--body", "b", "--every", "3s"])
+    mem.main(["remind", "plain", "--body", "b"])
+    counts = unreadable_count(monkeypatch, tmp_path)
+    capsys.readouterr()
+    before = load_one(project, "w").path.read_text()
+    assert mem.main(["reminder", "snooze", "w", "--sessions", "2"]) == 2
+    assert mem.main(["reminder", "done", "w", "--note", "n"]) == 2
+    assert f"the session count cannot be read ({counts / 'sessions.json'})" in capsys.readouterr().err
+    assert load_one(project, "w").path.read_text() == before
+    assert mem.main(["reminder", "snooze", "plain", "--days", "2"]) == 0  # a date needs no count
+    assert mem.main(["reminder", "done", "plain", "--note", "n"]) == 0
+
+
+def test_a_missing_count_file_is_readable():
+    assert session_count.readable(Path(os.environ["MEM_DATA"])) is True
+
+
+def test_an_unreadable_reminders_folder_is_not_no_reminders(project, capsys):
+    mem.main(["remind", "kept", "--body", "b"])
+    capsys.readouterr()
+    folder(project).chmod(0)
+    try:
+        assert mem.main(["reminders"]) == 2
+        captured = capsys.readouterr()
+        assert "mem: cannot read project reminders:" in captured.err and "No reminders." not in captured.out
+        assert mem.main(["remind", "more", "--body", "b"]) == 2
+        assert "mem: cannot read project reminders:" in capsys.readouterr().err
+    finally:
+        folder(project).chmod(0o700)
+
+
+def test_an_unreadable_scope_still_lists_the_other(project, gfolder, capsys):
+    mem.main(["remind", "kept", "--body", "b"])
+    mem.main(["remind", "world", "--body", "b", "--global"])
+    capsys.readouterr()
+    folder(project).chmod(0)
+    try:
+        assert mem.main(["reminders"]) == 2
+        captured = capsys.readouterr()
+        assert "r:world" in captured.out and "cannot read project reminders" in captured.err
+    finally:
+        folder(project).chmod(0o700)
+
+
+def test_broken_files_get_a_hint_and_count_toward_the_limit(project, capsys):
+    mem.main(["remind", "ok", "--body", "b"])
+    for n in range(2):
+        (folder(project) / f"bad{n}.md").write_text("---\nstatus: nope\n---\nb\n", encoding="utf-8")
+    capsys.readouterr()
+    assert mem.main(["reminders"]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == "2 reminder file(s) cannot be read: mem reminders --all"
+    mem.main(["reminders", "--all"])
+    assert "reminder file(s) cannot be read" not in capsys.readouterr().out
+    for n in range(7):
+        assert mem.main(["remind", f"n{n}", "--body", "b"]) == 0
+    assert mem.main(["remind", "over", "--body", "b"]) == 2
+
+
+def test_done_counts_every_time_and_ends_a_lapsed_repeat(project, capsys):
+    mem.main(["remind", "d", "--body", "b", "--every", "30d", "--until", (TODAY + datetime.timedelta(days=10)).isoformat()])
+    capsys.readouterr()
+    assert mem.main(["reminder", "done", "d", "--note", "n"]) == 0
+    r = load_one(project, "d")
+    assert r.status == "done" and r.times_done == 1
+    mem.main(["remind", "s", "--body", "b", "--every", "2s"])
+    rewrite(project, "s", until=TODAY - datetime.timedelta(days=1))
+    assert mem.main(["reminder", "done", "s", "--note", "n"]) == 0
+    assert load_one(project, "s").status == "done"
+
+
+def test_snooze_by_a_date_refuses_an_ended_reminder(project, capsys):
+    mem.main(["remind", "e", "--body", "b"])
+    rewrite(project, "e", until=TODAY - datetime.timedelta(days=1))
+    capsys.readouterr()
+    assert mem.main(["reminder", "snooze", "e", "--days", "1"]) == 2
+    assert "ended on" in capsys.readouterr().err

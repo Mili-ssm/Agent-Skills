@@ -2944,7 +2944,7 @@ def cmd_show(args: argparse.Namespace) -> int:
                     refused = refused or not isinstance(exc, project_syntheses.Unavailable)
                 continue
             if arg.startswith("r:"):
-                found = _find_reminder(arg, False)
+                found = _find_reminder(args, arg, False)
                 if found is None:
                     print(f"mem: no reminder {arg}", file=sys.stderr)
                     blocks.append(f"== {arg}\n(not found)")
@@ -3525,17 +3525,35 @@ def _reminder_key(r: reminders.Reminder, project: Path | None) -> str:
     return f"{r.scope}:{records.project_key(project) if r.scope == 'project' and project else 'global'}:{r.handle}"
 
 
-def _reminder_folders(global_only: bool = False, store: Path | None = None) -> list[tuple[str, Path | None]]:
+def _reminder_folders(args: argparse.Namespace, global_only: bool = False) -> list[tuple[str, Path | None]]:
+    """The memory folders whose `reminders/` a command reads, one function for every reminder command and `mem show r:`.
+    The store is the one the command was given; without one, the global folder comes from MEM_STORE or the default store."""
+    store = _optional_store(args)
     project = None if global_only else records.project_root(Path.cwd(), os.environ)
-    folders = [("project", records.project_dir(project) if project else None),
-               ("global", records.memories_root(os.environ, store))]
+    glob = records.memories_root(os.environ, store)
+    if glob is None and store is None:
+        glob = records.global_memories_root(os.environ)
+    folders = [("project", records.project_dir(project) if project else None), ("global", glob)]
     return folders[1:] if global_only else folders
 
 
-def _find_reminder(handle: str, global_only: bool) -> reminders.Reminder | None:
+def _reminders_unreadable(scope: str, folder: Path | None) -> str | None:
+    """The error when an existing reminders folder cannot be listed (`Path.glob` would show it as empty), else None."""
+    if folder is None:
+        return None
+    try:
+        os.listdir(reminders.folder_of(folder))
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return f"mem: cannot read {scope} reminders: {exc}"
+    return None
+
+
+def _find_reminder(args: argparse.Namespace, handle: str, global_only: bool) -> reminders.Reminder | None:
     """A reminder by handle, with or without `r:`: the project first, then the global scope."""
     handle = handle.removeprefix("r:")
-    for scope, folder in _reminder_folders(global_only):
+    for scope, folder in _reminder_folders(args, global_only):
         for r in reminders.load(folder, scope):
             if r.handle == handle:
                 return r
@@ -3558,6 +3576,17 @@ def _reminder_wait(r: reminders.Reminder, today: datetime.date, count: int) -> s
     return text
 
 
+def _count_refused() -> bool:
+    """Print the refusal and return True when the session count cannot be read: a reminder armed by sessions would
+    start from a wrong count."""
+    data = data_dir(os.environ)
+    if session_count.readable(data):
+        return False
+    where = data / session_count.COUNT_NAME if data is not None else "no data folder"
+    print(f"mem: the session count cannot be read ({where}): use a date, or repair that file", file=sys.stderr)
+    return True
+
+
 def cmd_remind(args: argparse.Namespace) -> int:
     if os.environ.get("MEM_BACKGROUND") == "1":
         print("mem: a background session of the plugin may not write a reminder; nothing was written.", file=sys.stderr)
@@ -3572,7 +3601,7 @@ def cmd_remind(args: argparse.Namespace) -> int:
         return 2
     after = args.after if args.in_days is None else today + datetime.timedelta(days=args.in_days)
     if args.is_global:
-        folder = records.memories_root(os.environ, _optional_store(args))
+        folder = dict(_reminder_folders(args, True))["global"]
         if folder is None:
             print('mem: no folder for global memories: set the plugin\'s "memories" option, '
                   'or MEM_MEMORIES, or use a store made with "mem init".', file=sys.stderr)
@@ -3592,10 +3621,16 @@ def cmd_remind(args: argparse.Namespace) -> int:
         refused = _check_terms([topic, body, records.slug_of(topic)], "lesson", args.owner_approved)
         if refused:
             return refused
-    live = sum(1 for r in reminders.load(folder, scope) if reminders.is_live(r, today))
+    problem = _reminders_unreadable(scope, folder)
+    if problem:
+        print(problem, file=sys.stderr)
+        return 2
+    live = sum(1 for r in reminders.load(folder, scope) if r.error is not None or reminders.is_live(r, today))
     if live >= reminders.LIVE_LIMIT:
         print(f"mem: {reminders.LIVE_LIMIT} reminders are live in this scope: finish or close one first (mem reminders)",
               file=sys.stderr)
+        return 2
+    if (args.in_sessions is not None or (args.every or "").strip().endswith("s")) and _count_refused():
         return 2
     exclude_failed = False
     if project is not None:
@@ -3646,16 +3681,24 @@ def cmd_reminders(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     state = session_count.read(data_dir(os.environ))
     project = None if args.is_global else records.project_root(Path.cwd(), os.environ)
-    due, waiting, everyone = [], [], []
-    for scope, folder in _reminder_folders(args.is_global, _optional_store(args)):
+    due, waiting, everyone, failed = [], [], [], []
+    for scope, folder in _reminder_folders(args, args.is_global):
+        problem = _reminders_unreadable(scope, folder)
+        if problem:
+            failed.append(problem)
+            continue
         count = session_count.count_for(state, records.project_key(project) if scope == "project" and project else None)
         for r in reminders.load(folder, scope):
             everyone.append(r)
             if reminders.is_live(r, today):
                 (due if reminders.is_due(r, today, count) else waiting).append((r, count))
+    status = 2 if failed else 0
+    for line in failed:
+        print(line, file=sys.stderr)
     if args.stats:
         print("\n".join(_reminder_stats(everyone, today)))
-        return 0
+        return status
+    broken = sum(1 for r in everyone if r.error is not None)
     others = []
     if args.all:
         for r in everyone:
@@ -3667,8 +3710,11 @@ def cmd_reminders(args: argparse.Namespace) -> int:
             elif not reminders.is_live(r, today):
                 others.append(f"r:{r.handle}\t{r.scope}\t{r.topic}\tlapsed, ended {r.until.isoformat()}")
     if not due and not waiting and not others:
-        print("No reminders.")
-        return 0
+        if not failed:
+            print("No reminders.")
+        if broken and not args.all:
+            print(f"{broken} reminder file(s) cannot be read: mem reminders --all")
+        return status
     for r, count in due:
         shown = session_count.showings(state, _reminder_key(r, project))
         print(f"r:{r.handle}\t{r.scope}\t{r.topic}\teffort {r.effort}\trisk {r.risk}\t"
@@ -3680,7 +3726,9 @@ def cmd_reminders(args: argparse.Namespace) -> int:
         print(line)
     if due:
         print(_REMINDER_RULE)
-    return 0
+    if broken and not args.all:
+        print(f"{broken} reminder file(s) cannot be read: mem reminders --all")
+    return status
 
 
 def _reminder_text(r: reminders.Reminder, today: datetime.date, count: int) -> str:
@@ -3706,20 +3754,12 @@ def _showings_to_store(name: str) -> int | None:
     """Showings of a reminder for its record: None when they cannot be known (no data folder, or a count file that
     exists and does not parse), never 0 in their place."""
     data = data_dir(os.environ)
-    if data is None:
-        return None
-    path = data / session_count.COUNT_NAME
-    try:
-        if path.exists() and not isinstance(json.loads(path.read_text(encoding="utf-8")), dict):
-            return None
-    except (OSError, ValueError):
-        return None
-    return session_count.showings(session_count.read(data), name)
+    return session_count.showings(session_count.read(data), name) if session_count.readable(data) else None
 
 
 def cmd_reminder(args: argparse.Namespace) -> int:
     handle = args.handle.removeprefix("r:")
-    r = _find_reminder(handle, args.is_global)
+    r = _find_reminder(args, handle, args.is_global)
     if r is None:
         print(f"mem: no reminder r:{handle}", file=sys.stderr)
         return 2
@@ -3752,6 +3792,10 @@ def cmd_reminder(args: argparse.Namespace) -> int:
             refused = _check_terms([text], "lesson", False)
             if refused:
                 return refused
+    by_sessions = args.sessions is not None if args.action == "snooze" else (
+        args.action == "done" and r.error is None and (r.every or "").endswith("s"))
+    if by_sessions and _count_refused():
+        return 2
     project = records.project_root(Path.cwd(), os.environ) if r.scope == "project" else None
     name = _reminder_key(r, project)
     shown = _showings_to_store(name)
@@ -3768,7 +3812,7 @@ def cmd_reminder(args: argparse.Namespace) -> int:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     session_count.forget_shown(data_dir(os.environ), name)
-    updated = _find_reminder(handle, args.is_global) or r
+    updated = _find_reminder(args, handle, args.is_global) or r
     print(f"r:{r.handle}\t{args.action}\t{_reminder_wait(updated, today, count) if updated.status == 'active' else updated.status}")
     return 0
 

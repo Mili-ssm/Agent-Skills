@@ -46,6 +46,19 @@ def read(data: Path | None) -> dict[str, Any]:
     return _clean(raw)
 
 
+def readable(data: Path | None) -> bool:
+    """Whether the count can be trusted: False without a data folder, or when the file exists and cannot be read or
+    does not parse as an object; True when the file is simply missing."""
+    if data is None:
+        return False
+    try:
+        return isinstance(json.loads((data / COUNT_NAME).read_text(encoding="utf-8")), dict)
+    except FileNotFoundError:
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def showings(state: dict[str, Any], name: str, session: str | None = None) -> int:
     """Showings of a reminder, plus one when `session` is given and differs from the last one counted."""
     entry = state.get("shown", {}).get(name) or {}
