@@ -101,7 +101,7 @@ def test_rules_block_and_more_line_are_in_the_text_in_order(project, gfolder, ca
         write(f"Other lesson {i}.", short=f"Other rule {i}.")
     out = run(capsys, "--list", "5")
     assert out.index("To remember:") < out.index(rules.HEADER) < out.index("- Run the checks") < out.index("1 more recommendation")
-    assert out.count("\n- Other rule") == 5 and out.count("(confirmed by the owner)") == 6
+    assert out.count("\n- Other rule") == 5 and out.count("(confirmed by the user)") == 6
 
 
 def test_project_rows_keep_their_own_limit(project, gfolder, capsys):
@@ -127,7 +127,7 @@ def test_a_failure_while_choosing_changes_nothing_else(project, gfolder, capsys,
     monkeypatch.setattr(rules, "choose", boom)
     out = run(capsys)
     assert rules.HEADER not in out
-    assert out.split("\n") == [line for line in with_rules.split("\n") if line not in ("- A rule that loads. (confirmed by the owner)", rules.HEADER)]
+    assert out.split("\n") == [line for line in with_rules.split("\n") if line not in ("- A rule that loads. (confirmed by the user)", rules.HEADER)]
 
 
 def test_an_unreadable_global_folder_keeps_the_text(project, gfolder, capsys):
@@ -205,7 +205,7 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
     r = subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
                        env=env, capture_output=True, text=True)
     out = r.stdout
-    assert rules.HEADER in out and "(confirmed by the owner)" in out and "(held in 2 sessions)" in out
-    assert "- Global rule for the hook. (confirmed by the owner)" in out
+    assert rules.HEADER in out and "(confirmed by the user)" in out and "(held in 2 sessions)" in out
+    assert "- Global rule for the hook. (confirmed by the user)" in out
     assert "- Project rule for the hook. (held in 2 sessions)" in out
     assert (store / "memories" / f"{handle}.md").is_file()

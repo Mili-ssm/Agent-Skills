@@ -47,7 +47,7 @@ def _rank(m: Memory) -> tuple:
 
 def standing_words(m: Memory) -> str:
     if m.owner_confirmed:
-        return "(confirmed by the owner)"
+        return "(confirmed by the user)"
     n, unit = (len(records.projects(m)), "project") if m.scope == "global" else (len(records.sessions(m)), "session")
     return f"(held in {n} {unit}{'' if n == 1 else 's'})"
 

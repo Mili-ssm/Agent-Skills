@@ -109,7 +109,7 @@ def test_lines_carry_the_standing_written_by_code():
     confirmed = dataclasses.replace(base, short="Run the checks before reporting a change.", owner_confirmed=TODAY)
     global_two_projects = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", "s2", keys=(K1, K2)))
     project_three = dataclasses.replace(base, scope="project", short="Y.", sources=_sources("s1", "s2", "s3", keys=(K1, K1, K1)))
-    assert rules.line(confirmed) == "- Run the checks before reporting a change. (confirmed by the owner)"
+    assert rules.line(confirmed) == "- Run the checks before reporting a change. (confirmed by the user)"
     assert rules.line(global_two_projects).endswith("(held in 2 projects)")
     assert rules.line(project_three).endswith("(held in 3 sessions)")
     one_project = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", keys=(K1,)))

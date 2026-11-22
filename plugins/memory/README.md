@@ -152,14 +152,14 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 
 ```
 memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.
-- Invented rule 1 (confirmed by the owner)
+- Invented rule 1 (confirmed by the user)
 - Invented rule 2 (held in 2 projects)
 3 more recommendations by topic: testing 2, process 1 (mem rules --more <topic>)
 ```
 
 | Term | Meaning |
 | --- | --- |
-| Loaded rule | A lesson's short form followed by its standing, `(held in N projects)` for a global lesson, `(held in N sessions)` for a project one, `(confirmed by the owner)`. The standing is computed from the record, never written by a model |
+| Loaded rule | A lesson's short form followed by its standing, `(held in N projects)` for a global lesson, `(held in N sessions)` for a project one, `(confirmed by the user)`. The standing is computed from the record, never written by a model |
 | Short form | One line of at most 120 characters, kept in the record (`--short`), never stronger than the claim |
 | Topic | One or two lowercase words of at most 24 characters (`--topic`), used to group what did not load |
 | Index line | The line after the rules: how many more recommendations there are, by topic, ending with `(mem rules --more <topic>)`. At most 200 characters |

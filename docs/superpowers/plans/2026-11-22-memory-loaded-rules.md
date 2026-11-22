@@ -30,7 +30,7 @@ The pre-mortem of 2026-11-22 found that the first draft would have loaded lesson
 - The rules block is assembled by code from the records. No command rewrites the list with a model, and nothing writes a `short` without the owner having read it (`fill` proposes into a file; `fill --items FILE` applies that file).
 - Exact values: `short` at most 120 characters, one line; `topic` one or two lowercase words, at most 24 characters, matching `[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?`; `load` absent, `index` (C55: never among the rules, counted in the line that follows) or `no`; at most 6 rules and 900 characters of rule lines (header not counted); the line that follows at most 200 characters and at most 4 named topics.
 - The header, measured (C53), verbatim: `memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.`
-- The standing after each rule is written by code: `(confirmed by the owner)` when `owner_confirmed` is set; else for a global lesson `(held in N projects)`; else `(held in N sessions)`.
+- The standing after each rule is written by code: `(confirmed by the user)` when `owner_confirmed` is set; else for a global lesson `(held in N projects)`; else `(held in N sessions)`.
 - An edit of a lesson's claim removes its `short` (the command says so), because a short form must never outlive the claim it was drawn from.
 - The existing limit of the session start text (`_INDEX_LIMIT`, 1500 characters, applied to the project rows) is not changed: it is applied to the text without the rules block, which has its own limits.
 - The hook log holds numbers only.
@@ -126,7 +126,7 @@ def test_order_inside_a_group(): ...                              # six records,
 def test_project_lessons_come_first_and_take_at_most_three(): ...   # five project and five global ones: 3 project then 3 global load
 
 def test_lines_carry_the_standing_written_by_code():
-    assert rules.line(confirmed) == "- Run the checks before reporting a change. (confirmed by the owner)"
+    assert rules.line(confirmed) == "- Run the checks before reporting a change. (confirmed by the user)"
     assert rules.line(global_two_projects).endswith("(held in 2 projects)") and rules.line(project_three).endswith("(held in 3 sessions)")
 
 def test_never_more_than_six_lines_or_900_characters(): ...       # ten that qualify, each 120 characters: loaded <= 6, sum <= 900, the rest "over the limit"
@@ -174,7 +174,7 @@ def test_the_folders_are_read_once(project, gfolder, capsys, monkeypatch): ...  
 def test_the_real_hook_script_with_only_mem_store(tmp_path):
     # subprocess: hooks/session-index.sh; env only HOME, PATH, MEM_STORE (a store with mem-store.yaml), MEM_DATA; cwd a real git project.
     # One confirmed global lesson and one project lesson seen twice, both with a short form, written under the same environment with bin/mem.
-    ...; assert rules.HEADER in out and "(confirmed by the owner)" in out and "(held in 2 sessions)" in out
+    ...; assert rules.HEADER in out and "(confirmed by the user)" in out and "(held in 2 sessions)" in out
 ```
 
 - [x] **Step 2: Run them and see them fail.**
@@ -224,7 +224,7 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 - [x] Gate on a private copy of the real global lessons, with the real small model (2026-11-22): `fill --dry-run` asked 15, kept 13, dropped 2 whose short form passed 120 characters; cost 0.004 USD. The 13 keep the hedges of their claims (the author's reading; the owner's reading is pending). A second dry run dropped the same two again; since then such a proposal stays in the file marked with its problem.
 - [x] The 13 applied on the copy: `mem rules` loads 6 and the real hook prints 1692 characters (the owner's hook log held a median of 644 over 63 session starts before). Thirteen of the fifteen lessons tie on every order key, so most of the six were the first by handle: the reason for the index-only state (C55).
 - [x] Runs with a real model, the real plugin and five general rules loaded from the copy, on a task with an ambiguous term: without rules the model stated its reading in 2 of 3 runs (mean 0.054 USD), with rules in 2 of 3 (0.064 USD), and with the owner's instruction file beside them in none of 1 (0.098 USD). No reply announced a rule it did not follow and none went against the instruction file. No effect measurable on this task, whose base rate is high; no harm. A first batch was void: with no store option the hook switches to the default store, which the test's temporary folders had created empty.
-- [ ] The owner's reading of the proposed short forms, and the load state of each (C55); then the file is applied on the real store, with the owner's word.
+- [ ] The owner's reading of the proposed short forms, and the load state of each (C55), in batches of five; then the file is applied on the real store, with the owner's word. First batch read on 2026-11-22: five general lessons, all to load, with "the user" in place of "the owner" (C56) and one short form widened back to its claim.
 - [ ] Narrow reviews in parallel (the two modules; the commands against this plan; the docs against the code), then one fix wave.
 - [ ] Pull request to `dev` and release only with the owner's word; applying the short forms on the real store is a separate step with the owner's word.
 
