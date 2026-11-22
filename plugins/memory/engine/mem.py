@@ -3129,7 +3129,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         if more:
             extra.append(more)
         if stats is not None:
-            stats.update(rules=len(choice.loaded), rules_left=len(choice.left), rules_chars=len("\n".join(extra)))
+            stats.update(rules=len(choice.loaded), rules_left=len(rules.not_fitted(choice)), rules_chars=len("\n".join(extra)))
     except Exception:
         extra = []
     if mine and limit > 0:

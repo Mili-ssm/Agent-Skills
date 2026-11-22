@@ -69,8 +69,9 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
             out.unready += 1
         else:
             ready.append(m)
-    first = sorted((m for m in ready if m.scope == "project"), key=_rank)[:PROJECT_FIRST]
-    rest = sorted((m for m in ready if m not in first), key=_rank)
+    ordered = sorted((m for m in ready if m.scope == "project"), key=_rank)
+    first = ordered[:PROJECT_FIRST]
+    rest = sorted([*ordered[PROJECT_FIRST:], *(m for m in ready if m.scope != "project")], key=_rank)
     used, full = 0, False
     for m in [*first, *rest]:
         size = len(line(m)) + 1
@@ -95,12 +96,18 @@ def topic_counts(choice: Choice) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda t: (-t[1], t[0]))
 
 
+def not_fitted(choice: Choice) -> list[tuple[Memory, str]]:
+    """The lessons that qualify and did not fit. A global lesson awaiting triage is announced by the `Triage:` line."""
+    return [(m, why) for m, why in choice.left if why == OVER]
+
+
 def more_line(choice: Choice) -> str | None:
-    total = len(choice.left)
+    left = not_fitted(choice)
+    total = len(left)
     if not total:
         return None
     noun = "recommendation" if total == 1 else "recommendations"
-    topics = topic_counts(choice)
+    topics = topic_counts(Choice(left=left))
     if not topics:
         return f"{total} more {noun}: mem rules --more"
     named = topics[:TOPICS_NAMED]

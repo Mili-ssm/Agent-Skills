@@ -140,6 +140,23 @@ def test_pending_triage_is_counted_not_loaded():
     assert choice.unready == 0
 
 
+def test_the_line_after_the_rules_counts_only_what_did_not_fit():
+    base = _base()
+    waiting = dataclasses.replace(base, handle="w", triage="pending", topic="waiting")
+    over = dataclasses.replace(base, handle="o", topic="shell")
+    assert rules.more_line(rules.Choice(left=[(waiting, rules.PENDING)])) is None
+    text = rules.more_line(rules.Choice(left=[(waiting, rules.PENDING), (over, rules.OVER)]))
+    assert text == "1 more recommendation by topic: shell 1 (mem rules --more <topic>)"
+    assert "waiting" not in text
+
+
+def test_the_project_group_is_split_by_position():
+    base = _base()
+    twins = [dataclasses.replace(base, scope="project", handle=f"p{i}", owner_confirmed=TODAY) for i in range(5)]
+    choice = rules.choose(twins, [], TODAY)
+    assert len(choice.loaded) == 5 and choice.left == []
+
+
 def test_quarantine_and_turned_off_lessons_are_nowhere(project, gfolder, capsys):
     write("Quarantined lesson.", short="Quarantined rule.", topic="secret", sessions=("a",))
     write("Turned off lesson.", short="Turned off rule.", topic="secret")
