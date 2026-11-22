@@ -42,6 +42,7 @@ import handoff
 import project_syntheses
 import records
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
+import session_count
 import settle
 import settle_state
 import store_git
@@ -3173,6 +3174,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
     started = time.monotonic()
     data = _hook_input() if args.hook else {}
+    project = None
     try:
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
@@ -3202,10 +3204,19 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     except Exception:
         text = _INDEX_RULES
     print(text)
+    counted = None
+    if args.hook and data.get("source") in session_count.COUNTED_SOURCES:
+        try:
+            session = data.get("session_id")
+            key = records.project_key(project) if project else None
+            after = session_count.bump(data_dir(os.environ), key, session=session if isinstance(session, str) else None)
+            counted = after["total"] if after else None
+        except Exception:
+            counted = None
     if args.hook:
         source = data.get("source")
         _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
-                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text)})
+                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text), "count": counted})
     return 0
 
 
