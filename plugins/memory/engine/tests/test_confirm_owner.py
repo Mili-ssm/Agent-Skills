@@ -60,15 +60,15 @@ def test_remember_again_adds_the_keyed_entry(gfolder):
 
 
 def test_remember_with_two_projects_is_released(gfolder):
-    assert remember("--weight", "light", "--source", "session a project " + K1,
-                    "--source", "session b project " + K2) == 0
+    assert remember("--weight", "strong", "--source", "session a project " + K1,
+                    "--source", "session b project " + K2, "--source", "session c project " + K1) == 0
     m = only(gfolder)
     assert m.released == datetime.date.today() and m.triage == "pending" and m.valid_until is None
 
 
 def test_by_owner_on_a_released_record_ends_triage(gfolder):
-    assert remember("--weight", "light", "--source", "session a project " + K1,
-                    "--source", "session b project " + K2) == 0
+    assert remember("--weight", "strong", "--source", "session a project " + K1,
+                    "--source", "session b project " + K2, "--source", "session c project " + K1) == 0
     m = only(gfolder)
     assert m.triage == "pending"
     released = m.released
