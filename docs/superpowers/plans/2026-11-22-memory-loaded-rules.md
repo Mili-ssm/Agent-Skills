@@ -227,7 +227,8 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 - [x] The owner's reading (2026-11-22): two batches of five read, all to load, with "the user" in place of "the owner" (C56) and one short form widened back to its claim; then the owner said this should work with no interaction, so the last five were set to load by the author, two of them with short forms written by hand (the small model passed 120 characters twice). The file of 15 was applied on a fresh copy (15 written), then on the real store (15 written, 0 dropped, 0 failed); a copy of the file is kept in the data folder under `corroborate/`. They take effect once a version with the loaded rules is installed.
 - [x] Reviews: one per task, a docs review and a process review, with three fix waves; whole suite 1781 passed, 5 skipped.
 - [x] Pull request 161 merged into `dev` with the owner's word (2026-11-22).
-- [ ] Release (version, changelog date, `validate.py --release`, pull request `dev` to `main`, tag) with the owner's word; then install it and read the first session start text and its line in the hook log.
+- [x] Before the release, at the owner's request: a prompt review and a release review. The loaded wording changed (C57) and was measured again (3 of 3 and 3 of 3); the short-form brief changed and gave 15 of 15 valid short forms in three runs; an option switches the feature off; the capture keeps a step the user asked for that paid off (C58), kept in 2 of 2 trial runs.
+- [ ] Release 0.5.0 (version, changelog date, `validate.py --release`, pull request `dev` to `main`, tag), with the owner's word given on 2026-11-22 on condition that the review was clean; then install it and read the first session start text and its line in the hook log.
 
 ## Known limits
 
