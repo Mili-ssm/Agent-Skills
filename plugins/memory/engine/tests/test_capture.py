@@ -64,8 +64,9 @@ def test_extract_reads_tool_result_content_given_as_blocks(tmp_path):
     assert capture.extract(p)[0].splitlines()[-1] == "[2] TOOL ERROR Bash: no such file"
 
 EXTRACT = "[1] OWNER: no, always run the validator   before a commit\n[2] AGENT: understood"
-GOOD = {"kind": "lesson", "signal": "owner_correction", "reach": "project", "claim": "Run the validator before every commit in this project",
-        "context": "the owner corrected a commit made without it", "evidence": "always run the validator before a commit"}
+GOOD = {"kind": "lesson", "signal": "owner_correction", "reach": "project", "weight": "medium", "form": "recommendation",
+        "claim": "Run the validator before every commit in this project",
+        "context": "the owner corrected a commit made without it", "evidence": "always run the validator before a commit", "same_as": None}
 
 def test_validate_keeps_a_good_candidate_and_tolerates_whitespace():
     kept, dropped = capture.validate([GOOD], EXTRACT, [])
@@ -142,7 +143,7 @@ def test_validate_reach_and_the_new_signals():
     assert kept[0]["reach"] == "general"
     no_reach = {k: v for k, v in GOOD.items() if k != "reach"}
     kept, _ = capture.validate([no_reach], EXTRACT, [])
-    assert kept == [GOOD] and list(kept[0]) == ["kind", "signal", "reach", "claim", "context", "evidence"]
+    assert kept == [GOOD] and list(kept[0]) == ["kind", "signal", "reach", "weight", "form", "claim", "context", "evidence", "same_as"]
     bad = {**GOOD, "reach": "global"}
     assert capture.validate([bad], EXTRACT, [])[1] == [{"candidate": bad, "reason": "reach"}]
     ex = "[1] REPORT: the subagent failed to finish the task and left no diff"
@@ -165,3 +166,39 @@ def test_lines_that_fail_for_another_reason_than_json_are_counted(tmp_path):
     p = write(tmp_path, ["not json", "[" * 100000, user("fine")])
     assert capture.extract(p)[0] == "[3] OWNER: fine" and capture.last_skipped == 1
     assert capture.extract(write(tmp_path, [user("fine")]))[0] == "[1] OWNER: fine" and capture.last_skipped == 0
+
+
+HANDLES = {"m:validator": "Run the validator before every commit in this project, as the owner asked.",
+           "m:other": "Pin the tool version in the lockfile before a release."}
+
+def test_validate_defaults_and_the_exact_keys_of_a_kept_item():
+    bare = {k: v for k, v in GOOD.items() if k not in ("weight", "form", "same_as", "context")}
+    kept, _ = capture.validate([bare], EXTRACT, [])
+    assert kept == [{**GOOD, "context": ""}]
+    assert list(kept[0]) == ["kind", "signal", "reach", "weight", "form", "claim", "context", "evidence", "same_as"]
+    assert capture.REACHES == capture.records.REACHES and capture.FORMS == ("suggestion", "recommendation")
+
+def test_validate_new_reasons():
+    cases = [({**GOOD, "weight": "heavy"}, "weight"), ({**GOOD, "form": "instruction"}, "form"), ({**GOOD, "form": "order"}, "form"),
+             ({**GOOD, "kind": "decision", "reach": "general"}, "a decision is a project record"),
+             ({**GOOD, "same_as": "m:missing"}, "same_as"), ({**GOOD, "same_as": 7}, "same_as"),
+             ({**GOOD, "same_as": "m:other"}, "same_as mismatch")]
+    for item, reason in cases:
+        kept, dropped = capture.validate([item], EXTRACT, [], HANDLES)
+        assert kept == [] and dropped == [{"candidate": item, "reason": reason}]
+
+def test_validate_orders_reasons_reach_weight_form():
+    item = {**GOOD, "reach": "world", "weight": "heavy", "form": "order"}
+    assert capture.validate([item], EXTRACT, [])[1][0]["reason"] == "reach"
+    assert capture.validate([{**item, "reach": "project"}], EXTRACT, [])[1][0]["reason"] == "weight"
+    assert capture.validate([{**item, "reach": "project", "weight": "light"}], EXTRACT, [])[1][0]["reason"] == "form"
+    both = {**GOOD, "kind": "decision", "reach": "general", "same_as": "m:missing"}
+    assert capture.validate([both], EXTRACT, [], HANDLES)[1][0]["reason"] == "a decision is a project record"
+
+def test_validate_a_sighting_skips_already_recorded_and_is_kept_once_per_record():
+    item = {**GOOD, "same_as": "m:validator"}
+    claim_line = [GOOD["claim"]]
+    assert capture.validate([item], EXTRACT, claim_line, HANDLES)[0] == [item]
+    assert capture.validate([GOOD], EXTRACT, claim_line, HANDLES)[1][0]["reason"] == "already recorded"
+    kept, dropped = capture.validate([item, {**item, "claim": GOOD["claim"] + " (again)"}], EXTRACT, [], HANDLES)
+    assert kept == [item] and [d["reason"] for d in dropped] == ["same_as repeated"]

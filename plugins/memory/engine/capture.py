@@ -1,7 +1,7 @@
 """Reduce a Claude Code session transcript to a compact extract and validate
 the memory candidates a model proposes from it.
 
-Pure and standard-library only. The transcript is read line by line and the
+Pure; standard library plus the engine's own modules. The transcript is read line by line and the
 extract is bounded while reading, because transcripts reach hundreds of
 megabytes. Who is the owner is decided by `origin.kind`, not by the entry
 type: most string user entries are subagent reports.
@@ -10,11 +10,16 @@ import json
 import re
 from collections import deque
 from pathlib import Path
-from typing import Sequence
+from typing import Mapping, Sequence
+
+import mem
+import records
 
 SIGNALS: tuple[str, ...] = ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
                             "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
-REACHES: tuple[str, ...] = ("project", "general")
+REACHES = records.REACHES
+FORMS: tuple[str, ...] = ("suggestion", "recommendation")
+SAME_AS_MIN = 0.3  # share of the candidate's claim terms found in the claim it says it repeats
 KINDS: tuple[str, ...] = ("lesson", "pitfall", "decision")
 EXTRACT_LIMIT = 80_000
 PART_SIZE = 40_000
@@ -183,7 +188,8 @@ def _norm(s: str) -> str:
     return " ".join(s.split()).lower()
 
 
-def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str]) -> str:
+def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str], handles: Mapping[str, str],
+            sighted: set[str]) -> str:
     if not isinstance(item, dict):
         return "not an object"
     if item.get("kind") not in KINDS:
@@ -192,9 +198,20 @@ def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str]) -> 
         return "signal"
     if item.get("reach", "project") not in REACHES:
         return "reach"
+    if item.get("weight", "medium") not in records.WEIGHTS:
+        return "weight"
+    if item.get("form", "recommendation") not in FORMS:
+        return "form"
+    if item["kind"] == "decision" and item.get("reach", "project") == "general":
+        return "a decision is a project record"
+    same_as = item.get("same_as")
+    if same_as is not None and (not isinstance(same_as, str) or same_as not in handles):
+        return "same_as"
     claim = item.get("claim")
     if not isinstance(claim, str) or not 20 <= len(claim) <= 300:
         return "claim length"
+    if same_as is not None and records.containment(mem.tokenize(claim), set(mem.tokenize(handles[same_as]))) < SAME_AS_MIN:
+        return "same_as mismatch"
     evidence = item.get("evidence")
     ev = " ".join(evidence.split()) if isinstance(evidence, str) else ""
     hits = [k for k, body in bodies if ev in body] if len(ev) >= 15 else []
@@ -202,13 +219,18 @@ def _reason(item: object, bodies: list[tuple[str, str]], recorded: set[str]) -> 
         return "evidence not in the transcript"
     if item["signal"] in _OWNER_SIGNALS and not any(k.startswith("OWNER") for k in hits):
         return "evidence is not the owner's words"
-    if _norm(claim) in recorded:
+    if same_as is not None:
+        if same_as in sighted:
+            return "same_as repeated"
+    elif _norm(claim) in recorded:
         return "already recorded"
     return ""
 
 
-def validate(candidates: object, extract_text: str, recorded: Sequence[str]) -> tuple[list[dict], list[dict]]:
-    """Split candidates into kept and dropped ({"candidate", "reason"})."""
+def validate(candidates: object, extract_text: str, recorded: Sequence[str],
+             handles: Mapping[str, str] = {}) -> tuple[list[dict], list[dict]]:
+    """Split candidates into kept and dropped ({"candidate", "reason"}). `handles` maps "m:<handle>" to the claim
+    of a memory of this project that a candidate may name in `same_as` as one more sighting."""
     if not isinstance(candidates, list):
         return [], [{"candidate": candidates, "reason": "not a list"}]
     bodies = []
@@ -219,13 +241,18 @@ def validate(candidates: object, extract_text: str, recorded: Sequence[str]) -> 
     done = {_norm(r) for r in recorded}
     kept: list[dict] = []
     dropped: list[dict] = []
+    sighted: set[str] = set()
     for item in candidates:
-        reason = "over the limit" if len(kept) >= MAX_CANDIDATES else _reason(item, bodies, done)
+        reason = "over the limit" if len(kept) >= MAX_CANDIDATES else _reason(item, bodies, done, handles, sighted)
         if reason:
             dropped.append({"candidate": item, "reason": reason})
         else:
             context = item.get("context")
-            kept.append({"kind": item["kind"], "signal": item["signal"],
-                         "reach": item.get("reach", "project"), "claim": item["claim"],
-                         "context": context if isinstance(context, str) else "", "evidence": item["evidence"]})
+            same_as = item.get("same_as")
+            if same_as is not None:
+                sighted.add(same_as)
+            kept.append({"kind": item["kind"], "signal": item["signal"], "reach": item.get("reach", "project"),
+                         "weight": item.get("weight", "medium"), "form": item.get("form", "recommendation"),
+                         "claim": item["claim"], "context": context if isinstance(context, str) else "",
+                         "evidence": item["evidence"], "same_as": same_as})
     return kept, dropped

@@ -25,6 +25,8 @@ settings = sys.argv[sys.argv.index("--settings") + 1]
 with open(os.environ["FAKE_CALLS"], "a") as f:
     f.write(json.dumps({"args": sys.argv[1:], "cwd": os.getcwd(), "files": sorted(os.listdir(".")),
                         "settings": open(settings).read()}) + "\\n")
+if os.environ.get("FAKE_COPY_RULES"):
+    shutil.copy("rules.txt", os.environ["FAKE_COPY_RULES"])
 if os.environ.get("FAKE_COPY_RECORDED"):
     shutil.copy("recorded.txt", os.environ["FAKE_COPY_RECORDED"])
 if mode == "good":
@@ -38,8 +40,9 @@ print(json.dumps({"type": "result", "is_error": False, "result": "done", "total_
 
 OWNER = "No, never mock the database in these tests because a mock hid a broken migration last month."
 GOOD = {"kind": "lesson", "signal": "owner_correction", "reach": "project",
+        "weight": "medium", "form": "recommendation",
         "claim": "Do not mock the database in this project's tests: a mock hid a broken migration.",
-        "context": "when writing tests that touch storage", "evidence": "never mock the database in these tests"}
+        "context": "when writing tests that touch storage", "evidence": "never mock the database in these tests", "same_as": None}
 PARAPHRASE = {**GOOD, "claim": "Prefer a real database over a mock when testing storage code here.",
               "evidence": "the owner asked us to stop mocking the database"}
 
@@ -67,6 +70,8 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_CANDIDATES", str(cands))
     monkeypatch.setenv("TMPDIR", str(tmp_path / "tmp"))
     monkeypatch.setenv("MEM_MEMORIES", str(tmp_path / "gmem"))   # never the real global memories
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))               # no real instruction file is ever read
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     (tmp_path / "tmp").mkdir()
 
     class World:
@@ -87,7 +92,9 @@ def world(tmp_path, monkeypatch):
 def run(w, *extra, mode="good", env=None, transcript_path=None):
     cmd = [sys.executable, "-I", str(CAPTURE), "run", "--transcript", str(transcript_path or w.transcript),
            "--out", str(w.out), "--project", str(w.project), "--claude", str(w.fake), *extra]
-    return subprocess.run(cmd, env={**os.environ, "FAKE_MODE": mode, **(env or {})}, capture_output=True, text=True)
+    # the suite's conftest sets MEM_PROJECT to an isolated folder; mem-capture resolves --project like mem does, so drop it
+    base = {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
+    return subprocess.run(cmd, env={**base, "FAKE_MODE": mode, **(env or {})}, capture_output=True, text=True)
 
 
 def result(w):
@@ -143,7 +150,7 @@ def test_recorded_claims_reach_the_work_folder(world):
     assert done.returncode == 0, done.stderr
     copy = world.tmp / "recorded-copy.txt"
     assert run(world, env={"FAKE_COPY_RECORDED": str(copy)}).returncode == 0
-    assert copy.read_text().splitlines() == [claim]
+    assert [l.split("\t") for l in copy.read_text().splitlines()][0][1] == claim
     other = world.tmp / "other"
     other.mkdir()
     world.project = other
@@ -199,7 +206,10 @@ def test_retired_memories_are_not_recorded_and_global_ones_are(world):
     remember(world, "--global", claim=glob)
     copy = world.tmp / "recorded-copy.txt"
     assert run(world, env={"FAKE_COPY_RECORDED": str(copy)}).returncode == 0
-    assert sorted(copy.read_text().splitlines()) == sorted([live, glob])
+    rows = [l.split("\t") for l in copy.read_text().splitlines()]
+    assert sorted(r[1] for r in rows) == sorted([live, glob])
+    assert [r[0] for r in rows if r[1] == glob] == ["(general)"] and [r[0] for r in rows if r[1] == live][0].startswith("m:")
+    assert all(not r[0].startswith("m:") or r[1] != gone for r in rows)
 
 
 def test_a_symlinked_out_is_refused_and_its_target_untouched(world):
@@ -259,3 +269,95 @@ def test_unprocessable_lines_are_counted(world):
         f.write("[" * 100_000 + "\n")
     assert run(world).returncode == 0
     assert result(world)["extract"]["skipped"] == 1
+
+
+def lapsed_memory(w, claim, days_ago, origin="transcript"):
+    import datetime
+    import records
+    today = datetime.date.today() - datetime.timedelta(days=days_ago + 30)
+    m = records.write_memory(records.project_dir(w.project), "project", kind="lesson", claim=claim, body="b\n", today=today,
+                             origin=origin, reach="project", weight="medium", sources=["session aaa"])
+    return m
+
+
+def recorded_of(w, *extra, env=None):
+    copy = w.tmp / "recorded-copy.txt"
+    assert run(w, *extra, env={"FAKE_COPY_RECORDED": str(copy), **(env or {})}).returncode == 0
+    return copy.read_text()
+
+
+def test_recorded_lines_hold_handles_for_the_project_only(world):
+    handle = next(w for w in remember(world, claim="Always run the validator before a commit.").split()
+                  if w.startswith("m:")).strip(".,;:")
+    remember(world, "--global", claim="Briefs for subagents must carry their own acceptance criteria.")
+    lines = recorded_of(world).splitlines()
+    assert f"{handle}\tAlways run the validator before a commit." in lines
+    assert "(general)\tBriefs for subagents must carry their own acceptance criteria." in lines
+
+
+def test_a_lapsed_unconfirmed_transcript_memory_is_listed_and_an_old_one_is_not(world):
+    m = lapsed_memory(world, "Pin the tool version in the lockfile before a release.", 10)
+    old = lapsed_memory(world, "Rotate the log files on the weekly schedule here.", 200)
+    assert m.valid_until is not None and old.valid_until is not None
+    text = recorded_of(world)
+    assert f"m:{m.handle}\tPin the tool version in the lockfile before a release." in text
+    assert "Rotate the log files" not in text
+
+
+def test_a_retired_lapsed_memory_is_not_listed(world):
+    m = lapsed_memory(world, "Pin the tool version in the lockfile before a release.", 10)
+    path = m.path
+    path.write_text(path.read_text().replace("status: active", "status: retired"))
+    assert "Pin the tool version" not in recorded_of(world)
+
+
+def test_rules_hold_the_project_and_the_config_instruction_files(world):
+    (world.project / "CLAUDE.md").write_text("Project rule: keep the changelog current.\n")
+    (world.tmp / "config").mkdir()
+    (world.tmp / "config" / "CLAUDE.md").write_text("Owner rule: answer in Spanish.\n")
+    copy = world.tmp / "rules-copy.txt"
+    assert run(world, env={"FAKE_COPY_RULES": str(copy)}).returncode == 0
+    text = copy.read_text()
+    assert text.index("## CLAUDE.md\nProject rule: keep the changelog current.") < text.index("## CLAUDE.md\nOwner rule: answer in Spanish.")
+    r = result(world)["extract"]
+    assert r["rules_chars"] == len(text) and r["rules_cut"] is False
+
+
+def test_no_rules_leaves_the_file_empty_and_none_found_too(world):
+    (world.project / "CLAUDE.md").write_text("Project rule: keep the changelog current.\n")
+    copy = world.tmp / "rules-copy.txt"
+    assert run(world, "--no-rules", env={"FAKE_COPY_RULES": str(copy)}).returncode == 0
+    assert copy.read_text() == "" and result(world)["extract"]["rules_chars"] == 0
+    (world.project / "CLAUDE.md").unlink()
+    assert run(world, env={"FAKE_COPY_RULES": str(copy)}).returncode == 0
+    assert copy.read_text() == ""
+
+
+def test_a_huge_rules_file_is_cut(world):
+    (world.project / "CLAUDE.md").write_text("x" * 100_000)
+    copy = world.tmp / "rules-copy.txt"
+    assert run(world, env={"FAKE_COPY_RULES": str(copy)}).returncode == 0
+    text = copy.read_text()
+    assert text.startswith("## CLAUDE.md\n") and text.rstrip("\n").endswith("\n[...] cut")
+    assert text.count("x") == 30_000
+    r = result(world)["extract"]
+    assert r["rules_cut"] is True and r["rules_chars"] == len(text)
+
+
+def test_a_subfolder_of_a_git_project_reads_that_projects_memories(world):
+    subprocess.run(["git", "init", "-q", str(world.project)], check=True)
+    sub = world.project / "src" / "deep"
+    sub.mkdir(parents=True)
+    remember(world, claim="Always run the validator before a commit.")
+    world.project = sub
+    assert "Always run the validator" in recorded_of(world)
+
+
+def test_same_as_reaches_the_result_and_the_brief_names_the_files(world):
+    claim = "Do not mock the database in this project's tests: a mock hid a broken migration."
+    handle = next(w for w in remember(world, claim=claim).split() if w.startswith("m:")).strip(".,;:")
+    world.cands.write_text(json.dumps([{**GOOD, "same_as": handle}]))
+    assert run(world).returncode == 0
+    assert result(world)["candidates"][0]["same_as"] == handle
+    prompt = world.calls()[0]["args"][world.calls()[0]["args"].index("-p") + 1]
+    assert "rules.txt" in prompt and '"same_as"' in prompt
