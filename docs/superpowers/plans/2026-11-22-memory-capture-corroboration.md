@@ -4,11 +4,11 @@
 
 **Goal:** A lesson of reach `general` gets one global record that stays in quarantine (unread) until it is seen in enough sessions and projects, then is read and waits for triage; reworded duplicates inside a project are merged; a session left open is captured at the next session start.
 
-**Architecture:** A sighting on a global record names its session and an opaque project key, and `records.standing` counts both for the global scope. A new detached process, `bin/mem-corroborate`, in the shape of `bin/mem-settle`, gives one tool-less Haiku session the lessons as lines and receives groups; code validates the groups and applies them through `bin/mem`. `mem-capture` starts it after a run that wrote something, can add a sighting to a global record, and gains a `sweep` command started by the session start hook.
+**Architecture:** A sighting on a global record names its session and an opaque project key, and `records.standing` counts both for the global scope. A new detached process, `bin/mem-corroborate`, in the shape of `bin/mem-settle`, gives one tool-less Haiku session the lessons as lines and receives proposed groups, then a second, independent session verifies each group; code validates both answers and applies the verified groups through `bin/mem` (C39). `mem-capture` starts it after a run that wrote something, can add a sighting to a global record, and gains a `sweep` command started by the session start hook.
 
 **Tech Stack:** Python standard library (as `mem-settle` and `mem-capture`), bash hooks, pytest.
 
-**Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), stage B3, decisions C10, C12, C17, C20 and C28 to C38. Earlier stages: [B1](2026-11-22-memory-capture-records.md), [B2](2026-11-22-memory-capture-background.md).
+**Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), stage B3, decisions C10, C12, C17, C20 and C28 to C39. Earlier stages: [B1](2026-11-22-memory-capture-records.md), [B2](2026-11-22-memory-capture-background.md).
 
 ## Where things stand (2026-11-22)
 
@@ -189,10 +189,13 @@ def test_settle_leaves_quarantine_alone(...)                  # no pair with a q
   - `counted_projects(registry: Mapping[str, Mapping[str, str]]) -> list[Path]`: registered paths that exist, hold a memory folder and are not `records.under_temp`; sorted.
   - `Lesson(id: str, scope: str, project: Path | None, memory: records.Memory)`; ids are `g:<handle>` and `p<n>:<handle>`, `<n>` the project's position (from 1) in the sorted list, so no project name reaches the model.
   - `collect(projects: Sequence[Path], global_folder: Path | None, today) -> list[Lesson]`: active records of origin `transcript`, live or unconfirmed and lapsed for at most 60 days; project records with `promote == "no"` or `general` set are left out; newest first, cut at `MAX_LESSONS`.
-  - `fingerprint(lessons: Sequence[Lesson]) -> str`: a hash of every id with its sorted sources; `lesson_fingerprint(lesson) -> str` the same for one.
+  - `fingerprint(lessons: Sequence[Lesson]) -> str`: a hash of every id with its reach, claim, context and sorted sources, joined so that no two different sets give the same text; `lesson_fingerprint(lesson) -> str` the same for one.
   - `lesson_lines(lessons) -> list[str]`: `<id>\t<reach, or "general" for a global record>\t<claim>\t<context>`, each on one line.
-  - `validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group], list[str]]`; `Group(ids: list[str], claim: str, context: str)`. A group is dropped, with a reason, when it is not an object of that shape, names an unknown id, shares an id with an earlier group, has an empty claim, or has one member and that member is global or of reach `project`. At most `MAX_GROUPS` are kept.
-  - `Action(kind: str, ...)` with kinds `merge`, `merge_global`, `write_global`, `sighting`, `link`, and `actions(group: Group, lessons: Mapping[str, Lesson], global_records: Sequence[records.Memory]) -> list[Action]`, in this order: (1) `merge` for each project that has two or more members: the oldest keeps, each other is dropped into it, either reach; (2) `merge_global` when two or more global members: the oldest keeps; (3) for the members of reach `general` left after the merges: the target is the group's global member, else a global record of origin `transcript` that already holds a session of a member (so a pass that stopped half way, or a model that rewords, writes no second record: pre-mortem 5), else a `write_global` (kind of the oldest member, the heaviest weight among the members, the group's claim and context, one sighting entry per session of each member with that member's project key); then one `sighting` per entry the target lacks and one `link` per project member. Members of reach `project` from different projects produce no action.
+  - `validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group], list[str]]`; `Group(ids: list[str], claim: str, context: str)`. A group is dropped, with a reason, when it is not an object of that shape, names an unknown id, repeats an id, shares an id with an earlier group, has an empty claim, or has one member and that member is global or of reach `project`. At most `MAX_GROUPS` are kept.
+  - `validate_groups` takes the model's whole answer, the object `{"groups": [...]}`; a bare list is refused with a reason (review T4-1).
+  - `verification_lines(groups: Sequence[Group], lessons: Mapping[str, Lesson]) -> list[str]`: for each group a block: `group <n>`, one line per member (`<id>\t<claim>\t<context>`), and `proposed\t<claim>\t<context>`; `<n>` from 1.
+  - `validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group], list[str]]`: `raw` is `{"verdicts": [{"group": <n>, "reason": "...", "same": bool, "faithful": bool, "general": bool}]}`. A group is kept only with exactly one verdict for it, a non-empty reason, and `same`, `faithful` and `general` all exactly `true`; a group of one needs no `same` (it is read as true). Each group not kept gives a reason line naming `<n>` and which answer failed; a missing or malformed answer keeps nothing (C39).
+  - `Action(kind: str, ...)` with kinds `merge`, `merge_global`, `write_global`, `sighting`, `link`, and `actions(group: Group, lessons: Mapping[str, Lesson], global_records: Sequence[records.Memory]) -> list[Action]`, in this order: (1) `merge` for each project that has two or more members: the oldest keeps, each other is dropped into it, either reach; (2) `merge_global` when two or more global members: the oldest keeps; (3) for the members of reach `general` left after the merges: the target is the group's global member, else a global record of origin `transcript` that already holds a session of a member (so a pass that stopped half way, or a model that rewords, writes no second record: pre-mortem 5), else a `write_global` (kind of the oldest member, the heaviest weight among the members, the group's claim and context, one sighting entry per session of each member with that member's project key); then one `sighting` per entry the target lacks and one `link` per project member. Members of reach `project` from different projects produce no action. A member with no session produces no action and is not linked; the entries of one `write_global` hold each session once.
 
 - [ ] **Step 1: Write the failing tests** (invented records in `tmp_path`, `MEM_COUNT_TEMP_PROJECTS=1` except where the temporary root is the point): `counted_projects` leaves out a missing folder, a folder with no memory folder and one under a temporary root; `collect` leaves out a linked record, a `promote: no` record, a record of another origin and a superseded one; `fingerprint` changes when a source is added and not when the order of lessons changes; `validate_groups` drops each bad shape of Review Focus 2 and keeps the good group beside it; `actions` for: two general records of two projects (one `write_global` with two entries carrying two keys, two `link`), one general record alone (one `write_global`, one `link`), a general record with a global member (`sighting`, `link`, no `write_global`), a general record whose session a global record already holds though the group names no global member (that record is the target, no `write_global`), two records of one project (one `merge`, oldest kept), two global members (`merge_global`), two records of reach `project` from two projects (no action).
 - [ ] **Step 2: Run and see them fail.**
@@ -211,11 +214,14 @@ def test_settle_leaves_quarantine_alone(...)                  # no pair with a q
 - Consumes: Task 4; from `bin/mem-settle` the pattern of `session_cmd`, `session`, `run_env` and the self-check; from `auto_state` the lock, status and failure helpers that `mem-capture` uses.
 - Produces: commands `run [--claude PATH] [--budget USD] [--dry-run --out FILE] [--groups FILE]`, `auto [--claude PATH]` (does nothing unless the option is on; never raises, never prints), `undo <stamp>`, `status`, `ack`, `--self-check`. `--groups FILE` applies a reviewed file in the model's format and starts no model session.
 - State under `<data>/corroborate/`: `status.json`; `log.jsonl` (one line of counts per run: `lessons`, `groups`, `dropped`, `written`, `sightings`, `links`, `merges`, `refused`, `skipped`, `cost`, `failed`, `ms`; no claim text); `seen.json`; `runs/<stamp>/` with the lessons file, the model's file, `log.txt`, `journal.jsonl` and `before/`. One lock for the folder; a run that finds it held ends with `skipped`.
+- Two sessions per run (C39), both tool-less and each within the budget: the first writes the proposal from the lessons file with the proposal brief below; code runs `validate_groups`; the second, a fresh session that sees neither the first one's reasoning nor the full list, reads the file made from `verification_lines` and writes the verdicts with the verification brief below; code runs `validate_verdicts` and applies only the kept groups. A group not verified is recorded in `seen.json` like a refused one. The log line gains `proposed` and `verified`. `--groups FILE` skips both sessions; `--dry-run` runs both and writes the proposal, the verdicts and the planned actions to the out file.
+- A global record is reworded once: no action of the pass changes the claim of an existing record.
+- On exit 3 of `write_global` (the claim exists) the group's entries are added to that record as sightings (review T4-2).
 - No repeated work (pre-mortem 5): `seen.json` holds the fingerprint of the last run's lessons and, per lesson id, the fingerprint it had when an action on it was refused or failed. A run whose lessons have the last fingerprint starts no model session (log line `skipped: "nothing new"`). A group that holds a lesson whose refused fingerprint is unchanged is not applied. A new sighting changes the fingerprint and lifts both.
 - Applying: `write_global` is `mem remember --global --origin transcript --reach general ...` with one `--source` per entry and the fixed body `Written by the corroboration pass from <n> lessons of <m> projects.`, never text of a project record (pre-mortem 3); exit 3 with a handle means the claim exists: that record becomes the target; exit 4 or 5 counts as `refused` and the group's links are not written (Review Focus 3). `sighting` is `mem confirm m:<h> --global --source=<entry>` (exit 3 is not an error). `link` is `mem promote --done m:<h> --to <global handle>` with `MEM_PROJECT` set to that project. `merge` is `mem merge m:<keep> m:<drop>` with `MEM_PROJECT` set, `merge_global` adds `--global`; a merge that `mem` refuses is counted as `refused`, recorded in `seen.json` and left for curation, never forced.
 - Undo (pre-mortem 7): before its first write to a record's file a run copies that file into `runs/<stamp>/before/` and appends to `journal.jsonl` the action, the file, whether the run created it, and the hash of the file after the action. `undo <stamp>` restores every copied file and removes every created one; it refuses, changing nothing, when a file's hash differs from the journal's (it was edited since), naming the file.
 
-The brief given to the model, verbatim (the file names are filled by code):
+The proposal brief, verbatim (the file names are filled by code):
 
 ```
 You compare short lessons that coding sessions wrote down, and say which of them state the same lesson.
@@ -239,6 +245,29 @@ Write {out} as JSON: {{"groups": [{{"ids": ["..."], "claim": "...", "context": "
 Write nothing else and use no other tool.
 ```
 
+The verification brief, verbatim:
+
+```
+You check proposals to treat several short lessons as one. Another reader made the proposals; it is often wrong, and
+a wrong "yes" merges two different lessons and loses one, so say yes only when you are sure.
+
+Read {groups}. Each block starts with "group <n>", then one line per lesson (an id, the lesson, when it applies,
+separated by tabs), then a line starting with "proposed": the single wording that would replace them for every project.
+
+For each group, answer in this order:
+- reason: one sentence saying what each lesson asks the reader to do and whether that is the same thing.
+- same: true only if a reader who follows any one of the lessons would do what each of the others asks, in the same
+  kind of situation. The same topic with different advice is false. For a group of one lesson, write true.
+- faithful: true only if the proposed wording keeps the situation, the action and the reason of the lessons, adds no
+  claim they do not make, turns no suggestion into an order, and names no project, company, client, person,
+  repository, file, path, product or internal system.
+- general: true only if the lesson is about how to work (planning, delegating, verifying, using tools, reading what
+  was asked) and would hold in another project; false if it only makes sense inside one codebase or product.
+
+Write {out} as JSON: {{"verdicts": [{{"group": 1, "reason": "...", "same": true, "faithful": true, "general": true}}]}}
+One entry per group, in order. Write nothing else and use no other tool.
+```
+
 - [ ] **Step 1: Write the failing tests**, with the fake `claude` that `test_mem_capture.py` and `test_capture_auto.py` use (it writes a given file as the model's output), `MEM_DATA`, `MEM_MEMORIES` and a registry in `tmp_path`, `MEM_COUNT_TEMP_PROJECTS=1`:
 
 ```python
@@ -249,6 +278,9 @@ def test_rerun_after_a_stop_writes_no_second_record(...)        # Review Focus 5
                                                                 # differs this time -> links and sightings only
 def test_nothing_new_starts_no_model(...)                       # second run, same lessons: the fake claude is not called
 def test_bad_model_file_writes_nothing(...)                     # Review Focus 2: status ok, log line dropped > 0
+def test_unverified_group_is_not_applied(...)                   # verdict same=false: no merge, no write, no link; recorded in seen.json
+def test_missing_verdicts_apply_nothing(...)                    # the second session writes no file, or garbage
+def test_existing_global_claim_is_never_rewritten(...)          # a group with a global member: its claim is unchanged after the run
 def test_forbidden_term_refuses_the_group_once(...)             # Review Focus 3: refused == 1, no link, status ok; the next run does not apply it again
 def test_same_project_duplicates_are_merged(...)                # one superseded, sightings united
 def test_refused_merge_is_counted_not_forced(...)               # claims that differ by a number
@@ -313,6 +345,7 @@ Not dispatched: the controller runs it.
 
 - [ ] Copy the three real projects' memory folders and the global memories into a private folder under the data folder (not the repository, not the temporary folder), with its own `MEM_DATA`, `MEM_MEMORIES` and registry.
 - [ ] `mem-corroborate run --dry-run --out <file>` on the copy, then `run`. Read the log line and the groups.
+- [ ] Measures for the gate and for ADR 0023 (C39): run the pass twice on the copy with `--dry-run` and record how many applied groups the two runs share (agreement of the pass with itself); record how many proposed groups the verification refused; after the owner's review, record how many applied groups the owner accepts (agreement with the owner) and whether any refused group was in fact right.
 - [ ] Gate (spec, B3, as Known limits restate it): the two transcript wordings of the turn-limit lesson end as one global record, and the owner judges no accepted group to hold two different lessons. Show the owner every group, five per batch, with a yes or no key. If the gate fails, change the brief once and run again; a second failure stops the stage.
 - [ ] Migration, whatever the gate's result, and before any release carries Tasks 1 and 2: confirm the 15 recovered global lessons with the working-tree `bin/mem confirm --global --by-owner` on the real store (the owner reviewed them on 2026-11-21 and agreed to this on 2026-11-22), then check that no global transcript record is in quarantine with no end date.
 - [ ] The first pass on the real store: `run --groups <the file the owner reviewed>`, not a new model session.
