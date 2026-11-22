@@ -211,7 +211,7 @@ git commit -m "feat(memory): versions of a lesson's short form with the tally of
   - `mem remember` accepts the same two options, with no default outcome; they reach `write_memory` and `_add_sightings` (which records `seen` when none is given).
   - `mem-capture`: each call for a candidate passes `--outcome` from the candidate's signal and `--seen-on` with the day of the transcript file's last change, in local time.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | File | Asserts |
 |---|---|---|
@@ -221,13 +221,13 @@ git commit -m "feat(memory): versions of a lesson's short form with the tally of
 | `test_remember_of_a_known_claim_passes_the_case` | `test_case_log.py` | the path through `_add_sightings`: the existing record gains the session and the `failed` case with its day |
 | `test_capture_passes_signal_and_transcript_day` | `test_mem_capture.py` | a transcript file whose modification time is set with `os.utime` to three days ago, one candidate of signal `rework` for a lesson the project has and one of `effective_practice` for a new lesson: the records hold a `failed` and a `worked` case, both dated that day |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run the two test files, then the whole suite**
+- [x] **Step 4: Run the two test files, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory
