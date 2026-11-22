@@ -37,6 +37,7 @@ import yaml
 
 import auto_state
 import capture_state
+import corroborate
 import handoff
 import project_syntheses
 import records
@@ -49,7 +50,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
+                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
                     "project-synthesis")
 
 
@@ -3057,6 +3058,14 @@ def _count_notes(store: Path) -> int:
         return 0
 
 
+def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[records.Memory]:
+    """What a reader may be shown: live, and not a global lesson still in quarantine. The tools that corroborate or
+    look a record up (the identical-claim check, handles, curate, the capture list) load unfiltered. `cmd_search`,
+    `cmd_memories` and `cmd_signal` filter `records.quarantined` directly: the first two because `--all-memories` and
+    `--dead` still show dead records, the third because it reads the folders itself and shows no liveness."""
+    return [m for m in memories if records.is_live(m, today) and not records.quarantined(m)]
+
+
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
                   *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
@@ -3077,7 +3086,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
         loaded_global = records.load_memories(memories, "global")
-        live = sum(1 for m in loaded_global if records.is_live(m, today))
+        live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
         if passes is not None:
             due += due_in(memories, loaded_global)
@@ -3093,6 +3102,11 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"This project: {len(mine)} memories.")
     if due:
         head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
+    if has_memories:
+        waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
+        if waiting:
+            head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
+                        "(mem curate --global).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
@@ -3143,6 +3157,18 @@ def _log_hook(entry: dict[str, Any]) -> None:
         pass
 
 
+def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
+    """The line `mem session-index` adds after a failed corroboration pass (`mem-corroborate ack` clears it)."""
+    if data is None:
+        return None
+    found = auto_state.failure(auto_state.read_json(data / "corroborate" / auto_state.STATUS_NAME), now)
+    if found is None:
+        return None
+    reason = " ".join(str(found["reason"]).split())[:200]
+    return (f"memory: the last corroboration pass failed ({reason}): see mem-corroborate status, "
+            "then mem-corroborate ack.")
+
+
 def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
     started = time.monotonic()
@@ -3161,6 +3187,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
                      lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
                      lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
+                     lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
                      lambda: settle_state.settled_line(memories)):
             try:
                 found = make()
@@ -3267,7 +3294,7 @@ def cmd_signal(args: argparse.Namespace) -> int:
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
         today = datetime.date.today()
         found = (records.load_memories(records.project_dir(project) if project else None, "project")
-                 + records.load_memories(memories, "global"))
+                 + [m for m in records.load_memories(memories, "global") if not records.quarantined(m)])
         strong, possible = records.related_records(found, [], brief, today, tokenize=tokenize)  # memories only
         text = signal_text(strong, possible)
         if args.hook:
@@ -3334,13 +3361,13 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
                    project: Path | None) -> bool:
     """An identical claim from another session: when both the existing record and this call come from a transcript,
     the session goes onto the existing record. True when the call was handled (the caller still exits 3)."""
-    keys = [k for k in map(records.session_key, args.source) if k]
+    keys = [records.sighting_entry(*f) for f in map(records.sighting, args.source) if f]
     target = next((m for m in same if m.origin == "transcript"), None)
     if target is None or getattr(args, "origin", None) != "transcript" or not keys:
         return False
     added = False
     for key in keys:
-        if key in records.sessions(target):
+        if records.counted(target, key):
             print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
@@ -3399,6 +3426,12 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                args.kind, args.owner_approved)
         if refused:
             return refused
+    if getattr(args, "origin", None) == "transcript":
+        for source in args.source:
+            if " ".join(source.split()).lower().startswith(records.SESSION_PREFIX) and records.sighting(source) is None:
+                print(f"mem: --source {source!r} is not a session entry: write 'session <id>' or "
+                      f"'session <id> project <{records.PROJECT_KEY_LEN} hex characters>'.", file=sys.stderr)
+                return 2
     from_session = getattr(args, "origin", None) == "transcript" and any(map(records.session_key, args.source))
     if getattr(args, "origin", None) == "transcript" and args.valid_until is not None:
         draft = records.Memory(scope, folder, "", args.kind, args.claim, today, 1, "active", None, None,
@@ -3424,7 +3457,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
             print(f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
                   "or repeat with --force to write a new one.", file=sys.stderr)
             return 3
-    related = records.match_memories(live, claim_tokens, today, tokenize=tokenize)
+    related = records.match_memories(_readable(live, today), claim_tokens, today, tokenize=tokenize)
     exclude_failed = False
     if project is not None:
         try:
@@ -3456,7 +3489,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print(f"mem: {due} new memories since the last curation pass: after the current task, "
               "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
-    if scope == "global" and getattr(args, "origin", None) != "pipeline":
+    if scope == "global" and getattr(args, "origin", None) != "pipeline" and not records.quarantined(m):
         settle_state.maybe_start(folder, store, os.environ, time.time(), today)
     return 0
 
@@ -3559,6 +3592,22 @@ def cmd_confirm(args: argparse.Namespace) -> int:
             raise ValueError("--note needs --source")
         from_transcript = found[0].origin == "transcript"
         key = records.session_key(source) if source is not None else None
+        if getattr(args, "by_owner", False):
+            if source is not None or until is not None:
+                raise ValueError("--by-owner stands alone: it takes no --source or --until")
+            m = found[0]
+            if m.origin != "transcript":
+                raise ValueError(f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
+                                 "lesson captured from one")
+            if m.status != "active":
+                raise ValueError(f"m:{m.handle} is {m.status}: the owner confirms only an active memory")
+            if m.owner_confirmed:
+                repeated.append(True)
+                return [f"m:{m.handle}\talready confirmed by the owner: nothing changed"]
+            records.log_before(m, "confirm")
+            after = dataclasses.replace(m, owner_confirmed=today)
+            records.update(m, today, owner_confirmed=today, **records.standing_changes(m, after, today))
+            return [f"m:{m.handle}\tconfirmed by the owner"]
         if source is not None and not source.strip():
             raise ValueError("--source is empty")
         if source is not None and from_transcript and key is None:
@@ -3569,7 +3618,9 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         if source is not None and found[0].status != "active":
             raise ValueError(f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory")
         seen = {records.session_key(s) or s.strip() for s in found[0].sources}
-        if source is not None and (key or source.strip()) in seen:
+        already = records.counted(found[0], source) if from_transcript and source is not None else (
+            source is not None and (key or source.strip()) in seen)
+        if already:
             repeated.append(True)
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
@@ -3609,9 +3660,77 @@ def cmd_refute(args: argparse.Namespace) -> int:
 
 def cmd_forget(args: argparse.Namespace) -> int:
     def apply(found, today):
-        _text_change(found, "forgotten", "Forgotten", args.because, today)
+        _text_change(found, "forgotten", "Forgotten", args.because, today, triage=None)
         return [f"m:{found[0].handle}\tforgotten"]
     return _act(args, [args.handle], apply, "forget", args.because)
+
+
+def _linked_project_records(handle: str) -> list[records.Memory]:
+    """Step 1 of a reject: every project record, in every counted project, whose `general` names `handle`.
+    ValueError, with nothing changed yet, when a registry, a folder or a file that may name it cannot be read."""
+    named = re.compile(rf"^general:\s*['\"]?{re.escape(handle)}['\"]?\s*$", re.MULTILINE)
+    found = []
+    try:
+        projects = corroborate.counted_projects(records.read_registry(data_dir(os.environ)))
+        for n, project in enumerate(projects, 1):
+            folder = records.project_dir(project)
+            try:  # os.listdir raises on a folder that cannot be read; Path.glob would return nothing
+                files = [folder / name for name in os.listdir(folder) if name.endswith(".md")]
+            except OSError as exc:
+                raise ValueError(f"project memory folder {n} of {len(projects)} cannot be read ({exc})") from exc
+            for m in records.load_memories(folder, "project"):
+                if m.error is None:
+                    if m.general == handle:
+                        found.append(m)
+                elif m.path in files and named.search(m.path.read_text(encoding="utf-8", errors="replace")):
+                    raise ValueError(f"project record m:{m.handle} names it in `general` but cannot be parsed "
+                                     f"({m.error})")
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"reject stopped while looking for the project records that name it: {exc}; "
+                         "no change was made") from exc
+    return found
+
+
+def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
+    m = found[0]
+    linked = _linked_project_records(m.handle)  # before any change: a refusal leaves everything as it was
+    done: list[str] = []
+    try:
+        for record in linked:
+            records.log_before(record, "triage")
+            records.update(record, today, promote="no", general=None)
+            done.append(f"m:{record.handle}")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise ValueError(f"reject failed while unlinking the project records ({exc}); unlinked so far: "
+                         f"{', '.join(done) or 'none'}; the global record is still active") from exc
+    try:
+        _text_change(found, "forgotten", "Forgotten", None, today, triage=None)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise ValueError(f"reject failed while retiring m:{m.handle} ({exc}); the project records were already "
+                         f"unlinked: {', '.join(done) or 'none'}; the global record is still active") from exc
+    return [f"m:{m.handle}\trejected", f"unlinked {len(done)} project record{'' if len(done) == 1 else 's'}",
+            *(f"{h}\tunlinked" for h in done)]
+
+
+def cmd_triage(args: argparse.Namespace) -> int:
+    """Accept or reject a general lesson that left quarantine; both act on the global scope."""
+    args.is_global = True
+
+    def apply(found, today):
+        m = found[0]
+        if m.status != "active":
+            raise ValueError(f"m:{m.handle} is {m.status}: only an active general lesson awaits triage")
+        if m.triage != "pending":
+            if records.quarantined(m):
+                raise ValueError(f"m:{m.handle} is still in quarantine: it leaves quarantine when seen in a second "
+                                 "project or confirmed with mem confirm --by-owner")
+            raise ValueError(f"m:{m.handle} was already accepted or never awaited triage")
+        if args.triage_command == "accept":
+            records.log_before(m, "triage")
+            records.update(m, today, triage=None)
+            return [f"m:{m.handle}\taccepted"]
+        return _reject(found, today)
+    return _act(args, [args.handle], apply, f"triage-{args.triage_command}")
 
 
 def _two(args: argparse.Namespace, first: str, second: str, name: str, apply) -> int:
@@ -3719,10 +3838,9 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
         changes["sources"] = sources
         if keep.origin == "transcript":
             after = dataclasses.replace(keep, sources=sources)
-            if records.standing(after) == "established":
-                changes["valid_until"] = None  # enough sessions now: no end date
-            elif len(records.sessions(after)) > len(records.sessions(keep)):
-                changes["valid_until"] = today + datetime.timedelta(days=records.UNCONFIRMED_DAYS)
+            standing_changes = records.standing_changes(keep, after, today)
+            if records.standing(after) == "established" or len(records.sessions(after)) > len(records.sessions(keep)):
+                changes.update(standing_changes)  # enough evidence now, or a new session renews the 30 days
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
@@ -3946,12 +4064,23 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
 def cmd_promote(args: argparse.Namespace) -> int:
     args.is_global = False
+    if args.to and not args.done:
+        print("mem: --to goes with --done.", file=sys.stderr)
+        return 2
+    target = None
+    if args.to:
+        target = args.to.removeprefix("m:")
+        if not any(m.handle == target and m.error is None
+                   for m in records.load_memories(records.memories_root(os.environ, _optional_store(args)), "global")):
+            print(f"mem: --to names no global memory: {args.to}", file=sys.stderr)
+            return 2
     if args.no or args.done:
         value, text = ("no", "not to be promoted") if args.no else ("done", "promoted")
+        extra = {"general": target} if target else {}
 
         def apply(found, today):
             records.log_before(found[0], "promote")
-            records.update(found[0], today, promote=value)
+            records.update(found[0], today, promote=value, **extra)
             return [f"m:{found[0].handle}\t{text}"]
         for handle in args.handles:
             if _act(args, [handle], apply, "promote") != 0:
@@ -4006,12 +4135,15 @@ def cmd_memories(args: argparse.Namespace) -> int:
             folders = [f for f in folders if (f[0] == "global") == args.is_global]
     shown = [m for _, _, loaded in _loaded(folders) for m in loaded
              if m.error is None and (args.kind is None or m.kind == args.kind)
-             and (args.dead or records.is_live(m, today))]
+             and (args.dead or records.is_live(m, today)
+                  or (args.quarantine and m.status == "active"))  # a lapsed lesson in quarantine is still listed
+             and records.quarantined(m) == args.quarantine]
     shown.sort(key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle))
     for m in shown:
         dead = _memory_status(m, today)
         created = m.created.isoformat() if m.created else "undated"
         print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+              f"{', quarantine' if args.quarantine else ''}"
               f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
     return 0
 
@@ -4398,7 +4530,19 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
-    waiting = [m for m in live if m.handle in unconfirmed]
+    awaiting = [m for m in live if m.triage == "pending"]
+    if awaiting:
+        out.append("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
+                   "reject <h>, or reword it with mem memory edit <h> --global and then accept)")
+        for m in awaiting:
+            n, p = len(records.sessions(m)), len(records.projects(m))
+            out.append(f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
+                       f"{_flat(m.claim)}")
+    held = sum(1 for m in every if m.status == "active" and records.quarantined(m))  # a lapsed one is still stored
+    if held:
+        out.append(f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
+                   "(mem memories --global --quarantine)")
+    waiting = [m for m in live if m.handle in unconfirmed and not records.quarantined(m)]
     if waiting:
         out.append("from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
                    "when another session shows it)")
@@ -5723,6 +5867,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     counts = [records.load_memories(folder, scope) for scope, folder in _memory_folders(args)]
     if any(counts):
+        counts = [[m for m in group if not records.quarantined(m)] for group in counts]
         live = sum(records.is_live(m, today) for group in counts for m in group)
         lines.insert(1, f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)")
     script = Path(__file__).resolve().read_text(encoding="utf-8")
@@ -5786,6 +5931,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             for m in loaded:
                 if m.error is not None:
                     print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
+            loaded = [m for m in loaded if not records.quarantined(m)]
             (other_memories if ":" in scope else memories).append((scope, loaded))
     # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
     all_syntheses = (syntheses.load(args.root / syntheses.SYNTHESES_DIR)
@@ -6191,9 +6337,22 @@ def build_parser() -> argparse.ArgumentParser:
         confirm_parser.add_argument("--source", metavar="'session ID'",
                                     help="another session shows it: add it as a source (exit 3 when already one)")
         confirm_parser.add_argument("--note", metavar="TEXT", help="with --source: a line added to the body")
+        confirm_parser.add_argument("--by-owner", action="store_true",
+                                    help="the owner vouches for a transcript lesson: it is established (exit 3 when already)")
         confirm_parser.set_defaults(func=cmd_confirm)
     memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
     memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
+    triage_parser = sub.add_parser(
+        "triage", help="decide what a corroborated general lesson becomes",
+        description="Triage is deciding what a corroborated general lesson becomes: one seen in two projects leaves "
+                    "quarantine and waits here (mem curate --global lists it).")
+    triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
+    for verb, text in (("accept", "a general lesson that awaits triage stays a general lesson every project may read"),
+                       ("reject", "a general lesson that awaits triage is retired (mem restore brings it back), and "
+                                  "its project records are marked so they are not promoted again")):
+        triage_verb = triage_sub.add_parser(verb, help=text, description=f"{verb.capitalize()}: {text}.")
+        triage_verb.add_argument("handle", metavar="m:HANDLE")
+    triage_parser.set_defaults(func=cmd_triage)
     memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
     merge_parser = memory_command("merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop")
     merge_parser.add_argument("--force", action="store_true", help="merge although the claims differ by a negation or a number")
@@ -6205,6 +6364,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser = sub.add_parser("promote", help="print a draft of a global memory from project memories")
     promote_parser.add_argument("--no", action="store_true", help="record that the memory is not for a global note")
     promote_parser.add_argument("--done", action="store_true", help="record that the memory was promoted")
+    promote_parser.add_argument("--to", metavar="m:HANDLE", help="with --done: the global memory it was promoted to")
     promote_parser.add_argument("handles", nargs="+", metavar="m:HANDLE")
     promote_parser.set_defaults(func=cmd_promote)
     memories_parser = sub.add_parser("memories", help="list memories, newest first")
@@ -6217,6 +6377,8 @@ def build_parser() -> argparse.ArgumentParser:
     curate_scope.add_argument("--project", dest="is_project", action="store_true", help="the project's memories only")
     curate_scope.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
     memories_parser.add_argument("--kind", choices=records.KINDS)
+    memories_parser.add_argument("--quarantine", action="store_true",
+                                 help="only the global lessons in quarantine (not shown anywhere else until corroborated)")
     memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
     memories_parser.set_defaults(func=cmd_memories)
     curate_parser.add_argument("--notes", action="store_true",

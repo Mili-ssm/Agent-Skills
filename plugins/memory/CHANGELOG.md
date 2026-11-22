@@ -4,6 +4,15 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- A general lesson captured from a transcript now gets one global record that stays in quarantine: searches, the session start text and `mem memories` do not show it until it is seen in a second project (three sessions across two projects for a `strong` one) or the owner confirms it with `mem confirm <h> --global --by-owner`. `mem memories --global --quarantine` lists what waits. **Migration:** before you install this version, confirm with `--by-owner` every global memory of origin `transcript` that you want to keep readable: one seen in fewer than two projects (every one written before this version, since sightings did not name a project) would otherwise be hidden.
+- With `auto_capture` on, a background pass (`mem-corroborate`) starts after a capture that wrote something. A small model proposes which lessons state the same lesson, a second session verifies each proposal, and only verified ones are applied: duplicates inside a project are merged, a general lesson gets its global record, and later sightings are added to it. It sends lesson text to the model, costs up to two sessions per pass within `auto_capture_budget` each, and can be undone per run with `mem-corroborate undo <stamp>`. `mem-corroborate status` and `ack` report and clear a failed pass.
+- A lesson that leaves quarantine waits for triage: `mem curate --global` lists it and the session start text counts it. `mem triage accept <h>` keeps it, `mem triage reject <h>` retires it and marks its project records so they are not promoted again, and `mem memory edit <h> --global` rewords it.
+- With `auto_capture` on, a session start also captures sessions in the transcript folder of the starting session that were left open and never ended (idle for 6 hours, at most 7 days old; at most 2 per start and 4 per day use the model, at the cost of an ordinary capture).
+- A capture that recognizes a lesson already kept as a global record adds a sighting to it, naming the project by an opaque key and never copying text of the transcript.
+
+
 ## [0.3.0] - 2026-11-22
 
 ### Added

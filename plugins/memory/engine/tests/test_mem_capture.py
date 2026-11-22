@@ -580,6 +580,160 @@ def test_a_sighting_never_lands_on_a_global_record(world):
     assert g.path.read_text() == before and files(world) == []
 
 
+def global_lesson(claim=None, origin="transcript", sources=("session s1 project 0123456789ab",)):
+    import datetime
+    import records
+    return records.write_memory(Path(os.environ["MEM_MEMORIES"]), "global", kind="lesson", claim=claim or GOOD["claim"],
+                                body="b\n", today=datetime.date.today(), origin=origin, weight="medium",
+                                sources=list(sources) if origin else [])
+
+
+def test_the_list_names_global_transcript_records_and_keeps_the_others_general(world):
+    quarantined = global_lesson()
+    plain = global_lesson("Briefs for subagents must carry their own acceptance criteria.", origin=None)
+    import records
+    assert records.quarantined(quarantined)
+    lines = recorded_of(world).splitlines()
+    assert f"g:{quarantined.handle}\t{GOOD['claim']}" in lines
+    assert "(general)\tBriefs for subagents must carry their own acceptance criteria." in lines
+    assert not any(l.startswith(f"g:{plain.handle}") for l in lines)
+
+
+def test_a_sighting_is_added_to_a_global_record_with_the_project_key_and_no_evidence(world):
+    import records
+    g = global_lesson()
+    env = {"MEM_COUNT_TEMP_PROJECTS": "1"}
+    done = go(world, [{**GOOD, "same_as": f"g:{g.handle}"}], env=env)
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("sighting", None)]
+    text = g.path.read_text()
+    assert f"session abc project {records.project_key(world.project)}" in text
+    assert "Seen again (owner_correction)." in text
+    assert GOOD["evidence"] not in text and "OWNER" not in text
+    again = go(world, [{**GOOD, "same_as": f"g:{g.handle}"}], env=env)
+    assert again.returncode == 0, again.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "this session already counted")]
+
+
+def test_a_temporary_project_adds_no_sighting_to_a_global_record(world, monkeypatch):
+    monkeypatch.delenv("MEM_COUNT_TEMP_PROJECTS", raising=False)
+    g = global_lesson()
+    before = g.path.read_text()
+    done = go(world, [{**GOOD, "same_as": f"g:{g.handle}"}])
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "a temporary project")]
+    assert g.path.read_text() == before
+
+
+def test_under_temp(tmp_path, monkeypatch):
+    import records
+    monkeypatch.delenv("MEM_COUNT_TEMP_PROJECTS", raising=False)
+    assert records.under_temp(tmp_path) and records.under_temp(Path("/tmp/x/../y"))
+    assert not records.under_temp(Path("/"))
+    monkeypatch.setenv("MEM_COUNT_TEMP_PROJECTS", "1")
+    assert not records.under_temp(tmp_path)
+
+
+def lapsed_global(claim, days_ago, status="active"):
+    import datetime
+    import records
+    today = datetime.date.today()
+    return records.write_memory(Path(os.environ["MEM_MEMORIES"]), "global", kind="lesson", claim=claim, body="b\n",
+                                today=today - datetime.timedelta(days=days_ago + 30), origin="transcript", weight="medium",
+                                valid_until=today - datetime.timedelta(days=days_ago), sources=["session s1 project 0123456789ab"])
+
+
+def test_global_transcript_records_are_listed_by_their_lapse_and_state(world):
+    near = lapsed_global("Pin the tool version in the lockfile before a release.", 10)
+    far = lapsed_global("Rotate the log files on the weekly schedule here.", 61)
+    gone = lapsed_global("Name the feature flags after their owner team.", 10)
+    gone.path.write_text(gone.path.read_text().replace("status: active", "status: superseded"))
+    forgotten = lapsed_global("Keep the fixture files small for the suite.", 10)
+    forgotten.path.write_text(forgotten.path.read_text().replace("status: active", "status: forgotten"))
+    broken = lapsed_global("Write the release notes before the tag is cut.", 10)
+    broken.path.write_text(broken.path.read_text().replace("created:", "created: not-a-date\ncreated_was:", 1))
+    import records
+    assert records.load_memories(Path(os.environ["MEM_MEMORIES"]), "global")   # the broken file is read, with an error
+    text = recorded_of(world)
+    assert f"g:{near.handle}\tPin the tool version in the lockfile before a release." in text
+    for claim in ("Rotate the log files", "Name the feature flags", "Keep the fixture files", "Write the release notes"):
+        assert claim not in text, claim
+
+
+def apply_direct(world, monkeypatch, handle, mem=None):
+    mod = _load_module()
+    if mem is not None:
+        monkeypatch.setattr(mod, "MEM", mem)
+    monkeypatch.setenv("MEM_COUNT_TEMP_PROJECTS", "1")
+    item = {**GOOD, "same_as": f"g:{handle}"}
+    return mod.apply_one(item, "session abc", {**os.environ, "MEM_PROJECT": str(world.project)})
+
+
+def script(world, body):
+    path = world.tmp / "fake-mem"
+    path.write_text("#!/bin/sh\n" + body + "\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_a_global_record_removed_after_the_list_is_skipped_without_calling_mem(world, monkeypatch):
+    g = global_lesson()
+    g.path.unlink()
+    marker = world.tmp / "called"
+    fake = script(world, f"touch {marker}")
+    assert apply_direct(world, monkeypatch, g.handle, fake) == ("skipped", None, "not a global memory any more")
+    assert not marker.exists()
+
+
+def test_a_superseded_global_record_is_skipped_without_calling_mem(world, monkeypatch):
+    import datetime
+    import records
+    g = global_lesson()
+    records.update(g, datetime.date.today(), status="superseded")
+    marker = world.tmp / "called"
+    fake = script(world, f"touch {marker}")
+    assert apply_direct(world, monkeypatch, g.handle, fake) == ("skipped", None, "not a global memory any more")
+    assert not marker.exists()
+
+
+def test_the_brief_keeps_its_leave_out_rule(world):
+    brief = _load_module().BRIEF
+    assert "what the code, the git history or the project's documents already state" in brief
+    assert "Only what a (general) line" not in brief
+
+
+def test_a_global_sighting_reports_the_exit_code_of_a_failing_mem(world, monkeypatch):
+    g = global_lesson()
+    for code in (2, 4):
+        fake = script(world, f"exit {code}")
+        assert apply_direct(world, monkeypatch, g.handle, fake) == ("skipped", None, f"mem failed ({code})")
+    assert apply_direct(world, monkeypatch, g.handle, script(world, "exit 3")) == \
+        ("skipped", None, "this session already counted")
+
+
+def test_a_global_sighting_with_a_mem_that_cannot_run_is_skipped(world, monkeypatch):
+    g = global_lesson()
+    result_ = apply_direct(world, monkeypatch, g.handle, world.tmp / "no-such-mem")
+    assert result_ == ("skipped", None, "mem could not run")
+
+
+def test_a_vanished_global_record_is_skipped(world):
+    g = global_lesson()
+    g.path.unlink()
+    done = go(world, [{**GOOD, "same_as": "g:" + g.handle}], env={"MEM_COUNT_TEMP_PROJECTS": "1"})
+    assert done.returncode == 0, done.stderr
+    # the candidate is dropped by validation (not in the list) or skipped at apply time: never written anywhere
+    assert [x["outcome"] for x in written(world)] in ([], ["skipped"]) and files(world) == []
+
+
+def test_an_m_handle_never_reaches_a_global_record(world):
+    g = global_lesson()
+    before = g.path.read_text()
+    done = go(world, [{**GOOD, "same_as": f"m:{g.handle}"}], env={"MEM_COUNT_TEMP_PROJECTS": "1"})
+    assert done.returncode == 0, done.stderr
+    assert g.path.read_text() == before and files(world) == []
+
+
 def test_one_odd_candidate_does_not_stop_the_run(world):
     third = {**GOOD, "claim": "Keep the fixtures small: a huge one made the suite crawl for a week.",
              "evidence": "keep the fixtures small, they were slow", "context": "slow suite"}

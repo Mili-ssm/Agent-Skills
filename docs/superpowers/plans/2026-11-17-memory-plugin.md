@@ -16,7 +16,7 @@ Read this section first; the stage list below is the history and the detail. Che
 | Default store | The owner's imported notes plus everything written since; its `check` reports 29 broken links to documents of the origin that were not imported; no remote yet |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1248 passed, 4 skipped on `dev` (2026-11-19, about 100 s); `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (UTC date in the curation log) |
 | Compaction | `PreCompact` asks for a handoff block; `PostCompact` logs one line per compaction and speaks only when the block is missing or names a missing plan file ([plan](2026-11-21-memory-handoff-and-compact-log.md)); outcome metrics in `docs/studies/scripts/memory_usage.py` |
-| Capture | Lessons drawn from a session transcript as unconfirmed project memories (`mem-capture run --write`); with the option `auto_capture`, off by default, the `PreCompact` and `SessionEnd` hooks run it in the background ([design](../specs/2026-11-21-memory-capture-design.md), stages B1 and B2 done 2026-11-22; B3 and B4 open). Not in a release yet |
+| Capture | Lessons drawn from a session transcript as unconfirmed project memories; with the option `auto_capture`, the `PreCompact` and `SessionEnd` hooks run it in the background (released in 0.3.0). Stage B3, built on 2026-11-22 on `feat/memory-capture-corroboration` and not merged: a corroboration pass (`mem-corroborate`), quarantine of an unconfirmed general lesson, triage, and a sweep of sessions left open ([design](../specs/2026-11-21-memory-capture-design.md), [plan and results](2026-11-22-memory-capture-corroboration.md)). B4 open |
 | Not registered | The signal hook of stage 6 (measured: no gain) |
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
@@ -38,7 +38,8 @@ Open items, none blocking:
 | `mem memories --project <name>` prints nothing, without a message, when the registered project's folder moved | Small |
 | A replaced part of a project synthesis cannot be undone (stage 10 leaves it out) | A decision for the owner |
 | The fixes of stage 5b's review round were confirmed by tests, not by a second review ([its results](2026-11-17-memory-plugin-stage-5b.md#results)) | One review |
-| Matching by meaning, and a paired evaluation of task outcomes with and without the plugin | Not planned yet |
+| The `SessionEnd` hook has a default limit of 1.5 s (hooks reference, read 2026-11-22), and the hook's `mem history commit` is allowed 5 s: whether the commit is cut is not measured | Small: measure, then raise the hook's `timeout` |
+| Matching by meaning: stage B3 of the capture design (C28). A paired evaluation of task outcomes with and without the plugin | The second is not planned yet |
 
 Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `dev` or `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D25) and are not reopened without new evidence.
 

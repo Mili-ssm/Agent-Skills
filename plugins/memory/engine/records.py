@@ -5,10 +5,12 @@ Imports nothing from mem.py (mem.py imports this module), so similarity and matc
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import os
 import re
 import subprocess
+import tempfile
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -24,6 +26,8 @@ WEIGHTS = ("light", "medium", "strong")
 SIGHTINGS_NEEDED = {"light": 1, "medium": 2, "strong": 3}
 UNCONFIRMED_DAYS = 30
 SESSION_PREFIX = "session "
+TRIAGES = ("pending",)
+PROJECT_KEY_LEN = 12
 STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
@@ -54,6 +58,10 @@ class Memory:
     origin: str | None = None  # "web", "pipeline" or "transcript"; None: written in a session
     reach: str | None = None  # "project" or "general": how far the lesson reaches
     weight: str | None = None  # "light", "medium" or "strong": how much it weighs
+    owner_confirmed: datetime.date | None = None  # the owner vouched for the lesson: it is established
+    triage: str | None = None  # "pending": a global record that left quarantine and awaits triage
+    released: datetime.date | None = None  # the day a global record left quarantine
+    general: str | None = None  # handle of the global record a project record was generalized into
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -268,7 +276,19 @@ def _parse(path: Path, scope: str) -> Memory:
         origin = meta.get("origin") if meta.get("origin") in ORIGINS else None
         reach = meta.get("reach") if meta.get("reach") in REACHES else None
         weight = meta.get("weight") if meta.get("weight") in WEIGHTS else None
-        return replace(base, origin=origin, reach=reach, weight=weight, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        triage = meta.get("triage") if meta.get("triage") in TRIAGES else None
+        general = meta.get("general")
+        general = general if isinstance(general, str) and general.strip() else None
+        try:
+            owner_confirmed = _date(meta.get("owner_confirmed"), "owner_confirmed")
+        except ValueError:  # a bad value must not hide the memory
+            owner_confirmed = None
+        try:
+            released = _date(meta.get("released"), "released")
+        except ValueError:
+            released = None
+        return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage,
+                       released=released, general=general, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -310,6 +330,14 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["reach"] = m.reach
     if m.weight:
         meta["weight"] = m.weight
+    if m.owner_confirmed:
+        meta["owner_confirmed"] = m.owner_confirmed.isoformat()
+    if m.triage:
+        meta["triage"] = m.triage
+    if m.released:
+        meta["released"] = m.released.isoformat()
+    if m.general:
+        meta["general"] = m.general
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -333,13 +361,15 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     if kind in ("finding", "document") and not sources:
         raise ValueError(f"a {kind} needs at least one source")
     sources = normalized_sources(sources)
+    released = triage = None
     if origin == "transcript":
-        # the standing decides the end date, before the per-kind defaults
+        # the standing decides the end date and the release, before the per-kind defaults
+        draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, sources, "", None,
+                       origin=origin, weight=weight)
+        changes = standing_changes(None, draft, today)
+        released, triage = changes.get("released"), changes.get("triage")
         if valid_until is None:
-            draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, sources, "", None,
-                           origin=origin, weight=weight)
-            if standing(draft) != "established":
-                valid_until = today + datetime.timedelta(days=UNCONFIRMED_DAYS)
+            valid_until = changes["valid_until"]
     elif kind == "finding" and valid_until is None:
         valid_until = today + datetime.timedelta(days=90)
     elif kind == "state" and valid_until is None:
@@ -351,7 +381,7 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
                    list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
-                   reach=reach, weight=weight)
+                   reach=reach, weight=weight, triage=triage, released=released)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))
@@ -398,20 +428,71 @@ def observe(memory: Memory, today: datetime.date) -> Memory:
 
 
 MAX_SESSION_ID = 200  # characters of the id after "session "; longer is not a session
+_PROJECT_PART = re.compile(r"(session \S.*?) project (\S+)")
+_PROJECT_KEY = re.compile(rf"[0-9a-f]{{{PROJECT_KEY_LEN}}}")
+
+
+def project_key(project: Path) -> str:
+    """The first 12 hex characters of the SHA-1 of the resolved path: counts projects without naming them."""
+    return hashlib.sha1(str(project.resolve()).encode("utf-8")).hexdigest()[:PROJECT_KEY_LEN]
+
+
+def under_temp(path: Path) -> bool:
+    """True when `path` is under a temporary folder: a trial copy of a project there is not a second project.
+    Always false when MEM_COUNT_TEMP_PROJECTS is "1" (the tests, which run under a temporary folder)."""
+    if os.environ.get("MEM_COUNT_TEMP_PROJECTS") == "1":
+        return False
+    resolved = path.resolve()
+    roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve(), Path("/var/tmp").resolve()}
+    return any(resolved == r or r in resolved.parents for r in roots)
+
+
+def sighting(source: str) -> tuple[str, str | None] | None:
+    """("session <id>", project key or None) of a sighting entry, normalized (stripped, whitespace collapsed,
+    lower-cased), else None. A text after "project" that is not a 12-hex key makes the entry no sighting."""
+    text = " ".join(source.split()).lower()
+    if not text.startswith(SESSION_PREFIX) or len(text) == len(SESSION_PREFIX):
+        return None
+    key = None
+    found = _PROJECT_PART.fullmatch(text)
+    if found:
+        text, key = found.group(1), found.group(2)
+        if not _PROJECT_KEY.fullmatch(key):
+            return None
+    elif "project" in text[len(SESSION_PREFIX):].split():
+        return None   # "session a project" or "... project <key> extra": a keyed entry gone wrong, not a session id
+    return (text, key) if len(text) - len(SESSION_PREFIX) <= MAX_SESSION_ID else None
+
+
+def sighting_entry(session: str, key: str | None) -> str:
+    return f"{session} project {key}" if key else session
 
 
 def session_key(source: str) -> str | None:
-    """The normalized form of a session source (stripped, whitespace collapsed, lower-cased) when it is
-    "session <id>", else None: two spellings of one session are one key."""
-    key = " ".join(source.split()).lower()
-    if not key.startswith(SESSION_PREFIX) or len(key) == len(SESSION_PREFIX):
-        return None
-    return key if len(key) - len(SESSION_PREFIX) <= MAX_SESSION_ID else None
+    """The normalized "session <id>" part of a session source (the project, if any, is left out), else None:
+    two spellings of one session are one key."""
+    found = sighting(source)
+    return found[0] if found else None
 
 
 def normalized_sources(sources: Iterable[str]) -> list[str]:
-    """Session entries in their normalized form, each once; other sources unchanged."""
-    return list(dict.fromkeys(session_key(s) or s for s in sources))
+    """Session entries in their normalized form, one per session (the first one with a project when several
+    occur: one session is one sighting, so it cannot count as two projects); other sources unchanged; order kept."""
+    parsed = [(s, sighting(s)) for s in sources]
+    first_key: dict[str, str] = {}
+    for _, f in parsed:
+        if f and f[1]:
+            first_key.setdefault(f[0], f[1])
+    out = []
+    for s, f in parsed:
+        if f is None:
+            out.append(s)
+        elif f[0] in first_key:
+            if f[1] == first_key[f[0]]:
+                out.append(sighting_entry(*f))
+        else:
+            out.append(sighting_entry(*f))
+    return list(dict.fromkeys(out))
 
 
 def sessions(memory: Memory) -> list[str]:
@@ -419,37 +500,89 @@ def sessions(memory: Memory) -> list[str]:
     return list(dict.fromkeys(k for k in map(session_key, memory.sources) if k))
 
 
+def projects(memory: Memory) -> list[str]:
+    """The distinct project keys of the sighting entries, in order: one per session, its first keyed entry, so a
+    file that holds one session under two keys still counts one project."""
+    first: dict[str, str] = {}
+    for found in map(sighting, memory.sources):
+        if found and found[1]:
+            first.setdefault(found[0], found[1])
+    return list(dict.fromkeys(first.values()))
+
+
 def standing(memory: Memory) -> str | None:
-    """None unless the memory comes from a transcript; then "established" once enough distinct sessions show it
-    (by its weight), else "unconfirmed". Never computed from `observed`: a plain confirm, a merge and a curation
-    pass raise it without being independent evidence."""
+    """None unless the memory comes from a transcript; then "established" once the owner confirmed it or enough
+    distinct sessions show it (by its weight), else "unconfirmed". A global record also needs two projects (C31).
+    Never computed from `observed`: a plain confirm, a merge and a curation pass raise it without being
+    independent evidence."""
     if memory.origin != "transcript":
         return None
-    needed = SIGHTINGS_NEEDED[memory.weight or "medium"]
-    return "established" if len(sessions(memory)) >= needed else "unconfirmed"
+    if memory.owner_confirmed:
+        return "established"
+    weight = memory.weight or "medium"
+    if memory.scope == "global":
+        enough = len(projects(memory)) >= 2 and (weight != "strong" or len(sessions(memory)) >= 3)
+    else:
+        enough = len(sessions(memory)) >= SIGHTINGS_NEEDED[weight]
+    return "established" if enough else "unconfirmed"
+
+
+def quarantined(memory: Memory) -> bool:
+    return memory.scope == "global" and standing(memory) == "unconfirmed"
+
+
+def standing_changes(before: Memory | None, after: Memory, today: datetime.date) -> dict:
+    """The frontmatter changes that follow from the standing of `after` (a transcript record): its end date, and
+    the release of a global record the first time it is established, awaiting triage unless the owner confirmed it
+    (that confirmation is the triage). `before` is None for a record being written."""
+    established = standing(after) == "established"
+    changes: dict = {"valid_until": None if established else today + datetime.timedelta(days=UNCONFIRMED_DAYS)}
+    if after.scope == "global" and established:
+        if before is None or before.released is None:
+            changes["released"] = today
+            if not after.owner_confirmed:
+                changes["triage"] = "pending"
+        if after.owner_confirmed:
+            changes["triage"] = None
+    return changes
+
+
+def counted(memory: Memory, source: str) -> bool:
+    """True when the sighting entry adds nothing: its session is counted and either it names no project or the
+    session already carries one."""
+    found = sighting(source)
+    if found is None or found[0] not in sessions(memory):
+        return False
+    return not found[1] or any(f and f[0] == found[0] and f[1] for f in map(sighting, memory.sources))
 
 
 def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None) -> tuple[Memory, bool]:
-    """Record that another session shows the memory: `session` is a full source entry ("session <id>").
+    """Record that another session shows the memory: `session` is a full source entry ("session <id>", with
+    " project <key>" when known).
 
-    Not a session entry: ValueError. Already counted (under any spelling): the memory unchanged and False, with no
-    write. Else the normalized entry is added, `observed` raised as `observe`
-    does and the note appended to the body; a transcript memory also gets its validity rule (established: no end
-    date; unconfirmed: 30 days from today, which revives a lapsed one)."""
-    key = session_key(session)
-    if key is None:
+    Not a session entry: ValueError. Already counted (under any spelling, with its project when given): the memory
+    unchanged and False, with no write. A session counted without a project that now comes with one gains the
+    project (True, `observed` unchanged). Else the normalized entry is added, `observed` raised as `observe`
+    does and the note appended to the body; a transcript memory also gets `standing_changes`."""
+    found = sighting(session)
+    if found is None:
         raise ValueError(f"{session!r} is not a session source: write it as 'session <id>'")
+    key, project = found
+    changes: dict = {}
     if key in sessions(memory):
-        return memory, False
-    sources = [*memory.sources, key]
-    changes: dict = {"sources": sources, "observed": memory.observed + 1, "last_observed": today}
-    if note and note.strip():
-        head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
-        changes["body"] = f"{head}{' '.join(note.split())}\n"
+        if counted(memory, session):
+            return memory, False
+        sources = [sighting_entry(key, project) if (f := sighting(s)) and f[0] == key else s for s in memory.sources]
+        sources = normalized_sources(sources)
+    else:
+        sources = [*memory.sources, sighting_entry(key, project)]
+        changes.update({"observed": memory.observed + 1, "last_observed": today})
+        if note and note.strip():
+            head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+            changes["body"] = f"{head}{' '.join(note.split())}\n"
+    changes["sources"] = sources
     if memory.origin == "transcript":
-        after = replace(memory, sources=sources)
-        changes["valid_until"] = (None if standing(after) == "established"
-                                  else today + datetime.timedelta(days=UNCONFIRMED_DAYS))
+        changes.update(standing_changes(memory, replace(memory, sources=sources), today))
     return update(memory, today, **changes), True
 
 
