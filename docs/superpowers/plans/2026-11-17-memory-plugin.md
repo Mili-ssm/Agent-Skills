@@ -20,7 +20,7 @@ Read this section first; the stage list below is the history and the detail. Che
 | Not registered | The signal hook of stage 6 (measured: no gain) |
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
-Next, by the owner's word of 2026-11-22: **capture stage B4, the loaded rules** (reminders are parked, C51). The first release shipped in 0.5.0 ([plan](2026-11-22-memory-loaded-rules.md), [handoff](2026-11-22-memory-loaded-rules-and-reminders.md)). What is left, in order: the owner's reading of the proposed short forms and load states, then applying them on the real store (the owner's word); the narrow reviews and one fix wave; a pull request to `dev` and a release only with the owner's word. Later plans: the automatic path (C52) and usefulness (C49).
+Next, by the owner's word of 2026-11-22: **the automatic path of the loaded rules (C52)**: [plan](2026-11-22-memory-auto-short-forms.md), written on 2026-11-22 on the branch `feat/memory-auto-short-forms`, not yet confirmed by the owner, no task built. After it: usefulness of a loaded lesson (C49, no plan; it needs a date on each sighting), the `Curation due` count shown at every session start, and a curation pass over the queue. Reminders stay parked (C51).
 
 Before that, in the owner's order of 2026-11-19:
 
