@@ -1,6 +1,6 @@
 # Memory capture, stage B4: loaded rules and reminders
 
-**Status (2026-11-22): designed and ruled on by the owner; decisions C40 to C50 of the spec. First release, reminders: [its plan](2026-11-22-memory-reminders.md). Second release, loaded rules: no plan yet.** This file is the handoff for the session that designs and plans B4. Replace the sections below with a `writing-plans` plan once the design is settled with the owner.
+**Status (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. What remains of B4 is the loaded rules (C46 to C49); no plan yet.**
 
 **Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: [the learning loop study](../../studies/2026-11-21-memory-learning-loop.md) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
 
@@ -42,14 +42,14 @@ What the owner's memory and outside sources say, and what each changes in the de
 
 ## Design
 
-The owner ruled on 2026-11-22; the decisions are C40 to C50 of [the capture design](../specs/2026-11-21-memory-capture-design.md), which is their one home.
+The owner ruled on 2026-11-22; the decisions are C40 to C51 of [the capture design](../specs/2026-11-21-memory-capture-design.md), which is their one home.
 
-| Release | Scope | Decisions | Plan |
+| Part | Scope | Decisions | State |
 |---|---|---|---|
-| First | Reminders, the session count, the summary line, the measure of showings | C40 to C45, C50 | [reminders](2026-11-22-memory-reminders.md) |
-| Second | Loaded rules, the line for lessons that did not load, usefulness of a released lesson, the limits of the whole text | C46 to C49, C50 | Not written |
+| Reminders | Reminders, the session count, the summary line, the measure of showings | C40 to C45 | Parked (C51): built on the branch `idea/memory-reminders`, whose plan file (`2026-11-22-memory-reminders.md` in this folder, on that branch only) holds the state, the one real-model run and what to change if taken up again |
+| Loaded rules | Loaded rules, the line for lessons that did not load, usefulness of a released lesson, the limits of the whole text | C46 to C49 | Next; no plan yet |
 
-To settle before the second release: whether lessons in quarantine count in the line of C47 (the author's reading, not yet the owner's word), and where a lesson's topic and short form are written (at capture, at triage, or by the corroboration pass).
+To settle before the loaded rules are planned: whether lessons in quarantine count in the line of C47 (the author's reading, not yet the owner's word); where a lesson's topic and short form are written (at capture, at triage, or by the corroboration pass); how a lesson about recurring work (C51) is worded so the agent checks it by itself.
 
 ## Facts to reuse
 
@@ -68,5 +68,5 @@ To settle before the second release: whether lessons in quarantine count in the 
 - [x] Recall: `mem search` for loaded rules, reminders, session start budget; then research outside what the memory does not cover (scheduled or deferred intents in agent memory systems; how loaded context is kept small and acted on)
 - [x] Read the first real runs: `<data>/capture/log.jsonl` and `<data>/corroborate/log.jsonl`
 - [x] Settle Q1 to Q7 with the owner; decisions C40 to C50 in the design
-- [x] First release: task plan and pre-mortem, in [its plan](2026-11-22-memory-reminders.md)
-- [ ] Second release: task plan and pre-mortem, after the first release's measure has data
+- [x] Reminders: planned, built and parked on the branch `idea/memory-reminders` (C51)
+- [ ] Loaded rules: task plan and pre-mortem
