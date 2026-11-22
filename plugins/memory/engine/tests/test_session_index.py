@@ -235,3 +235,14 @@ def test_without_hook_reads_no_input_and_logs_nothing(tmp_path, monkeypatch, cap
     monkeypatch.setattr("sys.stdin", Boom())
     assert mem.main(["session-index"]) == 0
     assert not (tmp_path / "data").exists()
+
+
+def test_triage_line_counts_the_lessons_awaiting_triage(tmp_path):
+    folder = tmp_path / "gmem"
+    for handle in ("aaaaaaaaaaaa", "bbbbbbbbbbbb"):
+        write(folder, handle, f"Lesson {handle}.")
+        path = folder / f"{handle}.md"
+        path.write_text(path.read_text().replace("status: active\n", "status: active\ntriage: pending\n"), encoding="utf-8")
+    assert "Triage: 2 general lessons await triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)
+    (folder / "bbbbbbbbbbbb.md").unlink()
+    assert "Triage: 1 general lesson awaits triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)

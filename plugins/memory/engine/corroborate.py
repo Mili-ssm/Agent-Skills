@@ -1,0 +1,294 @@
+"""`corroborate`: what the background corroboration pass reads and what it does with the groups a model returns.
+
+Pure: no model call, no file write, no subprocess. The command builds on it; this module only decides."""
+from __future__ import annotations
+
+import datetime
+import hashlib
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Mapping, Sequence
+
+import records
+
+MAX_LESSONS = 150
+MAX_GROUPS = 30
+LAPSED_DAYS = 60  # an unconfirmed lesson stays readable this long after its valid_until
+
+
+def counted_projects(registry: Mapping[str, Mapping[str, str]]) -> list[Path]:
+    """Registered paths that exist, hold a memory folder and are not under a temporary folder; sorted."""
+    found = set()
+    for entry in registry.values():
+        raw = entry.get("path") if isinstance(entry, Mapping) else None
+        if not isinstance(raw, str) or not raw:
+            continue
+        path = Path(raw)
+        if path.is_dir() and records.project_dir(path).is_dir() and not records.under_temp(path):
+            found.add(path)
+    return sorted(found)
+
+
+@dataclass(frozen=True)
+class Lesson:
+    id: str  # "g:<handle>" or "p<n>:<handle>": no project name reaches the model
+    scope: str  # "project" or "global"
+    project: Path | None
+    memory: records.Memory
+
+
+def _readable(m: records.Memory, today: datetime.date) -> bool:
+    if m.error is not None or m.status != "active" or m.origin != "transcript":
+        return False
+    if records.is_live(m, today):
+        return True
+    return (m.valid_until is not None and records.standing(m) == "unconfirmed"
+            and 0 < (today - m.valid_until).days <= LAPSED_DAYS)
+
+
+def _newest_first(lessons: list[Lesson]) -> list[Lesson]:
+    lessons.sort(key=lambda x: x.memory.handle)
+    lessons.sort(key=lambda x: x.memory.created or datetime.date.min, reverse=True)
+    return lessons
+
+
+def collect(projects: Sequence[Path], global_folder: Path | None, today: datetime.date) -> list[Lesson]:
+    """Active transcript lessons, live or unconfirmed and lapsed for at most LAPSED_DAYS; a project record with
+    `promote: no` or already linked to a global record is left out. Newest first, cut at MAX_LESSONS."""
+    out: list[Lesson] = []
+    for n, project in enumerate(projects, start=1):
+        for m in records.load_memories(records.project_dir(project), "project"):
+            if _readable(m, today) and m.promote != "no" and not m.general:
+                out.append(Lesson(f"p{n}:{m.handle}", "project", project, m))
+    for m in records.load_memories(global_folder, "global"):
+        if _readable(m, today):
+            out.append(Lesson(f"g:{m.handle}", "global", None, m))
+    return _newest_first(out)[:MAX_LESSONS]
+
+
+def _reach(lesson: Lesson) -> str:
+    return "general" if lesson.scope == "global" else (lesson.memory.reach or "project")
+
+
+def _encoded(lesson: Lesson) -> str:
+    """JSON of what the model is shown plus the sources, so two different lessons never give the same text."""
+    m = lesson.memory
+    return json.dumps([lesson.id, _reach(lesson), m.claim, m.context, sorted(m.sources)], ensure_ascii=False)
+
+
+def lesson_fingerprint(lesson: Lesson) -> str:
+    return hashlib.sha1(_encoded(lesson).encode("utf-8", "replace")).hexdigest()
+
+
+def fingerprint(lessons: Sequence[Lesson]) -> str:
+    """Changes when a lesson appears, goes, gains a source or changes what the model is shown (reach, claim,
+    context); not with the order of the lessons."""
+    text = json.dumps(sorted(_encoded(x) for x in lessons), ensure_ascii=False)
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _line(text: str | None) -> str:
+    return " ".join((text or "").split())
+
+
+def lesson_lines(lessons: Sequence[Lesson]) -> list[str]:
+    """`<id>\\t<reach, or "general" for a global record>\\t<claim>\\t<context>`, one line each."""
+    return [f"{x.id}\t{_reach(x)}\t{_line(x.memory.claim)}\t{_line(x.memory.context)}" for x in lessons]
+
+
+@dataclass(frozen=True)
+class Group:
+    ids: list[str]
+    claim: str
+    context: str
+
+
+def validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group], list[str]]:
+    """`raw` is the model's whole answer, {"groups": [...]}; anything else keeps nothing and gives one reason.
+    The groups that hold and, for each one dropped, a reason. Dropped: not an object of the shape
+    {"ids": [str], "claim": str, "context": str (optional)}, an unknown id, an id repeated inside the group, an id
+    of an earlier group, an empty claim, or one member that is global or of reach `project`. At most MAX_GROUPS
+    are kept."""
+    items = raw.get("groups") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        return [], ["the answer is not an object with a list `groups`"]
+    raw = items
+    by_id = {x.id: x for x in lessons}
+    kept: list[Group] = []
+    reasons: list[str] = []
+    used: set[str] = set()
+    for i, item in enumerate(raw, start=1):
+        why = None
+        ids = item.get("ids") if isinstance(item, dict) else None
+        claim = item.get("claim") if isinstance(item, dict) else None
+        context = item.get("context", "") if isinstance(item, dict) else None
+        if not isinstance(item, dict) or not isinstance(ids, list) or not ids \
+                or not all(isinstance(x, str) for x in ids) or not isinstance(claim, str) \
+                or not (context is None or isinstance(context, str)):
+            why = "not an object with ids, claim and context"
+        else:
+            unknown = [x for x in ids if x not in by_id]
+            if unknown:
+                why = f"unknown id {unknown[0]}"
+            elif len(set(ids)) != len(ids):
+                why = "names an id more than once"
+            elif any(x in used for x in ids):
+                why = "shares an id with an earlier group"
+            elif not _line(claim):
+                why = "empty claim"
+            elif len(ids) == 1 and (by_id[ids[0]].scope == "global" or _reach(by_id[ids[0]]) != "general"):
+                why = "one member that is global or of reach project"
+            elif len(kept) >= MAX_GROUPS:
+                why = f"more than {MAX_GROUPS} groups"
+        if why:
+            reasons.append(f"group {i}: {why}")
+            continue
+        used.update(ids)
+        kept.append(Group(ids, _line(claim), _line(context)))
+    return kept, reasons
+
+
+def verification_lines(groups: Sequence[Group], lessons: Mapping[str, Lesson]) -> list[str]:
+    """For each group a block for the verifying session: `group <n>`, one `<id>\\t<claim>\\t<context>` line per
+    member, then `proposed\\t<claim>\\t<context>`. `<n>` counts from 1."""
+    out: list[str] = []
+    for n, g in enumerate(groups, start=1):
+        out.append(f"group {n}")
+        for i in g.ids:
+            m = lessons[i].memory
+            out.append(f"{i}\t{_line(m.claim)}\t{_line(m.context)}")
+        out.append(f"proposed\t{_line(g.claim)}\t{_line(g.context)}")
+    return out
+
+
+_ANSWERS = ("same", "faithful", "general")
+
+
+def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group], list[str]]:
+    """`raw` is {"verdicts": [{"group": n, "reason": str, "same": bool, "faithful": bool, "general": bool}]}.
+    A group is kept only with exactly one verdict naming it, a non-empty reason and all three answers exactly
+    `true` (a group of one needs no `same`; a group with a global member needs no `faithful`, because the global
+    record's wording stays). Every group not kept gives a reason line; a malformed answer keeps
+    nothing. Never raises."""
+    items = raw.get("verdicts") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        return [], ["the answer is not an object with a list `verdicts`"]
+    by_group: dict[int, list[dict]] = {}
+    reasons: list[str] = []
+    for item in items:
+        n = item.get("group") if isinstance(item, dict) else None
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(groups):
+            # a verdict that cannot be placed may be a refusal of any group: nothing is kept
+            return [], ["a verdict does not name an existing group by its number: nothing is kept"]
+        else:
+            by_group.setdefault(n, []).append(item)
+    kept: list[Group] = []
+    for n, g in enumerate(groups, start=1):
+        found = by_group.get(n, [])
+        if len(found) != 1:
+            reasons.append(f"group {n}: {'no verdict' if not found else 'more than one verdict'}")
+            continue
+        v = found[0]
+        failed = []
+        if not (isinstance(v.get("reason"), str) and v["reason"].strip()):
+            failed.append("reason is empty or missing")
+        for key in _ANSWERS:
+            if key == "faithful" and any(i.startswith("g:") for i in g.ids):
+                continue  # a group with a global member keeps that record's wording: the proposed claim is not used
+            answer = v.get(key, True if key == "same" and len(g.ids) == 1 else None)
+            if answer is not True:
+                failed.append(f"{key} is not true")
+        if failed:
+            reasons.append(f"group {n}: " + "; ".join(failed))
+        else:
+            kept.append(g)
+    return kept, reasons
+
+
+@dataclass(frozen=True)
+class Action:
+    """What the pass does for one group; `kind` decides which fields are used.
+
+    merge: `keep`, `drop` (lesson ids, one project), `project`.
+    merge_global: `keep`, `drop` (lesson ids of two global records).
+    write_global: `claim`, `context`, `record_kind`, `weight`, `entries` (sighting entries, each session once with
+        the key of the first project that holds it), `members` (ids of the kept project records that stand for it,
+        after merges).
+    sighting: `target` (a global handle; None when the target is this group's write_global), `entry`.
+    link: `member` (lesson id), `project`, `target` (as for sighting)."""
+    kind: str
+    keep: str | None = None
+    drop: str | None = None
+    project: Path | None = None
+    claim: str | None = None
+    context: str | None = None
+    record_kind: str | None = None
+    weight: str | None = None
+    entries: list[str] = field(default_factory=list)
+    members: list[str] = field(default_factory=list)
+    target: str | None = None
+    entry: str | None = None
+    member: str | None = None
+
+
+def _oldest(lessons: Sequence[Lesson]) -> Lesson:
+    return min(lessons, key=lambda x: (x.memory.created or datetime.date.max, x.memory.handle))
+
+
+def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
+    """The steps for one group, in order: merges inside a project, a merge of global members, then for the
+    members of reach `general` left: a write_global unless a global record is the target, one sighting per entry
+    the target lacks, one link per project member. A merged record stands for the ones dropped into it: its
+    sessions are their union, and it is general when any of them is. Members of reach `project` from different
+    projects produce no action. Only a global member of the group is a target: a global record that merely shares
+    a session with a member may state another lesson of that session, so a pass that stopped half way may write a
+    second global record, which a later pass joins with the first as two global members."""
+    members = [lessons[i] for i in group.ids]
+    out: list[Action] = []
+    stands: dict[str, list[Lesson]] = {}  # kept project lesson id -> the lessons it stands for
+    by_project: dict[Path, list[Lesson]] = {}
+    for x in members:
+        if x.scope == "project" and x.project is not None:
+            by_project.setdefault(x.project, []).append(x)
+    for project in sorted(by_project):
+        same = by_project[project]
+        keep = _oldest(same) if len(same) > 1 else same[0]
+        stands[keep.id] = list(same)
+        for other in sorted((x for x in same if x is not keep), key=lambda x: x.id):
+            out.append(Action("merge", keep=keep.id, drop=other.id, project=project))
+    globals_ = [x for x in members if x.scope == "global"]
+    gkeep = _oldest(globals_) if globals_ else None
+    for other in sorted((x for x in globals_ if x is not gkeep), key=lambda x: x.id):
+        out.append(Action("merge_global", keep=gkeep.id, drop=other.id))
+
+    sess_of = {k: list(dict.fromkeys(s for y in group_of for s in records.sessions(y.memory)))
+               for k, group_of in stands.items()}
+    # a member with no session holds no evidence: it is neither written, sighted nor linked
+    general = sorted((lessons[k] for k, group_of in stands.items()
+                      if sess_of[k] and any(_reach(y) == "general" for y in group_of)), key=lambda x: x.id)
+    if not general:
+        return out
+    first: dict[str, str] = {}  # session -> entry of the first member, in order, that holds it
+    for x in general:
+        key = records.project_key(x.project)
+        for s in sess_of[x.id]:
+            first.setdefault(s, records.sighting_entry(s, key))
+    entries = list(first.values())
+
+    target: records.Memory | None = gkeep.memory if gkeep else None
+    if target is None:
+        origin = _oldest([y for x in general for y in stands[x.id]])
+        weights = [y.memory.weight or "medium" for x in general for y in stands[x.id]]
+        out.append(Action("write_global", claim=group.claim, context=group.context or None,
+                          record_kind=origin.memory.kind, weight=max(weights, key=records.WEIGHTS.index),
+                          entries=entries, members=[x.id for x in general]))
+        handle = None
+    else:
+        handle = target.handle
+        for e in entries:
+            if not records.counted(target, e):
+                out.append(Action("sighting", target=handle, entry=e))
+    for x in general:
+        out.append(Action("link", member=x.id, project=x.project, target=handle))
+    return out

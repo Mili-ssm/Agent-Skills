@@ -76,12 +76,13 @@ def locked(folder: Path):
 
 
 def load_state(folder: Path) -> dict:
-    """The settle state. The first use (no state file) records every memory that exists as judged: only records
-    written after that are new. This writes the file, so an unwritable folder raises OSError. A file that exists
-    but cannot be read as a state raises ValueError and is never replaced."""
+    """The settle state. The first use (no state file) records every memory that exists as judged, except those in
+    quarantine, which are new once released: only records written after that are new. This writes the file, so an
+    unwritable folder raises OSError. A file that exists but cannot be read as a state raises ValueError and is never
+    replaced."""
     path = folder / STATE_NAME
     if not path.exists():
-        state = {"judged": _stems(folder), "last_apply": None, "acked": 0, "offered": None}
+        state = {"judged": _unjudged_stems(folder, set()), "last_apply": None, "acked": 0, "offered": None}
         save_state(folder, state)
         return state
     try:
@@ -109,11 +110,19 @@ def save_state(folder: Path, state: dict) -> None:
 
 
 def _counts_as_new(m: records.Memory, judged: set[str], today: datetime.date) -> bool:
-    return m.handle not in judged and records.is_live(m, today) and m.origin not in ("pipeline", "web")
+    return (m.handle not in judged and records.is_live(m, today) and m.origin not in ("pipeline", "web")
+            and not records.quarantined(m))  # settling leaves quarantine alone, in its state too
+
+
+def _unjudged_stems(folder: Path, judged: set[str]) -> list[str]:
+    """Stems not yet judged and not in quarantine: a record in quarantine is invisible here, so it is offered as new
+    only once it is released. Parses only the files whose stem is not judged."""
+    return [s for s in _stems(folder)
+            if s not in judged and not records.quarantined(records._parse(folder / f"{s}.md", "global"))]
 
 
 def unjudged_count(folder: Path, state: dict, today: datetime.date) -> int:
-    """Live memories not yet judged, other than those of origin pipeline or web. Parses only the files whose handle is not in the judged list."""
+    """Live memories not yet judged, other than those of origin pipeline or web or in quarantine. Parses only the files whose handle is not in the judged list."""
     judged = set(state["judged"])
     count = 0
     for stem in _stems(folder):
@@ -150,6 +159,8 @@ def pending(memories: Sequence[records.Memory], state: dict, today: datetime.dat
     judged = set(state["judged"])
     out = []
     for a, b, _ in records.pairs(memories, today, tokenize=tokenize):
+        if records.quarantined(a) or records.quarantined(b):
+            continue  # settling leaves quarantine alone
         if not (_counts_as_new(a, judged, today) or _counts_as_new(b, judged, today)):
             continue
         order = newer_first(a, b, judged)
@@ -168,7 +179,7 @@ def offer(folder: Path, state: dict, found: list[dict], now: float) -> None:
     pair shown. What is written afterwards stays new for the next run. With no pair to judge, the handles examined are judged at once and the run counts as done, so
     `due` stops reporting work and no model session is needed."""
     judged = set(state["judged"])
-    unjudged = [s for s in _stems(folder) if s not in judged]
+    unjudged = _unjudged_stems(folder, judged)
     if found:
         state["offered"] = unjudged
         state["offered_pairs"] = [sorted((p["a"], p["b"])) for p in found]
@@ -318,7 +329,7 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
     stems = set(_stems(folder))
     covered = state.get("offered")
     if not isinstance(covered, list):
-        covered = [s for s in stems if s not in judged_now]
+        covered = _unjudged_stems(folder, judged_now)
     # what is still a valid pair after this file's changes: a merged or superseded record drops out of it
     still = {frozenset((p["a"], p["b"])) for p in pending(records.load_memories(folder, "global"), state, today,
                                                          tokenize=tokenize)}

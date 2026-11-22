@@ -358,3 +358,26 @@ def test_forward_leaves_an_unterminated_last_line_for_the_next_call(tmp_path):
     p.write_text(p.read_text() + "\n")
     out, last = capture.extract(p, 1, forward=True)
     assert out == "[2] OWNER: two" and last == 2 and capture.last_more is False
+
+
+def test_a_same_as_naming_a_global_record_is_kept_like_a_project_one():
+    handles = {"g:migrations": "Check migrations before merging schema changes.", "m:cooking": "Rinse the rice before cooking it."}
+    item = {**GOOD, "claim": "Check migrations before merging schema changes, one session showed a broken one.", "same_as": "g:migrations"}
+    kept, dropped = capture.validate([item], EXTRACT, [], handles)
+    assert kept == [item] and dropped == []
+    other = {**item, "same_as": "g:cooking"}
+    assert capture.validate([other], EXTRACT, [], handles)[1][0]["reason"] == "same_as"
+
+
+def test_a_known_global_handle_with_too_few_shared_terms_is_dropped_as_a_mismatch():
+    handles = {"g:cooking": "Rinse the rice before cooking it."}
+    item = {**GOOD, "same_as": "g:cooking"}
+    kept, dropped = capture.validate([item], EXTRACT, [], handles)
+    assert kept == [] and dropped[0]["reason"] == "same_as mismatch"
+
+
+def test_an_identical_claim_in_a_project_and_a_global_record_links_to_the_global_one():
+    claim = "Check migrations before merging schema changes."
+    for handles in ({"m:a": claim, "g:a": claim}, {"g:a": claim, "m:a": claim}):
+        kept, dropped = capture.validate([{**GOOD, "claim": claim}], EXTRACT, [], handles)
+        assert dropped == [] and kept[0]["same_as"] == "g:a", handles

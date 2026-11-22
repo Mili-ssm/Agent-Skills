@@ -268,7 +268,11 @@ def validate(candidates: object, extract_text: str, recorded: Sequence[str],
         if m:
             bodies.append((m.group(1), " ".join(m.group(2).split())))
     done = {_norm(r) for r in recorded}
-    by_claim = {_norm(c): h for h, c in handles.items()}
+    by_claim: dict[str, str] = {}
+    for h, c in handles.items():
+        # the same claim in a project record and a global one links to the global one: sightings are counted there
+        if _norm(c) not in by_claim or h.startswith("g:"):
+            by_claim[_norm(c)] = h
     kept: list[dict] = []
     dropped: list[dict] = []
     sighted: set[str] = set()

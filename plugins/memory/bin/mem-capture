@@ -51,9 +51,11 @@ DEFAULT_MODEL = "haiku"
 SESSION_TIMEOUT = 600
 MAX_CANDIDATES_BYTES = 1_000_000
 MIN_OWNER_LINES = 3
+CWD_SCAN_LINES = 200   # lines of a transcript the sweep reads to find its working folder
 RULES_LIMIT = 30_000
 LAPSED_DAYS = 60   # a lapsed unconfirmed transcript memory can still be revived by a new sighting this long
 MEM = HERE / "mem"
+CORROBORATE = HERE / "mem-corroborate"
 MEM_TIMEOUT = 60
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
@@ -62,7 +64,7 @@ BRIEF = """You read the record of one coding session and find what a later sessi
 
 Files in {work}:
 - extract-1.txt, extract-2.txt, ...: the session in order, one event per line. Read every one of them before you write. OWNER is the human, OWNER ANSWER the human's answer to a question, AGENT the assistant, REPORT a message from a subagent or another agent (not the human), TOOL lines the assistant's tool calls, TOOL ERROR a call that failed, TOOL OK the same tool succeeding after an error. The bracket and the label at the start of a line are positions, not content.
-- recorded.txt: what the memory already holds, one per line. A line starting with m: is a memory of this project, with its handle; a line starting with (general) holds in every project.
+- recorded.txt: what the memory already holds, one per line. A line starting with m: is a memory of this project, with its handle; a line starting with g: is a general lesson recorded from other sessions, with its handle; a line starting with (general) holds in every project.
 - rules.txt: the standing instructions the owner already wrote for the agent.
 
 Write {work}/candidates.json: a JSON list of at most 5 objects, or [] when nothing qualifies. Most sessions hold one or two things worth keeping, many hold none; five is a ceiling, not a target. Order what you found by how much a later session would lose without it, and keep only the ones you would defend to the owner.
@@ -93,9 +95,10 @@ Each object has these keys:
 - "claim": 20 to 400 characters, in English, standing on its own in six months. Say what was seen and what it suggests, at the strength the evidence gives it and no more. This session is one sighting: write "in one session ...", "when X, Y happened, so consider ...", not "always" or "never". Say what is not known: whether it holds elsewhere, whether it may be temporary, under which condition it was seen. When the signal is a correction by the owner, report it as what the owner said and did, and weigh the other reading too: the owner may have misread the agent, and then the lesson is to explain more clearly.
 - "context": one sentence on when it applies.
 - "evidence": a passage copied character for character from inside one line of an extract file, without the bracket and label, 15 to 300 characters, that shows the signal. A paraphrase, or a passage that spans two lines, is rejected by a program.
-- "same_as": only when a line of recorded.txt starting with m: already says this: its handle, exactly as written (for example "m:some-handle"). Then this session is one more sighting of it; still give the other keys.
+- "same_as": only when a line of recorded.txt starting with m: or g: already says this: its handle, exactly as written (for example "m:some-handle" or "g:some-handle"). Then this session is one more sighting of it; still give the other keys.
 
 Leave out: what a (general) line of recorded.txt or rules.txt already says; what the code, the git history or the project's documents already state; secrets, tokens, names of people or clients.
+A candidate that states the same lesson as a line starting with m: or g: is not left out for that reason: give it, with "same_as" set to that handle.
 """
 
 
@@ -141,11 +144,12 @@ def _one_line(text: str) -> str:
 
 
 def recorded_lines(project: Path) -> tuple[list[str], dict[str, str]]:
-    """The lines of recorded.txt, and the claims of the project's memories by handle ("m:<handle>").
+    """The lines of recorded.txt, and the claims by handle: the project's memories ("m:<handle>") and the global
+    records of origin transcript ("g:<handle>").
 
     Project: live memories, and unconfirmed transcript memories lapsed for at most LAPSED_DAYS (a new sighting
-    revives them); a line is `m:<handle>\t<claim>`. Global: live ones as `(general)\t<claim>`, with no handle,
-    because a sighting may only be added to a memory of this project."""
+    revives them); a line is `m:<handle>\t<claim>`. Global: transcript records, live or lapsed alike and in
+    quarantine too, as `g:<handle>\t<claim>`; the other live ones as `(general)\t<claim>`, with no handle."""
     today = datetime.date.today()
     lines: list[str] = []
     handles: dict[str, str] = {}
@@ -157,8 +161,16 @@ def recorded_lines(project: Path) -> tuple[list[str], dict[str, str]]:
             lines.append(f"m:{m.handle}\t{claim}")
             handles[f"m:{m.handle}"] = claim
     for m in records.load_memories(records.memories_root(os.environ, None), "global"):
-        if records.is_live(m, today) and m.claim:
-            lines.append(f"(general)\t{_one_line(m.claim)}")
+        claim = _one_line(m.claim)
+        if not claim:
+            continue
+        lapsed = (m.status == "active" and records.standing(m) == "unconfirmed"
+                  and m.valid_until is not None and today - datetime.timedelta(days=LAPSED_DAYS) <= m.valid_until < today)
+        if m.origin == "transcript" and (records.is_live(m, today) or lapsed):
+            lines.append(f"g:{m.handle}\t{claim}")   # quarantined ones too: that is how they get corroborated
+            handles[f"g:{m.handle}"] = claim
+        elif records.is_live(m, today):
+            lines.append(f"(general)\t{claim}")
     return lines, handles
 
 
@@ -220,12 +232,38 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
     return (rows, None) if isinstance(rows, list) else (None, "candidates.json is not a JSON list")
 
 
+def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[str, str | None, str | None]:
+    """One more sighting of a global record, counted with the project's key. The note never holds the evidence:
+    text of a transcript must not reach the global scope."""
+    project = Path(env["MEM_PROJECT"])
+    if records.under_temp(project):
+        return "skipped", None, "a temporary project"
+    handle = item["same_as"][2:]
+    if not any(m.handle == handle and m.origin == "transcript" and m.status == "active"
+               for m in records.load_memories(records.memories_root(os.environ, None), "global")):
+        return "skipped", None, "not a global memory any more"
+    source = records.sighting_entry(session, records.project_key(project))
+    cmd = [str(MEM), "confirm", f"m:{handle}", "--global", clean(f"--source={source}"),
+           f"--note=Seen again ({item['signal']})."]
+    try:
+        done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=MEM_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return "skipped", None, "mem could not run"
+    if done.returncode == 0:
+        return "sighting", handle, None
+    if done.returncode == 3:
+        return "skipped", None, "this session already counted"
+    return "skipped", None, f"mem failed ({done.returncode})"
+
+
 def apply_one(item: dict, session: str, env: dict) -> tuple[str, str | None, str | None]:
     """Apply one kept candidate with `bin/mem`: (outcome, handle, reason). Text arguments use `--name=value`
     because a claim may start with `-`."""
     def clean(text: str) -> str:   # a lone surrogate cannot be encoded as an argument
         return text.encode("utf-8", "replace").decode("utf-8")
 
+    if item["same_as"] and item["same_as"].startswith("g:"):
+        return apply_global_sighting(item, session, env, clean)
     if item["same_as"]:
         # `mem confirm` also finds global records: only a memory of this project may get the sighting
         project = records.project_dir(Path(env["MEM_PROJECT"]))
@@ -291,7 +329,7 @@ def run_window(transcript: Path, out_path: Path, project: Path | None, since_lin
     env = os.environ if project is None else {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     project = records.project_root(given, env) or given
     since = max(since_line, 0)
-    out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
+    out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None, "modeled": False,
            "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "more": False, "lines": capture.counts(""),
                        "rules_chars": 0, "rules_cut": False},
            "candidates": [], "dropped": [], "reason": None, "project": project.name}
@@ -360,6 +398,7 @@ def run_window(transcript: Path, out_path: Path, project: Path | None, since_lin
         except OSError as exc:
             out["reason"] = f"cannot start claude ({claude}): {exc.strerror or exc}"
             return finish(1)
+        out["modeled"] = True   # a model session ran, whatever its end
         out["cost"] = done["cost"] if done["has_result"] else None
         if not done["has_result"]:
             out["reason"] = "the session ended without a cost report"
@@ -458,19 +497,38 @@ def window_failure(res: dict, code: int) -> str | None:
 
 
 def auto(trigger: str, claude: str | None) -> None:
-    """The whole of `auto`; see the module docstring. Never raises and never prints."""
+    """What a hook starts: read the hook JSON, then `auto_run`. Never raises and never prints."""
     if os.environ.get(cs.OPTION) != "true":
         return
     given = hook_input()
-    if given is None:
-        return
-    transcript, cwd = given
+    if given is not None:
+        auto_run(trigger, given[0], given[1], claude)
+
+
+def start_corroboration(claude: str | None) -> None:
+    """Start `mem-corroborate auto` detached; a failure to start it is swallowed."""
+    try:
+        cmd = [str(CORROBORATE), "auto", *(["--claude", claude] if claude else [])]
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+    except Exception:   # noqa: BLE001
+        pass
+
+
+def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None,
+             lock_wait: float = cs.LOCK_WAIT_SECONDS) -> dict | None:
+    """The whole of `auto` for one transcript; see the module docstring. Never raises and never prints.
+    `lock_wait` is the seconds to wait for the capture lock (`MEM_CAPTURE_LOCK_WAIT` overrides it).
+    After a run that wrote a record and did not fail, and once the capture lock is released, it starts the
+    corroboration pass. Returns the run's log line, or None when the engine could not load. In it `windows` counts
+    the windows read (0 when nothing was read: lock held, no memory folder) and `modeled` is true when a model
+    session was started in any of them, even one that failed; `cost` is not that signal (a killed session has none)."""
     data = data_dir()
     cdir = cs.capture_dir(data)
     start = time.time()
     session = transcript.stem
     line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "trigger": trigger,
-                  "session": session, "windows": 0, "kept": 0, "written": {"remembered": 0, "sighting": 0, "skipped": 0},
+                  "session": session, "windows": 0, "modeled": False, "kept": 0, "written": {"remembered": 0, "sighting": 0, "skipped": 0},
                   "cost": None, "offset": 0, "more": False, "skipped": None, "failed": None, "given_up": 0, "ms": 0}
 
     def finish_log() -> None:
@@ -481,25 +539,26 @@ def auto(trigger: str, claude: str | None) -> None:
     logged: list[bool] = []
     lock = None
     usable = False
+    corroborate = False
     try:
         if IMPORT_ERROR is not None:
             if not has_memory_folder(cwd.resolve()):
-                return
+                return None
             reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
             line["failed"] = without_paths(reason)
             save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
             finish_log()
-            return
+            return None
         project = records.project_root(cwd.resolve(), os.environ)
         if project is None or not records.project_dir(project).is_dir():
             usable = True
             line["skipped"] = "the project has no memory folder"
             finish_log()
-            return
+            return line
         usable = True
         if trigger == "pre-compact":
             time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
-        deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", cs.LOCK_WAIT_SECONDS)
+        deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", lock_wait)
         lock = au.take_run_lock(cdir)
         while lock is None and time.time() < deadline:
             time.sleep(min(5.0, max(deadline - time.time(), 0.0)))
@@ -507,7 +566,7 @@ def auto(trigger: str, claude: str | None) -> None:
         if lock is None:
             line["skipped"] = "another capture is running"
             finish_log()
-            return
+            return line
         run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
         au.private_dir(run)
 
@@ -537,6 +596,7 @@ def auto(trigger: str, claude: str | None) -> None:
             res, code = run_window(transcript, run / f"window-{number}.json", project, offset, "haiku", budget, claude,
                                    True, True, allow_out_in_repo=True, quiet=True)
             line["windows"] += 1
+            line["modeled"] = line["modeled"] or bool(res.get("modeled"))
             if res.get("cost") is not None:
                 line["cost"] = (line["cost"] or 0.0) + res["cost"]
             line["kept"] += len(res["candidates"])
@@ -576,22 +636,105 @@ def auto(trigger: str, claude: str | None) -> None:
         save_status(cdir, **end)
         finish_log()
         cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
+        corroborate = not failed and bool(line["written"]["remembered"] or line["written"]["sighting"])
     except Exception as exc:   # noqa: BLE001 - a background process reports and ends
         try:
-            reason = type(exc).__name__
+            reason = line["failed"] = type(exc).__name__
             save_status(cdir, state="failed", finished=time.time(),
                         failure={"at": time.time(), "reason": reason, "log": str(au.read_json(cdir / au.STATUS_NAME).get("log") or "")})
         except Exception:   # noqa: BLE001
             pass
         if not logged and (usable or cdir.exists()):
             try:
-                line["failed"] = type(exc).__name__
                 finish_log()
             except Exception:   # noqa: BLE001
                 pass
     finally:
         if lock is not None:
             os.close(lock)
+    if corroborate:
+        start_corroboration(claude)
+    return line
+
+
+def count_lines(path: Path) -> int:
+    with open(path, "rb") as f:
+        return sum(1 for _ in f)
+
+
+def first_cwd(path: Path) -> Path | None:
+    """The first `cwd` value that is an existing directory among the first CWD_SCAN_LINES lines; read line by line."""
+    with open(path, "rb") as f:
+        for number, raw in enumerate(f):
+            if number >= CWD_SCAN_LINES:
+                break
+            if b'"cwd"' not in raw:
+                continue
+            try:
+                item = json.loads(raw)
+            except ValueError:
+                continue
+            value = item.get("cwd") if isinstance(item, dict) else None
+            if isinstance(value, str) and value:
+                folder = Path(value).expanduser()
+                if folder.is_dir():
+                    return folder
+    return None
+
+
+def sweep(claude: str | None) -> None:
+    """Capture sessions of the starting session's folder that were left open and never ended. Never raises, never prints."""
+    try:
+        if os.environ.get(cs.OPTION) != "true":
+            return
+        data = json.load(sys.stdin)
+        path = data.get("transcript_path") if isinstance(data, dict) else None
+        if not isinstance(path, str) or not path:
+            return
+        transcript = Path(path).expanduser()
+        folder = transcript.parent
+        if not folder.is_dir():
+            return
+        store, now = data_dir(), time.time()
+        found = []
+        for item in folder.iterdir():
+            if item.suffix != ".jsonl" or not item.is_file() or item.stem == transcript.stem:
+                continue
+            info = item.stat()
+            if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
+                found.append((info.st_mtime, info.st_size, item))
+        examined = used = 0   # files opened; runs that started a model session
+        for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
+            if (used >= cs.SWEEP_MAX_SESSIONS or examined >= cs.SWEEP_MAX_EXAMINED
+                    or cs.sweeps_today(store, now) >= cs.SWEEP_MAX_PER_DAY):
+                break
+            if cs.swept_size(store, item.stem) == size:
+                continue   # unchanged since its last sweep: one stat, not an examination
+            examined += 1
+            # Settled without a run: nothing can change while the file does not, so remember its size.
+            cwd = first_cwd(item) if count_lines(item) > cs.read_session(store, item.stem)["offset"] else None
+            if cwd is not None and IMPORT_ERROR is None:
+                project = records.project_root(cwd.resolve(), os.environ)
+                if project is None or not records.project_dir(project).is_dir():
+                    cwd = None
+            if cwd is None:
+                cs.save_swept_size(store, item.stem, size)
+                continue
+            run = auto_run("sweep", item, cwd, claude, lock_wait=cs.SWEEP_LOCK_WAIT_SECONDS)
+            if run is None or not run["windows"]:
+                continue   # nothing was read (lock held, engine missing): a later start may
+            if run["modeled"]:
+                used += 1
+                cs.note_sweep(store, now)
+            if not run["failed"] and not run["more"]:
+                cs.save_swept_size(store, item.stem, size)   # read to the end; otherwise a later start continues or retries
+    except Exception:   # noqa: BLE001 - a background process ends quietly
+        pass
+
+
+def cmd_sweep(args: argparse.Namespace) -> int:
+    sweep(args.claude)
+    return 0
 
 
 def cmd_ack() -> int:
@@ -634,6 +777,9 @@ def main() -> int:
     auto_cmd.add_argument("--trigger", required=True, choices=["pre-compact", "session-end"])
     auto_cmd.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
     auto_cmd.set_defaults(func=cmd_auto)
+    sweep_cmd = commands.add_parser("sweep", help="what the session start launches: read sessions of the folder left open")
+    sweep_cmd.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))
+    sweep_cmd.set_defaults(func=cmd_sweep)
     ack = commands.add_parser("ack", help="clear the failure line left by a failed automatic capture")
     ack.set_defaults(func=lambda _args: cmd_ack())
     args = parser.parse_args()
