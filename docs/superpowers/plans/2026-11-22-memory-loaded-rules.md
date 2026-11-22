@@ -228,7 +228,8 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 - [x] Reviews: one per task, a docs review and a process review, with three fix waves; whole suite 1781 passed, 5 skipped.
 - [x] Pull request 161 merged into `dev` with the owner's word (2026-11-22).
 - [x] Before the release, at the owner's request: a prompt review and a release review. The loaded wording changed (C57) and was measured again (3 of 3 and 3 of 3); the short-form brief changed and gave 15 of 15 valid short forms in three runs; an option switches the feature off; the capture keeps a step the user asked for that paid off (C58), kept in 2 of 2 trial runs.
-- [ ] Release 0.5.0 (version, changelog date, `validate.py --release`, pull request `dev` to `main`, tag), with the owner's word given on 2026-11-22 on condition that the review was clean; then install it and read the first session start text and its line in the hook log.
+- [x] Released as memory 0.5.0 on 2026-11-22 (pull requests 162 and 163, tag `memory-v0.5.0`) and installed. First session start text of the installed version on the owner's store: 6 lessons loaded, 9 in the index line, 1810 characters, 162 ms in the hook log.
+- [ ] Next plans: short forms written with no reading and only strong lessons waiting at triage (C52); usefulness of a loaded lesson (C49); the `Curation due` count shown at every session start; whether text for a main session should say "the user" beyond the loaded rules (C56 keeps "owner" elsewhere).
 
 ## Known limits
 
