@@ -47,7 +47,8 @@ The owner ruled on 2026-11-22; the decisions are C40 to C51 of [the capture desi
 | Part | Scope | Decisions | State |
 |---|---|---|---|
 | Reminders | Reminders, the session count, the summary line, the measure of showings | C40 to C45 | Parked (C51): built on the branch `idea/memory-reminders`, whose plan file (`2026-11-22-memory-reminders.md` in this folder, on that branch only) holds the state, the one real-model run and what to change if taken up again |
-| Loaded rules | Loaded rules, the line for lessons that did not load, the limits of the whole text | C46 to C48, C52, C53 | [Plan](2026-11-22-memory-loaded-rules.md) |
+| Loaded rules, first release | A few rules with short forms the owner has read, the line for those that did not fit, a switch to turn one off | C46 to C48, C53, C54 | [Plan](2026-11-22-memory-loaded-rules.md), amended after its pre-mortem |
+| Loaded rules, automatic path | Short forms written without review, only grave lessons waiting at triage, project lessons seen once | C52 | Later plan, after the first release's gate |
 | Usefulness | A lesson that loaded and still happened, exceptions | C49 | Later plan: no sighting carries a date today |
 
 Settled by the owner on 2026-11-22: lessons in quarantine never count in the line of C47; the topic and the short form are written by the small model with no review first (C52). To confirm before its task is built: that only lessons of weight `strong` wait at triage (C52, the author's reading). Left for a later plan: usefulness of a released lesson (C49), which needs a date on each sighting, and how a lesson about recurring work (C51) is worded.
@@ -84,4 +85,6 @@ Limits: three runs a condition, one task, one model; every rule bore on the task
 - [x] Read the first real runs: `<data>/capture/log.jsonl` and `<data>/corroborate/log.jsonl`
 - [x] Settle Q1 to Q7 with the owner; decisions C40 to C50 in the design
 - [x] Reminders: planned, built and parked on the branch `idea/memory-reminders` (C51)
-- [ ] Loaded rules: task plan and pre-mortem
+- [x] Loaded rules, first release: task plan and pre-mortem
+- [ ] Loaded rules, first release: execution, gate with the owner, release
+- [ ] Later plans: the automatic path (C52), usefulness (C49)
