@@ -52,6 +52,7 @@ try:   # `auto` must still be able to write a failed status when the engine cann
     import records  # noqa: E402
     import rules  # noqa: E402
     import research_pipeline as rp  # noqa: E402
+    import shortcheck  # noqa: E402
     import synth_pipeline as sp  # noqa: E402
     IMPORT_ERROR: Exception | None = None
 except Exception as _exc:   # noqa: BLE001
@@ -59,6 +60,7 @@ except Exception as _exc:   # noqa: BLE001
 
 DEFAULT_BUDGET = 0.25   # USD per session
 PROPOSE_MODEL = VERIFY_MODEL = "haiku"
+CHECK_MODEL = "haiku"   # the second session of the automatic fill; the gate may change it to "sonnet"
 SESSION_TIMEOUT = 600
 MAX_FILE_BYTES = 1_000_000
 MEM = HERE / "mem"
@@ -127,6 +129,15 @@ Read {lessons}: one block per lesson, with an id, a claim and sometimes a contex
 For each lesson write: short: one sentence of at most 120 characters (aim for 100) that says what to do and when, as a suggestion or a recommendation, never stronger than the claim. Keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. It must stand on its own, say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. Use the context only to see when it applies. topic: one or two lowercase words for the area (for example: testing, process, shell, review, docs). An id is copied whole.
 Write {out} as JSON: {{"items": [{{"id": "g:example", "short": "...", "topic": "..."}}]}}
 One item per lesson. Write nothing else and use no other tool.
+"""
+
+CHECK_BRIEF = """You check one-sentence short forms of lessons against the lessons they were drawn from. Another writer made them; it sometimes makes a short form stronger or wider than its lesson, and a short form is loaded into every later session, so say faithful only when you are sure.
+Read {pairs}: one block per lesson, with an id, a claim, sometimes a context that says when the lesson applies, and a short.
+For each block answer in this order:
+- reason: one sentence comparing what the claim asks, and when, with what the short asks, and when.
+- faithful: true only if the short asks for nothing the claim does not, in no wider a situation, with no more certainty (a "may" or "once" in the claim is still there in the short), as a suggestion and not an order unless the claim is an order, and names no project, person or company. A short that leaves out examples or alternatives is still faithful; one that leaves out the situation the claim is about is not.
+Write {out} as JSON: {{"verdicts": [{{"id": "g:example", "reason": "...", "faithful": true}}]}}
+One entry per block. Write nothing else and use no other tool.
 """
 
 
@@ -909,6 +920,177 @@ def fill_items(args) -> int:
         return 1
     finally:
         os.close(lock)
+
+
+ATTEMPTS_NAME = "fill-attempts.json"
+CHECK_REFUSAL = "the checker did not find the short form faithful to the claim"
+
+
+def _fill_state(cdir: Path) -> dict:
+    """The automatic fill's memory, read defensively: a missing or broken file is an empty state."""
+    data = au.read_json(cdir / ATTEMPTS_NAME)
+    lessons = data.get("lessons")
+    failures = data.get("failures")
+    lessons = {k: v for k, v in lessons.items() if isinstance(v, dict)} if isinstance(lessons, dict) else {}
+    failures = failures if isinstance(failures, dict) else {}
+    count = failures.get("count")
+    return {"lessons": lessons, "failures": {"count": count if isinstance(count, int) and count > 0 else 0,
+                                             "fingerprint": failures.get("fingerprint")}}
+
+
+def _fill_run_folder(cdir: Path) -> Path:
+    """`<stamp>-<pid>-fill`, with a number before `-fill` when a run of this process already took the second."""
+    base = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    run, n = cdir / "runs" / f"{base}-fill", 1
+    while run.exists():
+        n += 1
+        run = cdir / "runs" / f"{base}-{n}-fill"
+    return run
+
+
+def _ask(claude: str, scratch: Path, name: str, model: str, budget: float, template: str, text: str,
+         text_key: str, out_name: str) -> tuple[object, float, bool]:
+    """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error)."""
+    work = scratch / name
+    work.mkdir(mode=0o700)
+    write_private(work / "input.txt", text)
+    out = work / out_name
+    brief = template.format(**{text_key: work / "input.txt"}, out=out)
+    done = run_session(session_cmd(claude, work, brief, scratch / "settings.json", model, budget), work)
+    cost = done["cost"] if done["has_result"] else 0.0
+    ok = done["has_result"] and not done["error"]
+    return (read_object(out) if ok else None), cost, ok
+
+
+def fill_auto(claude: str | None, budget: float) -> dict:
+    """Writes the short forms of the lessons that lack one, with nobody reading them first: a writer session, the
+    code check (`shortcheck`), a second session that checks the survivors against their claims, then `apply_fill`.
+    Every doubt ends in not writing. A session with no usable answer is a failed session: no lesson is charged an
+    attempt and nothing is applied. The result holds numbers and `stopped` only; the same dict is the saved status."""
+    cdir = corroborate_dir(data_dir())
+    result = {"asked": 0, "written": 0, "dropped": 0, "refused_code": 0, "refused_check": 0, "to_triage": 0, "left": 0,
+              "cost": 0.0, "stopped": None}
+    lock = au.take_run_lock(cdir)
+    if lock is None:
+        return {**result, "stopped": "a run is going"}
+    try:
+        return _fill_locked(claude, budget, cdir, result)
+    finally:
+        os.close(lock)
+
+
+def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) -> dict:
+    _data, projects, gfolder, names = _fill_world()
+    state = _fill_state(cdir)
+    candidates = corroborate.fill_candidates(projects, gfolder, datetime.date.today(), attempts=state["lessons"])
+    where = {i: p for i, p, _m in corroborate.fill_records(projects, gfolder)}
+    result["asked"] = len(candidates)
+    keys = {i: corroborate.fill_key(where[i], m.handle) for i, m in candidates}
+    digests = {i: corroborate.claim_digest(m) for i, m in candidates}
+
+    def finish(**changes) -> dict:
+        result.update(changes)
+        result["cost"] = round(result["cost"], 6)
+        save_status(cdir, fill=dict(result))
+        return result
+
+    if not candidates:
+        return finish()
+    fingerprint = hashlib.sha256(json.dumps(sorted((keys[i], digests[i]) for i, _m in candidates)).encode()).hexdigest()
+    failures = state["failures"]
+
+    def save_state() -> None:
+        write_private(cdir / ATTEMPTS_NAME, json.dumps(state))
+
+    if failures["count"] >= corroborate.FILL_FAILURES and failures["fingerprint"] == fingerprint:
+        return finish(stopped="waiting for the lessons to change", asked=0)
+    if not claude:
+        return finish(stopped="no claude binary")
+
+    def failed_session(why: str) -> dict:
+        failures["count"] += 1
+        failures["fingerprint"] = fingerprint
+        save_state()
+        return finish(stopped=why)
+
+    by_id = dict(candidates)
+    scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-fill-"))
+    try:
+        write_private(scratch / "settings.json", json.dumps({"disableAllHooks": True}))
+        payload, cost, ok = _ask(claude, scratch, "write", PROPOSE_MODEL, budget, FILL_BRIEF,
+                                 corroborate.fill_lines(candidates), "lessons", "fill.json")
+        result["cost"] += cost
+        if not (ok and isinstance(payload, dict) and isinstance(payload.get("items"), list)):
+            return failed_session("the writer session gave no usable answer")
+        kept, _dropped_reasons = corroborate.validate_fill(payload, list(by_id))
+        reason: dict[str, str] = {}      # id -> why the lesson was refused
+        passed: list[tuple[str, dict]] = []
+        for i in by_id:
+            item = kept.get(i)
+            if item is None:
+                reason[i] = "no proposal"
+            elif "problem" in item:
+                reason[i] = item["problem"]
+            elif found := shortcheck.problems(by_id[i].claim, item["short"]):
+                reason[i] = found[0]
+                result["refused_code"] += 1
+            else:
+                passed.append((i, item))
+        faithful: dict[str, bool] = {}
+        if passed:
+            text = corroborate.check_lines([(i, by_id[i].claim, by_id[i].context, item["short"]) for i, item in passed])
+            payload, cost, ok = _ask(claude, scratch, "check", CHECK_MODEL, budget, CHECK_BRIEF, text, "pairs",
+                                     "verdicts.json")
+            result["cost"] += cost
+            checked = corroborate.validate_check(payload, [i for i, _x in passed]) if ok else None
+            if checked is None:
+                return failed_session("the checker session gave no usable answer")
+            faithful = checked
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+    items = []
+    for i, fields in passed:
+        if not faithful[i]:
+            reason[i] = CHECK_REFUSAL
+            result["refused_check"] += 1
+            continue
+        m = by_id[i]
+        project = where[i]
+        items.append({"id": i, "handle": m.handle, "scope": "global" if project is None else names.get(project, str(project)),
+                      "claim": m.claim, "short": fields["short"], "topic": fields["topic"],
+                      "load": "index" if m.load == "index" else "yes", "claim_digest": digests[i]})
+    applied: list[str] = []
+    if items:
+        run = _fill_run_folder(cdir)
+        done = apply_fill(items, cdir, run, user_read=False)
+        applied = done["applied"]
+        write_private(run / "applied.json", json.dumps([by_id[i].handle for i in applied]))
+        result["written"], result["dropped"], result["left"] = done["written"], done["dropped"], done["failed"]
+    for i in applied:
+        state["lessons"][keys[i]] = {"digest": digests[i], "count": corroborate.FILL_ATTEMPTS}
+    holds: list[tuple[str, str]] = []
+    for i, why in reason.items():
+        old = state["lessons"].get(keys[i])
+        count = (old.get("count") if isinstance(old, dict) and old.get("digest") == digests[i]
+                 and isinstance(old.get("count"), int) else 0) + 1
+        state["lessons"][keys[i]] = {"digest": digests[i], "count": count}
+        if count >= corroborate.FILL_ATTEMPTS:
+            holds.append((i, why))
+    failures["count"], failures["fingerprint"] = 0, None
+    save_state()
+    for i, why in holds:
+        if where[i] is None and _hold(by_id[i].handle, why, cdir, gfolder):
+            result["to_triage"] += 1
+        else:
+            result["left"] += 1
+    return finish()
+
+
+def _hold(handle: str, why: str, cdir: Path, gfolder: Path | None) -> bool:
+    applier = Applier(None, {}, gfolder, cdir, lambda _text: None)
+    done = applier.mem(["triage", "hold", f"m:{handle}", "--because", why[:200]], None, drop_env=SETTLE_VARS)
+    return done is not None and done.returncode == 0
 
 
 def cmd_fill(args) -> int:

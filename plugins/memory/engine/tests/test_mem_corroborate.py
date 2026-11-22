@@ -1143,3 +1143,278 @@ def test_apply_fill_passes_user_read_only_when_asked(w):
     assert sorted(result["applied"]) == sorted([shared[0], gid])
     written = [m for m in [*project_records(w.pa).values(), *globals_(w)] if m.short]
     assert len(written) == 2 and all(m.short_by == "model" for m in written)
+
+
+# ---- fill_auto: the pass writes and checks short forms by itself ---------------------------------------------------
+
+NARROW = "Run the narrowest test that covers a change before the whole suite, as it may save time."
+GCLAIM = "Read the whole failing test output before you change any code."
+SHORTS = {SAME: SHORT, GCLAIM: "Read the whole failing test output before changing code.",
+          NARROW: "Run the narrowest covering test before the whole suite, as it may save time."}
+
+
+def corr_module():
+    import importlib.machinery
+    import importlib.util
+    loader = importlib.machinery.SourceFileLoader("mem_corroborate_auto_under_test", str(CORR))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def candidate_ids(w):
+    """claim -> ids of the lessons that lack a short form, as the fill sees them."""
+    registry = records.read_registry(w.data)
+    found = {}
+    for i, _p, m in corroborate.fill_records(corroborate.counted_projects(registry), w.gmem):
+        found.setdefault(m.claim, []).append(i)
+    return found
+
+
+def answers(w, mp, writer="ok", checker=True, shorts=None):
+    """The fake's two answers. writer: "ok" (a short for every candidate), "none" (no file) or the file's text;
+    checker: True or False for every short, "none", or the file's text."""
+    shorts = {**SHORTS, **(shorts or {})}
+    mp.delenv("FAKE_FILL", raising=False)
+    mp.delenv("FAKE_VERDICTS", raising=False)
+    if writer == "ok":
+        items = [{"id": i, "short": shorts[c], "topic": "process"} for c, ids in candidate_ids(w).items() for i in ids]
+        writer = json.dumps({"items": items})
+    if writer != "none":
+        (w.tmp / "fill-answer.json").write_text(writer)
+        mp.setenv("FAKE_FILL", str(w.tmp / "fill-answer.json"))
+    if checker in (True, False):
+        every = [i for ids in candidate_ids(w).values() for i in ids]
+        checker = json.dumps({"verdicts": [{"id": i, "reason": "r", "faithful": checker} for i in every]})
+    if checker != "none":
+        (w.tmp / "verdicts.json").write_text(checker)
+        mp.setenv("FAKE_VERDICTS", str(w.tmp / "verdicts.json"))
+
+
+def auto(w, mod=None):
+    return (mod or corr_module()).fill_auto(str(w.fake), 0.25)
+
+
+def attempts(w):
+    return json.loads((w.cdir / "fill-attempts.json").read_text())
+
+
+def one_lesson(w, claim=NARROW):
+    return lesson(w, w.pa, claim, ("s7", "s8"))
+
+
+def by_claim(w, claim):
+    return next(m for m in project_records(w.pa).values() if m.claim == claim)
+
+
+def fill_runs(w):
+    return sorted(p for p in (w.cdir / "runs").iterdir() if p.name.endswith("-fill")) if (w.cdir / "runs").exists() else []
+
+
+def test_fill_auto_writes_a_checked_short_form_marked_as_the_models(w, monkeypatch):
+    g = fill_world(w)
+    answers(w, monkeypatch)
+    result = auto(w)
+    assert result == {"asked": 4, "written": 4, "dropped": 0, "refused_code": 0, "refused_check": 0, "to_triage": 0,
+                      "left": 0, "cost": 0.06, "stopped": None}
+    assert calls(w) == 2
+    narrow = by_claim(w, NARROW)
+    assert (narrow.short, narrow.topic, narrow.short_by, narrow.load) == (SHORTS[NARROW], "process", "model", None)
+    (gl,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert gl.short_by == "model" and gl.short == SHORTS[GCLAIM]
+    assert status(w)["fill"] == result
+
+
+def test_fill_auto_refuses_by_code_before_paying_the_checker(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, shorts={NARROW: "Run the narrowest covering test before the whole suite."})
+    result = auto(w)
+    assert (result["refused_code"], result["written"], result["refused_check"]) == (1, 0, 0)
+    assert calls(w) == 1 and by_claim(w, NARROW).short is None
+
+
+def test_fill_auto_does_not_write_what_the_checker_refused(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, checker=False)
+    result = auto(w)
+    assert (result["refused_check"], result["written"]) == (1, 0)
+    assert calls(w) == 2 and by_claim(w, NARROW).short is None and not fill_runs(w)
+
+
+def test_a_general_lesson_is_held_at_triage_with_its_reason_after_two_refusals_and_a_project_lesson_is_left(w, monkeypatch):
+    g = fill_world(w)
+    answers(w, monkeypatch, checker=False)
+    first = auto(w)
+    assert (first["to_triage"], first["left"], first["refused_check"]) == (0, 0, 4)
+    assert attempts(w)["lessons"] and all(v["count"] == 1 for v in attempts(w)["lessons"].values())
+    second = auto(w)
+    assert (second["to_triage"], second["left"]) == (1, 3)
+    (gl,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert (gl.triage, gl.triage_reason) == ("pending", "the checker did not find the short form faithful to the claim")
+    assert all(m.triage is None for m in project_records(w.pa).values())
+
+
+def test_a_third_run_starts_no_session_for_a_lesson_refused_twice(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, checker=False)
+    auto(w)
+    auto(w)
+    assert calls(w) == 4
+    third = auto(w)
+    assert calls(w) == 4 and third["asked"] == 0 and third["stopped"] is None
+
+
+def test_an_applied_short_form_that_was_undone_is_not_written_again(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    assert auto(w)["written"] == 1
+    (run_dir,) = fill_runs(w)
+    assert run(w, run_dir.name, cmd="undo", claude=False).returncode == 0
+    assert by_claim(w, NARROW).short is None
+    again = auto(w)
+    assert calls(w) == 2 and again["asked"] == 0 and by_claim(w, NARROW).short is None
+
+
+def test_an_applied_short_form_the_owner_removed_is_not_written_again_until_the_claim_changes(w, monkeypatch):
+    m = one_lesson(w)
+    answers(w, monkeypatch)
+    assert auto(w)["written"] == 1
+    records.update(by_claim(w, NARROW), TODAY, short=None, topic=None)
+    assert by_claim(w, NARROW).short is None
+    assert auto(w)["asked"] == 0 and calls(w) == 2
+    records.update(by_claim(w, NARROW), TODAY, claim=NARROW + " It was seen twice.")
+    answers(w, monkeypatch, shorts={NARROW + " It was seen twice.": SHORTS[NARROW]})
+    assert auto(w)["asked"] == 1 and calls(w) == 4
+    assert m.handle in project_records(w.pa)
+
+
+def test_a_claim_edited_during_the_run_gets_no_short_form_and_no_attempt(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    mod = corr_module()
+    real = mod.run_session
+    seen_sessions = []
+
+    def edit_after_the_writer(cmd, work):
+        done = real(cmd, work)
+        if not seen_sessions:
+            records.update(by_claim(w, NARROW), TODAY, claim=NARROW + " Edited meanwhile.")
+        seen_sessions.append(cmd)
+        return done
+
+    monkeypatch.setattr(mod, "run_session", edit_after_the_writer)
+    result = auto(w, mod)
+    assert (result["written"], result["left"]) == (0, 1)
+    assert by_claim(w, NARROW + " Edited meanwhile.").short is None
+    assert attempts(w)["lessons"] == {}
+
+
+def test_an_index_only_lesson_keeps_its_load_and_a_turned_off_lesson_is_not_asked(w, monkeypatch):
+    one_lesson(w)
+    other = one_lesson(w, "Keep a failing command's output in a file, as it may help when it is long.")
+    off = one_lesson(w, "Name a branch after its task, as it may help when one searches for it later.")
+    records.update(by_claim(w, NARROW), TODAY, load="index")
+    records.update(off, TODAY, load="no")
+    shorts = {other.claim: "Keep a failing command's output in a file, as it may help.",
+              off.claim: "Name a branch after its task, as it may help."}
+    answers(w, monkeypatch, shorts=shorts)
+    result = auto(w)
+    assert (result["asked"], result["written"]) == (2, 2)
+    assert (by_claim(w, NARROW).load, by_claim(w, NARROW).short) == ("index", SHORTS[NARROW])
+    assert (by_claim(w, off.claim).load, by_claim(w, off.claim).short) == ("no", None)
+
+
+@pytest.mark.parametrize("bad", ["no file", "not json", '{"items": 3}'])
+def test_an_unusable_writer_answer_counts_no_attempt_and_sends_nothing_to_triage(w, monkeypatch, bad):
+    g = fill_world(w)
+    answers(w, monkeypatch, writer="none" if bad == "no file" else bad)
+    result = auto(w)
+    assert result["stopped"] and result["written"] == result["to_triage"] == 0 and calls(w) == 1
+    state = attempts(w)
+    assert state["lessons"] == {} and state["failures"]["count"] == 1
+    assert [m.triage for m in globals_(w) if m.handle == g.handle] == [None]
+    assert not fill_runs(w)
+
+
+def test_an_unusable_checker_answer_counts_no_attempt_and_applies_nothing(w, monkeypatch):
+    g = fill_world(w)
+    for checker in ("none", '{"verdicts": 3}'):
+        answers(w, monkeypatch, checker=checker)
+        result = auto(w)
+        assert result["stopped"] and result["written"] == result["to_triage"] == 0
+    assert calls(w) == 4
+    state = attempts(w)
+    assert state["lessons"] == {} and state["failures"]["count"] == 2
+    assert not any(m.short for m in [*project_records(w.pa).values(), *project_records(w.pb).values(), *globals_(w)])
+    assert [m.triage for m in globals_(w) if m.handle == g.handle] == [None] and not fill_runs(w)
+
+
+def test_after_three_failed_sessions_no_session_starts_until_the_candidates_change(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, writer="none")
+    for _ in range(3):
+        assert auto(w)["stopped"]
+    assert calls(w) == 3
+    waiting = auto(w)
+    assert calls(w) == 3 and waiting["stopped"] == "waiting for the lessons to change"
+    one_lesson(w, "Keep a failing command's output in a file, as it may help when it is long.")
+    answers(w, monkeypatch, writer="none")
+    assert auto(w)["stopped"] != "waiting for the lessons to change" and calls(w) == 4
+
+
+def test_a_good_run_between_failures_starts_the_count_of_failures_again(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, writer="none")
+    assert auto(w)["stopped"]
+    answers(w, monkeypatch, checker=False)
+    assert auto(w)["stopped"] is None and attempts(w)["failures"]["count"] == 0
+    answers(w, monkeypatch, writer="none")
+    assert auto(w)["stopped"] and auto(w)["stopped"]
+    before = calls(w)
+    assert auto(w)["stopped"] != "waiting for the lessons to change" and calls(w) == before + 1
+
+
+def test_the_run_folder_keeps_the_fill_marker_and_the_applied_handles(w, monkeypatch):
+    m = one_lesson(w)
+    answers(w, monkeypatch)
+    assert auto(w)["written"] == 1
+    (run_dir,) = fill_runs(w)
+    assert (run_dir / "fill").exists() and (run_dir / "journal.jsonl").exists()
+    assert json.loads((run_dir / "applied.json").read_text()) == [m.handle]
+
+
+def test_fill_auto_with_the_lock_taken_writes_nothing(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    lock = auto_state.take_run_lock(w.cdir)
+    try:
+        result = auto(w)
+    finally:
+        os.close(lock)
+    assert result["stopped"] == "a run is going" and result["written"] == 0 and calls(w) == 0
+    assert not (w.cdir / "fill-attempts.json").exists() and "fill" not in status(w) and by_claim(w, NARROW).short is None
+
+
+def test_two_fill_runs_in_the_same_second_keep_separate_run_folders(w, monkeypatch):
+    one_lesson(w)
+    mod = corr_module()
+    monkeypatch.setattr(mod.time, "strftime", lambda fmt: "20260101-000000")
+    answers(w, monkeypatch)
+    assert auto(w, mod)["written"] == 1
+    other = one_lesson(w, "Keep a failing command's output in a file, as it may help when it is long.")
+    answers(w, monkeypatch, shorts={other.claim: "Keep a failing command's output in a file, as it may help."})
+    assert auto(w, mod)["written"] == 1
+    first, second = fill_runs(w)
+    assert first != second and (first / "journal.jsonl").exists() and (second / "journal.jsonl").exists()
+
+
+def test_undo_of_an_automatic_fill_run_restores_the_records(w, monkeypatch):
+    fill_world(w)
+    answers(w, monkeypatch)
+    before = snapshot(w)
+    assert auto(w)["written"] == 4
+    assert snapshot(w) != before
+    (run_dir,) = fill_runs(w)
+    assert run(w, run_dir.name, cmd="undo", claude=False).returncode == 0
+    assert snapshot(w) == before and not (w.cdir / "seen.json").exists()
