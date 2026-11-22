@@ -10,7 +10,7 @@ Read this section first; the stage list below is the history and the detail. Che
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.2.0 (tag `memory-v0.2.0`, 2026-11-19: per-note staleness, small fixes; 0.1.0 the same day; ADR 0027): work merges into `dev`, a release into `main` |
+| Released | `memory` 0.3.0 (tag `memory-v0.3.0`, 2026-11-22: handoff block, transcript records, background capture behind `auto_capture`; 0.2.0 and 0.1.0 on 2026-11-19; ADR 0027): work merges into `dev`, a release into `main` |
 | Merged | Stages 0 to 3, 5, 5b, 6, the import of stage 7, stage 10 (PR #119), edit commands (#121), store history in git (#122), prompts and loop (#123), descriptions (#126), the seamless plan's stages W, 1a, 1b and 2 (#128, #129, #136 to #139) |
 | Installed | `memory@mili-ssm` 0.1.0 at user scope, following `main`; options `auto_settle` and `auto_curation` on, `research_depth` unset (`contrast`) |
 | Default store | The owner's imported notes plus everything written since; its `check` reports 29 broken links to documents of the origin that were not imported; no remote yet |
