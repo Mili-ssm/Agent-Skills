@@ -150,6 +150,8 @@ def pending(memories: Sequence[records.Memory], state: dict, today: datetime.dat
     judged = set(state["judged"])
     out = []
     for a, b, _ in records.pairs(memories, today, tokenize=tokenize):
+        if records.quarantined(a) or records.quarantined(b):
+            continue  # settling leaves quarantine alone
         if not (_counts_as_new(a, judged, today) or _counts_as_new(b, judged, today)):
             continue
         order = newer_first(a, b, judged)

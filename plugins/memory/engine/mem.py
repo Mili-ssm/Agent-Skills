@@ -3057,6 +3057,12 @@ def _count_notes(store: Path) -> int:
         return 0
 
 
+def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[records.Memory]:
+    """What a reader may be shown: live, and not a global lesson still in quarantine. The tools that corroborate or
+    look a record up (the identical-claim check, handles, curate, the capture list) load unfiltered."""
+    return [m for m in memories if records.is_live(m, today) and not records.quarantined(m)]
+
+
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
                   *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
@@ -3077,7 +3083,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
         loaded_global = records.load_memories(memories, "global")
-        live = sum(1 for m in loaded_global if records.is_live(m, today))
+        live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
         if passes is not None:
             due += due_in(memories, loaded_global)
@@ -3430,7 +3436,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
             print(f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
                   "or repeat with --force to write a new one.", file=sys.stderr)
             return 3
-    related = records.match_memories(live, claim_tokens, today, tokenize=tokenize)
+    related = records.match_memories(_readable(live, today), claim_tokens, today, tokenize=tokenize)
     exclude_failed = False
     if project is not None:
         try:
@@ -3462,7 +3468,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print(f"mem: {due} new memories since the last curation pass: after the current task, "
               "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
-    if scope == "global" and getattr(args, "origin", None) != "pipeline":
+    if scope == "global" and getattr(args, "origin", None) != "pipeline" and not records.quarantined(m):
         settle_state.maybe_start(folder, store, os.environ, time.time(), today)
     return 0
 
@@ -4029,12 +4035,14 @@ def cmd_memories(args: argparse.Namespace) -> int:
             folders = [f for f in folders if (f[0] == "global") == args.is_global]
     shown = [m for _, _, loaded in _loaded(folders) for m in loaded
              if m.error is None and (args.kind is None or m.kind == args.kind)
-             and (args.dead or records.is_live(m, today))]
+             and (records.quarantined(m) if args.quarantine
+                  else (args.dead or records.is_live(m, today)) and not records.quarantined(m))]
     shown.sort(key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle))
     for m in shown:
         dead = _memory_status(m, today)
         created = m.created.isoformat() if m.created else "undated"
         print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+              f"{', quarantine' if args.quarantine else ''}"
               f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
     return 0
 
@@ -5746,6 +5754,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     counts = [records.load_memories(folder, scope) for scope, folder in _memory_folders(args)]
     if any(counts):
+        counts = [[m for m in group if not records.quarantined(m)] for group in counts]
         live = sum(records.is_live(m, today) for group in counts for m in group)
         lines.insert(1, f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)")
     script = Path(__file__).resolve().read_text(encoding="utf-8")
@@ -5809,6 +5818,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             for m in loaded:
                 if m.error is not None:
                     print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
+            loaded = [m for m in loaded if not records.quarantined(m)]
             (other_memories if ":" in scope else memories).append((scope, loaded))
     # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
     all_syntheses = (syntheses.load(args.root / syntheses.SYNTHESES_DIR)
@@ -6242,6 +6252,8 @@ def build_parser() -> argparse.ArgumentParser:
     curate_scope.add_argument("--project", dest="is_project", action="store_true", help="the project's memories only")
     curate_scope.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
     memories_parser.add_argument("--kind", choices=records.KINDS)
+    memories_parser.add_argument("--quarantine", action="store_true",
+                                 help="only the global lessons in quarantine (not shown anywhere else until corroborated)")
     memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
     memories_parser.set_defaults(func=cmd_memories)
     curate_parser.add_argument("--notes", action="store_true",
