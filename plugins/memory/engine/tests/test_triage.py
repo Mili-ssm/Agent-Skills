@@ -1,5 +1,6 @@
 import datetime
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -171,22 +172,6 @@ def test_reject_ignores_a_broken_file_that_does_not_name_the_handle(world, capsy
     assert mem.main(["triage", "reject", m.handle]) == 0
 
 
-def test_reject_refuses_before_any_change_when_a_project_folder_cannot_be_read(world, capsys, monkeypatch):
-    m = released(capsys)
-    ok = link(world, m.handle, world.pa)
-    real = Path.glob
-
-    def glob(self, pattern):
-        if self == records.project_dir(world.pb):
-            raise PermissionError("denied")
-        return real(self, pattern)
-    monkeypatch.setattr(Path, "glob", glob)
-    assert mem.main(["triage", "reject", m.handle]) == 2
-    assert "no change was made" in capsys.readouterr().err
-    monkeypatch.undo()
-    assert reject_state(world, m, [(world.pa, ok)]) == ("active", "pending", [("done", m.handle)])
-
-
 def test_reject_refuses_on_a_corrupt_registry_without_changing_anything(world, capsys):
     m = released(capsys)
     (world.data / "projects.json").write_text("{not json", encoding="utf-8")
@@ -305,12 +290,34 @@ def test_the_quarantine_count_includes_a_lapsed_record_and_skips_a_forgotten_one
     lapsed.path.write_text(lapsed.path.read_text().replace(
         f"valid_until: '{lapsed.valid_until}'", f"valid_until: '{past}'").replace(
         f"valid_until: {lapsed.valid_until}", f"valid_until: {past}"), encoding="utf-8")
-    assert records.load_memories(world.gmem, "global")[0] is not None
+    reloaded = next(m for m in records.load_memories(world.gmem, "global") if m.handle == lapsed.handle)
+    assert reloaded.valid_until is not None and reloaded.valid_until < TODAY and not records.is_live(reloaded, TODAY)
     assert mem.main(["forget", by_claim["Heron locks release early on timeouts."].handle, "--global",
                      "--because", "invented reason"]) == 0
     capsys.readouterr()
     assert mem.main(["curate", "--global"]) == 0
     assert "in quarantine: 2 general lessons," in capsys.readouterr().out
+    assert mem.main(["memories", "--global", "--quarantine"]) == 0  # the listing the count points to shows both
+    listed = capsys.readouterr().out
+    assert lapsed.handle in listed and by_claim["Otter pools refill late after restarts."].handle in listed
+    assert by_claim["Heron locks release early on timeouts."].handle not in listed
+
+
+def test_reject_refuses_when_a_project_folder_has_no_read_permission(world, capsys):
+    if os.geteuid() == 0:
+        pytest.skip("root reads any folder")
+    m = released(capsys)
+    ok = link(world, m.handle, world.pa)
+    folder = records.project_dir(world.pb)
+    before = {p: p.read_bytes() for d in (world.gmem, records.project_dir(world.pa)) for p in sorted(d.glob("*.md"))}
+    folder.chmod(0o000)
+    try:
+        capsys.readouterr()
+        assert mem.main(["triage", "reject", m.handle]) == 2
+        assert "cannot be read" in capsys.readouterr().err
+    finally:
+        folder.chmod(0o700)
+    assert {p: p.read_bytes() for p in before} == before and ok is not None
 
 
 def test_curate_project_prints_neither_the_triage_category_nor_the_quarantine_line(world, capsys):
@@ -343,8 +350,8 @@ def test_session_start_prints_normally_with_a_corrupt_corroboration_status(world
 
 def test_the_triage_help_explains_triage_without_the_docs(capsys):
     for argv, needle in ((["triage", "--help"], "deciding what a corroborated general lesson becomes"),
-                         (["triage", "accept", "--help"], "keeps it as a general lesson"),
-                         (["triage", "reject", "--help"], "retires it and tells the projects not to propose it again")):
+                         (["triage", "accept", "--help"], "awaits triage stays a general lesson"),
+                         (["triage", "reject", "--help"], "is retired (mem restore brings it back)")):
         with pytest.raises(SystemExit):
             mem.main(argv)
         out = " ".join(capsys.readouterr().out.split())

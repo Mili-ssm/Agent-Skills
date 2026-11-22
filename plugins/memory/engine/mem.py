@@ -3674,8 +3674,8 @@ def _linked_project_records(handle: str) -> list[records.Memory]:
         projects = corroborate.counted_projects(records.read_registry(data_dir(os.environ)))
         for n, project in enumerate(projects, 1):
             folder = records.project_dir(project)
-            try:
-                files = [p for p in folder.glob("*.md") if p.is_file()]
+            try:  # os.listdir raises on a folder that cannot be read; Path.glob would return nothing
+                files = [folder / name for name in os.listdir(folder) if name.endswith(".md")]
             except OSError as exc:
                 raise ValueError(f"project memory folder {n} of {len(projects)} cannot be read ({exc})") from exc
             for m in records.load_memories(folder, "project"):
@@ -4135,7 +4135,8 @@ def cmd_memories(args: argparse.Namespace) -> int:
             folders = [f for f in folders if (f[0] == "global") == args.is_global]
     shown = [m for _, _, loaded in _loaded(folders) for m in loaded
              if m.error is None and (args.kind is None or m.kind == args.kind)
-             and (args.dead or records.is_live(m, today))
+             and (args.dead or records.is_live(m, today)
+                  or (args.quarantine and m.status == "active"))  # a lapsed lesson in quarantine is still listed
              and records.quarantined(m) == args.quarantine]
     shown.sort(key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle))
     for m in shown:
@@ -6346,8 +6347,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Triage is deciding what a corroborated general lesson becomes: one seen in two projects leaves "
                     "quarantine and waits here (mem curate --global lists it).")
     triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
-    for verb, text in (("accept", "keeps it as a general lesson every project may read"),
-                       ("reject", "retires it and tells the projects not to propose it again")):
+    for verb, text in (("accept", "a general lesson that awaits triage stays a general lesson every project may read"),
+                       ("reject", "a general lesson that awaits triage is retired (mem restore brings it back), and "
+                                  "its project records are marked so they are not promoted again")):
         triage_verb = triage_sub.add_parser(verb, help=text, description=f"{verb.capitalize()}: {text}.")
         triage_verb.add_argument("handle", metavar="m:HANDLE")
     triage_parser.set_defaults(func=cmd_triage)
