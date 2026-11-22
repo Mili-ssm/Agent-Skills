@@ -3074,11 +3074,14 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
-                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None) -> str:
+                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
+                  stats: dict[str, int] | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
-    `notice` is one more line after the rules (the failure of the automatic curation run)."""
+    `notice` is one more line after the rules (the failure of the automatic curation run).
+    The lessons that load as rules follow the notice; `stats`, when given, receives their numbers (rules, rules_left,
+    rules_chars). `limit` and `_INDEX_LIMIT` apply to the text without them."""
     try:
         has_store = store is not None and store.is_dir()
         has_memories = memories is not None and memories.is_dir()
@@ -3086,6 +3089,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         has_store = has_memories = False
     head = [_INDEX_HEAD]
     due = 0
+    loaded_global: list[records.Memory] = []
 
     def due_in(folder: Path, loaded: list[records.Memory]) -> int:
         return records.curation_due(loaded, (passes or {}).get(str(folder.resolve())), today)
@@ -3117,6 +3121,17 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
+    extra: list[str] = []
+    try:
+        choice = rules.choose(loaded_project, loaded_global, today)
+        extra = rules.block(choice)
+        more = rules.more_line(choice)
+        if more:
+            extra.append(more)
+        if stats is not None:
+            stats.update(rules=len(choice.loaded), rules_left=len(choice.left), rules_chars=len("\n".join(extra)))
+    except Exception:
+        extra = []
     if mine and limit > 0:
         rows = []
         for m in mine:
@@ -3130,9 +3145,9 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             tail = [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories'] if shown < len(rows) else []
             text = "\n".join(lines + rows[:shown] + tail)
             if len(text) <= _INDEX_LIMIT or shown == 0:
-                return text
+                return "\n".join(lines + extra + rows[:shown] + tail)
             shown -= 1
-    return "\n".join(lines)
+    return "\n".join(lines + extra)
 
 
 def _hook_input() -> dict[str, Any]:
@@ -3180,6 +3195,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
     started = time.monotonic()
     data = _hook_input() if args.hook else {}
+    stats: dict[str, int] = {}
     try:
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
@@ -3205,14 +3221,17 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice)
+                             notice=notice, stats=stats)
     except Exception:
         text = _INDEX_RULES
+        stats.clear()
     print(text)
     if args.hook:
         source = data.get("source")
         _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
-                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text)})
+                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text),
+                   "rules": stats.get("rules", 0), "rules_left": stats.get("rules_left", 0),
+                   "rules_chars": stats.get("rules_chars", 0)})
     return 0
 
 
