@@ -64,17 +64,17 @@ Observed 2026-11-22: in 43 transcripts of the last 12 days no user entry appears
 - Produces: `capture.extract(transcript: Path, since_line: int = 0, forward: bool = False) -> tuple[str, int]`; module variable `capture.last_more: bool` (set by every call, as `last_skipped` is). With `forward=True` the function stops before the first transcript line whose events would take the kept text over the budget, returns as last line the line before it, sets `last_more = True`, and never adds the left-out marker. A line whose events alone exceed the budget is kept when nothing is kept yet (progress is guaranteed). With `forward=False` behavior is unchanged and `last_more` is False.
 - Produces: `mem-capture run --forward`; result `extract.more` (bool, False without `--forward`).
 
-- [ ] **Step 1: Write the failing tests** in `test_capture.py`:
+- [x] **Step 1: Write the failing tests** in `test_capture.py`:
   - `test_forward_stops_when_full`: a transcript of 200 human-origin user lines of 1,000 characters each; `extract(p, 0, forward=True)` returns text of at most `EXTRACT_LIMIT` characters whose first line starts with `[1] OWNER:`, `last < 200`, `capture.last_more is True`, and the text does not contain `capture.LEFT_OUT_MARKER`.
   - `test_forward_windows_cover_every_line_once`: calling `extract(p, last, forward=True)` repeatedly until `last_more` is False yields `[n]` prefixes that together are exactly 1..200, each once.
   - `test_forward_short_transcript`: 5 lines → `last == 5`, `last_more is False`, same text as `forward=False`.
   - `test_forward_keeps_an_oversized_first_line`: `monkeypatch.setattr(capture, "EXTRACT_LIMIT", 300)` and a first line of 2,000 characters → text non-empty, `last == 1`.
   - `test_default_mode_unchanged`: `extract(p, 0)` on the 200-line transcript still starts with the left-out marker, returns `last == 200`, `last_more is False`.
   In `test_mem_capture.py`: `test_run_forward_reports_more`: a long invented transcript with `--forward` gives result `lines[1]` below the file's line count and `extract.more` true; without `--forward`, `extract.more` false.
-- [ ] **Step 2: Run them, expect FAIL** (`TypeError: extract() got an unexpected keyword argument 'forward'`).
-- [ ] **Step 3: Implement** the `forward` parameter and `last_more`; in `cmd_run` pass `args.forward`, set `out["extract"]["more"]`.
-- [ ] **Step 4: Run the whole suite, expect PASS.**
-- [ ] **Step 5: Commit** `feat(memory): mem-capture reads forward in windows (--forward)`.
+- [x] **Step 2: Run them, expect FAIL** (`TypeError: extract() got an unexpected keyword argument 'forward'`).
+- [x] **Step 3: Implement** the `forward` parameter and `last_more`; in `cmd_run` pass `args.forward`, set `out["extract"]["more"]`.
+- [x] **Step 4: Run the whole suite, expect PASS.**
+- [x] **Step 5: Commit** `feat(memory): mem-capture reads forward in windows (--forward)`.
 
 ### Task 2: State module and a callable window
 
@@ -94,11 +94,11 @@ Observed 2026-11-22: in 43 transcripts of the last 12 days no user entry appears
   - constants `MAX_WINDOWS = 3`, `MAX_NEW_PER_TRIGGER = 5`, `MAX_ATTEMPTS = 2`, `LOCK_WAIT_SECONDS = 900`, `PRE_COMPACT_DELAY_SECONDS = 300`, `KEEP_RUNS = 20`, `KEEP_RUN_DAYS = 14`, `OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE"`, `BUDGET_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE_BUDGET"`
 - Produces, in `bin/mem-capture`: `run_window(transcript: Path, out_path: Path, project: Path | None, since_line: int, model: str, budget: float, claude: str | None, forward: bool, write: bool, no_rules: bool = False, keep_work: bool = False, allow_out_in_repo: bool = False, quiet: bool = False) -> tuple[dict, int]` holding today's body of `cmd_run` (result dict and exit code; `quiet` suppresses the summary line on standard output); `cmd_run` becomes a thin caller. The parser becomes subparsers so that `--transcript` and `--out` are required only by `run`; `mem-capture run …` keeps every flag, message and exit code.
 
-- [ ] **Step 1: Write the failing tests** in `test_capture_state.py`: session round trip (`save_session` then `read_session`), unreadable file → zeros, files of mode 0600 in folders of mode 0700; `failure_line` None without a status, the line with a `failure` in `status.json`, the "did not finish" line for a `running` status older than `auto_state.STALE_RUNNING_SECONDS`; `prune_runs` keeps 20 of 22 and deletes one made 15 days old with `os.utime`. In `test_mem_capture.py` add only `test_run_window_is_importable_and_quiet` (load the script as a module the way `test_mem_capture.py` already loads it, or through a subprocess if it does not; `quiet=True` prints nothing).
-- [ ] **Step 2: Run them, expect FAIL** (`ModuleNotFoundError: capture_state`).
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite, expect PASS** with `test_mem_capture.py` otherwise unchanged.
-- [ ] **Step 5: Commit** `refactor(memory): mem-capture window as a function; state of background captures`.
+- [x] **Step 1: Write the failing tests** in `test_capture_state.py`: session round trip (`save_session` then `read_session`), unreadable file → zeros, files of mode 0600 in folders of mode 0700; `failure_line` None without a status, the line with a `failure` in `status.json`, the "did not finish" line for a `running` status older than `auto_state.STALE_RUNNING_SECONDS`; `prune_runs` keeps 20 of 22 and deletes one made 15 days old with `os.utime`. In `test_mem_capture.py` add only `test_run_window_is_importable_and_quiet` (load the script as a module the way `test_mem_capture.py` already loads it, or through a subprocess if it does not; `quiet=True` prints nothing).
+- [x] **Step 2: Run them, expect FAIL** (`ModuleNotFoundError: capture_state`).
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite, expect PASS** with `test_mem_capture.py` otherwise unchanged.
+- [x] **Step 5: Commit** `refactor(memory): mem-capture window as a function; state of background captures`.
 
 ### Task 3: `mem-capture auto` and `ack`
 
