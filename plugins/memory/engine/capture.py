@@ -129,7 +129,8 @@ def extract(transcript: Path, since_line: int = 0, forward: bool = False) -> tup
 
     By default the newest lines are kept and the oldest left out. With `forward` the window starts at
     `since_line` and stops before the first line that would overflow it (`last_more` is then True); a first
-    line larger than the budget is kept, so every call advances."""
+    line larger than the budget is kept, so every call advances, and an unterminated last line is left for the
+    next call. Lines up to `since_line` are parsed only to know the tool names and failures a result refers to."""
     budget = EXTRACT_LIMIT - len(_MARKER) - 1
     lines: deque[str] = deque()
     size = 0  # characters of the kept lines, one newline each
@@ -142,7 +143,16 @@ def extract(transcript: Path, since_line: int = 0, forward: bool = False) -> tup
     with open(transcript, encoding="utf-8", errors="replace") as f:
         for n, raw in enumerate(f, 1):
             if n <= since_line:
+                if "tool_use" in raw or "tool_result" in raw:  # prime tool names and failure state; nothing else matters
+                    try:
+                        entry = json.loads(raw)
+                        if isinstance(entry, dict):
+                            _events(entry, names, state)
+                    except Exception:
+                        pass  # not counted: the earlier window already reported it
                 continue
+            if forward and not raw.endswith("\n"):
+                break  # a line still being written is read once it is finished
             last = n
             try:  # no line of any content may stop the extract
                 entry = json.loads(raw)
