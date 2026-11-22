@@ -285,7 +285,7 @@ def test_check_accepts_a_store_whose_memories_hold_a_reminder_with_a_link_in_its
   - `cmd_session_index`: loads the project's and the global reminders, builds the line from the counts *as they will be after this start*, and with `--hook` and a counted source makes the single `session_count.bump(data, key, shown=[keys of the due ones], session=<session_id>)` call that replaces Task 1's call; the showings in the line come from `session_count.showings(state, name, session_id)`. Without `--hook`, or with another source, it reads counts and showings and raises nothing. The hook log line gains `"due": <number due>`.
 - Consumes: `_reminder_key` from Task 3. "Sessions" in the line are the sessions since the reminder was armed (written, put off or done again), which is what C42 calls since it was written.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_no_due_reminder_adds_no_line(project, capsys): ...       # one waiting only: the text has no "Reminders:"
@@ -306,10 +306,10 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
     ...; assert "Reminders: 2 due" in out and json.loads(last_line_of(data / "hooks" / "log.jsonl"))["due"] == 2
 ```
 
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.** The global reminders folder is the `memories` folder `cmd_session_index` already resolves; the subprocess test proves it with `MEM_STORE` alone.
-- [ ] **Step 4: Run the whole suite in the background** (`uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`, about 4 minutes); expected: all pass, 5 skipped.
-- [ ] **Step 5: Commit** — `feat(memory): due reminders as one line at session start`
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.** The global reminders folder is the `memories` folder `cmd_session_index` already resolves; the subprocess test proves it with `MEM_STORE` alone.
+- [x] **Step 4: Run the whole suite in the background** (`uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`, about 4 minutes); expected: all pass, 5 skipped.
+- [x] **Step 5: Commit** — `feat(memory): due reminders as one line at session start`
 
 ### Task 6: Skill text and documentation
 
@@ -320,18 +320,18 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 **Interfaces:**
 - Consumes: the commands and exact strings of Tasks 3 to 5.
 
-- [ ] **Step 1: `SKILL.md`, at most 14 lines.** It says: when to write one (work that belongs to a later session: a finding deferred from a review, an item left open, a periodic check; not something to do in this session, and not a fact, which is a memory); the command with one example per condition; give `--effort` and `--risk` honestly because they decide whether a later session starts by itself; when the session start text shows `Reminders:`, finish the current task, run `mem reminders`, and follow the rule it prints; end every reminder you act on with `done --note`, `snooze` or `close --reason`; never leave one to be shown again.
-- [ ] **Step 2: README section.** What a reminder is and is not; the commands as a table; the line with its limits; the four endings; the session count (what raises it, where it lives); limits: a reset count delays session reminders, two simultaneous starts may lose one count, the line shows at most 4 topics, nothing runs in the background, no measure yet of reminders acted on.
-- [ ] **Step 3: CHANGELOG entry**, written for users, naming the three commands and that nothing changes for a store without reminders.
-- [ ] **Step 4: ADR 0023 section.** Decisions C40 to C45 by reference, the research sources from the handoff by reference, and kill criteria: the prompt text of the skill ships unmeasured; revisit when `mem reminders --stats` shows, over at least 10 ended reminders, a median of more than 3 showings before `done`, or more closed for "never acted on" than done.
-- [ ] **Step 5: State tables, then run `python3 scripts/port.py --check`, `python3 scripts/validate.py`, `claude plugin validate .`**; expected: all exit 0.
-- [ ] **Step 6: Commit** — `docs(memory): reminders in the skill, README, changelog and ADR 0023`
+- [x] **Step 1: `SKILL.md`, at most 14 lines.** It says: when to write one (work that belongs to a later session: a finding deferred from a review, an item left open, a periodic check; not something to do in this session, and not a fact, which is a memory); the command with one example per condition; give `--effort` and `--risk` honestly because they decide whether a later session starts by itself; when the session start text shows `Reminders:`, finish the current task, run `mem reminders`, and follow the rule it prints; end every reminder you act on with `done --note`, `snooze` or `close --reason`; never leave one to be shown again.
+- [x] **Step 2: README section.** What a reminder is and is not; the commands as a table; the line with its limits; the four endings; the session count (what raises it, where it lives); limits: a reset count delays session reminders, two simultaneous starts may lose one count, the line shows at most 4 topics, nothing runs in the background, no measure yet of reminders acted on.
+- [x] **Step 3: CHANGELOG entry**, written for users, naming the three commands and that nothing changes for a store without reminders.
+- [x] **Step 4: ADR 0023 section.** Decisions C40 to C45 by reference, the research sources from the handoff by reference, and kill criteria: the prompt text of the skill ships unmeasured; revisit when `mem reminders --stats` shows, over at least 10 ended reminders, a median of more than 3 showings before `done`, or more closed for "never acted on" than done.
+- [x] **Step 5: State tables, then run `python3 scripts/port.py --check`, `python3 scripts/validate.py`, `claude plugin validate .`**; expected: all exit 0.
+- [x] **Step 6: Commit** — `docs(memory): reminders in the skill, README, changelog and ADR 0023`
 
 ---
 
 ## After the tasks
 
-- [ ] End-to-end scenario on an isolated home and store: write three reminders (now, in 2 sessions, recurring by date), run the real hook script for `startup`, `compact` and `resume`, read the text and `sessions.json`, act on each (`done`, `snooze`, `close`, `restore`), read `--stats`.
+- [x] End-to-end scenario on an isolated home and store: write three reminders (now, in 2 sessions, recurring by date), run the real hook script for `startup`, `compact` and `resume`, read the text and `sessions.json`, act on each (`done`, `snooze`, `close`, `restore`), read `--stats`.
 - [ ] One run with a real model session in the scenario: a session started with a due low-effort, low-risk reminder and an unrelated small task; read whether it ran `mem reminders` after the task and ended the reminder. Record the trace's outcome in ADR 0023 as observed, one run.
 - [ ] Narrow reviews in parallel (code of the two modules; the commands against this plan; docs against code), then the fixes.
 - [ ] Release only with the owner's word (version, changelog date, `validate.py --release`, PR `dev` to `main`).
