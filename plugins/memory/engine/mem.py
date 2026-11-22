@@ -2751,6 +2751,12 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
     out = [f"== m:{m.handle} ({m.scope})", facts]
     if m.sources:
         out.append(f"sources: {', '.join(m.sources)}")
+    if m.short:
+        out.append(f"short: {m.short}")
+    if m.topic:
+        out.append(f"topic: {m.topic}")
+    if m.load:
+        out.append("load: no")
     out += ["", "## Claim", " ".join(m.claim.split())]
     if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
         out += ["", m.body.rstrip("\n")]
@@ -3378,6 +3384,18 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
     return True
 
 
+def _check_short_topic(short: str | None, topic: str | None) -> int | None:
+    """2 after a message when a given short form or topic is not valid (empty is allowed: it means none), else None."""
+    if short and not records.valid_short(short):
+        print(f"mem: the short form must be one line of at most {records.SHORT_LIMIT} characters.", file=sys.stderr)
+        return 2
+    if topic and not records.valid_topic(topic):
+        print(f"mem: the topic must be one or two lowercase words (letters, digits, hyphens) of at most "
+              f"{records.TOPIC_LIMIT} characters.", file=sys.stderr)
+        return 2
+    return None
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3390,6 +3408,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if args.kind not in records.KINDS:
         print(f"mem: unknown kind {args.kind!r}.", file=sys.stderr)
         return 2
+    if (refused := _check_short_topic(args.short, args.topic)) is not None:
+        return refused
     if args.is_global:
         folder = records.memories_root(os.environ, store)
         if folder is None:
@@ -3419,10 +3439,10 @@ def cmd_remember(args: argparse.Namespace) -> int:
     except (OSError, UnicodeDecodeError) as exc:
         print(f"mem: cannot read the body: {exc}", file=sys.stderr)
         return 2
-    if _refuse_secret([args.claim, args.context or "", body, *args.source]):
+    if _refuse_secret([args.claim, args.context or "", body, *args.source, args.short or ""]):
         return 4
     if args.is_global:
-        refused = _check_terms([args.claim, args.context or "", body, *args.source, records.slug_of(args.claim)],
+        refused = _check_terms([args.claim, args.context or "", body, *args.source, records.slug_of(args.claim), args.short or ""],
                                args.kind, args.owner_approved)
         if refused:
             return refused
@@ -3468,7 +3488,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
         m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
                                  context=args.context, valid_until=args.valid_until, sources=args.source,
                                  origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
-                                 weight=getattr(args, "weight", None))
+                                 weight=getattr(args, "weight", None), short=args.short or None,
+                                 topic=args.topic or None)
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3754,8 +3775,9 @@ def cmd_supersede(args: argparse.Namespace) -> int:
 
 def cmd_memory(args: argparse.Namespace) -> int:
     """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
-    if args.claim is None and args.context is None and args.body_file is None:
-        build_parser().error("memory edit needs --claim, --context or --body-file")
+    if (args.claim is None and args.context is None and args.body_file is None and args.short is None
+            and args.topic is None and not args.no_load and not args.load):
+        build_parser().error("memory edit needs --claim, --context, --body-file, --short, --topic, --no-load or --load")
     claim = " ".join(args.claim.split()) if args.claim is not None else None
     context = " ".join(args.context.split()) if args.context is not None else None
     try:
@@ -3766,7 +3788,9 @@ def cmd_memory(args: argparse.Namespace) -> int:
     if claim is not None and not claim:
         print("mem: the claim is empty.", file=sys.stderr)
         return 2
-    texts = [t for t in (claim, context, body) if t]
+    if (refused := _check_short_topic(args.short, args.topic)) is not None:
+        return refused
+    texts = [t for t in (claim, context, body, args.short) if t]
     if _refuse_secret(texts):
         return 4
     found = _memory_of(args, [args.handle])
@@ -3799,6 +3823,22 @@ def cmd_memory(args: argparse.Namespace) -> int:
                 syntheses._guard_shrink(m.body.strip("\n"), body.strip("\n"))
             changes["body"] = body
             what.append("body")
+        if args.short is not None:
+            changes["short"] = args.short or None
+            what.append("short")
+        elif claim is not None and claim != m.claim and m.short:
+            changes["short"] = None  # a short form never outlives the claim it was drawn from
+            what.append("short removed")
+            print("mem: the short form was removed with the old claim: write a new one with --short", file=sys.stderr)
+        if args.topic is not None:
+            changes["topic"] = args.topic or None
+            what.append("topic")
+        if args.no_load:
+            changes["load"] = "no"
+            what.append("load")
+        elif args.load:
+            changes["load"] = None
+            what.append("load")
         updating = False
         try:
             records.log_before(m, "edit")
@@ -6294,6 +6334,8 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--claim", required=True)
     remember_parser.add_argument("--body-file", metavar="PATH", help="text (or - for standard input); may be empty")
     remember_parser.add_argument("--context")
+    remember_parser.add_argument("--short", metavar="TEXT", help="the claim as one line of at most 120 characters, loaded at session start")
+    remember_parser.add_argument("--topic", metavar="TEXT", help="one or two lowercase words that group rules")
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
     remember_parser.add_argument("--origin", choices=records.ORIGINS,
@@ -6504,6 +6546,11 @@ def build_parser() -> argparse.ArgumentParser:
     memory_edit.add_argument("--claim", metavar="TEXT", help="the new claim (one sentence)")
     memory_edit.add_argument("--context", metavar="TEXT", help="the new context; an empty text removes it")
     memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
+    memory_edit.add_argument("--short", metavar="TEXT", help="the one-line rule loaded at session start; an empty text removes it")
+    memory_edit.add_argument("--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it")
+    load_switch = memory_edit.add_mutually_exclusive_group()
+    load_switch.add_argument("--no-load", action="store_true", help="never load this lesson as a rule")
+    load_switch.add_argument("--load", action="store_true", help="remove --no-load")
     memory_edit.add_argument("--shrink", action="store_true",
                              help="accept a text that drops over 20%% of the words, a sentence or a link")
     memory_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
