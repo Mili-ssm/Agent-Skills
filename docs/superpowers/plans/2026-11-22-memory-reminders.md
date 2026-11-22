@@ -54,7 +54,7 @@
   - `forget_shown(data: Path | None, name: str) -> int | None`: removes `shown[name]` under the same lock and returns its `n` (0 when absent), or `None` when the file could not be locked or written. Never raises.
 - `cmd_session_index`: with `--hook` and `source` in `COUNTED_SOURCES`, the count is raised once (the call is made in Task 4 together with the showings; in this task call `bump(data_dir(os.environ), key, session=<session_id of the hook input or None>)` with `key = records.project_key(project)` or `None`). The hook log line gains `"count": <total after the bump or null>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_bump_counts_total_and_project(tmp_path):
@@ -95,10 +95,10 @@ def test_session_index_hook_raises_the_count_by_source(source, raised, monkeypat
 def test_session_index_without_hook_raises_nothing(...): ...
 ```
 
-- [ ] **Step 2: Run them and see them fail** — `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_session_count.py -q`; expected: import error for `session_count`.
-- [ ] **Step 3: Implement `session_count.py` and the call in `cmd_session_index`**, inside its own `try` so the printed text is unchanged by any failure. Values that are not non-negative integers in the file read as 0.
-- [ ] **Step 4: Run the file's tests, then `test_core.py` and `test_plugin_shell.py`** (they cover the session start text); expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): count sessions per project at session start`
+- [x] **Step 2: Run them and see them fail** — `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_session_count.py -q`; expected: import error for `session_count`.
+- [x] **Step 3: Implement `session_count.py` and the call in `cmd_session_index`**, inside its own `try` so the printed text is unchanged by any failure. Values that are not non-negative integers in the file read as 0.
+- [x] **Step 4: Run the file's tests, then `test_core.py` and `test_plugin_shell.py`** (they cover the session start text); expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): count sessions per project at session start`
 
 ### Task 2: The reminder record
 
