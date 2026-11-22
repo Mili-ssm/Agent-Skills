@@ -141,7 +141,7 @@ Gate, on a private copy of the real global lessons:
 | Measure | Result |
 |---|---|
 | Short forms proposed by the small model | 15 asked, 13 kept, 2 dropped for passing 120 characters (they are proposed again by the next dry run); 0.004 USD. The 13 keep the hedges of their claims (the author's reading; the owner's reading is pending) |
-| Rules loaded on the copy | 6; the real hook printed 1692 characters (about 650 before). Thirteen of the 15 lessons tied on every order key, so most of the six were the first by handle: the reason for the index-only state (C55) |
+| Rules loaded on the copy | 6; the real hook printed 1692 characters (a median of 644 over 63 session starts in the owner's hook log before). Thirteen of the 15 lessons tied on every order key, so most of the six were the first by handle: the reason for the index-only state (C55) |
 | Runs with a real model, five general rules loaded, a task with an ambiguous term | Without rules the model stated its reading in 2 of 3 runs, with rules in 2 of 3, with the owner's instruction file beside them in 0 of 1. No reply announced a rule it did not follow and none went against the instruction file. No effect measurable on this task, whose base rate is high; no harm |
 
 The first batch of runs was void: with no store option the hook switches to the default store, which the test's temporary folders had created empty.

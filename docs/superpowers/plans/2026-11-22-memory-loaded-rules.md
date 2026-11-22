@@ -211,18 +211,18 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 - Modify: `plugins/memory/README.md` (a `## Loaded rules` section after "Corroboration, quarantine and triage"; the limits table), `plugins/memory/skills/memory-curation/SKILL.md` (one short paragraph: a rule that is wrong is turned off with `mem memory edit --no-load`, reworded with `--claim` then `--short`, or forgotten), `plugins/memory/CHANGELOG.md` (`## [Unreleased]`), `docs/adr/0023-*.md` (append `### Stage B4: loaded rules, the same day`), `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table, "Current state and where to resume"), the Phases row B4 of the spec.
 - Test: `python3 scripts/port.py --check`, `python3 scripts/validate.py`, `claude plugin validate .`
 
-- [ ] **Step 1: README.** What loads and what never does; the header and one example block; the order; the limits; `mem rules`, `mem rules --more`, `--short`, `--topic`, `--no-load`, `mem-corroborate fill`; how to change or remove one rule; limits as a table (below).
-- [ ] **Step 2: Curation skill paragraph and CHANGELOG**, the latter for users: after the update nothing loads until lessons have a short form, and the two commands that give them one.
-- [ ] **Step 3: ADR 0023 section.** Decisions by reference; the measurement of C53 by reference; what ships unmeasured (the brief for the short form; rules beside the owner's own instruction files); the kill criteria below.
-- [ ] **Step 4: State tables; run the three validation commands**; expected: all exit 0.
-- [ ] **Step 5: Commit** — `docs(memory): loaded rules in the README, the curation skill, the changelog and ADR 0023`
+- [x] **Step 1: README.** What loads and what never does; the header and one example block; the order; the limits; `mem rules`, `mem rules --more`, `--short`, `--topic`, `--no-load`, `mem-corroborate fill`; how to change or remove one rule; limits as a table (below).
+- [x] **Step 2: Curation skill paragraph and CHANGELOG**, the latter for users: after the update nothing loads until lessons have a short form, and the two commands that give them one.
+- [x] **Step 3: ADR 0023 section.** Decisions by reference; the measurement of C53 by reference; what ships unmeasured (the brief for the short form; rules beside the owner's own instruction files); the kill criteria below.
+- [x] **Step 4: State tables; run the three validation commands**; expected: all exit 0.
+- [x] **Step 5: Commit** — `docs(memory): loaded rules in the README, the curation skill, the changelog and ADR 0023`
 
 ---
 
 ## After the tasks
 
 - [x] Gate on a private copy of the real global lessons, with the real small model (2026-11-22): `fill --dry-run` asked 15, kept 13, dropped 2 whose short form passed 120 characters; cost 0.004 USD. The 13 keep the hedges of their claims (the author's reading; the owner's reading is pending). A second dry run dropped the same two again; since then such a proposal stays in the file marked with its problem.
-- [x] The 13 applied on the copy: `mem rules` loads 6 and the real hook prints 1692 characters (about 650 before). Thirteen of the fifteen lessons tie on every order key, so most of the six were the first by handle: the reason for the index-only state (C55).
+- [x] The 13 applied on the copy: `mem rules` loads 6 and the real hook prints 1692 characters (the owner's hook log held a median of 644 over 63 session starts before). Thirteen of the fifteen lessons tie on every order key, so most of the six were the first by handle: the reason for the index-only state (C55).
 - [x] Runs with a real model, the real plugin and five general rules loaded from the copy, on a task with an ambiguous term: without rules the model stated its reading in 2 of 3 runs (mean 0.054 USD), with rules in 2 of 3 (0.064 USD), and with the owner's instruction file beside them in none of 1 (0.098 USD). No reply announced a rule it did not follow and none went against the instruction file. No effect measurable on this task, whose base rate is high; no harm. A first batch was void: with no store option the hook switches to the default store, which the test's temporary folders had created empty.
 - [ ] The owner's reading of the proposed short forms, and the load state of each (C55); then the file is applied on the real store, with the owner's word.
 - [ ] Narrow reviews in parallel (the two modules; the commands against this plan; the docs against the code), then one fix wave.

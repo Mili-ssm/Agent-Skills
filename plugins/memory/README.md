@@ -198,6 +198,9 @@ memory: rules learned in earlier sessions. Follow them unless you have a reason 
 | A project lesson seen in one session never loads | Nobody has read it |
 | A rule may repeat what the owner's own instruction files say | Turn it off with `--no-load` |
 | Rules do not reach subagents | The session start hook runs in the main session only |
+| `mem-corroborate undo` of a `fill` run works only while its run folder exists | A later corroboration pass prunes old run folders |
+| An unexpected error in the middle of `fill --items` stops it with exit 1 and no summary line; the edits already made are kept and can be undone | Each edit is journaled before the next; the count is printed only at the end |
+| Nothing checks that a short form is no stronger than its claim | The owner reads every proposed short form before it is applied |
 | Every loaded rule gets the same space, not more by weight | Six lines leave nothing to share out |
 | With no `store` option set, the hook uses the default store | As for the rest of the session start text |
 | The session start text grows by up to about 1200 characters when six rules load | The limits above (115 for the header, 900 for the rules, 200 for the index line) |
