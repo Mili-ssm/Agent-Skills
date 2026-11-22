@@ -70,18 +70,21 @@ def test_owner_confirmation_establishes(tmp_path):
 
 
 def test_release_marks_triage_once(tmp_path):
-    m = make(tmp_path, "global", weight="medium", sources=["session a project " + K1])
+    m = make(tmp_path, "global", weight="strong", sources=["session a project " + K1, "session b project " + K2])
     assert m.released is None and m.triage is None and m.valid_until is not None
-    m, added = records.add_sighting(m, "session b project " + K2, TODAY)
+    m, added = records.add_sighting(m, "session c project " + K1, TODAY)
     assert added and m.released == TODAY and m.triage == "pending" and m.valid_until is None
     later = TODAY + datetime.timedelta(days=3)
-    m, _ = records.add_sighting(m, "session c project " + K1, later)
+    m, _ = records.add_sighting(m, "session d project " + K1, later)
     assert m.released == TODAY and m.triage == "pending"
 
 
 def test_write_with_two_projects_is_released(tmp_path):
-    m = make(tmp_path, "global", weight="light", sources=["session a project " + K1, "session b project " + K2])
+    m = make(tmp_path, "global", weight="strong",
+             sources=["session a project " + K1, "session b project " + K2, "session c project " + K1])
     assert (reload(m).released, reload(m).triage, reload(m).valid_until) == (TODAY, "pending", None)
+    light = make(tmp_path / "other", "global", weight="light", sources=["session a project " + K1, "session b project " + K2])
+    assert (reload(light).released, reload(light).triage) == (TODAY, None)
 
 
 def test_project_record_never_gets_triage(tmp_path):
@@ -135,7 +138,8 @@ def test_one_session_with_two_keys_is_one_project(tmp_path):
 
 
 def test_owner_confirmation_of_a_released_record_ends_triage(tmp_path):
-    m = make(tmp_path, "global", weight="medium", sources=["session a project " + K1, "session b project " + K2])
+    m = make(tmp_path, "global", weight="strong",
+             sources=["session a project " + K1, "session b project " + K2, "session c project " + K1])
     assert m.released == TODAY and m.triage == "pending"
     after = dataclasses.replace(m, owner_confirmed=TODAY)
     changes = records.standing_changes(m, after, TODAY)

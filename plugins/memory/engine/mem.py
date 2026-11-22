@@ -4319,8 +4319,8 @@ def cmd_rules(args: argparse.Namespace) -> int:
     choice = rules.choose(project, global_, today)
     if _rules_off():
         print(RULES_OFF_NOTICE)
-    unready = (f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form: "
-               "mem-corroborate fill --dry-run --out FILE proposes them (a step for the user: do not run it unless asked).")
+    unready = (f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form yet: "
+               "the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).")
     if args.more is not None:
         topic = None if args.more is True else args.more
         shown = [(m, why) for m, why in choice.left

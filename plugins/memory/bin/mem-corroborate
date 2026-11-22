@@ -1115,7 +1115,20 @@ def cmd_auto(args) -> int:
     try:
         if os.environ.get(cs.OPTION) != "true":
             return 0
-        execute(args.claude, budget_of(os.environ.get(cs.BUDGET_OPTION)))
+        budget = budget_of(os.environ.get(cs.BUDGET_OPTION))
+    except BaseException:   # noqa: BLE001
+        return 0
+    try:
+        execute(args.claude, budget)
+    except BaseException:   # noqa: BLE001
+        pass
+    try:
+        if (os.environ.get("CLAUDE_PLUGIN_OPTION_LOADED_RULES") != "false"
+                and os.environ.get("MEM_LOADED_RULES") != "off"):
+            began = time.time()
+            stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+            result = fill_auto(args.claude, budget)
+            append_log(corroborate_dir(data_dir()), {"t": stamp, "fill": result, "ms": int((time.time() - began) * 1000)})
     except BaseException:   # noqa: BLE001
         pass
     return 0
@@ -1160,6 +1173,12 @@ def cmd_status() -> int:
     failure = au.failure(data, time.time())
     if failure:
         print(f"unacknowledged failure: {failure.get('reason')} (mem-corroborate ack clears it)")
+    fill = data.get("fill")
+    if isinstance(fill, dict) and (fill.get("written") or fill.get("refused_code") or fill.get("refused_check")
+                                   or fill.get("stopped")):
+        refused = (fill.get("refused_code") or 0) + (fill.get("refused_check") or 0)
+        stopped = f", stopped: {fill['stopped']}" if fill.get("stopped") else ""
+        print(f"last fill: {fill.get('written') or 0} written, {refused} refused, {fill.get('to_triage') or 0} to triage{stopped}")
     print(f"log: {data.get('log') or '(none)'}")
     return 0
 

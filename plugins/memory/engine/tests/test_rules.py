@@ -247,8 +247,8 @@ def test_mem_rules_and_more(project, gfolder, capsys):
     write("Needs a short form.")
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
-    assert capsys.readouterr().out == ("No rules loaded.\n1 established lesson has no short form: "
-                                       "mem-corroborate fill --dry-run --out FILE proposes them (a step for the user: do not run it unless asked).\n")
+    assert capsys.readouterr().out == ("No rules loaded.\n1 established lesson has no short form yet: "
+                                       "the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).\n")
     # nine more that fit only six, each with a topic
     for i in range(8):
         write(f"Lesson {i} about things in general.", short=f"Rule {i} " + "y" * 100, topic="testing" if i % 2 else None)
@@ -336,3 +336,27 @@ def test_mem_rules_says_it_is_switched_off_and_still_prints_what_would_load(proj
     out = capsys.readouterr().out.splitlines()
     assert out[0] == "Loaded rules are switched off (plugin option loaded_rules): nothing below loads at session start."
     assert out[1] == rules.HEADER and out[2].startswith("- A rule that would load.")
+
+
+def test_a_medium_general_lesson_is_released_without_triage_and_a_strong_one_waits(gfolder):
+    def remember(claim, weight, sessions):
+        args = ["remember", "--global", "--kind", "lesson", "--claim", claim, "--origin", "transcript",
+                "--reach", "general", "--weight", weight]
+        for s, key in zip(sessions, (K1, K2, K1)):
+            args += ["--source", f"session {s} project {key}"]
+        assert mem.main(args) == 0
+
+    remember("Medium lesson about retries.", "medium", "ab")
+    remember("Strong lesson about retries.", "strong", "abc")
+    found = {m.claim: m for m in records.load_memories(gfolder, "global")}
+    medium, strong = found["Medium lesson about retries."], found["Strong lesson about retries."]
+    assert medium.released and medium.triage is None
+    assert strong.released and strong.triage == "pending"
+
+
+def test_a_released_medium_lesson_loads_once_it_has_a_short_form(gfolder):
+    write("Medium lesson with a short form.", short="Medium rule that loads.", weight="medium")
+    (m,) = records.load_memories(gfolder, "global")
+    assert m.triage is None
+    choice = rules.choose([], [m], datetime.date.today())
+    assert [x.handle for x in choice.loaded] == [m.handle]

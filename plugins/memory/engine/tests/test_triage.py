@@ -32,9 +32,9 @@ def world(tmp_path, monkeypatch):
 
 
 def remember(*sources, claim=CLAIM):
-    args = ["remember", "--global", "--origin", "transcript", "--reach", "general", "--weight", "light",
+    args = ["remember", "--global", "--origin", "transcript", "--reach", "general", "--weight", "strong",
             "--kind", "lesson", "--claim", claim]
-    for s in sources:
+    for s in (*sources, f"session c project {KEYS[0]}"):   # a strong lesson needs three sessions
         args += ["--source", s]
     return mem.main(args)
 
@@ -64,7 +64,7 @@ def test_curate_global_lists_the_record_awaiting_triage(world, capsys):
     out = capsys.readouterr().out
     assert ("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage reject <h>, "
             "or reword it with mem memory edit <h> --global and then accept)") in out
-    assert f"m:{m.handle}  2 sessions, 2 projects  {CLAIM}" in out
+    assert f"m:{m.handle}  3 sessions, 2 projects  {CLAIM}" in out
     assert "from a transcript, not confirmed yet" not in out
     assert "in quarantine" not in out
 

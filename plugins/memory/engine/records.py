@@ -595,7 +595,7 @@ def standing_changes(before: Memory | None, after: Memory, today: datetime.date)
     if after.scope == "global" and established:
         if before is None or before.released is None:
             changes["released"] = today
-            if not after.owner_confirmed:
+            if not after.owner_confirmed and (after.weight or "medium") == "strong":
                 changes["triage"] = "pending"
         if after.owner_confirmed:
             changes["triage"] = None

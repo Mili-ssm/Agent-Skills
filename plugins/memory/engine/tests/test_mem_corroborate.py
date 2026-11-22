@@ -1,4 +1,5 @@
 """`bin/mem-corroborate`: the pass that matches lessons by meaning, with a fake `claude` and invented lessons."""
+import argparse
 import datetime
 import json
 import os
@@ -173,7 +174,7 @@ def test_two_projects_make_one_established_global_record(w):
     assert g.claim.startswith("Hand a subagent the check")
     assert sorted(g.sources) == sorted([f"session s1 project {records.project_key(w.pa)}",
                                          f"session s2 project {records.project_key(w.pb)}"])
-    assert records.standing(g) == "established" and g.triage == "pending"
+    assert records.standing(g) == "established" and g.released and g.triage is None   # a light lesson waits for nobody
     for project in (w.pa, w.pb):
         (m,) = project_records(project).values()
         assert m.promote == "done" and m.general == g.handle
@@ -1418,3 +1419,58 @@ def test_undo_of_an_automatic_fill_run_restores_the_records(w, monkeypatch):
     (run_dir,) = fill_runs(w)
     assert run(w, run_dir.name, cmd="undo", claude=False).returncode == 0
     assert snapshot(w) == before and not (w.cdir / "seen.json").exists()
+
+
+def test_auto_runs_the_fill_after_the_pass_and_logs_its_counts(w, monkeypatch):
+    fill_world(w)
+    model(w, [])
+    answers(w, monkeypatch)
+    done = run(w, cmd="auto", env={OPTION: "true"})
+    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    lines = log_lines(w)
+    (filled,) = [x for x in lines if "fill" in x]
+    assert lines[-1] is filled and "lessons" in lines[0] and filled["fill"]["written"] > 0 and filled["fill"]["stopped"] is None
+    assert isinstance(filled["ms"], int) and filled["t"]
+    assert status(w)["fill"] == filled["fill"] and status(w)["state"] == "ok"
+
+
+def test_auto_skips_the_fill_when_loaded_rules_is_off(w, monkeypatch):
+    fill_world(w)
+    model(w, [])
+    answers(w, monkeypatch)
+    for env in ({"MEM_LOADED_RULES": "off"}, {"CLAUDE_PLUGIN_OPTION_LOADED_RULES": "false"}):
+        done = run(w, cmd="auto", env={OPTION: "true", **env})
+        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+        assert not any("fill" in x for x in log_lines(w)) and "fill" not in status(w)
+        assert not (w.cdir / "fill-attempts.json").exists()
+
+
+def test_a_fill_that_raises_leaves_the_pass_result_seen_and_status_alone(w, monkeypatch):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    mod = corr_module()
+
+    def boom(*_args, **_kw):
+        raise RuntimeError("the fill broke")
+
+    monkeypatch.setattr(mod, "fill_auto", boom)
+    monkeypatch.setenv(OPTION, "true")
+    assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
+    (line,) = log_lines(w)
+    assert "fill" not in line and line["failed"] is None and line["written"] == 1 and len(globals_(w)) == 1
+    assert (w.cdir / "seen.json").exists()
+    assert status(w)["state"] == "ok" and "fill" not in status(w) and "failure" not in status(w)
+
+
+def test_status_shows_the_last_fill_and_its_failure(w, capsys):
+    w.cdir.mkdir(parents=True)
+    fill = {"asked": 5, "written": 2, "dropped": 0, "refused_code": 1, "refused_check": 1, "to_triage": 1, "left": 1,
+            "cost": 0.1, "stopped": "over budget"}
+    auto_state.write_json(w.cdir / "status.json", {"state": "ok", "cost": 0.1, "fill": fill})
+    assert corr_module().cmd_status() == 0
+    out = capsys.readouterr().out
+    assert "last fill: 2 written, 2 refused, 1 to triage, stopped: over budget\n" in out
+    auto_state.write_json(w.cdir / "status.json", {"state": "ok", "fill": {**fill, "written": 0, "refused_code": 0,
+                                                    "refused_check": 0, "stopped": None}})
+    assert corr_module().cmd_status() == 0
+    assert "last fill" not in capsys.readouterr().out
