@@ -442,6 +442,39 @@ git commit -m "docs(memory): the case log in the curation skill, the README and 
 
 ---
 
+### Task 9: More lessons load (the owner, 2026-11-22)
+
+The owner raised the starting limits of C48: 16 of the lessons that met every condition existed and 6 loaded. This task is independent of Tasks 1 to 8.
+
+**Files:**
+- Modify: `plugins/memory/engine/rules.py` (`RULES_MAX`, `RULES_LIMIT`)
+- Modify: the tests that assert the old limits (find them with a search for `RULES_MAX`, `RULES_LIMIT`, `900` and the number of loaded rules in `plugins/memory/engine/tests/`)
+- Modify: `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (a new row C73 after the row that reserves C64 to C72), `docs/adr/0023-*.md` (a kill criterion, appended as the ADR's own rules say: read the "ADRs" section of the repository's `CLAUDE.md` first), `plugins/memory/CHANGELOG.md` (one line under `## [Unreleased]`), `plugins/memory/README.md` if it states the limits
+
+**Interfaces:**
+- Produces: `RULES_MAX = 16`, `RULES_LIMIT = 2400`. `MORE_LIMIT`, `PROJECT_FIRST` and the 1500 characters of the rest of the session start text are unchanged.
+
+- [ ] **Step 1: Change the tests that state the limits to 16 rules and 2400 characters, and add `test_sixteen_rules_load_and_the_seventeenth_is_left_out` in `test_rules.py`**
+
+- [ ] **Step 2: Run them and see them fail**
+
+- [ ] **Step 3: Change the two constants**
+
+- [ ] **Step 4: Write the row and the criterion**
+
+Row C73: "The limits of C48 are raised to 16 loaded rules and 2400 characters of rule lines (the owner, 2026-11-22); the other limits of C48 stay." Reason: "16 lessons met every condition and 6 loaded; the lessons left out are reached only when an agent asks by topic. Unmeasured: the tallies of C67 are the measure." Kill criterion for the ADR: "Lower the limits again if, a month after the release that carries C73, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often."
+
+- [ ] **Step 5: Run the whole suite and `python3 scripts/validate.py`**
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add plugins/memory docs
+git commit -m "feat(memory): up to 16 lessons and 2400 characters load at session start"
+```
+
+---
+
 ## Results
 
 Filled by Task 8.
