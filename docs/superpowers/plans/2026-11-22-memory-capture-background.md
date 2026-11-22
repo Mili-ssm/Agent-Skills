@@ -39,7 +39,8 @@ Observed 2026-11-22: in 43 transcripts of the last 12 days no user entry appears
 - The end of a session is not read when `SessionEnd` never fires, when the lock wait runs out, or when the trigger stops at `MAX_WINDOWS`; the log line's `more` field counts the last case. No catch-up pass yet.
 - A forked session that copies its history into a new file would be read as a second session (not seen in 43 transcripts).
 - Text typed by an automated multi-turn client counts as the owner's; the memory-folder check and the 3-OWNER-lines minimum are the only guards.
-- A `light` record written in the background is established at once (C20). Whether background writes should need two sessions is the owner's decision.
+- A `light` record written in the background is established at once (C20; the owner confirmed that rule for stage B1). Whether background writes should need two sessions is the owner's decision.
+- A claim identical to a memory the session wrote itself adds a sighting of that same session to it: an ordinary memory does not record the session that wrote it. For stage B3.
 
 ## Review Focus
 
@@ -130,7 +131,7 @@ Behavior of `auto`, in order:
 11. `prune_runs(runs, KEEP_RUNS, KEEP_RUN_DAYS, now)`.
 Any exception inside `auto` is caught at the top: status `failed` with the exception's class name as reason, exit 0.
 
-- [ ] **Step 1: Write the failing tests** in `test_capture_auto.py`, reusing the fake `claude` and the `world` fixture style of `test_mem_capture.py` (`MEM_DATA` in tmp, a tmp git project whose memory folder is made by one `mem remember`, `CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE=true`, `MEM_CAPTURE_DELAY=0`), calling `bin/mem-capture auto --trigger session-end --claude FAKE` with the JSON on stdin:
+- [x] **Step 1: Write the failing tests** in `test_capture_auto.py`, reusing the fake `claude` and the `world` fixture style of `test_mem_capture.py` (`MEM_DATA` in tmp, a tmp git project whose memory folder is made by one `mem remember`, `CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE=true`, `MEM_CAPTURE_DELAY=0`), calling `bin/mem-capture auto --trigger session-end --claude FAKE` with the JSON on stdin:
   - `test_off_by_default`: option unset → exit 0, the data folder has no `capture` folder, the fake was not called.
   - `test_first_run_writes_and_saves_offset`: a 12-line invented transcript with 4 OWNER lines and a fake candidate whose evidence is in it → `mem memories` of the project lists the claim with `from transcript, unconfirmed`; offset 12; `status.json` state `ok`; one `log.jsonl` line with `windows == 1`, `written.remembered == 1`.
   - `test_second_run_reads_only_new_lines`: run, append 6 lines (3 OWNER), run again → the second run's `window-1.json` has `lines == [13, 18]`; the fake was called twice.
@@ -151,10 +152,10 @@ Any exception inside `auto` is caught at the top: status `failed` with the excep
   - `test_engine_import_failure_is_reported`: run the script with `python3 -S -I` style isolation or `PYTHONPATH` shadowing a `yaml.py` that raises ImportError (whichever makes `import yaml` fail on this machine) → exit 0 and `failure_line` contains `cannot load the engine`.
   - `test_data_folder_inside_a_repository_works`: `MEM_DATA` inside a git repository → the window is written and the run is `ok`.
   - `test_log_line_has_no_text`: the `log.jsonl` line contains neither the claim nor the transcript's folder path.
-- [ ] **Step 2: Run them, expect FAIL** (`invalid choice: 'auto'`).
-- [ ] **Step 3: Implement** `auto` and `ack`.
-- [ ] **Step 4: Run the whole suite, expect PASS.**
-- [ ] **Step 5: Commit** `feat(memory): mem-capture auto reads a session in windows from a saved offset`.
+- [x] **Step 2: Run them, expect FAIL** (`invalid choice: 'auto'`).
+- [x] **Step 3: Implement** `auto` and `ack`.
+- [x] **Step 4: Run the whole suite, expect PASS.**
+- [x] **Step 5: Commit** `feat(memory): mem-capture auto reads a session in windows from a saved offset`.
 
 ### Task 4: Option, hooks, session start line and docs
 
@@ -169,7 +170,7 @@ Any exception inside `auto` is caught at the top: status `failed` with the excep
 - Consumes: `mem-capture auto --trigger … [--claude PATH]` reading the hook JSON on stdin (Task 3); `capture_state.failure_line` (Task 2).
 - Hook lines. In both hooks, only when `[ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ]`: read standard input once into a variable (`input=$(cat)`; with the option off standard input is not read), find `claude` as `session-end.sh` already does, and start `(setsid nohup "$here/../bin/mem-capture" auto --trigger <name> [--claude "$claude"] <<<"$input" >/dev/null 2>&1 &)`, with the same no-`setsid` fallback `session-end.sh` has. `pre-compact.sh` prints its HANDOFF text first and the text does not change. In `session-end.sh` the capture block comes before `mem history commit` (it writes the project, not the store, and the hook's time may run out during the commit).
 
-- [ ] **Step 1: Write the failing tests.** In `test_plugin_shell.py`:
+- [x] **Step 1: Write the failing tests.** In `test_plugin_shell.py`:
   - `test_plugin_declares_auto_capture`: `userConfig.auto_capture.type == "boolean"`, no `default` true; `auto_capture_budget.default == 0.25`.
   - `test_pre_compact_text_unchanged_with_capture_on`: stdout of `pre-compact.sh` with the option `true` and a JSON on stdin equals its stdout with the option unset.
   - `test_pre_compact_starts_capture_only_when_on`: with a stub `bin`-sibling approach used by the existing session-end tests (the pattern for observing a detached start is in `test_auto_curation.py`: a fake `claude` that appends to `FAKE_CALLS`, polled up to 10 s; use a tmp git project with a memory folder, a transcript with 4 OWNER lines and `MEM_CAPTURE_DELAY=0`) → called with the option on, not called with it unset.
@@ -177,17 +178,37 @@ Any exception inside `auto` is caught at the top: status `failed` with the excep
   - `test_session_end_starts_capture_when_the_commit_hangs`: with the hanging-git setup of the existing `test_session_end_hook_exits_0_when_git_hangs`, the fake `claude` is still called.
   - `test_hooks_return_fast_with_capture_on`: each hook returns in under 2 s while the fake `claude` sleeps 5 s.
   In `test_capture_auto.py`: `test_session_index_shows_the_failure_line`: after a failed `auto` run, `mem session-index` output contains `Automatic capture failed on`; after `mem-capture ack` it does not.
-- [ ] **Step 2: Run them, expect FAIL.**
-- [ ] **Step 3: Implement** the option, the two hook blocks, the notice, the README section (what it does, when it runs, the two options, where the status and log live, `mem-capture ack`, the limits: only projects with a memory folder, at most 3 windows and about 5 new records per trigger, a 5-minute wait after a compaction, the end of a session whose terminal was closed is not read, unmeasured) and the CHANGELOG line.
-- [ ] **Step 4: Run the whole suite and both validators, expect PASS.**
-- [ ] **Step 5: Commit** `feat(memory): option auto_capture starts mem-capture at compaction and session end`.
+- [x] **Step 2: Run them, expect FAIL.**
+- [x] **Step 3: Implement** the option, the two hook blocks, the notice, the README section (what it does, when it runs, the two options, where the status and log live, `mem-capture ack`, the limits: only projects with a memory folder, at most 3 windows and about 5 new records per trigger, a 5-minute wait after a compaction, the end of a session whose terminal was closed is not read, unmeasured) and the CHANGELOG line.
+- [x] **Step 4: Run the whole suite and both validators, expect PASS.**
+- [x] **Step 5: Commit** `feat(memory): option auto_capture starts mem-capture at compaction and session end`.
 
 ### Task 5: End-to-end check with the real model, and the records (controller)
 
-- [ ] Run `hooks/pre-compact.sh` and `hooks/session-end.sh` by hand with the option on, `MEM_DATA` and `MEM_PROJECT` pointing at a private copy outside the repository, a real transcript on stdin: the hook returns at once, the detached run finishes, `status.json` is `ok`, the offset is saved, a second trigger reads only new lines. Record counts and cost (no text) below.
-- [ ] Design: C22 to C27 added, stage B2 marked done. ADR 0023: `### Stage B2` under Review 2026-11-22 with kill criteria. Study: L3 status. Memory plan state table.
+- [x] Run `hooks/pre-compact.sh` and `hooks/session-end.sh` by hand with the option on, `MEM_DATA` and `MEM_PROJECT` pointing at a private copy outside the repository, a real transcript on stdin: the hook returns at once, the detached run finishes, `status.json` is `ok`, the offset is saved, a second trigger reads only new lines. Record counts and cost (no text) below.
+- [x] Design: C22 to C27 added, stage B2 marked done. ADR 0023: `### Stage B2` under Review 2026-11-22 with kill criteria. Study: L3 status. Memory plan state table.
 - [ ] Final narrow reviews, fixes, push, pull request to `dev`.
 
 ## Results
 
-(filled in by Task 5)
+Built on 2026-11-22 in four task commits and their fix rounds; engine suite at the end `1478 passed, 5 skipped`; `python3 scripts/validate.py` and `claude plugin validate .` pass.
+
+End-to-end check with the real model (Haiku), on a private copy of a project's memory outside the repository, the hooks run by hand with the option on:
+
+| Trigger | Transcript | Hook returned | Run | Windows (lines) | Kept | New | Sightings | USD |
+|---|---|---|---|---|---|---|---|---|
+| `SessionEnd` | first 1,200 lines of a 2,246-line session | 0.2 s | 89 s | 1 (1 to 1200) | 2 | 1 | 1 | 0.027 |
+| `PreCompact` (wait set to 5 s) | the same session, whole | under 1 s, text identical to the option off | 77 s | 1 (1201 to 2246) | 4 | 3 | 1 | 0.024 |
+| `SessionEnd` | a 7,238-line session | under 1 s | 162 s | 2 (1 to 2600, 2601 to 4851), stopped by the 5-record cap | 7 | 7 | 0 | 0.102 |
+| `SessionEnd` again | the same | under 1 s | 104 s | 1 (4852 to 6069), stopped by the cap | 5 | 5 | 0 | 0.076 |
+
+- Each run ended by itself with status `ok`; the offset was saved; no window was read twice; folders are mode 0700 and files 0600.
+- A full window costs 0.05 to 0.08 USD, above the 0.02 of the trial's shorter extracts.
+- Two triggers on one long past session wrote 12 new records and no sighting. Whether they are worth keeping, and how many reword a record that already existed, was not judged: the cap bounds a trigger, not a day.
+- Not exercised with the real harness: the hooks were run by hand (the detached start from a real `PreCompact` was shown by the spike of phase A); the default 300 s wait; a real `SessionEnd` at the end of an interactive session.
+
+Review rounds fixed, among others: tool names lost at a window boundary; an unfinished last line read as complete; a hook input without `cwd` falling back to the process's own folder; a local path reaching the counts log; `ack` not clearing a run that never finished.
+
+Deferred, low: a window where only some candidates fail to write still advances; flags placed before `run` are no longer accepted; `auto_capture_budget` is the only option with a `default` key; the earlier lows of stage B1.
+
+Kill criteria once the option is on: ADR 0023, Review 2026-11-22, stage B2.
