@@ -28,7 +28,7 @@ The pre-mortem of 2026-11-22 found that the first draft would have loaded lesson
 - A lesson in quarantine (`records.quarantined`) never appears in the rules block, in the line that follows it, or in `mem rules --more`.
 - A lesson loads only when all of these hold: live; `origin == "transcript"`; `records.standing(m) == "established"`; `triage` is not `pending`; `load` is not `no`; it has a valid `short`; and, for a project lesson, it was seen in at least two sessions or `owner_confirmed` is set.
 - The rules block is assembled by code from the records. No command rewrites the list with a model, and nothing writes a `short` without the owner having read it (`fill` proposes into a file; `fill --items FILE` applies that file).
-- Exact values: `short` at most 120 characters, one line; `topic` one or two lowercase words, at most 24 characters, matching `[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?`; `load` absent or `no`; at most 6 rules and 900 characters of rule lines (header not counted); the line that follows at most 200 characters and at most 4 named topics.
+- Exact values: `short` at most 120 characters, one line; `topic` one or two lowercase words, at most 24 characters, matching `[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?`; `load` absent, `index` (C55: never among the rules, counted in the line that follows) or `no`; at most 6 rules and 900 characters of rule lines (header not counted); the line that follows at most 200 characters and at most 4 named topics.
 - The header, measured (C53), verbatim: `memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.`
 - The standing after each rule is written by code: `(confirmed by the owner)` when `owner_confirmed` is set; else for a global lesson `(held in N projects)`; else `(held in N sessions)`.
 - An edit of a lesson's claim removes its `short` (the command says so), because a short form must never outlive the claim it was drawn from.
@@ -199,11 +199,11 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
   - `fill` with neither flag prints its usage and exits 2: nothing in this release writes a short form unread.
 - The brief for the model, verbatim: `For each lesson write: short: one sentence of at most 120 characters that says what to do and when, as a suggestion or a recommendation, never stronger than the claim. Keep a hedge the claim has (may, once, sometimes, provisional). It must stand on its own, name no project, person or company, and add nothing the claim does not say. topic: one or two lowercase words for the area (for example: testing, process, shell, review, docs). An id is copied whole.`
 
-- [ ] **Step 1: Write the failing tests** — unit: `fill_candidates` (quarantine, `load: no`, pending triage and a project lesson seen once are excluded; cap; order), `validate_fill` (unknown id, repeated id, short of 121 characters, topic with a capital, a kept item). With the fake `claude` that `test_mem_corroborate.py` already uses: `fill --dry-run --out` writes the file and changes no record; `fill --items FILE` writes exactly the items of the file, in two projects that share a handle and in the global scope; `undo` puts the records back; an item whose record changed its claim since the file was made is not written (`failed`); `fill` alone exits 2.
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run `test_corroborate.py`, `test_mem_corroborate.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): mem-corroborate fill proposes a lesson's short form and topic`
+- [x] **Step 1: Write the failing tests** — unit: `fill_candidates` (quarantine, `load: no`, pending triage and a project lesson seen once are excluded; cap; order), `validate_fill` (unknown id, repeated id, short of 121 characters, topic with a capital, a kept item). With the fake `claude` that `test_mem_corroborate.py` already uses: `fill --dry-run --out` writes the file and changes no record; `fill --items FILE` writes exactly the items of the file, in two projects that share a handle and in the global scope; `undo` puts the records back; an item whose record changed its claim since the file was made is not written (`failed`); `fill` alone exits 2.
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run `test_corroborate.py`, `test_mem_corroborate.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): mem-corroborate fill proposes a lesson's short form and topic`
 
 ### Task 5: Documentation
 
@@ -221,9 +221,10 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 
 ## After the tasks
 
-- [ ] Gate on a private copy of the real store and of this project's memory folder: `mem-corroborate fill --dry-run --out FILE` with the real small model. The proposed short forms and topics go to the owner as one table, with a column to turn a rule off (one that repeats the owner's own instructions, or that should not load). Record how many items the validation dropped and how many the owner reworded.
-- [ ] Apply the owner's file on the copy; run `mem rules` and the real hook script; read the text and its length.
-- [ ] Three runs with a real model, the real rules loaded and a task on which at least one bears, and one run with the owner's own instruction file present. Count the replies that only announce that a rule was not followed. Record the outcome in ADR 0023 as observed.
+- [x] Gate on a private copy of the real global lessons, with the real small model (2026-11-22): `fill --dry-run` asked 15, kept 13, dropped 2 whose short form passed 120 characters; cost 0.004 USD. The 13 keep the hedges of their claims (the author's reading; the owner's reading is pending). The two dropped ones are proposed again by the next dry run.
+- [x] The 13 applied on the copy: `mem rules` loads 6 and the real hook prints 1692 characters (about 650 before). All fifteen lessons tie on every order key, so the six were the first by handle: the reason for the index-only state (C55).
+- [x] Runs with a real model, the real plugin and five general rules loaded from the copy, on a task with an ambiguous term: without rules the model stated its reading in 2 of 3 runs (mean 0.054 USD), with rules in 2 of 3 (0.064 USD), and with the owner's instruction file beside them in none of 1 (0.098 USD). No reply announced a rule it did not follow and none went against the instruction file. No effect measurable on this task, whose base rate is high; no harm. A first batch was void: with no store option the hook switches to the default store, which the test's temporary folders had created empty.
+- [ ] The owner's reading of the proposed short forms, and the load state of each (C55); then the file is applied on the real store, with the owner's word.
 - [ ] Narrow reviews in parallel (the two modules; the commands against this plan; the docs against the code), then one fix wave.
 - [ ] Pull request to `dev` and release only with the owner's word; applying the short forms on the real store is a separate step with the owner's word.
 
