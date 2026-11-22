@@ -1697,7 +1697,7 @@ def test_a_writer_item_with_a_problem_is_refused_counted_and_not_sent_to_the_che
     one_lesson(w)
     answers(w, monkeypatch, shorts={NARROW: "Run the narrowest covering test. " + "x" * 120})
     result = auto(w)
-    assert (result["written"], result["refused_code"], result["refused_check"]) == (0, 0, 0)
+    assert (result["written"], result["refused_code"], result["refused_check"]) == (0, 1, 0)   # the length rule is code
     assert calls(w) == 1 and count_of(w, NARROW) == [1] and by_claim(w, NARROW).short is None
 
 

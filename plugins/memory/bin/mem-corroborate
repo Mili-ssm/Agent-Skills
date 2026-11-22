@@ -1046,9 +1046,9 @@ def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) ->
                 reason[i] = item["problem"]
             elif found := shortcheck.problems(by_id[i].claim, item["short"]):
                 reason[i] = found[0]
-                result["refused_code"] += 1
             else:
                 passed.append((i, item))
+        result["refused_code"] = len(reason)   # every refusal before the checker, a missing proposal included
         faithful: dict[str, bool] = {}
         if passed:
             text = corroborate.check_lines([(i, by_id[i].claim, by_id[i].context, item["short"]) for i, item in passed])
