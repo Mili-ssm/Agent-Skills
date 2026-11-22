@@ -3564,7 +3564,10 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         if until is not None and records.standing(found[0]) == "unconfirmed":
             raise ValueError("a record from a transcript is confirmed only by another session showing it: "
                              "use --source 'session <id>', not --until")
-        if source is not None and from_transcript and key in records.sessions(found[0]):
+        if source is not None and found[0].status != "active":
+            raise ValueError(f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory")
+        seen = {records.session_key(s) or s.strip() for s in found[0].sources}
+        if source is not None and (key or source.strip()) in seen:
             repeated.append(True)
             return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
         records.log_before(found[0], "confirm")

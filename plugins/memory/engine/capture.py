@@ -183,6 +183,10 @@ def counts(extract_text: str) -> dict[str, int]:
     return result
 
 
+def _squash(s: str) -> str:
+    return " ".join(s.split())
+
+
 def _norm(s: str) -> str:
     return " ".join(s.split()).lower()
 
@@ -244,20 +248,26 @@ def validate(candidates: object, extract_text: str, recorded: Sequence[str],
         if m:
             bodies.append((m.group(1), " ".join(m.group(2).split())))
     done = {_norm(r) for r in recorded}
+    by_claim = {_norm(c): h for h, c in handles.items()}
     kept: list[dict] = []
     dropped: list[dict] = []
     sighted: set[str] = set()
     for item in candidates:
+        if (isinstance(item, dict) and item.get("same_as") is None and isinstance(item.get("claim"), str)
+                and _norm(item["claim"]) in by_claim):
+            # an identical claim is one more sighting of the project's record, not a new one
+            item = {**item, "same_as": by_claim[_norm(item["claim"])]}
         reason = "over the limit" if len(kept) >= MAX_CANDIDATES else _reason(item, bodies, done, handles, sighted)
         if reason:
             dropped.append({"candidate": item, "reason": reason})
         else:
             context = item.get("context")
+            context = _squash(context)[:300] if isinstance(context, str) else ""
             same_as = item.get("same_as")
             if same_as is not None:
                 sighted.add(same_as)
             kept.append({"kind": item["kind"], "signal": item["signal"], "reach": item.get("reach", "project"),
                          "weight": item.get("weight", "medium"), "form": item.get("form", "recommendation"),
-                         "claim": item["claim"], "context": context if isinstance(context, str) else "",
-                         "evidence": item["evidence"], "same_as": same_as})
+                         "claim": _squash(item["claim"]), "context": context,
+                         "evidence": _squash(item["evidence"]), "same_as": same_as})
     return kept, dropped

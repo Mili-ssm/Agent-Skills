@@ -112,7 +112,7 @@ def private_dirs(folder: Path) -> None:
 def write_private(path: Path, text: str) -> None:
     """Never follows a symlink at `path`; the mode is set on the descriptor before anything is written."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
+    with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
         os.fchmod(f.fileno(), 0o600)
         f.write(text)
 
@@ -204,15 +204,22 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
 def apply_one(item: dict, session: str, env: dict) -> tuple[str, str | None, str | None]:
     """Apply one kept candidate with `bin/mem`: (outcome, handle, reason). Text arguments use `--name=value`
     because a claim may start with `-`."""
+    def clean(text: str) -> str:   # a lone surrogate cannot be encoded as an argument
+        return text.encode("utf-8", "replace").decode("utf-8")
+
     if item["same_as"]:
+        # `mem confirm` also finds global records: only a memory of this project may get the sighting
+        project = records.project_dir(Path(env["MEM_PROJECT"]))
+        if not any(f"m:{m.handle}" == item["same_as"] for m in records.load_memories(project, "project")):
+            return "skipped", None, "not a memory of this project any more"
         cmd = [str(MEM), "confirm", item["same_as"], f"--source={session}",
-               f"--note=Seen again ({item['signal']}): “{item['evidence']}”"]
+               clean(f"--note=Seen again ({item['signal']}): “{item['evidence']}”")]
         stdin = None
     else:
-        cmd = [str(MEM), "remember", f"--kind={item['kind']}", f"--claim={item['claim']}",
-               f"--context={item['context']}", "--origin", "transcript", "--reach", item["reach"],
+        cmd = [str(MEM), "remember", f"--kind={item['kind']}", clean(f"--claim={item['claim']}"),
+               clean(f"--context={item['context']}"), "--origin", "transcript", "--reach", item["reach"],
                "--weight", item["weight"], f"--source={session}", "--body-file", "-"]
-        stdin = f"Signal: {item['signal']}\nForm: {item['form']}\nEvidence: “{item['evidence']}”\n"
+        stdin = clean(f"Signal: {item['signal']}\nForm: {item['form']}\nEvidence: “{item['evidence']}”\n")
     try:
         done = subprocess.run(cmd, env=env, input=stdin, capture_output=True, text=True, timeout=MEM_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):
@@ -239,8 +246,11 @@ def apply_all(items: list[dict], transcript: Path, project: Path) -> list[dict]:
     env = {**os.environ, "MEM_PROJECT": str(project)}
     rows = []
     for item in items:
-        outcome, handle, reason = apply_one(item, session, env)
-        rows.append({"claim": item["claim"][:80], "outcome": outcome, "handle": handle, "reason": reason})
+        try:
+            outcome, handle, reason = apply_one(item, session, env)
+        except Exception:   # one odd candidate never stops the others
+            outcome, handle, reason = "skipped", None, "could not be applied"
+        rows.append({"claim": item["claim"][:80].encode("utf-8", "replace").decode("utf-8"), "outcome": outcome, "handle": handle, "reason": reason})
     return rows
 
 

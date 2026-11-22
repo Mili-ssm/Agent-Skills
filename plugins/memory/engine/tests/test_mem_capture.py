@@ -27,6 +27,8 @@ with open(os.environ["FAKE_CALLS"], "a") as f:
                         "settings": open(settings).read()}) + "\\n")
 if os.environ.get("FAKE_COPY_RULES"):
     shutil.copy("rules.txt", os.environ["FAKE_COPY_RULES"])
+if os.environ.get("FAKE_DELETE"):
+    os.remove(os.environ["FAKE_DELETE"])
 if os.environ.get("FAKE_COPY_RECORDED"):
     shutil.copy("recorded.txt", os.environ["FAKE_COPY_RECORDED"])
 if mode == "good":
@@ -421,11 +423,6 @@ SECOND = {**GOOD, "claim": CLAIM2, "evidence": "pin the tool version in the lock
 TOKEN = "ghp_" + "a" * 36   # built from parts: obviously fake
 
 
-def reworded(item):
-    """The same claim for mem (equal words) that capture's own check does not drop as already recorded."""
-    return {**item, "claim": item["claim"].replace(":", " -")}
-
-
 def go(w, cands, *extra, **kw):
     w.cands.write_text(json.dumps(cands))
     return run(w, "--write", *extra, **kw)
@@ -490,7 +487,7 @@ def test_a_second_run_counts_nothing_twice(world):
     assert [x["outcome"] for x in written(world)] == ["remembered", "remembered"]
     snapshot = {p.name: p.read_text() for p in files(world)}
     same_as = [{**GOOD, "same_as": handles[0]}, {**SECOND, "same_as": handles[1]}]
-    for cands in (same_as, [reworded(GOOD), reworded(SECOND)]):
+    for cands in (same_as, [GOOD, SECOND]):
         again = go(world, cands, transcript_path=world.transcript)
         assert again.returncode == 0, again.stderr
         assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "this session already counted")] * 2
@@ -505,18 +502,20 @@ def test_two_candidates_with_one_claim_count_once(world):
     assert len(files(world)) == 1
 
 
-def test_a_claim_the_owners_agent_wrote_by_hand_is_not_touched(world):
+def test_a_claim_the_owners_agent_wrote_by_hand_gains_this_session_once(world):
     remember(world, claim=GOOD["claim"])
-    before = files(world)[0].read_text()
-    assert go(world, [reworded(GOOD)]).returncode == 0
-    assert [(x["outcome"], x["reason"], x["handle"]) for x in written(world)] == \
-        [("skipped", "same claim already recorded", None)]
-    assert files(world)[0].read_text() == before
+    assert go(world, [GOOD]).returncode == 0
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("sighting", None)]
+    after = files(world)[0].read_text()
+    assert after.count("session abc") == 1
+    assert go(world, [GOOD]).returncode == 0
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "this session already counted")]
+    assert files(world)[0].read_text() == after
 
 
 def test_the_same_claim_from_another_session_without_same_as_is_a_sighting(world):
     handle = other_session(world, GOOD["claim"], weight="strong")
-    assert go(world, [reworded(GOOD)]).returncode == 0
+    assert go(world, [GOOD]).returncode == 0
     assert [(x["outcome"], x["handle"]) for x in written(world)] == [("sighting", handle)]
     assert "session abc" in files(world)[0].read_text() and len(files(world)) == 1
 
@@ -563,3 +562,30 @@ def test_a_failing_mem_is_a_skipped_outcome_and_not_a_failed_run(world):
     assert [(x["outcome"], x["handle"]) for x in written(world)] == [("skipped", None)] * 2
     assert all(x["reason"].startswith("mem failed (") for x in written(world))
     assert "written 0 new, 0 sightings, 2 skipped" in done.stdout
+
+
+def test_a_sighting_never_lands_on_a_global_record(world):
+    remember(world, claim=GOOD["claim"])
+    (project_file,) = files(world)
+    gmem = Path(os.environ["MEM_MEMORIES"])
+    import records
+    import datetime
+    g = records.write_memory(gmem, "global", kind="lesson", claim=GOOD["claim"], body="", today=datetime.date.today())
+    assert g.handle == project_file.stem
+    before = g.path.read_text()
+    done = go(world, [GOOD], env={"FAKE_DELETE": str(project_file)})   # the record leaves the project after validation
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == \
+        [("skipped", "not a memory of this project any more")]
+    assert g.path.read_text() == before and files(world) == []
+
+
+def test_one_odd_candidate_does_not_stop_the_run(world):
+    third = {**GOOD, "claim": "Keep the fixtures small: a huge one made the suite crawl for a week.",
+             "evidence": "keep the fixtures small, they were slow", "context": "slow suite"}
+    odd = {**SECOND, "claim": CLAIM2 + " \ud800"}
+    owners = (OWNER, OWNER2, "Also keep the fixtures small, they were slow last week.")
+    done = go(world, [GOOD, odd, third], transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", owners))
+    assert done.returncode == 0, done.stderr
+    assert [x["outcome"] for x in written(world)] == ["remembered", "remembered", "remembered"]
+    assert len(files(world)) == 3

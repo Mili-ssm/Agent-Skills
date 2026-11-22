@@ -344,12 +344,38 @@ def test_confirm_source_is_free_for_a_memory_that_is_not_from_a_transcript(proje
     assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/x", "--note", "seen there"]) == 0
     m = next(x for x in records.load_memories(project, "project") if x.handle == h)
     assert m.sources == ["https://example.org/x"] and m.observed == 2
-    assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/x"]) == 0
+    assert mem.main(["confirm", f"m:{h}", "--source", "https://example.org/y"]) == 0   # another source still counts
     m = next(x for x in records.load_memories(project, "project") if x.handle == h)
-    assert m.sources == ["https://example.org/x"] and m.observed == 3
+    assert m.sources == ["https://example.org/x", "https://example.org/y"] and m.observed == 3
 
 
 def test_a_session_id_has_a_length_cap():
     assert records.session_key("session " + "a" * 200) is not None
     assert records.session_key("session " + "a" * 201) is None
     assert records.session_key("session " + "a" * 201 + "   ") is None
+
+
+def test_a_source_counts_once_on_any_record(project, capsys):
+    plain = records.write_memory(project, "project", kind="lesson", claim="A plain lesson about retries.", body="", today=D)
+    web = records.write_memory(project, "project", kind="finding", claim="A web finding about retries.", body="",
+                               today=D, origin="web", sources=["https://example.org/a"])
+    for m, source in ((plain, "session abc123"), (web, "https://example.org/a"), (web, "  Session  ABC123 ")):
+        assert mem.main(["confirm", f"m:{m.handle}", f"--source={source}", "--note=x"]) in (0, 3)
+        capsys.readouterr()
+        before = (m.path.read_text(), reload(m).observed, reload(m).sources)
+        again = mem.main(["confirm", f"m:{m.handle}", f"--source={source}", "--note=x"])
+        out = capsys.readouterr().out
+        assert again == 3 and "already a source" in out
+        assert (m.path.read_text(), reload(m).observed, reload(m).sources) == before
+
+
+def test_a_retired_record_gets_no_sighting(project, capsys):
+    for verb in ("refute", "forget"):
+        m = records.write_memory(project, "project", kind="lesson", claim=f"A lesson to {verb} about caches.", body="",
+                                 today=D)
+        assert mem.main([verb, f"m:{m.handle}"]) == 0
+        capsys.readouterr()
+        before = (m.path.read_text(), reload(m).observed)
+        assert mem.main(["confirm", f"m:{m.handle}", "--source=session z"]) == 2
+        assert (m.path.read_text(), reload(m).observed) == before
+        assert reload(m).status in capsys.readouterr().err

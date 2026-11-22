@@ -218,3 +218,21 @@ def test_capture_imports_the_records_module_only():
     assert "mem" not in names and "records" in names
     import mem
     assert mem.tokenize is capture.records.tokenize
+
+
+def test_validate_collapses_whitespace_and_cuts_the_context():
+    item = {**GOOD, "claim": "Run the validator\n  before every commit in this project ",
+            "evidence": "always run the validator\nbefore a commit", "context": " the owner\n corrected  it " + "x" * 400}
+    kept, dropped = capture.validate([item], EXTRACT, [])
+    assert dropped == [] and kept[0]["claim"] == GOOD["claim"] and kept[0]["evidence"] == GOOD["evidence"]
+    assert kept[0]["context"] == ("the owner corrected it " + "x" * 400)[:300] and "\n" not in kept[0]["context"]
+
+
+def test_validate_turns_an_identical_claim_into_a_sighting_of_its_record():
+    handles = {"m:validator": "  run the VALIDATOR before every   commit in this project"}
+    kept, dropped = capture.validate([GOOD], EXTRACT, [GOOD["claim"]], handles)
+    assert dropped == [] and kept == [{**GOOD, "same_as": "m:validator"}]
+    kept, dropped = capture.validate([GOOD, {**GOOD}], EXTRACT, [GOOD["claim"]], handles)
+    assert len(kept) == 1 and [d["reason"] for d in dropped] == ["same_as repeated"]
+    # a claim recorded with no handle (a general memory) stays "already recorded"
+    assert capture.validate([GOOD], EXTRACT, [GOOD["claim"]], {})[1][0]["reason"] == "already recorded"
