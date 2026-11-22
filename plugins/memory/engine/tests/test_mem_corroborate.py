@@ -808,8 +808,8 @@ def test_fill_dry_run_writes_the_proposal_and_changes_nothing(w):
     items = json.loads(out.read_text())
     assert [(i["id"], i["scope"]) for i in items] == [(shared[0], w.pa.name), (gid, "global")]
     first = items[0]
-    assert set(first) == {"id", "handle", "scope", "claim", "short", "topic", "claim_digest"}
-    assert (first["claim"], first["short"], first["topic"]) == (SAME, SHORT, "process")
+    assert set(first) == {"id", "handle", "scope", "claim", "short", "topic", "load", "claim_digest"}
+    assert (first["claim"], first["short"], first["topic"], first["load"]) == (SAME, SHORT, "process", "yes")
     assert first["claim_digest"] == corroborate.claim_digest(
         next(m for m in project_records(w.pa).values() if m.claim == SAME))
     assert snapshot(w) == before and calls(w) == 1 and not log_lines(w) and not (w.cdir / "runs").exists()
@@ -963,7 +963,7 @@ def test_fill_items_drop_a_record_that_cannot_load(w):
     (g_now,) = [m for m in globals_(w) if m.handle == g.handle]
     records.update(g_now, TODAY, triage="pending")
     a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
-    records.update(a, TODAY, load="no")
+    records.update(a, TODAY, origin="web")
     done = fill_run(w, "--items", str(out), claude=False, mode="never")
     assert done.returncode == 0, done.stderr
     assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
@@ -985,3 +985,70 @@ def test_fill_dry_run_checks_the_output_folder_before_the_session(w):
         assert done.returncode == 2 and len(done.stderr.strip().splitlines()) == 1 and calls(w) == 0
     finally:
         locked.chmod(0o700)
+
+
+def _a(w):
+    return next(m for m in project_records(w.pa).values() if m.claim == SAME)
+
+
+def test_fill_dry_run_writes_index_for_an_index_only_lesson(w):
+    g = fill_world(w)
+    records.update(_a(w), TODAY, load="index")
+    out, shared, gid = fill_file(w, g)
+    assert {i["id"]: i["load"] for i in json.loads(out.read_text())}[shared[0]] == "index"
+
+
+def test_fill_items_apply_the_load_value(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    items = json.loads(out.read_text())
+    items[0]["load"] = "index"
+    items[1]["load"] = "no"
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 2, "dropped": 0, "failed": 0}
+    assert (_a(w).short, _a(w).load) == (SHORT, "index")
+    (gl,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert gl.short and gl.load == "no"
+    items[0]["load"] = "yes"
+    out.write_text(json.dumps(items[:1]))
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    assert _a(w).load is None and _a(w).short == SHORT
+
+
+def test_fill_items_load_alone_with_unchanged_short_and_topic(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    records.update(_a(w), TODAY, short=SHORT, topic="process")
+    item = {"id": shared[0], "handle": _a(w).handle, "scope": w.pa.name, "claim": SAME, "short": SHORT, "topic": "process",
+            "load": "index", "claim_digest": corroborate.claim_digest(_a(w))}
+    out.write_text(json.dumps([item]))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert (_a(w).short, _a(w).topic, _a(w).load) == (SHORT, "process", "index")
+
+
+def test_fill_items_drop_a_bad_load_value(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g, load="maybe")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("load must be yes, index or no") == 2
+    assert _a(w).short is None
+
+
+def test_fill_items_turn_on_a_record_that_was_turned_off(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    records.update(_a(w), TODAY, load="no")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")   # the items say load yes
+    assert done.returncode == 0, done.stderr
+    assert (_a(w).short, _a(w).load) == (SHORT, None)
+    records.update(_a(w), TODAY, load="no")
+    items = [{k: v for k, v in i.items() if k != "load"} for i in json.loads(out.read_text())][:1]
+    out.write_text(json.dumps(items))   # no load value: a rule turned off stays off
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    assert _a(w).load == "no" and log_lines(w)[-1]["fill"]["dropped"] == 1

@@ -19,7 +19,7 @@ RULES_LIMIT = 900
 MORE_LIMIT = 200
 TOPICS_NAMED = 4
 PROJECT_FIRST = 3
-OVER, PENDING = "over the limit", "awaits triage"
+OVER, PENDING, INDEX = "over the limit", "awaits triage", "index only"
 _WEIGHT = {"strong": 0, "medium": 1, "light": 2}
 
 
@@ -65,6 +65,8 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
     for m in [*projects_, *globals_]:
         if m.triage == "pending":
             out.left.append((m, PENDING))
+        elif m.load == "index":
+            out.left.append((m, INDEX))
         elif not records.valid_short(m.short):
             out.unready += 1
         else:
@@ -98,7 +100,7 @@ def topic_counts(choice: Choice) -> list[tuple[str, int]]:
 
 def not_fitted(choice: Choice) -> list[tuple[Memory, str]]:
     """The lessons that qualify and did not fit. A global lesson awaiting triage is announced by the `Triage:` line."""
-    return [(m, why) for m, why in choice.left if why == OVER]
+    return [(m, why) for m, why in choice.left if why in (OVER, INDEX)]
 
 
 def more_line(choice: Choice) -> str | None:

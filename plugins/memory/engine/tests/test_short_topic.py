@@ -152,3 +152,29 @@ def test_the_removal_notice_is_printed_only_after_the_write(gfolder, capsys, mon
     assert mem.main(["memory", "edit", f"m:{h}", "--global", "--claim", CLAIM + " Then say so."]) == 2
     assert "removed" not in capsys.readouterr().err
     assert only(gfolder).short == SHORT
+
+
+def test_load_index_is_read_stored_shown_and_exclusive(gfolder, capsys):
+    path = put(gfolder, "idx", CLAIM, "load: index\n")
+    assert records.load_memories(gfolder, "global")[0].load == "index"
+    path.write_text(path.read_text().replace("load: index", "load: Index"), encoding="utf-8")
+    assert records.load_memories(gfolder, "global")[0].load is None
+    path.write_text(path.read_text().replace("load: Index\n", ""), encoding="utf-8")
+    h = only_claim(gfolder).handle
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--index-only"]) == 0
+    assert only_claim(gfolder).load == "index"
+    capsys.readouterr()
+    assert mem.main(["show", f"m:{h}"]) == 0
+    assert "load: index" in capsys.readouterr().out
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--no-load"]) == 0
+    assert only_claim(gfolder).load == "no"
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--index-only"]) == 0
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--load"]) == 0
+    assert only_claim(gfolder).load is None
+    for pair in (["--index-only", "--no-load"], ["--index-only", "--load"], ["--no-load", "--load"]):
+        with pytest.raises(SystemExit):
+            mem.main(["memory", "edit", f"m:{h}", "--global", *pair])
+
+
+def only_claim(gfolder):
+    return next(m for m in records.load_memories(gfolder, "global") if m.claim == CLAIM)

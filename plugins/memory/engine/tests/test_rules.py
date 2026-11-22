@@ -275,3 +275,32 @@ def _base():
                           created=datetime.date(2026, 1, 1), observed=1, status="active", context=None,
                           valid_until=None, sources=_sources("s1", "s2", keys=(K1, K2)), body="", error=None,
                           origin="transcript", weight="light", short="A short rule.")
+
+
+def test_an_index_only_lesson_never_loads_and_is_counted_with_its_reason():
+    base = _base()
+    idx = dataclasses.replace(base, handle="i", load="index", topic="shell")
+    noshort = dataclasses.replace(base, handle="n", load="index", short=None)
+    ready = dataclasses.replace(base, handle="r")
+    waiting = dataclasses.replace(base, handle="w", load="index", triage="pending")
+    assert rules.eligible(idx, TODAY)
+    choice = rules.choose([], [idx, noshort, ready, waiting], TODAY)
+    assert [m.handle for m in choice.loaded] == ["r"]
+    assert sorted((m.handle, why) for m, why in choice.left) == [("i", "index only"), ("n", "index only"), ("w", "awaits triage")]
+    assert choice.unready == 0
+    assert [m.handle for m, _ in rules.not_fitted(choice)] == ["i", "n"]
+    assert rules.more_line(choice) == "2 more recommendations by topic: shell 1, other 1 (mem rules --more <topic>)"
+
+
+def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
+    write("Fits in the block.", short="Fits.", topic="process")
+    write("Niche lesson about one kind of work.", short="Niche rule.", topic="docs")
+    h = load(gfolder, "global")["Niche lesson about one kind of work."].handle
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--index-only"]) == 0
+    capsys.readouterr()
+    assert mem.main(["rules"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert len(out) == 3 and "Niche" not in "".join(out[:2]) and out[-1] == "1 more recommendation by topic: docs 1 (mem rules --more <topic>)"
+    assert mem.main(["rules", "--more", "docs"]) == 0
+    (row,) = capsys.readouterr().out.splitlines()
+    assert row.split("\t")[:4] == [f"m:{h}", "global", "index only", "docs"]

@@ -496,3 +496,13 @@ def test_validate_fill_counts_an_id_as_seen_only_once_an_item_was_kept():
     kept, reasons = corroborate.validate_fill(raw, ["g:a"])
     assert kept == {"g:a": {"short": SHORT, "topic": "docs"}}
     assert len(reasons) == 2 and "repeats g:a" in reasons[1]
+
+
+def test_fill_candidates_still_propose_for_an_index_only_lesson(tmp_path):
+    p1, p2, glob = fill_world(tmp_path)
+    f1 = records.project_dir(p1)
+    put(f1, "project", "index only no topic", weight="light", sources=("session a", "session b"), short=SHORT, load="index")
+    put(f1, "project", "index only no short", weight="light", sources=("session a", "session b"), topic="process", load="index")
+    put(f1, "project", "index only complete", weight="light", sources=("session a", "session b"), short=SHORT, topic="process", load="index")
+    got = corroborate.fill_candidates([p1, p2], glob, TODAY)
+    assert {m.claim for _i, m in got} == {"index only no topic", "index only no short"}

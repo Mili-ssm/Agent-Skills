@@ -22,11 +22,13 @@ Usage: mem-corroborate run [--claude PATH] [--budget USD] [--dry-run --out FILE]
 `fill` proposes the one-line short form and the topic of the lessons that could load as rules at session start but
 lack them. Nothing writes a short form unread: `--dry-run --out FILE` only writes the proposal (one session of the
 small model); the owner reads and edits FILE, and `--items FILE` applies it through `mem memory edit` (journaled:
-`undo STAMP` puts the records back). `seen.json` and the status of the pass are not touched.
+`undo STAMP` puts the records back). Each item also carries `load`: `yes` (a rule), `index` (only counted by topic)
+or `no` (never loaded); the owner may change it. `seen.json` and the status of the pass are not touched.
 """
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import datetime
 import hashlib
 import json
@@ -800,6 +802,7 @@ def fill_dry_run(args) -> int:
         project = where[ident]
         items.append({"id": ident, "handle": m.handle, "scope": "global" if project is None else names.get(project, str(project)),
                       "claim": m.claim, "short": fields["short"], "topic": fields["topic"],
+                      "load": "index" if m.load == "index" else "yes",
                       "claim_digest": corroborate.claim_digest(m)})
     write_private(Path(args.out).expanduser(), json.dumps(items, ensure_ascii=False, indent=1) + "\n")
     print(f"mem-corroborate: fill: {len(candidates)} lessons asked, {len(items)} kept, {len(reasons)} dropped, "
@@ -842,6 +845,7 @@ def fill_items(args) -> int:
             ident = item.get("id") if isinstance(item, dict) else None
             short = item.get("short") if isinstance(item, dict) else None
             topic = item.get("topic") if isinstance(item, dict) else None
+            load = item.get("load") if isinstance(item, dict) else None
             why = None
             if not all(isinstance(x, str) for x in (ident, short, topic)):
                 why = "not an object with id, short and topic"
@@ -853,13 +857,16 @@ def fill_items(args) -> int:
                 why = "short is not one line of at most 120 characters"
             elif not records.valid_topic(topic):
                 why = "topic is not one or two lowercase words"
+            elif "load" in item and load not in ("yes", "index", "no"):
+                why = "load must be yes, index or no"
             else:
                 project, m = known[ident]
                 scope = "global" if project is None else names.get(project, str(project))
                 if item.get("handle", m.handle) != m.handle or item.get("scope", scope) != scope:
                     why = "handle or scope does not match its id"
-                elif not rules.eligible(m, today) or m.triage == "pending":
-                    why = "not a lesson that can load"
+                elif m.triage == "pending" or not rules.eligible(
+                        dataclasses.replace(m, load=None) if m.load == "no" and load is not None else m, today):
+                    why = "not a lesson that can load"   # a record turned off may be turned on again by an item that names `load`
             if why:
                 dropped += 1
                 log(f"item {n} dropped: {why}")
@@ -872,7 +879,8 @@ def fill_items(args) -> int:
             watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # an edit of a global record may update it
             before = applier.journal.watch(watched)
             done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []),
-                                f"--short={short}", f"--topic={topic}"], project, drop_env=SETTLE_VARS)
+                                f"--short={short}", f"--topic={topic}",
+                                *{"yes": ["--load"], "index": ["--index-only"], "no": ["--no-load"]}.get(load, [])], project, drop_env=SETTLE_VARS)
             applier.journal.commit("fill", before)
             if done is not None and done.returncode == 0:
                 written += 1

@@ -2757,7 +2757,7 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
     if m.topic:
         out.append(f"topic: {m.topic}")
     if m.load:
-        out.append("load: no")
+        out.append(f"load: {m.load}")
     out += ["", "## Claim", " ".join(m.claim.split())]
     if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
         out += ["", m.body.rstrip("\n")]
@@ -3802,8 +3802,8 @@ def cmd_supersede(args: argparse.Namespace) -> int:
 def cmd_memory(args: argparse.Namespace) -> int:
     """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
     if (args.claim is None and args.context is None and args.body_file is None and args.short is None
-            and args.topic is None and not args.no_load and not args.load):
-        build_parser().error("memory edit needs --claim, --context, --body-file, --short, --topic, --no-load or --load")
+            and args.topic is None and not args.no_load and not args.load and not args.index_only):
+        build_parser().error("memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load")
     claim = " ".join(args.claim.split()) if args.claim is not None else None
     context = " ".join(args.context.split()) if args.context is not None else None
     try:
@@ -3862,6 +3862,9 @@ def cmd_memory(args: argparse.Namespace) -> int:
             what.append("topic")
         if args.no_load:
             changes["load"] = "no"
+            what.append("load")
+        elif args.index_only:
+            changes["load"] = "index"
             what.append("load")
         elif args.load:
             changes["load"] = None
@@ -6618,7 +6621,9 @@ def build_parser() -> argparse.ArgumentParser:
     memory_edit.add_argument("--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it")
     load_switch = memory_edit.add_mutually_exclusive_group()
     load_switch.add_argument("--no-load", action="store_true", help="never load this lesson as a rule")
-    load_switch.add_argument("--load", action="store_true", help="remove --no-load")
+    load_switch.add_argument("--index-only", action="store_true",
+                             help="never load this lesson as a rule, but count it in the index line by topic")
+    load_switch.add_argument("--load", action="store_true", help="remove --no-load and --index-only")
     memory_edit.add_argument("--shrink", action="store_true",
                              help="accept a text that drops over 20%% of the words, a sentence or a link")
     memory_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)

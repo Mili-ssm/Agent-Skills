@@ -67,7 +67,7 @@ class Memory:
     general: str | None = None  # handle of the global record a project record was generalized into
     short: str | None = None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
     topic: str | None = None  # one or two lowercase words that group rules
-    load: str | None = None  # "no": the owner turned this lesson's rule off
+    load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -305,7 +305,8 @@ def _parse(path: Path, scope: str) -> Memory:
         general = general if isinstance(general, str) and general.strip() else None
         short = meta.get("short") if valid_short(meta.get("short")) else None  # a bad value reads as absent
         topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
-        load = "no" if meta.get("load") == "no" or meta.get("load") is False else None  # YAML reads a bare no as False; 0 is not no
+        raw_load = meta.get("load")
+        load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
         try:
             owner_confirmed = _date(meta.get("owner_confirmed"), "owner_confirmed")
         except ValueError:  # a bad value must not hide the memory
