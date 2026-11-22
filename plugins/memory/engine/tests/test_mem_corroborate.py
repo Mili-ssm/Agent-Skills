@@ -1513,10 +1513,53 @@ def test_a_fill_that_raises_after_a_code_refusal_still_counts_the_attempt(w, mon
 
     monkeypatch.setattr(mod, "apply_fill", boom)
     for _ in range(2):
-        with pytest.raises(RuntimeError):
-            auto(w, mod)
+        assert auto(w, mod)["stopped"] == "the apply failed"
     assert count_of(w, NARROW) == [2]
-    assert count_of(w, OTHER) == []   # nothing of it was written, so it is not spent
+    assert count_of(w, OTHER) == [2]   # it passed the checks but was not written: its apply did not complete
+
+
+def _breaking_apply(w, monkeypatch):
+    mod = corr_module()
+
+    def boom(*_args, **_kw):
+        raise RuntimeError("apply broke")
+
+    monkeypatch.setattr(mod, "apply_fill", boom)
+    return mod
+
+
+def test_a_general_lesson_refused_by_code_in_two_runs_with_a_failing_apply_is_held_at_triage(w, monkeypatch):
+    g = fill_world(w)
+    answers(w, monkeypatch, shorts={GCLAIM: "Always read the whole failing test output before changing code."})
+    mod = _breaking_apply(w, monkeypatch)
+    assert auto(w, mod)["to_triage"] == 0
+    second = auto(w, mod)
+    assert (second["stopped"], second["to_triage"]) == ("the apply failed", 1)
+    (gl,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert gl.triage == "pending" and gl.triage_reason == 'the short form says "always" and the claim does not'
+
+
+def test_a_failing_apply_three_times_in_a_row_makes_the_step_wait(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    mod = _breaking_apply(w, monkeypatch)
+    # two attempts per lesson end the asking sooner than three failures could, so the attempts are cleared between
+    # runs: what is under test is the failure count on the same lessons
+    for n in range(corroborate.FILL_FAILURES):
+        assert auto(w, mod)["stopped"] == "the apply failed"
+        state = attempts(w)
+        assert state["failures"]["count"] == n + 1
+        auto_state.write_json(w.cdir / "fill-attempts.json", {**state, "lessons": {}})
+    before = calls(w)
+    result = auto(w, mod)
+    assert result["stopped"] == "waiting for the lessons to change" and calls(w) == before
+
+
+def test_an_item_that_passed_the_checks_before_a_failing_apply_has_one_attempt(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    assert auto(w, _breaking_apply(w, monkeypatch))["stopped"] == "the apply failed"
+    assert count_of(w, NARROW) == [1]
 
 
 def test_a_fill_that_raises_after_writing_marks_what_was_written_as_spent(w, monkeypatch):
@@ -1530,8 +1573,7 @@ def test_a_fill_that_raises_after_writing_marks_what_was_written_as_spent(w, mon
         raise RuntimeError("after the write")
 
     monkeypatch.setattr(mod, "apply_fill", write_then_break)
-    with pytest.raises(RuntimeError):
-        auto(w, mod)
+    assert auto(w, mod)["stopped"] == "the apply failed"
     assert by_claim(w, NARROW).short == SHORTS[NARROW]
     assert count_of(w, NARROW) == [corroborate.FILL_ATTEMPTS]
     records.update(by_claim(w, NARROW), TODAY, short=None, topic=None)   # the owner removes it

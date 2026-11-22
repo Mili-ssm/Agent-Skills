@@ -1073,38 +1073,43 @@ def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) ->
         items.append({"id": i, "handle": m.handle, "scope": "global" if project is None else names.get(project, str(project)),
                       "claim": m.claim, "short": fields["short"], "topic": fields["topic"], "claim_digest": digests[i]})
     applied: list[str] = []
-    done = None
-    try:
-        if items:
-            run = _fill_run_folder(cdir)
+    apply_failed = False
+    if items:
+        run = _fill_run_folder(cdir)
+        try:
             done = apply_fill(items, run, user_read=False)
+        except Exception:   # an apply that raised is an outcome: what reached the records is read back from them
+            apply_failed = True
+            applied = _written_ids(items)
+            for x in items:
+                if x["id"] not in applied:
+                    reason[x["id"]] = APPLY_REFUSAL
+        else:
             applied = done["applied"]
             for i in done["refused"]:
                 reason[i] = APPLY_REFUSAL
             write_private(run / "applied.json", json.dumps([by_id[i].handle for i in applied]))
             result["written"], result["dropped"], result["left"] = done["written"], done["dropped"], done["failed"]
-    finally:
-        # what is written is spent and what was refused is counted, even when a step above raised
-        if items and done is None:
-            applied = _written_ids(items)
-        for i in applied:
-            state["lessons"][keys[i]] = {"digest": digests[i], "count": corroborate.FILL_ATTEMPTS}
-        holds: list[tuple[str, str]] = []
-        for i, why in reason.items():
-            old = state["lessons"].get(keys[i])
-            count = (old.get("count") if isinstance(old, dict) and old.get("digest") == digests[i]
-                     and isinstance(old.get("count"), int) else 0) + 1
-            state["lessons"][keys[i]] = {"digest": digests[i], "count": count}
-            if count >= corroborate.FILL_ATTEMPTS:
-                holds.append((i, why))
+    for i in applied:
+        state["lessons"][keys[i]] = {"digest": digests[i], "count": corroborate.FILL_ATTEMPTS}
+    holds: list[tuple[str, str]] = []
+    for i, why in reason.items():
+        count = corroborate.attempt_count(state["lessons"].get(keys[i]), digests[i]) + 1
+        state["lessons"][keys[i]] = {"digest": digests[i], "count": count}
+        if count >= corroborate.FILL_ATTEMPTS:
+            holds.append((i, why))
+    if apply_failed:
+        failures["count"] += 1
+        failures["fingerprint"] = fingerprint
+    else:
         failures["count"], failures["fingerprint"] = 0, None
-        save_state()
+    save_state()
     for i, why in holds:
         if where[i] is None and _hold(by_id[i].handle, why, cdir, gfolder):
             result["to_triage"] += 1
         else:
             result["left"] += 1
-    return finish()
+    return finish(stopped="the apply failed") if apply_failed else finish()
 
 
 def _written_ids(items: list[dict]) -> list[str]:

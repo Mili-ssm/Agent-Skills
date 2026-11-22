@@ -326,10 +326,7 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
                 and not (records.valid_short(m.short) and records.valid_topic(m.topic))):
             continue
         if attempts is not None:
-            spent = attempts.get(fill_key(p, m.handle))
-            count = spent.get("count") if isinstance(spent, dict) else None
-            if isinstance(spent, dict) and spent.get("digest") == claim_digest(m) and (
-                    count if isinstance(count, int) and not isinstance(count, bool) else 0) >= FILL_ATTEMPTS:
+            if attempt_count(attempts.get(fill_key(p, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS:
                 continue
             if p is not None and m.weight == "strong" and m.owner_confirmed is None:
                 continue
@@ -337,6 +334,14 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
     found.sort(key=lambda x: (x[1].owner_confirmed is None, -len(records.projects(x[1])),
                               -len(records.sessions(x[1])), x[0]))
     return found[:cap]
+
+
+def attempt_count(entry: object, digest: str) -> int:
+    """Attempts stored for a lesson on this claim digest; anything malformed (a bool included) reads as zero."""
+    if not isinstance(entry, dict) or entry.get("digest") != digest:
+        return 0
+    count = entry.get("count")
+    return count if isinstance(count, int) and not isinstance(count, bool) else 0
 
 
 def claim_digest(m: records.Memory) -> str:

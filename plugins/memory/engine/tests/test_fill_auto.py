@@ -117,6 +117,13 @@ def test_a_non_numeric_stored_count_counts_as_zero(world):
         assert [x.handle for _i, x in world.candidates(attempts=attempts)] == [m.handle]
 
 
+def test_attempt_count_reads_a_bool_or_a_foreign_digest_as_zero():
+    assert corroborate.attempt_count({"digest": "d", "count": True}, "d") == 0
+    assert corroborate.attempt_count({"digest": "x", "count": 2}, "d") == 0
+    assert corroborate.attempt_count(None, "d") == 0
+    assert corroborate.attempt_count({"digest": "d", "count": 2}, "d") == 2
+
+
 def test_a_strong_project_lesson_with_three_sessions_waits_for_the_owner(world):
     strong = records.write_memory(world.folder, "project", kind="lesson", claim="Invented strong lesson about pinning a tool version.",
                                   body="b\n", today=TODAY, sources=["session a", "session b", "session c"], origin="transcript",
