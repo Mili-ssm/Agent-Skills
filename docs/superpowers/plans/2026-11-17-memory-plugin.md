@@ -4,7 +4,7 @@ Goal: sessions in any repository, and their subagents, recall from and write to 
 
 Each stage is installable and revertible on its own, ends with the owner's review, and gets its own task plan (Superpowers `writing-plans`) and one `pre-mortem` when it starts, not before: a detailed plan written now would be stale by then. Code is written on a branch of this repository and pushed; tests that write use a disposable copy of the notes, never the note repository itself.
 
-## Current state and where to resume (2026-11-19)
+## Current state and where to resume (2026-11-22)
 
 Read this section first; the stage list below is the history and the detail. Check it against `git log --oneline --merges origin/dev`, because it drifts.
 
@@ -12,7 +12,7 @@ Read this section first; the stage list below is the history and the detail. Che
 | --- | --- |
 | Released | `memory` 0.4.1 (tag `memory-v0.4.1`, 2026-11-22: background commands find the global memories folder); 0.4.0 (2026-11-22: corroboration pass, quarantine, triage, sweep of sessions left open); 0.3.0 (2026-11-22: handoff block, transcript records, background capture behind `auto_capture`; 0.2.0 and 0.1.0 on 2026-11-19; ADR 0027): work merges into `dev`, a release into `main` |
 | Merged | Stages 0 to 3, 5, 5b, 6, the import of stage 7, stage 10 (PR #119), edit commands (#121), store history in git (#122), prompts and loop (#123), descriptions (#126), the seamless plan's stages W, 1a, 1b and 2 (#128, #129, #136 to #139) |
-| Installed | `memory@mili-ssm` 0.1.0 at user scope, following `main`; options `auto_settle` and `auto_curation` on, `research_depth` unset (`contrast`) |
+| Installed | `memory@mili-ssm` 0.4.1 at user scope, following `main` (2026-11-22); options `auto_settle`, `auto_curation` and `auto_capture` on, `research_depth` unset (`contrast`) |
 | Default store | The owner's imported notes plus everything written since; its `check` reports 29 broken links to documents of the origin that were not imported; no remote yet |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1248 passed, 4 skipped on `dev` (2026-11-19, about 100 s); `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (UTC date in the curation log) |
 | Compaction | `PreCompact` asks for a handoff block; `PostCompact` logs one line per compaction and speaks only when the block is missing or names a missing plan file ([plan](2026-11-21-memory-handoff-and-compact-log.md)); outcome metrics in `docs/studies/scripts/memory_usage.py` |
@@ -20,7 +20,11 @@ Read this section first; the stage list below is the history and the detail. Che
 | Not registered | The signal hook of stage 6 (measured: no gain) |
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
-Next, in the owner's order (2026-11-19):
+Next, by the owner's word of 2026-11-22: **capture stage B4**, loaded rules ([the capture design](../specs/2026-11-21-memory-capture-design.md), C18 and C19, phase B4): what loads an established lesson at session start under a token limit, and how the usefulness of a released lesson is read (the `released` date separates sightings before and after it was readable; no counter of evidence against a lesson exists yet). Start with its design, then a plan and a pre-mortem; read [the B3 results](2026-11-22-memory-capture-corroboration.md#results) first, and `corroborate/log.jsonl` and `capture/log.jsonl` for what the first real runs did.
+
+Backlog, proposed by the owner on 2026-11-22 and not designed: **reminders**. A temporary record with an optional start date and an optional end date that is loaded by itself at session start while it is in effect and removed once it no longer is; it may hold for many sessions, or stay silent for some until it is due. Purpose: to trigger work in a later session or after several compactions (a refactoring, a project review, a check of the documentation, a look for new or updated studies). It overlaps B4, which also decides what loads at session start under a limit, so design them together.
+
+Before that, in the owner's order of 2026-11-19:
 
 1. **Seamless stage 3**, integration and sibling updates ([the seamless plan](2026-11-17-memory-seamless.md#stage-3-integration-and-sibling-updates)): design, pre-mortem, then tasks.
 2. **Real use** feeds **stage 4**, the kill read, around 2026-12-01, written into ADR 0023 as a `## Review`.
