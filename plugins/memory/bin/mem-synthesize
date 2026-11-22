@@ -68,6 +68,7 @@ def session_env(store: Path) -> dict:
            if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT") and not k.startswith("CLAUDE_PLUGIN_OPTION_")}
     env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p)
     env["MEM_STORE"] = str(store)
+    env["MEM_BACKGROUND"] = "1"  # `mem remind` refuses: no background session writes a reminder
     return env
 
 

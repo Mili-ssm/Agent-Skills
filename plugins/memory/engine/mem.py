@@ -41,6 +41,7 @@ import corroborate
 import handoff
 import project_syntheses
 import records
+import reminders
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
 import session_count
 import settle
@@ -52,7 +53,7 @@ _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
                     "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
-                    "project-synthesis")
+                    "project-synthesis", "remind", "reminders", "reminder")
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -3504,6 +3505,133 @@ def cmd_remember(args: argparse.Namespace) -> int:
         settle_state.maybe_start(folder, store, os.environ, time.time(), today)
     return 0
 
+_REMINDER_RULE = ("Low effort and low risk: do the work after the current task and say so. Otherwise name it to the owner "
+                  "and propose it before starting. Then: mem reminder done <handle> --note \"<what was done>\", "
+                  "or snooze, or close.")
+
+
+def _reminder_key(r: reminders.Reminder, project: Path | None) -> str:
+    """The name of a reminder in the session count file."""
+    return f"{r.scope}:{records.project_key(project) if r.scope == 'project' and project else 'global'}:{r.handle}"
+
+
+def _reminder_folders(global_only: bool = False, store: Path | None = None) -> list[tuple[str, Path | None]]:
+    project = None if global_only else records.project_root(Path.cwd(), os.environ)
+    folders = [("project", records.project_dir(project) if project else None),
+               ("global", records.memories_root(os.environ, store))]
+    return folders[1:] if global_only else folders
+
+
+def _find_reminder(handle: str, global_only: bool) -> reminders.Reminder | None:
+    """A reminder by handle, with or without `r:`: the project first, then the global scope."""
+    handle = handle.removeprefix("r:")
+    for scope, folder in _reminder_folders(global_only):
+        for r in reminders.load(folder, scope):
+            if r.handle == handle:
+                return r
+    return None
+
+
+def _reminder_wait(r: reminders.Reminder, today: datetime.date, count: int) -> str:
+    parts = []
+    if r.after is not None and r.after > today:
+        parts.append(f"waits until {r.after.isoformat()}")
+    if r.in_sessions is not None and reminders.sessions_since(r, count) < r.in_sessions:
+        left = r.in_sessions - reminders.sessions_since(r, count)
+        parts.append(f"waits for {left} session{'s' if left != 1 else ''}")
+    text = " and ".join(parts) if parts else "due now"
+    if r.until is not None:
+        text += f"; ends {r.until.isoformat()}"
+    if r.every:
+        n, unit = reminders.parse_every(r.every)
+        text += f"; repeats every {n} {'day' if unit == 'd' else 'session'}{'s' if n != 1 else ''}"
+    return text
+
+
+def cmd_remind(args: argparse.Namespace) -> int:
+    if os.environ.get("MEM_BACKGROUND") == "1":
+        print("mem: a background session of the plugin may not write a reminder; nothing was written.", file=sys.stderr)
+        return 2
+    today = datetime.date.today()
+    topic, body = " ".join(args.topic.split()), args.body.strip()
+    if not topic or not body:
+        print("mem: the topic and the body must not be empty.", file=sys.stderr)
+        return 2
+    if args.after is not None and args.in_days is not None:
+        print("mem: use --after or --in-days, not both.", file=sys.stderr)
+        return 2
+    after = args.after if args.in_days is None else today + datetime.timedelta(days=args.in_days)
+    if args.is_global:
+        folder = records.memories_root(os.environ, _optional_store(args))
+        if folder is None:
+            print('mem: no folder for global memories: set the plugin\'s "memories" option, '
+                  'or MEM_MEMORIES, or use a store made with "mem init".', file=sys.stderr)
+            return 2
+        project, scope, key = None, "global", None
+    else:
+        project = records.project_root(Path.cwd(), os.environ)
+        if project is None:
+            print("mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
+                  file=sys.stderr)
+            return 2
+        folder, scope = records.project_dir(project), "project"
+        key = records.project_key(project)
+    if _refuse_secret([topic, body]):
+        return 4
+    if args.is_global:
+        refused = _check_terms([topic, body, records.slug_of(topic)], "lesson", args.owner_approved)
+        if refused:
+            return refused
+    live = sum(1 for r in reminders.load(folder, scope) if reminders.is_live(r, today))
+    if live >= reminders.LIVE_LIMIT:
+        print(f"mem: {reminders.LIVE_LIMIT} reminders are live in this scope: finish or close one first (mem reminders)",
+              file=sys.stderr)
+        return 2
+    exclude_failed = False
+    if project is not None:
+        try:
+            records.ensure_excluded(project)
+        except OSError:
+            exclude_failed = True
+    count = session_count.count_for(session_count.read(data_dir(os.environ)), key)
+    try:
+        r = reminders.write(folder, scope, topic=topic, body=body, today=today, count=count, after=after,
+                            in_sessions=args.in_sessions, until=args.until, every=args.every, effort=args.effort,
+                            risk=args.risk)
+    except (ValueError, OSError) as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    _register_project(project)
+    print(f"r:{r.handle}\t{scope}\t{_reminder_wait(r, today, count)}")
+    if exclude_failed:
+        print("mem: could not add .memory/ to .git/info/exclude; the folder may appear in git status.", file=sys.stderr)
+    return 0
+
+
+def cmd_reminders(args: argparse.Namespace) -> int:
+    today = datetime.date.today()
+    state = session_count.read(data_dir(os.environ))
+    project = None if args.is_global else records.project_root(Path.cwd(), os.environ)
+    due, waiting = [], []
+    for scope, folder in _reminder_folders(args.is_global, _optional_store(args)):
+        count = session_count.count_for(state, records.project_key(project) if scope == "project" and project else None)
+        for r in reminders.load(folder, scope):
+            if reminders.is_live(r, today):
+                (due if reminders.is_due(r, today, count) else waiting).append((r, count))
+    if not due and not waiting:
+        print("No reminders.")
+        return 0
+    for r, count in due:
+        shown = session_count.showings(state, _reminder_key(r, project))
+        print(f"r:{r.handle}\t{r.scope}\t{r.topic}\teffort {r.effort}\trisk {r.risk}\t"
+              f"{reminders.sessions_since(r, count)} sessions since armed\tshown {shown}x\t{_reminder_wait(r, today, count)}")
+        print(f"  {' '.join(r.body.split())}")
+    for r, count in waiting:
+        print(f"r:{r.handle}\t{r.scope}\t{r.topic}\t{_reminder_wait(r, today, count)}")
+    if due:
+        print(_REMINDER_RULE)
+    return 0
+
 
 def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records.Memory] | None:
     """The named memories, all in one scope: the project's unless --global; None after a message on stderr.
@@ -6115,6 +6243,16 @@ def _today(value: str) -> datetime.date:
     return date
 
 
+def _reminder_count(value: str) -> int:
+    try:
+        n = int(value)
+    except ValueError:
+        n = 0
+    if not 1 <= n <= reminders.MAX_SESSIONS:
+        raise argparse.ArgumentTypeError(f"use a whole number from 1 to {reminders.MAX_SESSIONS}")
+    return n
+
+
 def _offset(value: str) -> int:
     n = int(value)
     if n < 0:
@@ -6317,6 +6455,24 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     remember_parser.set_defaults(func=cmd_remember)
+    remind_parser = sub.add_parser("remind", help="write a reminder for a later session in the project or, with --global, in the global folder")
+    remind_parser.add_argument("topic")
+    remind_parser.add_argument("--body", required=True)
+    remind_parser.add_argument("--after", type=_today, default=None, metavar="YYYY-MM-DD")
+    remind_parser.add_argument("--in-days", type=_reminder_count, default=None, metavar="N",
+                               help="due N days from today (1 to 999); mem computes the date")
+    remind_parser.add_argument("--in-sessions", type=_reminder_count, default=None, metavar="N",
+                               help="due after N more sessions in this project (1 to 999)")
+    remind_parser.add_argument("--until", type=_today, default=None, metavar="YYYY-MM-DD", help="the reminder ends on this date")
+    remind_parser.add_argument("--every", metavar="Nd|Ns", help="repeat every N days or N sessions once done")
+    remind_parser.add_argument("--effort", choices=reminders.LEVELS, default="medium")
+    remind_parser.add_argument("--risk", choices=reminders.LEVELS, default="medium")
+    remind_parser.add_argument("--global", dest="is_global", action="store_true")
+    remind_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    remind_parser.set_defaults(func=cmd_remind)
+    reminders_parser = sub.add_parser("reminders", help="list the reminders that are due, then those that wait")
+    reminders_parser.add_argument("--global", dest="is_global", action="store_true", help="only the global ones")
+    reminders_parser.set_defaults(func=cmd_reminders)
     index_cmd = sub.add_parser("session-index", help="print the text that opens a session: usage rules and counts")
     index_cmd.add_argument("--hook", action="store_true",
                            help="read the hook's JSON from standard input (its cwd locates the project) and log the call")
