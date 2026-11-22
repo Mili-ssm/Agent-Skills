@@ -17,7 +17,13 @@ from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Protocol
 import yaml
 
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
-ORIGINS = ("web", "pipeline")
+ORIGINS = ("web", "pipeline", "transcript")
+REACHES = ("project", "general")
+WEIGHTS = ("light", "medium", "strong")
+# Distinct sessions that establish a transcript memory, by weight; a memory with no weight counts as medium.
+SIGHTINGS_NEEDED = {"light": 1, "medium": 2, "strong": 3}
+UNCONFIRMED_DAYS = 30
+SESSION_PREFIX = "session "
 STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
@@ -45,7 +51,9 @@ class Memory:
     promote: str | None = None
     refuted: datetime.date | None = None
     superseded_by: str | None = None
-    origin: str | None = None  # "web" or "pipeline"; None: written in a session
+    origin: str | None = None  # "web", "pipeline" or "transcript"; None: written in a session
+    reach: str | None = None  # "project" or "general": how far the lesson reaches
+    weight: str | None = None  # "light", "medium" or "strong": how much it weighs
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -258,7 +266,9 @@ def _parse(path: Path, scope: str) -> Memory:
         superseded_by = meta.get("superseded_by")
         superseded_by = str(superseded_by) if superseded_by else None
         origin = meta.get("origin") if meta.get("origin") in ORIGINS else None
-        return replace(base, origin=origin, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        reach = meta.get("reach") if meta.get("reach") in REACHES else None
+        weight = meta.get("weight") if meta.get("weight") in WEIGHTS else None
+        return replace(base, origin=origin, reach=reach, weight=weight, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -296,6 +306,10 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["sources"] = list(m.sources)
     if m.origin:
         meta["origin"] = m.origin
+    if m.reach:
+        meta["reach"] = m.reach
+    if m.weight:
+        meta["weight"] = m.weight
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -303,20 +317,32 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
 
 def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, today: datetime.date,
                  context: str | None = None, valid_until: datetime.date | None = None,
-                 sources: Sequence[str] = (), origin: str | None = None) -> Memory:
+                 sources: Sequence[str] = (), origin: str | None = None,
+                 reach: str | None = None, weight: str | None = None) -> Memory:
     if kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}")
     if origin is not None and origin not in ORIGINS:
         raise ValueError(f"unknown origin {origin!r}")
+    if reach is not None and reach not in REACHES:
+        raise ValueError(f"unknown reach {reach!r}")
+    if weight is not None and weight not in WEIGHTS:
+        raise ValueError(f"unknown weight {weight!r}")
     claim = claim.strip()
     if not claim:
         raise ValueError("claim is empty")
     if kind in ("finding", "document") and not sources:
         raise ValueError(f"a {kind} needs at least one source")
-    if kind == "finding":
+    sources = normalized_sources(sources)
+    if origin == "transcript":
+        # the standing decides the end date, before the per-kind defaults
         if valid_until is None:
-            valid_until = today + datetime.timedelta(days=90)
-    if kind == "state" and valid_until is None:
+            draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, sources, "", None,
+                           origin=origin, weight=weight)
+            if standing(draft) != "established":
+                valid_until = today + datetime.timedelta(days=UNCONFIRMED_DAYS)
+    elif kind == "finding" and valid_until is None:
+        valid_until = today + datetime.timedelta(days=90)
+    elif kind == "state" and valid_until is None:
         valid_until = today + datetime.timedelta(days=30)
     folder.mkdir(parents=True, exist_ok=True)
     base = slug_of(claim)
@@ -324,7 +350,8 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     while True:
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
-                   list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin)
+                   list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
+                   reach=reach, weight=weight)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))
@@ -368,6 +395,62 @@ def update(memory: Memory, today: datetime.date, **changes) -> Memory:
 
 def observe(memory: Memory, today: datetime.date) -> Memory:
     return update(memory, today, observed=memory.observed + 1, last_observed=today)
+
+
+MAX_SESSION_ID = 200  # characters of the id after "session "; longer is not a session
+
+
+def session_key(source: str) -> str | None:
+    """The normalized form of a session source (stripped, whitespace collapsed, lower-cased) when it is
+    "session <id>", else None: two spellings of one session are one key."""
+    key = " ".join(source.split()).lower()
+    if not key.startswith(SESSION_PREFIX) or len(key) == len(SESSION_PREFIX):
+        return None
+    return key if len(key) - len(SESSION_PREFIX) <= MAX_SESSION_ID else None
+
+
+def normalized_sources(sources: Iterable[str]) -> list[str]:
+    """Session entries in their normalized form, each once; other sources unchanged."""
+    return list(dict.fromkeys(session_key(s) or s for s in sources))
+
+
+def sessions(memory: Memory) -> list[str]:
+    """The distinct sessions of `sources` as normalized keys, in order."""
+    return list(dict.fromkeys(k for k in map(session_key, memory.sources) if k))
+
+
+def standing(memory: Memory) -> str | None:
+    """None unless the memory comes from a transcript; then "established" once enough distinct sessions show it
+    (by its weight), else "unconfirmed". Never computed from `observed`: a plain confirm, a merge and a curation
+    pass raise it without being independent evidence."""
+    if memory.origin != "transcript":
+        return None
+    needed = SIGHTINGS_NEEDED[memory.weight or "medium"]
+    return "established" if len(sessions(memory)) >= needed else "unconfirmed"
+
+
+def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None) -> tuple[Memory, bool]:
+    """Record that another session shows the memory: `session` is a full source entry ("session <id>").
+
+    Not a session entry: ValueError. Already counted (under any spelling): the memory unchanged and False, with no
+    write. Else the normalized entry is added, `observed` raised as `observe`
+    does and the note appended to the body; a transcript memory also gets its validity rule (established: no end
+    date; unconfirmed: 30 days from today, which revives a lapsed one)."""
+    key = session_key(session)
+    if key is None:
+        raise ValueError(f"{session!r} is not a session source: write it as 'session <id>'")
+    if key in sessions(memory):
+        return memory, False
+    sources = [*memory.sources, key]
+    changes: dict = {"sources": sources, "observed": memory.observed + 1, "last_observed": today}
+    if note and note.strip():
+        head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+        changes["body"] = f"{head}{' '.join(note.split())}\n"
+    if memory.origin == "transcript":
+        after = replace(memory, sources=sources)
+        changes["valid_until"] = (None if standing(after) == "established"
+                                  else today + datetime.timedelta(days=UNCONFIRMED_DAYS))
+    return update(memory, today, **changes), True
 
 
 def pairs(memories: Sequence[Memory], today: datetime.date, *,
@@ -521,6 +604,7 @@ def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, to
     """Items for a pass: live memories created after the last pass (counted only at 10, or at 1 once the pass is 14
     days old; with no pass yet, once the oldest live memory is) plus active memories past their valid_until (not those
     already past it on the day of the last pass: that pass dealt with them)."""
+    memories = [m for m in memories if standing(m) != "unconfirmed"]  # their own category in the queue
     live = [m for m in memories if is_live(m, today)]
     new = [m for m in live if last_pass is None or (m.created is not None and m.created > last_pass)]
     if last_pass is not None:
@@ -719,6 +803,15 @@ def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], toda
 STRONG = 0.6  # chosen on evals/signal/set.json by the rule in the stage 6 plan
 POSSIBLE = 0.5  # counted only, never named
 MIN_TERMS = 2
+
+
+_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def tokenize(text: str) -> list[str]:
+    """Lowercase [a-z0-9]+ tokens after NFKD with combining marks removed (García -> garcia)."""
+    decomposed = unicodedata.normalize("NFKD", text)
+    return _TOKEN.findall("".join(c for c in decomposed if not unicodedata.combining(c)).lower())
 
 
 def containment(claim_tokens: Iterable[str], text_tokens: Collection[str]) -> float:

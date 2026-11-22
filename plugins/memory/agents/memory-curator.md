@@ -23,6 +23,7 @@ You read the memory's curation queue so the main model does not have to, and you
    - `mem forget <h>`: expired and no longer true. `mem confirm <h> --until <date>`: expired but it still holds.
    - `mem promote <h>` or `mem promote --no <h>`: would it hold in any project?
    - `mem confirm <h>`: you checked it in the project's files and it holds.
+   - In a curation pass never run `mem confirm` on a record marked `from transcript, unconfirmed`: a pass has no new session to add, and only another session showing the lesson confirms it (the capture adds that session itself).
    - `leave`: you cannot tell. Say what would settle it.
    - Project synthesis parts to write, correct or confirm (the blocks under "project syntheses"): propose the `mem project-synthesis` command and what the part should say; you still write nothing.
    - `mem memory edit m:<h> --claim "<text>"`: the memory is wrong in a detail only.

@@ -24,6 +24,8 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | seen 3 times or more | A candidate for a general lesson | Would hold in any project: `mem promote <h>` prints a draft; rewrite the claim in general terms with no name of a project, system, client or person, run it, then `mem promote --done <h>`. Only true here: `mem promote --no <h>` |
 | not confirmed in 90 days | An old lesson, pitfall or finding nobody confirmed | Check it against the project if that is cheap. Still true: `mem confirm <h>`. False: `mem refute <h> --because "<why>"`. Cannot tell: leave it |
 
+In a curation pass never run `mem confirm` on a record marked `from transcript, unconfirmed`: a pass has no new session to add, and only another session showing the lesson confirms it (the capture adds that session itself).
+
 ## Notes
 
 `mem curate --notes` is the same pass for notes in the store. Notes are written loose; this is where they are joined up.

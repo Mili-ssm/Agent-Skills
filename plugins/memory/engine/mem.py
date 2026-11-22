@@ -36,8 +36,11 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Seque
 import yaml
 
 import auto_state
+import capture_state
+import handoff
 import project_syntheses
 import records
+from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
 import settle
 import settle_state
 import store_git
@@ -46,7 +49,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "signal", "projects",
+                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
                     "project-synthesis")
 
 
@@ -1457,13 +1460,6 @@ RECALL_TRIGGER = 0.8  # below these, revisit the search design (C-6 in docs/requ
 MRR_TRIGGER = 0.6
 FIELD_WEIGHTS = {"title": 8.0, "body": 1.0}
 FIELD_B = {"title": 0.3, "body": 0.75}
-_TOKEN = re.compile(r"[a-z0-9]+")
-
-
-def tokenize(text: str) -> list[str]:
-    """Lowercase [a-z0-9]+ tokens after NFKD with combining marks removed (García -> garcia)."""
-    decomposed = unicodedata.normalize("NFKD", text)
-    return _TOKEN.findall("".join(c for c in decomposed if not unicodedata.combining(c)).lower())
 
 
 def _fields(note: Note) -> dict[str, str]:
@@ -2731,7 +2727,9 @@ def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
 
 
 def _unconfirmed(m: records.Memory) -> str:
-    """A web finding is unchecked until a second source confirms it."""
+    """A web finding is unchecked until a second source confirms it; a transcript memory until another session shows it."""
+    if m.origin == "transcript":
+        return ", from transcript, unconfirmed" if records.standing(m) == "unconfirmed" else ", from transcript"
     return ", web, unconfirmed" if m.origin == "web" else ""
 
 
@@ -3162,6 +3160,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notices = []
         for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
                      lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
+                     lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
                      lambda: settle_state.settled_line(memories)):
             try:
                 found = make()
@@ -3180,6 +3179,41 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         source = data.get("source")
         _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
                    "ms": int((time.monotonic() - started) * 1000), "chars": len(text)})
+    return 0
+
+
+_COMPACT_PARSE_LIMIT = 1_000_000
+_COMPACT_OUT_LIMIT = 300
+_SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
+def cmd_compact_log(args: argparse.Namespace) -> int:
+    """Never fails and prints nothing on bad input. Prints the handoff mismatch lines and logs counts only."""
+    started = time.monotonic()
+    try:
+        data = _hook_input() if args.hook else {}
+        summary = data.get("compact_summary")
+        if not isinstance(summary, str):
+            return 0
+        text = summary[:_COMPACT_PARSE_LIMIT]
+        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
+        if not cwd.is_dir():
+            cwd = Path.cwd()
+        found = handoff.parse(text)
+        lines = handoff.mismatches(found, cwd)
+        trigger, session = data.get("trigger"), data.get("session_id")
+        if lines:
+            print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
+        if args.hook:
+            _log_hook({"hook": "post-compact", "trigger": trigger if trigger in ("manual", "auto") else None,
+                       "session": session if isinstance(session, str) and _SESSION_ID.fullmatch(session) else None,
+                       "chars": len(summary), "marker": handoff.has_marker(text),
+                       "handoff": [f for f in handoff.FIELDS if f in found],
+                       "plan_named": handoff.names_plan(found.get("plan", "")),
+                       "unrecorded": handoff.unrecorded(text), "mismatches": len(lines),
+                       "ms": int((time.monotonic() - started) * 1000)})
+    except Exception:
+        pass
     return 0
 
 
@@ -3296,6 +3330,27 @@ def _refuse_secret(texts: Sequence[str]) -> bool:
     return True
 
 
+def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, today: datetime.date, folder: Path,
+                   project: Path | None) -> bool:
+    """An identical claim from another session: when both the existing record and this call come from a transcript,
+    the session goes onto the existing record. True when the call was handled (the caller still exits 3)."""
+    keys = [k for k in map(records.session_key, args.source) if k]
+    target = next((m for m in same if m.origin == "transcript"), None)
+    if target is None or getattr(args, "origin", None) != "transcript" or not keys:
+        return False
+    added = False
+    for key in keys:
+        if key in records.sessions(target):
+            print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
+            continue
+        records.log_before(target, "confirm")
+        target, _ = records.add_sighting(target, key, today)
+        added = True
+        print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
+    print(f"m:{target.handle}\t{'sighting' if added else 'already counted'}")
+    return True
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3344,12 +3399,26 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                args.kind, args.owner_approved)
         if refused:
             return refused
+    from_session = getattr(args, "origin", None) == "transcript" and any(map(records.session_key, args.source))
+    if getattr(args, "origin", None) == "transcript" and args.valid_until is not None:
+        draft = records.Memory(scope, folder, "", args.kind, args.claim, today, 1, "active", None, None,
+                               records.normalized_sources(args.source), "", None, origin="transcript",
+                               weight=getattr(args, "weight", None))
+        if records.standing(draft) != "established":
+            print(f"mem: --valid-until is refused: the life of a record from a transcript is "
+                  f"{records.UNCONFIRMED_DAYS} days from the last session that showed it.", file=sys.stderr)
+            return 2
     claim_tokens = tokenize(args.claim)
     existing = records.load_memories(folder, scope)
     live = [m for m in existing if records.is_live(m, today)]
     if not args.force:
-        same = [m for m in live if _same_claim(m.claim, args.claim)]
+        lapsed = [m for m in existing if from_session and m.error is None and m.status == "active"
+                  and m.origin == "transcript" and m not in live]
+        same = [m for m in live + lapsed if _same_claim(m.claim, args.claim)]
         if same:
+            seen = _add_sightings(same, args, today, folder, project)
+            if seen:
+                return 3
             for m in same:
                 print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
             print(f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
@@ -3365,7 +3434,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
     try:
         m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
                                  context=args.context, valid_until=args.valid_until, sources=args.source,
-                                 origin=getattr(args, "origin", None))
+                                 origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
+                                 weight=getattr(args, "weight", None))
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3463,7 +3533,20 @@ def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list
     return 0
 
 
+def _add_plain_source(memory: records.Memory, source: str, today: datetime.date, note: str | None) -> records.Memory:
+    """A source (URL, path or session) appended once to a memory that is not from a transcript, with the note."""
+    changes: dict = {}
+    if source not in memory.sources:
+        changes["sources"] = [*memory.sources, source]
+    if note and note.strip():
+        head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+        changes["body"] = f"{head}{' '.join(note.split())}\n"
+    return records.update(memory, today, **changes) if changes else memory
+
+
 def cmd_confirm(args: argparse.Namespace) -> int:
+    repeated: list[bool] = []
+
     def apply(found, today):
         until = getattr(args, "until", None)
         if until is not None:
@@ -3471,12 +3554,40 @@ def cmd_confirm(args: argparse.Namespace) -> int:
                 until = datetime.date.fromisoformat(until)
             except ValueError:
                 raise ValueError(f"--until needs a date as YYYY-MM-DD, not {until!r}") from None
+        source = getattr(args, "source", None)
+        if source is None and getattr(args, "note", None):
+            raise ValueError("--note needs --source")
+        from_transcript = found[0].origin == "transcript"
+        key = records.session_key(source) if source is not None else None
+        if source is not None and not source.strip():
+            raise ValueError("--source is empty")
+        if source is not None and from_transcript and key is None:
+            raise ValueError(f"--source takes a session ('session <id>'), not {source!r}")
+        if until is not None and records.standing(found[0]) == "unconfirmed":
+            raise ValueError("a record from a transcript is confirmed only by another session showing it: "
+                             "use --source 'session <id>', not --until")
+        if source is not None and found[0].status != "active":
+            raise ValueError(f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory")
+        seen = {records.session_key(s) or s.strip() for s in found[0].sources}
+        if source is not None and (key or source.strip()) in seen:
+            repeated.append(True)
+            if until is None:
+                return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
+            records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set
+            records.update(found[0], today, valid_until=until)
+            return [f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"]
         records.log_before(found[0], "confirm")
-        updated = records.observe(found[0], today)
+        if source is not None and from_transcript:
+            updated, _ = records.add_sighting(found[0], source, today, args.note)
+        else:
+            updated = records.observe(found[0], today)
+            if source is not None:
+                updated = _add_plain_source(updated, source.strip(), today, args.note)
         if until is not None:
             updated = records.update(updated, today, valid_until=until)
         return [f"m:{updated.handle}\tobserved {updated.observed}"]
-    return _act(args, [args.handle], apply, args.command)
+    code = _act(args, [args.handle], apply, args.command, because=getattr(args, "note", None))
+    return 3 if code == 0 and repeated else code
 
 
 def _text_change(found: list[records.Memory], key: str, heading: str, because: str | None, today: datetime.date,
@@ -3603,6 +3714,15 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
     changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
     if drop.body.strip():
         changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
+    if "transcript" in (keep.origin, drop.origin):  # a session must survive the merge, whichever record holds it
+        sources = records.normalized_sources([*keep.sources, *drop.sources])
+        changes["sources"] = sources
+        if keep.origin == "transcript":
+            after = dataclasses.replace(keep, sources=sources)
+            if records.standing(after) == "established":
+                changes["valid_until"] = None  # enough sessions now: no end date
+            elif len(records.sessions(after)) > len(records.sessions(keep)):
+                changes["valid_until"] = today + datetime.timedelta(days=records.UNCONFIRMED_DAYS)
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
@@ -4263,7 +4383,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
         out.append("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
         for a, b, _ in same:
             out += [_tagged(a), _tagged(b), f"  differ in: {', '.join(records.differing_words(a.claim, b.claim))}"]
-    expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today]
+    unconfirmed = {m.handle for m in every if records.standing(m) == "unconfirmed"}  # their own category below
+    expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today
+               and m.handle not in unconfirmed]
     if expired:
         out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
         out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
@@ -4271,11 +4393,18 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if frequent:
         out.append(f"seen {_FREQUENT} times or more: general enough for a note? (mem promote <h>)")
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
-    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None
+    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
              and max(m.created, m.last_observed or m.created) <= cutoff]
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
+    waiting = [m for m in live if m.handle in unconfirmed]
+    if waiting:
+        out.append("from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
+                   "when another session shows it)")
+        for m in waiting:
+            n = len(records.sessions(m))
+            out.append(f"  m:{m.handle}  {m.weight or 'medium'}, {n} session{'' if n == 1 else 's'}  {_flat(m.claim)}")
     if not args.is_global:
         out += _curate_project_syntheses(scopes, today)
     if out:
@@ -6022,7 +6151,11 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
     remember_parser.add_argument("--origin", choices=records.ORIGINS,
-                                 help="where the claim came from when not a session: a web finding or a pipeline's write")
+                                 help="where the claim came from when not a session: web (a finding), pipeline (a pipeline's write) "
+                                      "or transcript (a lesson captured from a session transcript)")
+    remember_parser.add_argument("--reach", choices=records.REACHES, help="how far the lesson reaches")
+    remember_parser.add_argument("--weight", choices=records.WEIGHTS,
+                                 help="how much it weighs: light needs 1 session to be established, medium 2, strong 3")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
@@ -6033,6 +6166,9 @@ def build_parser() -> argparse.ArgumentParser:
     index_cmd.add_argument("--list", type=int, default=0, metavar="N",
                            help="also list up to N of the project's newest memories")
     index_cmd.set_defaults(func=cmd_session_index)
+    compact_cmd = sub.add_parser("compact-log", help="check the handoff block of a compaction summary and log counts")
+    compact_cmd.add_argument("--hook", action="store_true", help="read the hook's JSON from standard input")
+    compact_cmd.set_defaults(func=cmd_compact_log)
     signal_cmd = sub.add_parser("signal", help="print the records related to a brief read from standard input")
     signal_cmd.add_argument("--hook", action="store_true",
                             help="read a PreToolUse hook's JSON from standard input and print the brief with the signal appended")
@@ -6052,6 +6188,9 @@ def build_parser() -> argparse.ArgumentParser:
                        ("observe", "alias of confirm")):
         confirm_parser = memory_command(name, text, "handle")
         confirm_parser.add_argument("--until", metavar="YYYY-MM-DD", help="also set valid_until to this date")
+        confirm_parser.add_argument("--source", metavar="'session ID'",
+                                    help="another session shows it: add it as a source (exit 3 when already one)")
+        confirm_parser.add_argument("--note", metavar="TEXT", help="with --source: a line added to the body")
         confirm_parser.set_defaults(func=cmd_confirm)
     memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
     memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
