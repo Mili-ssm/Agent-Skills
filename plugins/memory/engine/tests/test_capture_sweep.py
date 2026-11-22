@@ -252,3 +252,101 @@ def test_a_run_that_used_the_model_counts(world, mod, monkeypatch):
     make(world, "idle")
     start(mod, world, monkeypatch)
     assert capture_state.sweeps_today(world.data, time.time()) == 1
+
+
+def plain_project(w):
+    other = w.tmp / "plain"
+    other.mkdir(exist_ok=True)
+    return other
+
+
+def test_r2_r4_files_without_a_memory_folder_do_not_hide_an_older_valid_one(world, mod, monkeypatch):
+    other = plain_project(world)
+    make(world, "new1", age=DAY, cwd=other)
+    make(world, "new2", age=DAY * 1.1, cwd=other)
+    make(world, "old", age=DAY * 3)
+    start(mod, world, monkeypatch)
+    assert swept(world) == ["old"]
+    reads = spy_reads(mod, monkeypatch)
+    start(mod, world, monkeypatch)
+    assert reads == []   # the two settled files and the swept one cost one stat each
+    for name in ("new1", "new2"):
+        assert capture_state.swept_size(world.data, name) == (world.transcript.parent / f"{name}.jsonl").stat().st_size
+    assert capture_state.sweeps_today(world.data, time.time()) == 1
+
+
+def test_r2_r3_unchanged_files_are_not_examined(world, mod, monkeypatch):
+    for n in range(11):
+        path = make(world, f"s{n:02d}", age=DAY * (1 + n / 100))
+        capture_state.save_swept_size(world.data, path.stem, path.stat().st_size)
+    make(world, "old", age=DAY * 3)
+    reads = spy_reads(mod, monkeypatch)
+    start(mod, world, monkeypatch)
+    assert swept(world) == ["old"] and {stem for _n, stem in reads} == {"old"}
+
+
+def test_r3_r8_twelve_files_that_need_a_run_use_two_slots(world, mod, monkeypatch):
+    for n in range(12):
+        make(world, f"s{n:02d}", age=DAY * (1 + n / 100))
+    start(mod, world, monkeypatch)
+    assert swept(world) == ["s00", "s01"] and capture_state.sweeps_today(world.data, time.time()) == 2
+
+
+def test_r3_r8_twelve_files_that_settle_without_a_run_are_ten_examined(world, mod, monkeypatch):
+    other = plain_project(world)
+    for n in range(12):
+        make(world, f"s{n:02d}", cwd=other, age=DAY * (1 + n / 100))
+    reads = spy_reads(mod, monkeypatch)
+    start(mod, world, monkeypatch)
+    assert {stem for _n, stem in reads} == {f"s{n:02d}" for n in range(10)}
+    assert capture_state.sweeps_today(world.data, time.time()) == 0 and swept(world) == []
+
+
+def test_r6_r7_a_too_short_file_is_settled_and_uses_no_slot(world, mod, monkeypatch):
+    short = make(world, "short", age=DAY, spec="OAOAAAAAAAAA")   # 2 owner lines: too short for a window
+    make(world, "b", age=DAY * 2)
+    make(world, "c", age=DAY * 3)
+    start(mod, world, monkeypatch)
+    assert swept(world) == ["short", "b", "c"]
+    assert capture_state.swept_size(world.data, "short") == short.stat().st_size
+    assert capture_state.sweeps_today(world.data, time.time()) == 2   # only b and c ran a model session
+
+
+def test_r6_a_run_without_claude_uses_no_slot(world, mod, monkeypatch):
+    for n in range(3):
+        make(world, f"s{n}", age=DAY * (1 + n / 10))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"transcript_path": str(world.transcript)})))
+    mod.sweep(None)
+    assert swept(world) == ["s0", "s1", "s2"]   # a third file was tried: no slot was used up
+    assert capture_state.sweeps_today(world.data, time.time()) == 0
+    assert all(capture_state.swept_size(world.data, f"s{n}") is None for n in range(3))
+
+
+def test_r5_a_held_lock_ends_the_sweep_soon_and_settles_nothing(world, mod, monkeypatch):
+    for n in range(3):
+        make(world, f"s{n}", age=DAY * (1 + n / 10))
+    monkeypatch.delenv("MEM_CAPTURE_LOCK_WAIT", raising=False)
+    monkeypatch.setattr(capture_state, "SWEEP_LOCK_WAIT_SECONDS", 1)
+    fd = capture_state.auto_state.take_run_lock(world.cdir)
+    began = time.time()
+    try:
+        start(mod, world, monkeypatch)
+    finally:
+        os.close(fd)
+    assert time.time() - began < 15
+    assert [x["skipped"] for x in log_lines(world)] == ["another capture is running"] * 3   # no slot was used
+    assert capture_state.sweeps_today(world.data, time.time()) == 0
+    assert all(capture_state.swept_size(world.data, f"s{n}") is None for n in range(3))
+
+
+def test_r7_a_failing_run_is_not_settled_and_is_retried(world, mod, monkeypatch):
+    path = make(world, "idle")
+    monkeypatch.setenv("FAKE_MODE", "exit1")
+    start(mod, world, monkeypatch)
+    assert capture_state.swept_size(world.data, "idle") is None and capture_state.read_session(world.data, "idle")["offset"] == 0
+    assert capture_state.sweeps_today(world.data, time.time()) == 1   # a model session ran, though it left no cost
+    monkeypatch.setenv("FAKE_MODE", "good")
+    start(mod, world, monkeypatch)
+    assert swept(world) == ["idle", "idle"]
+    assert capture_state.read_session(world.data, "idle")["offset"] == 12
+    assert capture_state.swept_size(world.data, "idle") == path.stat().st_size

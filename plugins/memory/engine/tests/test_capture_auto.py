@@ -529,3 +529,14 @@ def au_lock_free(world):
         return False
     os.close(fd)
     return True
+
+
+@pytest.mark.parametrize("trigger", ["pre-compact", "session-end"])
+def test_the_older_triggers_keep_their_lock_wait(world, monkeypatch, trigger):
+    module = load_capture(monkeypatch, world, world.tmp / "started")
+    monkeypatch.delenv("MEM_CAPTURE_LOCK_WAIT", raising=False)
+    asked = []
+    real = module.seconds_env
+    monkeypatch.setattr(module, "seconds_env", lambda name, default: (asked.append((name, default)), real(name, default))[1])
+    module.auto_run(trigger, world.transcript, world.project, str(world.fake))
+    assert ("MEM_CAPTURE_LOCK_WAIT", capture_state.LOCK_WAIT_SECONDS) in asked and capture_state.LOCK_WAIT_SECONDS == 900

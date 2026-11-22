@@ -51,6 +51,7 @@ DEFAULT_MODEL = "haiku"
 SESSION_TIMEOUT = 600
 MAX_CANDIDATES_BYTES = 1_000_000
 MIN_OWNER_LINES = 3
+CWD_SCAN_LINES = 200   # lines of a transcript the sweep reads to find its working folder
 RULES_LIMIT = 30_000
 LAPSED_DAYS = 60   # a lapsed unconfirmed transcript memory can still be revived by a new sighting this long
 MEM = HERE / "mem"
@@ -328,7 +329,7 @@ def run_window(transcript: Path, out_path: Path, project: Path | None, since_lin
     env = os.environ if project is None else {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     project = records.project_root(given, env) or given
     since = max(since_line, 0)
-    out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
+    out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None, "modeled": False,
            "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "more": False, "lines": capture.counts(""),
                        "rules_chars": 0, "rules_cut": False},
            "candidates": [], "dropped": [], "reason": None, "project": project.name}
@@ -397,6 +398,7 @@ def run_window(transcript: Path, out_path: Path, project: Path | None, since_lin
         except OSError as exc:
             out["reason"] = f"cannot start claude ({claude}): {exc.strerror or exc}"
             return finish(1)
+        out["modeled"] = True   # a model session ran, whatever its end
         out["cost"] = done["cost"] if done["has_result"] else None
         if not done["has_result"]:
             out["reason"] = "the session ended without a cost report"
@@ -513,17 +515,20 @@ def start_corroboration(claude: str | None) -> None:
         pass
 
 
-def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> dict | None:
+def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None,
+             lock_wait: float = cs.LOCK_WAIT_SECONDS) -> dict | None:
     """The whole of `auto` for one transcript; see the module docstring. Never raises and never prints.
+    `lock_wait` is the seconds to wait for the capture lock (`MEM_CAPTURE_LOCK_WAIT` overrides it).
     After a run that wrote a record and did not fail, and once the capture lock is released, it starts the
-    corroboration pass. Returns the run's log line (`windows` above 0 when a model session ran), or None when
-    the engine could not load."""
+    corroboration pass. Returns the run's log line, or None when the engine could not load. In it `windows` counts
+    the windows read (0 when nothing was read: lock held, no memory folder) and `modeled` is true when a model
+    session was started in any of them, even one that failed; `cost` is not that signal (a killed session has none)."""
     data = data_dir()
     cdir = cs.capture_dir(data)
     start = time.time()
     session = transcript.stem
     line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "trigger": trigger,
-                  "session": session, "windows": 0, "kept": 0, "written": {"remembered": 0, "sighting": 0, "skipped": 0},
+                  "session": session, "windows": 0, "modeled": False, "kept": 0, "written": {"remembered": 0, "sighting": 0, "skipped": 0},
                   "cost": None, "offset": 0, "more": False, "skipped": None, "failed": None, "given_up": 0, "ms": 0}
 
     def finish_log() -> None:
@@ -553,7 +558,7 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> d
         usable = True
         if trigger == "pre-compact":
             time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
-        deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", cs.LOCK_WAIT_SECONDS)
+        deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", lock_wait)
         lock = au.take_run_lock(cdir)
         while lock is None and time.time() < deadline:
             time.sleep(min(5.0, max(deadline - time.time(), 0.0)))
@@ -591,6 +596,7 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> d
             res, code = run_window(transcript, run / f"window-{number}.json", project, offset, "haiku", budget, claude,
                                    True, True, allow_out_in_repo=True, quiet=True)
             line["windows"] += 1
+            line["modeled"] = line["modeled"] or bool(res.get("modeled"))
             if res.get("cost") is not None:
                 line["cost"] = (line["cost"] or 0.0) + res["cost"]
             line["kept"] += len(res["candidates"])
@@ -651,9 +657,6 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> d
     return line
 
 
-CWD_SCAN_LINES = 200
-
-
 def count_lines(path: Path) -> int:
     with open(path, "rb") as f:
         return sum(1 for _ in f)
@@ -692,7 +695,7 @@ def sweep(claude: str | None) -> None:
         folder = transcript.parent
         if not folder.is_dir():
             return
-        store, now, swept = data_dir(), time.time(), 0
+        store, now = data_dir(), time.time()
         found = []
         for item in folder.iterdir():
             if item.suffix != ".jsonl" or not item.is_file() or item.stem == transcript.stem:
@@ -700,27 +703,31 @@ def sweep(claude: str | None) -> None:
             info = item.stat()
             if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
                 found.append((info.st_mtime, info.st_size, item))
-        newest = sorted(found, key=lambda row: row[0], reverse=True)[:cs.SWEEP_MAX_EXAMINED]
-        for _mtime, size, item in newest:
-            if swept >= cs.SWEEP_MAX_SESSIONS or cs.sweeps_today(store, now) >= cs.SWEEP_MAX_PER_DAY:
+        examined = used = 0   # files opened; runs that started a model session
+        for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
+            if (used >= cs.SWEEP_MAX_SESSIONS or examined >= cs.SWEEP_MAX_EXAMINED
+                    or cs.sweeps_today(store, now) >= cs.SWEEP_MAX_PER_DAY):
                 break
             if cs.swept_size(store, item.stem) == size:
-                continue
-            # Fully read, or no usable cwd: nothing can change while the file does not, so remember its size.
-            if count_lines(item) <= cs.read_session(store, item.stem)["offset"]:
-                cs.save_swept_size(store, item.stem, size)
-                continue
-            cwd = first_cwd(item)
+                continue   # unchanged since its last sweep: one stat, not an examination
+            examined += 1
+            # Settled without a run: nothing can change while the file does not, so remember its size.
+            cwd = first_cwd(item) if count_lines(item) > cs.read_session(store, item.stem)["offset"] else None
+            if cwd is not None and IMPORT_ERROR is None:
+                project = records.project_root(cwd.resolve(), os.environ)
+                if project is None or not records.project_dir(project).is_dir():
+                    cwd = None
             if cwd is None:
                 cs.save_swept_size(store, item.stem, size)
                 continue
-            swept += 1
-            run = auto_run("sweep", item, cwd, claude)
+            run = auto_run("sweep", item, cwd, claude, lock_wait=cs.SWEEP_LOCK_WAIT_SECONDS)
             if run is None or not run["windows"]:
-                continue   # nothing was read (lock held, no memory folder): a later start may
-            cs.note_sweep(store, now)
+                continue   # nothing was read (lock held, engine missing): a later start may
+            if run["modeled"]:
+                used += 1
+                cs.note_sweep(store, now)
             if not run["failed"] and not run["more"]:
-                cs.save_swept_size(store, item.stem, size)   # read to the end; otherwise a later start continues
+                cs.save_swept_size(store, item.stem, size)   # read to the end; otherwise a later start continues or retries
     except Exception:   # noqa: BLE001 - a background process ends quietly
         pass
 
