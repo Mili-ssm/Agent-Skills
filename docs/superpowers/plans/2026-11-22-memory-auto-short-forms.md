@@ -293,7 +293,7 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 ## After the tasks
 
 - [x] Whole suite on the last code commit of the branch (2026-11-22): 1876 passed, 5 skipped; `scripts/validate.py` and `claude plugin validate .` pass. `validate.py --release` asks for a version bump, as it should: the version changes only in the release.
-- [ ] Open on the owner's store: three of the short forms applied on 2026-11-22 are commands (the visual fix, the inline rules, the user's access) and still load; the owner prefers them reworded. The gate's second run produced accepted forms for two of them. Replacing them needs the owner's word.
+- [x] On the owner's store (2026-11-22, with the owner's word): the three short forms worded as commands (the visual fix, the inline rules, the user's access) and the one with a widened situation were replaced by suggestion forms the owner read during the gate.
 - [x] The six tasks built on 2026-11-22, each reviewed after its commit, with two fix rounds on the automatic fill (the path where the apply raises; a load the owner changed during a run; a partial answer of the checker) and one rule added by the docs review: the pass never touches a lesson that already has a valid short form, even without a topic. Whole suite: 1875 passed, 5 skipped before the last small fixes.
 - [x] **Gate, on a private copy of the real store, outside the repository** (run twice on 2026-11-22: [Results](#results)). The rule is fixed here, before any run (C62).
 
@@ -314,7 +314,8 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 - [x] On the owner's store, read only (2026-11-22): 2 lessons are candidates of the first automatic run, both project lessons, none global; no global lesson is at `triage: pending`; 25 general lessons are in quarantine and stay out of reach of the fill.
 - [x] Reviews: one per task after its commit, two rounds on the fix of the fill flow, the docs against the code, and the process; their findings and rulings are in this file's Known limits and in the commits.
 - [x] Results written into this file under `## Results`; the design rows C60 and C62 carry what the gate changed.
-- [ ] A pull request to `dev` and a release: only with the owner's word.
+- [x] A pull request to `dev`, opened with the owner's word on 2026-11-22.
+- [ ] Its merge into `dev`, then a release (version, changelog date, `validate.py --release`, pull request `dev` to `main`, tag) and the install: each only with the owner's word. After the install: one automatic run from the installed copy, reading its log line and `mem rules --unread`.
 
 ## Pre-mortem of 2026-11-22 and what changed
 
