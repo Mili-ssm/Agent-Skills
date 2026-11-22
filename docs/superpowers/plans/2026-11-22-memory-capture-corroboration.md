@@ -228,6 +228,7 @@ You compare short lessons that coding sessions wrote down, and say which of them
 
 Read {lessons}. Each line is: an id, a reach (general or project), the lesson, and when it applies, separated by tabs.
 Ids starting with g: are lessons already kept for every project; ids starting with p1:, p2: ... belong to one project each.
+An id is copied whole, exactly as written, with its g: or p1: start; a line number that your reading tool shows before a line is not an id.
 
 Two lessons are the same when a reader who follows one would do what the other asks, in the same kind of situation,
 even if the words, the example or the numbers differ. Lessons about the same topic that advise different things are
