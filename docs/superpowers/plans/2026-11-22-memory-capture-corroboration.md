@@ -350,13 +350,13 @@ Not dispatched: the controller runs it.
 - [x] Measures for the gate and for ADR 0023 (C39): run the pass twice on the copy with `--dry-run` and record how many applied groups the two runs share (agreement of the pass with itself); record how many proposed groups the verification refused; after the owner's review, record how many applied groups the owner accepts (agreement with the owner) and whether any refused group was in fact right.
 - [x] Gate (spec, B3, as Known limits restate it): the two transcript wordings of the turn-limit lesson end as one global record, and the owner judges no accepted group to hold two different lessons. Show the owner every group, five per batch, with a yes or no key. If the gate fails, change the brief once and run again; a second failure stops the stage.
 - [x] Migration, whatever the gate's result, and before any release carries Tasks 1 and 2: confirm the 15 recovered global lessons with the working-tree `bin/mem confirm --global --by-owner` on the real store (the owner reviewed them on 2026-11-21 and agreed to this on 2026-11-22), then check that no global transcript record is in quarantine with no end date.
-- [ ] The first pass on the real store: `run --groups <the file the owner reviewed>`, not a new model session.
+- [x] The first pass on the real store: `run --groups <the file the owner reviewed>`, not a new model session (done after the release, in two passes: see Results).
 - [x] Records: `plugins/memory/README.md` (the pass, quarantine, triage, the sweep; implemented apart from planned), `plugins/memory/CHANGELOG.md`, ADR 0023 `### Stage B3` with the gate's figures and kill criteria, the state tables of [the stage plan](2026-11-17-memory-plugin.md) and of the spec's Phases, and the Results section below.
 - [x] `python3 scripts/validate.py`, `claude plugin validate .`, the whole suite (1701 passed, 5 skipped); then the narrow final reviews of the plan loop (docs against code, the flow across tasks).
 
 ## Results
 
-Built on 2026-11-22 on `feat/memory-capture-corroboration`; not merged, not released. Tasks 1 to 7 each had their task commit, a review, a fix round and a second review; the findings deferred are below.
+Built on 2026-11-22 on `feat/memory-capture-corroboration`; merged by PR #154 and released as `memory` 0.4.0 (PR #156), then 0.4.1 (PR #158), both installed in the owner's setup the same day. Tasks 1 to 7 each had their task commit, a review, a fix round and a second review; the findings deferred are below.
 
 | Task | State |
 |---|---|
@@ -367,15 +367,26 @@ Built on 2026-11-22 on `feat/memory-capture-corroboration`; not merged, not rele
 | 5 `mem-corroborate` | Done |
 | 6 Triage | Done |
 | 7 Start after a capture, and the sweep | Done |
-| 8 Gate, migration, records | Gate passed; migration done on the real store; the first pass on the real store waits for the release |
+| 8 Gate, migration, records | Gate passed; migration done; the first pass ran on the real store |
 
 Gate figures and kill criteria: ADR 0023, "Stage B3". The owner accepted 15 of 15 groups.
 
-Open, for the session that releases or continues:
+First pass on the real store (2026-11-22, with the groups the owner reviewed, no model session):
+
+| Pass | Version | Lessons read | Result |
+|---|---|---|---|
+| 1 | 0.4.0 | 21 of 36 | 13 global records written into quarantine, 13 project records linked; the 2 pairs were dropped because the pass saw no global record |
+| 2 | 0.4.1 | 36 | The 2 pairs applied: 2 sightings that name this project, 2 links |
+
+Pass 1 showed a defect that every test and the gate had hidden by setting `MEM_MEMORIES`: `mem-capture` (since 0.3.0) and `mem-corroborate` asked for the global memories folder without a store, so with only `MEM_STORE`, which is what the hooks give them, they found none. Fixed in 0.4.1 (`records.global_memories_root`). State after pass 2: 13 general lessons in quarantine, hidden from `mem search`; 15 project records linked; the 15 lessons the owner confirmed are readable, two of them with a second sighting.
+
+Open, for the session that continues:
 
 | Item | Why it waits |
 |---|---|
-| First pass on the real store | Only after the installed plugin knows quarantine: with 0.3.0 a new global record would be read at once. The reviewed groups are in the private gate folder (`dry7.json`); its `p1` ids are positions in that copy's registry, so check them against the real registry before `run --groups`, or let the pass propose again |
+| The first pass with real model sessions | Both passes on the real store used reviewed groups; the first capture that writes something will start a pass that calls the model. Read its line in `corroborate/log.jsonl` |
+| Tests that set `MEM_MEMORIES` | They cannot see a wrong lookup of the global folder: at least one test of each background command should run with `MEM_STORE` alone |
+| Helpers copied between `mem-capture` and `mem-corroborate` | `repo_above`, `write_private`, `append_log`, `cmd_ack` have the same bodies in both; move them to `auto_state` |
 | The older global record of the turn-limit lesson, written by hand | Outside C29; merge it by hand in `mem curate` |
 | A lapsed lesson in quarantine | It lapses 30 days after its last sighting (C31) and is then no longer offered to the capture after 60; a second project may take longer than that. Read the first weeks of `corroborate/log.jsonl` before changing the figure |
 | Project records linked to a global record that a later merge dropped | They keep pointing at the dropped handle |
