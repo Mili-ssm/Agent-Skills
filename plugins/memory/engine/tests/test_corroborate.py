@@ -541,3 +541,23 @@ def test_a_new_general_lesson_carries_the_cases_of_each_session(tmp_path):
     got = lessons_of([p1, p2])
     acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
     assert sorted(acts[0].cases) == ["2026-11-20 session a failed", "2026-11-21 session b worked"]
+
+
+def test_a_counted_session_with_a_missing_case_gets_a_cases_action(tmp_path):
+    p = project(tmp_path, "one")
+    glob = tmp_path / "global"
+    glob.mkdir()
+    put(glob, "global", "shared", sources=(f"session a project {records.project_key(p)}",), log=["2026-11-20 session a failed"])
+    put(records.project_dir(p), "project", "local", sources=("session a",),
+        log=["2026-11-20 session a failed", "2026-11-22 session a worked"])
+    got = lessons_of([p], glob)
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
+    (act,) = [a for a in acts if a.kind == "cases"]
+    assert act.cases == ["2026-11-22 session a worked"] and act.entry.startswith("session a")
+    assert not [a for a in acts if a.kind == "sighting"]
+    # nothing missing, no action
+    put(glob, "global", "shared two", sources=(f"session b project {records.project_key(p)}",), log=["2026-11-20 session b worked"])
+    put(records.project_dir(p), "project", "local two", sources=("session b",), log=["2026-11-20 session b worked"])
+    got = [x for x in lessons_of([p], glob) if x.memory.claim in ("shared two", "local two")]
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
+    assert not [a for a in acts if a.kind in ("cases", "sighting")]

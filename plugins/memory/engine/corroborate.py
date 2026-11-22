@@ -221,6 +221,8 @@ class Action:
         after merges), `cases` (raw `log` entries of the member records for these sessions).
     sighting: `target` (a global handle; None when the target is this group's write_global), `entry`, `cases` (raw
         `log` entries of the member records for its session).
+    cases: `target` (a global handle that already counts the session), `entry`, `cases` (only the raw `log` entries of
+        the members that the target lacks).
     link: `member` (lesson id), `project`, `target` (as for sighting)."""
     kind: str
     keep: str | None = None
@@ -251,7 +253,7 @@ def _cases_of(lessons: Sequence[Lesson], sessions: set[str]) -> list[str]:
 def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
     """The steps for one group, in order: merges inside a project, a merge of global members, then for the
     members of reach `general` left: a write_global unless a global record is the target, one sighting per entry
-    the target lacks, one link per project member. A merged record stands for the ones dropped into it: its
+    the target lacks (a `cases` action for an entry it counts but lacks cases of), one link per project member. A merged record stands for the ones dropped into it: its
     sessions are their union, and it is general when any of them is. Members of reach `project` from different
     projects produce no action. Only a global member of the group is a target: a global record that merely shares
     a session with a member may state another lesson of that session, so a pass that stopped half way may write a
@@ -299,10 +301,16 @@ def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
         handle = None
     else:
         handle = target.handle
+        held = [y for x in general for y in stands[x.id]]
         for e in entries:
+            key = records.session_key(e)
+            carried = _cases_of(held, {key})
             if not records.counted(target, e):
-                held = [y for x in general for y in stands[x.id]]
-                out.append(Action("sighting", target=handle, entry=e, cases=_cases_of(held, {records.session_key(e)})))
+                out.append(Action("sighting", target=handle, entry=e, cases=carried))
+                continue
+            missing = [r for r in carried if not records.has_case(target, key, records.case(r).outcome)]
+            if missing:
+                out.append(Action("cases", target=handle, entry=e, cases=missing))
     for x in general:
         out.append(Action("link", member=x.id, project=x.project, target=handle))
     return out
