@@ -26,6 +26,8 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 
 In a curation pass never run `mem confirm` on a record marked `from transcript, unconfirmed`: a pass has no new session to add, and only another session showing the lesson confirms it (the capture adds that session itself).
 
+The background curator never runs `mem triage` on a general lesson under `awaiting triage`: a main session or the owner accepts (`mem triage accept <h>`) or rejects (`mem triage reject <h>`) it, and turning a lesson into a rule (an agent definition, a skill, a context file) needs the owner.
+
 ## Notes
 
 `mem curate --notes` is the same pass for notes in the store. Notes are written loose; this is where they are joined up.

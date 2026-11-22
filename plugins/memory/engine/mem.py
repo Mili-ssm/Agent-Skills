@@ -37,6 +37,7 @@ import yaml
 
 import auto_state
 import capture_state
+import corroborate
 import handoff
 import project_syntheses
 import records
@@ -49,7 +50,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
+                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
                     "project-synthesis")
 
 
@@ -3101,6 +3102,10 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"This project: {len(mine)} memories.")
     if due:
         head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
+    if has_memories:
+        waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
+        if waiting:
+            head.append(f"Triage: {waiting} general lessons await triage (mem curate --global).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
@@ -3151,6 +3156,18 @@ def _log_hook(entry: dict[str, Any]) -> None:
         pass
 
 
+def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
+    """The line `mem session-index` adds after a failed corroboration pass (`mem-corroborate ack` clears it)."""
+    if data is None:
+        return None
+    found = auto_state.failure(auto_state.read_json(data / "corroborate" / auto_state.STATUS_NAME), now)
+    if found is None:
+        return None
+    reason = " ".join(str(found["reason"]).split())[:200]
+    return (f"memory: the last corroboration pass failed ({reason}): see mem-corroborate status, "
+            "then mem-corroborate ack.")
+
+
 def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
     started = time.monotonic()
@@ -3169,6 +3186,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
                      lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
                      lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
+                     lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
                      lambda: settle_state.settled_line(memories)):
             try:
                 found = make()
@@ -3644,6 +3662,29 @@ def cmd_forget(args: argparse.Namespace) -> int:
         _text_change(found, "forgotten", "Forgotten", args.because, today)
         return [f"m:{found[0].handle}\tforgotten"]
     return _act(args, [args.handle], apply, "forget", args.because)
+
+
+def cmd_triage(args: argparse.Namespace) -> int:
+    """Accept or reject a general lesson that left quarantine; both act on the global scope."""
+    args.is_global = True
+
+    def apply(found, today):
+        m = found[0]
+        if m.triage != "pending":
+            raise ValueError(f"m:{m.handle} does not await triage")
+        if args.triage_command == "accept":
+            records.log_before(m, "triage")
+            records.update(m, today, triage=None)
+            return [f"m:{m.handle}\taccepted"]
+        projects = corroborate.counted_projects(records.read_registry(data_dir(os.environ)))
+        _text_change(found, "forgotten", "Forgotten", None, today, triage=None)
+        for project in projects:
+            for linked in records.load_memories(records.project_dir(project), "project"):
+                if linked.error is None and linked.general == m.handle:
+                    records.log_before(linked, "triage")
+                    records.update(linked, today, promote="no", general=None)
+        return [f"m:{m.handle}\trejected"]
+    return _act(args, [args.handle], apply, f"triage-{args.triage_command}")
 
 
 def _two(args: argparse.Namespace, first: str, second: str, name: str, apply) -> int:
@@ -4442,7 +4483,19 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
-    waiting = [m for m in live if m.handle in unconfirmed]
+    awaiting = [m for m in live if m.triage == "pending"]
+    if awaiting:
+        out.append("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
+                   "reject <h>, or reword it with mem edit and then accept)")
+        for m in awaiting:
+            n, p = len(records.sessions(m)), len(records.projects(m))
+            out.append(f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
+                       f"{_flat(m.claim)}")
+    held = sum(1 for m in live if records.quarantined(m))
+    if held:
+        out.append(f"in quarantine: {held} general lessons, not shown to a reader until corroborated "
+                   "(mem memories --global --quarantine)")
+    waiting = [m for m in live if m.handle in unconfirmed and not records.quarantined(m)]
     if waiting:
         out.append("from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
                    "when another session shows it)")
@@ -6242,6 +6295,14 @@ def build_parser() -> argparse.ArgumentParser:
         confirm_parser.set_defaults(func=cmd_confirm)
     memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
     memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
+    triage_parser = sub.add_parser("triage", help="decide a general lesson that left quarantine and awaits triage")
+    triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
+    for verb, text in (("accept", "keep the general lesson: it stays readable by every project"),
+                       ("reject", "retire the general lesson as mem forget does, and mark the project records "
+                                  "that name it as not to be promoted")):
+        triage_verb = triage_sub.add_parser(verb, help=text)
+        triage_verb.add_argument("handle", metavar="m:HANDLE")
+    triage_parser.set_defaults(func=cmd_triage)
     memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
     merge_parser = memory_command("merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop")
     merge_parser.add_argument("--force", action="store_true", help="merge although the claims differ by a negation or a number")
