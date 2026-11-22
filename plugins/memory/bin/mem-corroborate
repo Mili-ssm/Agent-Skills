@@ -58,6 +58,7 @@ SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
 STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
 ANSWERS = ("same", "faithful", "general")
+MAX_RETRIES = 2   # runs that end with a failed action or an unusable answer on the same lessons before the run gives up
 REFUSED_MEM_EXITS = {"remember": (4, 5)}   # a `mem merge` refuses with any non-zero exit; any other exit is a failure
 
 
@@ -309,6 +310,7 @@ def forget_run(cdir: Path, run: Path) -> None:
     added = au.read_json(run / "seen-added.json").get("marked")
     marks = seen.get("refused")
     seen.pop("fingerprint", None)
+    seen.pop("retry", None)
     if isinstance(marks, dict) and isinstance(added, list):
         seen["refused"] = {k: v for k, v in marks.items() if k not in added}
     au.write_json(cdir / "seen.json", seen)
@@ -442,13 +444,19 @@ def planned(acts) -> list[dict]:
 
 
 def refused_by_verdict(verdict_data: object, n: int) -> bool:
-    """True when the one verdict for group `n` says no (an answer that is present and not `true`): a real refusal,
-    not a missing or malformed answer."""
+    """True when exactly one verdict names group `n` and one of its answers is present and not `true` (so "yes" or
+    `null` counts as a refusal): a verdict that is missing, repeated or lacks every answer is not."""
     items = verdict_data.get("verdicts") if isinstance(verdict_data, dict) else None
     if not isinstance(items, list):
         return False
     found = [v for v in items if isinstance(v, dict) and v.get("group") == n and not isinstance(v.get("group"), bool)]
     return len(found) == 1 and any(k in found[0] and found[0][k] is not True for k in ANSWERS)
+
+
+def has_verdict(verdict_data: object, n: int) -> bool:
+    items = verdict_data.get("verdicts") if isinstance(verdict_data, dict) else None
+    return isinstance(items, list) and any(isinstance(v, dict) and v.get("group") == n
+                                           and not isinstance(v.get("group"), bool) for v in items)
 
 
 def execute(claude: str | None, budget: float, groups_file: str | None = None, dry_run: bool = False,
@@ -481,9 +489,8 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
     scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-")) if dry_run else None
     try:
         if IMPORT_ERROR is not None:
-            reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
             line["failed"] = "engine import error"
-            save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
+            save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": line["failed"], "log": ""})
             finish_log()
             return line
         if not dry_run:
@@ -505,6 +512,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
             return corroborate.collect(corroborate.counted_projects(registry), gfolder, today)
 
         lessons = collect()
+        before = corroborate.fingerprint(lessons)   # compared with the retry a failed run stored (its lessons after its writes)
         line["lessons"] = len(lessons)
         if not lessons:
             line["skipped"] = "no lessons"
@@ -568,6 +576,9 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
         raw_groups = proposal.get("groups") if isinstance(proposal, dict) else None
         line["groups"] = len(raw_groups) if isinstance(raw_groups, list) else 0
         line["proposed"], line["verified"], line["dropped"] = len(proposed), len(kept), len(reasons)
+        # a proposed group the verifying session did not answer is neither applied nor marked: ask again
+        incomplete = incomplete or any(g not in kept and not has_verdict(verdict_data, n)
+                                       for n, g in enumerate(proposed, start=1) if not groups_file)
         if incomplete:   # no usable answer from a session counts as dropped, even where the validator says it per group
             line["dropped"] += len(vreasons)
         for why in [*reasons, *vreasons]:
@@ -599,14 +610,29 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
         marks = {k: v for k, v in refused_seen.items() if isinstance(v, str) and k in after}
         marks.update({k: after[k] for k in marked if k in after})
         seen_out: dict = {"refused": marks}
-        if line["failed_actions"] or incomplete:
-            pass   # no fingerprint: the next run tries again
+        gave_up = False
+        if (line["failed_actions"] or incomplete) and not groups_file:
+            # no fingerprint, so the next run tries again, but only MAX_RETRIES times on the same lessons
+            old = seen.get("retry") if isinstance(seen.get("retry"), dict) else {}
+            count = (old.get("count") if old.get("fingerprint") == before and isinstance(old.get("count"), int) else 0) + 1
+            now = corroborate.fingerprint(collect())   # after this run's writes: what the next run starts from
+            if count >= MAX_RETRIES:
+                gave_up = True
+                seen_out["fingerprint"] = now
+            else:
+                seen_out["retry"] = {"fingerprint": now, "count": count}
+        elif line["failed_actions"] or incomplete:
+            if isinstance(seen.get("retry"), dict):   # a reviewed file starts no session and leaves the bound alone
+                seen_out["retry"] = seen["retry"]
         elif not groups_file:   # a reviewed file never tells the model's pass that the lessons were seen
             seen_out["fingerprint"] = corroborate.fingerprint(collect())
         elif "fingerprint" in seen:
             seen_out["fingerprint"] = seen["fingerprint"]
         write_private(run / "seen-added.json", json.dumps({"marked": sorted(marked)}))
         au.write_json(cdir / "seen.json", seen_out)
+        if gave_up:
+            raise Stop("gave up after repeated failures", f"gave up: {MAX_RETRIES} runs in a row on these lessons ended "
+                       "with a failed action or an unusable answer; the run folders hold the details")
         save_done(cdir, line, None, dry_run)
         finish_log()
         return line
@@ -619,7 +645,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
                     run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
                     au.private_dir(run)
                 log(f"failed: {reason}")
-                save_done(cdir, line, reason, dry_run, log=str(run) if run else "")
+                save_done(cdir, line, line["failed"], dry_run, log=str(run) if run else "")
                 if not logged:
                     finish_log()
             except Exception:   # noqa: BLE001
@@ -628,7 +654,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
             line["failed_reason"] = reason
         return line
     finally:
-        if run is not None:
+        if lock is not None and (run is not None or (cdir / "runs").is_dir()):   # a skipped run prunes too
             try:
                 cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
             except Exception:   # noqa: BLE001

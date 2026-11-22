@@ -669,3 +669,74 @@ def test_undecodable_mem_output_is_not_a_failure(w):
     assert run(w, corr=noisy).returncode == 0
     line = log_lines(w)[-1]
     assert (line["links"], line["failed_actions"], line["failed"]) == (2, 0, None)
+
+
+# ---- second fix round: error text stays private, bounded retries, groups without a verdict -------------------------
+
+def test_the_status_keeps_a_fixed_reason_and_the_detail_stays_in_the_run_log(w):
+    two_projects(w)
+    data = w.tmp / "quokka-data"
+    (data / "projects.json").mkdir(parents=True)   # unreadable: the OSError names this path
+    assert run(w, env={"MEM_DATA": str(data)}).returncode == 1
+    cdir = data / "corroborate"
+    failure = auto_state.read_json(cdir / "status.json")["failure"]
+    assert failure["reason"] == "registry unreadable"
+    assert "quokka" not in (cdir / "status.json").read_text().replace(failure["log"], "")
+    assert "quokka" not in (cdir / "log.jsonl").read_text()
+    assert "quokka" in (Path(failure["log"]) / "log.txt").read_text()
+
+
+def always_failing_promote(w):
+    return fake_plugin(w, 'if [ "$1" = promote ]; then echo boom >&2; exit 2; fi')
+
+
+def test_repeated_failures_give_up_until_a_lesson_changes(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    broken = always_failing_promote(w)
+    assert run(w, corr=broken).returncode == 0 and calls(w) == 2
+    assert seen(w)["retry"]["count"] == 1 and "fingerprint" not in seen(w)
+    assert run(w, corr=broken).returncode == 1 and calls(w) == 4
+    assert status(w)["failure"]["reason"] == "gave up after repeated failures"
+    assert log_lines(w)[-1]["failed"] == "gave up after repeated failures"
+    assert "fingerprint" in seen(w) and "retry" not in seen(w)
+    assert run(w, mode="never", corr=broken).returncode == 0 and calls(w) == 4
+    assert log_lines(w)[-1]["skipped"] == "nothing new"
+    lesson(w, w.pa, BRIEF, ("s1", "s3"))   # a new sighting changes the lesson
+    assert run(w, corr=broken).returncode == 0 and calls(w) == 6
+
+
+def test_a_clean_run_or_other_lessons_clear_the_retry(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    assert run(w, corr=always_failing_promote(w)).returncode == 0
+    assert seen(w)["retry"]["count"] == 1
+    assert run(w).returncode == 0
+    assert "retry" not in seen(w) and "fingerprint" in seen(w)
+
+
+def test_a_group_without_a_verdict_makes_the_run_incomplete(w):
+    a, b = two_projects(w)
+    lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often there.")
+    lesson(w, w.pb, "Read the whole failing test output before you change any code, since the cause is often there.",
+               ("s2",))
+    model(w, [group(a, b), group(ident(w, "Read the failing"), ident(w, "Read the whole"), claim="Read the whole failing test output before changing code.")],
+          [verdict(1)])
+    assert run(w).returncode == 0
+    assert "fingerprint" not in seen(w) and seen(w)["retry"]["count"] == 1
+    first = calls(w)
+    assert run(w).returncode == 0 and calls(w) == first + 2
+
+
+def test_old_run_folders_are_pruned_when_a_run_skips(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    assert run(w).returncode == 0
+    runs = w.cdir / "runs"
+    old = __import__("time").time() - 3600
+    for i in range(capture_state.KEEP_RUNS + 5):
+        d = runs / f"old-{i:02d}"
+        d.mkdir()
+        os.utime(d, (old - i * 60,) * 2)
+    assert run(w, mode="never").returncode == 0 and log_lines(w)[-1]["skipped"] == "nothing new"
+    assert len(runs_of(w)) == capture_state.KEEP_RUNS
