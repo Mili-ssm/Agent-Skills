@@ -242,21 +242,21 @@ Run by the controller with the owner; no code enters the repository except this 
 - [x] **Step 2:** Build one review sheet in that same folder: per candidate its kind, signal, reach, claim, context, evidence, and the 3 closest existing records from `mem search` (project and global), so a duplicate worded differently is visible. The owner marks each candidate `true` or `false`, `keep` or `drop`, and `duplicate` where a record already says it; and, per transcript, up to 3 lessons the capture missed, as a rough measure of what it does not see.
 - [x] **Step 3:** Record in `## Results`, without any transcript text, project name or claim: per transcript the counts (extract size, cut or not, lines per kind, kept by validation, dropped by reason, cost), then the owner's totals (true, keep, drop, duplicate, missed) and the share kept, each split by reach.
 - [x] **Step 4:** Apply the gate of the design: at least 60% kept and no kept duplicate → phase B gets its plan. The result is inconclusive, not a pass, with fewer than 15 candidates in all or fewer than 5 transcripts that produced one: widen to 10 more transcripts before deciding. Else one change of the brief or of the model (`--model sonnet --budget 0.75`), one more run on the same transcripts, then stop. A kept candidate that the code contradicts stops the trial for a re-plan. Write the figures into ADR 0023 as a `## Review`, and set the study's L3 status.
-- [ ] **Step 5:** Commit: `docs(plan): results of the capture trial`.
+- [x] **Step 5:** Commit: `docs(plan): results of the capture trial`.
 
 The gate does not measure: what the capture missed beyond the owner's rough count; whether a claim is true against the code; variation between runs; a transcript read from a saved offset (phase B).
 
-## Results`, without any transcript text, project name or claim: per transcript the counts (kept by validation, dropped by reason, cost, extract size), then the owner's totals (keep, drop, duplicate) and the share kept.
-- [ ] **Step 4:** Apply the gate of the design: at least 60% kept and no kept duplicate → phase B gets its plan. Else one change of the brief or of the model (`--model sonnet`), one more run on the same 10, then stop. Write the figures into ADR 0023 as a `## Review`, and set the study's L3 status.
-- [ ] **Step 5:** Commit: `docs(plan): results of the capture trial`.
-
 ## Results
+
+### The spike (2026-11-21)
+
+A worker started from a `PreCompact` command hook with `setsid nohup … &` and its standard streams redirected outlived the hook and the session: the hook returned in 2 ms, the print-mode session ended 4 s later, the worker finished 21 s after that and read the session's `transcript_path` (1 run, a manual compaction, Linux, a throwaway plugin outside the repository).
 
 ### The run (2026-11-21)
 
-`mem-capture run`, model `haiku`, budget 0.25 USD per run, on 10 main-session transcripts of the last 30 days: 5 projects (A to E), at most 3 per project, 1 about this plugin (B), 9 in which the extract shows no `mem remember`.
+`mem-capture run`, model `haiku`, budget 0.25 USD per run, on 10 main-session transcripts of the last 30 days: 5 projects (A to E), at most 3 per project, 1 about this plugin (B). Step 1 asked for 2 sessions that recorded no memory; the pool gave 9 whose extract shows no `mem remember` (most predate the plugin, and a cut extract hides earlier calls), so the sample says little about duplicates of what a session itself recorded.
 
-| Transcript | Project | Extract (characters) | Cut | `OWNER` lines | `REPORT` lines | Kept | Dropped | Cost (USD) |
+| Transcript | Project | Extract (characters) | Cut | `OWNER` lines | `REPORT` lines | Passed validation | Dropped by validation | Cost (USD) |
 |---|---|---|---|---|---|---|---|---|
 | t01 | A | 79,891 | yes | 10 | 9 | 5 | 0 | 0.020 |
 | t02 | A | 79,823 | yes | 17 | 18 | 5 | 0 | 0.018 |
@@ -304,7 +304,7 @@ Kept per signal: `delegation_failed` 7 of 7, `plan_changed_by_review` 5 of 5, `r
 What the marks show:
 
 - The two owner signals are the weakest (8 of 15 kept): a single sentence of the owner was turned into a standing rule, or a project decision already in the project's documents was proposed again. The capture sees neither the project's documents nor the owner's context file.
-- The same lesson came back as separate candidates: a subagent that stops at its turn limit with no report (4 sessions, 3 projects), a refusal by the permission classifier (4 sessions, 2 projects), a pre-mortem that changed a plan (3 sessions, 3 projects), a pattern that matches its own shell (2 projects). Phase B must count these as sightings of one lesson.
+- The same lesson came back as separate candidates, described here by subject and not in the candidates' words: a subagent's turn limit (4 sessions, 3 projects), a refusal by the permission classifier (4 sessions, 2 projects), a pre-mortem that changed a plan (3 sessions, 3 projects), a command that matches its own shell (2 projects). Phase B must count these as sightings of one lesson.
 - The "closest existing records" column of the sheet was of no use: a search with the whole claim returned unrelated notes.
 
-Limits of this result: the owner judged with the controller's reading of each round in front of them and mostly agreed with it, so the marks are not independent of the controller; no candidate was marked false, and "true" was not checked against code except one (a claim about `pgrep -f`, verified by running it); missed lessons were not collected; 8 of 10 sessions were read only at their end; the brief did not yet ask for the calibrated wording of C11 to C16.
+Limits of this result: the owner judged with the controller's reading of each round in front of them and mostly agreed with it, so the marks are not independent of the controller; no candidate was marked false, and "true" was not checked against code except one, about a process-matching command, verified by running it; missed lessons were not collected; 8 of 10 sessions were read only at their end; the brief did not yet ask for the calibrated wording of C11 to C16.
