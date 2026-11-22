@@ -344,7 +344,7 @@ def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict],
     known = set(ids)
     kept: dict[str, dict] = {}
     reasons: list[str] = []
-    seen: set[str] = set()  # the first item of an id decides; a later one is dropped
+    seen: set[str] = set()  # the first item of an id that was kept decides; a later one is dropped
     for n, item in enumerate(items, start=1):
         ident = item.get("id") if isinstance(item, dict) else None
         short = item.get("short") if isinstance(item, dict) else None
@@ -363,7 +363,5 @@ def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict],
             kept[ident] = {"short": short, "topic": topic}
             seen.add(ident)
             continue
-        if isinstance(ident, str):
-            seen.add(ident)
         reasons.append(f"item {n}: {why}")
     return kept, reasons

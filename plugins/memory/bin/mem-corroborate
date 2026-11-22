@@ -48,6 +48,7 @@ import capture_state as cs  # noqa: E402
 try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
     import corroborate  # noqa: E402
     import records  # noqa: E402
+    import rules  # noqa: E402
     import research_pipeline as rp  # noqa: E402
     import synth_pipeline as sp  # noqa: E402
     IMPORT_ERROR: Exception | None = None
@@ -63,6 +64,7 @@ MEM_TIMEOUT = 60
 SETTLE_STATE = ".settle-state.json"   # beside the global records; `settle.STATE_NAME`
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
+SETTLE_VARS = ("MEM_SETTLE_AUTO", "MEM_SETTLE_MINUTES", "MEM_SETTLE_CLAUDE")   # `settle_state.maybe_start` starts a run from these
 STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
 ANSWERS = ("same", "faithful", "general")
 MAX_RETRIES = 2   # runs that end with a failed action or an unusable answer on the same lessons before the run gives up
@@ -347,8 +349,8 @@ class Applier:
         self.refused_ids: set[str] = set()
         self.current = None
 
-    def mem(self, args: list[str], project: Path | None = None, stdin: str | None = None):
-        env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS and k != "MEM_PROJECT"}
+    def mem(self, args: list[str], project: Path | None = None, stdin: str | None = None, drop_env: tuple = ()):
+        env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS and k not in drop_env and k != "MEM_PROJECT"}
         if project is not None:
             env["MEM_PROJECT"] = str(project)
         try:
@@ -755,7 +757,11 @@ def fill_dry_run(args) -> int:
     if not args.claude:
         print("mem-corroborate: no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)", file=sys.stderr)
         return 1
-    repo = repo_above(Path(args.out).expanduser().resolve().parent)
+    folder = Path(args.out).expanduser().resolve().parent
+    if not (folder.is_dir() and os.access(folder, os.W_OK | os.X_OK)):
+        print(f"mem-corroborate: --out: {folder} is not a folder that can be written", file=sys.stderr)
+        return 2
+    repo = repo_above(folder)
     if repo is not None:
         print(f"mem-corroborate: --out is inside a repository ({repo}); the result holds memory text", file=sys.stderr)
         return 2
@@ -831,6 +837,7 @@ def fill_items(args) -> int:
         applier = Applier(Journal(run), {}, gfolder, run, log)
         written = dropped = failed = 0
         used: set[str] = set()
+        today = datetime.date.today()
         for n, item in enumerate(items, start=1):
             ident = item.get("id") if isinstance(item, dict) else None
             short = item.get("short") if isinstance(item, dict) else None
@@ -846,12 +853,18 @@ def fill_items(args) -> int:
                 why = "short is not one line of at most 120 characters"
             elif not records.valid_topic(topic):
                 why = "topic is not one or two lowercase words"
+            else:
+                project, m = known[ident]
+                scope = "global" if project is None else names.get(project, str(project))
+                if item.get("handle", m.handle) != m.handle or item.get("scope", scope) != scope:
+                    why = "handle or scope does not match its id"
+                elif not rules.eligible(m, today) or m.triage == "pending":
+                    why = "not a lesson that can load"
             if why:
                 dropped += 1
                 log(f"item {n} dropped: {why}")
                 continue
             used.add(ident)
-            project, m = known[ident]
             if item.get("claim_digest") != corroborate.claim_digest(m):
                 failed += 1
                 log(f"item {n} failed: {ident} changed its claim since the file was made")
@@ -859,7 +872,7 @@ def fill_items(args) -> int:
             watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # an edit of a global record may update it
             before = applier.journal.watch(watched)
             done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []),
-                                f"--short={short}", f"--topic={topic}"], project)
+                                f"--short={short}", f"--topic={topic}"], project, drop_env=SETTLE_VARS)
             applier.journal.commit("fill", before)
             if done is not None and done.returncode == 0:
                 written += 1

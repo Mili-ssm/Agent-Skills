@@ -487,3 +487,12 @@ def test_validate_fill_keeps_the_good_items_and_says_why_for_the_rest():
 def test_validate_fill_garbage_keeps_nothing(raw):
     kept, reasons = corroborate.validate_fill(raw, ["g:a"])
     assert kept == {} and len(reasons) == 1
+
+
+def test_validate_fill_counts_an_id_as_seen_only_once_an_item_was_kept():
+    raw = {"items": [{"id": "g:a", "short": "x" * 121, "topic": "docs"},
+                     {"id": "g:a", "short": SHORT, "topic": "docs"},
+                     {"id": "g:a", "short": SHORT, "topic": "process"}]}
+    kept, reasons = corroborate.validate_fill(raw, ["g:a"])
+    assert kept == {"g:a": {"short": SHORT, "topic": "docs"}}
+    assert len(reasons) == 2 and "repeats g:a" in reasons[1]

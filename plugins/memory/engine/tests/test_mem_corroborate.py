@@ -910,3 +910,78 @@ def test_fill_alone_or_with_a_bad_file_exits_2(w):
     (w.tmp / "bad.json").write_text("{}")
     assert fill_run(w, "--items", str(w.tmp / "bad.json"), claude=False, mode="never").returncode == 2
     assert not (w.cdir / "runs").exists()
+
+
+def fill_file(w, g, **change):
+    """The proposal file of `proposal`, with the changes applied to every item."""
+    shared, gid = proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    items = [{**i, **change} for i in json.loads(out.read_text())]
+    out.write_text(json.dumps(items))
+    return out, shared, gid
+
+
+def test_fill_items_drop_an_item_whose_handle_or_scope_disagrees_with_its_id(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    items = json.loads(out.read_text())
+    items[0]["handle"] = "other-handle"
+    items[1]["scope"] = w.pb.name
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("handle or scope does not match its id") == 2
+    assert all(m.short is None for m in project_records(w.pa).values()) and all(m.short is None for m in globals_(w))
+
+
+def test_fill_items_apply_an_item_without_handle_and_scope_by_its_id(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    items = [{k: v for k, v in i.items() if k not in ("handle", "scope")} for i in json.loads(out.read_text())]
+    out.write_text(json.dumps(items))
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 2, "dropped": 0, "failed": 0}
+
+
+def test_fill_items_start_no_settling_run(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    seen_env = w.tmp / "seen-env"
+    broken = fake_plugin(w, f'if [ "$1" = memory ]; then echo "$MEM_SETTLE_AUTO|$MEM_SETTLE_MINUTES|$MEM_SETTLE_CLAUDE" >> {seen_env}; fi')
+    env = {"MEM_SETTLE_AUTO": "1", "MEM_SETTLE_MINUTES": "5", "MEM_SETTLE_CLAUDE": "/bin/true"}
+    done = run(w, "--items", str(out), cmd="fill", claude=False, mode="never", corr=broken, env=env)
+    assert done.returncode == 0, done.stderr
+    assert seen_env.read_text().split() == ["||"] * 2
+
+
+def test_fill_items_drop_a_record_that_cannot_load(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g)
+    (g_now,) = [m for m in globals_(w) if m.handle == g.handle]
+    records.update(g_now, TODAY, triage="pending")
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    records.update(a, TODAY, load="no")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("not a lesson that can load") == 2
+
+
+def test_fill_dry_run_checks_the_output_folder_before_the_session(w):
+    fill_world(w)
+    done = fill_run(w, "--dry-run", "--out", str(w.tmp / "missing" / "p.json"))
+    assert done.returncode == 2 and len(done.stderr.strip().splitlines()) == 1 and calls(w) == 0
+    locked = w.tmp / "locked"
+    locked.mkdir()
+    locked.chmod(0o500)
+    try:
+        if os.access(locked, os.W_OK):
+            pytest.skip("permissions are not enforced here")
+        done = fill_run(w, "--dry-run", "--out", str(locked / "p.json"))
+        assert done.returncode == 2 and len(done.stderr.strip().splitlines()) == 1 and calls(w) == 0
+    finally:
+        locked.chmod(0o700)
