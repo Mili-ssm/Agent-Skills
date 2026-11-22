@@ -72,7 +72,7 @@ Write {work}/candidates.json: a JSON list of at most 5 objects, or [] when nothi
 Two kinds of thing qualify, and they are not the same:
 - A lesson or a pitfall: something that generalises beyond this session and can be said as advice.
 - A decision of this project with its reason. That is a record of the project, not a lesson: give it "kind": "decision" and "reach": "project".
-A technical detail of one component, a progress report, or a request the owner made once is neither: leave it out.
+A technical detail of one component, a progress report, or a request the owner made once is neither: leave it out, unless the step the owner asked for visibly paid off (the signal "owner_request_paid_off").
 
 Each object has these keys:
 - "signal": what in the session backs it. One of
@@ -85,9 +85,10 @@ Each object has these keys:
   "repeated_tool_error" (the same kind of tool error happened more than once),
   "decision_with_reason" (the owner decided something and said why; the evidence must come from an OWNER or OWNER ANSWER line),
   "owner_approval" (the owner said that a way of working served them well, or asked for more of it; the evidence must come from an OWNER or OWNER ANSWER line),
+  "owner_request_paid_off" (the owner asked, unprompted, for a step the agent had not planned, such as one more review, a check or a comparison, and the step visibly paid off: it found something, prevented rework or improved the result; the evidence must come from the OWNER or OWNER ANSWER line that asked for the step, and the claim says what the step then showed),
   "effective_practice" (a way of planning, briefing, checking or using a tool visibly paid off in this session: it worked the first time where earlier attempts had not, saved a round, or caught something early; the evidence shows the result, not the intention).
   Without one of these there is no candidate: an idea the agent had about itself, with nothing outside confirming it, is not kept.
-  Look for what worked as much as for what failed. The aim is not only fewer mistakes but better and cheaper work: a lesson may say "doing it this way tended to give a better result" and what made it work.
+  Look for what worked as much as for what failed. The aim is not only fewer mistakes but better and cheaper work: a lesson may say "doing it this way tended to give a better result" and what made it work. It is also less work for the owner: when the owner had to ask for a step that then proved its worth, the lesson is to consider that step without being asked, as a suggestion, so that the owner needs to step in less often.
 - "kind": "lesson" (how to work), "pitfall" (something that breaks or misleads), or "decision".
 - "reach": "project" when it is about this codebase, its tools or its rules; "general" when it is about how the agent itself works in any project: how it plans, frames a request, briefs or checks a subagent, uses a skill or a plugin, verifies before claiming, or reads the owner's intent. Look for the general ones on purpose: a slip in method teaches more than the bug it caused. A general claim names no file, project or person. A project claim should name the exact file, command or setting it is about, because that is what makes it usable.
 - "weight": how much following it restricts the agent or the owner, and what it costs if it is wrong: "light" (a cheap habit that can hardly hurt), "medium", or "strong" (it forbids something, or a mistake would be costly).

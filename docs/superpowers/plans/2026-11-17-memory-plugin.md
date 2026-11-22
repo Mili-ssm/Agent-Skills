@@ -4,23 +4,25 @@ Goal: sessions in any repository, and their subagents, recall from and write to 
 
 Each stage is installable and revertible on its own, ends with the owner's review, and gets its own task plan (Superpowers `writing-plans`) and one `pre-mortem` when it starts, not before: a detailed plan written now would be stale by then. Code is written on a branch of this repository and pushed; tests that write use a disposable copy of the notes, never the note repository itself.
 
-## Current state and where to resume (2026-11-19)
+## Current state and where to resume (2026-11-22)
 
 Read this section first; the stage list below is the history and the detail. Check it against `git log --oneline --merges origin/dev`, because it drifts.
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.4.1 (tag `memory-v0.4.1`, 2026-11-22: background commands find the global memories folder); 0.4.0 (2026-11-22: corroboration pass, quarantine, triage, sweep of sessions left open); 0.3.0 (2026-11-22: handoff block, transcript records, background capture behind `auto_capture`; 0.2.0 and 0.1.0 on 2026-11-19; ADR 0027): work merges into `dev`, a release into `main` |
+| Released | `memory` 0.5.0 (tag `memory-v0.5.0`, 2026-11-22: loaded rules, the option `loaded_rules`, `mem rules`, `mem-corroborate fill`, the capture signal for a step the user asked for that paid off); 0.4.1 (2026-11-22: background commands find the global memories folder); 0.4.0 (2026-11-22: corroboration pass, quarantine, triage, sweep of sessions left open); 0.3.0 (2026-11-22: handoff block, transcript records, background capture behind `auto_capture`; 0.2.0 and 0.1.0 on 2026-11-19; ADR 0027): work merges into `dev`, a release into `main` |
 | Merged | Stages 0 to 3, 5, 5b, 6, the import of stage 7, stage 10 (PR #119), edit commands (#121), store history in git (#122), prompts and loop (#123), descriptions (#126), the seamless plan's stages W, 1a, 1b and 2 (#128, #129, #136 to #139) |
-| Installed | `memory@mili-ssm` 0.1.0 at user scope, following `main`; options `auto_settle` and `auto_curation` on, `research_depth` unset (`contrast`) |
+| Installed | `memory@mili-ssm` 0.5.0 at user scope, following `main` (2026-11-22; the 15 confirmed global lessons carry short forms and load); options `auto_settle`, `auto_curation` and `auto_capture` on, `research_depth` unset (`contrast`) |
 | Default store | The owner's imported notes plus everything written since; its `check` reports 29 broken links to documents of the origin that were not imported; no remote yet |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 1248 passed, 4 skipped on `dev` (2026-11-19, about 100 s); `test_merge_logs_both_files_and_restore_undoes_each` fails during the hour after local midnight (UTC date in the curation log) |
 | Compaction | `PreCompact` asks for a handoff block; `PostCompact` logs one line per compaction and speaks only when the block is missing or names a missing plan file ([plan](2026-11-21-memory-handoff-and-compact-log.md)); outcome metrics in `docs/studies/scripts/memory_usage.py` |
-| Capture | Lessons drawn from a session transcript as unconfirmed project memories; with the option `auto_capture`, the `PreCompact` and `SessionEnd` hooks run it in the background (released in 0.3.0). Stage B3, released in 0.4.0: a corroboration pass (`mem-corroborate`), quarantine of an unconfirmed general lesson, triage, and a sweep of sessions left open ([design](../specs/2026-11-21-memory-capture-design.md), [plan and results](2026-11-22-memory-capture-corroboration.md)). B4 open |
+| Capture | Lessons drawn from a session transcript as unconfirmed project memories; with the option `auto_capture`, the `PreCompact` and `SessionEnd` hooks run it in the background (released in 0.3.0). Stage B3, released in 0.4.0: a corroboration pass (`mem-corroborate`), quarantine of an unconfirmed general lesson, triage, and a sweep of sessions left open ([design](../specs/2026-11-21-memory-capture-design.md), [plan and results](2026-11-22-memory-capture-corroboration.md)). Stage B4, loaded rules: built on the branch `feat/memory-loaded-rules` and released in 0.5.0; the short forms of the 15 confirmed global lessons are applied on the owner's store; nothing is applied on the real store; the automatic path (C52) and usefulness (C49) have no plan yet ([plan](2026-11-22-memory-loaded-rules.md)); reminders were built and parked on a branch (C51) |
 | Not registered | The signal hook of stage 6 (measured: no gain) |
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
-Next, in the owner's order (2026-11-19):
+Next, by the owner's word of 2026-11-22: **capture stage B4, the loaded rules** (reminders are parked, C51). The first release shipped in 0.5.0 ([plan](2026-11-22-memory-loaded-rules.md), [handoff](2026-11-22-memory-loaded-rules-and-reminders.md)). What is left, in order: the owner's reading of the proposed short forms and load states, then applying them on the real store (the owner's word); the narrow reviews and one fix wave; a pull request to `dev` and a release only with the owner's word. Later plans: the automatic path (C52) and usefulness (C49).
+
+Before that, in the owner's order of 2026-11-19:
 
 1. **Seamless stage 3**, integration and sibling updates ([the seamless plan](2026-11-17-memory-seamless.md#stage-3-integration-and-sibling-updates)): design, pre-mortem, then tasks.
 2. **Real use** feeds **stage 4**, the kill read, around 2026-12-01, written into ADR 0023 as a `## Review`.

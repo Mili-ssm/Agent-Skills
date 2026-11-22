@@ -28,6 +28,9 @@ UNCONFIRMED_DAYS = 30
 SESSION_PREFIX = "session "
 TRIAGES = ("pending",)
 PROJECT_KEY_LEN = 12
+SHORT_LIMIT = 120  # characters of the one-line form a lesson loads as at session start
+TOPIC_LIMIT = 24
+_TOPIC = re.compile(r"[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?")
 STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
@@ -62,6 +65,9 @@ class Memory:
     triage: str | None = None  # "pending": a global record that left quarantine and awaits triage
     released: datetime.date | None = None  # the day a global record left quarantine
     general: str | None = None  # handle of the global record a project record was generalized into
+    short: str | None = None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
+    topic: str | None = None  # one or two lowercase words that group rules
+    load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -247,6 +253,15 @@ def _split(text: str) -> tuple[dict, str]:
     return meta, text[m.end():]
 
 
+def valid_short(text) -> bool:
+    return isinstance(text, str) and bool(text.strip()) and text == text.strip() and len(text) <= SHORT_LIMIT \
+        and len(text.splitlines()) == 1
+
+
+def valid_topic(text) -> bool:
+    return isinstance(text, str) and len(text) <= TOPIC_LIMIT and text != "other" and _TOPIC.fullmatch(text) is not None
+
+
 def _parse(path: Path, scope: str) -> Memory:
     base = Memory(scope, path, path.stem, "lesson", "", None, 1, "active", None, None, [], "", None)
     try:
@@ -288,6 +303,10 @@ def _parse(path: Path, scope: str) -> Memory:
         triage = meta.get("triage") if meta.get("triage") in TRIAGES else None
         general = meta.get("general")
         general = general if isinstance(general, str) and general.strip() else None
+        short = meta.get("short") if valid_short(meta.get("short")) else None  # a bad value reads as absent
+        topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
+        raw_load = meta.get("load")
+        load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
         try:
             owner_confirmed = _date(meta.get("owner_confirmed"), "owner_confirmed")
         except ValueError:  # a bad value must not hide the memory
@@ -297,7 +316,7 @@ def _parse(path: Path, scope: str) -> Memory:
         except ValueError:
             released = None
         return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage,
-                       released=released, general=general, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+                       released=released, general=general, short=short, topic=topic, load=load, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -347,6 +366,12 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["released"] = m.released.isoformat()
     if m.general:
         meta["general"] = m.general
+    if m.short:
+        meta["short"] = m.short
+    if m.topic:
+        meta["topic"] = m.topic
+    if m.load:
+        meta["load"] = m.load
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -355,7 +380,12 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
 def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, today: datetime.date,
                  context: str | None = None, valid_until: datetime.date | None = None,
                  sources: Sequence[str] = (), origin: str | None = None,
-                 reach: str | None = None, weight: str | None = None) -> Memory:
+                 reach: str | None = None, weight: str | None = None,
+                 short: str | None = None, topic: str | None = None) -> Memory:
+    if short is not None and not valid_short(short):
+        raise ValueError(f"the short form must be one line of at most {SHORT_LIMIT} characters")
+    if topic is not None and not valid_topic(topic):
+        raise ValueError(f"the topic must be one or two lowercase words of at most {TOPIC_LIMIT} characters")
     if kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}")
     if origin is not None and origin not in ORIGINS:
@@ -390,7 +420,7 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
                    list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
-                   reach=reach, weight=weight, triage=triage, released=released)
+                   reach=reach, weight=weight, triage=triage, released=released, short=short, topic=topic)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))

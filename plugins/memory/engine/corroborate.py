@@ -11,9 +11,11 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 import records
+import rules
 
 MAX_LESSONS = 150
 MAX_GROUPS = 30
+FILL_CAP = 30  # lessons one `fill` session is asked about
 LAPSED_DAYS = 60  # an unconfirmed lesson stays readable this long after its valid_until
 
 
@@ -292,3 +294,86 @@ def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
     for x in general:
         out.append(Action("link", member=x.id, project=x.project, target=handle))
     return out
+
+
+def fill_records(projects: Sequence[Path], global_folder: Path | None) -> list[tuple[str, Path | None, records.Memory]]:
+    """Every readable record, as (id, project path or None, memory), with the ids of `collect`: `p<n>:<handle>` for
+    the n-th project and `g:<handle>` for a global record."""
+    out: list[tuple[str, Path | None, records.Memory]] = []
+    for n, project in enumerate(projects, start=1):
+        out += [(f"p{n}:{m.handle}", project, m) for m in records.load_memories(records.project_dir(project), "project")
+                if m.error is None]
+    out += [(f"g:{m.handle}", None, m) for m in records.load_memories(global_folder, "global") if m.error is None]
+    return out
+
+
+def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today: datetime.date,
+                    cap: int = FILL_CAP) -> list[tuple[str, records.Memory]]:
+    """(id, memory) of the lessons that could load as a rule (`rules.eligible`) and are not awaiting triage, but
+    lack a valid short form or topic. The confirmed first, then the most corroborated; at most `cap`."""
+    found = [(i, m) for i, _p, m in fill_records(projects, global_folder)
+             if rules.eligible(m, today) and m.triage != "pending"
+             and not (records.valid_short(m.short) and records.valid_topic(m.topic))]
+    found.sort(key=lambda x: (x[1].owner_confirmed is None, -len(records.projects(x[1])),
+                              -len(records.sessions(x[1])), x[0]))
+    return found[:cap]
+
+
+def claim_digest(m: records.Memory) -> str:
+    """Identifies the claim as stored, so a proposal for an older wording is never written."""
+    return hashlib.sha256((m.claim or "").encode("utf-8", "replace")).hexdigest()
+
+
+def fill_lines(candidates: Sequence[tuple[str, records.Memory]]) -> str:
+    """What the model reads: one block per lesson (id, claim, context), blocks separated by a blank line."""
+    blocks = []
+    for ident, m in candidates:
+        block = [f"id: {ident}", f"claim: {_line(m.claim)}"]
+        if _line(m.context):
+            block.append(f"context: {_line(m.context)}")
+        blocks.append("\n".join(block))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+def fill_problem(short: str, topic: str) -> str | None:
+    """Why a proposed short form or topic cannot be applied, in English, or None when both can."""
+    found = []
+    if not short.strip():
+        found.append("short is empty")
+    elif short != short.strip():
+        found.append("short has spaces at its ends")
+    elif len(short.splitlines()) != 1:
+        found.append("short must be one line")
+    elif not records.valid_short(short):
+        found.append(f"short has {len(short)} characters, at most {records.SHORT_LIMIT}")
+    if not records.valid_topic(topic):
+        found.append("topic must be one or two lowercase words")
+    return "; ".join(found) or None
+
+
+def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict], list[str]]:
+    """`payload` is the model's whole answer, {"items": [{"id", "short", "topic"}]}. The items by id, as {"short",
+    "topic"} plus a "problem" (see `fill_problem`) when either is invalid: that item keeps the model's text (a
+    short cut to 300 characters, a value that is not a string as "") so the owner can repair it. The first item of
+    a known id decides. A reason for each dropped item: no usable id, unknown id, repeated id."""
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        return {}, ["the answer is not an object with a list `items`"]
+    known = set(ids)
+    kept: dict[str, dict] = {}
+    reasons: list[str] = []
+    for n, item in enumerate(items, start=1):
+        ident = item.get("id") if isinstance(item, dict) else None
+        if not isinstance(ident, str):
+            reasons.append(f"item {n}: not an object with an id")
+        elif ident not in known:
+            reasons.append(f"item {n}: unknown id {ident}")
+        elif ident in kept:
+            reasons.append(f"item {n}: repeats {ident}")
+        else:
+            short, topic = item.get("short"), item.get("topic")
+            short = short if isinstance(short, str) else ""
+            topic = topic if isinstance(topic, str) else ""
+            problem = fill_problem(short, topic)
+            kept[ident] = {"short": short[:300], "topic": topic, **({"problem": problem} if problem else {})}
+    return kept, reasons

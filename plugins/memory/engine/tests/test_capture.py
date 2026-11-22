@@ -151,7 +151,7 @@ def test_validate_reach_and_the_new_signals():
     assert capture.validate([item], ex, [])[0] != []
     assert capture.SIGNALS == ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
                                "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason",
-                               "owner_approval", "effective_practice")
+                               "owner_approval", "owner_request_paid_off", "effective_practice")
 
 
 def test_a_queued_command_is_the_owner_only_with_a_human_origin(tmp_path):
@@ -257,7 +257,29 @@ def test_what_worked_is_a_signal_too():
     assert capture.validate([{**praised, "evidence": "the narrow briefs all returned complete reports"}], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
     paid_off = {**GOOD, "signal": "effective_practice", "evidence": "the narrow briefs all returned complete reports on the first try"}
     assert capture.validate([paid_off], ex, [])[0] != []
-    assert capture.SIGNALS[-2:] == ("owner_approval", "effective_practice")
+    assert capture.SIGNALS[-3:] == ("owner_approval", "owner_request_paid_off", "effective_practice")
+
+
+def test_a_step_the_owner_asked_for_that_paid_off_needs_the_owners_words():
+    ex = ("[1] OWNER: run one more review before we publish\n[2] AGENT: the review found a stale link in the changelog\n"
+          "[3] TOOL OK Bash")
+    asked = {**GOOD, "signal": "owner_request_paid_off", "evidence": "run one more review before we publish"}
+    assert capture.validate([asked], ex, [])[0] != []
+    agent = {**asked, "evidence": "the review found a stale link in the changelog"}
+    assert capture.validate([agent], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
+
+
+def test_the_brief_names_every_signal_and_the_amended_exclusion():
+    import importlib.machinery, importlib.util
+    path = Path(__file__).resolve().parents[2] / "bin" / "mem-capture"
+    loader = importlib.machinery.SourceFileLoader("mem_capture_brief", str(path))
+    spec = importlib.util.spec_from_loader("mem_capture_brief", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    for name in capture.SIGNALS:
+        assert f'"{name}"' in mod.BRIEF
+    assert ('leave it out, unless the step the owner asked for visibly paid off (the signal "owner_request_paid_off").'
+            in mod.BRIEF)
 
 
 def long_session(tmp_path, n=200, size=1000):

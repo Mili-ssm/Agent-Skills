@@ -118,7 +118,7 @@ Gate, on a private copy of the real records (36 lessons of origin `transcript`: 
 
 The dry runs showed two defects no test had: a group that keeps a global record's wording was refused for a rewording that is never used, and one bad rewording kept a lesson from being proposed again. Both are fixed and tested.
 
-Limits: one project holds all the project lessons, so matching across projects was exercised only between that project and the global records; the 15 groups were shown by the agent that built the pass; the pass has not run on the real store. The 15 global lessons recovered from the trial were confirmed with `--by-owner` on the real store, as the owner agreed, so the new rule does not hide them.
+Limits: one project holds all the project lessons, so matching across projects was exercised only between that project and the global records; the 15 groups were shown by the agent that built the pass. After the release the reviewed groups were applied on the real store in two passes; the first read 21 of 36 lessons because the background commands did not find the global memories folder from the store alone, a defect present in the capture since 0.3.0 and fixed in 0.4.1 ([results](../superpowers/plans/2026-11-22-memory-capture-corroboration.md#results)). No pass with real model sessions has run on the real store yet. The 15 global lessons recovered from the trial were confirmed with `--by-owner` on the real store, as the owner agreed, so the new rule does not hide them.
 
 The texts given to models changed without an eval suite (N6): the proposal and verification briefs of the pass (new), three sentences of the capture brief (lines starting `g:`), one sentence each in the `memory-curation` skill and the `memory-curator` agent. Kill criteria, read from `corroborate/log.jsonl`, `capture/log.jsonl` and the owner's triage after two weeks of use:
 
@@ -129,3 +129,36 @@ The texts given to models changed without an eval suite (N6): the proposal and v
 - After the release, a global record of origin `transcript` is in quarantine with no end date.
 - The capture sets `same_as` to a `g:` record for a lesson the owner judges only related: revert the capture brief's sentence.
 
+
+### Stage B4: loaded rules, the same day
+
+Stage B4 is built on the branch `feat/memory-loaded-rules`, not merged and not released ([plan and gate](../superpowers/plans/2026-11-22-memory-loaded-rules.md); capture design, C46 to C48, C52 to C55): established lessons load at session start as short rules, built by code from the records, followed by one line that counts what did not fit by topic. The first release is the small one (C54): a lesson loads only with a short form that the owner read; a lesson has three load states (C55). Reminders were built and parked on a branch (C51). The automatic writing of short forms (C52) and the usefulness of a loaded lesson (C49) have no plan yet.
+
+Measurement (C53, [results](../superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)): one small task, three runs a condition, a real model, the rules printed by a throwaway hook and not by the plugin. No rules: 0 of 3; three rules: 3 of 3; the same three among twelve unrelated ones: 3 of 3, at about 7% more cost than with no rules. Not measured then: a rule that conflicts with other instructions, a long session, the owner's own instruction files beside the rules.
+
+Gate, on a private copy of the real global lessons:
+
+| Measure | Result |
+|---|---|
+| Short forms proposed by the small model | 15 asked, 13 kept, 2 dropped for passing 120 characters (they are proposed again by the next dry run); 0.004 USD. The 13 keep the hedges of their claims (the author's reading; the owner's reading is pending) |
+| Rules loaded on the copy | 6; the real hook printed 1692 characters (a median of 644 over 63 session starts in the owner's hook log before). Thirteen of the 15 lessons tied on every order key, so most of the six were the first by handle: the reason for the index-only state (C55) |
+| Runs with a real model, five general rules loaded, a task with an ambiguous term | Without rules the model stated its reading in 2 of 3 runs, with rules in 2 of 3, with the owner's instruction file beside them in 0 of 1. No reply announced a rule it did not follow and none went against the instruction file. No effect measurable on this task, whose base rate is high; no harm |
+
+The first batch of runs was void: with no store option the hook switches to the default store, which the test's temporary folders had created empty.
+
+The brief that has the small model write the short form and the topic ships unmeasured beyond that one batch of 15 (N6), as do the rules beside the owner's own instruction files (one run). Kill criteria:
+
+- In a review of the proposals, the owner rewords more than 1 in 5 short forms because they are stronger than their claims: the brief is not good enough; do not build the automatic path of C52 on it.
+- In real runs no loaded rule that bears on the task is followed, or one that contradicts the owner's instruction file is followed: stop before release.
+- After release, the hook's `ms` at the 99th percentile in `hooks/log.jsonl` is over 1500 (the slowest run seen before was 742): build the block outside the hook.
+- After two weeks, the owner turned off or forgot more than two loaded rules, or the same lesson was captured again in a session where it was loaded: revisit the order, the limit of six, or the wording.
+
+State at the end of 2026-11-22: merged into `dev` (pull request 161), not released. The owner read ten of the fifteen proposed short forms and set all fifteen to load; they are applied on the owner's store and take effect once the release is installed. Text loaded for the model says "the user" (C56).
+
+Before the release, a prompt review changed the loaded wording (C57): the block reads as lessons to apply with judgment, a confirmed lesson ends with `(the user vouched for it)`, the index line says when to fetch a group, and the brief for a short form says what to drop first. The header was measured again and held (3 of 3 and 3 of 3; [results](../superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)). Unmeasured and shipped with these kill criteria: the new brief (check: three dry runs on a private copy, no short form over 120 characters and no hedge lost); the curation bullet (check: one curator run on a private store that rewords an over-strong rule in one command). The plugin option `loaded_rules` switches the feature off as a whole. Text that the plugin's skills, agents and messages show a model still says "the owner" in about twenty places; changing it waits for a plan with an eval, since some of it sits in transcript labels and schema values.
+
+The new brief for a short form, measured the same day on a private copy of the 15 lessons with their short forms removed, three dry runs with the real small model: 15 of 15 valid in each run (13 of 15 with the first brief), lengths from 97 to 116 characters, no "owner" in any, and by a word match the hedge of the claim missing in 1 of 45 short forms. Cost 0.005 to 0.009 USD a run. Limit: the hedge check is a word match, not a reading.
+
+The capture brief gained the signal `owner_request_paid_off` (C58). Tried the same day on the last part of the session in which the owner asked for a final review of prompts and processes before the release, two runs with the small model, nothing written: both runs kept a lesson with that signal that says to consider such a review without being asked; one of the two overstated what the review found ("six high-severity issues" where it found nine items, one of them high). Cost 0.014 to 0.015 USD a run. Unmeasured: whether the signal fires on requests that showed nothing. Kill criterion: more than one in five lessons with this signal, read at curation, rests on a request that showed nothing: tighten the brief or drop the signal.
+
+Released as memory 0.5.0 on 2026-11-22.

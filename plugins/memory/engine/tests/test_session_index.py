@@ -195,7 +195,7 @@ def test_hook_uses_cwd_of_input_and_logs(tmp_path, monkeypatch, capsys):
     lines = (tmp_path / "data" / "hooks" / "log.jsonl").read_text().splitlines()
     assert len(lines) == 1
     rec = json.loads(lines[0])
-    assert list(rec) == ["t", "hook", "source", "ms", "chars"]
+    assert list(rec) == ["t", "hook", "source", "ms", "chars", "rules", "rules_left", "rules_chars"]
     assert rec["hook"] == "session-index" and rec["source"] == "startup"
     assert isinstance(rec["ms"], int) and rec["chars"] == len(out) - 1
     assert str(other) not in lines[0]
