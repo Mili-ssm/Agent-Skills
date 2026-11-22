@@ -2,6 +2,8 @@
 import datetime
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -9,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import auto_state
+import capture_state
 import corroborate
 import records
 
@@ -24,7 +27,9 @@ mode = os.environ.get("FAKE_MODE", "good")
 if mode == "never":
     sys.exit("the fake must not be called")
 with open(os.environ["FAKE_CALLS"], "a") as f:
-    f.write(json.dumps({"args": sys.argv[1:], "cwd": os.getcwd(), "files": sorted(os.listdir("."))}) + "\\n")
+    f.write(json.dumps({"args": sys.argv[1:], "cwd": os.getcwd(), "files": sorted(os.listdir(".")),
+                        "mem_vars": sorted(k for k in os.environ if k.startswith(("MEM_", "CLAUDE_PLUGIN"))),
+                        "path": os.environ.get("PATH", "")}) + "\\n")
 brief = sys.argv[sys.argv.index("-p") + 1]
 out = re.search(r"Write (\\S+) as JSON", brief).group(1)
 src = os.environ.get("FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_GROUPS")
@@ -115,11 +120,11 @@ def model(w, groups, verdicts="all"):
     os.environ["FAKE_VERDICTS"] = str(w.tmp / "verdicts.json")
 
 
-def run(w, *args, mode="good", cmd="run", env=None, claude=True):
+def run(w, *args, mode="good", cmd="run", env=None, claude=True, corr=None):
     full = {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     full["FAKE_MODE"] = mode
     full.update(env or {})
-    argv = [str(CORR), cmd, *(["--claude", str(w.fake)] if claude else []), *args]
+    argv = [str(corr or CORR), cmd, *(["--claude", str(w.fake)] if claude else []), *args]
     return subprocess.run(argv, env=full, capture_output=True, text=True, timeout=300)
 
 
@@ -147,8 +152,9 @@ def project_records(project):
 def snapshot(w):
     out = {}
     for folder in (w.gmem, records.project_dir(w.pa), records.project_dir(w.pb)):
-        for p in folder.glob("*.md"):
-            out[str(p)] = p.read_bytes()
+        for p in folder.iterdir():
+            if p.is_file():
+                out[str(p)] = p.read_bytes()
     return out
 
 
@@ -416,3 +422,250 @@ def test_promote_done_to_names_an_existing_global_record(w):
     good = subprocess.run([str(MEM), "promote", "--done", f"m:{m.handle}", "--to", f"m:{g.handle}"], env=env,
                           capture_output=True, text=True)
     assert good.returncode == 0 and project_records(w.pa)[m.handle].general == g.handle
+
+
+# ---- fix round: failures against refusals, silent non-work, repeatable undo, process ----------------------------
+
+def fake_plugin(w, shell):
+    """A copy of the command beside a `mem` wrapper: `shell` runs first, then the real `mem` (REAL is its path)."""
+    plug = w.tmp / "plug"
+    (plug / "bin").mkdir(parents=True)
+    shutil.copy(CORR, plug / "bin" / "mem-corroborate")
+    (plug / "engine").symlink_to(PLUGIN / "engine")
+    mem = plug / "bin" / "mem"
+    mem.write_text("#!/bin/sh\n" + shell.replace("REAL", str(MEM)) + f'\nexec {MEM} "$@"\n')
+    for f in (mem, plug / "bin" / "mem-corroborate"):
+        f.chmod(0o755)
+    return plug / "bin" / "mem-corroborate"
+
+
+def seen(w):
+    return auto_state.read_json(w.cdir / "seen.json")
+
+
+def key_of(x):
+    return f"{records.project_key(x.project)}:{x.memory.handle}" if x.project is not None else f"g:{x.memory.handle}"
+
+
+def test_a_failing_mem_call_is_a_failure_not_a_refusal(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    flag = w.tmp / "flag"
+    broken = fake_plugin(w, f'if [ "$1" = promote ] && [ ! -e {flag} ]; then touch {flag}; echo boom >&2; exit 2; fi')
+    assert run(w, corr=broken).returncode == 0
+    line = log_lines(w)[-1]
+    assert (line["written"], line["links"], line["refused"], line["failed_actions"]) == (1, 0, 0, 1)
+    assert "fingerprint" not in seen(w) and not seen(w).get("refused")
+    assert run(w).returncode == 0
+    line = log_lines(w)[-1]
+    assert line["links"] == 2 and line["failed_actions"] == 0 and calls(w) == 4
+    for project in (w.pa, w.pb):
+        (m,) = project_records(project).values()
+        assert m.promote == "done"
+
+
+@pytest.mark.parametrize("missing", ["groups", "verdicts"])
+def test_a_session_that_leaves_no_file_saves_no_fingerprint(w, missing):
+    a, b = two_projects(w)
+    model(w, [group(a, b)], None if missing == "verdicts" else "all")
+    if missing == "groups":
+        os.environ.pop("FAKE_GROUPS")
+    assert run(w).returncode == 0
+    assert status(w)["state"] == "ok" and log_lines(w)[-1]["dropped"] > 0
+    assert "fingerprint" not in seen(w) and not seen(w).get("refused")
+    first = calls(w)
+    model(w, [group(a, b)])
+    assert run(w).returncode == 0 and calls(w) > first and len(globals_(w)) == 1
+
+
+def merged_then_refused(w):
+    """Two duplicates of one project and one of another: the merge is applied, then the write is refused."""
+    terms = w.tmp / "mem-config" / "agent-memory" / "forbidden-terms"
+    terms.parent.mkdir(parents=True, exist_ok=True)
+    terms.write_text("zebra\n")
+    lesson(w, w.pa, BRIEF, ("s1",), created=TODAY - datetime.timedelta(days=2))
+    lesson(w, w.pa, BRIEF2, ("s2",))
+    lesson(w, w.pb, "Hand over the acceptance check before the subagent starts, so it knows when it is done.", ("s3",))
+    ids = [ident(w, "Brief the subagent"), ident(w, "Give a subagent"), ident(w, "Hand over the acceptance")]
+    model(w, [group(*ids, claim="Hand a subagent the check first, as the zebra team found.")])
+    before = snapshot(w)
+    assert run(w).returncode == 0
+    return before, terms
+
+
+def test_marks_use_the_fingerprint_after_the_runs_own_writes(w):
+    merged_then_refused(w)
+    assert log_lines(w)[-1]["merges"] == 1 and log_lines(w)[-1]["refused"] == 1
+    marks = seen(w)["refused"]
+    live = {key_of(x): corroborate.lesson_fingerprint(x) for x in lessons(w)}
+    assert marks and all(live.get(k) == v for k, v in marks.items())
+    assert len(marks) == len(live)
+
+
+def test_a_refused_group_is_not_applied_again_until_a_lesson_changes(w):
+    terms = w.tmp / "mem-config" / "agent-memory" / "forbidden-terms"
+    terms.parent.mkdir(parents=True)
+    terms.write_text("zebra\n")
+    a, b = two_projects(w)
+    model(w, [group(a, b, claim="Hand a subagent the check first, as the zebra team found.")])
+    assert run(w).returncode == 0 and log_lines(w)[-1]["refused"] == 1
+    terms.unlink()
+    lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often there.")
+    a, b = ident(w, "Brief the subagent"), ident(w, "Give a subagent")
+    model(w, [group(a, b)])
+    first = calls(w)
+    assert run(w).returncode == 0
+    line = log_lines(w)[-1]
+    assert calls(w) == first + 1 and line["skipped"] is None and (line["written"], line["refused"]) == (0, 0)
+    assert globals_(w) == []
+    env = {**os.environ, "MEM_PROJECT": str(w.pa)}
+    handle = ident(w, "Brief the subagent").split(":")[-1]
+    done = subprocess.run([str(MEM), "confirm", f"m:{handle}", "--source=session s9"], env=env, capture_output=True,
+                          text=True, cwd=w.tmp)
+    assert done.returncode == 0, done.stderr
+    assert run(w).returncode == 0 and len(globals_(w)) == 1
+
+
+def test_undo_can_be_repeated_after_an_interruption(w):
+    before, _ = full_run(w)
+    stamp = Path(status(w)["log"]).name
+    w.gmem.chmod(0o500)
+    try:
+        broken = run(w, stamp, cmd="undo", claude=False)
+    finally:
+        w.gmem.chmod(0o700)
+    assert broken.returncode == 1 and ".md" in broken.stderr and snapshot(w) != before
+    done = run(w, stamp, cmd="undo", claude=False)
+    assert done.returncode == 0, done.stderr
+    assert snapshot(w) == before
+    again = run(w, stamp, cmd="undo", claude=False)
+    assert again.returncode == 0 and "already undone" in again.stdout
+
+
+def test_undo_restores_the_curation_log_too(w):
+    seeded = records.project_dir(w.pa) / records.CURATION_LOG
+    seeded.write_text(json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "none", "before": ""}) + "\n")
+    before, _ = full_run(w)
+    logs = [p for p in list(records.project_dir(w.pa).glob(".curation-log")) + list(w.gmem.glob(".curation-log"))]
+    assert seeded.read_bytes() != before[str(seeded)]
+    done = run(w, Path(status(w)["log"]).name, cmd="undo", claude=False)
+    assert done.returncode == 0, done.stderr
+    assert snapshot(w) == before and logs
+
+
+def test_undo_clears_the_fingerprint_and_the_marks_of_the_run(w):
+    before, _ = merged_then_refused(w)
+    assert "fingerprint" in seen(w) and seen(w)["refused"]
+    assert run(w, Path(status(w)["log"]).name, cmd="undo", claude=False).returncode == 0
+    assert snapshot(w) == before
+    assert "fingerprint" not in seen(w) and not seen(w).get("refused")
+    first = calls(w)
+    assert run(w).returncode == 0 and calls(w) > first
+
+
+def test_restored_files_are_private(w):
+    full_run(w)
+    for p in list(records.project_dir(w.pa).glob("*.md")) + list(records.project_dir(w.pb).glob("*.md")):
+        p.chmod(0o644)
+    before = {p: p.read_bytes() for p in records.project_dir(w.pa).glob("*.md")}
+    done = run(w, Path(status(w)["log"]).name, cmd="undo", claude=False)
+    assert done.returncode == 0, done.stderr
+    for p in records.project_dir(w.pa).glob("*.md"):
+        assert stat.S_IMODE(p.stat().st_mode) == 0o600
+
+
+def runs_of(w):
+    return sorted(p.name for p in (w.cdir / "runs").iterdir()) if (w.cdir / "runs").exists() else []
+
+
+def test_a_run_that_skips_leaves_no_run_folder(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    env = {OPTION: "true"}
+    assert run(w, cmd="auto", env=env).returncode == 0
+    assert len(runs_of(w)) == 1
+    for _ in range(3):
+        assert run(w, cmd="auto", env=env, mode="never").returncode == 0
+    held = auto_state.take_run_lock(w.cdir)
+    try:
+        lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often there.")
+        assert run(w, mode="never").returncode == 0
+    finally:
+        os.close(held)
+    assert len(runs_of(w)) == 1
+
+
+def test_old_run_folders_are_pruned_after_a_failure(w):
+    two_projects(w)
+    runs = w.cdir / "runs"
+    runs.mkdir(parents=True)
+    for i in range(capture_state.KEEP_RUNS + 5):
+        d = runs / f"old-{i:02d}"
+        d.mkdir()
+        os.utime(d, (1_700_000_000 + i, 1_700_000_000 + i))
+    capture_state_now = __import__("time").time()
+    for d in runs.iterdir():
+        os.utime(d, (capture_state_now - 3600 - int(d.name[4:]) * 60,) * 2)
+    assert run(w, mode="exit1").returncode == 1
+    assert len(runs_of(w)) == capture_state.KEEP_RUNS
+
+
+def test_a_failure_stays_until_ack(w):
+    a, b = two_projects(w)
+    assert run(w, mode="exit1").returncode == 1
+    assert auto_state.failure(status(w), 0)
+    model(w, [group(a, b)])
+    assert run(w).returncode == 0 and status(w)["state"] == "ok"
+    assert auto_state.failure(status(w), 0)
+    assert run(w, cmd="ack", claude=False).returncode == 0
+    assert auto_state.failure(status(w), 0) is None
+
+
+def test_the_session_has_only_read_and_write_and_no_mem(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    path = f"{PLUGIN / 'bin'}:{os.environ['PATH']}"
+    assert run(w, env={"PATH": path, "CLAUDE_PLUGIN_ROOT": str(PLUGIN)}).returncode == 0
+    for row in map(json.loads, w.calls_file.read_text().splitlines()):
+        argv = row["args"]
+        assert argv[argv.index("--tools") + 1] == "Read,Write" and "--strict-mcp-config" in argv
+        assert row["mem_vars"] == [] and str(PLUGIN / "bin") not in row["path"].split(os.pathsep)
+
+
+def test_dry_run_out_inside_a_repository_is_refused(w):
+    two_projects(w)
+    repo = w.tmp / "repo"
+    (repo / ".git").mkdir(parents=True)
+    done = run(w, "--dry-run", "--out", str(repo / "plan.json"), mode="never")
+    assert done.returncode == 2 and "repository" in done.stderr and not (repo / "plan.json").exists()
+    assert calls(w) == 0
+
+
+def test_dry_run_out_is_private_even_when_it_exists(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    out = w.tmp / "plan.json"
+    out.write_text("old")
+    out.chmod(0o644)
+    assert run(w, "--dry-run", "--out", str(out)).returncode == 0
+    assert stat.S_IMODE(out.stat().st_mode) == 0o600 and "plan" in json.loads(out.read_text())
+
+
+def test_the_log_line_holds_a_fixed_reason_only(w):
+    two_projects(w)
+    assert run(w, mode="exit1").returncode == 1
+    assert log_lines(w)[-1]["failed"] == "session error"
+    (w.data / "projects.json").write_text("{not json /secret/path")
+    assert run(w, mode="exit1").returncode == 1
+    assert log_lines(w)[-1]["failed"] == "registry unreadable"
+    assert "secret" not in (w.cdir / "log.jsonl").read_text()
+    assert "registry" in (Path(status(w)["log"]) / "log.txt").read_text()
+
+
+def test_undecodable_mem_output_is_not_a_failure(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    noisy = fake_plugin(w, r'if [ "$1" = promote ]; then printf "\377\376 bad"; fi')
+    assert run(w, corr=noisy).returncode == 0
+    line = log_lines(w)[-1]
+    assert (line["links"], line["failed_actions"], line["failed"]) == (2, 0, None)

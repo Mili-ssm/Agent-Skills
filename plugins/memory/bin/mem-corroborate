@@ -42,6 +42,7 @@ import capture_state as cs  # noqa: E402
 try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
     import corroborate  # noqa: E402
     import records  # noqa: E402
+    import research_pipeline as rp  # noqa: E402
     import synth_pipeline as sp  # noqa: E402
     IMPORT_ERROR: Exception | None = None
 except Exception as _exc:   # noqa: BLE001
@@ -56,6 +57,16 @@ MEM_TIMEOUT = 60
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
 STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
+ANSWERS = ("same", "faithful", "general")
+REFUSED_MEM_EXITS = {"remember": (4, 5)}   # a `mem merge` refuses with any non-zero exit; any other exit is a failure
+
+
+class Stop(Exception):
+    """A run that cannot go on: `short` is the fixed reason the log line keeps, the message goes to the run's log.txt."""
+
+    def __init__(self, short: str, detail: str):
+        super().__init__(detail)
+        self.short = short
 
 PROPOSE_BRIEF = """You compare short lessons that coding sessions wrote down, and say which of them state the same lesson.
 
@@ -143,16 +154,13 @@ def write_private(path: Path, text: str) -> None:
         f.write(text)
 
 
-def without_paths(reason: str) -> str:
-    return " ".join("(path)" if "/" in token else token for token in reason.split())
-
-
 # ---- the model sessions -----------------------------------------------------------------------------------------
 
 def session_cmd(claude: str, work: Path, brief: str, settings: Path, model: str, max_budget: float) -> list[str]:
-    """One session. Tools: Read and Write/Edit inside `work` only; no Bash, no web, hooks disabled by `settings`."""
+    """One session. Only Read and Write exist (`--tools`, no MCP server) and the rules allow them inside `work`
+    only; no Bash, no web, hooks disabled by `settings`."""
     return [claude, "-p", brief, "--model", model, "--effort", "medium", "--settings", str(settings),
-            "--setting-sources", "project",
+            "--setting-sources", "project", "--tools", "Read,Write", "--strict-mcp-config",
             "--allowedTools", f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)",
             "--disallowedTools", "Bash", "WebSearch", "WebFetch",
             "--output-format", "stream-json", "--verbose", "--no-session-persistence",
@@ -160,13 +168,12 @@ def session_cmd(claude: str, work: Path, brief: str, settings: Path, model: str,
 
 
 def run_session(cmd: list[str], work: Path) -> dict:
-    env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
     try:
-        done = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                              timeout=SESSION_TIMEOUT)
+        done = subprocess.run(cmd, cwd=work, env=rp.session_env(), stdin=subprocess.DEVNULL, capture_output=True,
+                              text=True, errors="replace", timeout=SESSION_TIMEOUT)
         raw = done.stdout
     except subprocess.TimeoutExpired as exc:
-        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+        raw = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
     return sp.parse(raw)
 
 
@@ -204,10 +211,18 @@ class Journal:
         return hashlib.sha1(str(path).encode()).hexdigest()[:16]
 
     def watch(self, paths) -> dict[Path, bytes | None]:
-        return {Path(p): read_bytes(Path(p)) for p in paths}
+        """The files and the curation log beside each (an action may log the text it replaces)."""
+        out = {Path(p): read_bytes(Path(p)) for p in paths}
+        for p in list(out):
+            log = p.parent / records.CURATION_LOG
+            out.setdefault(log, read_bytes(log))
+        return out
 
     def watch_folder(self, folder: Path) -> dict[Path, bytes | None]:
-        return self.watch(sorted(folder.glob("*.md"))) if folder.is_dir() else {}
+        found = self.watch(sorted(folder.glob("*.md"))) if folder.is_dir() else {}
+        log = folder / records.CURATION_LOG
+        found.setdefault(log, read_bytes(log))
+        return found
 
     def commit(self, action: str, before: dict[Path, bytes | None], folder: Path | None = None) -> None:
         """Journal every watched file that changed; with `folder`, files that appeared in it count as created."""
@@ -240,7 +255,11 @@ def write_private_bytes(path: Path, data: bytes) -> None:
 
 
 def undo_run(run: Path) -> tuple[bool, str]:
-    """(done, message). Changes nothing unless every journaled file still holds what the run left in it."""
+    """(done, message). Changes nothing unless every journaled file that is not restored yet still holds what the run
+    left in it; a file already equal to its saved copy (or a created one already gone) counts as restored, so an
+    interrupted undo can be run again."""
+    if (run / "undone").exists():
+        return True, f"run {run.name} was already undone"
     journal = run / "journal.jsonl"
     if not journal.is_file():
         return False, "this run has no journal: nothing to undo"
@@ -252,31 +271,61 @@ def undo_run(run: Path) -> tuple[bool, str]:
             return False, "the journal cannot be read: nothing was changed"
         if isinstance(row, dict) and isinstance(row.get("file"), str):
             last[row["file"]] = row
+    todo: list[tuple[Path, bytes | None]] = []
     for file, row in last.items():
-        if digest(read_bytes(Path(file))) != row.get("hash"):
-            return False, f"{file} changed since the run: nothing was changed"
-    for file, row in last.items():
-        path = Path(file)
+        path, now = Path(file), read_bytes(Path(file))
         if row.get("created"):
-            path.unlink(missing_ok=True)
-            continue
-        saved = read_bytes(run / "before" / Journal(run).before_name(path))
-        if saved is None:
-            return False, f"the saved copy of {file} is missing: stopped part way"
-        tmp = path.with_name(f".{path.name}.undo")
-        tmp.write_bytes(saved)
-        os.replace(tmp, path)
-    return True, f"undone: {len(last)} files"
+            saved = None
+            if now is None:
+                continue
+        else:
+            saved = read_bytes(run / "before" / Journal(run).before_name(path))
+            if saved is None:
+                return False, f"the saved copy of {file} is missing: nothing was changed"
+            if now == saved:
+                continue
+        if digest(now) != row.get("hash"):
+            return False, f"{file} changed since the run: nothing was changed"
+        todo.append((path, saved))
+    for path, saved in todo:
+        try:
+            if saved is None:
+                path.unlink(missing_ok=True)
+            else:
+                tmp = path.with_name(f".{path.name}.undo")
+                write_private_bytes(tmp, saved)
+                os.replace(tmp, path)
+        except OSError as exc:
+            return False, f"cannot restore {path}: {exc.strerror or type(exc).__name__}; run undo again to finish"
+    write_private(run / "undone", "")
+    return True, f"undone: {len(todo)} files"
+
+
+def forget_run(cdir: Path, run: Path) -> None:
+    """After an undo: the next run does the work again, so drop the saved fingerprint and the marks this run added."""
+    seen = au.read_json(cdir / "seen.json")
+    if not seen:
+        return
+    added = au.read_json(run / "seen-added.json").get("marked")
+    marks = seen.get("refused")
+    seen.pop("fingerprint", None)
+    if isinstance(marks, dict) and isinstance(added, list):
+        seen["refused"] = {k: v for k, v in marks.items() if k not in added}
+    au.write_json(cdir / "seen.json", seen)
 
 
 # ---- applying a group -------------------------------------------------------------------------------------------
 
 class Applier:
-    """Applies the kept groups through `bin/mem`; the counts of what happened are in `counts`."""
+    """Applies the kept groups through `bin/mem`; the counts of what happened are in `counts`.
+
+    A refusal (exit 4 or 5 of `remember`, a non-zero `merge`) is counted and marked so the group is not tried again.
+    Any other result of a `mem` call (an undocumented exit code, a timeout, no process) is a failure: it stops the
+    group, marks nothing and keeps the run from saving its fingerprint, so the next run tries again."""
 
     def __init__(self, journal: Journal, lessons: dict, gfolder: Path | None, cwd: Path, log):
         self.journal, self.lessons, self.gfolder, self.cwd, self.log = journal, lessons, gfolder, cwd, log
-        self.counts = {"written": 0, "sightings": 0, "links": 0, "merges": 0, "refused": 0}
+        self.counts = {"written": 0, "sightings": 0, "links": 0, "merges": 0, "refused": 0, "failed_actions": 0}
         self.refused_ids: set[str] = set()
         self.current = None
 
@@ -286,7 +335,7 @@ class Applier:
             env["MEM_PROJECT"] = str(project)
         try:
             done = subprocess.run([str(MEM), *args], env=env, cwd=self.cwd, input=stdin, capture_output=True,
-                                  text=True, timeout=MEM_TIMEOUT)
+                                  text=True, errors="replace", timeout=MEM_TIMEOUT)
         except (OSError, subprocess.TimeoutExpired) as exc:
             self.log(f"mem {args[0]}: could not run ({type(exc).__name__})")
             return None
@@ -300,7 +349,7 @@ class Applier:
         return self.lessons[lesson_id].memory.path
 
     def apply(self, group, acts) -> bool:
-        """Every action of one group, in order; False when one was refused and the rest of the group was left."""
+        """Every action of one group, in order; False when one was refused or failed and the rest was left."""
         written: str | None = None   # the global record that this group's write_global made or found
         for a in acts:
             if a.kind in ("merge", "merge_global"):
@@ -308,7 +357,9 @@ class Applier:
                 before = self.journal.watch([self.path(a.keep), self.path(a.drop)])
                 done = self.mem(args, a.project)
                 self.journal.commit(a.kind, before)
-                if done is None or done.returncode:
+                if done is None:
+                    return self.fail()
+                if done.returncode:
                     return self.refuse()   # left for curation, never forced
                 self.counts["merges"] += 1
             elif a.kind == "write_global":
@@ -323,15 +374,19 @@ class Applier:
                 before = self.journal.watch_folder(self.gfolder) if self.gfolder else {}
                 done = self.mem(args, stdin=body)
                 self.journal.commit("write_global", before, self.gfolder)
-                first = done.stdout.strip().splitlines()[0].split("\t") if done and done.stdout.strip() else []
-                if done is not None and done.returncode == 0 and first and first[0].startswith("m:"):
+                if done is None:
+                    return self.fail()
+                first = done.stdout.strip().splitlines()[0].split("\t") if done.stdout.strip() else []
+                if done.returncode == 0 and first and first[0].startswith("m:"):
                     written = first[0]
                     self.counts["written"] += 1
-                elif done is not None and done.returncode == 3 and len(first) == 2 and first[0].startswith("m:"):
+                elif done.returncode == 3 and len(first) == 2 and first[0].startswith("m:"):
                     written = first[0]   # the claim exists: its sightings were added by `remember`
                     self.counts["sightings"] += first[1] == "sighting"
-                else:
+                elif done.returncode in REFUSED_MEM_EXITS["remember"]:
                     return self.refuse()
+                else:
+                    return self.fail()
             elif a.kind == "sighting":
                 target = a.target and f"m:{a.target}" or written
                 if not target or not self.gfolder:
@@ -343,8 +398,7 @@ class Applier:
                 if done is not None and done.returncode == 0:
                     self.counts["sightings"] += 1
                 elif done is None or done.returncode != 3:
-                    self.counts["refused"] += 1
-                    self.refused_ids.update(group.ids)
+                    return self.fail()
             elif a.kind == "link":
                 target = a.target and f"m:{a.target}" or written
                 if not target:
@@ -355,13 +409,16 @@ class Applier:
                 if done is not None and done.returncode == 0:
                     self.counts["links"] += 1
                 else:
-                    self.counts["refused"] += 1
-                    self.refused_ids.update(group.ids)
-        return not (self.refused_ids & set(group.ids))
+                    return self.fail()
+        return True
 
     def refuse(self) -> bool:
         self.counts["refused"] += 1
         self.refused_ids.update(self.current.ids)
+        return False
+
+    def fail(self) -> bool:
+        self.counts["failed_actions"] += 1
         return False
 
 
@@ -384,6 +441,16 @@ def planned(acts) -> list[dict]:
     return out
 
 
+def refused_by_verdict(verdict_data: object, n: int) -> bool:
+    """True when the one verdict for group `n` says no (an answer that is present and not `true`): a real refusal,
+    not a missing or malformed answer."""
+    items = verdict_data.get("verdicts") if isinstance(verdict_data, dict) else None
+    if not isinstance(items, list):
+        return False
+    found = [v for v in items if isinstance(v, dict) and v.get("group") == n and not isinstance(v.get("group"), bool)]
+    return len(found) == 1 and any(k in found[0] and found[0][k] is not True for k in ANSWERS)
+
+
 def execute(claude: str | None, budget: float, groups_file: str | None = None, dry_run: bool = False,
             out_file: str | None = None) -> dict:
     """One run. The log line (counts only); a dry run writes nothing but `out_file`."""
@@ -392,7 +459,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
     cdir = corroborate_dir(data)
     line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "lessons": 0,
                   "groups": 0, "proposed": 0, "verified": 0, "dropped": 0, "written": 0, "sightings": 0, "links": 0,
-                  "merges": 0, "refused": 0, "skipped": None, "cost": 0.0, "failed": None, "ms": 0}
+                  "merges": 0, "refused": 0, "failed_actions": 0, "skipped": None, "cost": 0.0, "failed": None, "ms": 0}
     lock = None
     logged: list[bool] = []
     run: Path | None = None
@@ -415,7 +482,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
     try:
         if IMPORT_ERROR is not None:
             reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
-            line["failed"] = without_paths(reason)
+            line["failed"] = "engine import error"
             save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
             finish_log()
             return line
@@ -425,16 +492,12 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
                 line["skipped"] = "another run holds the lock"
                 finish_log()
                 return line
-            run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-            au.private_dir(run)
-            save_status(cdir, state="running", started=time.time(), finished=None, log=str(run))
-        root = run if run is not None else scratch
         seen = au.read_json(cdir / "seen.json")
         refused_seen = seen.get("refused") if isinstance(seen.get("refused"), dict) else {}
         try:
             registry = records.read_registry(data)
         except ValueError as exc:
-            raise RuntimeError(f"registry: {exc}") from exc
+            raise Stop("registry unreadable", f"registry: {exc}") from exc
         gfolder = records.memories_root(os.environ, None)
         today = datetime.date.today()
 
@@ -443,27 +506,30 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
 
         lessons = collect()
         line["lessons"] = len(lessons)
-        before_print = corroborate.fingerprint(lessons)
-        failures: list[str] = []
         if not lessons:
             line["skipped"] = "no lessons"
-        elif not (groups_file or dry_run) and seen.get("fingerprint") == before_print:
+        elif not (groups_file or dry_run) and seen.get("fingerprint") == corroborate.fingerprint(lessons):
             line["skipped"] = "nothing new"
         if line["skipped"]:
-            save_done(cdir, line, None, dry_run)
             finish_log()
             return line
+        if not dry_run:   # only a run that works gets a folder and a status
+            run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+            au.private_dir(run)
+            save_status(cdir, state="running", started=time.time(), finished=None, log=str(run))
+        root = run if run is not None else scratch
         by_id = {x.id: x for x in lessons}
         write_private(root / "lessons.txt", "".join(f"{ln}\n" for ln in corroborate.lesson_lines(lessons)))
         verdict_data: object = None
         proposal: object = None
+        incomplete = False   # a session left no usable file: nothing is saved, so the next run asks again
         if groups_file:
             proposal = read_object(Path(groups_file).expanduser())
             proposed, reasons = corroborate.validate_groups(proposal, lessons)
             kept, vreasons = list(proposed), []   # a reviewed file: no verifying session
         else:
             if not claude:
-                raise RuntimeError("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+                raise Stop("no claude", "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
             settings = root / "settings.json"
             write_private(settings, json.dumps({"disableAllHooks": True}))
             work1 = root / "propose"
@@ -475,11 +541,13 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
             line["cost"] += done["cost"] if done["has_result"] else 0.0
             log(f"propose: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f}")
             if not done["has_result"] or done["error"]:
-                raise RuntimeError("the proposing session ended without a cost report" if not done["has_result"]
-                                   else "the proposing session failed")
+                raise Stop("session error", "the proposing session ended without a cost report" if not done["has_result"]
+                           else "the proposing session failed")
             proposal = read_object(out1)
+            incomplete = not (isinstance(proposal, dict) and isinstance(proposal.get("groups"), list))
             proposed, reasons = corroborate.validate_groups(proposal, lessons)
-            proposed = [g for g in proposed if not any(refused_seen.get(stable_key(by_id[i])) == corroborate.lesson_fingerprint(by_id[i])
+            # a refused group waits until one of its lessons changes (a sighting, a new wording): all marks must still hold
+            proposed = [g for g in proposed if not all(refused_seen.get(stable_key(by_id[i])) == corroborate.lesson_fingerprint(by_id[i])
                                                        for i in g.ids)]
             kept, vreasons = [], []
             if proposed:
@@ -492,52 +560,64 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
                 line["cost"] += done["cost"] if done["has_result"] else 0.0
                 log(f"verify: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f}")
                 if not done["has_result"] or done["error"]:
-                    raise RuntimeError("the verifying session ended without a cost report" if not done["has_result"]
-                                       else "the verifying session failed")
+                    raise Stop("session error", "the verifying session ended without a cost report" if not done["has_result"]
+                               else "the verifying session failed")
                 verdict_data = read_object(out2)
+                incomplete = incomplete or not (isinstance(verdict_data, dict) and isinstance(verdict_data.get("verdicts"), list))
                 kept, vreasons = corroborate.validate_verdicts(verdict_data, proposed)
         raw_groups = proposal.get("groups") if isinstance(proposal, dict) else None
         line["groups"] = len(raw_groups) if isinstance(raw_groups, list) else 0
         line["proposed"], line["verified"], line["dropped"] = len(proposed), len(kept), len(reasons)
+        if incomplete:   # no usable answer from a session counts as dropped, even where the validator says it per group
+            line["dropped"] += len(vreasons)
         for why in [*reasons, *vreasons]:
             log(f"not applied: {why}")
-        refused_now = {i for g in proposed if g not in kept for i in g.ids}
+        refused_now = {i for n, g in enumerate(proposed, start=1) if g not in kept and refused_by_verdict(verdict_data, n)
+                       for i in g.ids}
         if dry_run:
             plan = [{"ids": g.ids, "claim": g.claim, "actions": planned(corroborate.actions(g, by_id))} for g in kept]
             write_private(Path(out_file), json.dumps({"proposal": proposal, "dropped": reasons, "verdicts": verdict_data,
                                                       "not_verified": vreasons, "plan": plan}, ensure_ascii=False, indent=1) + "\n")
             return line
         applier = Applier(Journal(run), by_id, gfolder, run, log)
+        failed_ids: set[str] = set()
         for g in kept:
             applier.current = g
+            failed_before = applier.counts["failed_actions"]
             try:
                 applier.apply(g, corroborate.actions(g, by_id))
             except Exception as exc:   # noqa: BLE001 - one odd group never stops the others
                 log(f"group failed: {type(exc).__name__}: {exc}")
-                applier.refuse()
-        for key in ("written", "sightings", "links", "merges", "refused"):
+                applier.fail()
+            if applier.counts["failed_actions"] > failed_before:
+                failed_ids.update(g.ids)
+        for key in ("written", "sightings", "links", "merges", "refused", "failed_actions"):
             line[key] = applier.counts[key]
-        refused_ids = refused_now | applier.refused_ids
-        marks = {k: v for k, v in refused_seen.items() if isinstance(v, str)}
-        for i in refused_ids:
-            marks[stable_key(by_id[i])] = corroborate.lesson_fingerprint(by_id[i])
-        after = collect()
-        live = {stable_key(x) for x in after}
-        seen_out = {"refused": {k: v for k, v in marks.items() if k in live}}
-        if not groups_file:   # a reviewed file never tells the model's pass that the lessons were seen
-            seen_out["fingerprint"] = corroborate.fingerprint(after)
+        # marks are the fingerprints the lessons have now, after this run's own writes (a merge changes the kept record)
+        after = {stable_key(x): corroborate.lesson_fingerprint(x) for x in collect()}
+        marked = {stable_key(by_id[i]) for i in (refused_now | applier.refused_ids) - failed_ids}
+        marks = {k: v for k, v in refused_seen.items() if isinstance(v, str) and k in after}
+        marks.update({k: after[k] for k in marked if k in after})
+        seen_out: dict = {"refused": marks}
+        if line["failed_actions"] or incomplete:
+            pass   # no fingerprint: the next run tries again
+        elif not groups_file:   # a reviewed file never tells the model's pass that the lessons were seen
+            seen_out["fingerprint"] = corroborate.fingerprint(collect())
         elif "fingerprint" in seen:
             seen_out["fingerprint"] = seen["fingerprint"]
+        write_private(run / "seen-added.json", json.dumps({"marked": sorted(marked)}))
         au.write_json(cdir / "seen.json", seen_out)
         save_done(cdir, line, None, dry_run)
         finish_log()
-        cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
         return line
     except Exception as exc:   # noqa: BLE001 - a background process reports and ends
-        reason = f"{type(exc).__name__}: {exc}" if not isinstance(exc, RuntimeError) else str(exc)
-        line["failed"] = without_paths(reason)[:200]
+        reason = str(exc) if isinstance(exc, Stop) else f"{type(exc).__name__}: {exc}"
+        line["failed"] = exc.short if isinstance(exc, Stop) else type(exc).__name__
         if not dry_run:
             try:
+                if run is None and lock is not None:   # the details of a failure need a private place
+                    run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+                    au.private_dir(run)
                 log(f"failed: {reason}")
                 save_done(cdir, line, reason, dry_run, log=str(run) if run else "")
                 if not logged:
@@ -548,6 +628,11 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
             line["failed_reason"] = reason
         return line
     finally:
+        if run is not None:
+            try:
+                cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
+            except Exception:   # noqa: BLE001
+                pass
         if lock is not None:
             os.close(lock)
         if scratch is not None:
@@ -555,14 +640,15 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
 
 
 def save_done(cdir: Path, line: dict, failure: str | None, dry_run: bool, log: str = "") -> None:
+    """A failure line stays in the status until `ack`: a later successful run does not clear it."""
     if dry_run:
         return
     now = time.time()
     end: dict = {"state": "failed" if failure else "ok", "finished": now, "cost": line["cost"]}
+    if log:
+        end["log"] = log
     if failure:
         end["failure"] = {"at": now, "reason": failure[:300], "log": log}
-    elif not line["skipped"]:
-        end["failure"] = None
     save_status(cdir, **end)
 
 
@@ -571,9 +657,18 @@ def summary(line: dict) -> str:
         return f"mem-corroborate: failed: {line['failed']}"
     if line["skipped"]:
         return f"mem-corroborate: skipped: {line['skipped']}"
+    more = f", {line['failed_actions']} failed (tried again next run)" if line["failed_actions"] else ""
     return (f"mem-corroborate: {line['lessons']} lessons, {line['verified']} of {line['proposed']} groups applied: "
             f"{line['written']} written, {line['sightings']} sightings, {line['links']} links, {line['merges']} merges, "
-            f"{line['refused']} refused")
+            f"{line['refused']} refused{more}")
+
+
+def repo_above(folder: Path) -> Path | None:
+    """The nearest folder, `folder` or an ancestor, that holds an entry named `.git` (as `mem-capture run --out`)."""
+    for p in (folder, *folder.parents):
+        if os.path.lexists(p / ".git"):
+            return p
+    return None
 
 
 def cmd_run(args) -> int:
@@ -589,6 +684,11 @@ def cmd_run(args) -> int:
     if args.dry_run and args.groups:
         print("mem-corroborate: --dry-run runs the sessions: it does not take --groups", file=sys.stderr)
         return 2
+    if args.dry_run:
+        repo = repo_above(Path(args.out).expanduser().resolve().parent)
+        if repo is not None:
+            print(f"mem-corroborate: --out is inside a repository ({repo}); the result holds memory text", file=sys.stderr)
+            return 2
     line = execute(args.claude, args.budget, args.groups, args.dry_run, args.out)
     print(summary(line) if not line.get("failed_reason") else f"mem-corroborate: failed: {line['failed_reason']}")
     return 1 if line["failed"] else 0
@@ -619,7 +719,12 @@ def cmd_undo(args) -> int:
         print("mem-corroborate: a run is going: try again later", file=sys.stderr)
         return 1
     try:
-        done, message = undo_run(run)
+        if (run / "undone").exists():
+            done, message = True, f"run {args.stamp} was already undone"
+        else:
+            done, message = undo_run(run)
+            if done:
+                forget_run(cdir, run)
     finally:
         os.close(lock)
     print(f"mem-corroborate: {message}", file=sys.stdout if done else sys.stderr)
