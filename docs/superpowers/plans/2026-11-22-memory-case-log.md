@@ -247,7 +247,7 @@ git commit -m "feat(memory): confirm, remember and capture record whether a less
 - Consumes: `records.cases` of Task 1; `mem confirm --source --outcome --seen-on` of Task 3, which adds a case to a session that is already a source.
 - Produces: `Action` gains `cases: list[str]`, default empty: on a `sighting` action the `log` entries of the member records for that session; on a `write_global` action those of all its sessions. `mem-corroborate` applies a `sighting` as today and then one `mem confirm` per case; it applies a `write_global` with its present `mem remember` (no outcome, so no `log`) and then one `mem confirm` per case. The journal undoes the whole action as it does today.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | File | Asserts |
 |---|---|---|
@@ -255,15 +255,15 @@ git commit -m "feat(memory): confirm, remember and capture record whether a less
 | `test_a_new_general_lesson_carries_the_cases_of_each_session` | `test_corroborate.py` | two members, one session each, one `failed` and one `worked`: the `write_global` action lists both entries |
 | `test_the_pass_applies_cases_to_the_global_record` | `test_mem_corroborate.py` | after the pass, the global record has each session once in `sources` and each case in `log` with the member's date and outcome, for a `sighting` and for a `write_global`; undoing the action leaves the record as it was, or absent |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Read how `mem-corroborate` applies and journals these two actions before changing them.
 
-- [ ] **Step 4: Run the two test files, then the whole suite**
+- [x] **Step 4: Run the two test files, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory
