@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -434,6 +435,16 @@ _PROJECT_KEY = re.compile(rf"[0-9a-f]{{{PROJECT_KEY_LEN}}}")
 def project_key(project: Path) -> str:
     """The first 12 hex characters of the SHA-1 of the resolved path: counts projects without naming them."""
     return hashlib.sha1(str(project.resolve()).encode("utf-8")).hexdigest()[:PROJECT_KEY_LEN]
+
+
+def under_temp(path: Path) -> bool:
+    """True when `path` is under a temporary folder: a trial copy of a project there is not a second project.
+    Always false when MEM_COUNT_TEMP_PROJECTS is "1" (the tests, which run under a temporary folder)."""
+    if os.environ.get("MEM_COUNT_TEMP_PROJECTS") == "1":
+        return False
+    resolved = path.resolve()
+    roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve(), Path("/var/tmp").resolve()}
+    return any(resolved == r or r in resolved.parents for r in roots)
 
 
 def sighting(source: str) -> tuple[str, str | None] | None:

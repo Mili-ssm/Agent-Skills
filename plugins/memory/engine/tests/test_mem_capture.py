@@ -580,6 +580,77 @@ def test_a_sighting_never_lands_on_a_global_record(world):
     assert g.path.read_text() == before and files(world) == []
 
 
+def global_lesson(claim=None, origin="transcript", sources=("session s1 project 0123456789ab",)):
+    import datetime
+    import records
+    return records.write_memory(Path(os.environ["MEM_MEMORIES"]), "global", kind="lesson", claim=claim or GOOD["claim"],
+                                body="b\n", today=datetime.date.today(), origin=origin, weight="medium",
+                                sources=list(sources) if origin else [])
+
+
+def test_the_list_names_global_transcript_records_and_keeps_the_others_general(world):
+    quarantined = global_lesson()
+    plain = global_lesson("Briefs for subagents must carry their own acceptance criteria.", origin=None)
+    import records
+    assert records.quarantined(quarantined)
+    lines = recorded_of(world).splitlines()
+    assert f"g:{quarantined.handle}\t{GOOD['claim']}" in lines
+    assert "(general)\tBriefs for subagents must carry their own acceptance criteria." in lines
+    assert not any(l.startswith(f"g:{plain.handle}") for l in lines)
+
+
+def test_a_sighting_is_added_to_a_global_record_with_the_project_key_and_no_evidence(world):
+    import records
+    g = global_lesson()
+    env = {"MEM_COUNT_TEMP_PROJECTS": "1"}
+    done = go(world, [{**GOOD, "same_as": f"g:{g.handle}"}], env=env)
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("sighting", None)]
+    text = g.path.read_text()
+    assert f"session abc project {records.project_key(world.project)}" in text
+    assert "Seen again (owner_correction)." in text
+    assert GOOD["evidence"] not in text and "OWNER" not in text
+    again = go(world, [{**GOOD, "same_as": f"g:{g.handle}"}], env=env)
+    assert again.returncode == 0, again.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "this session already counted")]
+
+
+def test_a_temporary_project_adds_no_sighting_to_a_global_record(world, monkeypatch):
+    monkeypatch.delenv("MEM_COUNT_TEMP_PROJECTS", raising=False)
+    g = global_lesson()
+    before = g.path.read_text()
+    done = go(world, [{**GOOD, "same_as": f"g:{g.handle}"}])
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "a temporary project")]
+    assert g.path.read_text() == before
+
+
+def test_under_temp(tmp_path, monkeypatch):
+    import records
+    monkeypatch.delenv("MEM_COUNT_TEMP_PROJECTS", raising=False)
+    assert records.under_temp(tmp_path) and records.under_temp(Path("/tmp/x/../y"))
+    assert not records.under_temp(Path.home())
+    monkeypatch.setenv("MEM_COUNT_TEMP_PROJECTS", "1")
+    assert not records.under_temp(tmp_path)
+
+
+def test_a_vanished_global_record_is_skipped(world):
+    g = global_lesson()
+    g.path.unlink()
+    done = go(world, [{**GOOD, "same_as": "g:" + g.handle}], env={"MEM_COUNT_TEMP_PROJECTS": "1"})
+    assert done.returncode == 0, done.stderr
+    # the candidate is dropped by validation (not in the list) or skipped at apply time: never written anywhere
+    assert [x["outcome"] for x in written(world)] in ([], ["skipped"]) and files(world) == []
+
+
+def test_an_m_handle_never_reaches_a_global_record(world):
+    g = global_lesson()
+    before = g.path.read_text()
+    done = go(world, [{**GOOD, "same_as": f"m:{g.handle}"}], env={"MEM_COUNT_TEMP_PROJECTS": "1"})
+    assert done.returncode == 0, done.stderr
+    assert g.path.read_text() == before and files(world) == []
+
+
 def test_one_odd_candidate_does_not_stop_the_run(world):
     third = {**GOOD, "claim": "Keep the fixtures small: a huge one made the suite crawl for a week.",
              "evidence": "keep the fixtures small, they were slow", "context": "slow suite"}

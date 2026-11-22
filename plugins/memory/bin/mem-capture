@@ -62,7 +62,7 @@ BRIEF = """You read the record of one coding session and find what a later sessi
 
 Files in {work}:
 - extract-1.txt, extract-2.txt, ...: the session in order, one event per line. Read every one of them before you write. OWNER is the human, OWNER ANSWER the human's answer to a question, AGENT the assistant, REPORT a message from a subagent or another agent (not the human), TOOL lines the assistant's tool calls, TOOL ERROR a call that failed, TOOL OK the same tool succeeding after an error. The bracket and the label at the start of a line are positions, not content.
-- recorded.txt: what the memory already holds, one per line. A line starting with m: is a memory of this project, with its handle; a line starting with (general) holds in every project.
+- recorded.txt: what the memory already holds, one per line. A line starting with m: is a memory of this project, with its handle; a line starting with g: is a general lesson recorded from other sessions, with its handle; a line starting with (general) holds in every project.
 - rules.txt: the standing instructions the owner already wrote for the agent.
 
 Write {work}/candidates.json: a JSON list of at most 5 objects, or [] when nothing qualifies. Most sessions hold one or two things worth keeping, many hold none; five is a ceiling, not a target. Order what you found by how much a later session would lose without it, and keep only the ones you would defend to the owner.
@@ -93,7 +93,7 @@ Each object has these keys:
 - "claim": 20 to 400 characters, in English, standing on its own in six months. Say what was seen and what it suggests, at the strength the evidence gives it and no more. This session is one sighting: write "in one session ...", "when X, Y happened, so consider ...", not "always" or "never". Say what is not known: whether it holds elsewhere, whether it may be temporary, under which condition it was seen. When the signal is a correction by the owner, report it as what the owner said and did, and weigh the other reading too: the owner may have misread the agent, and then the lesson is to explain more clearly.
 - "context": one sentence on when it applies.
 - "evidence": a passage copied character for character from inside one line of an extract file, without the bracket and label, 15 to 300 characters, that shows the signal. A paraphrase, or a passage that spans two lines, is rejected by a program.
-- "same_as": only when a line of recorded.txt starting with m: already says this: its handle, exactly as written (for example "m:some-handle"). Then this session is one more sighting of it; still give the other keys.
+- "same_as": only when a line of recorded.txt starting with m: or g: already says this: its handle, exactly as written (for example "m:some-handle" or "g:some-handle"). Then this session is one more sighting of it; still give the other keys.
 
 Leave out: what a (general) line of recorded.txt or rules.txt already says; what the code, the git history or the project's documents already state; secrets, tokens, names of people or clients.
 """
@@ -141,11 +141,12 @@ def _one_line(text: str) -> str:
 
 
 def recorded_lines(project: Path) -> tuple[list[str], dict[str, str]]:
-    """The lines of recorded.txt, and the claims of the project's memories by handle ("m:<handle>").
+    """The lines of recorded.txt, and the claims by handle: the project's memories ("m:<handle>") and the global
+    records of origin transcript ("g:<handle>").
 
     Project: live memories, and unconfirmed transcript memories lapsed for at most LAPSED_DAYS (a new sighting
-    revives them); a line is `m:<handle>\t<claim>`. Global: live ones as `(general)\t<claim>`, with no handle,
-    because a sighting may only be added to a memory of this project."""
+    revives them); a line is `m:<handle>\t<claim>`. Global: transcript records, live or lapsed alike and in
+    quarantine too, as `g:<handle>\t<claim>`; the other live ones as `(general)\t<claim>`, with no handle."""
     today = datetime.date.today()
     lines: list[str] = []
     handles: dict[str, str] = {}
@@ -157,8 +158,16 @@ def recorded_lines(project: Path) -> tuple[list[str], dict[str, str]]:
             lines.append(f"m:{m.handle}\t{claim}")
             handles[f"m:{m.handle}"] = claim
     for m in records.load_memories(records.memories_root(os.environ, None), "global"):
-        if records.is_live(m, today) and m.claim:
-            lines.append(f"(general)\t{_one_line(m.claim)}")
+        claim = _one_line(m.claim)
+        if not claim:
+            continue
+        lapsed = (m.status == "active" and records.standing(m) == "unconfirmed"
+                  and m.valid_until is not None and today - datetime.timedelta(days=LAPSED_DAYS) <= m.valid_until < today)
+        if m.origin == "transcript" and (records.is_live(m, today) or lapsed):
+            lines.append(f"g:{m.handle}\t{claim}")   # quarantined ones too: that is how they get corroborated
+            handles[f"g:{m.handle}"] = claim
+        elif records.is_live(m, today):
+            lines.append(f"(general)\t{claim}")
     return lines, handles
 
 
@@ -220,12 +229,40 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
     return (rows, None) if isinstance(rows, list) else (None, "candidates.json is not a JSON list")
 
 
+def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[str, str | None, str | None]:
+    """One more sighting of a global record, counted with the project's key. The note never holds the evidence:
+    text of a transcript must not reach the global scope."""
+    project = Path(env["MEM_PROJECT"])
+    if records.under_temp(project):
+        return "skipped", None, "a temporary project"
+    handle = item["same_as"][2:]
+    if not any(m.handle == handle and m.origin == "transcript"
+               for m in records.load_memories(records.memories_root(os.environ, None), "global")):
+        return "skipped", None, "not a global memory any more"
+    source = records.sighting_entry(session, records.project_key(project))
+    cmd = [str(MEM), "confirm", f"m:{handle}", "--global", clean(f"--source={source}"),
+           f"--note=Seen again ({item['signal']})."]
+    try:
+        done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=MEM_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return "skipped", None, "mem could not run"
+    if done.returncode == 0:
+        return "sighting", handle, None
+    if done.returncode == 3:
+        return "skipped", None, "this session already counted"
+    if done.returncode == 2:
+        return "skipped", None, "not a global memory any more"
+    return "skipped", None, f"mem failed ({done.returncode})"
+
+
 def apply_one(item: dict, session: str, env: dict) -> tuple[str, str | None, str | None]:
     """Apply one kept candidate with `bin/mem`: (outcome, handle, reason). Text arguments use `--name=value`
     because a claim may start with `-`."""
     def clean(text: str) -> str:   # a lone surrogate cannot be encoded as an argument
         return text.encode("utf-8", "replace").decode("utf-8")
 
+    if item["same_as"] and item["same_as"].startswith("g:"):
+        return apply_global_sighting(item, session, env, clean)
     if item["same_as"]:
         # `mem confirm` also finds global records: only a memory of this project may get the sighting
         project = records.project_dir(Path(env["MEM_PROJECT"]))
