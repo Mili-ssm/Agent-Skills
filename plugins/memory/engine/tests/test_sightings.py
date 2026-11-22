@@ -156,3 +156,17 @@ def test_a_file_with_one_session_under_two_keys_counts_one_project(tmp_path):
     (m,) = records.load_memories(tmp_path, "global")
     assert m.error is None and records.sessions(m) == ["session a"]
     assert records.projects(m) == ["0123456789ab"] and records.standing(m) == "unconfirmed"
+
+
+def test_a_background_command_finds_the_global_folder_from_the_store_alone(tmp_path):
+    store = tmp_path / "store"
+    (store / records.GLOBAL_DIR).mkdir(parents=True)
+    (store / records.STORE_MARKER).write_text("", encoding="utf-8")
+    env = {"MEM_STORE": str(store), "HOME": str(tmp_path / "home")}
+    assert records.memories_root(env, None) is None            # what the background commands used to ask
+    assert records.global_memories_root(env) == store / records.GLOBAL_DIR
+    default = tmp_path / "home" / ".local" / "share" / "agent-memory" / "store"
+    default.mkdir(parents=True)
+    (default / records.STORE_MARKER).write_text("", encoding="utf-8")
+    assert records.global_memories_root({"HOME": str(tmp_path / "home")}) == default / records.GLOBAL_DIR
+    assert records.global_memories_root({"MEM_MEMORIES": str(tmp_path / "m"), "HOME": str(tmp_path)}) == tmp_path / "m"

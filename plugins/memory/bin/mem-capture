@@ -160,7 +160,7 @@ def recorded_lines(project: Path) -> tuple[list[str], dict[str, str]]:
         if claim and (records.is_live(m, today) or lapsed):
             lines.append(f"m:{m.handle}\t{claim}")
             handles[f"m:{m.handle}"] = claim
-    for m in records.load_memories(records.memories_root(os.environ, None), "global"):
+    for m in records.load_memories(records.global_memories_root(os.environ), "global"):
         claim = _one_line(m.claim)
         if not claim:
             continue
@@ -240,7 +240,7 @@ def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[s
         return "skipped", None, "a temporary project"
     handle = item["same_as"][2:]
     if not any(m.handle == handle and m.origin == "transcript" and m.status == "active"
-               for m in records.load_memories(records.memories_root(os.environ, None), "global")):
+               for m in records.load_memories(records.global_memories_root(os.environ), "global")):
         return "skipped", None, "not a global memory any more"
     source = records.sighting_entry(session, records.project_key(project))
     cmd = [str(MEM), "confirm", f"m:{handle}", "--global", clean(f"--source={source}"),
