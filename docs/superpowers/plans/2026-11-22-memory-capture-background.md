@@ -24,12 +24,12 @@
 
 | # | Decision | Reason |
 |---|---|---|
-| C22 | A background run reads forward in windows: each window holds at most `EXTRACT_LIMIT` characters of extract, at most `MAX_WINDOWS = 3` windows per trigger, no new window once this trigger has written `MAX_NEW_PER_TRIGGER = 5` new records, and the next trigger continues where this one stopped | `extract` keeps the tail and drops the beginning when a stretch is long; a compaction covers a long stretch; the cap keeps one trigger from flooding the project (pre-mortem risk 6) |
+| C22 | A background run reads forward in windows: each window holds at most `EXTRACT_LIMIT` characters of extract, at most `MAX_WINDOWS = 3` windows per trigger, no new window once this trigger has written `MAX_NEW_PER_TRIGGER = 5` new records, and the next trigger continues where this one stopped | `extract` keeps the tail and drops the beginning when a stretch is long; a compaction covers a long stretch; the cap keeps one trigger from flooding the project |
 | C23 | The saved offset moves past a window when the window was full, or when a model session ran and ended without error. It stays when the window was `too short` and reached the end of the file, and when the window failed; a window that failed twice at the same offset is skipped (the offset moves past it and the log line says so). A window whose candidates were all refused because `mem` could not run counts as failed | Short remainders accumulate until there is enough to read; a failed window is read again once, and never blocks the rest of the session |
 | C24 | A background run writes only into a project that already has its memory folder; elsewhere (also when the session's folder is in no project) it skips with a reason in the log and never a failure | A background process must not create a folder in a repository the owner never set up for memory |
-| C25 | One lock for all background captures of a data folder; a run waits up to 900 s for it, then gives up without a failure. A run started at `PreCompact` first waits 300 s | `PreCompact` and `SessionEnd` of one session can fire close together, and the second must not lose the tail. The next context records the summary's "not yet recorded" items right after a compaction; the wait lets those writes land in the "already recorded" list (pre-mortem risk 1; it does not help when the owner answers later) |
-| C27 | The offset and the sightings use one identity: the transcript file's stem | `run --write` already names the sighting `session <stem>` |
+| C25 | One lock for all background captures of a data folder; a run waits up to 900 s for it, then gives up without a failure. A run started at `PreCompact` first waits 300 s | `PreCompact` and `SessionEnd` of one session can fire close together, and the second must not lose the tail. The next context records the summary's "not yet recorded" items right after a compaction; the wait lets those writes land in the "already recorded" list (it does not help when the owner answers later) |
 | C26 | Option `auto_capture` (boolean, off) and `auto_capture_budget` (USD per window, default 0.25). A failed run leaves one line in the session start text until `mem-capture ack` | As `auto_curation` and `auto_settle` |
+| C27 | The offset and the sightings use one identity: the transcript file's stem | `run --write` already names the sighting `session <stem>` |
 
 Observed 2026-11-22: in 43 transcripts of the last 12 days no user entry appears in two files, so one transcript file is one session and a per-file offset does not read the same text twice.
 
@@ -187,7 +187,7 @@ Any exception inside `auto` is caught at the top: status `failed` with the excep
 
 - [x] Run `hooks/pre-compact.sh` and `hooks/session-end.sh` by hand with the option on, `MEM_DATA` and `MEM_PROJECT` pointing at a private copy outside the repository, a real transcript on stdin: the hook returns at once, the detached run finishes, `status.json` is `ok`, the offset is saved, a second trigger reads only new lines. Record counts and cost (no text) below.
 - [x] Design: C22 to C27 added, stage B2 marked done. ADR 0023: `### Stage B2` under Review 2026-11-22 with kill criteria. Study: L3 status. Memory plan state table.
-- [ ] Final narrow reviews, fixes, push, pull request to `dev`.
+- [x] Final narrow reviews, fixes, push, pull request to `dev`.
 
 ## Results
 
@@ -209,6 +209,6 @@ End-to-end check with the real model (Haiku), on a private copy of a project's m
 
 Review rounds fixed, among others: tool names lost at a window boundary; an unfinished last line read as complete; a hook input without `cwd` falling back to the process's own folder; a local path reaching the counts log; `ack` not clearing a run that never finished.
 
-Deferred, low: a window where only some candidates fail to write still advances; flags placed before `run` are no longer accepted; `auto_capture_budget` is the only option with a `default` key; the earlier lows of stage B1.
+Deferred, low: when the engine cannot be imported, the project is decided by a `.memory` folder above the session's folder, which ignores `MEM_PROJECT` and worktrees; `ack` and a starting run can write the status at the same moment; an unexpected error before the lock still writes a status; the path filter of the log also replaces tokens such as `3/4`; the hook test's "off" half would pass without the hook's own gate; a window where only some candidates fail to write still advances; flags placed before `run` are no longer accepted; `auto_capture_budget` is the only option with a `default` key; the earlier lows of stage B1.
 
 Kill criteria once the option is on: ADR 0023, Review 2026-11-22, stage B2.

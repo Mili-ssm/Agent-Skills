@@ -106,14 +106,14 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 
 | Limit | Value |
 | --- | --- |
-| Where | Only a project that already has its memory folder |
+| Where | Only a project that already has its memory folder: the project of the session's folder, or the one `MEM_PROJECT` names when that variable is set in the session's environment (it wins, as for every `mem` command) |
 | Per trigger | At most 3 windows (a window is one stretch of the transcript, up to 80,000 characters of extract, read by one model session); no further window once 5 new records are written; the rest is read at the next trigger |
 | Compaction | The run starts with the compaction (`PreCompact`) and waits 5 minutes before it reads, so the records the session writes itself land first |
-| Session end | When a session ends without its `SessionEnd` hook (a killed terminal, for example), its last part is not read |
+| Session end | The last part of a session is not read when the session ends without its `SessionEnd` hook (a killed terminal, for example), when another capture holds the lock for more than 15 minutes, or when the trigger stops at its window or record limit |
 | Rewording | A lesson reworded is recorded twice |
 | Evidence | Not yet measured |
 
-**Where to look:** `<data folder>/capture/` holds `status.json`, `log.jsonl` (counts only, no text) and `runs/` (kept 20 runs or 14 days; it holds session text, so keep it private). After a failed run the next session start text carries one line, `Automatic capture failed on <date>: <reason>; log: <path>`, until `mem-capture ack`.
+**Where to look:** `<data folder>/capture/` holds `status.json`, `log.jsonl` (one line per trigger: the session's id, counts and a short reason; no claim text, no path) and `runs/` (the newest 20 runs, none older than 14 days; it holds session text, so keep it private). After a failed run the next session start text carries one line, `Automatic capture failed on <date>: <reason>; log: <path>`, until `mem-capture ack`.
 
 ### Capture trial (`mem-capture run`; writes to the store only with `--write`)
 
