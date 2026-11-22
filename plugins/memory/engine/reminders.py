@@ -10,6 +10,7 @@ import os
 import re
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Sequence
 
 import yaml
 
@@ -21,6 +22,9 @@ LIVE_LIMIT = 10
 LEVELS = ("low", "medium", "high")
 STATUSES = ("active", "done", "closed")
 MAX_SESSIONS = 999
+LINE_LIMIT = 300
+TOPICS_SHOWN = 4
+ASK_AFTER = 5
 
 _KNOWN = ("topic", "created", "status", "armed_count", "after", "in_sessions", "until", "every", "effort", "risk",
           "done_note", "closed_reason", "ended", "shown_at_end", "shown_before", "times_done")
@@ -287,3 +291,31 @@ def snooze(r: Reminder, today: datetime.date, count: int, shown: int | None, *, 
             raise ValueError("after is later than until")
         when = dict(after=after, in_sessions=None)
     return _change(r, "snooze", armed_count=count, shown_before=_shown(r, shown), **when)
+
+
+def summary_line(due: Sequence[tuple[Reminder, int, int]], waiting: int) -> str | None:
+    """The one line of session start: (reminder, sessions since, showings including this one) per due reminder.
+
+    Most showings first, then most sessions, then handle; topics are dropped from the end until the line fits."""
+    if not due:
+        return None
+    ranked = sorted(due, key=lambda t: (-t[2], -t[1], t[0].handle))
+
+    def item(entry: tuple[Reminder, int, int]) -> str:
+        r, since, shown = entry
+        text = f"{r.topic}, {since} session{'' if since == 1 else 's'}"
+        return text + (", ask the owner: keep or close" if shown >= ASK_AFTER else "")
+
+    def render(n: int) -> str:
+        parts = [item(e) for e in ranked[:n]]
+        if n < len(ranked):
+            parts.append(f"+{len(ranked) - n} more")
+        tail = f"; {waiting} waiting" if waiting > 0 else ""
+        return (f"Reminders: {len(ranked)} due ({'; '.join(parts)}){tail}. After the current task: mem reminders.")
+
+    n = min(TOPICS_SHOWN, len(ranked))
+    text = render(n)
+    while len(text) > LINE_LIMIT and n > 0:
+        n -= 1
+        text = render(n)
+    return text

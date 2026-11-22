@@ -3079,10 +3079,12 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
-                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None) -> str:
+                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
+                  reminder: str | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
+    `reminder` is the line of due reminders, after the rules and never dropped by the length limit.
     `notice` is one more line after the rules (the failure of the automatic curation run)."""
     try:
         has_store = store is not None and store.is_dir()
@@ -3120,6 +3122,8 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
                         "(mem curate --global).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
+    if reminder:
+        lines.append(reminder)
     if notice:
         lines.append(notice)
     if mine and limit > 0:
@@ -3181,11 +3185,46 @@ def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
             "then mem-corroborate ack.")
 
 
+def _session_reminders(project: Path | None, memories: Path | None, data: dict[str, Any],
+                       will_count: bool) -> tuple[str | None, list[str]]:
+    """The reminder line and the keys of the due reminders, as the state will be after this start.
+
+    Counts rise by one when this start is counted. An unreadable count makes the reminders that wait for sessions
+    not due; the ones that wait for a date or for nothing still are. Broken files are skipped."""
+    folder = data_dir(os.environ)
+    state = session_count.read(folder)
+    trusted = session_count.readable(folder)
+    session = data.get("session_id") if isinstance(data.get("session_id"), str) else None
+    today = datetime.date.today()
+    bump = 1 if will_count else 0
+    pkey = records.project_key(project) if project else None
+    scopes = [("project", records.project_dir(project) if project else None, session_count.count_for(state, pkey) + bump),
+              ("global", memories, session_count.count_for(state, None) + bump)]
+    due, waiting, keys = [], 0, []
+    for scope, root, count in scopes:
+        for r in reminders.load(root, scope):
+            if r.error is not None or not reminders.is_live(r, today):
+                continue
+            if reminders.is_due(r, today, count) and (trusted or r.in_sessions is None):
+                name = _reminder_key(r, project)
+                shown = session_count.showings(state, name, session if will_count else None)
+                if will_count and session is None:
+                    shown += 1
+                due.append((r, reminders.sessions_since(r, count), shown))
+                keys.append(name)
+            else:
+                waiting += 1
+    return reminders.summary_line(due, waiting), keys
+
+
 def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
     started = time.monotonic()
     data = _hook_input() if args.hook else {}
     project = None
+    session = data.get("session_id") if isinstance(data.get("session_id"), str) else None
+    will_count = bool(args.hook and data.get("source") in session_count.COUNTED_SOURCES)
+    due_keys: list[str] = []
     try:
         store = args.root if isinstance(args.root, Path) else None
         cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
@@ -3209,25 +3248,30 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             if found:
                 notices.append(found)
         notice = "\n".join(notices) or None
+        line, due_keys = None, []
+        try:
+            line, due_keys = _session_reminders(project, memories, data, will_count)
+        except Exception:
+            line, due_keys = None, []
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice)
+                             notice=notice, reminder=line)
     except Exception:
         text = _INDEX_RULES
     print(text)
     counted = None
-    if args.hook and data.get("source") in session_count.COUNTED_SOURCES:
+    if will_count:
         try:
-            session = data.get("session_id")
             key = records.project_key(project) if project else None
-            after = session_count.bump(data_dir(os.environ), key, session=session if isinstance(session, str) else None)
+            after = session_count.bump(data_dir(os.environ), key, shown=due_keys, session=session)
             counted = after["total"] if after else None
         except Exception:
             counted = None
     if args.hook:
         source = data.get("source")
         _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
-                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text), "count": counted})
+                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text), "count": counted,
+                   "due": len(due_keys)})
     return 0
 
 
