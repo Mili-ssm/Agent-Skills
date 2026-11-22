@@ -1,0 +1,732 @@
+#!/usr/bin/env python3
+"""mem-corroborate: a background pass that matches lessons by meaning and keeps one general record of each.
+
+`run` collects the active transcript lessons of the registered projects and of the global scope, writes them to a
+lessons file (ids only, no project name or path) and starts two tool-less headless sessions: the first proposes
+groups of lessons that state the same thing; the second, a fresh process that sees only the proposals, says for each
+group whether it is the same lesson, faithfully worded and general. Code validates both answers (`corroborate`) and
+applies only the groups that pass, always through `bin/mem` (a secret, a forbidden term or a refused merge is
+counted, never forced). The claim of an existing record is never changed.
+
+Undo works on file copies: before a run's first write to a record's file the file is copied to
+`runs/<stamp>/before/`, and `journal.jsonl` holds each action, the file, whether the run created it and the hash of
+the file afterwards. `undo <stamp>` restores or removes them, and refuses, changing nothing, when a file changed
+since. The run folder is private and may hold memory text; `log.jsonl` holds counts only.
+
+`auto` is what a hook starts when the plugin option `auto_capture` is exactly `true`: it never raises and never prints.
+
+Usage: mem-corroborate run [--claude PATH] [--budget USD] [--dry-run --out FILE] [--groups FILE]
+       mem-corroborate auto [--claude PATH] | undo STAMP | status | ack | --self-check
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import hashlib
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "engine"))
+import auto_state as au  # noqa: E402
+import capture_state as cs  # noqa: E402
+
+try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
+    import corroborate  # noqa: E402
+    import records  # noqa: E402
+    import synth_pipeline as sp  # noqa: E402
+    IMPORT_ERROR: Exception | None = None
+except Exception as _exc:   # noqa: BLE001
+    IMPORT_ERROR = _exc
+
+DEFAULT_BUDGET = 0.25   # USD per session
+PROPOSE_MODEL = VERIFY_MODEL = "haiku"
+SESSION_TIMEOUT = 600
+MAX_FILE_BYTES = 1_000_000
+MEM = HERE / "mem"
+MEM_TIMEOUT = 60
+SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
+                "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
+STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
+
+PROPOSE_BRIEF = """You compare short lessons that coding sessions wrote down, and say which of them state the same lesson.
+
+Read {lessons}. Each line is: an id, a reach (general or project), the lesson, and when it applies, separated by tabs.
+Ids starting with g: are lessons already kept for every project; ids starting with p1:, p2: ... belong to one project each.
+
+Two lessons are the same when a reader who follows one would do what the other asks, in the same kind of situation,
+even if the words, the example or the numbers differ. Lessons about the same topic that advise different things are
+not the same. When you are not sure, leave them apart: a wrong group merges two lessons and loses one.
+
+Write {out} as JSON: {{"groups": [{{"ids": ["..."], "claim": "...", "context": "..."}}]}}
+- One group for each set of two or more lessons that are the same.
+- Also one group for each general lesson with a p id that is in no other group and matches no g: lesson: a group of one.
+- Never a group of one for a g: lesson or a project lesson.
+- An id appears in at most one group.
+- claim: the lesson in one to three sentences, as a suggestion or a recommendation that says what was seen and what
+  is not known, never an order. It must hold in any project: name no project, company, client, person, repository,
+  file, path, product or internal system. Keep what a reader needs to act: the situation, the action, the reason.
+- context: one sentence on when the lesson applies, under the same rule about names.
+Write nothing else and use no other tool.
+"""
+
+VERIFY_BRIEF = """You check proposals to treat several short lessons as one. Another reader made the proposals; it is often wrong, and
+a wrong "yes" merges two different lessons and loses one, so say yes only when you are sure.
+
+Read {groups}. Each block starts with "group <n>", then one line per lesson (an id, the lesson, when it applies,
+separated by tabs), then a line starting with "proposed": the single wording that would replace them for every project.
+
+For each group, answer in this order:
+- reason: one sentence saying what each lesson asks the reader to do and whether that is the same thing.
+- same: true only if a reader who follows any one of the lessons would do what each of the others asks, in the same
+  kind of situation. The same topic with different advice is false. For a group of one lesson, write true.
+- faithful: true only if the proposed wording keeps the situation, the action and the reason of the lessons, adds no
+  claim they do not make, turns no suggestion into an order, and names no project, company, client, person,
+  repository, file, path, product or internal system.
+- general: true only if the lesson is about how to work (planning, delegating, verifying, using tools, reading what
+  was asked) and would hold in another project; false if it only makes sense inside one codebase or product.
+
+Write {out} as JSON: {{"verdicts": [{{"group": 1, "reason": "...", "same": true, "faithful": true, "general": true}}]}}
+One entry per group, in order. Write nothing else and use no other tool.
+"""
+
+
+# ---- state folder -----------------------------------------------------------------------------------------------
+
+def data_dir() -> Path:
+    if os.environ.get("MEM_DATA"):
+        return Path(os.environ["MEM_DATA"])
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "agent-memory"
+
+
+def corroborate_dir(data: Path) -> Path:
+    return Path(data) / "corroborate"
+
+
+def budget_of(value) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_BUDGET
+    return number if math.isfinite(number) and number > 0 else DEFAULT_BUDGET
+
+
+def save_status(cdir: Path, **changes) -> dict:
+    au.private_dir(cdir)
+    data = {**au.read_json(cdir / au.STATUS_NAME), **changes}
+    for key in [k for k, v in data.items() if k == "failure" and v is None]:
+        del data[key]
+    au.write_json(cdir / au.STATUS_NAME, data)
+    return data
+
+
+def append_log(cdir: Path, line: dict) -> None:
+    au.private_dir(cdir)
+    fd = os.open(cdir / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def write_private(path: Path, text: str) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(text)
+
+
+def without_paths(reason: str) -> str:
+    return " ".join("(path)" if "/" in token else token for token in reason.split())
+
+
+# ---- the model sessions -----------------------------------------------------------------------------------------
+
+def session_cmd(claude: str, work: Path, brief: str, settings: Path, model: str, max_budget: float) -> list[str]:
+    """One session. Tools: Read and Write/Edit inside `work` only; no Bash, no web, hooks disabled by `settings`."""
+    return [claude, "-p", brief, "--model", model, "--effort", "medium", "--settings", str(settings),
+            "--setting-sources", "project",
+            "--allowedTools", f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)",
+            "--disallowedTools", "Bash", "WebSearch", "WebFetch",
+            "--output-format", "stream-json", "--verbose", "--no-session-persistence",
+            "--max-budget-usd", f"{max_budget:.4f}"]
+
+
+def run_session(cmd: list[str], work: Path) -> dict:
+    env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
+    try:
+        done = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=SESSION_TIMEOUT)
+        raw = done.stdout
+    except subprocess.TimeoutExpired as exc:
+        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+    return sp.parse(raw)
+
+
+def read_object(path: Path) -> object:
+    """The JSON of `path`, or None when it is missing, too large or not JSON (the validators then say why)."""
+    try:
+        if not path.is_file() or path.stat().st_size > MAX_FILE_BYTES:
+            return None
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+# ---- journal and undo -------------------------------------------------------------------------------------------
+
+def digest(data: bytes | None) -> str | None:
+    return hashlib.sha256(data).hexdigest() if data is not None else None
+
+
+def read_bytes(path: Path) -> bytes | None:
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+class Journal:
+    """The undo record of one run: `commit` after an action compares each watched file with its text before."""
+
+    def __init__(self, run: Path):
+        self.run = run
+        self.seen: dict[str, bool] = {}   # file -> created by this run
+
+    def before_name(self, path: Path) -> str:
+        return hashlib.sha1(str(path).encode()).hexdigest()[:16]
+
+    def watch(self, paths) -> dict[Path, bytes | None]:
+        return {Path(p): read_bytes(Path(p)) for p in paths}
+
+    def watch_folder(self, folder: Path) -> dict[Path, bytes | None]:
+        return self.watch(sorted(folder.glob("*.md"))) if folder.is_dir() else {}
+
+    def commit(self, action: str, before: dict[Path, bytes | None], folder: Path | None = None) -> None:
+        """Journal every watched file that changed; with `folder`, files that appeared in it count as created."""
+        paths = dict(before)
+        if folder is not None and folder.is_dir():
+            for p in folder.glob("*.md"):
+                paths.setdefault(p, None)
+        for path, old in paths.items():
+            now = read_bytes(path)
+            if now == old:
+                continue
+            key = str(path)
+            if key not in self.seen:
+                self.seen[key] = old is None
+                if old is not None:
+                    folder_b = self.run / "before"
+                    au.private_dir(folder_b)
+                    write_private_bytes(folder_b / self.before_name(path), old)
+            row = {"action": action, "file": key, "created": self.seen[key], "hash": digest(now)}
+            fd = os.open(self.run / "journal.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8") as f:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def write_private_bytes(path: Path, data: bytes) -> None:
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(data)
+
+
+def undo_run(run: Path) -> tuple[bool, str]:
+    """(done, message). Changes nothing unless every journaled file still holds what the run left in it."""
+    journal = run / "journal.jsonl"
+    if not journal.is_file():
+        return False, "this run has no journal: nothing to undo"
+    last: dict[str, dict] = {}
+    for text in journal.read_text(encoding="utf-8").splitlines():
+        try:
+            row = json.loads(text)
+        except ValueError:
+            return False, "the journal cannot be read: nothing was changed"
+        if isinstance(row, dict) and isinstance(row.get("file"), str):
+            last[row["file"]] = row
+    for file, row in last.items():
+        if digest(read_bytes(Path(file))) != row.get("hash"):
+            return False, f"{file} changed since the run: nothing was changed"
+    for file, row in last.items():
+        path = Path(file)
+        if row.get("created"):
+            path.unlink(missing_ok=True)
+            continue
+        saved = read_bytes(run / "before" / Journal(run).before_name(path))
+        if saved is None:
+            return False, f"the saved copy of {file} is missing: stopped part way"
+        tmp = path.with_name(f".{path.name}.undo")
+        tmp.write_bytes(saved)
+        os.replace(tmp, path)
+    return True, f"undone: {len(last)} files"
+
+
+# ---- applying a group -------------------------------------------------------------------------------------------
+
+class Applier:
+    """Applies the kept groups through `bin/mem`; the counts of what happened are in `counts`."""
+
+    def __init__(self, journal: Journal, lessons: dict, gfolder: Path | None, cwd: Path, log):
+        self.journal, self.lessons, self.gfolder, self.cwd, self.log = journal, lessons, gfolder, cwd, log
+        self.counts = {"written": 0, "sightings": 0, "links": 0, "merges": 0, "refused": 0}
+        self.refused_ids: set[str] = set()
+        self.current = None
+
+    def mem(self, args: list[str], project: Path | None = None, stdin: str | None = None):
+        env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS and k != "MEM_PROJECT"}
+        if project is not None:
+            env["MEM_PROJECT"] = str(project)
+        try:
+            done = subprocess.run([str(MEM), *args], env=env, cwd=self.cwd, input=stdin, capture_output=True,
+                                  text=True, timeout=MEM_TIMEOUT)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            self.log(f"mem {args[0]}: could not run ({type(exc).__name__})")
+            return None
+        self.log(f"mem {args[0]}: exit {done.returncode} {done.stdout.strip()[:120]!r} {done.stderr.strip()[:200]!r}")
+        return done
+
+    def handle(self, lesson_id: str) -> str:
+        return f"m:{self.lessons[lesson_id].memory.handle}"
+
+    def path(self, lesson_id: str) -> Path:
+        return self.lessons[lesson_id].memory.path
+
+    def apply(self, group, acts) -> bool:
+        """Every action of one group, in order; False when one was refused and the rest of the group was left."""
+        written: str | None = None   # the global record that this group's write_global made or found
+        for a in acts:
+            if a.kind in ("merge", "merge_global"):
+                args = ["merge"] + (["--global"] if a.kind == "merge_global" else []) + [self.handle(a.keep), self.handle(a.drop)]
+                before = self.journal.watch([self.path(a.keep), self.path(a.drop)])
+                done = self.mem(args, a.project)
+                self.journal.commit(a.kind, before)
+                if done is None or done.returncode:
+                    return self.refuse()   # left for curation, never forced
+                self.counts["merges"] += 1
+            elif a.kind == "write_global":
+                args = ["remember", "--global", f"--kind={a.record_kind}", f"--claim={a.claim}"]
+                if a.context:
+                    args.append(f"--context={a.context}")
+                args += ["--origin", "transcript", "--reach", "general", "--weight", a.weight]
+                args += [f"--source={e}" for e in a.entries] + ["--body-file", "-"]
+                projects = {records.project_key(self.lessons[i].project) for i in a.members
+                            if self.lessons[i].project is not None}
+                body = f"Written by the corroboration pass from {len(a.members)} lessons of {len(projects)} projects.\n"
+                before = self.journal.watch_folder(self.gfolder) if self.gfolder else {}
+                done = self.mem(args, stdin=body)
+                self.journal.commit("write_global", before, self.gfolder)
+                first = done.stdout.strip().splitlines()[0].split("\t") if done and done.stdout.strip() else []
+                if done is not None and done.returncode == 0 and first and first[0].startswith("m:"):
+                    written = first[0]
+                    self.counts["written"] += 1
+                elif done is not None and done.returncode == 3 and len(first) == 2 and first[0].startswith("m:"):
+                    written = first[0]   # the claim exists: its sightings were added by `remember`
+                    self.counts["sightings"] += first[1] == "sighting"
+                else:
+                    return self.refuse()
+            elif a.kind == "sighting":
+                target = a.target and f"m:{a.target}" or written
+                if not target or not self.gfolder:
+                    return self.refuse()
+                path = self.gfolder / f"{target[2:]}.md"
+                before = self.journal.watch([path])
+                done = self.mem(["confirm", target, "--global", f"--source={a.entry}"])
+                self.journal.commit("sighting", before)
+                if done is not None and done.returncode == 0:
+                    self.counts["sightings"] += 1
+                elif done is None or done.returncode != 3:
+                    self.counts["refused"] += 1
+                    self.refused_ids.update(group.ids)
+            elif a.kind == "link":
+                target = a.target and f"m:{a.target}" or written
+                if not target:
+                    return self.refuse()
+                before = self.journal.watch([self.path(a.member)])
+                done = self.mem(["promote", "--done", self.handle(a.member), "--to", target], a.project)
+                self.journal.commit("link", before)
+                if done is not None and done.returncode == 0:
+                    self.counts["links"] += 1
+                else:
+                    self.counts["refused"] += 1
+                    self.refused_ids.update(group.ids)
+        return not (self.refused_ids & set(group.ids))
+
+    def refuse(self) -> bool:
+        self.counts["refused"] += 1
+        self.refused_ids.update(self.current.ids)
+        return False
+
+
+# ---- the run ----------------------------------------------------------------------------------------------------
+
+def stable_key(lesson) -> str:
+    """The name of a lesson that does not change between runs (the ids of a lessons file depend on the registry)."""
+    if lesson.project is None:
+        return f"g:{lesson.memory.handle}"
+    return f"{records.project_key(lesson.project)}:{lesson.memory.handle}"
+
+
+def planned(acts) -> list[dict]:
+    out = []
+    for a in acts:
+        row = {k: v for k, v in vars(a).items() if v not in (None, [], "")}
+        if "project" in row:
+            row["project"] = records.project_key(a.project)
+        out.append(row)
+    return out
+
+
+def execute(claude: str | None, budget: float, groups_file: str | None = None, dry_run: bool = False,
+            out_file: str | None = None) -> dict:
+    """One run. The log line (counts only); a dry run writes nothing but `out_file`."""
+    start = time.time()
+    data = data_dir()
+    cdir = corroborate_dir(data)
+    line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "lessons": 0,
+                  "groups": 0, "proposed": 0, "verified": 0, "dropped": 0, "written": 0, "sightings": 0, "links": 0,
+                  "merges": 0, "refused": 0, "skipped": None, "cost": 0.0, "failed": None, "ms": 0}
+    lock = None
+    logged: list[bool] = []
+    run: Path | None = None
+
+    def finish_log() -> None:
+        if dry_run:
+            return
+        line["ms"] = int((time.time() - start) * 1000)
+        append_log(cdir, line)
+        logged.append(True)
+
+    def log(text: str) -> None:
+        if run is None:
+            return
+        fd = os.open(run / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+    scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-")) if dry_run else None
+    try:
+        if IMPORT_ERROR is not None:
+            reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
+            line["failed"] = without_paths(reason)
+            save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
+            finish_log()
+            return line
+        if not dry_run:
+            lock = au.take_run_lock(cdir)
+            if lock is None:
+                line["skipped"] = "another run holds the lock"
+                finish_log()
+                return line
+            run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+            au.private_dir(run)
+            save_status(cdir, state="running", started=time.time(), finished=None, log=str(run))
+        root = run if run is not None else scratch
+        seen = au.read_json(cdir / "seen.json")
+        refused_seen = seen.get("refused") if isinstance(seen.get("refused"), dict) else {}
+        try:
+            registry = records.read_registry(data)
+        except ValueError as exc:
+            raise RuntimeError(f"registry: {exc}") from exc
+        gfolder = records.memories_root(os.environ, None)
+        today = datetime.date.today()
+
+        def collect() -> list:
+            return corroborate.collect(corroborate.counted_projects(registry), gfolder, today)
+
+        lessons = collect()
+        line["lessons"] = len(lessons)
+        before_print = corroborate.fingerprint(lessons)
+        failures: list[str] = []
+        if not lessons:
+            line["skipped"] = "no lessons"
+        elif not (groups_file or dry_run) and seen.get("fingerprint") == before_print:
+            line["skipped"] = "nothing new"
+        if line["skipped"]:
+            save_done(cdir, line, None, dry_run)
+            finish_log()
+            return line
+        by_id = {x.id: x for x in lessons}
+        write_private(root / "lessons.txt", "".join(f"{ln}\n" for ln in corroborate.lesson_lines(lessons)))
+        verdict_data: object = None
+        proposal: object = None
+        if groups_file:
+            proposal = read_object(Path(groups_file).expanduser())
+            proposed, reasons = corroborate.validate_groups(proposal, lessons)
+            kept, vreasons = list(proposed), []   # a reviewed file: no verifying session
+        else:
+            if not claude:
+                raise RuntimeError("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+            settings = root / "settings.json"
+            write_private(settings, json.dumps({"disableAllHooks": True}))
+            work1 = root / "propose"
+            work1.mkdir(mode=0o700)
+            write_private(work1 / "lessons.txt", (root / "lessons.txt").read_text(encoding="utf-8"))
+            out1 = work1 / "groups.json"
+            brief = PROPOSE_BRIEF.format(lessons=work1 / "lessons.txt", out=out1)
+            done = run_session(session_cmd(claude, work1, brief, settings, PROPOSE_MODEL, budget), work1)
+            line["cost"] += done["cost"] if done["has_result"] else 0.0
+            log(f"propose: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f}")
+            if not done["has_result"] or done["error"]:
+                raise RuntimeError("the proposing session ended without a cost report" if not done["has_result"]
+                                   else "the proposing session failed")
+            proposal = read_object(out1)
+            proposed, reasons = corroborate.validate_groups(proposal, lessons)
+            proposed = [g for g in proposed if not any(refused_seen.get(stable_key(by_id[i])) == corroborate.lesson_fingerprint(by_id[i])
+                                                       for i in g.ids)]
+            kept, vreasons = [], []
+            if proposed:
+                work2 = root / "verify"
+                work2.mkdir(mode=0o700)
+                write_private(work2 / "groups.txt", "".join(f"{ln}\n" for ln in corroborate.verification_lines(proposed, by_id)))
+                out2 = work2 / "verdicts.json"
+                brief = VERIFY_BRIEF.format(groups=work2 / "groups.txt", out=out2)
+                done = run_session(session_cmd(claude, work2, brief, settings, VERIFY_MODEL, budget), work2)
+                line["cost"] += done["cost"] if done["has_result"] else 0.0
+                log(f"verify: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f}")
+                if not done["has_result"] or done["error"]:
+                    raise RuntimeError("the verifying session ended without a cost report" if not done["has_result"]
+                                       else "the verifying session failed")
+                verdict_data = read_object(out2)
+                kept, vreasons = corroborate.validate_verdicts(verdict_data, proposed)
+        raw_groups = proposal.get("groups") if isinstance(proposal, dict) else None
+        line["groups"] = len(raw_groups) if isinstance(raw_groups, list) else 0
+        line["proposed"], line["verified"], line["dropped"] = len(proposed), len(kept), len(reasons)
+        for why in [*reasons, *vreasons]:
+            log(f"not applied: {why}")
+        refused_now = {i for g in proposed if g not in kept for i in g.ids}
+        if dry_run:
+            plan = [{"ids": g.ids, "claim": g.claim, "actions": planned(corroborate.actions(g, by_id))} for g in kept]
+            write_private(Path(out_file), json.dumps({"proposal": proposal, "dropped": reasons, "verdicts": verdict_data,
+                                                      "not_verified": vreasons, "plan": plan}, ensure_ascii=False, indent=1) + "\n")
+            return line
+        applier = Applier(Journal(run), by_id, gfolder, run, log)
+        for g in kept:
+            applier.current = g
+            try:
+                applier.apply(g, corroborate.actions(g, by_id))
+            except Exception as exc:   # noqa: BLE001 - one odd group never stops the others
+                log(f"group failed: {type(exc).__name__}: {exc}")
+                applier.refuse()
+        for key in ("written", "sightings", "links", "merges", "refused"):
+            line[key] = applier.counts[key]
+        refused_ids = refused_now | applier.refused_ids
+        marks = {k: v for k, v in refused_seen.items() if isinstance(v, str)}
+        for i in refused_ids:
+            marks[stable_key(by_id[i])] = corroborate.lesson_fingerprint(by_id[i])
+        after = collect()
+        live = {stable_key(x) for x in after}
+        seen_out = {"refused": {k: v for k, v in marks.items() if k in live}}
+        if not groups_file:   # a reviewed file never tells the model's pass that the lessons were seen
+            seen_out["fingerprint"] = corroborate.fingerprint(after)
+        elif "fingerprint" in seen:
+            seen_out["fingerprint"] = seen["fingerprint"]
+        au.write_json(cdir / "seen.json", seen_out)
+        save_done(cdir, line, None, dry_run)
+        finish_log()
+        cs.prune_runs(cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
+        return line
+    except Exception as exc:   # noqa: BLE001 - a background process reports and ends
+        reason = f"{type(exc).__name__}: {exc}" if not isinstance(exc, RuntimeError) else str(exc)
+        line["failed"] = without_paths(reason)[:200]
+        if not dry_run:
+            try:
+                log(f"failed: {reason}")
+                save_done(cdir, line, reason, dry_run, log=str(run) if run else "")
+                if not logged:
+                    finish_log()
+            except Exception:   # noqa: BLE001
+                pass
+        else:
+            line["failed_reason"] = reason
+        return line
+    finally:
+        if lock is not None:
+            os.close(lock)
+        if scratch is not None:
+            shutil.rmtree(scratch, ignore_errors=True)
+
+
+def save_done(cdir: Path, line: dict, failure: str | None, dry_run: bool, log: str = "") -> None:
+    if dry_run:
+        return
+    now = time.time()
+    end: dict = {"state": "failed" if failure else "ok", "finished": now, "cost": line["cost"]}
+    if failure:
+        end["failure"] = {"at": now, "reason": failure[:300], "log": log}
+    elif not line["skipped"]:
+        end["failure"] = None
+    save_status(cdir, **end)
+
+
+def summary(line: dict) -> str:
+    if line["failed"]:
+        return f"mem-corroborate: failed: {line['failed']}"
+    if line["skipped"]:
+        return f"mem-corroborate: skipped: {line['skipped']}"
+    return (f"mem-corroborate: {line['lessons']} lessons, {line['verified']} of {line['proposed']} groups applied: "
+            f"{line['written']} written, {line['sightings']} sightings, {line['links']} links, {line['merges']} merges, "
+            f"{line['refused']} refused")
+
+
+def cmd_run(args) -> int:
+    if IMPORT_ERROR is not None:
+        print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
+        return 1
+    if args.dry_run and not args.out:
+        print("mem-corroborate: --dry-run needs --out FILE", file=sys.stderr)
+        return 2
+    if args.out and not args.dry_run:
+        print("mem-corroborate: --out goes with --dry-run", file=sys.stderr)
+        return 2
+    if args.dry_run and args.groups:
+        print("mem-corroborate: --dry-run runs the sessions: it does not take --groups", file=sys.stderr)
+        return 2
+    line = execute(args.claude, args.budget, args.groups, args.dry_run, args.out)
+    print(summary(line) if not line.get("failed_reason") else f"mem-corroborate: failed: {line['failed_reason']}")
+    return 1 if line["failed"] else 0
+
+
+def cmd_auto(args) -> int:
+    """The whole of `auto`; never raises and never prints."""
+    try:
+        if os.environ.get(cs.OPTION) != "true":
+            return 0
+        execute(args.claude, budget_of(os.environ.get(cs.BUDGET_OPTION)))
+    except BaseException:   # noqa: BLE001
+        pass
+    return 0
+
+
+def cmd_undo(args) -> int:
+    if not STAMP_RE.fullmatch(args.stamp) or args.stamp in (".", ".."):
+        print("mem-corroborate: not a run stamp", file=sys.stderr)
+        return 2
+    cdir = corroborate_dir(data_dir())
+    run = cdir / "runs" / args.stamp
+    if not run.is_dir():
+        print(f"mem-corroborate: no run {args.stamp}", file=sys.stderr)
+        return 2
+    lock = au.take_run_lock(cdir)
+    if lock is None:
+        print("mem-corroborate: a run is going: try again later", file=sys.stderr)
+        return 1
+    try:
+        done, message = undo_run(run)
+    finally:
+        os.close(lock)
+    print(f"mem-corroborate: {message}", file=sys.stdout if done else sys.stderr)
+    return 0 if done else 1
+
+
+def cmd_status() -> int:
+    data = au.read_json(corroborate_dir(data_dir()) / au.STATUS_NAME)
+    if not data:
+        print("no corroboration run yet")
+        return 0
+    shown = data.get("state", "?")
+    started = data.get("started")
+    if shown == "running" and isinstance(started, (int, float)) and time.time() - started > au.STALE_RUNNING_SECONDS:
+        shown = "failed (a run that did not finish)"
+    print(f"last run: state {shown}, cost {float(data.get('cost') or 0):.3f} USD")
+    failure = au.failure(data, time.time())
+    if failure:
+        print(f"unacknowledged failure: {failure.get('reason')} (mem-corroborate ack clears it)")
+    print(f"log: {data.get('log') or '(none)'}")
+    return 0
+
+
+def cmd_ack() -> int:
+    cdir = corroborate_dir(data_dir())
+    current = au.read_json(cdir / au.STATUS_NAME)
+    if current:
+        changes: dict = {"failure": None}
+        started = current.get("started")
+        if (current.get("state") == "running" and isinstance(started, (int, float))
+                and time.time() - started > au.STALE_RUNNING_SECONDS):
+            changes["state"] = "failed"
+        save_status(cdir, **changes)
+    print("acknowledged: the failure line is cleared")
+    return 0
+
+
+def self_check() -> int:
+    """No model: the briefs, the tool list, the gate of `auto`, the lock and the folder mode, the journal and undo."""
+    assert budget_of("x") == DEFAULT_BUDGET and budget_of("0.6") == 0.6 and budget_of("0") == DEFAULT_BUDGET
+    PROPOSE_BRIEF.format(lessons="a", out="b")
+    VERIFY_BRIEF.format(groups="a", out="b")
+    with tempfile.TemporaryDirectory(prefix="mem-corroborate-check-") as tmp:
+        tmp = Path(tmp)
+        os.environ.pop(cs.OPTION, None)
+        os.environ["MEM_DATA"] = str(tmp / "data")
+        cmd_auto(argparse.Namespace(claude="/nonexistent"))
+        assert not corroborate_dir(tmp / "data").exists(), "auto ran without the option"
+        cdir = corroborate_dir(tmp / "data")
+        held = au.take_run_lock(cdir)
+        assert held is not None and au.take_run_lock(cdir) is None
+        assert (cdir.stat().st_mode & 0o777) == 0o700, oct(cdir.stat().st_mode)
+        os.close(held)
+        cmd = session_cmd("claude", tmp / "w", "brief", tmp / "s.json", "haiku", 0.25)
+        allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--disallowedTools")]
+        assert not any(t.startswith("Bash") for t in allowed) and "Bash" in cmd[cmd.index("--disallowedTools") + 1:]
+        assert all(t.startswith(("Read(", "Write(", "Edit(")) and f"{tmp}/w" in t for t in allowed), allowed
+        run = cdir / "runs" / "x"
+        au.private_dir(run)
+        a, b = tmp / "a.md", tmp / "b.md"
+        a.write_text("one")
+        journal = Journal(run)
+        watched = journal.watch([a, b])
+        a.write_text("two")
+        b.write_text("new")
+        journal.commit("check", watched)
+        assert undo_run(run)[0] and a.read_text() == "one" and not b.exists()
+        a.write_text("two")
+        run2 = cdir / "runs" / "y"
+        au.private_dir(run2)
+        journal = Journal(run2)
+        watched = journal.watch([a])
+        a.write_text("three")
+        journal.commit("check", watched)
+        a.write_text("edited")
+        assert not undo_run(run2)[0] and a.read_text() == "edited", "undo ran over an edited file"
+    print("self-check passed")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--self-check", action="store_true", help="no model: prove the briefs, gates, lock and undo")
+    commands = parser.add_subparsers(dest="command")
+    default_claude = os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
+    run = commands.add_parser("run", help="match the lessons by meaning and apply the verified groups")
+    run.add_argument("--claude", default=default_claude)
+    run.add_argument("--budget", type=budget_of, default=DEFAULT_BUDGET, help=f"USD per session (default {DEFAULT_BUDGET})")
+    run.add_argument("--dry-run", action="store_true", help="run both sessions; write the plan to --out and change nothing else")
+    run.add_argument("--out", help="with --dry-run: the file for the proposal, the verdicts and the planned actions")
+    run.add_argument("--groups", help="apply a reviewed file in the model's format; starts no model session")
+    run.set_defaults(func=cmd_run)
+    auto = commands.add_parser("auto", help="what a hook starts: one run when the option is on; silent")
+    auto.add_argument("--claude", default=default_claude)
+    auto.set_defaults(func=cmd_auto)
+    undo = commands.add_parser("undo", help="put back the files a run changed")
+    undo.add_argument("stamp")
+    undo.set_defaults(func=cmd_undo)
+    commands.add_parser("status", help="the last run").set_defaults(func=lambda _a: cmd_status())
+    commands.add_parser("ack", help="clear the failure line").set_defaults(func=lambda _a: cmd_ack())
+    args = parser.parse_args()
+    if args.self_check:
+        return self_check()
+    if not args.command:
+        parser.error("a command is required")
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -3977,12 +3977,23 @@ def cmd_restore(args: argparse.Namespace) -> int:
 
 def cmd_promote(args: argparse.Namespace) -> int:
     args.is_global = False
+    if args.to and not args.done:
+        print("mem: --to goes with --done.", file=sys.stderr)
+        return 2
+    target = None
+    if args.to:
+        target = args.to.removeprefix("m:")
+        if not any(m.handle == target and m.error is None
+                   for m in records.load_memories(records.memories_root(os.environ, _optional_store(args)), "global")):
+            print(f"mem: --to names no global memory: {args.to}", file=sys.stderr)
+            return 2
     if args.no or args.done:
         value, text = ("no", "not to be promoted") if args.no else ("done", "promoted")
+        extra = {"general": target} if target else {}
 
         def apply(found, today):
             records.log_before(found[0], "promote")
-            records.update(found[0], today, promote=value)
+            records.update(found[0], today, promote=value, **extra)
             return [f"m:{found[0].handle}\t{text}"]
         for handle in args.handles:
             if _act(args, [handle], apply, "promote") != 0:
@@ -6242,6 +6253,7 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser = sub.add_parser("promote", help="print a draft of a global memory from project memories")
     promote_parser.add_argument("--no", action="store_true", help="record that the memory is not for a global note")
     promote_parser.add_argument("--done", action="store_true", help="record that the memory was promoted")
+    promote_parser.add_argument("--to", metavar="m:HANDLE", help="with --done: the global memory it was promoted to")
     promote_parser.add_argument("handles", nargs="+", metavar="m:HANDLE")
     promote_parser.set_defaults(func=cmd_promote)
     memories_parser = sub.add_parser("memories", help="list memories, newest first")
