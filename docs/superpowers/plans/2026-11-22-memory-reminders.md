@@ -2,6 +2,18 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Parked (the owner, 2026-11-22): built on this branch, not integrated, kept as a possible idea.** Do not merge it into `dev` without the owner's word.
+>
+> | Why | Detail |
+> |---|---|
+> | Usefulness not shown | One run with a real model (Sonnet, one small unrelated task, a due reminder of low effort and low risk): the session start text carried `Reminders: 1 due (count the project files, 1 session). After the current task: mem reminders.`; the model did its task and ended without running `mem reminders`. One run, observed |
+> | Overlap with lessons | The owner: periodic refactorings or assessments are better kept as lessons the agent learns, writes down and checks by itself whether they should be done |
+> | Noise | The line shows again after each compaction; the agent may write up to 10 per scope; a global one shows in every project; ended files are never removed |
+>
+> If it is taken up again, the author's proposals of that day: project scope only; the agent writes one only when the owner asks or agrees; at most 5 live; the line at `startup` only, never after a compaction; every reminder lapses by default (30 days after it is due) and a repeating one has a maximum of repetitions; after 3 showings with no action it stops showing, with no question to the owner; ended ones are deleted after 30 days, keeping only counters; off by default behind an option; the agent names a due reminder to the owner at the end of its task instead of starting the work; five runs with a real model before any release.
+>
+> State when parked: Tasks 1 to 6 done and reviewed, 1822 tests pass, validators pass, the end-to-end scenario passes. Not done: the final process review, the pull request, any release.
+
 **Goal:** A reminder written in one session asks for a piece of work in a later one: it becomes due by date or by a count of sessions, loads at session start as one short line, and ends as done, closed, put off or lapsed.
 
 **Architecture:** Two new engine modules, `session_count.py` (a count of sessions per project and a total, in the data folder) and `reminders.py` (the record, its conditions and the summary line), both pure apart from file reads and writes. `mem.py` gains the commands and calls both from the session start text. A reminder is a Markdown file with YAML front matter in a `reminders` folder beside the memories, so no memory code ever loads one.
