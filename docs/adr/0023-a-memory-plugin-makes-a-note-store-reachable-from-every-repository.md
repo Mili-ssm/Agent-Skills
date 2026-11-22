@@ -152,3 +152,5 @@ The brief that has the small model write the short form and the topic ships unme
 - In real runs no loaded rule that bears on the task is followed, or one that contradicts the owner's instruction file is followed: stop before release.
 - After release, the hook's `ms` at the 99th percentile in `hooks/log.jsonl` is over 1500 (the slowest run seen before was 742): build the block outside the hook.
 - After two weeks, the owner turned off or forgot more than two loaded rules, or the same lesson was captured again in a session where it was loaded: revisit the order, the limit of six, or the wording.
+
+State at the end of 2026-11-22: merged into `dev` (pull request 161), not released. The owner read ten of the fifteen proposed short forms and set all fifteen to load; they are applied on the owner's store and take effect once the release is installed. Text loaded for the model says "the user" (C56).
