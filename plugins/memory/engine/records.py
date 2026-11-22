@@ -699,6 +699,18 @@ def version_list(memory: Memory) -> list[tuple[datetime.date, str]]:
     return [(on, memory.short)] if memory.short and on else []
 
 
+def merged_versions(keep: Memory, drop: Memory, today: datetime.date) -> list[str]:
+    """The versions of a merged lesson: both records' versions (implicit ones included), one per day with the kept
+    record's text winning, and the kept record's short form last, because that is the text that loads."""
+    by_day: dict[datetime.date, str] = {}
+    for on, text in [*version_list(keep), *version_list(drop)]:
+        by_day.setdefault(on, text)  # keep's entries come first, so they win
+    result = sorted(by_day.items())
+    if keep.short and (not result or result[-1][1] != keep.short):
+        result = [v for v in result if v[0] != today] + [(today, keep.short)]
+    return [version_entry(on, text) for on, text in result]
+
+
 class Tally(NamedTuple):
     number: int
     since: datetime.date

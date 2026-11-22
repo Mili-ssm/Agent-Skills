@@ -215,8 +215,8 @@ def test_the_first_change_of_an_old_lesson_keeps_its_old_wording(tmp_path):
 
 def test_the_fill_pass_adds_a_version(project, capsys):
     m = transcript(project)
-    # the apply step of the fill runs `mem memory edit --short=... --user-read --topic=...`
-    assert mem.main(["memory", "edit", f"m:{m.handle}", "--short=Run the linter before the tests.", "--user-read",
+    # the automatic fill runs `mem memory edit --short=... --topic=...`, without --user-read
+    assert mem.main(["memory", "edit", f"m:{m.handle}", "--short=Run the linter before the tests.",
                      "--topic=testing"]) == 0
     capsys.readouterr()
     got = reload(m)
@@ -293,7 +293,50 @@ def test_merge_joins_log_and_versions(project, capsys):
     capsys.readouterr()
     got = next(x for x in records.load_memories(project / ".memory", "project") if x.handle == keep.handle)
     assert got.log == ["2026-11-21 session c0 failed", "2026-11-22 session d1 worked"]
-    assert got.versions == ["2026-11-20 First text.", "2026-11-22 Other text."]
+    # the kept record's text loads after the merge, so it is the newest version
+    assert got.versions == ["2026-11-20 First text.", "2026-11-22 Other text.",
+                            f"{datetime.date.today().isoformat()} First text."]
+
+
+def merge_pair(project, keep_versions, keep_short, drop_versions, drop_short):
+    """Merge two lessons with the given versions (lists of (offset, text)) and shorts; returns the kept record."""
+    def lesson(claim, session, versions, short):
+        m = records.write_memory(project / ".memory", "project", kind="lesson", claim=claim, body="", today=D1,
+                                 origin="transcript", sources=[records.sighting_entry(session, KEY)])
+        if not short:
+            return m
+        m = records.update(m, D1, short=short)
+        return records.update(m, D1, versions=[f"{day(n).isoformat()} {t}" for n, t in versions])
+    keep = lesson("Run the linter before the tests soon.", "session s1", keep_versions, keep_short)
+    drop = lesson("Run the linter before the tests too.", "session s9", drop_versions, drop_short)
+    assert mem.main(["merge", f"m:{keep.handle}", f"m:{drop.handle}", "--force"]) == 0
+    return next(x for x in records.load_memories(project / ".memory", "project") if x.handle == keep.handle)
+
+
+def test_merge_keeps_the_wording_of_a_lesson_written_before_versions(project, capsys):
+    got = merge_pair(project, [], "Old text.", [(1, "Other text.")], "Other text.")
+    capsys.readouterr()
+    today = datetime.date.today().isoformat()
+    assert got.versions == [f"{D1.isoformat()} Old text.", f"{day(1).isoformat()} Other text.", f"{today} Old text."]
+    assert got.short == "Old text."
+
+
+def test_merge_of_two_versions_on_one_day_keeps_the_kept_text(project, capsys):
+    got = merge_pair(project, [(0, "Kept text.")], "Kept text.", [(0, "Dropped text.")], "Dropped text.")
+    capsys.readouterr()
+    assert got.versions == [f"{D1.isoformat()} Kept text."]
+
+
+def test_merge_without_any_short_form_writes_no_versions(project, capsys):
+    got = merge_pair(project, [], None, [], None)
+    capsys.readouterr()
+    assert got.versions == [] and "versions" not in got.path.read_text()
+
+
+def test_merge_when_the_kept_text_is_already_last_adds_nothing(project, capsys):
+    got = merge_pair(project, [(0, "A text."), (5, "B text.")], "B text.", [(0, "A text.")], "A text.")
+    capsys.readouterr()
+    assert got.versions == [f"{D1.isoformat()} A text.", f"{day(5).isoformat()} B text."]
 
 
 def test_restore_brings_versions_back(project, capsys):

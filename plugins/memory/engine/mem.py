@@ -3963,8 +3963,8 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
     log.sort(key=lambda e: e[:10])
     if log != keep.log:
         changes["log"] = log
-    versions = sorted(dict.fromkeys([*keep.versions, *drop.versions]), key=lambda e: e[:10])
-    if versions != keep.versions:
+    versions = records.merged_versions(keep, drop, today)
+    if versions and versions != keep.versions:
         changes["versions"] = versions
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
