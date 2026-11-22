@@ -87,6 +87,17 @@ def test_a_claim_edit_removes_short_and_short_by(gfolder, capsys):
     assert "short_by" not in m.path.read_text()
 
 
+def test_a_claim_edit_removes_the_mark_of_a_stored_short_that_is_invalid(gfolder, capsys):
+    gfolder.mkdir()
+    (gfolder / "an-invalid.md").write_text(
+        "---\nkind: lesson\nclaim: Claim one.\ncreated: '2026-01-01'\nobserved: 1\nstatus: active\n"
+        f"short: {'x' * 130}\nshort_by: model\n---\n", encoding="utf-8")
+    (m,) = records.load_memories(gfolder, "global")
+    assert m.short is None and "short_by: model" in m.path.read_text()
+    assert mem.main(["memory", "edit", f"m:{m.handle}", "--global", "--claim", "Claim two.", "--shrink"]) == 0
+    assert "short_by" not in m.path.read_text()
+
+
 def test_a_bad_stored_short_by_reads_as_absent(gfolder):
     gfolder.mkdir()
     for handle, value in (("a-seven", "7"), ("an-owner", "owner")):

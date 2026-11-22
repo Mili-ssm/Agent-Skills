@@ -327,8 +327,9 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
             continue
         if attempts is not None:
             spent = attempts.get(fill_key(p, m.handle))
+            count = spent.get("count") if isinstance(spent, dict) else None
             if isinstance(spent, dict) and spent.get("digest") == claim_digest(m) and (
-                    spent.get("count") or 0) >= FILL_ATTEMPTS:
+                    count if isinstance(count, int) and not isinstance(count, bool) else 0) >= FILL_ATTEMPTS:
                 continue
             if p is not None and m.weight == "strong" and m.owner_confirmed is None:
                 continue
@@ -383,22 +384,22 @@ def check_lines(items: Sequence[tuple[str, str, str | None, str]]) -> str:
 
 
 def validate_check(payload: object, ids: Sequence[str]) -> dict[str, bool] | None:
-    """`payload` is {"verdicts": [{"id", "reason", "faithful"}]}: id -> faithful. Only an exact `true` of a known id
-    seen once counts; a missing, repeated or unknown id is False. None when the answer is not an object with a list."""
+    """`payload` is {"verdicts": [{"id", "reason", "faithful"}]}: id -> faithful, where only an exact `true` counts.
+    None when the answer is unusable: not an object with a list, or not exactly one verdict for every id asked
+    (a verdict for an id not asked is ignored)."""
     verdicts = payload.get("verdicts") if isinstance(payload, dict) else None
     if not isinstance(verdicts, list):
         return None
     seen: dict[str, bool] = {}
-    repeated: set[str] = set()
     known = set(ids)
     for v in verdicts:
         ident = v.get("id") if isinstance(v, dict) else None
         if not isinstance(ident, str) or ident not in known:
             continue
         if ident in seen:
-            repeated.add(ident)
-        seen[ident] = seen.get(ident, True) and v.get("faithful") is True
-    return {i: seen.get(i, False) and i not in repeated for i in ids}
+            return None
+        seen[ident] = v.get("faithful") is True
+    return seen if len(seen) == len(known) else None
 
 
 def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict], list[str]]:

@@ -824,9 +824,11 @@ def fill_dry_run(args) -> int:
     return 0
 
 
-def apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dict:
+def apply_fill(items: list[dict], run: Path, user_read: bool) -> dict:
     """Writes the items into the records and journals them in `run` (the caller holds the run lock). Returns
-    {"written", "dropped", "failed", "applied"}; `applied` holds the id of each item written."""
+    {"written", "dropped", "failed", "applied", "refused"}; `applied` holds the id of each item written and `refused`
+    the id of each one `mem memory edit` refused. Without `user_read` (the automatic fill) an item never sets `load`:
+    a record turned off is dropped, and a record's load stays as the owner has it."""
     _data, projects, gfolder, names = _fill_world()
     au.private_dir(run)
     write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
@@ -840,13 +842,14 @@ def apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dic
     applier = Applier(Journal(run), {}, gfolder, run, log)
     written = dropped = failed = 0
     applied: list[str] = []
+    refused: list[str] = []
     used: set[str] = set()
     today = datetime.date.today()
     for n, item in enumerate(items, start=1):
         ident = item.get("id") if isinstance(item, dict) else None
         short = item.get("short") if isinstance(item, dict) else None
         topic = item.get("topic") if isinstance(item, dict) else None
-        load = item.get("load") if isinstance(item, dict) else None
+        load = item.get("load") if isinstance(item, dict) and user_read else None
         why = None
         if not all(isinstance(x, str) for x in (ident, short, topic)):
             why = "not an object with id, short and topic"
@@ -858,7 +861,7 @@ def apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dic
             why = "short is not one line of at most 120 characters"
         elif not records.valid_topic(topic):
             why = "topic is not one or two lowercase words"
-        elif "load" in item and load not in ("yes", "index", "no"):
+        elif user_read and "load" in item and load not in ("yes", "index", "no"):
             why = "load must be yes, index or no"
         else:
             project, m = known[ident]
@@ -888,8 +891,9 @@ def apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dic
             applied.append(ident)
         else:
             failed += 1
+            refused.append(ident)
             log(f"item {n} failed: mem refused or could not run for {ident}")
-    return {"written": written, "dropped": dropped, "failed": failed, "applied": applied}
+    return {"written": written, "dropped": dropped, "failed": failed, "applied": applied, "refused": refused}
 
 
 def fill_items(args) -> int:
@@ -906,7 +910,7 @@ def fill_items(args) -> int:
     start = time.time()
     try:
         run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}-fill"
-        result = apply_fill(items, cdir, run, user_read=True)
+        result = apply_fill(items, run, user_read=True)
         written, dropped, failed = result["written"], result["dropped"], result["failed"]
         line = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                 "fill": {"asked": len(items), "written": written, "dropped": dropped, "failed": failed},
@@ -924,6 +928,7 @@ def fill_items(args) -> int:
 
 ATTEMPTS_NAME = "fill-attempts.json"
 CHECK_REFUSAL = "the checker did not find the short form faithful to the claim"
+APPLY_REFUSAL = "mem refused to write the short form"
 
 
 def _fill_state(cdir: Path) -> dict:
@@ -956,7 +961,10 @@ def _ask(claude: str, scratch: Path, name: str, model: str, budget: float, templ
     write_private(work / "input.txt", text)
     out = work / out_name
     brief = template.format(**{text_key: work / "input.txt"}, out=out)
-    done = run_session(session_cmd(claude, work, brief, scratch / "settings.json", model, budget), work)
+    try:
+        done = run_session(session_cmd(claude, work, brief, scratch / "settings.json", model, budget), work)
+    except OSError:   # a binary that is missing or cannot run is a failed session
+        return None, 0.0, False
     cost = done["cost"] if done["has_result"] else 0.0
     ok = done["has_result"] and not done["error"]
     return (read_object(out) if ok else None), cost, ok
@@ -980,7 +988,16 @@ def fill_auto(claude: str | None, budget: float) -> dict:
 
 
 def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) -> dict:
-    _data, projects, gfolder, names = _fill_world()
+    def finish(**changes) -> dict:
+        result.update(changes)
+        result["cost"] = round(result["cost"], 6)
+        save_status(cdir, fill=dict(result))
+        return result
+
+    try:
+        _data, projects, gfolder, names = _fill_world()
+    except ValueError:
+        return finish(stopped="the registry is unreadable")
     state = _fill_state(cdir)
     candidates = corroborate.fill_candidates(projects, gfolder, datetime.date.today(), attempts=state["lessons"])
     where = {i: p for i, p, _m in corroborate.fill_records(projects, gfolder)}
@@ -988,21 +1005,17 @@ def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) ->
     keys = {i: corroborate.fill_key(where[i], m.handle) for i, m in candidates}
     digests = {i: corroborate.claim_digest(m) for i, m in candidates}
 
-    def finish(**changes) -> dict:
-        result.update(changes)
-        result["cost"] = round(result["cost"], 6)
-        save_status(cdir, fill=dict(result))
-        return result
-
     if not candidates:
         return finish()
     fingerprint = hashlib.sha256(json.dumps(sorted((keys[i], digests[i]) for i, _m in candidates)).encode()).hexdigest()
     failures = state["failures"]
+    if failures["fingerprint"] != fingerprint:
+        failures["count"] = 0
 
     def save_state() -> None:
-        write_private(cdir / ATTEMPTS_NAME, json.dumps(state))
+        au.write_json(cdir / ATTEMPTS_NAME, state)
 
-    if failures["count"] >= corroborate.FILL_FAILURES and failures["fingerprint"] == fingerprint:
+    if failures["count"] >= corroborate.FILL_FAILURES:
         return finish(stopped="waiting for the lessons to change", asked=0)
     if not claude:
         return finish(stopped="no claude binary")
@@ -1058,33 +1071,51 @@ def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) ->
         m = by_id[i]
         project = where[i]
         items.append({"id": i, "handle": m.handle, "scope": "global" if project is None else names.get(project, str(project)),
-                      "claim": m.claim, "short": fields["short"], "topic": fields["topic"],
-                      "load": "index" if m.load == "index" else "yes", "claim_digest": digests[i]})
+                      "claim": m.claim, "short": fields["short"], "topic": fields["topic"], "claim_digest": digests[i]})
     applied: list[str] = []
-    if items:
-        run = _fill_run_folder(cdir)
-        done = apply_fill(items, cdir, run, user_read=False)
-        applied = done["applied"]
-        write_private(run / "applied.json", json.dumps([by_id[i].handle for i in applied]))
-        result["written"], result["dropped"], result["left"] = done["written"], done["dropped"], done["failed"]
-    for i in applied:
-        state["lessons"][keys[i]] = {"digest": digests[i], "count": corroborate.FILL_ATTEMPTS}
-    holds: list[tuple[str, str]] = []
-    for i, why in reason.items():
-        old = state["lessons"].get(keys[i])
-        count = (old.get("count") if isinstance(old, dict) and old.get("digest") == digests[i]
-                 and isinstance(old.get("count"), int) else 0) + 1
-        state["lessons"][keys[i]] = {"digest": digests[i], "count": count}
-        if count >= corroborate.FILL_ATTEMPTS:
-            holds.append((i, why))
-    failures["count"], failures["fingerprint"] = 0, None
-    save_state()
+    done = None
+    try:
+        if items:
+            run = _fill_run_folder(cdir)
+            done = apply_fill(items, run, user_read=False)
+            applied = done["applied"]
+            for i in done["refused"]:
+                reason[i] = APPLY_REFUSAL
+            write_private(run / "applied.json", json.dumps([by_id[i].handle for i in applied]))
+            result["written"], result["dropped"], result["left"] = done["written"], done["dropped"], done["failed"]
+    finally:
+        # what is written is spent and what was refused is counted, even when a step above raised
+        if items and done is None:
+            applied = _written_ids(items)
+        for i in applied:
+            state["lessons"][keys[i]] = {"digest": digests[i], "count": corroborate.FILL_ATTEMPTS}
+        holds: list[tuple[str, str]] = []
+        for i, why in reason.items():
+            old = state["lessons"].get(keys[i])
+            count = (old.get("count") if isinstance(old, dict) and old.get("digest") == digests[i]
+                     and isinstance(old.get("count"), int) else 0) + 1
+            state["lessons"][keys[i]] = {"digest": digests[i], "count": count}
+            if count >= corroborate.FILL_ATTEMPTS:
+                holds.append((i, why))
+        failures["count"], failures["fingerprint"] = 0, None
+        save_state()
     for i, why in holds:
         if where[i] is None and _hold(by_id[i].handle, why, cdir, gfolder):
             result["to_triage"] += 1
         else:
             result["left"] += 1
     return finish()
+
+
+def _written_ids(items: list[dict]) -> list[str]:
+    """The ids of the items whose short form is in the records now: what an `apply_fill` that raised had written."""
+    try:
+        _data, projects, gfolder, _names = _fill_world()
+        known = {i: m for i, _p, m in corroborate.fill_records(projects, gfolder)}
+    except ValueError:
+        return []
+    return [x["id"] for x in items if x["id"] in known and known[x["id"]].short == x["short"]
+            and known[x["id"]].short_by == "model"]
 
 
 def _hold(handle: str, why: str, cdir: Path, gfolder: Path | None) -> bool:

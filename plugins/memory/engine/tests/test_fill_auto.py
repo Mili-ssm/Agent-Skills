@@ -81,17 +81,21 @@ def test_candidates_without_attempts_are_what_they_were(world):
 
 
 def test_validate_check_counts_only_an_exact_true():
-    ids = ["a", "b", "c", "d", "e", "f"]
+    ids = ["a", "b", "c"]
     payload = {"verdicts": [
         {"id": "a", "reason": "r", "faithful": True},
         {"id": "b", "reason": "r", "faithful": "yes"},
         {"id": "c", "reason": "r", "faithful": 1},
-        {"id": "e", "reason": "r", "faithful": True},
-        {"id": "e", "reason": "r", "faithful": True},
         {"id": "zz", "reason": "r", "faithful": True},
     ]}
-    assert corroborate.validate_check(payload, ids) == {"a": True, "b": False, "c": False, "d": False,
-                                                         "e": False, "f": False}
+    assert corroborate.validate_check(payload, ids) == {"a": True, "b": False, "c": False}
+
+
+def test_validate_check_of_a_missing_or_repeated_verdict_is_none():
+    ids = ["a", "b"]
+    one = {"id": "a", "reason": "r", "faithful": True}
+    assert corroborate.validate_check({"verdicts": [one]}, ids) is None
+    assert corroborate.validate_check({"verdicts": [one, one, {**one, "id": "b"}]}, ids) is None
 
 
 def test_validate_check_of_an_unusable_answer_is_none():
@@ -104,3 +108,20 @@ def test_check_lines_puts_each_field_on_one_line_and_omits_an_empty_context():
                                     ("g:y", "Another claim", None, "Short two.")])
     assert text == ("id: p1:x\nclaim: A claim over two lines\ncontext: when testing\nshort: Short one.\n\n"
                     "id: g:y\nclaim: Another claim\nshort: Short two.\n")
+
+
+def test_a_non_numeric_stored_count_counts_as_zero(world):
+    m = world.put("Invented lesson about reading a log from the end.")
+    for bad in ("2", None, 2.0, True, [2]):
+        attempts = {corroborate.fill_key(world.project, m.handle): {"digest": corroborate.claim_digest(m), "count": bad}}
+        assert [x.handle for _i, x in world.candidates(attempts=attempts)] == [m.handle]
+
+
+def test_a_strong_project_lesson_with_three_sessions_waits_for_the_owner(world):
+    strong = records.write_memory(world.folder, "project", kind="lesson", claim="Invented strong lesson about pinning a tool version.",
+                                  body="b\n", today=TODAY, sources=["session a", "session b", "session c"], origin="transcript",
+                                  reach="general", weight="strong")
+    assert len(records.sessions(strong)) == 3
+    assert [x.handle for _i, x in world.candidates(attempts={})] == []
+    records.update(strong, TODAY, owner_confirmed=TODAY.isoformat())
+    assert [x.handle for _i, x in world.candidates(attempts={})] == [strong.handle]

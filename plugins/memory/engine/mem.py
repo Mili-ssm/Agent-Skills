@@ -3733,7 +3733,7 @@ def cmd_refute(args: argparse.Namespace) -> int:
 
 def cmd_forget(args: argparse.Namespace) -> int:
     def apply(found, today):
-        _text_change(found, "forgotten", "Forgotten", args.because, today, triage=None)
+        _text_change(found, "forgotten", "Forgotten", args.because, today, triage=None, triage_reason=None)
         return [f"m:{found[0].handle}\tforgotten"]
     return _act(args, [args.handle], apply, "forget", args.because)
 
@@ -3897,11 +3897,12 @@ def cmd_memory(args: argparse.Namespace) -> int:
             changes["short"] = args.short or None
             changes["short_by"] = "model" if args.short and not args.user_read else None
             what.append("short")
-        elif claim is not None and claim != m.claim and m.short:
+        elif claim is not None and claim != m.claim and (m.short or m.short_by):
             changes["short"] = None  # a short form never outlives the claim it was drawn from
             changes["short_by"] = None
-            what.append("short removed")
-            short_removed = True
+            if m.short:
+                what.append("short removed")
+                short_removed = True
         if args.topic is not None:
             changes["topic"] = args.topic or None
             what.append("topic")

@@ -255,6 +255,14 @@ def test_forget_removes_the_pending_field(world, capsys):
     assert after.status == "forgotten" and after.triage is None
 
 
+def test_forget_removes_the_hold_reason_from_the_file_too(world, capsys):
+    m = released(capsys)
+    records.update(m, TODAY, triage="pending", triage_reason="invented reason")
+    assert "triage_reason:" in m.path.read_text()
+    assert mem.main(["forget", m.handle, "--global", "--because", "invented reason"]) == 0
+    assert "triage" not in m.path.read_text()
+
+
 @pytest.mark.parametrize("verb", ["accept", "reject"])
 def test_a_record_in_quarantine_says_how_it_leaves(world, capsys, verb):
     assert remember("session a") == 0

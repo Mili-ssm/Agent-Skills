@@ -1139,7 +1139,7 @@ def test_apply_fill_passes_user_read_only_when_asked(w):
     spec = importlib.util.spec_from_loader(loader.name, loader)
     mod = importlib.util.module_from_spec(spec)
     loader.exec_module(mod)
-    result = mod.apply_fill(items, w.cdir, w.cdir / "runs" / "direct-fill", user_read=False)
+    result = mod.apply_fill(items, w.cdir / "runs" / "direct-fill", user_read=False)
     assert result["written"] == 2 and result["dropped"] == result["failed"] == 0
     assert sorted(result["applied"]) == sorted([shared[0], gid])
     written = [m for m in [*project_records(w.pa).values(), *globals_(w)] if m.short]
@@ -1474,3 +1474,189 @@ def test_status_shows_the_last_fill_and_its_failure(w, capsys):
                                                     "refused_check": 0, "stopped": None}})
     assert corr_module().cmd_status() == 0
     assert "last fill" not in capsys.readouterr().out
+
+
+# ---- fill_auto: a step that fails, a load the owner changed, a partial check ----------------------------------------
+
+OTHER = "Keep a failing command's output in a file, as it may help when it is long."
+OTHER_SHORT = "Keep a failing command's output in a file, as it may help."
+CODE_REFUSED = {NARROW: "Run the narrowest covering test before the whole suite."}   # the hedge is gone: shortcheck refuses it
+
+
+def count_of(w, claim):
+    import hashlib
+    digest = hashlib.sha256(claim.encode()).hexdigest()
+    return [v["count"] for v in attempts(w)["lessons"].values() if v["digest"] == digest]
+
+
+def test_a_fill_that_raises_after_a_code_refusal_still_counts_the_attempt(w, monkeypatch):
+    one_lesson(w)
+    other = one_lesson(w, OTHER)
+    answers(w, monkeypatch, shorts={**CODE_REFUSED, other.claim: OTHER_SHORT})
+    mod = corr_module()
+
+    def boom(*_args, **_kw):
+        raise RuntimeError("apply broke")
+
+    monkeypatch.setattr(mod, "apply_fill", boom)
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            auto(w, mod)
+    assert count_of(w, NARROW) == [2]
+    assert count_of(w, OTHER) == []   # nothing of it was written, so it is not spent
+
+
+def test_a_fill_that_raises_after_writing_marks_what_was_written_as_spent(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    mod = corr_module()
+    real = mod.apply_fill
+
+    def write_then_break(*args, **kw):
+        real(*args, **kw)
+        raise RuntimeError("after the write")
+
+    monkeypatch.setattr(mod, "apply_fill", write_then_break)
+    with pytest.raises(RuntimeError):
+        auto(w, mod)
+    assert by_claim(w, NARROW).short == SHORTS[NARROW]
+    assert count_of(w, NARROW) == [corroborate.FILL_ATTEMPTS]
+    records.update(by_claim(w, NARROW), TODAY, short=None, topic=None)   # the owner removes it
+    assert auto(w)["asked"] == 0 and calls(w) == 2
+
+
+def test_the_automatic_fill_never_sets_load_and_a_record_turned_off_meanwhile_stays_so(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    mod = corr_module()
+    real = mod.run_session
+    sessions = []
+
+    def turn_off_after_the_writer(cmd, work):
+        done = real(cmd, work)
+        if not sessions:
+            records.update(by_claim(w, NARROW), TODAY, load="no")
+        sessions.append(cmd)
+        return done
+
+    monkeypatch.setattr(mod, "run_session", turn_off_after_the_writer)
+    result = auto(w, mod)
+    assert result["written"] == 0 and result["dropped"] == 1
+    assert (by_claim(w, NARROW).load, by_claim(w, NARROW).short) == ("no", None)
+
+
+def test_apply_fill_without_user_read_passes_no_load_flag(w, monkeypatch):
+    m = one_lesson(w)
+    mod = corr_module()
+    seen_args = []
+    real = mod.Applier.mem
+
+    def spy(self, args, *rest, **kw):
+        seen_args.append(args)
+        return real(self, args, *rest, **kw)
+
+    monkeypatch.setattr(mod.Applier, "mem", spy)
+    (ident,) = candidate_ids(w)[NARROW]
+    item = {"id": ident, "short": SHORTS[NARROW], "topic": "process", "load": "yes",
+            "claim_digest": corroborate.claim_digest(m)}
+    assert mod.apply_fill([item], w.cdir / "runs" / "direct-fill", user_read=False)["written"] == 1
+    (args,) = seen_args
+    assert not {"--load", "--index-only", "--no-load"} & set(args)
+
+
+def test_a_checker_that_answers_for_the_first_id_only_is_a_failed_session_twice(w, monkeypatch):
+    g = fill_world(w)
+    first = sorted(i for ids in candidate_ids(w).values() for i in ids)[0]
+    answers(w, monkeypatch, checker=json.dumps({"verdicts": [{"id": first, "reason": "r", "faithful": True}]}))
+    for _ in range(2):
+        result = auto(w)
+        assert result["stopped"] and result["written"] == result["to_triage"] == 0
+    state = attempts(w)
+    assert state["lessons"] == {} and state["failures"]["count"] == 2
+    assert [m.triage for m in globals_(w) if m.handle == g.handle] == [None]
+    assert not any(m.short for m in [*project_records(w.pa).values(), *project_records(w.pb).values(), *globals_(w)])
+
+
+def test_a_missing_claude_binary_is_a_failed_session_not_an_exception(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    result = corr_module().fill_auto("/nonexistent/claude", 0.25)
+    assert result["stopped"] and result["written"] == 0
+    assert attempts(w)["failures"]["count"] == 1 and attempts(w)["lessons"] == {}
+
+
+def test_an_unreadable_registry_stops_the_fill_without_raising(w):
+    (w.data / "projects.json").write_text("{not json")
+    result = corr_module().fill_auto(str(w.fake), 0.25)
+    assert result["stopped"] and result["written"] == 0 and calls(w) == 0
+
+
+def test_a_new_candidate_set_starts_the_count_of_failures_at_zero(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, writer="none")
+    for _ in range(3):
+        assert auto(w)["stopped"]
+    one_lesson(w, OTHER)
+    answers(w, monkeypatch, writer="none")
+    assert auto(w)["stopped"] != "waiting for the lessons to change"
+    assert attempts(w)["failures"]["count"] == 1
+    before = calls(w)
+    assert auto(w)["stopped"] != "waiting for the lessons to change" and calls(w) == before + 1
+
+
+def test_the_attempts_file_is_private_and_a_failed_write_keeps_the_old_one(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, checker=False)
+    auto(w)
+    path = w.cdir / "fill-attempts.json"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    before = path.read_text()
+
+    def broken(*_args):
+        raise OSError("disk")
+
+    monkeypatch.setattr(auto_state.os, "replace", broken)
+    with pytest.raises(OSError):
+        auto(w)
+    assert path.read_text() == before
+
+
+def test_a_lesson_whose_edit_mem_refused_gets_one_attempt(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+    mod = corr_module()
+    real = mod.Applier.mem
+
+    def refuse_edits(self, args, *rest, **kw):
+        if args[:2] == ["memory", "edit"]:
+            return subprocess.CompletedProcess(args, 1, "", "")
+        return real(self, args, *rest, **kw)
+
+    monkeypatch.setattr(mod.Applier, "mem", refuse_edits)
+    result = auto(w, mod)
+    assert (result["written"], result["left"]) == (0, 1)
+    assert count_of(w, NARROW) == [1]
+
+
+def test_a_writer_item_with_a_problem_is_refused_counted_and_not_sent_to_the_checker(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, shorts={NARROW: "Run the narrowest covering test. " + "x" * 120})
+    result = auto(w)
+    assert (result["written"], result["refused_code"], result["refused_check"]) == (0, 0, 0)
+    assert calls(w) == 1 and count_of(w, NARROW) == [1] and by_claim(w, NARROW).short is None
+
+
+def test_a_verdict_that_is_not_exactly_true_writes_nothing(w, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch, checker=json.dumps({"verdicts": [{"id": i, "reason": "r", "faithful": "yes"}
+                                                              for i in candidate_ids(w)[NARROW]]}))
+    result = auto(w)
+    assert (result["written"], result["refused_check"]) == (0, 1) and by_claim(w, NARROW).short is None
+
+
+def test_an_unusable_writer_answer_twice_sends_nothing_to_triage(w, monkeypatch):
+    g = fill_world(w)
+    answers(w, monkeypatch, writer="none")
+    for _ in range(2):
+        assert auto(w)["to_triage"] == 0
+    assert [m.triage for m in globals_(w) if m.handle == g.handle] == [None] and attempts(w)["lessons"] == {}
