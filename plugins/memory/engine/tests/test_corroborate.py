@@ -1,4 +1,5 @@
 """`corroborate`: what the pass reads and what it does with the groups a model returns."""
+import dataclasses
 import datetime
 from pathlib import Path
 
@@ -62,7 +63,6 @@ def test_collect_filters_and_names(tmp_path):
     put(glob, "global", "global claim")
     got = lessons_of([p1, p2], glob)
     assert sorted(x.id.split(":")[0] for x in got) == ["g", "p1", "p2"]
-    assert all(str(tmp_path) not in line and "one" not in line.split("\t")[0] for line in corroborate.lesson_lines(got))
     assert not any("linked" in x.memory.claim or "kept local" in x.memory.claim or "web" in x.memory.claim
                    or "old claim" in x.memory.claim for x in got)
 
@@ -116,18 +116,23 @@ def test_validate_groups(tmp_path):
     put(glob, "global", "g")
     got = lessons_of([p], glob)
     ids = {x.memory.claim: x.id for x in got}
-    raw = [{"ids": [ids["a"], ids["c"]], "claim": "good", "context": "ctx"},
+    raw = {"groups": [{"ids": [ids["a"], ids["c"]], "claim": "good", "context": "ctx"},
            "not an object",
            {"ids": [ids["a"]], "claim": "dup"},
            {"ids": ["p9:nope"], "claim": "unknown"},
            {"ids": [ids["b"], ids["g"]], "claim": "  "},
            {"ids": [ids["b"]], "claim": "single local"},
            {"ids": [ids["g"]], "claim": "single global"},
-           {"ids": "p1:x", "claim": "bad ids"}]
+           {"ids": "p1:x", "claim": "bad ids"},
+           {"ids": [ids["c"], ids["c"]], "claim": "repeated"},
+           {"ids": [ids["a"], ids["c"]], "claim": "ok", "context": 5}]}
     groups, reasons = corroborate.validate_groups(raw, got)
-    assert [g.claim for g in groups] == ["good"] and len(reasons) == 7
-    assert corroborate.validate_groups({"a": 1}, got)[0] == []
-    one = [{"ids": [ids["a"]], "claim": "alone"}]
+    assert [g.claim for g in groups] == ["good"] and len(reasons) == 9
+    assert any("group 9" in r and "more than once" in r for r in reasons)
+    for bad in ([{"ids": [ids["a"]], "claim": "alone"}], {"a": 1}, {"groups": "x"}, None, "text"):
+        groups, reasons = corroborate.validate_groups(bad, got)
+        assert groups == [] and len(reasons) == 1
+    one = {"groups": [{"ids": [ids["a"]], "claim": "alone"}]}
     assert [g.claim for g in corroborate.validate_groups(one, got)[0]] == ["alone"]
 
 
@@ -137,7 +142,7 @@ def test_validate_groups_caps(tmp_path, monkeypatch):
         put(records.project_dir(p), "project", f"claim {n}", sources=(f"session s{n}",))
     got = lessons_of([p])
     monkeypatch.setattr(corroborate, "MAX_GROUPS", 2)
-    raw = [{"ids": [x.id], "claim": "c"} for x in got]
+    raw = {"groups": [{"ids": [x.id], "claim": "c"} for x in got]}
     assert len(corroborate.validate_groups(raw, got)[0]) == 2
 
 
@@ -228,3 +233,158 @@ def test_project_reach_records_of_two_projects_do_nothing(tmp_path):
     put(records.project_dir(p2), "project", "y", reach="project")
     got = lessons_of([p1, p2])
     assert corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got), []) == []
+
+
+def test_fingerprint_covers_what_the_model_sees(tmp_path):
+    p = project(tmp_path, "one")
+    a = put(records.project_dir(p), "project", "claim a", context="ctx")
+    base = corroborate.fingerprint(lessons_of([p]))
+    for change in ({"claim": "claim a2"}, {"context": "ctx2"}, {"reach": "project"}):
+        a = records.update(a, TODAY, **change)
+        now = corroborate.fingerprint(lessons_of([p]))
+        assert now != base
+        base = now
+
+
+def test_fingerprint_does_not_collide_on_a_newline_in_a_source(tmp_path):
+    p = project(tmp_path, "one")
+    m = put(records.project_dir(p), "project", "claim a")
+    one = corroborate.Lesson("p1:x", "project", p, dataclasses.replace(m, sources=["session a\nsession b"]))
+    two = corroborate.Lesson("p1:x", "project", p, dataclasses.replace(m, sources=["session a", "session b"]))
+    assert corroborate.lesson_fingerprint(one) != corroborate.lesson_fingerprint(two)
+    assert corroborate.fingerprint([one]) != corroborate.fingerprint([two])
+
+
+def test_lines_hold_no_project_name_or_path(tmp_path):
+    names = ["zebra-quartz-ledger", "ochre-falcon-vault"]
+    projects = [project(tmp_path, n) for n in names]
+    glob = tmp_path / "global"
+    glob.mkdir()
+    for p in projects:
+        put(records.project_dir(p), "project", "ordinary claim", context="ordinary context")
+    put(records.project_dir(projects[0]), "project", "tab\there\nand a newline", context="c\td")
+    put(glob, "global", "global claim")
+    got = lessons_of(projects, glob)
+    groups = [corroborate.Group([x.id for x in got], "proposed", "ctx")]
+    lines = corroborate.lesson_lines(got) + corroborate.verification_lines(groups, by_id(got))
+    text = "\n".join(lines)
+    parts = {str(tmp_path), *names, *(q for p in projects for q in p.parts if q not in tmp_path.parts)}
+    assert all(part not in text for part in parts)
+    weird = [x for x in corroborate.lesson_lines(got) if "tab here and a newline" in x]
+    assert len(weird) == 1 and len(weird[0].split("\t")) == 4
+    member_lines = [x for x in corroborate.verification_lines(groups, by_id(got)) if "tab here" in x]
+    assert len(member_lines) == 1 and len(member_lines[0].split("\t")) == 3
+
+
+def test_verification_lines(tmp_path):
+    p = project(tmp_path, "one")
+    put(records.project_dir(p), "project", "first", context="why")
+    put(records.project_dir(p), "project", "second")
+    got = lessons_of([p])
+    groups = [corroborate.Group([x.id for x in got], "the claim", "the ctx"), corroborate.Group([got[0].id], "solo", "")]
+    lines = corroborate.verification_lines(groups, by_id(got))
+    assert lines[0] == "group 1" and lines[1].split("\t")[0] == got[0].id
+    assert lines[3] == "proposed\tthe claim\tthe ctx" and lines[4] == "group 2" and len(lines) == 7
+    assert lines[-1] == "proposed\tsolo\t"
+
+
+def verdict(n, same=True, faithful=True, general=True, reason="ok"):
+    return {"group": n, "reason": reason, "same": same, "faithful": faithful, "general": general}
+
+
+def two_groups(tmp_path):
+    p = project(tmp_path, "one")
+    for n in range(3):
+        put(records.project_dir(p), "project", f"claim {n}", sources=(f"session s{n}",))
+    got = lessons_of([p])
+    return [corroborate.Group([got[0].id, got[1].id], "a", ""), corroborate.Group([got[2].id], "b", "")]
+
+
+def test_verdicts_all_true_are_kept(tmp_path):
+    groups = two_groups(tmp_path)
+    kept, reasons = corroborate.validate_verdicts({"verdicts": [verdict(1), verdict(2)]}, groups)
+    assert kept == groups and reasons == []
+
+
+@pytest.mark.parametrize("answer", ["same", "faithful", "general"])
+def test_verdicts_each_false_refuses(tmp_path, answer):
+    groups = two_groups(tmp_path)
+    kept, reasons = corroborate.validate_verdicts({"verdicts": [verdict(1, **{answer: False}), verdict(2)]}, groups)
+    assert kept == [groups[1]] and len(reasons) == 1 and "group 1" in reasons[0] and answer in reasons[0]
+
+
+def test_verdicts_duplicate_missing_unknown_and_empty_reason(tmp_path):
+    groups = two_groups(tmp_path)
+    kept, reasons = corroborate.validate_verdicts({"verdicts": [verdict(1), verdict(1), verdict(3)]}, groups)
+    assert kept == [] and any("group 1" in r for r in reasons) and any("group 2" in r for r in reasons) \
+        and any("3" in r for r in reasons)
+    kept, reasons = corroborate.validate_verdicts({"verdicts": [verdict(1, reason=" "), verdict(2)]}, groups)
+    assert kept == [groups[1]] and "group 1" in reasons[0]
+
+
+@pytest.mark.parametrize("bad", ["true", 1, None])
+def test_verdicts_only_exact_true_counts(tmp_path, bad):
+    groups = two_groups(tmp_path)
+    kept, reasons = corroborate.validate_verdicts({"verdicts": [verdict(1, faithful=bad), verdict(2)]}, groups)
+    assert kept == [groups[1]] and len(reasons) == 1
+
+
+def test_verdict_of_a_group_of_one_needs_no_same(tmp_path):
+    groups = two_groups(tmp_path)
+    v = verdict(2)
+    del v["same"]
+    kept, reasons = corroborate.validate_verdicts({"verdicts": [verdict(1), v]}, groups)
+    assert kept == groups and reasons == []
+    v1 = verdict(1)
+    del v1["same"]
+    assert corroborate.validate_verdicts({"verdicts": [v1, verdict(2)]}, groups)[0] == [groups[1]]
+
+
+@pytest.mark.parametrize("raw", [None, "x", [], {}, {"verdicts": "x"}, {"verdicts": [1, "a", None]},
+                                 {"verdicts": [{"group": "1", "reason": "r", "same": True, "faithful": True,
+                                                "general": True}]},
+                                 {"verdicts": [{"group": True, "reason": "r", "same": True, "faithful": True,
+                                                "general": True}]}])
+def test_verdicts_garbage_keeps_nothing(tmp_path, raw):
+    groups = two_groups(tmp_path)
+    kept, reasons = corroborate.validate_verdicts(raw, groups)
+    assert kept == [] and reasons
+
+
+def test_a_member_with_no_session_makes_no_action(tmp_path):
+    p = project(tmp_path, "one")
+    put(records.project_dir(p), "project", "no evidence", sources=())
+    got = lessons_of([p])
+    assert corroborate.actions(corroborate.Group([got[0].id], "c", ""), by_id(got), []) == []
+
+
+def test_a_member_with_no_session_is_not_linked(tmp_path):
+    p1, p2 = project(tmp_path, "one"), project(tmp_path, "two")
+    put(records.project_dir(p1), "project", "no evidence", sources=())
+    put(records.project_dir(p2), "project", "with evidence", sources=("session a",))
+    got = lessons_of([p1, p2])
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got), [])
+    assert kinds(acts) == ["write_global", "link"] and acts[1].project == p2
+
+
+def test_write_global_holds_each_session_once(tmp_path):
+    p1, p2 = project(tmp_path, "one"), project(tmp_path, "two")
+    put(records.project_dir(p1), "project", "x one", sources=("session a",))
+    put(records.project_dir(p2), "project", "x two", sources=("session a", "session b"))
+    got = lessons_of([p1, p2])
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got), [])
+    assert acts[0].entries == [records.sighting_entry("session a", records.project_key(p1)),
+                               records.sighting_entry("session b", records.project_key(p2))]
+
+
+def test_sightings_of_a_project_member_go_to_the_oldest_global(tmp_path):
+    p = project(tmp_path, "one")
+    glob = tmp_path / "global"
+    glob.mkdir()
+    put(glob, "global", "newer", created=TODAY)
+    old = put(glob, "global", "older", created=TODAY - datetime.timedelta(days=4))
+    put(records.project_dir(p), "project", "local", sources=("session z",))
+    got = lessons_of([p], glob)
+    acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got), [x.memory for x in got if x.scope == "global"])
+    assert kinds(acts) == ["merge_global", "sighting", "link"]
+    assert acts[1].target == old.handle and acts[2].target == old.handle

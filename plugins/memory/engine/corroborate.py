@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -66,18 +67,25 @@ def collect(projects: Sequence[Path], global_folder: Path | None, today: datetim
     return _newest_first(out)[:MAX_LESSONS]
 
 
+def _reach(lesson: Lesson) -> str:
+    return "general" if lesson.scope == "global" else (lesson.memory.reach or "project")
+
+
+def _encoded(lesson: Lesson) -> str:
+    """JSON of what the model is shown plus the sources, so two different lessons never give the same text."""
+    m = lesson.memory
+    return json.dumps([lesson.id, _reach(lesson), m.claim, m.context, sorted(m.sources)], ensure_ascii=False)
+
+
 def lesson_fingerprint(lesson: Lesson) -> str:
-    return hashlib.sha1("\n".join([lesson.id, *sorted(lesson.memory.sources)]).encode("utf-8")).hexdigest()
+    return hashlib.sha1(_encoded(lesson).encode("utf-8")).hexdigest()
 
 
 def fingerprint(lessons: Sequence[Lesson]) -> str:
-    """Changes when a lesson appears, goes or gains a source; not with the order of the lessons."""
-    text = "\n".join(sorted(f"{x.id} {lesson_fingerprint(x)}" for x in lessons))
+    """Changes when a lesson appears, goes, gains a source or changes what the model is shown (reach, claim,
+    context); not with the order of the lessons."""
+    text = json.dumps(sorted(_encoded(x) for x in lessons), ensure_ascii=False)
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
-
-
-def _reach(lesson: Lesson) -> str:
-    return "general" if lesson.scope == "global" else (lesson.memory.reach or "project")
 
 
 def _line(text: str | None) -> str:
@@ -97,11 +105,15 @@ class Group:
 
 
 def validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group], list[str]]:
-    """The groups that hold and, for each one dropped, a reason. Dropped: not an object of the shape
-    {"ids": [str], "claim": str, "context": str (optional)}, an unknown id, an id of an earlier group, an empty
-    claim, or one member that is global or of reach `project`. At most MAX_GROUPS are kept."""
-    if not isinstance(raw, list):
-        return [], ["the answer is not a list of groups"]
+    """`raw` is the model's whole answer, {"groups": [...]}; anything else keeps nothing and gives one reason.
+    The groups that hold and, for each one dropped, a reason. Dropped: not an object of the shape
+    {"ids": [str], "claim": str, "context": str (optional)}, an unknown id, an id repeated inside the group, an id
+    of an earlier group, an empty claim, or one member that is global or of reach `project`. At most MAX_GROUPS
+    are kept."""
+    items = raw.get("groups") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        return [], ["the answer is not an object with a list `groups`"]
+    raw = items
     by_id = {x.id: x for x in lessons}
     kept: list[Group] = []
     reasons: list[str] = []
@@ -116,10 +128,11 @@ def validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group]
                 or not (context is None or isinstance(context, str)):
             why = "not an object with ids, claim and context"
         else:
-            ids = list(dict.fromkeys(ids))
             unknown = [x for x in ids if x not in by_id]
             if unknown:
                 why = f"unknown id {unknown[0]}"
+            elif len(set(ids)) != len(ids):
+                why = "names an id more than once"
             elif any(x in used for x in ids):
                 why = "shares an id with an earlier group"
             elif not _line(claim):
@@ -136,14 +149,70 @@ def validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group]
     return kept, reasons
 
 
+def verification_lines(groups: Sequence[Group], lessons: Mapping[str, Lesson]) -> list[str]:
+    """For each group a block for the verifying session: `group <n>`, one `<id>\\t<claim>\\t<context>` line per
+    member, then `proposed\\t<claim>\\t<context>`. `<n>` counts from 1."""
+    out: list[str] = []
+    for n, g in enumerate(groups, start=1):
+        out.append(f"group {n}")
+        for i in g.ids:
+            m = lessons[i].memory
+            out.append(f"{i}\t{_line(m.claim)}\t{_line(m.context)}")
+        out.append(f"proposed\t{_line(g.claim)}\t{_line(g.context)}")
+    return out
+
+
+_ANSWERS = ("same", "faithful", "general")
+
+
+def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group], list[str]]:
+    """`raw` is {"verdicts": [{"group": n, "reason": str, "same": bool, "faithful": bool, "general": bool}]}.
+    A group is kept only with exactly one verdict naming it, a non-empty reason and all three answers exactly
+    `true` (a group of one needs no `same`). Every group not kept gives a reason line; a malformed answer keeps
+    nothing. Never raises."""
+    items = raw.get("verdicts") if isinstance(raw, dict) else None
+    if not isinstance(items, list):
+        return [], ["the answer is not an object with a list `verdicts`"]
+    by_group: dict[int, list[dict]] = {}
+    reasons: list[str] = []
+    for item in items:
+        n = item.get("group") if isinstance(item, dict) else None
+        if isinstance(n, bool) or not isinstance(n, int):
+            reasons.append("a verdict does not name a group by its number")
+        elif not 1 <= n <= len(groups):
+            reasons.append(f"a verdict names group {n}, which does not exist")
+        else:
+            by_group.setdefault(n, []).append(item)
+    kept: list[Group] = []
+    for n, g in enumerate(groups, start=1):
+        found = by_group.get(n, [])
+        if len(found) != 1:
+            reasons.append(f"group {n}: {'no verdict' if not found else 'more than one verdict'}")
+            continue
+        v = found[0]
+        failed = []
+        if not (isinstance(v.get("reason"), str) and v["reason"].strip()):
+            failed.append("reason is empty or missing")
+        for key in _ANSWERS:
+            answer = v.get(key, True if key == "same" and len(g.ids) == 1 else None)
+            if answer is not True:
+                failed.append(f"{key} is not true")
+        if failed:
+            reasons.append(f"group {n}: " + "; ".join(failed))
+        else:
+            kept.append(g)
+    return kept, reasons
+
+
 @dataclass(frozen=True)
 class Action:
     """What the pass does for one group; `kind` decides which fields are used.
 
     merge: `keep`, `drop` (lesson ids, one project), `project`.
     merge_global: `keep`, `drop` (lesson ids of two global records).
-    write_global: `claim`, `context`, `record_kind`, `weight`, `entries` (sighting entries, each with the key
-        of its project), `members` (ids of the project records that stand for it, after merges).
+    write_global: `claim`, `context`, `record_kind`, `weight`, `entries` (sighting entries, each session once with
+        the key of the first project that holds it), `members` (ids of the kept project records that stand for it,
+        after merges).
     sighting: `target` (a global handle; None when the target is this group's write_global), `entry`.
     link: `member` (lesson id), `project`, `target` (as for sighting)."""
     kind: str
@@ -189,16 +258,19 @@ def actions(group: Group, lessons: Mapping[str, Lesson], global_records: Sequenc
     for other in sorted((x for x in globals_ if x is not gkeep), key=lambda x: x.id):
         out.append(Action("merge_global", keep=gkeep.id, drop=other.id))
 
-    general = sorted((lessons[k] for k, group_of in stands.items() if any(_reach(y) == "general" for y in group_of)),
-                     key=lambda x: x.id)
+    sess_of = {k: list(dict.fromkeys(s for y in group_of for s in records.sessions(y.memory)))
+               for k, group_of in stands.items()}
+    # a member with no session holds no evidence: it is neither written, sighted nor linked
+    general = sorted((lessons[k] for k, group_of in stands.items()
+                      if sess_of[k] and any(_reach(y) == "general" for y in group_of)), key=lambda x: x.id)
     if not general:
         return out
-    entries_of: dict[str, list[str]] = {}
+    first: dict[str, str] = {}  # session -> entry of the first member, in order, that holds it
     for x in general:
         key = records.project_key(x.project)
-        sess = list(dict.fromkeys(s for y in stands[x.id] for s in records.sessions(y.memory)))
-        entries_of[x.id] = [records.sighting_entry(s, key) for s in sess]
-    entries = list(dict.fromkeys(e for x in general for e in entries_of[x.id]))
+        for s in sess_of[x.id]:
+            first.setdefault(s, records.sighting_entry(s, key))
+    entries = list(first.values())
 
     target: records.Memory | None = gkeep.memory if gkeep else None
     if target is None:
