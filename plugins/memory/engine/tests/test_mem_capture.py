@@ -589,3 +589,13 @@ def test_one_odd_candidate_does_not_stop_the_run(world):
     assert done.returncode == 0, done.stderr
     assert [x["outcome"] for x in written(world)] == ["remembered", "remembered", "remembered"]
     assert len(files(world)) == 3
+
+
+def test_run_forward_reports_more(world):
+    transcript(world.transcript, [f"{i} " + "x" * 1900 for i in range(100)] + [OWNER])
+    total = len(world.transcript.read_text().splitlines())
+    assert run(world, "--forward").returncode == 0
+    r = result(world)
+    assert r["lines"][1] < total and r["extract"]["more"] is True
+    assert run(world).returncode == 0
+    assert result(world)["extract"]["more"] is False

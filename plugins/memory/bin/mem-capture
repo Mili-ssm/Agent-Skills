@@ -8,7 +8,7 @@ in a local JSON file. It writes nothing to the memory store and no hook runs it:
 With `--write`, code (never the model) then applies each kept candidate to the PROJECT's memory through `bin/mem`, so
 every check that command makes at writing applies unchanged; nothing else runs it.
 
-Usage: mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--model NAME] [--budget USD]
+Usage: mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--forward] [--model NAME] [--budget USD]
                        [--claude PATH] [--no-rules] [--keep-work] [--write]
 """
 from __future__ import annotations
@@ -270,7 +270,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     budget = args.budget
     since = max(args.since_line, 0)
     out = {"transcript": transcript.name, "lines": [since + 1, since], "model": model, "cost": None,
-           "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "lines": capture.counts(""),
+           "extract": {"chars": 0, "cut": False, "parts": 0, "skipped": 0, "more": False, "lines": capture.counts(""),
                        "rules_chars": 0, "rules_cut": False},
            "candidates": [], "dropped": [], "reason": None, "project": project.name}
 
@@ -305,10 +305,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     if not transcript.is_file():
         out["reason"] = f"no transcript at {transcript.name}"
         return finish(1)
-    text, last = capture.extract(transcript, since)
+    text, last = capture.extract(transcript, since, args.forward)
     out["lines"] = [since + 1, last]
     out["extract"] = {"chars": len(text), "cut": text.startswith(capture.LEFT_OUT_MARKER),
-                      "parts": len(capture.parts(text)) if text else 0, "skipped": capture.last_skipped, "lines": capture.counts(text),
+                      "parts": len(capture.parts(text)) if text else 0, "skipped": capture.last_skipped, "more": capture.last_more, "lines": capture.counts(text),
                       "rules_chars": 0, "rules_cut": False}
     if out["extract"]["lines"]["OWNER"] < MIN_OWNER_LINES:
         out["reason"] = "too short"
@@ -366,6 +366,7 @@ def main() -> int:
     parser.add_argument("--project", default=None, help="project folder whose memories are the claims already recorded "
                                                        "(default: the current directory)")
     parser.add_argument("--since-line", type=int, default=0, help="read the transcript after this line")
+    parser.add_argument("--forward", action="store_true", help="read a window from --since-line forward, not the newest lines")
     parser.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")
     parser.add_argument("--budget", type=budget_arg, default=DEFAULT_BUDGET, help=f"USD for the session (default {DEFAULT_BUDGET})")
     parser.add_argument("--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude"))

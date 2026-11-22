@@ -258,3 +258,39 @@ def test_what_worked_is_a_signal_too():
     paid_off = {**GOOD, "signal": "effective_practice", "evidence": "the narrow briefs all returned complete reports on the first try"}
     assert capture.validate([paid_off], ex, [])[0] != []
     assert capture.SIGNALS[-2:] == ("owner_approval", "effective_practice")
+
+
+def long_session(tmp_path, n=200, size=1000):
+    return write(tmp_path, [user(f"{i:03d} " + "w" * (size - 4)) for i in range(1, n + 1)])
+
+def test_forward_stops_when_full(tmp_path):
+    p = long_session(tmp_path)
+    out, last = capture.extract(p, 0, forward=True)
+    assert len(out) <= capture.EXTRACT_LIMIT and out.startswith("[1] OWNER:")
+    assert 0 < last < 200 and capture.last_more is True and capture.LEFT_OUT_MARKER not in out
+
+def test_forward_windows_cover_every_line_once(tmp_path):
+    p = long_session(tmp_path)
+    seen, last = [], 0
+    while True:
+        out, last = capture.extract(p, last, forward=True)
+        seen += [int(l[1:l.index("]")]) for l in out.splitlines()]
+        if not capture.last_more:
+            break
+    assert seen == list(range(1, 201))
+
+def test_forward_short_transcript(tmp_path):
+    p = write(tmp_path, [user(f"line {i}") for i in range(5)])
+    out, last = capture.extract(p, 0, forward=True)
+    assert last == 5 and capture.last_more is False and out == capture.extract(p, 0)[0]
+
+def test_forward_keeps_an_oversized_first_line(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture, "EXTRACT_LIMIT", 300)
+    p = write(tmp_path, [user("x" * 2000), user("second")])
+    out, last = capture.extract(p, 0, forward=True)
+    assert out and last == 1 and capture.last_more is True
+
+def test_default_mode_unchanged(tmp_path):
+    p = long_session(tmp_path)
+    out, last = capture.extract(p, 0)
+    assert out.startswith(capture.LEFT_OUT_MARKER) and last == 200 and capture.last_more is False
