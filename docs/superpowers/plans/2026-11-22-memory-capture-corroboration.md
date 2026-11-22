@@ -90,7 +90,7 @@ Kill criteria, also for ADR 0023: a global transcript record in quarantine with 
   - `add_sighting(memory, session, today, note=None)`: accepts a sighting entry with a project; a session already counted without a project gains the project (returns True); uses `standing_changes`.
 - Produces, in `mem`: `mem confirm <h> --by-owner` sets `owner_confirmed` to today and applies `standing_changes` (works with `--global`; exit 3 when already set). `_merge_pair` uses `normalized_sources` and `standing_changes` for the kept record. `cmd_remember` applies `standing_changes` to a record it writes, so a global record written with two projects is released and awaits triage at once. `_add_sightings` and the `seen` check of `cmd_confirm` pass whole sighting entries to `add_sighting` and compare by session and project: `--source "session s project <key>"` on a record that holds `session s` adds the project and exits 0; the same entry again exits 3 (pre-mortem 1: both dropped the project).
 
-- [ ] **Step 1: Write the failing tests** in `test_sightings.py`, with invented records built through `records.write_memory` in `tmp_path`:
+- [x] **Step 1: Write the failing tests** in `test_sightings.py`, with invented records built through `records.write_memory` in `tmp_path`:
 
 ```python
 def test_old_entry_still_counts(tmp_path):            # Review Focus 1
@@ -127,10 +127,10 @@ def test_add_sighting_adds_the_project_to_a_counted_session(tmp_path): ...
 
   and in `test_confirm_owner.py`, through the `mem` command as `test_remember.py` runs it: `--by-owner` on a quarantined global record sets `owner_confirmed`, `released`, `triage: pending` and removes `valid_until`; a second call exits 3; the record gets no `triage`. Also through the command: `mem confirm --global --source "session s project <key>"` on a record holding `session s` adds the key (exit 0) and a repeat exits 3; `mem remember --global --origin transcript` with an identical claim and a keyed source adds the keyed entry to the existing record; `mem remember --global --origin transcript --weight light` with two keyed sources of two projects writes a record with `released` and `triage: pending`.
 
-- [ ] **Step 2: Run them and see them fail.** Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_sightings.py plugins/memory/engine/tests/test_confirm_owner.py -q`. Expected: failures on the missing names.
-- [ ] **Step 3: Implement** the interfaces above. `write_memory` computes `valid_until` for a transcript record from the new `standing`.
-- [ ] **Step 4: Run the whole suite.** Expected: all pass; a test of an earlier stage that asserted a global transcript record is established by sessions alone is changed to the rule of C31, and the report names each such test.
-- [ ] **Step 5: Commit** `feat(memory): sightings name their project and a global lesson needs two projects`.
+- [x] **Step 2: Run them and see them fail.** Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_sightings.py plugins/memory/engine/tests/test_confirm_owner.py -q`. Expected: failures on the missing names.
+- [x] **Step 3: Implement** the interfaces above. `write_memory` computes `valid_until` for a transcript record from the new `standing`.
+- [x] **Step 4: Run the whole suite.** Expected: all pass; a test of an earlier stage that asserted a global transcript record is established by sessions alone is changed to the rule of C31, and the report names each such test.
+- [x] **Step 5: Commit** `feat(memory): sightings name their project and a global lesson needs two projects`.
 
 ### Task 2: Quarantine on the reading side
 
@@ -142,7 +142,7 @@ def test_add_sighting_adds_the_project_to_a_counted_session(tmp_path): ...
 - Consumes: `records.quarantined` (Task 1).
 - Produces: `_readable(memories: Sequence[records.Memory], today) -> list[records.Memory]` in `mem.py`: live and not quarantined; every place that shows memories to a reader uses it. `mem memories --global --quarantine` lists only the records in quarantine, each line tagged `quarantine`. Settling leaves quarantine alone: `cmd_remember` does not start `mem-settle` for a record it wrote into quarantine, and `settle.pending` offers no pair that holds a quarantined record (pre-mortem 9).
 
-- [ ] **Step 1: Write the failing tests**, each on a global folder holding one established record and one quarantined record with distinct invented claims:
+- [x] **Step 1: Write the failing tests**, each on a global folder holding one established record and one quarantined record with distinct invented claims:
 
 ```python
 def test_search_does_not_show_a_quarantined_record(...)       # its claim's words as the query: absent; the established one: present
@@ -155,10 +155,10 @@ def test_project_scope_is_unchanged(...)                      # an unconfirmed p
 def test_settle_leaves_quarantine_alone(...)                  # no pair with a quarantined record; a quarantined write starts no settle run
 ```
 
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement** `_readable` and use it at the reading call sites; leave the identical-claim check, handle resolution, `mem curate` and `mem-capture`'s list on the unfiltered load.
-- [ ] **Step 4: Run the whole suite.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(memory): a general lesson in quarantine is not shown to a reader`.
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement** `_readable` and use it at the reading call sites; leave the identical-claim check, handle resolution, `mem curate` and `mem-capture`'s list on the unfiltered load.
+- [x] **Step 4: Run the whole suite.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(memory): a general lesson in quarantine is not shown to a reader`.
 
 ### Task 3: A capture can add a sighting to a global record
 
@@ -170,11 +170,11 @@ def test_settle_leaves_quarantine_alone(...)                  # no pair with a q
 - Consumes: `records.project_key`, `records.sighting_entry` (Task 1).
 - Produces: `recorded_lines` returns global records of origin `transcript` (live, or unconfirmed and lapsed for at most `LAPSED_DAYS`, quarantined ones included) as `g:<handle>\t<claim>` with their handles in the returned mapping; other global records stay `(general)\t<claim>`. `apply_one` with `same_as` starting `g:` runs `mem confirm m:<handle> --global --source="session <id> project <key>" --note="Seen again (<signal>)."`, `<key>` from `env["MEM_PROJECT"]`; the note never holds the evidence quote, because text of a transcript must not reach the global scope (pre-mortem 3). In a project under a temporary root (`records.under_temp(path) -> bool`: the resolved `tempfile.gettempdir()`, `/tmp`, `/var/tmp`; false when `MEM_COUNT_TEMP_PROJECTS` is `1`) the candidate is `skipped` with "a temporary project" (pre-mortem 6); outcome `sighting`, or `skipped` with "this session already counted" on exit 3 and "not a global memory any more" when the handle is gone.
 
-- [ ] **Step 1: Write the failing tests**: the list holds a `g:` line for a quarantined global transcript record and a `(general)` line for a global record of no origin; a candidate with `same_as: "g:<handle>"` and enough shared terms is kept by `validate`; `apply_one` adds the entry with the project key and a second call with the same session is skipped; the evidence text is not in the global record's file; in a project under a temporary root nothing is added; a `same_as: "m:<handle>"` still only reaches a memory of the project.
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(memory): a capture adds a sighting to a general lesson it recognizes`.
+- [x] **Step 1: Write the failing tests**: the list holds a `g:` line for a quarantined global transcript record and a `(general)` line for a global record of no origin; a candidate with `same_as: "g:<handle>"` and enough shared terms is kept by `validate`; `apply_one` adds the entry with the project key and a second call with the same session is skipped; the evidence text is not in the global record's file; in a project under a temporary root nothing is added; a `same_as: "m:<handle>"` still only reaches a memory of the project.
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(memory): a capture adds a sighting to a general lesson it recognizes`.
 
 ### Task 4: `corroborate.py`, what the pass reads and decides
 
@@ -197,11 +197,11 @@ def test_settle_leaves_quarantine_alone(...)                  # no pair with a q
   - `validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group], list[str]]`: `raw` is `{"verdicts": [{"group": <n>, "reason": "...", "same": bool, "faithful": bool, "general": bool}]}`. A group is kept only with exactly one verdict for it (a verdict whose `group` is not the number of an existing group keeps nothing at all), a non-empty reason, and `same`, `faithful` and `general` all exactly `true`; a group of one needs no `same` (it is read as true). Each group not kept gives a reason line naming `<n>` and which answer failed; a missing or malformed answer keeps nothing (C39).
   - `Action(kind: str, ...)` with kinds `merge`, `merge_global`, `write_global`, `sighting`, `link`, and `actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]`, in this order: (1) `merge` for each project that has two or more members: the oldest keeps, each other is dropped into it, either reach; (2) `merge_global` when two or more global members: the oldest keeps; (3) for the members of reach `general` left after the merges: the target is the group's global member, else a `write_global` (kind of the oldest member, the heaviest weight among the members, the group's claim and context, one sighting entry per session of each member with that member's project key); then one `sighting` per entry the target lacks and one `link` per project member. Members of reach `project` from different projects produce no action. A global record that merely shares a session with a member is never a target, because one session carries several lessons (review of Task 4, round 2); a pass that stopped half way may therefore write a second global record, and a later pass joins the two as global members, through the verification. A member with no session produces no action and is not linked; the entries of one `write_global` hold each session once.
 
-- [ ] **Step 1: Write the failing tests** (invented records in `tmp_path`, `MEM_COUNT_TEMP_PROJECTS=1` except where the temporary root is the point): `counted_projects` leaves out a missing folder, a folder with no memory folder and one under a temporary root; `collect` leaves out a linked record, a `promote: no` record, a record of another origin and a superseded one; `fingerprint` changes when a source is added and not when the order of lessons changes; `validate_groups` drops each bad shape of Review Focus 2 and keeps the good group beside it; `actions` for: two general records of two projects (one `write_global` with two entries carrying two keys, two `link`), one general record alone (one `write_global`, one `link`), a general record with a global member (`sighting`, `link`, no `write_global`), a general record whose session a global record of another lesson holds (still a `write_global`), two records of one project (one `merge`, oldest kept), two global members (`merge_global`), two records of reach `project` from two projects (no action).
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(memory): corroborate.py decides what the matching pass reads and does`.
+- [x] **Step 1: Write the failing tests** (invented records in `tmp_path`, `MEM_COUNT_TEMP_PROJECTS=1` except where the temporary root is the point): `counted_projects` leaves out a missing folder, a folder with no memory folder and one under a temporary root; `collect` leaves out a linked record, a `promote: no` record, a record of another origin and a superseded one; `fingerprint` changes when a source is added and not when the order of lessons changes; `validate_groups` drops each bad shape of Review Focus 2 and keeps the good group beside it; `actions` for: two general records of two projects (one `write_global` with two entries carrying two keys, two `link`), one general record alone (one `write_global`, one `link`), a general record with a global member (`sighting`, `link`, no `write_global`), a general record whose session a global record of another lesson holds (still a `write_global`), two records of one project (one `merge`, oldest kept), two global members (`merge_global`), two records of reach `project` from two projects (no action).
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(memory): corroborate.py decides what the matching pass reads and does`.
 
 ### Task 5: `mem-corroborate`, the command
 
@@ -269,7 +269,7 @@ Write {out} as JSON: {{"verdicts": [{{"group": 1, "reason": "...", "same": true,
 One entry per group, in order. Write nothing else and use no other tool.
 ```
 
-- [ ] **Step 1: Write the failing tests**, with the fake `claude` that `test_mem_capture.py` and `test_capture_auto.py` use (it writes a given file as the model's output), `MEM_DATA`, `MEM_MEMORIES` and a registry in `tmp_path`, `MEM_COUNT_TEMP_PROJECTS=1`:
+- [x] **Step 1: Write the failing tests**, with the fake `claude` that `test_mem_capture.py` and `test_capture_auto.py` use (it writes a given file as the model's output), `MEM_DATA`, `MEM_MEMORIES` and a registry in `tmp_path`, `MEM_COUNT_TEMP_PROJECTS=1`:
 
 ```python
 def test_two_projects_make_one_established_global_record(...)   # light lesson in two projects: one global record, two entries with two keys,
@@ -296,10 +296,10 @@ def test_model_failure_leaves_a_failure_line_until_ack(...)
 def test_no_project_name_or_path_in_log_and_lessons_file(...)
 ```
 
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(memory): mem-corroborate matches lessons by meaning and keeps one general record`.
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(memory): mem-corroborate matches lessons by meaning and keeps one general record`.
 
 ### Task 6: Triage
 
@@ -315,11 +315,11 @@ def test_no_project_name_or_path_in_log_and_lessons_file(...)
   - The session start text gains `Triage: <n> general lessons await triage (mem curate --global).` when `n > 0`, and the failure line of a failed pass until `mem-corroborate ack`.
   - `memory-curator.md` and the skill say, as they do for `mem confirm`: the background curator does not run `mem triage`; a main session may accept or reject, and turning a lesson into a rule needs the owner.
 
-- [ ] **Step 1: Write the failing tests**: the category and the quarantine count in `mem curate --global`; accept clears the field and the session start line disappears; reject retires the record and marks a linked project record in a second project folder; reject of a record with no `triage` exits 2; the session start text shows the count and the pass's failure line.
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(memory): triage of a general lesson in mem curate and at session start`.
+- [x] **Step 1: Write the failing tests**: the category and the quarantine count in `mem curate --global`; accept clears the field and the session start line disappears; reject retires the record and marks a linked project record in a second project folder; reject of a record with no `triage` exits 2; the session start text shows the count and the pass's failure line.
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(memory): triage of a general lesson in mem curate and at session start`.
 
 ### Task 7: Start after a capture, and the sweep of a session left open
 
@@ -335,25 +335,53 @@ def test_no_project_name_or_path_in_log_and_lessons_file(...)
   - `mem-capture sweep [--claude PATH] < hook.json`: reads `transcript_path` and `cwd`; among the `*.jsonl` files directly in that transcript's folder, never the transcript itself, takes those changed between 7 days and 6 hours ago, with more lines than their saved offset and a size different from `swept_size`, newest first, at most 2; runs `auto_run("sweep", file, <that file's cwd>, claude)` for each and saves `swept_size`; the cwd is the first `cwd` value found in the file's own lines, and a file with none is left out. Same option gate, lock, windows and offsets as `auto`; always exits 0 and prints nothing.
   - `session-index.sh` reads standard input once (bounded as `session-end.sh` does), gives it to `mem session-index --hook`, and, with the option exactly `true`, first starts `mem-capture sweep` detached with the same input.
 
-- [ ] **Step 1: Write the failing tests**: a run that wrote a record starts the pass (a fake `mem-corroborate` on a path given by a test variable records that it was started) and a run that wrote nothing, or failed, does not; the sweep takes an idle file with unread lines, and leaves out the starting session's file, a file changed 1 hour ago, a file 8 days old, a file fully read, a file whose size equals `swept_size`, a third candidate, a file with no `cwd`, a fifth session on one day, and a file in another folder (Review Focus 6); the hook prints the same session start text as before with the option off and on, exits 0 when `mem-capture` is missing, and starts nothing with the option off.
-- [ ] **Step 2: Run and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite.** Expected: all pass.
-- [ ] **Step 5: Commit** `feat(memory): corroboration starts after a capture; a session left open is swept at the next start`.
+- [x] **Step 1: Write the failing tests**: a run that wrote a record starts the pass (a fake `mem-corroborate` on a path given by a test variable records that it was started) and a run that wrote nothing, or failed, does not; the sweep takes an idle file with unread lines, and leaves out the starting session's file, a file changed 1 hour ago, a file 8 days old, a file fully read, a file whose size equals `swept_size`, a third candidate, a file with no `cwd`, a fifth session on one day, and a file in another folder (Review Focus 6); the hook prints the same session start text as before with the option off and on, exits 0 when `mem-capture` is missing, and starts nothing with the option off.
+- [x] **Step 2: Run and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite.** Expected: all pass.
+- [x] **Step 5: Commit** `feat(memory): corroboration starts after a capture; a session left open is swept at the next start`.
 
 ### Task 8: The gate with the real model, and the records (controller)
 
 Not dispatched: the controller runs it.
 
-- [ ] Copy the three real projects' memory folders and the global memories into a private folder under the data folder (not the repository, not the temporary folder), with its own `MEM_DATA`, `MEM_MEMORIES` and registry.
-- [ ] `mem-corroborate run --dry-run --out <file>` on the copy, then `run`. Read the log line and the groups.
-- [ ] Measures for the gate and for ADR 0023 (C39): run the pass twice on the copy with `--dry-run` and record how many applied groups the two runs share (agreement of the pass with itself); record how many proposed groups the verification refused; after the owner's review, record how many applied groups the owner accepts (agreement with the owner) and whether any refused group was in fact right.
-- [ ] Gate (spec, B3, as Known limits restate it): the two transcript wordings of the turn-limit lesson end as one global record, and the owner judges no accepted group to hold two different lessons. Show the owner every group, five per batch, with a yes or no key. If the gate fails, change the brief once and run again; a second failure stops the stage.
-- [ ] Migration, whatever the gate's result, and before any release carries Tasks 1 and 2: confirm the 15 recovered global lessons with the working-tree `bin/mem confirm --global --by-owner` on the real store (the owner reviewed them on 2026-11-21 and agreed to this on 2026-11-22), then check that no global transcript record is in quarantine with no end date.
+- [x] Copy the three real projects' memory folders and the global memories into a private folder under the data folder (not the repository, not the temporary folder), with its own `MEM_DATA`, `MEM_MEMORIES` and registry.
+- [x] `mem-corroborate run --dry-run --out <file>` on the copy, seven times. The run that writes was left out: `--dry-run` shows the same plan and the copy stays reusable.
+- [x] Measures for the gate and for ADR 0023 (C39): run the pass twice on the copy with `--dry-run` and record how many applied groups the two runs share (agreement of the pass with itself); record how many proposed groups the verification refused; after the owner's review, record how many applied groups the owner accepts (agreement with the owner) and whether any refused group was in fact right.
+- [x] Gate (spec, B3, as Known limits restate it): the two transcript wordings of the turn-limit lesson end as one global record, and the owner judges no accepted group to hold two different lessons. Show the owner every group, five per batch, with a yes or no key. If the gate fails, change the brief once and run again; a second failure stops the stage.
+- [x] Migration, whatever the gate's result, and before any release carries Tasks 1 and 2: confirm the 15 recovered global lessons with the working-tree `bin/mem confirm --global --by-owner` on the real store (the owner reviewed them on 2026-11-21 and agreed to this on 2026-11-22), then check that no global transcript record is in quarantine with no end date.
 - [ ] The first pass on the real store: `run --groups <the file the owner reviewed>`, not a new model session.
-- [ ] Records: `plugins/memory/README.md` (the pass, quarantine, triage, the sweep; implemented apart from planned), `plugins/memory/CHANGELOG.md`, ADR 0023 `## Review 2026-11-22 (stage B3)` with the gate's figures and kill criteria, the state tables of [the stage plan](2026-11-17-memory-plugin.md) and of the spec's Phases, and `## Results` below.
+- [x] Records: `plugins/memory/README.md` (the pass, quarantine, triage, the sweep; implemented apart from planned), `plugins/memory/CHANGELOG.md`, ADR 0023 `### Stage B3` with the gate's figures and kill criteria, the state tables of [the stage plan](2026-11-17-memory-plugin.md) and of the spec's Phases, and the Results section below.
 - [ ] `python3 scripts/validate.py`, `claude plugin validate .`, the whole suite; then the narrow final reviews of the plan loop.
 
 ## Results
 
-Filled when the stage ends.
+Built on 2026-11-22 on `feat/memory-capture-corroboration`; not merged, not released. Tasks 1 to 7 each had their task commit, a review, a fix round and a second review; the findings deferred are below.
+
+| Task | State |
+|---|---|
+| 1 Sightings with a project, global standing, new fields | Done |
+| 2 Quarantine on the reading side | Done |
+| 3 A capture adds a sighting to a global record | Done |
+| 4 `corroborate.py` | Done; C39 (propose, then verify) added after research the owner asked for |
+| 5 `mem-corroborate` | Done |
+| 6 Triage | Done |
+| 7 Start after a capture, and the sweep | Done |
+| 8 Gate, migration, records | Gate passed; migration done on the real store; the first pass on the real store waits for the release |
+
+Gate figures and kill criteria: ADR 0023, "Stage B3". The owner accepted 15 of 15 groups.
+
+Open, for the session that releases or continues:
+
+| Item | Why it waits |
+|---|---|
+| First pass on the real store | Only after the installed plugin knows quarantine: with 0.3.0 a new global record would be read at once. The reviewed groups are in the private gate folder (`dry7.json`); its `p1` ids are positions in that copy's registry, so check them against the real registry before `run --groups`, or let the pass propose again |
+| The older global record of the turn-limit lesson, written by hand | Outside C29; merge it by hand in `mem curate` |
+| A lapsed lesson in quarantine | It lapses 30 days after its last sighting (C31) and is then no longer offered to the capture after 60; a second project may take longer than that. Read the first weeks of `corroborate/log.jsonl` before changing the figure |
+| Project records linked to a global record that a later merge dropped | They keep pointing at the dropped handle |
+| Restoring a rejected global record | Does not link its project records again |
+| A mark blocks a group only when all its members keep it | A refused pair can come back inside a larger group; the verifying session judges it again |
+| Undoing an older pass | Also clears a newer pass's fingerprint and marks (one more proposal) |
+| A pass or a sweep killed by a signal | Leaves no log line; the status reads as failed after the stale limit |
+| Usefulness of a released lesson | Stage B4: the `released` date separates sightings before and after a lesson was readable; a counter of evidence against a lesson does not exist yet |
+| The `SessionEnd` hook's 1.5 s limit | In the stage plan's open items |

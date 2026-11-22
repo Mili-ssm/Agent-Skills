@@ -109,11 +109,36 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 | Where | Only a project that already has its memory folder: the project of the session's folder, or the one `MEM_PROJECT` names when that variable is set in the session's environment (it wins, as for every `mem` command) |
 | Per trigger | At most 3 windows (a window is one stretch of the transcript, up to 80,000 characters of extract, read by one model session); no further window once 5 new records are written; the rest is read at the next trigger |
 | Compaction | The run starts with the compaction (`PreCompact`) and waits 5 minutes before it reads, so the records the session writes itself land first |
-| Session end | The last part of a session is not read when the session ends without its `SessionEnd` hook (a killed terminal, for example), when another capture holds the lock for more than 15 minutes, or when the trigger stops at its window or record limit |
-| Rewording | A lesson reworded is recorded twice |
+| Session end | The last part of a session is not read at its end when the session ends without its `SessionEnd` hook (a killed terminal, a conversation left open in an editor tab), when another capture holds the lock for more than 15 minutes, or when the trigger stops at its window or record limit. The sweep below reads it later |
+| Sweep | A session start also reads sessions of the same transcript folder that were left idle: not changed for 6 hours, at most 7 days old, with unread lines; at most 2 per start and 4 per day use the model, and a file that did not change is skipped |
+| Rewording | A lesson reworded is recorded twice by the capture; the corroboration pass below merges the two |
 | Evidence | Not yet measured |
 
 **Where to look:** `<data folder>/capture/` holds `status.json`, `log.jsonl` (one line per trigger: the session's id, counts and a short reason; no claim text, no path) and `runs/` (the newest 20 runs, none older than 14 days; it holds session text, so keep it private). After a failed run the next session start text carries one line, `Automatic capture failed on <date>: <reason>; log: <path>`, until `mem-capture ack`.
+
+### Corroboration, quarantine and triage (with `auto_capture`; measured once, on a copy)
+
+**What it does:** after an automatic capture that wrote something, `bin/mem-corroborate` runs in the background. It shows a small model the lessons of every registered project and the global ones as lines with opaque ids, and applies only what two sessions agree on:
+
+| Step | Who | What |
+| --- | --- | --- |
+| Propose | Model session 1 | Groups of lessons that state one lesson, each with one wording that names no project |
+| Verify | Model session 2, which sees one group at a time | Same lesson? Faithful wording? A lesson about method that holds outside its project? |
+| Apply | Code, through `mem` | Duplicates inside a project are merged; a general lesson gets one global record; sightings are added to it; the project records are linked to it |
+
+| Rule | Value |
+| --- | --- |
+| Quarantine | A global record from a transcript is hidden from searches, the session start text and `mem memories` until it is corroborated. `mem memories --global --quarantine` lists it |
+| Corroborated | `light` and `medium`: seen in two projects. `strong`: three sessions across two projects. Or `mem confirm <h> --global --by-owner` |
+| Triage | A lesson that leaves quarantine is listed by `mem curate --global` and counted in the session start text until `mem triage accept <h>` or `mem triage reject <h>`; reword it with `mem memory edit <h> --global`. The background curator never runs `mem triage` |
+| Wording | A lesson is reworded once, when its global record is written; later evidence only adds sightings |
+| What counts as a project | A registered project whose folder exists, holds a memory folder and is not under a temporary folder; it is known by a hash of its path, so a moved folder or a second clone counts as another project |
+| Cost | Two model sessions per pass, each within `auto_capture_budget`; no pass when no lesson changed; after two passes that fail on the same lessons it stops until one changes |
+| Undo | `mem-corroborate undo <stamp>` restores every file a pass changed; it refuses when one was edited since |
+
+**Where to look:** `<data folder>/corroborate/` holds `status.json`, `log.jsonl` (counts only), `seen.json` and `runs/` (private: it holds lesson text). `mem-corroborate run --dry-run --out FILE` shows what a pass would do and writes nothing; `mem-corroborate status` and `ack` report and clear a failure.
+
+**Evidence and limits:** on a private copy of real records (36 lessons, 3 projects), 6 of 7 dry runs gave a usable answer (the seventh used line numbers as ids, was refused by code, and the brief was corrected; 3 of 3 after that); the 6 proposed the same 15 groups; a run applied 12 to 15 of them, every refusal for an unfaithful rewording; the owner accepted 15 of 15. Not measured: use over time, lessons of more than one project, and whether a released lesson stops a failure from recurring. Only records of origin `transcript` are read: a global memory written by hand is never merged or given sightings.
 
 ### Capture trial (`mem-capture run`; writes to the store only with `--write`)
 

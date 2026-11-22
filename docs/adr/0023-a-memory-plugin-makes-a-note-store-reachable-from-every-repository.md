@@ -98,3 +98,34 @@ Open after this stage: a lesson said again in other words is still recorded twic
 Stage B2 is built ([plan and results](../superpowers/plans/2026-11-22-memory-capture-background.md)): with the plugin option `auto_capture` on, the `PreCompact` and `SessionEnd` hooks start `mem-capture auto` detached; it reads the session's transcript forward from a saved offset in windows and writes through `run --write` (capture design, C22 to C27). The option is off by default and no released version carries it yet, so nothing runs in the owner's sessions. Four triggers on a private copy, the hooks run by hand with the real model: the hooks returned in under a second, each run ended by itself, the second trigger of a session read only its new lines, and a long session was read in full windows at 0.05 to 0.08 USD each (shorter windows about 0.03). Not exercised: a hook fired by the harness itself, and the default 300 s wait.
 
 Unmeasured: whether the records are worth keeping (16 new records from four triggers on two past sessions, none judged by the owner), and how many say again what the session recorded itself. Kill criteria once the option is on, read from `capture/log.jsonl` and the owner's marks after two weeks: more than 1 in 5 background records repeats or rewords one the session wrote itself; more than 5 new records per project per active day; a failure line naming an import or type error; a write in a project without a memory folder, or a capture process alive after 60 minutes (a run may wait 300 s, then up to 900 s for the lock, then read three windows of up to 600 s each). Any of them turns the option off until the cause is fixed.
+
+### Stage B3, the same day
+
+Stage B3 is built ([plan and results](../superpowers/plans/2026-11-22-memory-capture-corroboration.md); capture design, C28 to C39): a background pass, `mem-corroborate`, matches lessons by meaning and gives each general lesson one global record; that record is in quarantine, hidden from readers, until it is seen in two projects or the owner confirms it; a lesson that leaves quarantine waits for triage; a session left open is captured at a later session start. The owner chose the write-then-review order, the small-model matching and the quarantine.
+
+Research the owner asked for changed the method (C39). Our own audit of 2026-11-19 had a Haiku judge agree with itself on 6 of the verdicts it flagged in two passes, so one session does not decide a merge: a first session proposes and a second verifies each group. The systems read ([Mem0](https://arxiv.org/html/2504.19413v1), [A-MEM](https://arxiv.org/html/2502.12110), [LangMem](https://langchain-ai.github.io/langmem/reference/memory/), [Zep](https://arxiv.org/html/2501.13956), [ACE](https://arxiv.org/html/2510.04618v3)) let a model decide after a cheap recall of candidates and publish no precision of that decision. Memory rewritten at each consolidation loses content (ACE's "context collapse"; [arXiv 2605.12978](https://arxiv.org/abs/2605.12978)), so a record is reworded once. Adding every experience hurts and a write gate helps ([arXiv 2505.16067](https://arxiv.org/html/2505.16067v2), authors' figures). No system read holds a new lesson back until it is corroborated ([ExpeL](https://arxiv.org/html/2308.10144) starts a counter at once), so the quarantine has no published baseline. The reports came from a small-model researcher; several figures are the authors' own and some papers were read as abstracts.
+
+Gate, on a private copy of the real records (36 lessons of origin `transcript`: 15 global, 21 of one project; 3 projects registered):
+
+| Measure | Result |
+|---|---|
+| Dry runs with a usable answer | 6 of 7. One run used the reading tool's line numbers as ids; code refused all 15 groups and planned nothing. The proposal brief gained one sentence; 3 of 3 after it |
+| Groups proposed | The same 15 in each of the 6 runs: 13 of one lesson, 2 pairs |
+| The two transcript wordings of the turn-limit lesson | Joined in all 6 |
+| Groups applied per run | 12, 12, 14, 14, 14, 15; over the last four runs 12 were applied every time |
+| Refusals by the verifying session | All for an unfaithful rewording, a different group each run; none for "not the same" or "not general" |
+| The owner's judgment of the 15 | 15 accepted; a rewording softer than the original is intended, and strength is added at triage after more confirmations |
+
+The dry runs showed two defects no test had: a group that keeps a global record's wording was refused for a rewording that is never used, and one bad rewording kept a lesson from being proposed again. Both are fixed and tested.
+
+Limits: one project holds all the project lessons, so matching across projects was exercised only between that project and the global records; the 15 groups were shown by the agent that built the pass; the pass has not run on the real store. The 15 global lessons recovered from the trial were confirmed with `--by-owner` on the real store, as the owner agreed, so the new rule does not hide them.
+
+The texts given to models changed without an eval suite (N6): the proposal and verification briefs of the pass (new), three sentences of the capture brief (lines starting `g:`), one sentence each in the `memory-curation` skill and the `memory-curator` agent. Kill criteria, read from `corroborate/log.jsonl`, `capture/log.jsonl` and the owner's triage after two weeks of use:
+
+- The owner rejects more than 1 in 5 lessons at triage, or judges one applied group to hold two lessons: stop the pass and reread the briefs.
+- More than 1 pass in 5 ends with every group dropped, or the same lessons are written or refused in two passes in a row.
+- A global record's body holds text of a transcript, or a project name or path appears in `log.jsonl` or in the session start text.
+- The pass and the sweep together cost more than 1 USD a day for a week.
+- After the release, a global record of origin `transcript` is in quarantine with no end date.
+- The capture sets `same_as` to a `g:` record for a lesson the owner judges only related: revert the capture brief's sentence.
+
