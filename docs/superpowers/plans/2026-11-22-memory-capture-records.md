@@ -209,7 +209,7 @@ The owner read the claims of two transcripts beside the first brief's claims and
 
 ### The first real write (2026-11-22, with the owner's word)
 
-Two sessions of this repository's project, one after the other, into its project memory (a copy of the memory folder was kept first).
+Two sessions of this repository's project, one after the other, into its project memory (a copy of the memory folder was kept first), run with the code and the brief of the commit that added the two positive signals.
 
 | Run | Kept | Written | Sightings | Skipped | Cost (USD) |
 |---|---|---|---|---|---|
