@@ -26,6 +26,7 @@ WEIGHTS = ("light", "medium", "strong")
 SIGHTINGS_NEEDED = {"light": 1, "medium": 2, "strong": 3}
 UNCONFIRMED_DAYS = 30
 SESSION_PREFIX = "session "
+OUTCOMES = ("worked", "failed", "seen")
 TRIAGES = ("pending",)
 PROJECT_KEY_LEN = 12
 SHORT_LIMIT = 120  # characters of the one-line form a lesson loads as at session start
@@ -70,6 +71,7 @@ class Memory:
     short_by: str | None = None  # "model": the short form was written by a model and the owner has not read it
     topic: str | None = None  # one or two lowercase words that group rules
     load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
+    log: list[str] = field(default_factory=list)  # valid case entries "<date> session <id> <outcome>", in file order
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -317,6 +319,8 @@ def _parse(path: Path, scope: str) -> Memory:
         short_by = "model" if meta.get("short_by") == "model" else None  # any other value reads as absent
         triage_reason = meta.get("triage_reason") if triage == "pending" and valid_triage_reason(meta.get("triage_reason")) else None
         topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
+        raw_log = meta.get("log")
+        log = [e for e in raw_log if isinstance(e, str) and case(e)] if isinstance(raw_log, list) else []  # a bad value reads as absent
         raw_load = meta.get("load")
         load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
         try:
@@ -328,7 +332,7 @@ def _parse(path: Path, scope: str) -> Memory:
         except ValueError:
             released = None
         return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage, triage_reason=triage_reason,
-                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, log=log, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -388,6 +392,8 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["topic"] = m.topic
     if m.load:
         meta["load"] = m.load
+    if m.log:
+        meta["log"] = list(m.log)
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -397,7 +403,10 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
                  context: str | None = None, valid_until: datetime.date | None = None,
                  sources: Sequence[str] = (), origin: str | None = None,
                  reach: str | None = None, weight: str | None = None,
-                 short: str | None = None, topic: str | None = None, short_by: str | None = None) -> Memory:
+                 short: str | None = None, topic: str | None = None, short_by: str | None = None,
+                 outcome: str | None = None, on: datetime.date | None = None) -> Memory:
+    if outcome is not None and outcome not in OUTCOMES:
+        raise ValueError(f"unknown outcome {outcome!r}")
     if short is not None and not valid_short(short):
         raise ValueError(f"the short form must be one line of at most {SHORT_LIMIT} characters")
     if topic is not None and not valid_topic(topic):
@@ -430,13 +439,15 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     elif kind == "state" and valid_until is None:
         valid_until = today + datetime.timedelta(days=30)
     folder.mkdir(parents=True, exist_ok=True)
+    log = [case_entry(on or today, key, outcome) for key in dict.fromkeys(filter(None, map(session_key, sources)))] \
+        if outcome else []
     base = slug_of(claim)
     handle, n = base, 1
     while True:
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
                    list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
-                   reach=reach, weight=weight, triage=triage, released=released, short=short, short_by=short_by if short else None, topic=topic)
+                   reach=reach, weight=weight, triage=triage, released=released, short=short, short_by=short_by if short else None, topic=topic, log=log)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))
@@ -611,22 +622,84 @@ def counted(memory: Memory, source: str) -> bool:
     return not found[1] or any(f and f[0] == found[0] and f[1] for f in map(sighting, memory.sources))
 
 
-def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None) -> tuple[Memory, bool]:
+class Case(NamedTuple):
+    on: datetime.date
+    session: str  # the normalized "session <id>"
+    outcome: str
+
+
+_CASE = re.compile(r"(\d{4}-\d{2}-\d{2}) (session \S.*) (" + "|".join(OUTCOMES) + ")")
+
+
+def case(entry: str) -> Case | None:
+    """The case of a log entry "<YYYY-MM-DD> session <id> <outcome>", else None."""
+    found = _CASE.fullmatch(entry) if isinstance(entry, str) else None
+    if not found:
+        return None
+    try:
+        on = datetime.date.fromisoformat(found.group(1))
+    except ValueError:
+        return None
+    if session_key(found.group(2)) != found.group(2):
+        return None
+    return Case(on, found.group(2), found.group(3))
+
+
+def case_entry(on: datetime.date, session: str, outcome: str) -> str:
+    return f"{on.isoformat()} {session} {outcome}"
+
+
+def cases(memory: Memory) -> list[Case]:
+    """The valid cases of the log by date; entries of one day keep their file order."""
+    return sorted((c for c in map(case, memory.log) if c), key=lambda c: c.on)
+
+
+def _log_with(memory: Memory, key: str, on: datetime.date, outcome: str) -> list[str] | None:
+    """The log after adding the case of session `key`, or None when it adds nothing: the session has an entry with
+    that outcome, or the outcome is `seen` and the session has any entry."""
+    mine = [c.outcome for c in cases(memory) if c.session == key]
+    if outcome in mine or (outcome == "seen" and mine):
+        return None
+    return [*memory.log, case_entry(on, key, outcome)]
+
+
+def add_case(memory: Memory, session: str, on: datetime.date, outcome: str, today: datetime.date) -> tuple[Memory, bool]:
+    """Add the case of `session` (any spelling of a session source) to the log; False and no write when it adds
+    nothing. Not a session or an unknown outcome: ValueError."""
+    key = session_key(session)
+    if key is None:
+        raise ValueError(f"{session!r} is not a session source: write it as 'session <id>'")
+    if outcome not in OUTCOMES:
+        raise ValueError(f"unknown outcome {outcome!r}")
+    log = _log_with(memory, key, on, outcome)
+    if log is None:
+        return memory, False
+    return update(memory, today, log=log), True
+
+
+def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None, *,
+                 outcome: str = "seen", on: datetime.date | None = None) -> tuple[Memory, bool]:
     """Record that another session shows the memory: `session` is a full source entry ("session <id>", with
     " project <key>" when known).
 
     Not a session entry: ValueError. Already counted (under any spelling, with its project when given): the memory
     unchanged and False, with no write. A session counted without a project that now comes with one gains the
     project (True, `observed` unchanged). Else the normalized entry is added, `observed` raised as `observe`
-    does and the note appended to the body; a transcript memory also gets `standing_changes`."""
+    does and the note appended to the body; a transcript memory also gets `standing_changes`.
+
+    The case (`outcome`, dated `on` or today) goes to the log in the same write, unless the log already holds it;
+    a counted session whose case is new still writes, and the flag stays False."""
     found = sighting(session)
     if found is None:
         raise ValueError(f"{session!r} is not a session source: write it as 'session <id>'")
+    if outcome not in OUTCOMES:
+        raise ValueError(f"unknown outcome {outcome!r}")
     key, project = found
-    changes: dict = {}
+    log = _log_with(memory, key, on or today, outcome)
+    changes: dict = {} if log is None else {"log": log}
     if key in sessions(memory):
         if counted(memory, session):
-            return memory, False
+            return (memory, False) if log is None else (update(memory, today, **changes), False)
         sources = [sighting_entry(key, project) if (f := sighting(s)) and f[0] == key else s for s in memory.sources]
         sources = normalized_sources(sources)
     else:
