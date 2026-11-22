@@ -65,7 +65,7 @@ The pre-mortem of 2026-11-22 found that the first draft would have loaded lesson
   - `mem show m:<h>` prints `short`, `topic` and `load: no` when set.
   - A global `--short` passes the same refusals as the claim (`_refuse_secret`, `_check_terms`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_remember_and_edit_store_short_and_topic(gfolder, capsys):
@@ -89,10 +89,10 @@ def test_a_global_short_with_a_secret_is_refused(gfolder, capsys): ...      # ex
 def test_show_prints_the_fields(gfolder, capsys): ...
 ```
 
-- [ ] **Step 2: Run them and see them fail** — `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_short_topic.py -q`.
-- [ ] **Step 3: Implement.** `_render` writes the keys after `weight`.
-- [ ] **Step 4: Run the file's tests, `test_memory_edit.py`, `test_core.py` and `test_quarantine.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): a short form, a topic and a load switch on a lesson record`
+- [x] **Step 2: Run them and see them fail** — `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_short_topic.py -q`.
+- [x] **Step 3: Implement.** `_render` writes the keys after `weight`.
+- [x] **Step 4: Run the file's tests, `test_memory_edit.py`, `test_core.py` and `test_quarantine.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): a short form, a topic and a load switch on a lesson record`
 
 ### Task 2: Choosing and building the rules
 
@@ -115,7 +115,7 @@ def test_show_prints_the_fields(gfolder, capsys): ...
   - `mem rules`: prints the block and the line exactly as session start will. With nothing loaded: `No rules loaded.`, and when `unready > 0` a second line `<N> established lessons have no short form: mem-corroborate fill --dry-run --out FILE proposes them.`
   - `mem rules --more [TOPIC]`: one line per left-out lesson, grouped by topic: handle, scope, reason, topic or `-`, and the claim cut at 160 characters; with TOPIC only that group (`other` gives the lessons with no topic); then the `unready` count.
 
-- [ ] **Step 1: Write the failing tests** — records written through `mem.main(["remember", ...])` with `--origin transcript --weight ... --source "session a project <key>"`, and `mem confirm ... --by-owner` where needed, as `test_quarantine.py` and `test_confirm_owner.py` do.
+- [x] **Step 1: Write the failing tests** — records written through `mem.main(["remember", ...])` with `--origin transcript --weight ... --source "session a project <key>"`, and `mem confirm ... --by-owner` where needed, as `test_quarantine.py` and `test_confirm_owner.py` do.
 
 ```python
 def test_what_loads_and_what_does_not(both_scopes): ...
@@ -141,10 +141,10 @@ def test_nothing_qualifies_gives_an_empty_block_and_no_line(): ...
 def test_mem_rules_and_more(project, gfolder, capsys): ...         # including the `No rules loaded.` texts
 ```
 
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement `rules.py` and `cmd_rules`.**
-- [ ] **Step 4: Run the file's tests and `test_core.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): choose and build the loaded rules; mem rules`
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement `rules.py` and `cmd_rules`.**
+- [x] **Step 4: Run the file's tests and `test_core.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): choose and build the loaded rules; mem rules`
 
 ### Task 3: The rules in the session start text
 
@@ -159,7 +159,7 @@ def test_mem_rules_and_more(project, gfolder, capsys): ...         # including t
   - `session_index` returns the text as today; the numbers for the log are exposed without changing its signature for existing callers (for example an optional `stats: dict | None = None` argument that it fills).
   - The hook log line gains `"rules": <number loaded>`, `"rules_left": <number left>`, `"rules_chars": <characters of block and line>`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_with_no_short_form_anywhere_the_text_is_byte_for_byte_what_it_was(project, gfolder, capsys): ...
@@ -177,10 +177,10 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
     ...; assert rules.HEADER in out and "(confirmed by the owner)" in out and "(held in 2 sessions)" in out
 ```
 
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the whole suite once, in the background**; expected: all pass, 5 skipped.
-- [ ] **Step 5: Commit** — `feat(memory): established lessons load as rules at session start`
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the whole suite once, in the background**; expected: all pass, 5 skipped.
+- [x] **Step 5: Commit** — `feat(memory): established lessons load as rules at session start`
 
 ### Task 4: Proposing short forms for the owner to read
 
