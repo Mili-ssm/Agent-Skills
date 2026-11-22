@@ -17,7 +17,13 @@ from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Protocol
 import yaml
 
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
-ORIGINS = ("web", "pipeline")
+ORIGINS = ("web", "pipeline", "transcript")
+REACHES = ("project", "general")
+WEIGHTS = ("light", "medium", "strong")
+# Distinct sessions that establish a transcript memory, by weight; a memory with no weight counts as medium.
+SIGHTINGS_NEEDED = {"light": 1, "medium": 2, "strong": 3}
+UNCONFIRMED_DAYS = 30
+SESSION_PREFIX = "session "
 STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
@@ -45,7 +51,9 @@ class Memory:
     promote: str | None = None
     refuted: datetime.date | None = None
     superseded_by: str | None = None
-    origin: str | None = None  # "web" or "pipeline"; None: written in a session
+    origin: str | None = None  # "web", "pipeline" or "transcript"; None: written in a session
+    reach: str | None = None  # "project" or "general": how far the lesson reaches
+    weight: str | None = None  # "light", "medium" or "strong": how much it weighs
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -258,7 +266,9 @@ def _parse(path: Path, scope: str) -> Memory:
         superseded_by = meta.get("superseded_by")
         superseded_by = str(superseded_by) if superseded_by else None
         origin = meta.get("origin") if meta.get("origin") in ORIGINS else None
-        return replace(base, origin=origin, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+        reach = meta.get("reach") if meta.get("reach") in REACHES else None
+        weight = meta.get("weight") if meta.get("weight") in WEIGHTS else None
+        return replace(base, origin=origin, reach=reach, weight=weight, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -296,6 +306,10 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["sources"] = list(m.sources)
     if m.origin:
         meta["origin"] = m.origin
+    if m.reach:
+        meta["reach"] = m.reach
+    if m.weight:
+        meta["weight"] = m.weight
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -303,11 +317,16 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
 
 def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, today: datetime.date,
                  context: str | None = None, valid_until: datetime.date | None = None,
-                 sources: Sequence[str] = (), origin: str | None = None) -> Memory:
+                 sources: Sequence[str] = (), origin: str | None = None,
+                 reach: str | None = None, weight: str | None = None) -> Memory:
     if kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}")
     if origin is not None and origin not in ORIGINS:
         raise ValueError(f"unknown origin {origin!r}")
+    if reach is not None and reach not in REACHES:
+        raise ValueError(f"unknown reach {reach!r}")
+    if weight is not None and weight not in WEIGHTS:
+        raise ValueError(f"unknown weight {weight!r}")
     claim = claim.strip()
     if not claim:
         raise ValueError("claim is empty")
@@ -318,13 +337,19 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
             valid_until = today + datetime.timedelta(days=90)
     if kind == "state" and valid_until is None:
         valid_until = today + datetime.timedelta(days=30)
+    if origin == "transcript" and valid_until is None:
+        draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, list(sources), "", None,
+                       origin=origin, weight=weight)
+        if standing(draft) != "established":
+            valid_until = today + datetime.timedelta(days=UNCONFIRMED_DAYS)
     folder.mkdir(parents=True, exist_ok=True)
     base = slug_of(claim)
     handle, n = base, 1
     while True:
         path = folder / f"{handle}.md"
         m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
-                   list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin)
+                   list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
+                   reach=reach, weight=weight)
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))
@@ -368,6 +393,41 @@ def update(memory: Memory, today: datetime.date, **changes) -> Memory:
 
 def observe(memory: Memory, today: datetime.date) -> Memory:
     return update(memory, today, observed=memory.observed + 1, last_observed=today)
+
+
+def sessions(memory: Memory) -> list[str]:
+    """The distinct session entries of `sources`, in order."""
+    return list(dict.fromkeys(s for s in memory.sources if s.startswith(SESSION_PREFIX)))
+
+
+def standing(memory: Memory) -> str | None:
+    """None unless the memory comes from a transcript; then "established" once enough distinct sessions show it
+    (by its weight), else "unconfirmed". Never computed from `observed`: a plain confirm, a merge and a curation
+    pass raise it without being independent evidence."""
+    if memory.origin != "transcript":
+        return None
+    needed = SIGHTINGS_NEEDED[memory.weight or "medium"]
+    return "established" if len(sessions(memory)) >= needed else "unconfirmed"
+
+
+def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None) -> tuple[Memory, bool]:
+    """Record that another session shows the memory: `session` is a full source entry ("session <id>").
+
+    Already a source: the memory unchanged and False. Else the entry is added, `observed` raised as `observe`
+    does and the note appended to the body; a transcript memory also gets its validity rule (established: no end
+    date; unconfirmed: 30 days from today, which revives a lapsed one)."""
+    if session in memory.sources:
+        return memory, False
+    sources = [*memory.sources, session]
+    changes: dict = {"sources": sources, "observed": memory.observed + 1, "last_observed": today}
+    if note and note.strip():
+        head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+        changes["body"] = f"{head}{' '.join(note.split())}\n"
+    if memory.origin == "transcript":
+        after = replace(memory, sources=sources)
+        changes["valid_until"] = (None if standing(after) == "established"
+                                  else today + datetime.timedelta(days=UNCONFIRMED_DAYS))
+    return update(memory, today, **changes), True
 
 
 def pairs(memories: Sequence[Memory], today: datetime.date, *,
@@ -521,6 +581,7 @@ def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, to
     """Items for a pass: live memories created after the last pass (counted only at 10, or at 1 once the pass is 14
     days old; with no pass yet, once the oldest live memory is) plus active memories past their valid_until (not those
     already past it on the day of the last pass: that pass dealt with them)."""
+    memories = [m for m in memories if standing(m) != "unconfirmed"]  # their own category in the queue
     live = [m for m in memories if is_live(m, today)]
     new = [m for m in live if last_pass is None or (m.created is not None and m.created > last_pass)]
     if last_pass is not None:

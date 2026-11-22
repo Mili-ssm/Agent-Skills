@@ -55,6 +55,7 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 - Never merge or supersede across scopes: a project memory and a global one stay two records.
 - `mem forget` is for what stopped being true or useful. For something that was wrong from the start, `mem refute` with the reason: the reason is what stops it being written again.
 - A decision or a constraint does not go stale by age: the queue never lists them as unconfirmed, and you do not forget one because it is old.
+- A record marked `from transcript, unconfirmed` is never confirmed by a curation pass (only forgotten, merged or left), because another session showing the lesson is its only confirmation.
 - A memory or note that is wrong in a detail, not as a whole: `mem memory edit m:<h> --claim "…"` or `mem note edit <note> --claim "…"`. A retired memory is restored before it is edited.
 - Undo: `mem restore m:<handle>` puts a memory back as it was before the last action on it; run it again to go back one more step.
 
