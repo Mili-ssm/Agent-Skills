@@ -24,11 +24,12 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | seen 3 times or more | A candidate for a general lesson | Would hold in any project: `mem promote <h>` prints a draft; rewrite the claim in general terms with no name of a project, system, client or person, run it, then `mem promote --done <h>`. Only true here: `mem promote --no <h>` |
 | not confirmed in 90 days | An old lesson, pitfall or finding nobody confirmed | Check it against the project if that is cheap. Still true: `mem confirm <h>`. False: `mem refute <h> --because "<why>"`. Cannot tell: leave it |
 | general lesson, out of quarantine, awaiting triage | A lesson seen in two projects, released and not yet decided | Report it and leave it: a main session or the owner runs `mem triage accept <h>` or `mem triage reject <h>`, or rewords it with `mem memory edit <h> --global` first |
+| short forms nobody read: N | A model's short form (written by the background pass or by `--short`) loads as a rule before anyone read it | List them with `mem rules --unread` and propose: still faithful, reword, `--no-load`, or `mem forget`/`mem refute` if the lesson is false. Never run `mem rules --read` and never pass `--user-read`: reading is the owner's |
 | in quarantine: n general lessons | Captured in one project so far; no reader sees them | Nothing to do: they wait for a second project |
 
 In a curation pass never run `mem confirm` on a record marked `from transcript, unconfirmed`: a pass has no new session to add, and only another session showing the lesson confirms it (the capture adds that session itself).
 
-The background curator never runs `mem triage`: a main session or the owner accepts (`mem triage accept <h>`) or rejects (`mem triage reject <h>`) a general lesson, and turning a lesson into a rule (an agent definition, a skill, a context file) needs the owner.
+The background curator never runs `mem triage` (`accept`, `reject` or `hold`): a main session or the owner accepts (`mem triage accept <h>`) or rejects (`mem triage reject <h>`) a general lesson, which waits there when it is `strong` or when the automatic fill refused its short form twice (the reason is shown), and turning a lesson into a rule (an agent definition, a skill, a context file) needs the owner.
 
 ## Notes
 
@@ -62,7 +63,7 @@ The background curator never runs `mem triage`: a main session or the owner acce
 - `mem forget` is for what stopped being true or useful. For something that was wrong from the start, `mem refute` with the reason: the reason is what stops it being written again.
 - A decision or a constraint does not go stale by age: the queue never lists them as unconfirmed, and you do not forget one because it is old.
 - A memory or note that is wrong in a detail, not as a whole: `mem memory edit m:<h> --claim "…"` or `mem note edit <note> --claim "…"`. A retired memory is restored before it is edited.
-- A loaded rule (a line of the session start text, see `mem rules`) that is too strong, too weak or out of date: reword it in one command, `mem memory edit <h> --claim "…" --short "…"` (with `--global` for a global lesson), because a new claim alone removes the short form and the rule stops loading. The short form has at most 120 characters, keeps the claim's hedge and carries no standing (code adds it). Prefer the mildest action that fits: reword; then `--index-only` for a lesson that is true but rarely applies; then `--no-load` for one that does harm. `mem forget` or `mem refute` is for a lesson that is false. A lesson of weight `strong`, or a change you are unsure about, goes to the user first.
+- A loaded rule (a line of the session start text, see `mem rules`) that is too strong, too weak or out of date: reword it in one command, `mem memory edit <h> --claim "…" --short "…"` (with `--global` for a global lesson), because a new claim alone removes the short form and the rule stops loading. The short form has at most 120 characters, keeps the claim's hedge and carries no standing (code adds it); code checks the text and it stays marked unread. Prefer the mildest action that fits: reword; then `--index-only` for a lesson that is true but rarely applies; then `--no-load` for one that does harm. `mem forget` or `mem refute` is for a lesson that is false. A lesson of weight `strong`, or a change you are unsure about, goes to the user first.
 - Undo: `mem restore m:<handle>` puts a memory back as it was before the last action on it; run it again to go back one more step.
 
 ## Report

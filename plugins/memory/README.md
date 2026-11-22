@@ -146,9 +146,30 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 
 `mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--model NAME] [--budget USD] [--write]` reduces one session transcript to an extract and has one headless session (no Bash, no hooks) propose memory candidates; a program keeps only those whose evidence is copied from the transcript. The result file (mode 0600) holds the kept and dropped candidates, the cost and the line range; it holds session text, so keep it private: `--out` must be outside any repository (a folder with a `.git` entry in it or above is refused) and must not be a symlink. Defaults: model `haiku`, budget 0.25 USD per run (`--budget`); the work folder is temporary and removed at the end (`--keep-work` keeps it). `recorded.txt` gives the session the live claims of the project and of the global scope. With `--write`, code (never the model, which has no Bash) records each kept candidate through `mem`, so every check `mem` makes at writing applies; it writes in the project scope only, never the global one. A record starts `from transcript, unconfirmed`, with `reach` and `weight` set, and becomes established when distinct sessions have shown it (light 1, medium 2, strong 3); a candidate that names an existing record, or repeats its claim, adds this session as one more sighting, and one session counts at most once however often the command runs. An unconfirmed record lapses 30 days after the last session that showed it. The result file gains `written` (per candidate: `remembered`, `sighting` or `skipped`, with the reason); a failure on one candidate never stops the others or changes the exit code. Without `--write` nothing is written to the memory store. No hook runs `run`; with `auto_capture` on, the hooks start `mem-capture auto`, which runs the same steps per window with `--write` (section above).
 
-## Loaded rules (nothing loads until lessons have a short form)
+## Loaded rules (a lesson loads once it has a short form)
 
 **What it does:** an established lesson that has a short form loads as one line of the session start text, so an agent that never searches still sees it. The text is built by code from the records at each session start; no model rewrites the list. `mem rules` prints the same block, or `No rules loaded.` when none loads. The plugin option `loaded_rules` (on by default) switches the whole feature off; `--no-load` switches one rule off.
+
+**How a short form comes to exist** (implemented, unmeasured):
+
+| Path | Who writes it | Marked | Loads |
+| --- | --- | --- | --- |
+| Automatic fill, when `auto_capture` is on and `loaded_rules` is not off | A small-model session, after the matching pass of `mem-corroborate auto` | `short_by: model` (unread) | At the next session start, before anyone read it |
+| `mem memory edit <h> --short TEXT`, `mem remember --short TEXT` | You or an agent; code checks the text against the claim | `short_by: model` | Same |
+| The same with `--user-read` | The owner, who read the text; no check | No mark | Same |
+| `fill --dry-run` then `fill --items FILE` | A model proposes, the owner reads the file | No mark | Same |
+
+**The automatic fill:** for established lessons that lack a short form and a topic, one session writes both; code refuses a short form that drops its claim's hedge, adds an absolute word, holds a link or says "owner" (`engine/shortcheck.py`); a second session checks the survivors against their claims; what passes is stored. The pass never changes `load`. It runs only after a pass that matched lessons, in the background, under the store run lock; `mem-corroborate status` prints a `last fill:` line (counts only).
+
+| Rule of the fill | Value |
+| --- | --- |
+| Attempts | At most two per wording of a claim. A wording once tried is not written again by the pass: a short form you undid or removed stays away until the claim changes |
+| After the second refusal | A general lesson is held at triage with the reason (`mem triage hold <h> --because TEXT` does the same by hand); a project lesson stays without a short form |
+| Failed session | Counts no attempt; after three in a row the step waits until the lessons change |
+| A `strong` project lesson | Not filled until the owner confirmed it (`mem confirm <h> --by-owner`) |
+| A general lesson at its first establishment | Waits at triage only when its weight is `strong`; `light` and `medium` are released and may load once they have a short form |
+
+**Reading what loaded unread:** `mem rules --unread` lists the short forms a model wrote, with their claims; `mem rules --read <h>...` or `--read all` marks them read (the owner's act); `mem curate` prints `short forms nobody read: <N> (mem rules --unread)`. Change one with `mem memory edit <h> --short TEXT` (the mark stays), turn it off with `--no-load`, or switch every rule off with the option `loaded_rules`.
 
 ```
 memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason not to, and mention a skipped one only when it matters to the user.
@@ -160,7 +181,7 @@ memory: lessons learned in earlier sessions. Apply them with judgment: follow on
 | Term | Meaning |
 | --- | --- |
 | Loaded rule | A lesson's short form followed by its standing, `(held in N projects)` for a global lesson, `(held in N sessions)` for a project one, `(the user vouched for it)`. The standing is computed from the record, never written by a model |
-| Short form | One line of at most 120 characters, kept in the record (`--short`), never stronger than the claim |
+| Short form | One line of at most 120 characters, kept in the record (`--short`), checked by code against the claim (hedge kept, no absolute word added, no link, no "owner"); a model's is marked unread until `mem rules --read` |
 | Topic | One or two lowercase words of at most 24 characters (`--topic`), used to group what did not load |
 | Index line | The line after the rules: how many more lessons there are, by topic, ending with `(mem rules --more <topic>, when a topic fits your task)`. At most 200 characters |
 | Load state | Absent: the lesson competes for a place. `index` (`--index-only`): never among the rules, counted in the index line. `no` (`--no-load`): nowhere. `--load` removes the field |
@@ -179,7 +200,9 @@ memory: lessons learned in earlier sessions. Apply them with judgment: follow on
 | `mem rules --more` | Every lesson left out, grouped by topic, with the reason (over the limit, index only, awaits triage) and its standing, ending with `mem show m:<handle> prints a whole lesson.` |
 | `mem rules --more <topic>` | Only that group (`other`: lessons with no topic) |
 | `mem remember ... --short TEXT --topic TEXT` | Write a lesson with its short form and topic |
-| `mem memory edit <h> [--global] --short TEXT --topic TEXT` | Set or change them; an empty text removes one |
+| `mem memory edit <h> [--global] --short TEXT --topic TEXT` | Set or change them; an empty text removes one. The short form is checked by code and marked unread; `--user-read` (the owner read it) skips the check and the mark. Same flag on `mem remember` |
+| `mem rules --unread` / `mem rules --read <h>... \| all` | List the short forms nobody read, with their claims / mark them read |
+| `mem triage hold <h> --because TEXT` | Put a general lesson back at triage with a reason (one line, at most 200 characters); it stops loading |
 | `mem memory edit <h> [--global] --no-load` | Turn one rule off; the lesson stays stored and searchable |
 | Plugin option `loaded_rules` (default on) | Set it to `false` to switch the whole feature off: the session start text carries no rules block and no index line. `mem rules` still prints what would load, after a first line saying the feature is off |
 | `mem memory edit <h> [--global] --index-only` | Keep it out of the rules but counted by topic in the index line |
@@ -189,25 +212,26 @@ memory: lessons learned in earlier sessions. Apply them with judgment: follow on
 
 **Giving lessons a short form:** the owner runs `fill --dry-run --out FILE` (the file must not be inside a repository: it holds lesson text), reads it, then runs `fill --items FILE`. Each item holds `id`, `handle`, `scope`, `claim`, `short`, `topic`, `claim_digest` and `load` (`yes`, `index` or `no`). Edit `short`, `topic` and `load`, or delete an item to skip that lesson. An item is dropped when its handle or scope does not match its id, or its record cannot load; it fails when the claim changed since the file was made. A proposal that is not valid (a short form of more than 120 characters, a bad topic) or missing stays in the file with a `problem` field saying why: shorten or fix it, then apply; `fill --items` ignores `problem` and drops an item that is still invalid. `mem-corroborate undo <stamp>` (printed by `fill --items`) puts every written record back while its run folder exists; a later pass may prune old run folders.
 
-**Changing or removing one rule:** reword it with `mem memory edit <h> --short TEXT`; turn it off with `--no-load` (the option `loaded_rules` switches all of them off). Editing a claim removes the short form, so reword with `--claim` then `--short`.
+**Changing or removing one rule:** reword it with `mem memory edit <h> --short TEXT` (checked, marked unread); turn it off with `--no-load` (the option `loaded_rules` switches all of them off). Editing a claim removes the short form, so reword with `--claim` then `--short`.
 
 **Limits:**
 
 | Limit | Why it stays |
 | --- | --- |
-| A new global lesson has no short form until `fill` is run by hand and its file is read | Nothing unread loads in this release; writing short forms automatically is a later plan |
-| A project lesson seen in one session never loads | Nobody has read it |
+| A short form written by the pass loads before anyone read it | Code and a second session check it, not a person; read it with `mem rules --unread`, switch it off with `--no-load` or `loaded_rules` |
+| A `strong` lesson and a lesson refused twice wait for the owner | Triage for a general one, `mem confirm --by-owner` for a project one |
+| A project lesson seen in one session never loads | Not established: it needs two sessions or the owner's confirmation |
 | A rule may repeat what the owner's own instruction files say | Turn it off with `--no-load` |
 | Rules do not reach subagents | The session start hook runs in the main session only |
 | `mem-corroborate undo` of a `fill` run works only while its run folder exists | A later corroboration pass prunes old run folders |
 | An unexpected error in the middle of `fill --items` stops it with exit 1 and no summary line; the edits already made are kept and can be undone | Each edit is journaled before the next; the count is printed only at the end |
-| Nothing checks that a short form is no stronger than its claim | The owner reads every proposed short form before it is applied |
+| The checks catch a dropped hedge, an absolute word, a link, "owner", and what a second session judges unfaithful; they do not prove a short form is no stronger than its claim | Unmeasured: the gate on a private copy of a real store (code check, and the checker against short forms the owner read) is described in [the plan](../../docs/superpowers/plans/2026-11-22-memory-auto-short-forms.md) and has not been run |
 | Every loaded rule gets the same space, not more by weight | Six lines leave nothing to share out |
 | With no `store` option set, the hook uses the default store | As for the rest of the session start text |
 | The session start text grows by up to about 1300 characters when six rules load | The limits above (174 for the header, 900 for the rules, 200 for the index line) |
 | Whether a loaded lesson stops its failure from recurring is read by hand from the capture log | No date on each sighting yet |
 
-**Evidence:** one small task, three runs a condition, a real model, with the rules printed by a throwaway hook, not by this plugin. With no rules, none of three checkable practices was followed (0 of 3 each); with three rules in the session start text, all three in 3 of 3 runs; with the same three among twelve unrelated rules, again 3 of 3, at about 7% more cost than with no rules ([measurement](../../docs/superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)). Not measured: a rule that conflicts with another instruction, a long session, and several rules at once in real work. On a private copy of 15 real lessons the small model proposed 13 short forms and 2 passed 120 characters (then dropped; now kept in the file marked with a problem); the owner's reading of them is pending. With this plugin and five of those rules loaded, three runs on one task showed no measurable effect and no harm (the model stated its reading of an ambiguous term in 2 of 3 runs with the rules and in 2 of 3 without); so the evidence that rules are followed is the first measurement, not a run of this plugin.
+**Evidence:** one small task, three runs a condition, a real model, with the rules printed by a throwaway hook, not by this plugin. With no rules, none of three checkable practices was followed (0 of 3 each); with three rules in the session start text, all three in 3 of 3 runs; with the same three among twelve unrelated rules, again 3 of 3, at about 7% more cost than with no rules ([measurement](../../docs/superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md#measurement-loaded-rules-are-followed-2026-11-22)). Not measured: a rule that conflicts with another instruction, a long session, and several rules at once in real work. On a private copy of 15 real lessons the small model proposed 13 short forms and 2 passed 120 characters (then dropped; now kept in the file marked with a problem); the owner's reading of them is pending. With this plugin and five of those rules loaded, three runs on one task showed no measurable effect and no harm (the model stated its reading of an ambiguous term in 2 of 3 runs with the rules and in 2 of 3 without); so the evidence that rules are followed is the first measurement, not a run of this plugin. **Not measured:** the automatic fill (how many short forms it writes, how many it wrongly accepts or refuses) and the installed run.
 
 ## Research with the web (`mem-research`; not yet measured)
 
