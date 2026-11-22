@@ -78,14 +78,14 @@ def _encoded(lesson: Lesson) -> str:
 
 
 def lesson_fingerprint(lesson: Lesson) -> str:
-    return hashlib.sha1(_encoded(lesson).encode("utf-8")).hexdigest()
+    return hashlib.sha1(_encoded(lesson).encode("utf-8", "replace")).hexdigest()
 
 
 def fingerprint(lessons: Sequence[Lesson]) -> str:
     """Changes when a lesson appears, goes, gains a source or changes what the model is shown (reach, claim,
     context); not with the order of the lessons."""
     text = json.dumps(sorted(_encoded(x) for x in lessons), ensure_ascii=False)
-    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+    return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
 
 
 def _line(text: str | None) -> str:
@@ -177,10 +177,9 @@ def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group]
     reasons: list[str] = []
     for item in items:
         n = item.get("group") if isinstance(item, dict) else None
-        if isinstance(n, bool) or not isinstance(n, int):
-            reasons.append("a verdict does not name a group by its number")
-        elif not 1 <= n <= len(groups):
-            reasons.append(f"a verdict names group {n}, which does not exist")
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(groups):
+            # a verdict that cannot be placed may be a refusal of any group: nothing is kept
+            return [], ["a verdict does not name an existing group by its number: nothing is kept"]
         else:
             by_group.setdefault(n, []).append(item)
     kept: list[Group] = []
@@ -234,12 +233,14 @@ def _oldest(lessons: Sequence[Lesson]) -> Lesson:
     return min(lessons, key=lambda x: (x.memory.created or datetime.date.max, x.memory.handle))
 
 
-def actions(group: Group, lessons: Mapping[str, Lesson], global_records: Sequence[records.Memory]) -> list[Action]:
+def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
     """The steps for one group, in order: merges inside a project, a merge of global members, then for the
     members of reach `general` left: a write_global unless a global record is the target, one sighting per entry
     the target lacks, one link per project member. A merged record stands for the ones dropped into it: its
     sessions are their union, and it is general when any of them is. Members of reach `project` from different
-    projects produce no action."""
+    projects produce no action. Only a global member of the group is a target: a global record that merely shares
+    a session with a member may state another lesson of that session, so a pass that stopped half way may write a
+    second global record, which a later pass joins with the first as two global members."""
     members = [lessons[i] for i in group.ids]
     out: list[Action] = []
     stands: dict[str, list[Lesson]] = {}  # kept project lesson id -> the lessons it stands for
@@ -273,13 +274,6 @@ def actions(group: Group, lessons: Mapping[str, Lesson], global_records: Sequenc
     entries = list(first.values())
 
     target: records.Memory | None = gkeep.memory if gkeep else None
-    if target is None:
-        held = {s for x in general for y in stands[x.id] for s in records.sessions(y.memory)}
-        holders = [g for g in global_records
-                   if g.origin == "transcript" and g.status == "active" and g.error is None
-                   and held & set(records.sessions(g))]
-        if holders:
-            target = min(holders, key=lambda g: (g.created or datetime.date.max, g.handle))
     if target is None:
         origin = _oldest([y for x in general for y in stands[x.id]])
         weights = [y.memory.weight or "medium" for x in general for y in stands[x.id]]
