@@ -308,10 +308,10 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
   | `fill_auto` on the copy with every `short` removed | every applied short form is shown to the owner beside its claim in one table; the owner calls none stronger than its claim |
 
   The checker is Haiku if Haiku passes its rows on both sets, else Sonnet if Sonnet does. One revision of `CHECK_BRIEF` or the word lists is allowed after a miss; the whole table then runs again on a new Stronger set from a new session. A second miss: stop and put the figures to the owner; do not ship the automatic step. Ten labels can catch a bad checker; they cannot prove a good one, which is why the kill criteria below keep counting after release.
-- [ ] One run of `mem-corroborate auto` from the installed copy of the branch (`claude --plugin-dir`), not only from the repository tests: its log line, and, with the option `loaded_rules` set to false, that the detached process skips the fill.
-- [ ] On the owner's store, before the first automatic run: how many established lessons lack a short form (the first run loads up to 30 at once) and that none of weight `light` or `medium` is at `triage: pending`.
-- [ ] Narrow reviews in parallel (the fill flow, the record fields and commands, the docs against the code, the process), one fix wave.
-- [ ] Results written into this file under `## Results`; the design rows C59 to C62 corrected if the gate changed them.
+- [x] One run of the entry point `mem-corroborate auto` as a subprocess with a clean environment, folders found by the default lookup and not by `MEM_*` variables (2026-11-22: [Results](#the-entry-point-with-a-hooks-environment-2026-11-22)). Not done from an installed copy with `claude --plugin-dir`: that is left for the install after the release.
+- [x] On the owner's store, read only (2026-11-22): 2 lessons are candidates of the first automatic run, both project lessons, none global; no global lesson is at `triage: pending`; 25 general lessons are in quarantine and stay out of reach of the fill.
+- [x] Reviews: one per task after its commit, two rounds on the fix of the fill flow, the docs against the code, and the process; their findings and rulings are in this file's Known limits and in the commits.
+- [x] Results written into this file under `## Results`; the design rows C60 and C62 carry what the gate changed.
 - [ ] A pull request to `dev` and a release: only with the owner's word.
 
 ## Pre-mortem of 2026-11-22 and what changed
@@ -384,4 +384,15 @@ Both models pass; by the rule the checker is Haiku (`CHECK_MODEL`). The code che
 **What the gate does not show.** The widened-situation form was accepted by every checker run of both models in both gate runs, and one of the 13 applied forms keeps its reason but drops when it applies; neither guard catches a short form that loses its situation. Eleven labels can catch a bad checker and cannot prove a good one. The second run's labels were settled after the first run's results were known, by the owner, on tone; the thresholds were not changed, only restated on the 11.
 
 **Found by the gate and fixed:** a lesson with no usable proposal appeared in no counter (commit `0273234`).
+
+### The entry point with a hook's environment, 2026-11-22
+
+`plugins/memory/bin/mem-corroborate auto` run as a subprocess under `env -i` with the real `HOME` and `PATH`, `XDG_DATA_HOME` and `XDG_STATE_HOME` pointing at a private copy, `CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE=true` and no `MEM_*` variable; a dry call first confirmed that the data folder and the global lessons folder resolved under the copy with no project registered. A fake `HOME` could not be used: the `claude` binary did not find its credentials there.
+
+| Run | Exit, output | Fill |
+|---|---|---|
+| Option `auto_capture` on | 0, nothing printed | asked 15, written 13, refused by the checker 2, cost 0.008 USD; `status` prints `last fill: 13 written, 2 refused, 0 to triage`; 13 lessons carry `short_by: model` |
+| The same with `CLAUDE_PLUGIN_OPTION_LOADED_RULES=false` | 0, nothing printed | no `fill` line, no short form written, no fill session paid; the matching pass before it still ran (0.007 USD), as designed: the switch stops the fill, not the pass |
+
+The owner's store and its `corroborate` folder had the same checksums before and after every run of the gate.
 
