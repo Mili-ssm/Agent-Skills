@@ -2744,6 +2744,13 @@ def _memory_line(m: records.Memory, today: datetime.date) -> str:
             f"{', ' + dead if dead else ''}]\t{claim}")
 
 
+def _tally_line(tally: records.Tally, until: datetime.date) -> str:
+    """The `mem show` line of one version; `until` is the date of the next version, or today for the last."""
+    days = (until - tally.since).days
+    return (f"version {tally.number} since {tally.since.isoformat()} ({days} day{'' if days == 1 else 's'}): "
+            f"worked {tally.worked}, failed {tally.failed}: {tally.text}")
+
+
 def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
     facts = f"kind: {m.kind} \u00b7 observed {m.observed} \u00b7 status {m.status} \u00b7 created {m.created.isoformat() if m.created else 'undated'}"
     if m.valid_until:
@@ -2755,6 +2762,9 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
         out.append(f"sources: {', '.join(m.sources)}")
     if m.short:
         out.append(f"short: {m.short}")
+    found = records.tallies(m)
+    ends = [t.since for t in found[1:]] + [datetime.date.today()]
+    out += [_tally_line(t, end) for t, end in zip(found, ends)]
     if m.short_by:
         out.append(f"short_by: {m.short_by}")
     if m.triage_reason:
@@ -4358,7 +4368,7 @@ def cmd_rules(args: argparse.Namespace) -> int:
             for m, why in (x for x in shown if x[0].topic == group):
                 claim = _flat(m.claim)
                 claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
-                print(f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}")
+                print(f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}\t{records.mark_words(m) or '-'}")
         if shown:
             print("mem show m:<handle> prints a whole lesson.")
         else:
@@ -4373,6 +4383,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print(more)
     if not lines and choice.unready:
         print(unready)
+    failed = [(m, words) for m in [*choice.loaded, *(m for m, _ in choice.left)] if (words := records.mark_words(m))]
+    if failed:
+        print("Failed after it loaded:")
+        for m, words in failed:
+            print(f"m:{m.handle}\t{words}")
     return 0
 
 

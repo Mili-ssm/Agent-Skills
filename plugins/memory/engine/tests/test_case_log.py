@@ -435,3 +435,86 @@ def test_remember_of_a_known_claim_adds_a_case_to_a_counted_session(project):
     assert "is already counted" in done.stderr and f"case failed added to m:{m.handle}." in done.stderr
     got = reload(m)
     assert got.observed == m.observed and got.log == ["2026-11-22 session s1 failed"]
+
+
+# --- the record is shown (C69) ---
+
+from test_rules_session import K1, gfolder, write  # noqa: E402,F401
+
+
+def ago(n):
+    return datetime.date.today() - datetime.timedelta(days=n)
+
+
+def shown(capsys, *argv):
+    capsys.readouterr()
+    assert mem.main(list(argv)) == 0
+    return capsys.readouterr().out
+
+
+def global_lesson(claim, versions=(), log=()):
+    """A loaded global lesson whose versions and log are set by hand: versions (days ago, text), log (days ago, outcome)."""
+    write(claim, short="First text.")
+    [m] = [x for x in records.load_memories(Path(os.environ["MEM_MEMORIES"]), "global") if x.claim == claim]
+    changes = {"versions": [records.version_entry(ago(n), t) for n, t in versions] or None,
+               "log": [records.case_entry(ago(n), f"session z{i}", o) for i, (n, o) in enumerate(log)] or None}
+    return records.update(m, datetime.date.today(), **changes)
+
+
+def test_show_prints_each_version_with_its_tally(project, capsys):
+    m = versioned(project, (-30, "First text."), (-10, "Second text."))
+    m = with_cases(m, (-20, "worked"), (-5, "failed"))
+    out = shown(capsys, "show", f"m:{m.handle}")
+    today = datetime.date.today()
+    since1, since2 = day(-30), day(-10)
+    lines = [x for x in out.splitlines() if x.startswith("version ")]
+    assert lines == [
+        f"version 1 since {since1} ({(since2 - since1).days} days): worked 1, failed 0: First text.",
+        f"version 2 since {since2} ({(today - since2).days} days): worked 0, failed 1: Second text."]
+    assert out.index("short: Second text.") < out.index(lines[0])
+    plain = transcript(project, session="session other")
+    assert "version " not in shown(capsys, "show", f"m:{plain.handle}")
+
+
+def test_show_of_a_lesson_written_before_this_change(project, capsys):
+    m = transcript(project)
+    m = records.update(m, D1, short="Old text.", released=D1)
+    m = records.update(m, D1, versions=None)
+    out = shown(capsys, "show", f"m:{m.handle}")
+    assert f"version 1 since {D1} (" in out and out.count("version 1 since") == 1
+    assert out.splitlines()[[i for i, x in enumerate(out.splitlines()) if x.startswith("version 1")][0]].endswith(": Old text.")
+
+
+def test_rules_names_a_lesson_that_failed_and_the_block_is_unchanged(project, gfolder, capsys):
+    global_lesson("Plain lesson.")
+    first = shown(capsys, "rules")
+    global_lesson("Failing lesson.", versions=[(10, "First text.")], log=[(5, "worked"), (4, "failed"), (3, "failed")])
+    [m] = [x for x in records.load_memories(gfolder, "global") if x.claim == "Failing lesson."]
+    out = shown(capsys, "rules")
+    head, tail = out.split("Failed after it loaded:\n")
+    assert tail == f"m:{m.handle}\tversion 1: worked 1, failed 2\n"
+    # the same store with an empty log prints the block alone
+    records.update(m, datetime.date.today(), log=None)
+    assert shown(capsys, "rules") == head
+    assert first.splitlines()[0] in head
+
+
+def test_rules_more_has_the_column(project, gfolder, capsys):
+    for i in range(10):
+        global_lesson(f"Lesson number {i}.", versions=[(10, "First text.")],
+                      log=[(5, "failed" if i % 2 else "worked")])
+    rows = [x.split("\t") for x in shown(capsys, "rules", "--more").splitlines() if x.startswith("m:")]
+    assert len(rows) >= 2 and all(len(r) == 7 for r in rows)
+    for r in rows:
+        failing = int(r[0].rsplit("-", 1)[1]) % 2
+        assert r[-1] == ("version 1: worked 0, failed 1" if failing else "-")
+    assert {r[-1] for r in rows} == {"-", "version 1: worked 0, failed 1"}
+
+
+def test_session_start_block_is_unchanged(project, gfolder, capsys):
+    m = global_lesson("Failing lesson.", versions=[(10, "First text.")])
+    before = shown(capsys, "session-index")
+    records.update(m, datetime.date.today(), log=[records.case_entry(ago(2), "session q", "failed"),
+                                                 records.case_entry(ago(1), "session r", "failed")])
+    after = shown(capsys, "session-index")
+    assert before == after and "First text." in after and "Failed after" not in after
