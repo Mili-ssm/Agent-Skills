@@ -150,7 +150,7 @@ git commit -m "feat(memory): a lesson logs each case with its date and outcome"
   - `mark_words(memory) -> str`: `""` when the last tally has no `failed` case, else `"version 2: worked 1, failed 3"`.
   - `update(memory, today, **changes)`: when `changes` holds a `short` that is not None and differs from `memory.short`, the entry `"<today> <short>"` is added to `versions`, replacing an entry of the same day. When the file has no `versions` and holds a short form, the entry of `version_list` for that text is written first, so the wording of before this change is kept. `write_memory(..., short=...)` writes `versions` with one entry when given a short form.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Each on a transcript memory in `tmp_path`, dates passed as `today`; build cases with `add_case`.
 
@@ -174,19 +174,19 @@ Each on a transcript memory in `tmp_path`, dates passed as `today`; build cases 
 | `test_merge_joins_log_and_versions` | through the `mem merge` command as `test_curation.py` drives it: both lists of the kept record are the sorted union without repeated entries |
 | `test_restore_brings_versions_back` | `mem memory edit --short` that adds a version, then `mem restore`: `versions` as before the edit |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
 Expected: FAIL, `Memory` has no `versions`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 A version entry is split at its first space. PyYAML may hand `reviewed` over as a `datetime.date` or a string: accept both, as `_date` does. `update` reads the current `versions` from the file's own frontmatter, as it does for every key. In `_merge_pair`, add `log` and `versions` to `changes` when the union differs from the kept record's list.
 
-- [ ] **Step 4: Run the tests of this file, then the whole suite**
+- [x] **Step 4: Run the tests of this file, then the whole suite**
 
 Expected: both pass; `test_memory_edit.py`, `test_short_by.py` and `test_fill_auto.py` may compare whole frontmatter after a short form is set: update them to include `versions` and name them.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine
