@@ -9,6 +9,7 @@ if [ -z "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then # no option: the default store
   [ -n "$data" ] && [ -f "$data/agent-memory/store/mem-store.yaml" ] && export MEM_STORE="$data/agent-memory/store"
 fi
 [ -n "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" ] && export MEM_MEMORIES="$CLAUDE_PLUGIN_OPTION_MEMORIES"
+[ "${CLAUDE_PLUGIN_OPTION_LOADED_RULES:-}" = "false" ] && export MEM_LOADED_RULES=off   # option loaded_rules, default on
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # read once, never wait on an input left open
 # Sweep (option auto_capture, exactly "true"): start mem-capture sweep detached, as session-end.sh starts `auto`. It

@@ -65,6 +65,8 @@ A throwaway hook printed a rules file at session start; nothing of the plugin wa
 
 The header used, to keep: `memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.`
 
+Repeated the same day with the wording of C57 (the header `memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason not to, and mention a skipped one only when it matters to the user.`, one line ending `(the user vouched for it)`, and in condition C the index line): B 3 of 3 on the three practices (mean 0.054 USD), C 3 of 3 (mean 0.061 USD); no reply announced a skipped lesson; the index was never fetched, as the task matched none of its topics. The header to keep is this second one.
+
 Limits: three runs a condition, one task, one model; every rule bore on the task and none conflicted with another instruction; no always-loaded instruction file was present; a short session. Not measured: Haiku, a rule that goes against a default of the tool, a session long enough for the text to fall far behind.
 
 ## Facts to reuse

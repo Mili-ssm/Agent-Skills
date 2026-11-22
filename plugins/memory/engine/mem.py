@@ -3122,16 +3122,20 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     if notice:
         lines.append(notice)
     extra: list[str] = []
-    try:
-        choice = rules.choose(loaded_project, loaded_global, today)
-        extra = rules.block(choice)
-        more = rules.more_line(choice)
-        if more:
-            extra.append(more)
+    if _rules_off():
         if stats is not None:
-            stats.update(rules=len(choice.loaded), rules_left=len(rules.not_fitted(choice)), rules_chars=len("\n".join(extra)))
-    except Exception:
-        extra = []
+            stats.update(rules=0, rules_left=0, rules_chars=0)
+    else:
+        try:
+            choice = rules.choose(loaded_project, loaded_global, today)
+            extra = rules.block(choice)
+            more = rules.more_line(choice)
+            if more:
+                extra.append(more)
+            if stats is not None:
+                stats.update(rules=len(choice.loaded), rules_left=len(rules.not_fitted(choice)), rules_chars=len("\n".join(extra)))
+        except Exception:
+            extra = []
     if mine and limit > 0:
         rows = []
         for m in mine:
@@ -4220,13 +4224,22 @@ def cmd_memories(args: argparse.Namespace) -> int:
     return 0
 
 
+RULES_OFF_NOTICE = "Loaded rules are switched off (plugin option loaded_rules): nothing below loads at session start."
+
+
+def _rules_off() -> bool:
+    return os.environ.get("MEM_LOADED_RULES") == "off"
+
+
 def cmd_rules(args: argparse.Namespace) -> int:
     """Print the rules block and the line after it exactly as session start does; --more lists what was left out."""
     today = datetime.date.today()
     (_, _, project), (_, _, global_) = _loaded(_memory_folders(args))
     choice = rules.choose(project, global_, today)
+    if _rules_off():
+        print(RULES_OFF_NOTICE)
     unready = (f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form: "
-               "mem-corroborate fill --dry-run --out FILE proposes them.")
+               "mem-corroborate fill --dry-run --out FILE proposes them (a step for the user: do not run it unless asked).")
     if args.more is not None:
         topic = None if args.more is True else args.more
         shown = [(m, why) for m, why in choice.left
@@ -4236,8 +4249,10 @@ def cmd_rules(args: argparse.Namespace) -> int:
             for m, why in (x for x in shown if x[0].topic == group):
                 claim = _flat(m.claim)
                 claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
-                print(f"m:{m.handle}\t{m.scope}\t{why}\t{m.topic or '-'}\t{claim}")
-        if not shown:
+                print(f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}")
+        if shown:
+            print("mem show m:<handle> prints a whole lesson.")
+        else:
             print("No lessons left out" + (f" under {topic}." if topic else "."))
         if choice.unready:
             print(unready)

@@ -4,9 +4,15 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-22
+
 ### Added
 
-- Established lessons can load at session start as short rules (at most 6, 900 characters), followed by one line that counts the other recommendations by topic; `mem rules` prints them and `mem rules --more [<topic>]` lists what did not load. A lesson loads only when it has a short form, so **nothing loads after the update until you give lessons one**: `mem-corroborate fill --dry-run --out FILE` has a small model propose a short form and a topic for up to 30 lessons, in a file that also carries each lesson's load state (`yes`, `index` or `no`) for you to set (it starts one model session and sends lesson text to it), you read and edit the file, then `mem-corroborate fill --items FILE` applies it (no model session; `mem-corroborate undo <stamp>` reverts it). Or write one by hand with `mem memory edit <h> --short TEXT --topic TEXT`, or `mem remember --short --topic`. `mem memory edit <h> --no-load` turns one rule off and `--index-only` keeps it to the index line; `--load` removes either. Editing a claim removes its short form. Nothing to migrate.
+- Established lessons can load at session start as short rules (at most 6, 900 characters), followed by one line that counts the other recommendations by topic; `mem rules` prints them and `mem rules --more [<topic>]` lists what did not load. A lesson loads only when it has a short form, so **nothing loads after the update until you give lessons one**: `mem-corroborate fill --dry-run --out FILE` has a small model propose a short form and a topic for up to 30 lessons, in a file that also carries each lesson's load state (`yes`, `index` or `no`) for you to set (it starts one model session and sends lesson text to it), you read and edit the file, then `mem-corroborate fill --items FILE` applies it (no model session; `mem-corroborate undo <stamp>` reverts it). Or write one by hand with `mem memory edit <h> --short TEXT --topic TEXT`, or `mem remember --short --topic`. `mem memory edit <h> --no-load` turns one rule off and `--index-only` keeps it to the index line; `--load` removes either. Editing a claim removes its short form. The plugin option `loaded_rules` (on by default) set to `false` loads no rules and prints no index line at session start; `mem rules` still shows what would load. Rolling back to the previous version keeps the new record fields (`short`, `topic`, load state). Nothing to migrate.
+
+### Changed
+
+- The capture now also keeps, as an unconfirmed lesson, a step you asked for on your own that visibly paid off (for example one more review before publishing), so that a later session may take that step without being asked. Nothing to migrate.
 
 ## [0.4.1] - 2026-11-22
 

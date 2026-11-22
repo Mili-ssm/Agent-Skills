@@ -124,7 +124,7 @@ One entry per group, in order. Write nothing else and use no other tool.
 
 FILL_BRIEF = """You write the short form and the topic of lessons that coding sessions wrote down.
 Read {lessons}: one block per lesson, with an id, a claim and sometimes a context.
-For each lesson write: short: one sentence of at most 120 characters that says what to do and when, as a suggestion or a recommendation, never stronger than the claim. Keep a hedge the claim has (may, once, sometimes, provisional). It must stand on its own, name no project, person or company, and add nothing the claim does not say. topic: one or two lowercase words for the area (for example: testing, process, shell, review, docs). An id is copied whole.
+For each lesson write: short: one sentence of at most 120 characters (aim for 100) that says what to do and when, as a suggestion or a recommendation, never stronger than the claim. Keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. It must stand on its own, say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. Use the context only to see when it applies. topic: one or two lowercase words for the area (for example: testing, process, shell, review, docs). An id is copied whole.
 Write {out} as JSON: {{"items": [{{"id": "g:example", "short": "...", "topic": "..."}}]}}
 One item per lesson. Write nothing else and use no other tool.
 """

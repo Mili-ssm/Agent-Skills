@@ -109,7 +109,7 @@ def test_lines_carry_the_standing_written_by_code():
     confirmed = dataclasses.replace(base, short="Run the checks before reporting a change.", owner_confirmed=TODAY)
     global_two_projects = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", "s2", keys=(K1, K2)))
     project_three = dataclasses.replace(base, scope="project", short="Y.", sources=_sources("s1", "s2", "s3", keys=(K1, K1, K1)))
-    assert rules.line(confirmed) == "- Run the checks before reporting a change. (confirmed by the user)"
+    assert rules.line(confirmed) == "- Run the checks before reporting a change. (the user vouched for it)"
     assert rules.line(global_two_projects).endswith("(held in 2 projects)")
     assert rules.line(project_three).endswith("(held in 3 sessions)")
     one_project = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", keys=(K1,)))
@@ -146,7 +146,7 @@ def test_the_line_after_the_rules_counts_only_what_did_not_fit():
     over = dataclasses.replace(base, handle="o", topic="shell")
     assert rules.more_line(rules.Choice(left=[(waiting, rules.PENDING)])) is None
     text = rules.more_line(rules.Choice(left=[(waiting, rules.PENDING), (over, rules.OVER)]))
-    assert text == "1 more recommendation by topic: shell 1 (mem rules --more <topic>)"
+    assert text == "1 more lesson by topic: shell 1 (mem rules --more <topic>, when a topic fits your task)"
     assert "waiting" not in text
 
 
@@ -205,18 +205,18 @@ def _left(topics):
 def test_more_line_names_topics_by_frequency_and_fits():
     topics = ["testing"] * 3 + ["process"] * 2 + ["shell", None]
     choice = _left(topics)
-    assert rules.more_line(choice) == "7 more recommendations by topic: testing 3, process 2, shell 1, other 1 (mem rules --more <topic>)"
+    assert rules.more_line(choice) == "7 more lessons by topic: testing 3, process 2, shell 1, other 1 (mem rules --more <topic>, when a topic fits your task)"
     five = _left(["a"] * 5 + ["b"] * 4 + ["c"] * 3 + ["d"] * 2 + ["e"])
-    assert rules.more_line(five) == "15 more recommendations by topic: a 5, b 4, c 3, d 2, other 1 (mem rules --more <topic>)"
+    assert rules.more_line(five) == "15 more lessons by topic: a 5, b 4, c 3, d 2, other 1 (mem rules --more <topic>, when a topic fits your task)"
     long = _left([f"{c}" * 24 for c in "abcdefg" for _ in range(2)])
     text = rules.more_line(long)
     assert len(text) <= 200 and "other" in text
 
 
 def test_more_line_singular_and_without_topics():
-    assert rules.more_line(_left([None])) == "1 more recommendation: mem rules --more"
-    assert rules.more_line(_left([None, None])) == "2 more recommendations: mem rules --more"
-    assert rules.more_line(_left(["testing"])).startswith("1 more recommendation by topic: testing 1")
+    assert rules.more_line(_left([None])) == "1 more lesson: mem rules --more"
+    assert rules.more_line(_left([None, None])) == "2 more lessons: mem rules --more"
+    assert rules.more_line(_left(["testing"])).startswith("1 more lesson by topic: testing 1")
 
 
 def test_nothing_qualifies_gives_an_empty_block_and_no_line():
@@ -231,13 +231,14 @@ def test_more_with_a_topic_prints_only_that_group(project, gfolder, capsys):
     capsys.readouterr()
     assert mem.main(["rules", "--more", "testing"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert len(out) == 2 and all(x.split("\t")[2:4] == ["over the limit", "testing"] for x in out)
+    assert len(out) == 3 and all(x.split("\t")[2] == "over the limit" and x.split("\t")[4] == "testing" for x in out[:2])
+    assert out[2] == "mem show m:<handle> prints a whole lesson."
     assert mem.main(["rules", "--more", "shell"]) == 0
-    assert len(capsys.readouterr().out.splitlines()) == 1
+    assert len(capsys.readouterr().out.splitlines()) == 2
     assert mem.main(["rules", "--more", "other"]) == 0
     assert capsys.readouterr().out == "No lessons left out under other.\n"
     assert mem.main(["rules", "--more"]) == 0
-    assert [x.split("\t")[3] for x in capsys.readouterr().out.splitlines()] == ["testing", "testing", "shell"]
+    assert [x.split("\t")[4] for x in capsys.readouterr().out.splitlines()[:-1]] == ["testing", "testing", "shell"]
 
 
 def test_mem_rules_and_more(project, gfolder, capsys):
@@ -247,19 +248,20 @@ def test_mem_rules_and_more(project, gfolder, capsys):
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     assert capsys.readouterr().out == ("No rules loaded.\n1 established lesson has no short form: "
-                                       "mem-corroborate fill --dry-run --out FILE proposes them.\n")
+                                       "mem-corroborate fill --dry-run --out FILE proposes them (a step for the user: do not run it unless asked).\n")
     # nine more that fit only six, each with a topic
     for i in range(8):
         write(f"Lesson {i} about things in general.", short=f"Rule {i} " + "y" * 100, topic="testing" if i % 2 else None)
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == rules.HEADER and len(out) == 1 + 6 + 1 and out[-1].startswith("2 more recommendations")
+    assert out[0] == rules.HEADER and len(out) == 1 + 6 + 1 and out[-1].startswith("2 more lessons")
     assert all(x.endswith("(held in 2 projects)") for x in out[1:7])
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert len(out) == 2 + 1
-    assert all(x.startswith("m:") and x.split("\t")[1:3] == ["global", "over the limit"] for x in out[:2])
+    assert len(out) == 2 + 1 + 1
+    assert all(x.startswith("m:") and x.split("\t")[1:4] == ["global", "over the limit", "(held in 2 projects)"] for x in out[:2])
+    assert out[2] == "mem show m:<handle> prints a whole lesson."
     assert out[-1].startswith("1 established lesson has no short form")
     assert mem.main(["rules", "--more", "nonexistent"]) == 0
     assert "No lessons left out under nonexistent." in capsys.readouterr().out
@@ -289,7 +291,7 @@ def test_an_index_only_lesson_never_loads_and_is_counted_with_its_reason():
     assert sorted((m.handle, why) for m, why in choice.left) == [("i", "index only"), ("n", "index only"), ("w", "awaits triage")]
     assert choice.unready == 0
     assert [m.handle for m, _ in rules.not_fitted(choice)] == ["i", "n"]
-    assert rules.more_line(choice) == "2 more recommendations by topic: shell 1, other 1 (mem rules --more <topic>)"
+    assert rules.more_line(choice) == "2 more lessons by topic: shell 1, other 1 (mem rules --more <topic>, when a topic fits your task)"
 
 
 def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
@@ -300,10 +302,11 @@ def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert len(out) == 3 and "Niche" not in "".join(out[:2]) and out[-1] == "1 more recommendation by topic: docs 1 (mem rules --more <topic>)"
+    assert len(out) == 3 and "Niche" not in "".join(out[:2]) and out[-1] == "1 more lesson by topic: docs 1 (mem rules --more <topic>, when a topic fits your task)"
     assert mem.main(["rules", "--more", "docs"]) == 0
-    (row,) = capsys.readouterr().out.splitlines()
-    assert row.split("\t")[:4] == [f"m:{h}", "global", "index only", "docs"]
+    row, closing = capsys.readouterr().out.splitlines()
+    assert row.split("\t")[:5] == [f"m:{h}", "global", "index only", "(held in 2 projects)", "docs"]
+    assert closing == "mem show m:<handle> prints a whole lesson."
 
 
 def test_an_index_only_global_lesson_does_not_hide_its_twin_in_the_project():
@@ -322,4 +325,14 @@ def test_mem_rules_prints_the_index_line_when_no_rule_loads(project, gfolder, ca
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out
-    assert out.splitlines() == ["No rules loaded.", "1 more recommendation by topic: shell 1 (mem rules --more <topic>)"]
+    assert out.splitlines() == ["No rules loaded.", "1 more lesson by topic: shell 1 (mem rules --more <topic>, when a topic fits your task)"]
+
+
+def test_mem_rules_says_it_is_switched_off_and_still_prints_what_would_load(project, gfolder, capsys, monkeypatch):
+    write("A lesson that would load.", short="A rule that would load.")
+    monkeypatch.setenv("MEM_LOADED_RULES", "off")
+    capsys.readouterr()
+    assert mem.main(["rules"]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == "Loaded rules are switched off (plugin option loaded_rules): nothing below loads at session start."
+    assert out[1] == rules.HEADER and out[2].startswith("- A rule that would load.")

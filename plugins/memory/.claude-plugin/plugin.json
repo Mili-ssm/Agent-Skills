@@ -1,6 +1,6 @@
 {
   "name": "memory",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Notes and memories reachable from every repository and subagent: a `mem` command that searches and reads a configured store.",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
@@ -44,6 +44,12 @@
       "type": "boolean",
       "title": "Automatic capture",
       "description": "When a compaction starts and when the session ends, a background run reads the new part of the session's transcript with a small model and writes lessons as unconfirmed project memories (only in a project that already has its memory folder). Sends transcript text of the session to a small model through your own claude and spends model usage; off by default. Not yet measured."
+    },
+    "loaded_rules": {
+      "type": "boolean",
+      "title": "Loaded rules",
+      "default": true,
+      "description": "Load established lessons as short rules at session start (on by default); set it to false to load none."
     },
     "auto_capture_budget": {
       "type": "number",
