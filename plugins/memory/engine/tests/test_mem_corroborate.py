@@ -190,7 +190,7 @@ def test_one_project_makes_a_quarantined_record(w):
     assert run(w).returncode == 0
     (g,) = globals_(w)
     assert records.standing(g) == "unconfirmed" and records.quarantined(g)
-    assert g.body.strip() == "Written by the corroboration pass from 1 lessons of 1 projects."
+    assert g.body.strip() == "Written by the corroboration pass; its sightings are the sessions and projects in `sources`."
     found = subprocess.run([str(MEM), "search", "acceptance"], capture_output=True, text=True,
                            env={k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}, cwd=w.tmp)
     assert g.handle not in found.stdout

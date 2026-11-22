@@ -110,7 +110,7 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 | Per trigger | At most 3 windows (a window is one stretch of the transcript, up to 80,000 characters of extract, read by one model session); no further window once 5 new records are written; the rest is read at the next trigger |
 | Compaction | The run starts with the compaction (`PreCompact`) and waits 5 minutes before it reads, so the records the session writes itself land first |
 | Session end | The last part of a session is not read at its end when the session ends without its `SessionEnd` hook (a killed terminal, a conversation left open in an editor tab), when another capture holds the lock for more than 15 minutes, or when the trigger stops at its window or record limit. The sweep below reads it later |
-| Sweep | A session start also reads sessions of the same transcript folder that were left idle: not changed for 6 hours, at most 7 days old, with unread lines; at most 2 per start and 4 per day use the model, and a file that did not change is skipped |
+| Sweep | A session start also reads sessions in the transcript folder of the starting session that were left idle: not changed for 6 hours, at most 7 days old, with unread lines, in a project that has its memory folder. At most 10 files are examined per start; at most 2 per start and 4 per UTC day use the model, each as an ordinary trigger (up to 3 windows within `auto_capture_budget`); a file that did not change is skipped |
 | Rewording | A lesson reworded is recorded twice by the capture; the corroboration pass below merges the two |
 | Evidence | Not yet measured |
 
@@ -134,9 +134,11 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 | Wording | A lesson is reworded once, when its global record is written; later evidence only adds sightings |
 | What counts as a project | A registered project whose folder exists, holds a memory folder and is not under a temporary folder; it is known by a hash of its path, so a moved folder or a second clone counts as another project |
 | Cost | Two model sessions per pass, each within `auto_capture_budget`; no pass when no lesson changed; after two passes that fail on the same lessons it stops until one changes |
-| Undo | `mem-corroborate undo <stamp>` restores every file a pass changed; it refuses when one was edited since |
+| Undo | `mem-corroborate undo <stamp>` restores every file a pass changed; `<stamp>` is a folder name under `<data folder>/corroborate/runs/`. It refuses, changing nothing, when one of those files was edited since |
+| Lapse | An unconfirmed lesson gets an end date 30 days after its last sighting; a new sighting within 60 days after that date revives it. A lapsed lesson stays stored and in quarantine; `mem memories --global --quarantine` still lists it |
+| What is sent to the model | The claim and context of every lesson of origin `transcript`, from every registered project and the global folder; no transcript text and no project name beyond what a lesson's own text says |
 
-**Where to look:** `<data folder>/corroborate/` holds `status.json`, `log.jsonl` (counts only), `seen.json` and `runs/` (private: it holds lesson text). `mem-corroborate run --dry-run --out FILE` shows what a pass would do and writes nothing; `mem-corroborate status` and `ack` report and clear a failure.
+**Where to look:** `<data folder>/corroborate/` holds `status.json`, `log.jsonl` (counts only), `seen.json` and `runs/` (private: it holds lesson text). `mem-corroborate run --dry-run --out FILE` runs both model sessions (up to `--budget` each, default 0.25 USD), writes what a pass would do to FILE and changes no record. After a failed pass the session start text carries one line, `memory: the last corroboration pass failed (<reason>)`, until `mem-corroborate ack`; `mem-corroborate status` shows the last run.
 
 **Evidence and limits:** on a private copy of real records (36 lessons, 3 projects), 6 of 7 dry runs gave a usable answer (the seventh used line numbers as ids, was refused by code, and the brief was corrected; 3 of 3 after that); the 6 proposed the same 15 groups; a run applied 12 to 15 of them, every refusal for an unfaithful rewording; the owner accepted 15 of 15. Not measured: use over time, lessons of more than one project, and whether a released lesson stops a failure from recurring. Only records of origin `transcript` are read: a global memory written by hand is never merged or given sightings.
 

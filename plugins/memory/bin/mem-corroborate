@@ -287,7 +287,8 @@ def undo_run(run: Path) -> tuple[bool, str]:
             if now == saved:
                 continue
         if digest(now) != row.get("hash"):
-            return False, f"{file} changed since the run: nothing was changed"
+            return False, (f"{file} changed since the run: nothing was changed. Undo the later change first "
+                           "(mem restore for a memory), or leave the pass applied")
         todo.append((path, saved))
     for path, saved in todo:
         try:
@@ -371,9 +372,8 @@ class Applier:
                     args.append(f"--context={a.context}")
                 args += ["--origin", "transcript", "--reach", "general", "--weight", a.weight]
                 args += [f"--source={e}" for e in a.entries] + ["--body-file", "-"]
-                projects = {records.project_key(self.lessons[i].project) for i in a.members
-                            if self.lessons[i].project is not None}
-                body = f"Written by the corroboration pass from {len(a.members)} lessons of {len(projects)} projects.\n"
+                # no counts here: the record is not rewritten when a sighting arrives, so a figure would go stale
+                body = "Written by the corroboration pass; its sightings are the sessions and projects in `sources`.\n"
                 before = self.journal.watch_folder(self.gfolder) if self.gfolder else {}
                 done = self.mem(args, stdin=body)
                 self.journal.commit("write_global", before, self.gfolder)

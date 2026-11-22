@@ -112,7 +112,7 @@ Gate, on a private copy of the real records (36 lessons of origin `transcript`: 
 | Dry runs with a usable answer | 6 of 7. One run used the reading tool's line numbers as ids; code refused all 15 groups and planned nothing. The proposal brief gained one sentence; 3 of 3 after it |
 | Groups proposed | The same 15 in each of the 6 runs: 13 of one lesson, 2 pairs |
 | The two transcript wordings of the turn-limit lesson | Joined in all 6 |
-| Groups applied per run | 12, 12, 14, 14, 14, 15; over the last four runs 12 were applied every time |
+| Groups applied per run | 12, 12, 14, 14, 14, 15; 12 groups were applied in each of the last four runs |
 | Refusals by the verifying session | All for an unfaithful rewording, a different group each run; none for "not the same" or "not general" |
 | The owner's judgment of the 15 | 15 accepted; a rewording softer than the original is intended, and strength is added at triage after more confirmations |
 
