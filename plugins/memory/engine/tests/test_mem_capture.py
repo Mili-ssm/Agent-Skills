@@ -589,3 +589,69 @@ def test_one_odd_candidate_does_not_stop_the_run(world):
     assert done.returncode == 0, done.stderr
     assert [x["outcome"] for x in written(world)] == ["remembered", "remembered", "remembered"]
     assert len(files(world)) == 3
+
+
+def test_run_forward_reports_more(world):
+    transcript(world.transcript, [f"{i} " + "x" * 1900 for i in range(100)] + [OWNER])
+    total = len(world.transcript.read_text().splitlines())
+    assert run(world, "--forward").returncode == 0
+    r = result(world)
+    assert r["lines"][1] < total and r["extract"]["more"] is True
+    assert run(world).returncode == 0
+    assert result(world)["extract"]["more"] is False
+
+
+def test_run_window_is_importable_and_quiet(world, capsys):
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    spec = importlib.util.spec_from_loader("mem_capture_module", SourceFileLoader("mem_capture_module", str(CAPTURE)))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    transcript(world.transcript, [OWNER, "go on"])
+    result_dict, code = mod.run_window(world.transcript, world.out, world.project, 0, "haiku", 0.25, None, False,
+                                       False, quiet=True)
+    assert code == 0 and result_dict["reason"] == "too short"
+    assert capsys.readouterr().out == "" and result(world)["reason"] == "too short"
+
+
+def _load_module():
+    import importlib.util
+    from importlib.machinery import SourceFileLoader
+    spec = importlib.util.spec_from_loader("mem_capture_module2", SourceFileLoader("mem_capture_module2", str(CAPTURE)))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_run_window_allow_out_in_repo_only_skips_the_repository_refusal(world):
+    mod = _load_module()
+    transcript(world.transcript, [OWNER, "go on"])
+    repo = world.tmp / "repo"
+    (repo / ".git").mkdir(parents=True)
+    out = repo / "deep" / "out.json"
+    refused, code = mod.run_window(world.transcript, out, world.project, 0, "haiku", 0.25, None, False, False,
+                                   quiet=True)
+    assert code == 1 and "inside a repository" in refused["reason"] and not out.exists()
+    allowed, code = mod.run_window(world.transcript, out, world.project, 0, "haiku", 0.25, None, False, False,
+                                   allow_out_in_repo=True, quiet=True)
+    assert code == 0 and allowed["reason"] == "too short" and json.loads(out.read_text())["reason"] == "too short"
+
+
+def test_run_window_refuses_a_symlinked_out_even_when_allowed(world):
+    mod = _load_module()
+    transcript(world.transcript, [OWNER, "go on"])
+    target = world.tmp / "target.json"
+    link = world.tmp / "link.json"
+    link.symlink_to(target)
+    refused, code = mod.run_window(world.transcript, link, world.project, 0, "haiku", 0.25, None, False, False,
+                                   allow_out_in_repo=True, quiet=True)
+    assert code == 1 and refused["reason"] == "--out is a symlink; refusing to write through it"
+    assert not target.exists()
+
+
+def test_run_window_early_refusal_carries_the_printed_text(world, capsys):
+    mod = _load_module()
+    refused, code = mod.run_window(world.transcript, world.out, world.tmp / "missing", 0, "haiku", 0.25, None, False,
+                                   False, quiet=True)
+    assert code == 2 and refused["reason"] == "--project is not a folder: missing"
+    assert capsys.readouterr().err == f"mem-capture: {refused['reason']}\n"

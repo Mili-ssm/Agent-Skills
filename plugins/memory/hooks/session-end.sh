@@ -12,6 +12,20 @@ fi
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 [ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null
 type find_claude >/dev/null 2>&1 || find_claude() { :; }   # the helper is missing: no claude path, never a failure
+# Automatic capture (option auto_capture, exactly "true"): start mem-capture detached with the hook's JSON on its
+# standard input, before the commit (which can take seconds and the hook's time may run out; capture writes the
+# project, not the store). It checks its own limits, so nothing here waits on a model.
+if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ] && [ -n "$here" ]; then
+  if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # never wait on an input left open
+  claude="$(find_claude)"
+  set -- auto --trigger session-end
+  [ -n "$claude" ] && set -- "$@" --claude "$claude"
+  if command -v setsid >/dev/null 2>&1; then
+    (setsid nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+  else
+    (nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+  fi
+fi
 if [ -n "$here" ]; then
   if command -v timeout >/dev/null 2>&1; then
     timeout 5 "$here/../bin/mem" history commit --hook </dev/null >/dev/null 2>&1

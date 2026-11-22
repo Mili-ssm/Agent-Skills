@@ -258,3 +258,103 @@ def test_what_worked_is_a_signal_too():
     paid_off = {**GOOD, "signal": "effective_practice", "evidence": "the narrow briefs all returned complete reports on the first try"}
     assert capture.validate([paid_off], ex, [])[0] != []
     assert capture.SIGNALS[-2:] == ("owner_approval", "effective_practice")
+
+
+def long_session(tmp_path, n=200, size=1000):
+    return write(tmp_path, [user(f"{i:03d} " + "w" * (size - 4)) for i in range(1, n + 1)])
+
+def line_len(n, size=1000):  # length of the extract line of long_session's line n, without its newline
+    return len(f"[{n}] OWNER: ") + size
+
+def budget():
+    return capture.EXTRACT_LIMIT - len(capture.LEFT_OUT_MARKER) - 1
+
+def test_forward_stops_when_full(tmp_path):
+    p = long_session(tmp_path)
+    out, last = capture.extract(p, 0, forward=True)
+    assert len(out) <= capture.EXTRACT_LIMIT and out.startswith("[1] OWNER:")
+    assert 0 < last < 200 and capture.last_more is True and capture.LEFT_OUT_MARKER not in out
+    assert len(out.splitlines()) == last
+    # as full as fits: the next line would not have gone in
+    assert len(out) + 1 + line_len(last + 1) + 1 > budget()
+
+def test_forward_windows_cover_every_line_once(tmp_path):
+    p = long_session(tmp_path)
+    seen, last = [], 0
+    while True:
+        prev = last
+        out, last = capture.extract(p, last, forward=True)
+        assert last > prev
+        seen += [int(l[1:l.index("]")]) for l in out.splitlines()]
+        if not capture.last_more:
+            break
+    assert seen == list(range(1, 201))
+
+def test_forward_short_transcript(tmp_path):
+    p = write(tmp_path, [user(f"line {i}") for i in range(5)])
+    out, last = capture.extract(p, 0, forward=True)
+    assert last == 5 and capture.last_more is False and out == capture.extract(p, 0)[0]
+
+def test_forward_keeps_an_oversized_first_line(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture, "EXTRACT_LIMIT", 300)
+    p = write(tmp_path, [user("x" * 2000), user("second")])
+    out, last = capture.extract(p, 0, forward=True)
+    assert out and last == 1 and capture.last_more is True
+
+def test_default_mode_unchanged(tmp_path):
+    p = long_session(tmp_path)
+    out, last = capture.extract(p, 0)
+    assert last == 200 and capture.last_more is False
+    kept, used = 0, 0
+    while used + line_len(200 - kept) + 1 <= budget():
+        used += line_len(200 - kept) + 1
+        kept += 1
+    lines = out.splitlines()
+    assert lines[0] == capture.LEFT_OUT_MARKER and len(lines) == kept + 1
+    assert lines[1].startswith(f"[{200 - kept + 1}] OWNER:") and lines[-1].startswith("[200] OWNER:")
+
+def flow():
+    return [user("start"), agent(use("a", "Bash", command="make")), result("a", "boom", err=True),
+            agent(use("b", "Bash", command="make again")), result("b", "fine"),
+            agent(use("q", "AskUserQuestion", description="which?")), result("q", "the first one"),
+            user("done"), agent(text("closing"))]
+
+def test_chained_forward_windows_equal_one_read_across_every_boundary(tmp_path, monkeypatch):
+    p = write(tmp_path, flow())
+    whole = capture.extract(p)[0]
+    assert "TOOL ERROR Bash: boom" in whole and "TOOL OK Bash" in whole and "OWNER ANSWER: the first one" in whole
+    for limit in range(60, 260, 7):
+        monkeypatch.setattr(capture, "EXTRACT_LIMIT", limit)
+        chained, last, windows = [], 0, 0
+        while True:
+            out, last = capture.extract(p, last, forward=True)
+            chained += out.splitlines()
+            windows += 1
+            if not capture.last_more:
+                break
+        assert chained == whole.splitlines(), limit
+        assert windows > 1 or limit > 200
+
+def test_since_line_in_the_middle_still_knows_the_tool_names(tmp_path):
+    p = write(tmp_path, flow())
+    whole = capture.extract(p)[0].splitlines()
+    for since in range(1, 9):
+        out = capture.extract(p, since)[0].splitlines()
+        assert out == [l for l in whole if int(l[1:l.index("]")]) > since], since
+    assert "[3] TOOL ERROR Bash: boom" in whole and "[7] OWNER ANSWER: the first one" in whole
+    assert capture.extract(p, 2)[0].splitlines()[0] == "[3] TOOL ERROR Bash: boom"
+
+def test_priming_does_not_count_or_move_last(tmp_path):
+    p = write(tmp_path, ["not json", flow()[1], {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": []}]}}, user("x")])
+    out, last = capture.extract(p, 3)
+    assert out == "[4] OWNER: x" and last == 4 and capture.last_skipped == 0
+
+def test_forward_leaves_an_unterminated_last_line_for_the_next_call(tmp_path):
+    p = tmp_path / "t.jsonl"
+    p.write_text(json.dumps(user("one")) + "\n" + json.dumps(user("two")))
+    out, last = capture.extract(p, 0, forward=True)
+    assert out == "[1] OWNER: one" and last == 1 and capture.last_more is False
+    assert capture.extract(p, 0)[1] == 2  # default mode unchanged
+    p.write_text(p.read_text() + "\n")
+    out, last = capture.extract(p, 1, forward=True)
+    assert out == "[2] OWNER: two" and last == 2 and capture.last_more is False

@@ -30,6 +30,7 @@ _LINE_KINDS = ("OWNER", "OWNER ANSWER", "REPORT", "AGENT", "TOOL", "TOOL ERROR",
 _MARKER = "[...] earlier lines left out"
 LEFT_OUT_MARKER = _MARKER
 last_skipped = 0  # lines the last extract() could not process, for the caller to report
+last_more = False  # forward mode: lines remain after the window the last extract() returned
 _KIND_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR|TOOL OK|TOOL)\b")
 _BODY_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR \S+|TOOL \S+): (.*)$")
 
@@ -123,8 +124,13 @@ def _events(entry: dict, names: dict, state: dict) -> list[str]:
     return out
 
 
-def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
-    """Extract text and number of the last line read (1-based)."""
+def extract(transcript: Path, since_line: int = 0, forward: bool = False) -> tuple[str, int]:
+    """Extract text and number of the last line read (1-based).
+
+    By default the newest lines are kept and the oldest left out. With `forward` the window starts at
+    `since_line` and stops before the first line that would overflow it (`last_more` is then True); a first
+    line larger than the budget is kept, so every call advances, and an unterminated last line is left for the
+    next call. Lines up to `since_line` are parsed only to know the tool names and failures a result refers to."""
     budget = EXTRACT_LIMIT - len(_MARKER) - 1
     lines: deque[str] = deque()
     size = 0  # characters of the kept lines, one newline each
@@ -133,10 +139,20 @@ def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
     state: dict = {}
     last = since_line
     skipped = 0
+    more = False
     with open(transcript, encoding="utf-8", errors="replace") as f:
         for n, raw in enumerate(f, 1):
             if n <= since_line:
+                if "tool_use" in raw or "tool_result" in raw:  # prime tool names and failure state; nothing else matters
+                    try:
+                        entry = json.loads(raw)
+                        if isinstance(entry, dict):
+                            _events(entry, names, state)
+                    except Exception:
+                        pass  # not counted: the earlier window already reported it
                 continue
+            if forward and not raw.endswith("\n"):
+                break  # a line still being written is read once it is finished
             last = n
             try:  # no line of any content may stop the extract
                 entry = json.loads(raw)
@@ -146,17 +162,20 @@ def extract(transcript: Path, since_line: int = 0) -> tuple[str, int]:
             except Exception:
                 skipped += 1  # anything else may be a defect here: counted, so an emptied extract is noticed
                 continue
+            if forward and lines and size + sum(len(f"[{n}] {ev}") + 1 for ev in events) > budget:
+                last, more = n - 1, True
+                break
             for ev in events:
                 line = f"[{n}] {ev}"
                 lines.append(line)
                 size += len(line) + 1
-                while size > budget and lines:
+                while not forward and size > budget and lines:
                     size -= len(lines.popleft()) + 1
                     left_out = True
     if left_out:
         lines.appendleft(_MARKER)
-    global last_skipped
-    last_skipped = skipped
+    global last_skipped, last_more
+    last_skipped, last_more = skipped, more
     return "\n".join(lines), last
 
 

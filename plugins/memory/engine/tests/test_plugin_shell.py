@@ -8,6 +8,8 @@ from pathlib import Path
 import pytest
 
 import handoff
+from test_capture_auto import hook as capture_hook, world  # noqa: F401  (the fixture)
+from test_mem_capture import FAKE
 
 MEM = Path(__file__).resolve().parents[2] / "bin" / "mem"
 HOOK = Path(__file__).resolve().parents[2] / "hooks" / "session-env.sh"
@@ -343,3 +345,83 @@ def test_session_end_hook_exits_0_when_git_hangs(hub_root, tmp_path):
     started = time.monotonic()
     r = _session_end(tmp_path, hub_root, fake_git="#!/bin/sh\nsleep 30\n")
     assert r.returncode == 0 and time.monotonic() - started < 9
+
+
+def test_plugin_declares_auto_capture():
+    config = json.loads((Path(HOOKS).parent / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
+    assert config["auto_capture"]["type"] == "boolean" and config["auto_capture"].get("default") is not True
+    assert config["auto_capture_budget"]["type"] == "number" and config["auto_capture_budget"]["default"] == 0.25
+
+
+def _capture_env(w, option, extra=None):
+    """The hook's environment: the fake claude is found through CLAUDE_CODE_EXECPATH, as find-claude.sh does."""
+    sleeper = w.tmp / "sleepy-claude"
+    sleeper.write_text(FAKE.replace("import json, os, shutil, sys\n",
+                                    "import json, os, shutil, sys, time\ntime.sleep(float(os.environ.get('FAKE_SLEEP', '0')))\n", 1))
+    sleeper.chmod(0o755)
+    env = {k: v for k, v in os.environ.items() if k not in ("MEM_PROJECT", "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE")}
+    env.update({"CLAUDE_CODE_EXECPATH": str(sleeper), "FAKE_MODE": "good", "XDG_DATA_HOME": str(w.tmp / "share"), **(extra or {})})
+    if option is not None:
+        env["CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE"] = option
+    return env
+
+
+def _run_hook(w, name, option, extra=None, fake_git=None):
+    env = _capture_env(w, option, extra)
+    if fake_git:
+        bindir = w.tmp / "fakebin"
+        bindir.mkdir()
+        (bindir / "git").write_text(fake_git)
+        (bindir / "git").chmod(0o755)
+        env["PATH"] = f"{bindir}:{env['PATH']}"
+    started = time.monotonic()
+    done = subprocess.run([str(HOOKS / name)], input=capture_hook(w), env=env, capture_output=True, text=True, timeout=30)
+    return done, time.monotonic() - started
+
+
+def _wait_calls(w, count, seconds=15):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if len(w.calls()) >= count:
+            break
+        time.sleep(0.1)
+    return w.calls()
+
+
+@needs_uv
+def test_pre_compact_text_unchanged_with_capture_on(world):
+    on, _ = _run_hook(world, "pre-compact.sh", "true")
+    off, _ = _run_hook(world, "pre-compact.sh", None)
+    assert on.returncode == 0 and off.returncode == 0 and on.stdout == off.stdout == handoff.INSTRUCTION + "\n"
+
+
+@needs_uv
+@pytest.mark.parametrize("name", ["pre-compact.sh", "session-end.sh"])
+def test_hook_starts_capture_only_when_on(world, name):
+    done, _ = _run_hook(world, name, None)
+    assert done.returncode == 0
+    time.sleep(1.5)
+    assert world.calls() == []
+    done, _ = _run_hook(world, name, "true")
+    assert done.returncode == 0 and done.stderr == ""
+    assert len(_wait_calls(world, 1)) == 1
+
+
+@needs_uv
+@pytest.mark.skipif(shutil.which("timeout") is None, reason="no timeout command")
+def test_session_end_starts_capture_when_the_commit_hangs(world):
+    store = world.tmp / "store"
+    store.mkdir()
+    subprocess.run(["git", "-C", str(store), "init", "-q"], check=True)
+    real = shutil.which("git")   # only the store's commands hang; capture's own git calls go through
+    fake = f'#!/bin/sh\ncase "$*" in *status*|*commit*|*add*) sleep 30;; *) exec {real} "$@";; esac\n'
+    done, took = _run_hook(world, "session-end.sh", "true", extra={"CLAUDE_PLUGIN_OPTION_STORE": str(store)}, fake_git=fake)
+    assert done.returncode == 0 and took < 9
+    assert len(_wait_calls(world, 1)) == 1
+
+
+@needs_uv
+@pytest.mark.parametrize("name", ["pre-compact.sh", "session-end.sh"])
+def test_hooks_return_fast_with_capture_on(world, name):
+    done, took = _run_hook(world, name, "true", extra={"FAKE_SLEEP": "5"})
+    assert done.returncode == 0 and took < 2
