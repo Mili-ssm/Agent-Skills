@@ -15,6 +15,11 @@ HEDGED = "the claim is hedged and the short form is not"
     ("It may be so.", "Maybe do it.", [HEDGED]),
     ("It can't be undone.", "It can't be undone.", []),  # `can't` is not the hedge `can`
     ("Ask the owner first.", "Ask the owner first.", ['the short form says "owner": say "the user"']),
+    ("It can't be undone.", "Undo it.", []),                                 # an inner apostrophe keeps `can't` whole
+    ("It may fail.", "It can\u2019t fail.", ["the claim is hedged and the short form is not", 'the short form says "can\'t" and the claim does not']),
+    ("It can\u2019t be undone.", "Undo it.", []),                            # a typographic apostrophe is the plain one
+    ("Say it to the team.", "Say 'always' to the team.", ['the short form says "always" and the claim does not']),
+    ("Ask the owner.", "Ask the owner's team.", ['the short form says "owner": say "the user"']),
 ])
 def test_problems(claim, short, expected):
     assert shortcheck.problems(claim, short) == expected

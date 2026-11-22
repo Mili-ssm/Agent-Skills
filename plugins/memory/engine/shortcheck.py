@@ -14,8 +14,9 @@ _LINK = re.compile(r"https?://|www\.", re.IGNORECASE)
 
 
 def _words(text: str) -> list[str]:
-    # strip quoting apostrophes only; an inner one (can't) stays
-    return [w for w in (m.strip("'") for m in _WORD.findall(text.lower())) if w]
+    # a typographic apostrophe is the plain one; quoting apostrophes are stripped, an inner one (can't) stays
+    found = _WORD.findall(text.lower().replace("\u2019", "'").replace("\u2018", "'"))
+    return [w for w in (m.strip("'") for m in found) if w]
 
 
 def problems(claim: str, short: str) -> list[str]:
@@ -31,6 +32,6 @@ def problems(claim: str, short: str) -> list[str]:
             out.append(f'the short form says "{w}" and the claim does not')
     if _LINK.search(short):
         out.append("the short form holds a link")
-    if "owner" in short_words:
+    if any(w in ("owner", "owner's", "owners") for w in short_words):
         out.append('the short form says "owner": say "the user"')
     return out
