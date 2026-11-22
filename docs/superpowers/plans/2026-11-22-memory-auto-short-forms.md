@@ -293,7 +293,7 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 ## After the tasks
 
 - [x] The six tasks built on 2026-11-22, each reviewed after its commit, with two fix rounds on the automatic fill (the path where the apply raises; a load the owner changed during a run; a partial answer of the checker) and one rule added by the docs review: the pass never touches a lesson that already has a valid short form, even without a topic. Whole suite: 1875 passed, 5 skipped before the last small fixes.
-- [ ] **Gate, on a private copy of the real store, outside the repository.** The rule is fixed here, before any run (C62).
+- [x] **Gate, on a private copy of the real store, outside the repository** (run twice on 2026-11-22: [Results](#results)). The rule is fixed here, before any run (C62).
 
   | Set | What it is |
   |---|---|
@@ -349,3 +349,39 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 - Within two weeks of release, of the handles in the runs' `applied.json`, the owner reworded or turned off more than 1 in 5: back to reading before loading. If the owner read none by day 7, the agent shows the list once, since the criterion cannot be read otherwise.
 - A loaded short form is found stronger than its claim: add the case to `test_shortcheck.py` or the gate's set, and run the gate again before the next release.
 - The fill's sessions cost more than 0.05 USD a day on the owner's logs for a week: lower `FILL_CAP`, or run the fill only when a lesson was released.
+
+## Results
+
+### Gate, 2026-11-22 (two runs; the second after the one revision the rule allows)
+
+Material: the 15 short forms applied on the owner's store that day, read by the owner in three batches during the gate (the earlier record of which 10 had been read was lost, so the owner read all 15 again). Scripts and outputs are kept outside the repository; this section holds counts only.
+
+**Labels.** First reading: 14 faithful, 1 not (the situation widened and the reason dropped). After the first run the owner looked again at three that are worded as commands while their claims are hedged suggestions, and prefers them reworded: a lesson should influence with measure until it is reinforced. Final labels: 11 faithful, 4 not acceptable (3 command forms, 1 widened situation).
+
+**Run 1** (briefs as planned; 29 of 30 stronger variants usable; cost 0.17 USD for 9 sessions, then 0.05 USD for one fill run).
+
+| Measure | Haiku | Sonnet |
+|---|---|---|
+| Code check refuses a read form | 0 of 15 | same |
+| Checker calls the read forms faithful, two runs | 11 and 11 of 15 | 14 and 15 of 15 |
+| Code and checker refuse the stronger variants, two runs | 29 and 28 of 29 | 29 and 29 of 29 |
+
+The code check alone refused 24 of 29 variants: all of the kinds hedge removed, absolute added, claim added and suggestion turned into an order, and 1 of 6 of the kind situation widened. Against the first labels Haiku failed the second row and Sonnet passed. Against the final labels the picture reverses: the four forms Haiku called unfaithful include the three command forms, and Sonnet refused none of the four. One fill run on a copy with every short form removed wrote 14 of 15; the owner read all 14 and found one worded as a command. That is the miss that used the revision.
+
+**The revision** (commit `4bf272b`): the writer's brief asks for the action named as a thing or an -ing form, not a command; the checker's brief says a command addressed to the reader is an order even when a "may" stands elsewhere in the sentence.
+
+**Run 2** (new stronger set from a new session, 30 of 30 usable; thresholds restated on the final labels before the run: the code check refuses at most 1 of the 11 faithful, the checker passes at least 10 of 11 in both runs, code and checker refuse at least 85% of the stronger set in both runs; cost 0.25 USD for 11 sessions).
+
+| Measure | Haiku | Sonnet |
+|---|---|---|
+| Code check refuses a faithful form | 0 of 11 | same |
+| Checker calls the faithful forms faithful, two runs | 10 and 11 of 11 | 10 and 11 of 11 |
+| Code and checker refuse the stronger variants, two runs | 30 and 30 of 30 | 30 and 30 of 30 |
+| The 4 forms the owner did not accept, refused (no threshold) | 3 of 4, both runs | 3 of 4, both runs |
+
+Both models pass; by the rule the checker is Haiku (`CHECK_MODEL`). The code check alone refused 28 of 30. One fill run on a fresh copy wrote 13 of 15 for 0.012 USD: none is a command, every one hedges, one was refused by code and one by the checker (retried once later). The owner read the 13 and accepted them (2026-11-22), noting they can be regenerated later since the claims are kept.
+
+**What the gate does not show.** The widened-situation form was accepted by every checker run of both models in both gate runs, and one of the 13 applied forms keeps its reason but drops when it applies; neither guard catches a short form that loses its situation. Eleven labels can catch a bad checker and cannot prove a good one. The second run's labels were settled after the first run's results were known, by the owner, on tone; the thresholds were not changed, only restated on the 11.
+
+**Found by the gate and fixed:** a lesson with no usable proposal appeared in no counter (commit `0273234`).
+
