@@ -112,6 +112,10 @@ def test_lines_carry_the_standing_written_by_code():
     assert rules.line(confirmed) == "- Run the checks before reporting a change. (confirmed by the owner)"
     assert rules.line(global_two_projects).endswith("(held in 2 projects)")
     assert rules.line(project_three).endswith("(held in 3 sessions)")
+    one_project = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", keys=(K1,)))
+    one_session = dataclasses.replace(base, scope="project", short="Y.", sources=_sources("s1", keys=(K1,)))
+    assert rules.line(one_project).endswith("(held in 1 project)")
+    assert rules.line(one_session).endswith("(held in 1 session)")
 
 
 def test_never_more_than_six_lines_or_900_characters():
@@ -162,6 +166,17 @@ def test_a_project_record_linked_to_a_loaded_global_one_loads_once():
     choice = rules.choose([proj, other], [glob], TODAY)
     assert sorted(m.handle for m in choice.loaded) == ["g", "q"]
     assert choice.left == []
+
+
+def test_a_project_record_linked_to_a_global_one_that_cannot_load_still_loads():
+    base = _base()
+    glob = dataclasses.replace(base, scope="global", handle="g", owner_confirmed=TODAY, short=None)
+    waiting = dataclasses.replace(base, scope="global", handle="w", owner_confirmed=TODAY, triage="pending")
+    p1 = dataclasses.replace(base, scope="project", handle="p", general="g", owner_confirmed=TODAY)
+    p2 = dataclasses.replace(base, scope="project", handle="r", general="m:w", owner_confirmed=TODAY)
+    choice = rules.choose([p1, p2], [glob, waiting], TODAY)
+    assert sorted(m.handle for m in choice.loaded) == ["p", "r"]
+    assert [m.handle for m, _ in choice.left] == ["w"] and choice.unready == 1
 
 
 def _left(topics):

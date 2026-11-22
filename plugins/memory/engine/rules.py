@@ -48,9 +48,8 @@ def _rank(m: Memory) -> tuple:
 def standing_words(m: Memory) -> str:
     if m.owner_confirmed:
         return "(confirmed by the owner)"
-    if m.scope == "global":
-        return f"(held in {len(records.projects(m))} projects)"
-    return f"(held in {len(records.sessions(m))} sessions)"
+    n, unit = (len(records.projects(m)), "project") if m.scope == "global" else (len(records.sessions(m)), "session")
+    return f"(held in {n} {unit}{'' if n == 1 else 's'})"
 
 
 def line(m: Memory) -> str:
@@ -60,7 +59,7 @@ def line(m: Memory) -> str:
 def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime.date) -> Choice:
     out = Choice()
     globals_ = [m for m in global_ if eligible(m, today)]
-    names = {m.handle for m in globals_}
+    names = {m.handle for m in globals_ if m.triage != "pending" and records.valid_short(m.short)}  # ready to load
     projects_ = [m for m in project if eligible(m, today) and (m.general or "").removeprefix("m:") not in names]
     ready: list[Memory] = []
     for m in [*projects_, *globals_]:

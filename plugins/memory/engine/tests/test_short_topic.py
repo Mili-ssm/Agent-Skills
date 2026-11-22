@@ -43,13 +43,15 @@ def test_remember_and_edit_store_short_and_topic(gfolder, capsys):
 
 
 @pytest.mark.parametrize("flag,bad", [("--short", "x" * 121), ("--short", "two\nlines"), ("--topic", "Testing"),
-                                      ("--topic", "three word topic"), ("--topic", "x" * 25)])
+                                      ("--topic", "three word topic"), ("--topic", "x" * 25), ("--topic", "other")])
 def test_invalid_values_are_refused(flag, bad, gfolder, capsys):
     assert remember(flag, bad) == 2
+    assert flag[2:] in capsys.readouterr().err
     assert not gfolder.exists() or records.load_memories(gfolder, "global") == []
     assert remember() == 0
     before = only(gfolder).path.read_bytes()
     assert mem.main(["memory", "edit", f"m:{only(gfolder).handle}", "--global", flag, bad]) == 2
+    assert flag[2:] in capsys.readouterr().err
     assert only(gfolder).path.read_bytes() == before
     with pytest.raises(ValueError):
         records.write_memory(gfolder, "global", kind="lesson", claim="Another claim.", body="",
@@ -117,3 +119,36 @@ def test_show_prints_the_fields(gfolder, capsys):
     assert mem.main(["show", f"m:{h}"]) == 0
     out = capsys.readouterr().out
     assert f"short: {SHORT}" in out and "topic: testing" in out and "load: no" in out
+
+
+def test_a_load_value_other_than_no_reads_as_absent(gfolder):
+    path = put(gfolder, "zero", CLAIM, "load: 0\n")
+    assert records.load_memories(gfolder, "global")[0].load is None
+    path.write_text(path.read_text().replace("load: 0", "load: false"), encoding="utf-8")
+    assert records.load_memories(gfolder, "global")[0].load == "no"
+    path.write_text(path.read_text().replace("load: false", "load: 'no'"), encoding="utf-8")
+    assert records.load_memories(gfolder, "global")[0].load == "no"
+
+
+def test_short_whitespace_is_collapsed_and_a_line_break_is_named(gfolder, capsys):
+    assert remember("--short", "  Run   the checks  before reporting a change.  ") == 0
+    m = only(gfolder)
+    assert m.short == "Run the checks before reporting a change."
+    assert mem.main(["memory", "edit", f"m:{m.handle}", "--global", "--short", "  Other   rule. "]) == 0
+    assert only(gfolder).short == "Other rule."
+    capsys.readouterr()
+    assert mem.main(["memory", "edit", f"m:{m.handle}", "--global", "--short", "two\nlines"]) == 2
+    assert "line break" in capsys.readouterr().err
+
+
+def test_the_removal_notice_is_printed_only_after_the_write(gfolder, capsys, monkeypatch):
+    assert remember("--short", SHORT) == 0
+    h = only(gfolder).handle
+    capsys.readouterr()
+    def refuse(*a, **k):
+        raise ValueError("write refused")
+
+    monkeypatch.setattr(records, "update", refuse)
+    assert mem.main(["memory", "edit", f"m:{h}", "--global", "--claim", CLAIM + " Then say so."]) == 2
+    assert "removed" not in capsys.readouterr().err
+    assert only(gfolder).short == SHORT

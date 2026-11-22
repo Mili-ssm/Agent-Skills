@@ -3404,14 +3404,20 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
     return True
 
 
-def _check_short_topic(short: str | None, topic: str | None) -> int | None:
-    """2 after a message when a given short form or topic is not valid (empty is allowed: it means none), else None."""
-    if short and not records.valid_short(short):
+def _check_short_topic(args: argparse.Namespace) -> int | None:
+    """Collapse the whitespace of `args.short`, then 2 after a message when it or `args.topic` is not valid
+    (empty is allowed: it means none), else None."""
+    if args.short and len(args.short.splitlines()) > 1:
+        print("mem: the short form must be one line: it has a line break.", file=sys.stderr)
+        return 2
+    if args.short is not None:
+        args.short = " ".join(args.short.split())
+    if args.short and not records.valid_short(args.short):
         print(f"mem: the short form must be one line of at most {records.SHORT_LIMIT} characters.", file=sys.stderr)
         return 2
-    if topic and not records.valid_topic(topic):
-        print(f"mem: the topic must be one or two lowercase words (letters, digits, hyphens) of at most "
-              f"{records.TOPIC_LIMIT} characters.", file=sys.stderr)
+    if args.topic and not records.valid_topic(args.topic):
+        print(f"mem: the topic must be one or two lowercase words, at most {records.TOPIC_LIMIT} characters, "
+              f'not "other".', file=sys.stderr)
         return 2
     return None
 
@@ -3428,7 +3434,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if args.kind not in records.KINDS:
         print(f"mem: unknown kind {args.kind!r}.", file=sys.stderr)
         return 2
-    if (refused := _check_short_topic(args.short, args.topic)) is not None:
+    if (refused := _check_short_topic(args)) is not None:
         return refused
     if args.is_global:
         folder = records.memories_root(os.environ, store)
@@ -3808,7 +3814,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
     if claim is not None and not claim:
         print("mem: the claim is empty.", file=sys.stderr)
         return 2
-    if (refused := _check_short_topic(args.short, args.topic)) is not None:
+    if (refused := _check_short_topic(args)) is not None:
         return refused
     texts = [t for t in (claim, context, body, args.short) if t]
     if _refuse_secret(texts):
@@ -3829,6 +3835,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
     try:
         original = m.path.read_bytes()
         what = []
+        short_removed = False
         changes: dict[str, Any] = {}
         if claim is not None:
             if not args.shrink:
@@ -3849,7 +3856,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
         elif claim is not None and claim != m.claim and m.short:
             changes["short"] = None  # a short form never outlives the claim it was drawn from
             what.append("short removed")
-            print("mem: the short form was removed with the old claim: write a new one with --short", file=sys.stderr)
+            short_removed = True
         if args.topic is not None:
             changes["topic"] = args.topic or None
             what.append("topic")
@@ -3879,6 +3886,8 @@ def cmd_memory(args: argparse.Namespace) -> int:
         return 2
     if m.scope == "project":
         _register_project(records.project_root(Path.cwd(), os.environ))
+    if short_removed:
+        print("mem: the short form was removed with the old claim: write a new one with --short", file=sys.stderr)
     print(f"m:{m.handle}\tedited {', '.join(what)}")
     log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
     if m.scope == "global" and m.origin != "pipeline":

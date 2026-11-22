@@ -259,7 +259,7 @@ def valid_short(text) -> bool:
 
 
 def valid_topic(text) -> bool:
-    return isinstance(text, str) and len(text) <= TOPIC_LIMIT and _TOPIC.fullmatch(text) is not None
+    return isinstance(text, str) and len(text) <= TOPIC_LIMIT and text != "other" and _TOPIC.fullmatch(text) is not None
 
 
 def _parse(path: Path, scope: str) -> Memory:
@@ -305,7 +305,7 @@ def _parse(path: Path, scope: str) -> Memory:
         general = general if isinstance(general, str) and general.strip() else None
         short = meta.get("short") if valid_short(meta.get("short")) else None  # a bad value reads as absent
         topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
-        load = "no" if meta.get("load") in ("no", False) else None  # YAML reads a bare no as False
+        load = "no" if meta.get("load") == "no" or meta.get("load") is False else None  # YAML reads a bare no as False; 0 is not no
         try:
             owner_confirmed = _date(meta.get("owner_confirmed"), "owner_confirmed")
         except ValueError:  # a bad value must not hide the memory
