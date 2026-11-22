@@ -3406,7 +3406,8 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
             print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
-        target, _ = records.add_sighting(target, key, today)
+        target, _ = records.add_sighting(target, key, today, outcome=getattr(args, "outcome", None) or "seen",
+                                         on=getattr(args, "seen_on", None))
         added = True
         print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
     print(f"m:{target.handle}\t{'sighting' if added else 'already counted'}")
@@ -3541,7 +3542,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                  origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
                                  weight=getattr(args, "weight", None), short=args.short or None,
                                  topic=args.topic or None,
-                                 short_by="model" if args.short and not getattr(args, "user_read", False) else None)
+                                 short_by="model" if args.short and not getattr(args, "user_read", False) else None,
+                                 outcome=getattr(args, "outcome", None), on=getattr(args, "seen_on", None))
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3693,8 +3695,14 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         seen = {records.session_key(s) or s.strip() for s in found[0].sources}
         already = records.counted(found[0], source) if from_transcript and source is not None else (
             source is not None and (key or source.strip()) in seen)
+        outcome = getattr(args, "outcome", None) or "seen"   # `seen` is the default, resolved here so that
+        seen_on = getattr(args, "seen_on", None)          # a counted session gets a case only on request
         if already:
             repeated.append(True)
+            mine = [c.outcome for c in records.cases(found[0]) if c.session == key]
+            if from_transcript and key and getattr(args, "outcome", None) and outcome not in mine and not (outcome == "seen" and mine):
+                records.log_before(found[0], "confirm")   # a new case is written; the message stays as it was
+                found[0], _ = records.add_case(found[0], source, seen_on or today, outcome, today)
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
             records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set
@@ -3702,7 +3710,7 @@ def cmd_confirm(args: argparse.Namespace) -> int:
             return [f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"]
         records.log_before(found[0], "confirm")
         if source is not None and from_transcript:
-            updated, _ = records.add_sighting(found[0], source, today, args.note)
+            updated, _ = records.add_sighting(found[0], source, today, args.note, outcome=outcome, on=seen_on)
         else:
             updated = records.observe(found[0], today)
             if source is not None:
@@ -6524,6 +6532,10 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--reach", choices=records.REACHES, help="how far the lesson reaches")
     remember_parser.add_argument("--weight", choices=records.WEIGHTS,
                                  help="how much it weighs: light needs 1 session to be established, medium 2, strong 3")
+    remember_parser.add_argument("--outcome", choices=records.OUTCOMES,
+                                 help="what the session showed about the lesson; recorded as a case of its log")
+    remember_parser.add_argument("--seen-on", type=_today, default=None, metavar="YYYY-MM-DD",
+                                 help="the day of the session, when it is not today")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
@@ -6559,6 +6571,10 @@ def build_parser() -> argparse.ArgumentParser:
         confirm_parser.add_argument("--source", metavar="'session ID'",
                                     help="another session shows it: add it as a source (exit 3 when already one)")
         confirm_parser.add_argument("--note", metavar="TEXT", help="with --source: a line added to the body")
+        confirm_parser.add_argument("--outcome", choices=records.OUTCOMES,
+                                    help="with --source: what that session showed about the lesson (default seen)")
+        confirm_parser.add_argument("--seen-on", type=_today, default=None, metavar="YYYY-MM-DD",
+                                    help="with --source: the day of that session (default today)")
         confirm_parser.add_argument("--by-owner", action="store_true",
                                     help="the owner vouches for a transcript lesson: it is established (exit 3 when already)")
         confirm_parser.set_defaults(func=cmd_confirm)

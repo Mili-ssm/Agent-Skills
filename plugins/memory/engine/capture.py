@@ -17,6 +17,17 @@ import records
 SIGNALS: tuple[str, ...] = ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
                             "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason",
                             "owner_approval", "owner_request_paid_off", "effective_practice")
+# What a signal says about the lesson (C65): a failure, a thing that worked, or only that it was seen.
+_FAILED = ("owner_correction", "failed_then_passed", "verified_review_finding", "delegation_failed", "rework",
+           "repeated_tool_error")
+_WORKED = ("owner_approval", "owner_request_paid_off", "effective_practice")
+
+
+def outcome(signal: str) -> str:
+    """The case outcome a capture signal records; an unknown signal is `seen`."""
+    return "failed" if signal in _FAILED else "worked" if signal in _WORKED else "seen"
+
+
 REACHES = records.REACHES
 FORMS: tuple[str, ...] = ("suggestion", "recommendation")
 SAME_AS_MIN = 0.3  # the larger share of one claim's terms found in the other, in either direction

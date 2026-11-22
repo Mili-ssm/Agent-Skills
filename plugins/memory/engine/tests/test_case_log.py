@@ -1,10 +1,15 @@
 import datetime
+import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
+import capture
 import mem
 import records
+
+MEM = Path(__file__).resolve().parents[2] / "bin" / "mem"
 
 D1, D2 = datetime.date(2026, 11, 20), datetime.date(2026, 11, 25)
 KEY = "0123456789ab"
@@ -347,3 +352,50 @@ def test_restore_brings_versions_back(project, capsys):
     assert mem.main(["restore", f"m:{m.handle}"]) == 0
     capsys.readouterr()
     assert reload(m).versions == before
+
+
+def run_mem(project, *args):
+    return subprocess.run([str(MEM), *args], capture_output=True, text=True, cwd=project,
+                          env={**os.environ, "MEM_PROJECT": str(project)})
+
+
+def test_every_signal_has_an_outcome():
+    failed = {"owner_correction", "failed_then_passed", "verified_review_finding", "delegation_failed", "rework",
+              "repeated_tool_error"}
+    worked = {"owner_approval", "owner_request_paid_off", "effective_practice"}
+    seen = {"plan_changed_by_review", "decision_with_reason"}
+    assert failed | worked | seen == set(capture.SIGNALS)
+    assert {s: capture.outcome(s) for s in capture.SIGNALS} == \
+        {**dict.fromkeys(failed, "failed"), **dict.fromkeys(worked, "worked"), **dict.fromkeys(seen, "seen")}
+    assert capture.outcome("other") == "seen"
+
+
+def test_confirm_records_outcome_and_day(project):
+    m = transcript(project)
+    first = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--outcome", "failed",
+                    "--seen-on", "2026-11-20")
+    assert first.returncode == 0, first.stderr
+    assert reload(m).log == ["2026-11-20 session s2 failed"]
+    again = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--outcome", "worked",
+                    "--seen-on", "2026-11-21")
+    assert again.returncode == 3 and "is already a source: nothing changed" in again.stdout
+    got = reload(m)
+    assert got.log == ["2026-11-20 session s2 failed", "2026-11-21 session s2 worked"]
+    assert f"observed {got.observed}" in first.stdout and got.observed == 2
+
+
+def test_confirm_refuses_a_wrong_day(project):
+    m = transcript(project)
+    before = m.path.read_bytes()
+    done = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--seen-on", "2026-13-40")
+    assert done.returncode == 2
+    assert m.path.read_bytes() == before
+
+
+def test_remember_of_a_known_claim_passes_the_case(project):
+    m = transcript(project)
+    done = run_mem(project, "remember", "--kind=lesson", f"--claim={m.claim}", "--origin", "transcript",
+                   "--source", "session s2", "--outcome", "failed", "--seen-on", "2026-11-22")
+    assert done.returncode == 3 and "sighting" in done.stdout, done.stderr
+    got = reload(m)
+    assert "session s2" in " ".join(got.sources) and got.log == ["2026-11-22 session s2 failed"]

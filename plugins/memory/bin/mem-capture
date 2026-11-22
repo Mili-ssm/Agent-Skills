@@ -233,7 +233,8 @@ def read_candidates(path: Path) -> tuple[object, str | None]:
     return (rows, None) if isinstance(rows, list) else (None, "candidates.json is not a JSON list")
 
 
-def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[str, str | None, str | None]:
+def apply_global_sighting(item: dict, session: str, env: dict, clean,
+                          day: str | None = None) -> tuple[str, str | None, str | None]:
     """One more sighting of a global record, counted with the project's key. The note never holds the evidence:
     text of a transcript must not reach the global scope."""
     project = Path(env["MEM_PROJECT"])
@@ -245,7 +246,7 @@ def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[s
         return "skipped", None, "not a global memory any more"
     source = records.sighting_entry(session, records.project_key(project))
     cmd = [str(MEM), "confirm", f"m:{handle}", "--global", clean(f"--source={source}"),
-           f"--note=Seen again ({item['signal']})."]
+           f"--note=Seen again ({item['signal']}).", f"--outcome={capture.outcome(item['signal'])}", *_seen_on(day)]
     try:
         done = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=MEM_TIMEOUT)
     except (OSError, subprocess.TimeoutExpired):
@@ -257,26 +258,32 @@ def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[s
     return "skipped", None, f"mem failed ({done.returncode})"
 
 
-def apply_one(item: dict, session: str, env: dict) -> tuple[str, str | None, str | None]:
+def _seen_on(day: str | None) -> list[str]:
+    return [f"--seen-on={day}"] if day else []
+
+
+def apply_one(item: dict, session: str, env: dict, day: str | None = None) -> tuple[str, str | None, str | None]:
     """Apply one kept candidate with `bin/mem`: (outcome, handle, reason). Text arguments use `--name=value`
     because a claim may start with `-`."""
     def clean(text: str) -> str:   # a lone surrogate cannot be encoded as an argument
         return text.encode("utf-8", "replace").decode("utf-8")
 
     if item["same_as"] and item["same_as"].startswith("g:"):
-        return apply_global_sighting(item, session, env, clean)
+        return apply_global_sighting(item, session, env, clean, day)
     if item["same_as"]:
         # `mem confirm` also finds global records: only a memory of this project may get the sighting
         project = records.project_dir(Path(env["MEM_PROJECT"]))
         if not any(f"m:{m.handle}" == item["same_as"] for m in records.load_memories(project, "project")):
             return "skipped", None, "not a memory of this project any more"
         cmd = [str(MEM), "confirm", item["same_as"], f"--source={session}",
-               clean(f"--note=Seen again ({item['signal']}): “{item['evidence']}”")]
+               clean(f"--note=Seen again ({item['signal']}): “{item['evidence']}”"),
+               f"--outcome={capture.outcome(item['signal'])}", *_seen_on(day)]
         stdin = None
     else:
         cmd = [str(MEM), "remember", f"--kind={item['kind']}", clean(f"--claim={item['claim']}"),
                clean(f"--context={item['context']}"), "--origin", "transcript", "--reach", item["reach"],
-               "--weight", item["weight"], f"--source={session}", "--body-file", "-"]
+               "--weight", item["weight"], f"--source={session}", "--body-file", "-",
+               f"--outcome={capture.outcome(item['signal'])}", *_seen_on(day)]
         stdin = clean(f"Signal: {item['signal']}\nForm: {item['form']}\nEvidence: “{item['evidence']}”\n")
     try:
         done = subprocess.run(cmd, env=env, input=stdin, capture_output=True, text=True, timeout=MEM_TIMEOUT)
@@ -302,10 +309,14 @@ def apply_one(item: dict, session: str, env: dict) -> tuple[str, str | None, str
 def apply_all(items: list[dict], transcript: Path, project: Path) -> list[dict]:
     session = f"session {transcript.stem}"
     env = {**os.environ, "MEM_PROJECT": str(project)}
+    try:   # the day the session ended (its file's last change, local time), not the day of a late sweep
+        day = datetime.date.fromtimestamp(transcript.stat().st_mtime).isoformat()
+    except (OSError, OverflowError, ValueError):
+        day = None
     rows = []
     for item in items:
         try:
-            outcome, handle, reason = apply_one(item, session, env)
+            outcome, handle, reason = apply_one(item, session, env, day)
         except Exception:   # one odd candidate never stops the others
             outcome, handle, reason = "skipped", None, "could not be applied"
         rows.append({"claim": item["claim"][:80].encode("utf-8", "replace").decode("utf-8"), "outcome": outcome, "handle": handle, "reason": reason})

@@ -809,3 +809,20 @@ def test_run_window_early_refusal_carries_the_printed_text(world, capsys):
                                    False, quiet=True)
     assert code == 2 and refused["reason"] == "--project is not a folder: missing"
     assert capsys.readouterr().err == f"mem-capture: {refused['reason']}\n"
+
+
+def test_capture_passes_signal_and_transcript_day(world):
+    import datetime
+    old = (datetime.datetime.now() - datetime.timedelta(days=3)).timestamp()
+    os.utime(world.transcript, (old, old))
+    day = datetime.date.fromtimestamp(old)
+    known = other_session(world, "Always run the linter before the tests.")
+    cands = [{**GOOD, "signal": "rework", "claim": "Always run the linter before the tests.", "same_as": known},
+             {**GOOD, "signal": "effective_practice", "claim": "Pin the tool version in the lockfile."}]
+    done = go(world, cands)
+    assert done.returncode == 0, done.stderr
+    assert [x["outcome"] for x in written(world)] == ["sighting", "remembered"]
+    import records
+    by_claim = {m.claim: m for m in records.load_memories(records.project_dir(world.project), "project")}
+    assert by_claim["Always run the linter before the tests."].log == [f"{day.isoformat()} session abc failed"]
+    assert by_claim["Pin the tool version in the lockfile."].log == [f"{day.isoformat()} session abc worked"]
