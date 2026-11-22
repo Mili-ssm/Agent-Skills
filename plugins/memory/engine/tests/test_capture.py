@@ -247,3 +247,13 @@ def test_a_calibrated_claim_may_run_to_400_characters():
 def test_claim_length_is_measured_after_whitespace_is_collapsed():
     kept, dropped = capture.validate([{**GOOD, "claim": "Run" + " " * 25 + "it"}], EXTRACT, [])
     assert kept == [] and dropped[0]["reason"] == "claim length"
+
+
+def test_what_worked_is_a_signal_too():
+    ex = "[1] OWNER: this way of splitting the brief worked really well, keep doing it\n[2] TOOL OK Bash\n[3] AGENT: the narrow briefs all returned complete reports on the first try"
+    praised = {**GOOD, "signal": "owner_approval", "evidence": "this way of splitting the brief worked really well"}
+    assert capture.validate([praised], ex, [])[0] != []
+    assert capture.validate([{**praised, "evidence": "the narrow briefs all returned complete reports"}], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
+    paid_off = {**GOOD, "signal": "effective_practice", "evidence": "the narrow briefs all returned complete reports on the first try"}
+    assert capture.validate([paid_off], ex, [])[0] != []
+    assert capture.SIGNALS[-2:] == ("owner_approval", "effective_practice")

@@ -115,8 +115,11 @@ Each object has these keys:
   "delegation_failed" (a subagent returned no report, stopped at a limit, misread its brief, or its report proved wrong),
   "rework" (work declared done had to be redone or fixed right after),
   "repeated_tool_error" (the same kind of tool error happened more than once),
-  "decision_with_reason" (the owner decided something and said why; the evidence must come from an OWNER or OWNER ANSWER line).
+  "decision_with_reason" (the owner decided something and said why; the evidence must come from an OWNER or OWNER ANSWER line),
+  "owner_approval" (the owner said that a way of working served them well, or asked for more of it; the evidence must come from an OWNER or OWNER ANSWER line),
+  "effective_practice" (a way of planning, briefing, checking or using a tool visibly paid off in this session: it worked the first time where earlier attempts had not, saved a round, or caught something early; the evidence shows the result, not the intention).
   Without one of these there is no candidate: an idea the agent had about itself, with nothing outside confirming it, is not kept.
+  Look for what worked as much as for what failed. The aim is not only fewer mistakes but better and cheaper work: a lesson may say "doing it this way tended to give a better result" and what made it work.
 - "kind": "lesson" (how to work), "pitfall" (something that breaks or misleads), or "decision".
 - "reach": "project" when it is about this codebase, its tools or its rules; "general" when it is about how the agent itself works in any project: how it plans, frames a request, briefs or checks a subagent, uses a skill or a plugin, verifies before claiming, or reads the owner's intent. Look for the general ones on purpose: a slip in method teaches more than the bug it caused. A general claim names no file, project or person. A project claim should name the exact file, command or setting it is about, because that is what makes it usable.
 - "weight": how much following it restricts the agent or the owner, and what it costs if it is wrong: "light" (a cheap habit that can hardly hurt), "medium", or "strong" (it forbids something, or a mistake would be costly).

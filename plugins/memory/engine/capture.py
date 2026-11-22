@@ -15,7 +15,8 @@ from typing import Mapping, Sequence
 import records
 
 SIGNALS: tuple[str, ...] = ("owner_correction", "failed_then_passed", "verified_review_finding", "plan_changed_by_review",
-                            "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason")
+                            "delegation_failed", "rework", "repeated_tool_error", "decision_with_reason",
+                            "owner_approval", "effective_practice")
 REACHES = records.REACHES
 FORMS: tuple[str, ...] = ("suggestion", "recommendation")
 SAME_AS_MIN = 0.3  # the larger share of one claim's terms found in the other, in either direction
@@ -24,7 +25,7 @@ EXTRACT_LIMIT = 80_000
 PART_SIZE = 40_000
 MAX_CANDIDATES = 5
 
-_OWNER_SIGNALS = ("owner_correction", "decision_with_reason")
+_OWNER_SIGNALS = ("owner_correction", "decision_with_reason", "owner_approval")
 _LINE_KINDS = ("OWNER", "OWNER ANSWER", "REPORT", "AGENT", "TOOL", "TOOL ERROR", "TOOL OK")
 _MARKER = "[...] earlier lines left out"
 LEFT_OUT_MARKER = _MARKER
