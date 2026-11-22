@@ -1,4 +1,5 @@
 import datetime
+import io
 
 import pytest
 
@@ -100,11 +101,59 @@ def test_settle_leaves_quarantine_alone(gfolder, monkeypatch):
     assert started == []
     assert write_established() == 0
     assert len(started) == 1
-    loaded = records.load_memories(gfolder, "global")
-    twin = QUARANTINED.replace("Zebra", "Zebras")
-    assert write_established(twin) == 0
+    assert write_established(ESTABLISHED.replace("Walrus", "Walruses")) == 0
     loaded = records.load_memories(gfolder, "global")
     state = settle.load_state(gfolder)
+    state["judged"] = []
     found = settle.pending(loaded, state, TODAY, tokenize=mem.tokenize)
     held = {m.handle for m in loaded if records.quarantined(m)}
+    assert held and found
     assert all(not ({p["a"], p["b"]} & held) for p in found)
+
+
+def test_signal_does_not_name_a_quarantined_record(gfolder, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"Please look at this: {QUARANTINED}"))
+    assert write_quarantined() == 0
+    q = records.load_memories(gfolder, "global")[0]
+    capsys.readouterr()
+    assert mem.main(["signal"]) == 0
+    out = capsys.readouterr().out
+    assert q.handle not in out and out.strip() == ""
+
+
+def test_signal_names_an_established_twin(gfolder, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"Please look at this: {QUARANTINED}"))
+    assert write_established(QUARANTINED) == 0
+    e = records.load_memories(gfolder, "global")[0]
+    capsys.readouterr()
+    assert mem.main(["signal"]) == 0
+    assert e.handle in capsys.readouterr().out
+
+
+def test_settle_state_ignores_quarantine_until_release(gfolder, capsys):
+    assert write_established() == 0
+    state = settle.load_state(gfolder)  # first use: the established record is judged
+    assert write_quarantined() == 0
+    assert write_established("Otter pools freeze quickly in winter.") == 0
+    q = next(m for m in records.load_memories(gfolder, "global") if m.claim == QUARANTINED)
+    assert settle.unjudged_count(gfolder, state, TODAY) == 1  # only the otter record
+    assert mem.main(["settle", "pending"]) == 0
+    assert q.handle not in settle.load_state(gfolder)["judged"]
+    assert mem.main(["confirm", "--global", q.handle, "--source", f"session a project {K1}"]) == 0
+    assert mem.main(["confirm", "--global", q.handle, "--source", f"session b project {K2}"]) == 0
+    capsys.readouterr()
+    q = next(m for m in records.load_memories(gfolder, "global") if m.claim == QUARANTINED)
+    assert not records.quarantined(q)
+    assert settle.unjudged_count(gfolder, settle.load_state(gfolder), TODAY) == 1
+
+
+def test_quarantine_listing_hides_a_forgotten_record(both, capsys):
+    q, _ = both
+    assert mem.main(["forget", "--global", q.handle]) == 0
+    capsys.readouterr()
+    assert mem.main(["memories", "--global", "--quarantine"]) == 0
+    assert capsys.readouterr().out.strip() == ""
+    assert mem.main(["memories", "--global", "--quarantine", "--dead"]) == 0
+    assert q.handle in capsys.readouterr().out

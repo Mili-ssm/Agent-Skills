@@ -3059,7 +3059,9 @@ def _count_notes(store: Path) -> int:
 
 def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[records.Memory]:
     """What a reader may be shown: live, and not a global lesson still in quarantine. The tools that corroborate or
-    look a record up (the identical-claim check, handles, curate, the capture list) load unfiltered."""
+    look a record up (the identical-claim check, handles, curate, the capture list) load unfiltered. `cmd_search`,
+    `cmd_memories` and `cmd_signal` filter `records.quarantined` directly: the first two because `--all-memories` and
+    `--dead` still show dead records, the third because it reads the folders itself and shows no liveness."""
     return [m for m in memories if records.is_live(m, today) and not records.quarantined(m)]
 
 
@@ -3273,7 +3275,7 @@ def cmd_signal(args: argparse.Namespace) -> int:
         memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
         today = datetime.date.today()
         found = (records.load_memories(records.project_dir(project) if project else None, "project")
-                 + records.load_memories(memories, "global"))
+                 + [m for m in records.load_memories(memories, "global") if not records.quarantined(m)])
         strong, possible = records.related_records(found, [], brief, today, tokenize=tokenize)  # memories only
         text = signal_text(strong, possible)
         if args.hook:
@@ -4035,8 +4037,8 @@ def cmd_memories(args: argparse.Namespace) -> int:
             folders = [f for f in folders if (f[0] == "global") == args.is_global]
     shown = [m for _, _, loaded in _loaded(folders) for m in loaded
              if m.error is None and (args.kind is None or m.kind == args.kind)
-             and (records.quarantined(m) if args.quarantine
-                  else (args.dead or records.is_live(m, today)) and not records.quarantined(m))]
+             and (args.dead or records.is_live(m, today))
+             and records.quarantined(m) == args.quarantine]
     shown.sort(key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle))
     for m in shown:
         dead = _memory_status(m, today)

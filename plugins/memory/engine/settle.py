@@ -109,7 +109,15 @@ def save_state(folder: Path, state: dict) -> None:
 
 
 def _counts_as_new(m: records.Memory, judged: set[str], today: datetime.date) -> bool:
-    return m.handle not in judged and records.is_live(m, today) and m.origin not in ("pipeline", "web")
+    return (m.handle not in judged and records.is_live(m, today) and m.origin not in ("pipeline", "web")
+            and not records.quarantined(m))  # settling leaves quarantine alone, in its state too
+
+
+def _unjudged_stems(folder: Path, judged: set[str]) -> list[str]:
+    """Stems not yet judged and not in quarantine: a record in quarantine is invisible here, so it is offered as new
+    only once it is released. Parses only the files whose stem is not judged."""
+    return [s for s in _stems(folder)
+            if s not in judged and not records.quarantined(records._parse(folder / f"{s}.md", "global"))]
 
 
 def unjudged_count(folder: Path, state: dict, today: datetime.date) -> int:
@@ -170,7 +178,7 @@ def offer(folder: Path, state: dict, found: list[dict], now: float) -> None:
     pair shown. What is written afterwards stays new for the next run. With no pair to judge, the handles examined are judged at once and the run counts as done, so
     `due` stops reporting work and no model session is needed."""
     judged = set(state["judged"])
-    unjudged = [s for s in _stems(folder) if s not in judged]
+    unjudged = _unjudged_stems(folder, judged)
     if found:
         state["offered"] = unjudged
         state["offered_pairs"] = [sorted((p["a"], p["b"])) for p in found]
@@ -320,7 +328,7 @@ def apply_verdicts(folder: Path, memories: Sequence[records.Memory], rows: objec
     stems = set(_stems(folder))
     covered = state.get("offered")
     if not isinstance(covered, list):
-        covered = [s for s in stems if s not in judged_now]
+        covered = _unjudged_stems(folder, judged_now)
     # what is still a valid pair after this file's changes: a merged or superseded record drops out of it
     still = {frozenset((p["a"], p["b"])) for p in pending(records.load_memories(folder, "global"), state, today,
                                                          tokenize=tokenize)}
