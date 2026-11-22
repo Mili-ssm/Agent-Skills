@@ -122,7 +122,7 @@ def test_session_index_without_hook_raises_nothing(...): ...
 
 Front matter keys are the field names; dates in ISO form; the body is the text after the front matter. Unknown keys are kept on rewrite.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 T = datetime.date(2026, 11, 22)
@@ -176,10 +176,10 @@ def test_snooze_takes_exactly_one_condition(tmp_path): ...
 def test_unknown_front_matter_keys_survive_a_rewrite(tmp_path): ...
 ```
 
-- [ ] **Step 2: Run them and see them fail** — expected: import error for `reminders`.
-- [ ] **Step 3: Implement `reminders.py`.** `after` later than `until` is refused at write.
-- [ ] **Step 4: Run the file's tests**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): reminder records with date and session conditions`
+- [x] **Step 2: Run them and see them fail** — expected: import error for `reminders`.
+- [x] **Step 3: Implement `reminders.py`.** `after` later than `until` is refused at write.
+- [x] **Step 4: Run the file's tests**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): reminder records with date and session conditions`
 
 ### Task 3: Writing and listing reminders
 
@@ -199,7 +199,7 @@ def test_unknown_front_matter_keys_survive_a_rewrite(tmp_path): ...
 - The count passed to `write` is `session_count.count_for(session_count.read(data), key)`, with the project's key for a project reminder and `None` for a global one.
 - "When it is due, in words": `due now`, `waits for N sessions`, `waits until <date>`, with `; ends <date>` and `; repeats every <N> days|sessions` appended when set.
 
-- [ ] **Step 1: Write the failing tests** — through `mem.main([...])`.
+- [x] **Step 1: Write the failing tests** — through `mem.main([...])`.
 
 ```python
 def test_remind_then_reminders_lists_it_due(project, capsys):
@@ -224,10 +224,10 @@ def test_outside_a_project_and_without_a_global_folder(capsys): ...             
 def test_the_commands_work_with_no_store(project, capsys): ...                  # conftest unsets MEM_STORE: remind and reminders exit 0
 ```
 
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run the file's tests and `test_core.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): mem remind and mem reminders`
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run the file's tests and `test_core.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): mem remind and mem reminders`
 
 ### Task 4: Ending, putting off and measuring reminders
 
@@ -243,7 +243,7 @@ def test_the_commands_work_with_no_store(project, capsys): ...                  
   - `mem reminders --all` adds ended, lapsed and broken ones (a broken one with its error).
   - `mem reminders --stats` prints `live N`, then one line per kind with a count and the median showings: `done 4 (median 1 showing)`, `closed 1 (median 5 showings)`, `put off 3 (median 2 showings)` from `shown_before`, and `lapsed 2`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```python
 def test_done_needs_a_note_and_ends_it(project, capsys): ...                  # then `reminders` prints "No reminders."
@@ -264,10 +264,10 @@ def test_reminders_do_not_reach_search_memories_or_curate(project, gfolder, caps
 def test_check_accepts_a_store_whose_memories_hold_a_reminder_with_a_link_in_its_body(hub_root, capsys): ...   # mem check exits as before
 ```
 
-- [ ] **Step 2: Run them and see them fail.**
-- [ ] **Step 3: Implement.** If `mem check` fails on the reminder's link, make the check skip the `reminders` folder.
-- [ ] **Step 4: Run the file's tests, `test_reminder_commands.py` and `test_core.py`**; expected: all pass.
-- [ ] **Step 5: Commit** — `feat(memory): mem reminder done, close, snooze, restore and the showings measure`
+- [x] **Step 2: Run them and see them fail.**
+- [x] **Step 3: Implement.** If `mem check` fails on the reminder's link, make the check skip the `reminders` folder.
+- [x] **Step 4: Run the file's tests, `test_reminder_commands.py` and `test_core.py`**; expected: all pass.
+- [x] **Step 5: Commit** — `feat(memory): mem reminder done, close, snooze, restore and the showings measure`
 
 ### Task 5: The line at session start
 
