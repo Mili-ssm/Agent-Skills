@@ -17,6 +17,12 @@ since. The run folder is private and may hold memory text; `log.jsonl` holds cou
 
 Usage: mem-corroborate run [--claude PATH] [--budget USD] [--dry-run --out FILE] [--groups FILE]
        mem-corroborate auto [--claude PATH] | undo STAMP | status | ack | --self-check
+       mem-corroborate fill --dry-run --out FILE [--claude PATH] [--budget USD] | fill --items FILE
+
+`fill` proposes the one-line short form and the topic of the lessons that could load as rules at session start but
+lack them. Nothing writes a short form unread: `--dry-run --out FILE` only writes the proposal (one session of the
+small model); the owner reads and edits FILE, and `--items FILE` applies it through `mem memory edit` (journaled:
+`undo STAMP` puts the records back). `seen.json` and the status of the pass are not touched.
 """
 from __future__ import annotations
 
@@ -54,6 +60,7 @@ SESSION_TIMEOUT = 600
 MAX_FILE_BYTES = 1_000_000
 MEM = HERE / "mem"
 MEM_TIMEOUT = 60
+SETTLE_STATE = ".settle-state.json"   # beside the global records; `settle.STATE_NAME`
 SESSION_VARS = ("CLAUDE_ENV_FILE", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "CLAUDE_PROJECT_DIR", "CLAUDE_PID",
                 "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN")
 STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
@@ -109,6 +116,13 @@ For each group, answer in this order:
 
 Write {out} as JSON: {{"verdicts": [{{"group": 1, "reason": "...", "same": true, "faithful": true, "general": true}}]}}
 One entry per group, in order. Write nothing else and use no other tool.
+"""
+
+FILL_BRIEF = """You write the short form and the topic of lessons that coding sessions wrote down.
+Read {lessons}: one block per lesson, with an id, a claim and sometimes a context.
+For each lesson write: short: one sentence of at most 120 characters that says what to do and when, as a suggestion or a recommendation, never stronger than the claim. Keep a hedge the claim has (may, once, sometimes, provisional). It must stand on its own, name no project, person or company, and add nothing the claim does not say. topic: one or two lowercase words for the area (for example: testing, process, shell, review, docs). An id is copied whole.
+Write {out} as JSON: {{"items": [{{"id": "g:example", "short": "...", "topic": "..."}}]}}
+One item per lesson. Write nothing else and use no other tool.
 """
 
 
@@ -722,6 +736,167 @@ def cmd_run(args) -> int:
     return 1 if line["failed"] else 0
 
 
+# ---- fill: a short form and a topic for the owner to read ---------------------------------------------------------
+
+def _fill_world():
+    """(data folder, registry, counted projects, global folder, project name of each path)."""
+    data = data_dir()
+    registry = records.read_registry(data)
+    projects = corroborate.counted_projects(registry)
+    names: dict[Path, str] = {}
+    for name in sorted(registry):
+        entry = registry[name]
+        if isinstance(entry, dict) and isinstance(entry.get("path"), str):
+            names.setdefault(Path(entry["path"]), name)
+    return data, projects, records.global_memories_root(os.environ), names
+
+
+def fill_dry_run(args) -> int:
+    if not args.claude:
+        print("mem-corroborate: no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)", file=sys.stderr)
+        return 1
+    repo = repo_above(Path(args.out).expanduser().resolve().parent)
+    if repo is not None:
+        print(f"mem-corroborate: --out is inside a repository ({repo}); the result holds memory text", file=sys.stderr)
+        return 2
+    try:
+        _data, projects, gfolder, names = _fill_world()
+    except ValueError as exc:
+        print(f"mem-corroborate: registry unreadable: {exc}", file=sys.stderr)
+        return 1
+    candidates = corroborate.fill_candidates(projects, gfolder, datetime.date.today())
+    where = {i: p for i, p, _m in corroborate.fill_records(projects, gfolder)}
+    by_id = dict(candidates)
+    kept: dict[str, dict] = {}
+    reasons: list[str] = []
+    cost = 0.0
+    if candidates:
+        scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-fill-"))
+        try:
+            settings = scratch / "settings.json"
+            write_private(settings, json.dumps({"disableAllHooks": True}))
+            work = scratch / "fill"
+            work.mkdir(mode=0o700)
+            write_private(work / "lessons.txt", corroborate.fill_lines(candidates))
+            out = work / "fill.json"
+            brief = FILL_BRIEF.format(lessons=work / "lessons.txt", out=out)
+            done = run_session(session_cmd(args.claude, work, brief, settings, PROPOSE_MODEL, args.budget), work)
+            cost = done["cost"] if done["has_result"] else 0.0
+            if not done["has_result"] or done["error"]:
+                print("mem-corroborate: the session failed; nothing was written", file=sys.stderr)
+                return 1
+            kept, reasons = corroborate.validate_fill(read_object(out), list(by_id))
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
+    items = []
+    for ident, fields in kept.items():
+        m = by_id[ident]
+        project = where[ident]
+        items.append({"id": ident, "handle": m.handle, "scope": "global" if project is None else names.get(project, str(project)),
+                      "claim": m.claim, "short": fields["short"], "topic": fields["topic"],
+                      "claim_digest": corroborate.claim_digest(m)})
+    write_private(Path(args.out).expanduser(), json.dumps(items, ensure_ascii=False, indent=1) + "\n")
+    print(f"mem-corroborate: fill: {len(candidates)} lessons asked, {len(items)} kept, {len(reasons)} dropped, "
+          f"cost {cost:.3f} USD; read {args.out}, edit or cut it, then run fill --items {args.out}")
+    for why in reasons:
+        print(f"  not kept: {why}", file=sys.stderr)
+    return 0
+
+
+def fill_items(args) -> int:
+    path = Path(args.items).expanduser()
+    items = read_object(path)
+    if not isinstance(items, list):
+        print(f"mem-corroborate: {path} is not a JSON list of items", file=sys.stderr)
+        return 2
+    cdir = corroborate_dir(data_dir())
+    lock = au.take_run_lock(cdir)
+    if lock is None:
+        print("mem-corroborate: a run is going: try again later", file=sys.stderr)
+        return 1
+    start = time.time()
+    run = None
+    try:
+        _data, projects, gfolder, names = _fill_world()
+        run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+        au.private_dir(run)
+        write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
+
+        def log(text: str) -> None:
+            fd = os.open(run / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+            with os.fdopen(fd, "a", encoding="utf-8", errors="replace") as f:
+                f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+        known = {i: (p, m) for i, p, m in corroborate.fill_records(projects, gfolder)}
+        applier = Applier(Journal(run), {}, gfolder, run, log)
+        written = dropped = failed = 0
+        used: set[str] = set()
+        for n, item in enumerate(items, start=1):
+            ident = item.get("id") if isinstance(item, dict) else None
+            short = item.get("short") if isinstance(item, dict) else None
+            topic = item.get("topic") if isinstance(item, dict) else None
+            why = None
+            if not all(isinstance(x, str) for x in (ident, short, topic)):
+                why = "not an object with id, short and topic"
+            elif ident not in known:
+                why = f"unknown id {ident}"
+            elif ident in used:
+                why = f"repeats {ident}"
+            elif not records.valid_short(short):
+                why = "short is not one line of at most 120 characters"
+            elif not records.valid_topic(topic):
+                why = "topic is not one or two lowercase words"
+            if why:
+                dropped += 1
+                log(f"item {n} dropped: {why}")
+                continue
+            used.add(ident)
+            project, m = known[ident]
+            if item.get("claim_digest") != corroborate.claim_digest(m):
+                failed += 1
+                log(f"item {n} failed: {ident} changed its claim since the file was made")
+                continue
+            watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # an edit of a global record may update it
+            before = applier.journal.watch(watched)
+            done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []),
+                                f"--short={short}", f"--topic={topic}"], project)
+            applier.journal.commit("fill", before)
+            if done is not None and done.returncode == 0:
+                written += 1
+            else:
+                failed += 1
+                log(f"item {n} failed: mem refused or could not run for {ident}")
+        line = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+                "fill": {"asked": len(items), "written": written, "dropped": dropped, "failed": failed},
+                "ms": int((time.time() - start) * 1000)}
+        append_log(cdir, line)
+        print(f"mem-corroborate: fill: {len(items)} asked, {written} written, {dropped} dropped, {failed} failed; "
+              f"undo with: mem-corroborate undo {run.name}")
+        return 1 if failed else 0
+    except Exception as exc:   # noqa: BLE001
+        print(f"mem-corroborate: fill failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        os.close(lock)
+
+
+def cmd_fill(args) -> int:
+    if IMPORT_ERROR is not None:
+        print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
+        return 1
+    usage = "usage: mem-corroborate fill --dry-run --out FILE [--claude PATH] [--budget USD] | fill --items FILE"
+    if args.items:
+        if args.dry_run or args.out:
+            print(f"mem-corroborate: --items applies a file and goes with neither --dry-run nor --out\n{usage}", file=sys.stderr)
+            return 2
+        return fill_items(args)
+    if not (args.dry_run and args.out):
+        print(f"mem-corroborate: fill writes nothing unread: it needs --dry-run --out FILE or --items FILE\n{usage}",
+              file=sys.stderr)
+        return 2
+    return fill_dry_run(args)
+
+
 def cmd_auto(args) -> int:
     """The whole of `auto`; never raises and never prints."""
     try:
@@ -751,7 +926,7 @@ def cmd_undo(args) -> int:
             done, message = True, f"run {args.stamp} was already undone"
         else:
             done, message = undo_run(run)
-            if done:
+            if done and not (run / "fill").exists():   # a fill run never touched the pass's `seen.json`
                 forget_run(cdir, run)
     finally:
         os.close(lock)
@@ -795,6 +970,7 @@ def self_check() -> int:
     assert budget_of("x") == DEFAULT_BUDGET and budget_of("0.6") == 0.6 and budget_of("0") == DEFAULT_BUDGET
     PROPOSE_BRIEF.format(lessons="a", out="b")
     VERIFY_BRIEF.format(groups="a", out="b")
+    FILL_BRIEF.format(lessons="a", out="b")
     with tempfile.TemporaryDirectory(prefix="mem-corroborate-check-") as tmp:
         tmp = Path(tmp)
         os.environ.pop(cs.OPTION, None)
@@ -845,6 +1021,13 @@ def main() -> int:
     run.add_argument("--out", help="with --dry-run: the file for the proposal, the verdicts and the planned actions")
     run.add_argument("--groups", help="apply a reviewed file in the model's format; starts no model session")
     run.set_defaults(func=cmd_run)
+    fill = commands.add_parser("fill", help="propose the short form and topic of lessons for the owner to read, or apply that file")
+    fill.add_argument("--claude", default=default_claude)
+    fill.add_argument("--budget", type=budget_of, default=DEFAULT_BUDGET, help=f"USD for the session (default {DEFAULT_BUDGET})")
+    fill.add_argument("--dry-run", action="store_true", help="one session; write the proposal to --out and change no record")
+    fill.add_argument("--out", help="with --dry-run: the file for the proposal")
+    fill.add_argument("--items", help="apply a proposal file, as read and edited by the owner; starts no model session")
+    fill.set_defaults(func=cmd_fill)
     auto = commands.add_parser("auto", help="what a hook starts: one run when the option is on; silent")
     auto.add_argument("--claude", default=default_claude)
     auto.set_defaults(func=cmd_auto)

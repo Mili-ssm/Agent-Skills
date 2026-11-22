@@ -403,3 +403,87 @@ def test_a_group_with_a_global_member_needs_no_faithful(tmp_path):
     assert kept == [groups[0]] and len(reasons) == 1 and "group 2" in reasons[0]
     kept, _ = corroborate.validate_verdicts({"verdicts": [verdict(1, same=False), verdict(2)]}, groups)
     assert kept == [groups[1]]
+
+
+# ---- fill: the lessons that lack a short form --------------------------------------------------------------------
+
+K1, K2 = "0123456789ab", "ba9876543210"
+TWO = (f"session a project {K1}", f"session b project {K2}")
+SHORT = "Brief a subagent with the acceptance check first, as it may help it tell when it is done."
+
+
+def fill_world(tmp_path):
+    p1, p2 = project(tmp_path, "one"), project(tmp_path, "two")
+    glob = tmp_path / "global"
+    glob.mkdir()
+    return p1, p2, glob
+
+
+def fill_ids(found):
+    return [i for i, _m in found]
+
+
+def test_fill_candidates_leave_out_what_cannot_load(tmp_path):
+    p1, p2, glob = fill_world(tmp_path)
+    f1 = records.project_dir(p1)
+    put(f1, "project", "project lesson seen twice", sources=("session a", "session b"), weight="medium")
+    put(f1, "project", "project lesson seen once", weight="medium", sources=("session a",))  # not established
+    put(f1, "project", "confirmed once", sources=("session a",), weight="medium", owner_confirmed=TODAY)
+    put(f1, "project", "turned off", weight="light", load="no")
+    put(f1, "project", "hand written", weight="light", origin="web")
+    put(f1, "project", "has both", weight="light", short=SHORT, topic="process")
+    put(f1, "project", "has no topic", weight="light", sources=("session a", "session b"), short=SHORT)
+    put(glob, "global", "established global", sources=TWO, triage=None)
+    put(glob, "global", "quarantined global", sources=(TWO[0],))
+    put(glob, "global", "awaiting triage", sources=TWO)  # a released global record starts as pending
+    got = corroborate.fill_candidates([p1, p2], glob, TODAY)
+    claims = {m.claim for _i, m in got}
+    assert claims == {"project lesson seen twice", "confirmed once", "has no topic", "established global"}, claims
+    assert {i.split(":")[0] for i in fill_ids(got)} == {"p1", "g"}
+
+
+def test_fill_candidates_order_and_cap(tmp_path):
+    p1, p2, glob = fill_world(tmp_path)
+    f1 = records.project_dir(p1)
+    put(f1, "project", "twice", sources=("session a", "session b"), weight="light")
+    put(f1, "project", "four times", sources=tuple(f"session {c}" for c in "abcd"), weight="light")
+    put(f1, "project", "confirmed", sources=("session a",), weight="light", owner_confirmed=TODAY)
+    got = corroborate.fill_candidates([p1, p2], glob, TODAY)
+    assert [m.claim for _i, m in got] == ["confirmed", "four times", "twice"]
+    assert [m.claim for _i, m in corroborate.fill_candidates([p1, p2], glob, TODAY, cap=2)] == ["confirmed", "four times"]
+
+
+def test_fill_lines_hold_id_claim_and_context(tmp_path):
+    p1, p2, glob = fill_world(tmp_path)
+    put(records.project_dir(p1), "project", "A claim.", sources=("session a", "session b"), weight="light", context="when testing")
+    put(glob, "global", "Another claim.", sources=TWO, triage=None)
+    text = corroborate.fill_lines(corroborate.fill_candidates([p1], glob, TODAY))
+    blocks = text.strip().split("\n\n")
+    assert len(blocks) == 2
+    assert any(b.splitlines()[1:] == ["claim: A claim.", "context: when testing"] and b.startswith("id: p1:") for b in blocks)
+    assert any(b.splitlines()[1:] == ["claim: Another claim."] and b.startswith("id: g:") for b in blocks)
+
+
+def test_validate_fill_keeps_the_good_items_and_says_why_for_the_rest():
+    ids = ["g:a", "g:b", "p1:c", "p1:d", "p1:e"]
+    raw = {"items": [
+        {"id": "g:a", "short": SHORT, "topic": "process"},
+        {"id": "g:zzz", "short": SHORT, "topic": "process"},          # unknown id
+        {"id": "g:a", "short": SHORT, "topic": "docs"},               # repeated id
+        {"id": "g:b", "short": "x" * 121, "topic": "docs"},           # 121 characters
+        {"id": "p1:c", "short": SHORT, "topic": "Testing"},           # a capital
+        {"id": "p1:d", "short": "two\nlines", "topic": "docs"},
+        {"id": ["p1:e"], "short": SHORT, "topic": "docs"},
+        "nonsense",
+        {"id": "p1:e", "short": "y" * 120, "topic": "shell tools"},
+    ]}
+    kept, reasons = corroborate.validate_fill(raw, ids)
+    assert kept == {"g:a": {"short": SHORT, "topic": "process"}, "p1:e": {"short": "y" * 120, "topic": "shell tools"}}
+    assert len(reasons) == 7
+    assert any("unknown id g:zzz" in r for r in reasons) and any("repeats g:a" in r for r in reasons)
+
+
+@pytest.mark.parametrize("raw", [None, [], "x", {}, {"items": "x"}, {"groups": []}])
+def test_validate_fill_garbage_keeps_nothing(raw):
+    kept, reasons = corroborate.validate_fill(raw, ["g:a"])
+    assert kept == {} and len(reasons) == 1

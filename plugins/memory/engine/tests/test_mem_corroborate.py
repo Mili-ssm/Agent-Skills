@@ -32,7 +32,7 @@ with open(os.environ["FAKE_CALLS"], "a") as f:
                         "path": os.environ.get("PATH", "")}) + "\\n")
 brief = sys.argv[sys.argv.index("-p") + 1]
 out = re.search(r"Write (\\S+) as JSON", brief).group(1)
-src = os.environ.get("FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_GROUPS")
+src = os.environ.get("FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_FILL" if out.endswith("fill.json") else "FAKE_GROUPS")
 if mode == "exit1":
     sys.exit(1)
 if src and os.path.exists(src):
@@ -750,3 +750,163 @@ def test_old_run_folders_are_pruned_when_a_run_skips(w):
         os.utime(d, (old - i * 60,) * 2)
     assert run(w, mode="never").returncode == 0 and log_lines(w)[-1]["skipped"] == "nothing new"
     assert len(runs_of(w)) == capture_state.KEEP_RUNS
+
+
+# ---- fill: a short form and a topic proposed into a file the owner reads ------------------------------------------
+
+SAME = "Hand a subagent the acceptance check before it starts, as it may help it tell when it is done."
+SHORT = "Give a subagent the acceptance check first, as it may help it know when it is done."
+
+
+def fill_world(w):
+    """The same claim (so the same handle) in two projects, one global lesson and one that stays out of the file."""
+    lesson(w, w.pa, SAME, ("s1", "s2"))
+    lesson(w, w.pb, SAME, ("s3", "s4"))
+    g = records.write_memory(w.gmem, "global", kind="lesson", claim="Read the whole failing test output before you change any code.",
+                             body="b\n", today=TODAY, origin="transcript", reach="general", weight="light",
+                             sources=[f"session s5 project {records.project_key(w.pa)}",
+                                      f"session s6 project {records.project_key(w.pb)}"])
+    g = records.update(g, TODAY, triage=None)   # a released global record starts as pending
+    lesson(w, w.pa, "Run the narrowest test that covers a change before the whole suite, as it may save time.", ("s7", "s8"))
+    return g
+
+
+def fill_ids(w):
+    return {(x.id.split(":")[0], x.memory.handle): x.id for x in lessons(w)}
+
+
+def fill_answer(w, items):
+    (w.tmp / "fill-answer.json").write_text(items if isinstance(items, str) else json.dumps({"items": items}))
+    os.environ["FAKE_FILL"] = str(w.tmp / "fill-answer.json")
+
+
+def fill_run(w, *args, **kw):
+    return run(w, *args, cmd="fill", **kw)
+
+
+def proposal(w, g):
+    ids = fill_ids(w)
+    handle = records.load_memories(records.project_dir(w.pa), "project")[0].handle
+    shared = [i for (kind, h), i in ids.items() if kind != "g" and h == handle]
+    assert len(shared) == 2
+    gid = ids[("g", g.handle)]
+    fill_answer(w, [{"id": shared[0], "short": SHORT, "topic": "process"},
+                    {"id": shared[1], "short": SHORT + " ", "topic": "Process"},   # invalid: dropped
+                    {"id": gid, "short": "Read a failing test output to the end before changing code.", "topic": "testing"},
+                    {"id": "g:nothing", "short": SHORT, "topic": "process"}])
+    return shared, gid
+
+
+def test_fill_dry_run_writes_the_proposal_and_changes_nothing(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    before = snapshot(w)
+    out = w.tmp / "proposal.json"
+    done = fill_run(w, "--dry-run", "--out", str(out))
+    assert done.returncode == 0, done.stderr
+    assert "4 lessons asked, 2 kept, 2 dropped" in done.stdout, done.stdout
+    items = json.loads(out.read_text())
+    assert [(i["id"], i["scope"]) for i in items] == [(shared[0], w.pa.name), (gid, "global")]
+    first = items[0]
+    assert set(first) == {"id", "handle", "scope", "claim", "short", "topic", "claim_digest"}
+    assert (first["claim"], first["short"], first["topic"]) == (SAME, SHORT, "process")
+    assert first["claim_digest"] == corroborate.claim_digest(
+        next(m for m in project_records(w.pa).values() if m.claim == SAME))
+    assert snapshot(w) == before and calls(w) == 1 and not log_lines(w) and not (w.cdir / "runs").exists()
+    call = json.loads(w.calls_file.read_text().splitlines()[0])
+    assert call["args"][call["args"].index("--tools") + 1] == "Read,Write" and "fill.json" not in call["files"]
+    assert "lessons.txt" in call["files"] and not any(v.startswith("CLAUDE_PLUGIN") for v in call["mem_vars"])
+
+
+def test_fill_dry_run_asks_for_no_lesson_that_has_nothing_to_fill(w):
+    done = fill_run(w, "--dry-run", "--out", str(w.tmp / "p.json"), mode="never")
+    assert done.returncode == 0 and json.loads((w.tmp / "p.json").read_text()) == []
+
+
+def test_fill_items_write_exactly_the_file_and_undo_puts_them_back(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    before = snapshot(w)
+    items = json.loads(out.read_text())
+    for i in items:
+        i["topic"] = "review"   # the owner edits the file
+    out.write_text(json.dumps(items))
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    b = next(m for m in project_records(w.pb).values() if m.claim == SAME)
+    assert a.handle == b.handle   # the same handle, in two projects
+    assert (a.short, a.topic) == (SHORT, "review") and (b.short, b.topic) == (None, None)   # only the project of the item
+    (g_now,) = [m for m in globals_(w) if m.handle == g.handle]
+    assert g_now.short.startswith("Read a failing test") and g_now.topic == "review"
+    other = [m for m in project_records(w.pa).values() if m.claim.startswith("Run the narrowest")]
+    assert other[0].short is None
+    line = log_lines(w)[-1]
+    assert line["fill"] == {"asked": 2, "written": 2, "dropped": 0, "failed": 0} and "t" in line and "ms" in line
+    assert not (w.cdir / "seen.json").exists() and not (w.cdir / "status.json").exists()
+    (stamp,) = [p.name for p in (w.cdir / "runs").iterdir()]
+    assert stamp in done.stdout
+    undone = run(w, stamp, cmd="undo", claude=False)
+    assert undone.returncode == 0, undone.stderr
+    assert snapshot(w) == before and not (w.cdir / "seen.json").exists()
+
+
+def test_fill_items_write_the_second_project_of_a_shared_handle(w):
+    g = fill_world(w)
+    shared, _gid = proposal(w, g)
+    fill_answer(w, [{"id": shared[1], "short": SHORT, "topic": "process"}])
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    b = next(m for m in project_records(w.pb).values() if m.claim == SAME)
+    assert (a.short, b.short, b.topic) == (None, SHORT, "process")
+
+
+def test_fill_items_refuse_an_item_whose_claim_changed(w):
+    g = fill_world(w)
+    proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    records.update(a, TODAY, claim=SAME + " Provisional.")
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 1
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 1, "dropped": 0, "failed": 1}
+    a = next(m for m in project_records(w.pa).values() if m.claim.startswith(SAME))
+    assert a.short is None
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert "changed its claim" in (run_dir / "log.txt").read_text()
+
+
+def test_fill_items_drop_what_is_invalid_or_unknown_and_rewrite_a_filled_record(w):
+    g = fill_world(w)
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    records.update(a, TODAY, short="An older short form that the owner chose to rewrite.", topic="docs")
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    ids = fill_ids(w)
+    pid = ids[("p", a.handle)] if ("p", a.handle) in ids else next(i for (k, h), i in ids.items() if h == a.handle and k != "g")
+    digest = corroborate.claim_digest(a)
+    good = {"id": pid, "handle": a.handle, "scope": w.pa.name, "claim": SAME, "short": SHORT, "topic": "process", "claim_digest": digest}
+    file = w.tmp / "items.json"
+    file.write_text(json.dumps([good, {**good, "short": "x" * 121}, {**good, "id": "g:nothing"}, {**good}, "nonsense",
+                                {**good, "id": "p9:" + a.handle}]))
+    done = fill_run(w, "--items", str(file), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 6, "written": 1, "dropped": 5, "failed": 0}
+    a = next(m for m in project_records(w.pa).values() if m.claim == SAME)
+    assert (a.short, a.topic) == (SHORT, "process")
+
+
+def test_fill_alone_or_with_a_bad_file_exits_2(w):
+    fill_world(w)
+    done = fill_run(w, mode="never")
+    assert done.returncode == 2 and "usage" in done.stderr and not log_lines(w)
+    assert fill_run(w, "--dry-run", mode="never").returncode == 2
+    assert fill_run(w, "--out", str(w.tmp / "x.json"), mode="never").returncode == 2
+    assert fill_run(w, "--items", str(w.tmp / "none.json"), "--dry-run", mode="never").returncode == 2
+    (w.tmp / "bad.json").write_text("{}")
+    assert fill_run(w, "--items", str(w.tmp / "bad.json"), claude=False, mode="never").returncode == 2
+    assert not (w.cdir / "runs").exists()
