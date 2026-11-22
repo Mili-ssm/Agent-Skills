@@ -18,7 +18,7 @@ The pre-mortem of 2026-11-22 found that the first draft would have loaded lesson
 |---|---|
 | Lessons that are established, have a short form, and are not turned off; a project lesson also needs two sessions or the owner's confirmation | A project lesson seen once |
 | Short forms proposed by the small model on request and applied after the owner read them | The corroboration pass writing them for new lessons, and filling them by itself (C52) |
-| Every released global lesson waits at triage, as today | Only grave lessons waiting (C52), which needs the owner's word |
+| Every released global lesson waits at triage, as today | Only grave lessons waiting (C52, confirmed by the owner on 2026-11-22) |
 | At most 6 rules and 900 characters | Usefulness of a loaded lesson (C49), which needs a date on each sighting |
 
 ## Global Constraints
@@ -28,7 +28,7 @@ The pre-mortem of 2026-11-22 found that the first draft would have loaded lesson
 - A lesson in quarantine (`records.quarantined`) never appears in the rules block, in the line that follows it, or in `mem rules --more`.
 - A lesson loads only when all of these hold: live; `origin == "transcript"`; `records.standing(m) == "established"`; `triage` is not `pending`; `load` is not `no`; it has a valid `short`; and, for a project lesson, it was seen in at least two sessions or `owner_confirmed` is set.
 - The rules block is assembled by code from the records. No command rewrites the list with a model, and nothing writes a `short` without the owner having read it (`fill` proposes into a file; `fill --items FILE` applies that file).
-- Exact values: `short` at most 120 characters, one line; `topic` one or two lowercase words, at most 24 characters, matching `[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?`; `load` absent or `no`; at most 6 rules and 900 characters of rule lines (header not counted); the line that follows at most 200 characters and at most 4 topics.
+- Exact values: `short` at most 120 characters, one line; `topic` one or two lowercase words, at most 24 characters, matching `[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?`; `load` absent or `no`; at most 6 rules and 900 characters of rule lines (header not counted); the line that follows at most 200 characters and at most 4 named topics.
 - The header, measured (C53), verbatim: `memory: rules learned in earlier sessions. Follow them unless you have a reason not to, and say so when you do not.`
 - The standing after each rule is written by code: `(confirmed by the owner)` when `owner_confirmed` is set; else for a global lesson `(held in N projects)`; else `(held in N sessions)`.
 - An edit of a lesson's claim removes its `short` (the command says so), because a short form must never outlive the claim it was drawn from.
@@ -111,9 +111,9 @@ def test_show_prints_the_fields(gfolder, capsys): ...
   - Order: project lessons first, at most 3 of them; then all remaining ones together. Inside each group, most significant first: `owner_confirmed` set; weight (`strong`, `medium`, `light`; absent counts as `medium`); number of projects; number of sessions; `last_observed` (newest first, absent last); handle.
   - `standing_words(m) -> str` and `line(m) -> str`: `- <short> <standing_words>`.
   - `block(choice) -> list[str]`: empty when nothing loaded, else `[HEADER, *lines]`.
-  - `more_line(choice) -> str | None`: `None` when `left` is empty. `N more recommendations on <t1>, <t2>: mem rules --more`, with the topics of `left` by how many lessons carry them (then alphabetically), at most 4; `1 more recommendation`; without topics `N more recommendations: mem rules --more`; topics are removed from the end until the line fits 200 characters.
+  - `more_line(choice) -> str | None`: `None` when `left` is empty. `N more recommendations by topic: <t1> <n1>, <t2> <n2>, other <k> (mem rules --more <topic>)`, with the topics of `left` by how many lessons carry them (then alphabetically), at most 4 named; the lessons of any further topic and those with no topic are summed as `other <k>` (left out when 0); `1 more recommendation`; when no lesson of `left` has a topic: `N more recommendations: mem rules --more`; named topics are folded into `other` from the end until the line fits 200 characters.
   - `mem rules`: prints the block and the line exactly as session start will. With nothing loaded: `No rules loaded.`, and when `unready > 0` a second line `<N> established lessons have no short form: mem-corroborate fill --dry-run --out FILE proposes them.`
-  - `mem rules --more`: one line per left-out lesson: handle, scope, reason, topic or `-`, and the claim cut at 160 characters; then the `unready` count.
+  - `mem rules --more [TOPIC]`: one line per left-out lesson, grouped by topic: handle, scope, reason, topic or `-`, and the claim cut at 160 characters; with TOPIC only that group (`other` gives the lessons with no topic); then the `unready` count.
 
 - [ ] **Step 1: Write the failing tests** — records written through `mem.main(["remember", ...])` with `--origin transcript --weight ... --source "session a project <key>"`, and `mem confirm ... --by-owner` where needed, as `test_quarantine.py` and `test_confirm_owner.py` do.
 
@@ -134,7 +134,8 @@ def test_pending_triage_is_counted_not_loaded(): ...
 def test_quarantine_and_turned_off_lessons_are_nowhere(): ...     # not in block, more_line, unready, or `mem rules --more`
 def test_a_project_record_linked_to_a_loaded_global_one_loads_once(): ...
 def test_more_line_names_topics_by_frequency_and_fits():
-    assert rules.more_line(choice) == "5 more recommendations on testing, process, shell: mem rules --more"
+    assert rules.more_line(choice) == "7 more recommendations by topic: testing 3, process 2, shell 1, other 1 (mem rules --more <topic>)"
+def test_more_with_a_topic_prints_only_that_group(project, gfolder, capsys): ...
 def test_more_line_singular_and_without_topics(): ...
 def test_nothing_qualifies_gives_an_empty_block_and_no_line(): ...
 def test_mem_rules_and_more(project, gfolder, capsys): ...         # including the `No rules loaded.` texts
