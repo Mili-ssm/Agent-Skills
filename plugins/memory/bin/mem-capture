@@ -96,7 +96,7 @@ Each object has these keys:
 - "same_as": only when a line of recorded.txt starting with m: or g: already says this: its handle, exactly as written (for example "m:some-handle" or "g:some-handle"). Then this session is one more sighting of it; still give the other keys.
 
 Leave out: what a (general) line of recorded.txt or rules.txt already says; what the code, the git history or the project's documents already state; secrets, tokens, names of people or clients.
-A candidate that states the same lesson as a line starting with m: or g: is not left out: it sets "same_as" to that handle. Only what a (general) line or rules.txt already says is left out.
+A candidate that states the same lesson as a line starting with m: or g: is not left out for that reason: give it, with "same_as" set to that handle.
 """
 
 
@@ -237,7 +237,7 @@ def apply_global_sighting(item: dict, session: str, env: dict, clean) -> tuple[s
     if records.under_temp(project):
         return "skipped", None, "a temporary project"
     handle = item["same_as"][2:]
-    if not any(m.handle == handle and m.origin == "transcript"
+    if not any(m.handle == handle and m.origin == "transcript" and m.status == "active"
                for m in records.load_memories(records.memories_root(os.environ, None), "global")):
         return "skipped", None, "not a global memory any more"
     source = records.sighting_entry(session, records.project_key(project))

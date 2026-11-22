@@ -685,6 +685,23 @@ def test_a_global_record_removed_after_the_list_is_skipped_without_calling_mem(w
     assert not marker.exists()
 
 
+def test_a_superseded_global_record_is_skipped_without_calling_mem(world, monkeypatch):
+    import datetime
+    import records
+    g = global_lesson()
+    records.update(g, datetime.date.today(), status="superseded")
+    marker = world.tmp / "called"
+    fake = script(world, f"touch {marker}")
+    assert apply_direct(world, monkeypatch, g.handle, fake) == ("skipped", None, "not a global memory any more")
+    assert not marker.exists()
+
+
+def test_the_brief_keeps_its_leave_out_rule(world):
+    brief = _load_module().BRIEF
+    assert "what the code, the git history or the project's documents already state" in brief
+    assert "Only what a (general) line" not in brief
+
+
 def test_a_global_sighting_reports_the_exit_code_of_a_failing_mem(world, monkeypatch):
     g = global_lesson()
     for code in (2, 4):
