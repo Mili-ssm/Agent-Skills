@@ -62,7 +62,7 @@ def test_curate_global_lists_the_record_awaiting_triage(world, capsys):
     assert mem.main(["curate", "--global"]) == 0
     out = capsys.readouterr().out
     assert ("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage reject <h>, "
-            "or reword it with mem edit and then accept)") in out
+            "or reword it with mem memory edit <h> --global and then accept)") in out
     assert f"m:{m.handle}  2 sessions, 2 projects  {CLAIM}" in out
     assert "from a transcript, not confirmed yet" not in out
     assert "in quarantine" not in out
@@ -73,7 +73,7 @@ def test_curate_global_counts_the_quarantine_and_does_not_list_it_as_unconfirmed
     capsys.readouterr()
     assert mem.main(["curate", "--global"]) == 0
     out = capsys.readouterr().out
-    assert ("in quarantine: 1 general lessons, not shown to a reader until corroborated "
+    assert ("in quarantine: 1 general lesson, not shown to a reader until corroborated "
             "(mem memories --global --quarantine)") in out
     assert "from a transcript, not confirmed yet" not in out
     assert "awaiting triage" not in out
@@ -81,7 +81,7 @@ def test_curate_global_counts_the_quarantine_and_does_not_list_it_as_unconfirmed
 
 def test_accept_clears_the_field_and_the_start_line(world, capsys):
     m = released(capsys)
-    line = "Triage: 1 general lessons await triage (mem curate --global)."
+    line = "Triage: 1 general lesson awaits triage (mem curate --global)."
     assert line in mem.session_index(None, None, world.gmem, TODAY)
     assert mem.main(["triage", "accept", m.handle]) == 0
     capsys.readouterr()
@@ -97,7 +97,11 @@ def test_reject_retires_the_record_and_marks_linked_project_records(world, capsy
     on_b = link(world, m.handle, world.pb, "Zebra caches lapse quietly when loaded.")
     other = link(world, "ffffffffffff", world.pb, "Walrus queues drain slowly during deploys.")
     assert mem.main(["triage", "reject", m.handle]) == 0
-    capsys.readouterr()
+    out = capsys.readouterr().out.splitlines()
+    assert out[0] == f"m:{m.handle}\trejected"
+    assert out[1] == "unlinked 2 project records"
+    assert sorted(out[2:]) == sorted(f"m:{h}\tunlinked" for h in (on_a, on_b))
+    assert str(world.pa) not in "\n".join(out) and world.pb.name not in "\n".join(out)
     after = records.load_memories(world.gmem, "global")[0]
     assert after.status == "forgotten" and after.triage is None
     for project, handle in ((world.pa, on_a), (world.pb, on_b)):
@@ -127,3 +131,221 @@ def test_session_start_shows_the_failure_of_the_pass_until_ack(world, capsys):
     (cdir / "status.json").write_text(json.dumps({"state": "idle"}))
     assert mem.main(["session-index"]) == 0
     assert "corroboration pass failed" not in capsys.readouterr().out
+
+
+def reject_state(world, m, linked):
+    """What a refused or failed reject must leave alone: the global record and the linked project records."""
+    g = records.load_memories(world.gmem, "global")[0]
+    return g.status, g.triage, [(project_record(p, h).promote, project_record(p, h).general) for p, h in linked]
+
+
+def test_reject_with_no_registry_file_retires_the_record(world, capsys):
+    m = released(capsys)
+    (world.data / "projects.json").unlink()
+    assert mem.main(["triage", "reject", m.handle]) == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out == [f"m:{m.handle}\trejected", "unlinked 0 project records"]
+    assert records.load_memories(world.gmem, "global")[0].status == "forgotten"
+
+
+def test_reject_with_no_linked_record_says_zero(world, capsys):
+    m = released(capsys)
+    assert mem.main(["triage", "reject", m.handle]) == 0
+    assert capsys.readouterr().out.splitlines() == [f"m:{m.handle}\trejected", "unlinked 0 project records"]
+
+
+def test_reject_refuses_before_any_change_when_a_linked_file_cannot_be_parsed(world, capsys):
+    m = released(capsys)
+    ok = link(world, m.handle, world.pa)
+    bad = records.project_dir(world.pb) / "broken.md"
+    bad.write_text(f"---\nkind: nonsense\nclaim: x\ngeneral: {m.handle}\n---\nb\n", encoding="utf-8")
+    assert mem.main(["triage", "reject", m.handle]) == 2
+    err = capsys.readouterr().err
+    assert "no change was made" in err and "broken" in err
+    assert reject_state(world, m, [(world.pa, ok)]) == ("active", "pending", [("done", m.handle)])
+
+
+def test_reject_ignores_a_broken_file_that_does_not_name_the_handle(world, capsys):
+    m = released(capsys)
+    (records.project_dir(world.pb) / "broken.md").write_text("---\nkind: nonsense\n---\nb\n", encoding="utf-8")
+    assert mem.main(["triage", "reject", m.handle]) == 0
+
+
+def test_reject_refuses_before_any_change_when_a_project_folder_cannot_be_read(world, capsys, monkeypatch):
+    m = released(capsys)
+    ok = link(world, m.handle, world.pa)
+    real = Path.glob
+
+    def glob(self, pattern):
+        if self == records.project_dir(world.pb):
+            raise PermissionError("denied")
+        return real(self, pattern)
+    monkeypatch.setattr(Path, "glob", glob)
+    assert mem.main(["triage", "reject", m.handle]) == 2
+    assert "no change was made" in capsys.readouterr().err
+    monkeypatch.undo()
+    assert reject_state(world, m, [(world.pa, ok)]) == ("active", "pending", [("done", m.handle)])
+
+
+def test_reject_refuses_on_a_corrupt_registry_without_changing_anything(world, capsys):
+    m = released(capsys)
+    (world.data / "projects.json").write_text("{not json", encoding="utf-8")
+    assert mem.main(["triage", "reject", m.handle]) == 2
+    assert "no change was made" in capsys.readouterr().err
+    assert records.load_memories(world.gmem, "global")[0].status == "active"
+
+
+def test_reject_failing_on_a_project_record_says_what_changed_and_keeps_the_global_record(world, capsys, monkeypatch):
+    m = released(capsys)
+    on_a = link(world, m.handle, world.pa)
+    on_b = link(world, m.handle, world.pb, "Zebra caches lapse quietly when loaded.")
+    real = records.update
+    calls = []
+
+    def update(memory, today, **changes):
+        if "promote" in changes:
+            calls.append(memory.handle)
+            if len(calls) == 2:
+                raise OSError("disk full")
+        return real(memory, today, **changes)
+    monkeypatch.setattr(records, "update", update)
+    assert mem.main(["triage", "reject", m.handle]) == 2
+    err = capsys.readouterr().err
+    assert "disk full" in err and f"m:{calls[0]}" in err and "global record is still active" in err
+    monkeypatch.undo()
+    assert records.load_memories(world.gmem, "global")[0].status == "active"
+    assert {project_record(p, h).promote for p, h in ((world.pa, on_a), (world.pb, on_b))} == {"no", "done"}
+
+
+def test_reject_failing_to_retire_the_global_record_says_the_projects_were_unlinked(world, capsys, monkeypatch):
+    m = released(capsys)
+    on_a = link(world, m.handle, world.pa)
+    real = records.update
+
+    def update(memory, today, **changes):
+        if changes.get("status") == "forgotten":
+            raise OSError("read-only")
+        return real(memory, today, **changes)
+    monkeypatch.setattr(records, "update", update)
+    assert mem.main(["triage", "reject", m.handle]) == 2
+    err = capsys.readouterr().err
+    assert "read-only" in err and f"m:{on_a}" in err and "unlinked" in err
+    monkeypatch.undo()
+    assert project_record(world.pa, on_a).promote == "no"
+    assert records.load_memories(world.gmem, "global")[0].status == "active"
+
+
+def test_reject_then_restore_brings_the_global_record_back(world, capsys):
+    m = released(capsys)
+    before = (world.gmem / f"{m.handle}.md").read_text(encoding="utf-8")
+    assert mem.main(["triage", "reject", m.handle]) == 0
+    capsys.readouterr()
+    assert mem.main(["restore", m.handle, "--global"]) == 0
+    capsys.readouterr()
+    assert (world.gmem / f"{m.handle}.md").read_text(encoding="utf-8") == before
+
+
+def test_accept_twice_exits_2_the_second_time(world, capsys):
+    m = released(capsys)
+    assert mem.main(["triage", "accept", m.handle]) == 0
+    capsys.readouterr()
+    assert mem.main(["triage", "accept", m.handle]) == 2
+    assert "already accepted or never awaited triage" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("verb", ["accept", "reject"])
+@pytest.mark.parametrize("how", ["forget", "refute"])
+def test_a_record_that_is_not_active_exits_2(world, capsys, verb, how):
+    m = released(capsys)
+    assert mem.main([how, m.handle, "--global", "--because", "invented reason"]) == 0
+    capsys.readouterr()
+    assert mem.main(["triage", verb, m.handle]) == 2
+    assert f"is {'forgotten' if how == 'forget' else 'refuted'}" in capsys.readouterr().err
+
+
+def test_forget_removes_the_pending_field(world, capsys):
+    m = released(capsys)
+    assert mem.main(["forget", m.handle, "--global", "--because", "invented reason"]) == 0
+    after = records.load_memories(world.gmem, "global")[0]
+    assert after.status == "forgotten" and after.triage is None
+
+
+@pytest.mark.parametrize("verb", ["accept", "reject"])
+def test_a_record_in_quarantine_says_how_it_leaves(world, capsys, verb):
+    assert remember("session a") == 0
+    capsys.readouterr()
+    handle = records.load_memories(world.gmem, "global")[0].handle
+    assert mem.main(["triage", verb, handle]) == 2
+    err = capsys.readouterr().err
+    assert "still in quarantine" in err and "second project" in err and "mem confirm --by-owner" in err
+
+
+def test_a_record_that_never_awaited_triage_is_told_so(world, capsys):
+    assert mem.main(["remember", "--global", "--claim", "Walrus queues drain slowly during deploys.", "--kind",
+                     "lesson"]) == 0
+    capsys.readouterr()
+    handle = records.load_memories(world.gmem, "global")[0].handle
+    assert mem.main(["triage", "reject", handle]) == 2
+    assert "already accepted or never awaited triage" in capsys.readouterr().err
+
+
+def test_an_unknown_handle_keeps_the_no_memory_message(world, capsys):
+    assert mem.main(["triage", "accept", "ffffffffffff"]) == 2
+    assert "no memory named" in capsys.readouterr().err
+
+
+def test_the_quarantine_count_includes_a_lapsed_record_and_skips_a_forgotten_one(world, capsys):
+    assert remember("session a", claim="Walrus queues drain slowly during deploys.") == 0
+    assert remember("session b", claim="Otter pools refill late after restarts.") == 0
+    assert remember("session c", claim="Heron locks release early on timeouts.") == 0
+    capsys.readouterr()
+    by_claim = {m.claim: m for m in records.load_memories(world.gmem, "global")}
+    past = (TODAY - datetime.timedelta(days=3)).isoformat()
+    lapsed = by_claim["Walrus queues drain slowly during deploys."]
+    lapsed.path.write_text(lapsed.path.read_text().replace(
+        f"valid_until: '{lapsed.valid_until}'", f"valid_until: '{past}'").replace(
+        f"valid_until: {lapsed.valid_until}", f"valid_until: {past}"), encoding="utf-8")
+    assert records.load_memories(world.gmem, "global")[0] is not None
+    assert mem.main(["forget", by_claim["Heron locks release early on timeouts."].handle, "--global",
+                     "--because", "invented reason"]) == 0
+    capsys.readouterr()
+    assert mem.main(["curate", "--global"]) == 0
+    assert "in quarantine: 2 general lessons," in capsys.readouterr().out
+
+
+def test_curate_project_prints_neither_the_triage_category_nor_the_quarantine_line(world, capsys):
+    released(capsys)
+    assert remember("session a", claim="Walrus queues drain slowly during deploys.") == 0
+    capsys.readouterr()
+    assert mem.main(["curate", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert "awaiting triage" not in out and "in quarantine" not in out
+
+
+def test_an_unconfirmed_project_record_is_still_listed_as_not_confirmed(world, capsys):
+    records.write_memory(records.project_dir(world.pa), "project", kind="lesson",
+                         claim="Walrus queues drain slowly during deploys.", body="b\n", today=TODAY,
+                         sources=["session a"], origin="transcript", reach="project", weight="medium")
+    assert mem.main(["curate", "--project"]) == 0
+    out = capsys.readouterr().out
+    assert "from a transcript, not confirmed yet" in out and "Walrus queues drain" in out
+
+
+def test_session_start_prints_normally_with_a_corrupt_corroboration_status(world, capsys):
+    released(capsys)
+    cdir = world.data / "corroborate"
+    cdir.mkdir()
+    (cdir / "status.json").write_text("{not json", encoding="utf-8")
+    assert mem.main(["session-index"]) == 0
+    out = capsys.readouterr().out
+    assert "Triage: 1 general lesson awaits triage" in out and "corroboration pass failed" not in out
+
+
+def test_the_triage_help_explains_triage_without_the_docs(capsys):
+    for argv, needle in ((["triage", "--help"], "deciding what a corroborated general lesson becomes"),
+                         (["triage", "accept", "--help"], "keeps it as a general lesson"),
+                         (["triage", "reject", "--help"], "retires it and tells the projects not to propose it again")):
+        with pytest.raises(SystemExit):
+            mem.main(argv)
+        out = " ".join(capsys.readouterr().out.split())
+        assert needle in out and "as mem forget does" not in out

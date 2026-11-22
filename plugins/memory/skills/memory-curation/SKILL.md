@@ -23,10 +23,12 @@ Run a pass after the current task, not in the middle of it. It may be handed to 
 | expired | Past its `valid until` date | No longer true: `mem forget <h>`. Still true: `mem confirm <h> --until <new date>` |
 | seen 3 times or more | A candidate for a general lesson | Would hold in any project: `mem promote <h>` prints a draft; rewrite the claim in general terms with no name of a project, system, client or person, run it, then `mem promote --done <h>`. Only true here: `mem promote --no <h>` |
 | not confirmed in 90 days | An old lesson, pitfall or finding nobody confirmed | Check it against the project if that is cheap. Still true: `mem confirm <h>`. False: `mem refute <h> --because "<why>"`. Cannot tell: leave it |
+| general lesson, out of quarantine, awaiting triage | A lesson seen in two projects, released and not yet decided | Report it and leave it: a main session or the owner runs `mem triage accept <h>` or `mem triage reject <h>`, or rewords it with `mem memory edit <h> --global` first |
+| in quarantine: n general lessons | Captured in one project so far; no reader sees them | Nothing to do: they wait for a second project |
 
 In a curation pass never run `mem confirm` on a record marked `from transcript, unconfirmed`: a pass has no new session to add, and only another session showing the lesson confirms it (the capture adds that session itself).
 
-The background curator never runs `mem triage` on a general lesson under `awaiting triage`: a main session or the owner accepts (`mem triage accept <h>`) or rejects (`mem triage reject <h>`) it, and turning a lesson into a rule (an agent definition, a skill, a context file) needs the owner.
+The background curator never runs `mem triage`: a main session or the owner accepts (`mem triage accept <h>`) or rejects (`mem triage reject <h>`) a general lesson, and turning a lesson into a rule (an agent definition, a skill, a context file) needs the owner.
 
 ## Notes
 

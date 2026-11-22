@@ -244,3 +244,5 @@ def test_triage_line_counts_the_lessons_awaiting_triage(tmp_path):
         path = folder / f"{handle}.md"
         path.write_text(path.read_text().replace("status: active\n", "status: active\ntriage: pending\n"), encoding="utf-8")
     assert "Triage: 2 general lessons await triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)
+    (folder / "bbbbbbbbbbbb.md").unlink()
+    assert "Triage: 1 general lesson awaits triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)

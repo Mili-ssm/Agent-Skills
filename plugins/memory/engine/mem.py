@@ -3105,7 +3105,8 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     if has_memories:
         waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
         if waiting:
-            head.append(f"Triage: {waiting} general lessons await triage (mem curate --global).")
+            head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
+                        "(mem curate --global).")
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
@@ -3659,9 +3660,56 @@ def cmd_refute(args: argparse.Namespace) -> int:
 
 def cmd_forget(args: argparse.Namespace) -> int:
     def apply(found, today):
-        _text_change(found, "forgotten", "Forgotten", args.because, today)
+        _text_change(found, "forgotten", "Forgotten", args.because, today, triage=None)
         return [f"m:{found[0].handle}\tforgotten"]
     return _act(args, [args.handle], apply, "forget", args.because)
+
+
+def _linked_project_records(handle: str) -> list[records.Memory]:
+    """Step 1 of a reject: every project record, in every counted project, whose `general` names `handle`.
+    ValueError, with nothing changed yet, when a registry, a folder or a file that may name it cannot be read."""
+    named = re.compile(rf"^general:\s*['\"]?{re.escape(handle)}['\"]?\s*$", re.MULTILINE)
+    found = []
+    try:
+        projects = corroborate.counted_projects(records.read_registry(data_dir(os.environ)))
+        for n, project in enumerate(projects, 1):
+            folder = records.project_dir(project)
+            try:
+                files = [p for p in folder.glob("*.md") if p.is_file()]
+            except OSError as exc:
+                raise ValueError(f"project memory folder {n} of {len(projects)} cannot be read ({exc})") from exc
+            for m in records.load_memories(folder, "project"):
+                if m.error is None:
+                    if m.general == handle:
+                        found.append(m)
+                elif m.path in files and named.search(m.path.read_text(encoding="utf-8", errors="replace")):
+                    raise ValueError(f"project record m:{m.handle} names it in `general` but cannot be parsed "
+                                     f"({m.error})")
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"reject stopped while looking for the project records that name it: {exc}; "
+                         "no change was made") from exc
+    return found
+
+
+def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
+    m = found[0]
+    linked = _linked_project_records(m.handle)  # before any change: a refusal leaves everything as it was
+    done: list[str] = []
+    try:
+        for record in linked:
+            records.log_before(record, "triage")
+            records.update(record, today, promote="no", general=None)
+            done.append(f"m:{record.handle}")
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise ValueError(f"reject failed while unlinking the project records ({exc}); unlinked so far: "
+                         f"{', '.join(done) or 'none'}; the global record is still active") from exc
+    try:
+        _text_change(found, "forgotten", "Forgotten", None, today, triage=None)
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise ValueError(f"reject failed while retiring m:{m.handle} ({exc}); the project records were already "
+                         f"unlinked: {', '.join(done) or 'none'}; the global record is still active") from exc
+    return [f"m:{m.handle}\trejected", f"unlinked {len(done)} project record{'' if len(done) == 1 else 's'}",
+            *(f"{h}\tunlinked" for h in done)]
 
 
 def cmd_triage(args: argparse.Namespace) -> int:
@@ -3670,20 +3718,18 @@ def cmd_triage(args: argparse.Namespace) -> int:
 
     def apply(found, today):
         m = found[0]
+        if m.status != "active":
+            raise ValueError(f"m:{m.handle} is {m.status}: only an active general lesson awaits triage")
         if m.triage != "pending":
-            raise ValueError(f"m:{m.handle} does not await triage")
+            if records.quarantined(m):
+                raise ValueError(f"m:{m.handle} is still in quarantine: it leaves quarantine when seen in a second "
+                                 "project or confirmed with mem confirm --by-owner")
+            raise ValueError(f"m:{m.handle} was already accepted or never awaited triage")
         if args.triage_command == "accept":
             records.log_before(m, "triage")
             records.update(m, today, triage=None)
             return [f"m:{m.handle}\taccepted"]
-        projects = corroborate.counted_projects(records.read_registry(data_dir(os.environ)))
-        _text_change(found, "forgotten", "Forgotten", None, today, triage=None)
-        for project in projects:
-            for linked in records.load_memories(records.project_dir(project), "project"):
-                if linked.error is None and linked.general == m.handle:
-                    records.log_before(linked, "triage")
-                    records.update(linked, today, promote="no", general=None)
-        return [f"m:{m.handle}\trejected"]
+        return _reject(found, today)
     return _act(args, [args.handle], apply, f"triage-{args.triage_command}")
 
 
@@ -4486,14 +4532,14 @@ def cmd_curate(args: argparse.Namespace) -> int:
     awaiting = [m for m in live if m.triage == "pending"]
     if awaiting:
         out.append("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
-                   "reject <h>, or reword it with mem edit and then accept)")
+                   "reject <h>, or reword it with mem memory edit <h> --global and then accept)")
         for m in awaiting:
             n, p = len(records.sessions(m)), len(records.projects(m))
             out.append(f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
                        f"{_flat(m.claim)}")
-    held = sum(1 for m in live if records.quarantined(m))
+    held = sum(1 for m in every if m.status == "active" and records.quarantined(m))  # a lapsed one is still stored
     if held:
-        out.append(f"in quarantine: {held} general lessons, not shown to a reader until corroborated "
+        out.append(f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
                    "(mem memories --global --quarantine)")
     waiting = [m for m in live if m.handle in unconfirmed and not records.quarantined(m)]
     if waiting:
@@ -6295,12 +6341,14 @@ def build_parser() -> argparse.ArgumentParser:
         confirm_parser.set_defaults(func=cmd_confirm)
     memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
     memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
-    triage_parser = sub.add_parser("triage", help="decide a general lesson that left quarantine and awaits triage")
+    triage_parser = sub.add_parser(
+        "triage", help="decide what a corroborated general lesson becomes",
+        description="Triage is deciding what a corroborated general lesson becomes: one seen in two projects leaves "
+                    "quarantine and waits here (mem curate --global lists it).")
     triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
-    for verb, text in (("accept", "keep the general lesson: it stays readable by every project"),
-                       ("reject", "retire the general lesson as mem forget does, and mark the project records "
-                                  "that name it as not to be promoted")):
-        triage_verb = triage_sub.add_parser(verb, help=text)
+    for verb, text in (("accept", "keeps it as a general lesson every project may read"),
+                       ("reject", "retires it and tells the projects not to propose it again")):
+        triage_verb = triage_sub.add_parser(verb, help=text, description=f"{verb.capitalize()}: {text}.")
         triage_verb.add_argument("handle", metavar="m:HANDLE")
     triage_parser.set_defaults(func=cmd_triage)
     memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
