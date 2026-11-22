@@ -507,7 +507,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
             registry = records.read_registry(data)
         except ValueError as exc:
             raise Stop("registry unreadable", f"registry: {exc}") from exc
-        gfolder = records.memories_root(os.environ, None)
+        gfolder = records.global_memories_root(os.environ)
         today = datetime.date.today()
 
         def collect() -> list:

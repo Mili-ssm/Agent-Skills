@@ -216,6 +216,15 @@ def memories_root(env: Mapping[str, str], store: Path | None) -> Path | None:
     return None
 
 
+def global_memories_root(env: Mapping[str, str]) -> Path | None:
+    """The folder of global memories for a command that takes no store argument (the background commands):
+    `memories_root` with the store that MEM_STORE names, else the default store. Without this a background run
+    that is given only MEM_STORE, as the hooks give it, finds no global memory."""
+    named = env.get("MEM_STORE")
+    store = Path(named).expanduser() if named else default_store(env)
+    return memories_root(env, store if store is not None and store.is_dir() else None)
+
+
 def _date(value, name: str) -> datetime.date | None:
     if value is None:
         return None
