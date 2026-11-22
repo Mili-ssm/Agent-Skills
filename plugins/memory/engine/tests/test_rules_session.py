@@ -88,7 +88,7 @@ def test_without_short_forms_the_text_is_unchanged_in_other_setups(project, gfol
     # the head line holds the counts that the two records change ("Global memories: N"); everything after it must match
     assert with_lessons.split("\n")[0] != plain.split("\n")[0]
     assert with_lessons.split("\n")[1:] == plain.split("\n")[1:]
-    assert rules.HEADER not in with_lessons and "more recommendation" not in with_lessons
+    assert rules.HEADER not in with_lessons and "more lesson" not in with_lessons
     if setup == "list":
         assert "Plain project memory" in with_lessons
     if setup == "notice":
@@ -100,8 +100,8 @@ def test_rules_block_and_more_line_are_in_the_text_in_order(project, gfolder, ca
     for i in range(6):
         write(f"Other lesson {i}.", short=f"Other rule {i}.")
     out = run(capsys, "--list", "5")
-    assert out.index("To remember:") < out.index(rules.HEADER) < out.index("- Run the checks") < out.index("1 more recommendation")
-    assert out.count("\n- Other rule") == 5 and out.count("(confirmed by the user)") == 6
+    assert out.index("To remember:") < out.index(rules.HEADER) < out.index("- Run the checks") < out.index("1 more lesson")
+    assert out.count("\n- Other rule") == 5 and out.count("(the user vouched for it)") == 6
 
 
 def test_project_rows_keep_their_own_limit(project, gfolder, capsys):
@@ -127,7 +127,7 @@ def test_a_failure_while_choosing_changes_nothing_else(project, gfolder, capsys,
     monkeypatch.setattr(rules, "choose", boom)
     out = run(capsys)
     assert rules.HEADER not in out
-    assert out.split("\n") == [line for line in with_rules.split("\n") if line not in ("- A rule that loads. (confirmed by the user)", rules.HEADER)]
+    assert out.split("\n") == [line for line in with_rules.split("\n") if line not in ("- A rule that loads. (the user vouched for it)", rules.HEADER)]
 
 
 def test_an_unreadable_global_folder_keeps_the_text(project, gfolder, capsys):
@@ -162,7 +162,7 @@ def test_a_lesson_awaiting_triage_is_not_counted_in_the_line_or_the_log(project,
     text = mem.session_index(None, folder, gfolder, datetime.date.today(), stats=stats)
     waiting = [m for m in records.load_memories(gfolder, "global") if m.triage == "pending"]
     assert waiting, "the setup must leave one lesson awaiting triage"
-    assert "Triage: 1 general lesson awaits" in text and "more recommendation" not in text
+    assert "Triage: 1 general lesson awaits" in text and "more lesson" not in text
     assert stats["rules"] == 1 and stats["rules_left"] == 0
 
 
@@ -205,7 +205,45 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
     r = subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
                        env=env, capture_output=True, text=True)
     out = r.stdout
-    assert rules.HEADER in out and "(confirmed by the user)" in out and "(held in 2 sessions)" in out
-    assert "- Global rule for the hook. (confirmed by the user)" in out
+    assert rules.HEADER in out and "(the user vouched for it)" in out and "(held in 2 sessions)" in out
+    assert "- Global rule for the hook. (the user vouched for it)" in out
     assert "- Project rule for the hook. (held in 2 sessions)" in out
     assert (store / "memories" / f"{handle}.md").is_file()
+
+
+def test_the_option_off_removes_the_block_and_nothing_else(project, gfolder, capsys, monkeypatch):
+    write("A lesson.", short="A rule that loads.")
+    for i in range(6):
+        write(f"Other lesson {i}.", short=f"Other rule {i}.")
+    on = run(capsys)
+    assert rules.HEADER in on and "more lesson" in on
+    monkeypatch.setenv("MEM_LOADED_RULES", "off")
+    off = run(capsys)
+    assert off.split("\n") == [x for x in on.split("\n")
+                               if x != rules.HEADER and not x.startswith(("- A rule", "- Other rule", "1 more lesson"))]
+    stats = {}
+    mem.session_index(None, records.project_dir(project), gfolder, datetime.date.today(), stats=stats)
+    assert stats == {"rules": 0, "rules_left": 0, "rules_chars": 0}
+
+
+@pytest.mark.parametrize("value, loads", [("false", False), ("true", True), (None, True)])
+def test_the_hook_exports_the_switch_only_for_false(tmp_path, value, loads):
+    home, store, proj = tmp_path / "home", tmp_path / "store", tmp_path / "work" / "proj"
+    for d in (home, store, proj):
+        d.mkdir(parents=True)
+    (store / "mem-store.yaml").write_text("format: 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(proj), "init", "-q"], check=True)
+    env = {"HOME": str(home), "PATH": os.environ["PATH"], "MEM_STORE": str(store), "MEM_DATA": str(tmp_path / "data")}
+    r = subprocess.run([str(PLUGIN / "bin" / "mem"), "remember", "--global", "--kind", "lesson", "--claim", "Global lesson.",
+                        "--origin", "transcript", "--reach", "general", "--short", "Global rule for the hook.",
+                        "--source", f"session a project {K1}", "--source", f"session b project {K2}"],
+                       cwd=proj, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    handle = next(p.stem for p in (store / "memories").glob("*.md"))
+    subprocess.run([str(PLUGIN / "bin" / "mem"), "confirm", f"m:{handle}", "--global", "--by-owner"],
+                   cwd=proj, env=env, capture_output=True, text=True, check=True)
+    if value is not None:
+        env["CLAUDE_PLUGIN_OPTION_LOADED_RULES"] = value
+    r = subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
+                       env=env, capture_output=True, text=True)
+    assert (rules.HEADER in r.stdout) is loads and ("Global rule for the hook." in r.stdout) is loads

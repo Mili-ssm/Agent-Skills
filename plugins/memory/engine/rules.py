@@ -12,8 +12,8 @@ from typing import Sequence
 import records
 from records import Memory
 
-HEADER = ("memory: rules learned in earlier sessions. Follow them unless you have a reason not to, "
-          "and say so when you do not.")
+HEADER = ("memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "
+          "not to, and mention a skipped one only when it matters to the user.")
 RULES_MAX = 6
 RULES_LIMIT = 900
 MORE_LIMIT = 200
@@ -47,7 +47,7 @@ def _rank(m: Memory) -> tuple:
 
 def standing_words(m: Memory) -> str:
     if m.owner_confirmed:
-        return "(confirmed by the user)"
+        return "(the user vouched for it)"
     n, unit = (len(records.projects(m)), "project") if m.scope == "global" else (len(records.sessions(m)), "session")
     return f"(held in {n} {unit}{'' if n == 1 else 's'})"
 
@@ -109,7 +109,7 @@ def more_line(choice: Choice) -> str | None:
     total = len(left)
     if not total:
         return None
-    noun = "recommendation" if total == 1 else "recommendations"
+    noun = "lesson" if total == 1 else "lessons"
     topics = topic_counts(Choice(left=left))
     if not topics:
         return f"{total} more {noun}: mem rules --more"
@@ -117,7 +117,7 @@ def more_line(choice: Choice) -> str | None:
     while True:
         other = total - sum(n for _, n in named)
         parts = [f"{t} {n}" for t, n in named] + ([f"other {other}"] if other else [])
-        text = f"{total} more {noun} by topic: {', '.join(parts)} (mem rules --more <topic>)"
+        text = f"{total} more {noun} by topic: {', '.join(parts)} (mem rules --more <topic>, when a topic fits your task)"
         if len(text) <= MORE_LIMIT or not named:
             break
         named = named[:-1]
