@@ -315,7 +315,8 @@ def test_rules_says_the_pass_writes_the_missing_short_forms(gfolder, capsys): ..
 - [x] Reviews: one per task after its commit, two rounds on the fix of the fill flow, the docs against the code, and the process; their findings and rulings are in this file's Known limits and in the commits.
 - [x] Results written into this file under `## Results`; the design rows C60 and C62 carry what the gate changed.
 - [x] A pull request to `dev`, opened with the owner's word on 2026-11-22.
-- [ ] Its merge into `dev`, then a release (version, changelog date, `validate.py --release`, pull request `dev` to `main`, tag) and the install: each only with the owner's word. After the install: one automatic run from the installed copy, reading its log line and `mem rules --unread`.
+- [x] Merged into `dev` as pull request 165 and released as memory 0.6.0, both with the owner's word (2026-11-22).
+- [ ] After the install: one automatic run from the installed copy, reading its log line and `mem rules --unread`.
 
 ## Pre-mortem of 2026-11-22 and what changed
 
