@@ -41,6 +41,7 @@ import corroborate
 import handoff
 import project_syntheses
 import records
+import rules
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
 import settle
 import settle_state
@@ -50,7 +51,7 @@ import syntheses
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
 _SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
 _NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "compact-log", "signal", "projects",
+                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "rules", "compact-log", "signal", "projects",
                     "project-synthesis")
 
 
@@ -4188,6 +4189,41 @@ def cmd_memories(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rules(args: argparse.Namespace) -> int:
+    """Print the rules block and the line after it exactly as session start does; --more lists what was left out."""
+    today = datetime.date.today()
+    (_, _, project), (_, _, global_) = _loaded(_memory_folders(args))
+    choice = rules.choose(project, global_, today)
+    unready = (f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form: "
+               "mem-corroborate fill --dry-run --out FILE proposes them.")
+    if args.more is not None:
+        topic = None if args.more is True else args.more
+        shown = [(m, why) for m, why in choice.left
+                 if topic is None or (m.topic or "other") == topic or (topic == "other" and not m.topic)]
+        order = [t for t, _ in rules.topic_counts(choice)] + [None]
+        for group in order:
+            for m, why in (x for x in shown if x[0].topic == group):
+                claim = _flat(m.claim)
+                claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
+                print(f"m:{m.handle}\t{m.scope}\t{why}\t{m.topic or '-'}\t{claim}")
+        if not shown:
+            print("No lessons left out" + (f" under {topic}." if topic else "."))
+        if choice.unready:
+            print(unready)
+        return 0
+    lines = rules.block(choice)
+    if not lines:
+        print("No rules loaded.")
+        if choice.unready:
+            print(unready)
+        return 0
+    print("\n".join(lines))
+    more = rules.more_line(choice)
+    if more:
+        print(more)
+    return 0
+
+
 _STALE_DAYS = 90
 _FREQUENT = 3
 _STANDING_KINDS = ("constraint", "decision", "state")  # no date makes them stale: only a refutation retires them
@@ -6423,6 +6459,10 @@ def build_parser() -> argparse.ArgumentParser:
                                  help="only the global lessons in quarantine (not shown anywhere else until corroborated)")
     memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
     memories_parser.set_defaults(func=cmd_memories)
+    rules_parser = sub.add_parser("rules", help="print the rules that load at session start; --more lists the rest")
+    rules_parser.add_argument("--more", nargs="?", const=True, default=None, metavar="TOPIC",
+                              help="the lessons left out, grouped by topic; with TOPIC only that group (other: no topic)")
+    rules_parser.set_defaults(func=cmd_rules)
     curate_parser.add_argument("--notes", action="store_true",
                                help="list notes to attach to a synthesis part, and notes older than their part")
     curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
