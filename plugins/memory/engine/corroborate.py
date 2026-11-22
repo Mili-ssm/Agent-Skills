@@ -16,6 +16,8 @@ import rules
 MAX_LESSONS = 150
 MAX_GROUPS = 30
 FILL_CAP = 30  # lessons one `fill` session is asked about
+FILL_ATTEMPTS = 2  # automatic fills that may fail to give a lesson a short form before it is left alone
+FILL_FAILURES = 3
 LAPSED_DAYS = 60  # an unconfirmed lesson stays readable this long after its valid_until
 
 
@@ -307,13 +309,30 @@ def fill_records(projects: Sequence[Path], global_folder: Path | None) -> list[t
     return out
 
 
+def fill_key(project: Path | None, handle: str) -> str:
+    """The name of a lesson that does not change between runs (the ids of `fill_records` depend on the registry)."""
+    return f"g:{handle}" if project is None else f"{records.project_key(project)}:{handle}"
+
+
 def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today: datetime.date,
-                    cap: int = FILL_CAP) -> list[tuple[str, records.Memory]]:
+                    cap: int = FILL_CAP, attempts: dict | None = None) -> list[tuple[str, records.Memory]]:
     """(id, memory) of the lessons that could load as a rule (`rules.eligible`) and are not awaiting triage, but
-    lack a valid short form or topic. The confirmed first, then the most corroborated; at most `cap`."""
-    found = [(i, m) for i, _p, m in fill_records(projects, global_folder)
-             if rules.eligible(m, today) and m.triage != "pending"
-             and not (records.valid_short(m.short) and records.valid_topic(m.topic))]
+    lack a valid short form or topic. The confirmed first, then the most corroborated; at most `cap`.
+    With `attempts` (`fill_key` -> {"digest", "count"}), the automatic fill's view: a lesson tried `FILL_ATTEMPTS`
+    times on its present claim, and a strong project lesson the owner has not confirmed, leave before the cap."""
+    found = []
+    for i, p, m in fill_records(projects, global_folder):
+        if not (rules.eligible(m, today) and m.triage != "pending"
+                and not (records.valid_short(m.short) and records.valid_topic(m.topic))):
+            continue
+        if attempts is not None:
+            spent = attempts.get(fill_key(p, m.handle))
+            if isinstance(spent, dict) and spent.get("digest") == claim_digest(m) and (
+                    spent.get("count") or 0) >= FILL_ATTEMPTS:
+                continue
+            if p is not None and m.weight == "strong" and m.owner_confirmed is None:
+                continue
+        found.append((i, m))
     found.sort(key=lambda x: (x[1].owner_confirmed is None, -len(records.projects(x[1])),
                               -len(records.sessions(x[1])), x[0]))
     return found[:cap]
@@ -349,6 +368,37 @@ def fill_problem(short: str, topic: str) -> str | None:
     if not records.valid_topic(topic):
         found.append("topic must be one or two lowercase words")
     return "; ".join(found) or None
+
+
+def check_lines(items: Sequence[tuple[str, str, str | None, str]]) -> str:
+    """What the checking model reads: (id, claim, context, short) as blocks of one line a field, blank line between."""
+    blocks = []
+    for ident, claim, context, short in items:
+        block = [f"id: {ident}", f"claim: {_line(claim)}"]
+        if _line(context):
+            block.append(f"context: {_line(context)}")
+        block.append(f"short: {_line(short)}")
+        blocks.append("\n".join(block))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+def validate_check(payload: object, ids: Sequence[str]) -> dict[str, bool] | None:
+    """`payload` is {"verdicts": [{"id", "reason", "faithful"}]}: id -> faithful. Only an exact `true` of a known id
+    seen once counts; a missing, repeated or unknown id is False. None when the answer is not an object with a list."""
+    verdicts = payload.get("verdicts") if isinstance(payload, dict) else None
+    if not isinstance(verdicts, list):
+        return None
+    seen: dict[str, bool] = {}
+    repeated: set[str] = set()
+    known = set(ids)
+    for v in verdicts:
+        ident = v.get("id") if isinstance(v, dict) else None
+        if not isinstance(ident, str) or ident not in known:
+            continue
+        if ident in seen:
+            repeated.add(ident)
+        seen[ident] = seen.get(ident, True) and v.get("faithful") is True
+    return {i: seen.get(i, False) and i not in repeated for i in ids}
 
 
 def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict], list[str]]:

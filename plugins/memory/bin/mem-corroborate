@@ -447,9 +447,7 @@ class Applier:
 
 def stable_key(lesson) -> str:
     """The name of a lesson that does not change between runs (the ids of a lessons file depend on the registry)."""
-    if lesson.project is None:
-        return f"g:{lesson.memory.handle}"
-    return f"{records.project_key(lesson.project)}:{lesson.memory.handle}"
+    return corroborate.fill_key(lesson.project, lesson.memory.handle)
 
 
 def planned(acts) -> list[dict]:
@@ -815,6 +813,74 @@ def fill_dry_run(args) -> int:
     return 0
 
 
+def apply_fill(items: list[dict], cdir: Path, run: Path, user_read: bool) -> dict:
+    """Writes the items into the records and journals them in `run` (the caller holds the run lock). Returns
+    {"written", "dropped", "failed", "applied"}; `applied` holds the id of each item written."""
+    _data, projects, gfolder, names = _fill_world()
+    au.private_dir(run)
+    write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
+
+    def log(text: str) -> None:
+        fd = os.open(run / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8", errors="replace") as f:
+            f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+    known = {i: (p, m) for i, p, m in corroborate.fill_records(projects, gfolder)}
+    applier = Applier(Journal(run), {}, gfolder, run, log)
+    written = dropped = failed = 0
+    applied: list[str] = []
+    used: set[str] = set()
+    today = datetime.date.today()
+    for n, item in enumerate(items, start=1):
+        ident = item.get("id") if isinstance(item, dict) else None
+        short = item.get("short") if isinstance(item, dict) else None
+        topic = item.get("topic") if isinstance(item, dict) else None
+        load = item.get("load") if isinstance(item, dict) else None
+        why = None
+        if not all(isinstance(x, str) for x in (ident, short, topic)):
+            why = "not an object with id, short and topic"
+        elif ident not in known:
+            why = f"unknown id {ident}"
+        elif ident in used:
+            why = f"repeats {ident}"
+        elif not records.valid_short(short):
+            why = "short is not one line of at most 120 characters"
+        elif not records.valid_topic(topic):
+            why = "topic is not one or two lowercase words"
+        elif "load" in item and load not in ("yes", "index", "no"):
+            why = "load must be yes, index or no"
+        else:
+            project, m = known[ident]
+            scope = "global" if project is None else names.get(project, str(project))
+            if item.get("handle", m.handle) != m.handle or item.get("scope", scope) != scope:
+                why = "handle or scope does not match its id"
+            elif m.triage == "pending" or not rules.eligible(
+                    dataclasses.replace(m, load=None) if m.load == "no" and load is not None else m, today):
+                why = "not a lesson that can load"   # a record turned off may be turned on again by an item that names `load`
+        if why:
+            dropped += 1
+            log(f"item {n} dropped: {why}")
+            continue
+        used.add(ident)
+        if item.get("claim_digest") != corroborate.claim_digest(m):
+            failed += 1
+            log(f"item {n} failed: {ident} changed its claim since the file was made")
+            continue
+        watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # an edit of a global record may update it
+        before = applier.journal.watch(watched)
+        done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []),
+                            f"--short={short}", *(["--user-read"] if user_read else []), f"--topic={topic}",
+                            *{"yes": ["--load"], "index": ["--index-only"], "no": ["--no-load"]}.get(load, [])], project, drop_env=SETTLE_VARS)
+        applier.journal.commit("fill", before)
+        if done is not None and done.returncode == 0:
+            written += 1
+            applied.append(ident)
+        else:
+            failed += 1
+            log(f"item {n} failed: mem refused or could not run for {ident}")
+    return {"written": written, "dropped": dropped, "failed": failed, "applied": applied}
+
+
 def fill_items(args) -> int:
     path = Path(args.items).expanduser()
     items = read_object(path)
@@ -827,69 +893,10 @@ def fill_items(args) -> int:
         print("mem-corroborate: a run is going: try again later", file=sys.stderr)
         return 1
     start = time.time()
-    run = None
     try:
-        _data, projects, gfolder, names = _fill_world()
-        run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-        au.private_dir(run)
-        write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
-
-        def log(text: str) -> None:
-            fd = os.open(run / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "a", encoding="utf-8", errors="replace") as f:
-                f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
-
-        known = {i: (p, m) for i, p, m in corroborate.fill_records(projects, gfolder)}
-        applier = Applier(Journal(run), {}, gfolder, run, log)
-        written = dropped = failed = 0
-        used: set[str] = set()
-        today = datetime.date.today()
-        for n, item in enumerate(items, start=1):
-            ident = item.get("id") if isinstance(item, dict) else None
-            short = item.get("short") if isinstance(item, dict) else None
-            topic = item.get("topic") if isinstance(item, dict) else None
-            load = item.get("load") if isinstance(item, dict) else None
-            why = None
-            if not all(isinstance(x, str) for x in (ident, short, topic)):
-                why = "not an object with id, short and topic"
-            elif ident not in known:
-                why = f"unknown id {ident}"
-            elif ident in used:
-                why = f"repeats {ident}"
-            elif not records.valid_short(short):
-                why = "short is not one line of at most 120 characters"
-            elif not records.valid_topic(topic):
-                why = "topic is not one or two lowercase words"
-            elif "load" in item and load not in ("yes", "index", "no"):
-                why = "load must be yes, index or no"
-            else:
-                project, m = known[ident]
-                scope = "global" if project is None else names.get(project, str(project))
-                if item.get("handle", m.handle) != m.handle or item.get("scope", scope) != scope:
-                    why = "handle or scope does not match its id"
-                elif m.triage == "pending" or not rules.eligible(
-                        dataclasses.replace(m, load=None) if m.load == "no" and load is not None else m, today):
-                    why = "not a lesson that can load"   # a record turned off may be turned on again by an item that names `load`
-            if why:
-                dropped += 1
-                log(f"item {n} dropped: {why}")
-                continue
-            used.add(ident)
-            if item.get("claim_digest") != corroborate.claim_digest(m):
-                failed += 1
-                log(f"item {n} failed: {ident} changed its claim since the file was made")
-                continue
-            watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # an edit of a global record may update it
-            before = applier.journal.watch(watched)
-            done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []),
-                                f"--short={short}", "--user-read", f"--topic={topic}",
-                                *{"yes": ["--load"], "index": ["--index-only"], "no": ["--no-load"]}.get(load, [])], project, drop_env=SETTLE_VARS)
-            applier.journal.commit("fill", before)
-            if done is not None and done.returncode == 0:
-                written += 1
-            else:
-                failed += 1
-                log(f"item {n} failed: mem refused or could not run for {ident}")
+        run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}-fill"
+        result = apply_fill(items, cdir, run, user_read=True)
+        written, dropped, failed = result["written"], result["dropped"], result["failed"]
         line = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
                 "fill": {"asked": len(items), "written": written, "dropped": dropped, "failed": failed},
                 "ms": int((time.time() - start) * 1000)}

@@ -1106,3 +1106,40 @@ def test_fill_items_turn_on_a_record_that_was_turned_off(w):
     out.write_text(json.dumps(items))   # no load value: a rule turned off stays off
     assert fill_run(w, "--items", str(out), claude=False, mode="never").returncode == 0
     assert _a(w).load == "no" and log_lines(w)[-1]["fill"]["dropped"] == 1
+
+
+def test_fill_items_and_undo_behave_as_before_through_apply_fill(w):
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    before = snapshot(w)
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert "2 asked, 2 written, 0 dropped, 0 failed" in done.stdout
+    (stamp,) = [p.name for p in (w.cdir / "runs").iterdir()]
+    assert stamp.endswith("-fill") and (w.cdir / "runs" / stamp / "fill").exists()   # never shares a name with a pass run
+    assert run(w, cmd="status", claude=False).returncode == 0
+    assert run(w, stamp, cmd="undo", claude=False).returncode == 0
+    assert snapshot(w) == before and not (w.cdir / "seen.json").exists()
+
+
+def test_apply_fill_passes_user_read_only_when_asked(w):
+    import importlib.machinery
+    import importlib.util
+    g = fill_world(w)
+    shared, gid = proposal(w, g)
+    out = w.tmp / "proposal.json"
+    assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
+    cut_problems(out)
+    items = json.loads(out.read_text())
+    loader = importlib.machinery.SourceFileLoader("mem_corroborate_under_test", str(CORR))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    result = mod.apply_fill(items, w.cdir, w.cdir / "runs" / "direct-fill", user_read=False)
+    assert result["written"] == 2 and result["dropped"] == result["failed"] == 0
+    assert sorted(result["applied"]) == sorted([shared[0], gid])
+    written = [m for m in [*project_records(w.pa).values(), *globals_(w)] if m.short]
+    assert len(written) == 2 and all(m.short_by == "model" for m in written)
