@@ -20,9 +20,7 @@ Read this section first; the stage list below is the history and the detail. Che
 | Not registered | The signal hook of stage 6 (measured: no gain) |
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles (2026-11-19): engine portable, Claude ties are the hooks, the option wiring, the four agents and the six `claude -p` call sites |
 
-Next, by the owner's word of 2026-11-22: **capture stage B4**, loaded rules ([the capture design](../specs/2026-11-21-memory-capture-design.md), C18 and C19, phase B4): what loads an established lesson at session start under a token limit, and how the usefulness of a released lesson is read (the `released` date separates sightings before and after it was readable; no counter of evidence against a lesson exists yet). Start with its design, then a plan and a pre-mortem; read [the B3 results](2026-11-22-memory-capture-corroboration.md#results) first, and `corroborate/log.jsonl` and `capture/log.jsonl` for what the first real runs did.
-
-Backlog, proposed by the owner on 2026-11-22 and not designed: **reminders**. A temporary record with an optional start date and an optional end date that is loaded by itself at session start while it is in effect and removed once it no longer is; it may hold for many sessions, or stay silent for some until it is due. Purpose: to trigger work in a later session or after several compactions (a refactoring, a project review, a check of the documentation, a look for new or updated studies). It overlaps B4, which also decides what loads at session start under a limit, so design them together.
+Next, by the owner's word of 2026-11-22: **capture stage B4, loaded rules and reminders**, designed together. Start at [its handoff](2026-11-22-memory-loaded-rules-and-reminders.md): the owner's rulings on reminders (R1 to R6), the proposals not yet decided and the open questions; read [the B3 results](2026-11-22-memory-capture-corroboration.md#results) first.
 
 Before that, in the owner's order of 2026-11-19:
 
