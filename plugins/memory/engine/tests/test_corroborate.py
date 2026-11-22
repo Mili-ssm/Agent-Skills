@@ -394,3 +394,12 @@ def test_sightings_of_a_project_member_go_to_the_oldest_global(tmp_path):
     acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
     assert kinds(acts) == ["merge_global", "sighting", "link"]
     assert acts[1].target == old.handle and acts[2].target == old.handle
+
+
+def test_a_group_with_a_global_member_needs_no_faithful(tmp_path):
+    groups = [corroborate.Group(["g:kept", "p1:a"], "unused wording", ""), corroborate.Group(["p1:b", "p2:c"], "c", "")]
+    raw = {"verdicts": [verdict(1, faithful=False), verdict(2, faithful=False)]}
+    kept, reasons = corroborate.validate_verdicts(raw, groups)
+    assert kept == [groups[0]] and len(reasons) == 1 and "group 2" in reasons[0]
+    kept, _ = corroborate.validate_verdicts({"verdicts": [verdict(1, same=False), verdict(2)]}, groups)
+    assert kept == [groups[1]]

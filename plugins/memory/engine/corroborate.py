@@ -168,7 +168,8 @@ _ANSWERS = ("same", "faithful", "general")
 def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group], list[str]]:
     """`raw` is {"verdicts": [{"group": n, "reason": str, "same": bool, "faithful": bool, "general": bool}]}.
     A group is kept only with exactly one verdict naming it, a non-empty reason and all three answers exactly
-    `true` (a group of one needs no `same`). Every group not kept gives a reason line; a malformed answer keeps
+    `true` (a group of one needs no `same`; a group with a global member needs no `faithful`, because the global
+    record's wording stays). Every group not kept gives a reason line; a malformed answer keeps
     nothing. Never raises."""
     items = raw.get("verdicts") if isinstance(raw, dict) else None
     if not isinstance(items, list):
@@ -193,6 +194,8 @@ def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group]
         if not (isinstance(v.get("reason"), str) and v["reason"].strip()):
             failed.append("reason is empty or missing")
         for key in _ANSWERS:
+            if key == "faithful" and any(i.startswith("g:") for i in g.ids):
+                continue  # a group with a global member keeps that record's wording: the proposed claim is not used
             answer = v.get(key, True if key == "same" and len(g.ids) == 1 else None)
             if answer is not True:
                 failed.append(f"{key} is not true")

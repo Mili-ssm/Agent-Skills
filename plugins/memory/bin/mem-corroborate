@@ -444,13 +444,14 @@ def planned(acts) -> list[dict]:
 
 
 def refused_by_verdict(verdict_data: object, n: int) -> bool:
-    """True when exactly one verdict names group `n` and one of its answers is present and not `true` (so "yes" or
-    `null` counts as a refusal): a verdict that is missing, repeated or lacks every answer is not."""
+    """True when exactly one verdict names group `n` and its `same` or `general` is present and not `true` (so "yes"
+    or `null` counts as a refusal): a verdict that is missing, repeated or lacks both is not. A group refused only
+    because its rewording is not `faithful` is not a refusal to remember: the next run rewords it again."""
     items = verdict_data.get("verdicts") if isinstance(verdict_data, dict) else None
     if not isinstance(items, list):
         return False
     found = [v for v in items if isinstance(v, dict) and v.get("group") == n and not isinstance(v.get("group"), bool)]
-    return len(found) == 1 and any(k in found[0] and found[0][k] is not True for k in ANSWERS)
+    return len(found) == 1 and any(k in found[0] and found[0][k] is not True for k in ("same", "general"))
 
 
 def has_verdict(verdict_data: object, n: int) -> bool:

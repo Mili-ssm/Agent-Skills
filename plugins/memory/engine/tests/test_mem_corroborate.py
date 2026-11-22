@@ -252,6 +252,16 @@ def test_unverified_group_is_not_applied(w):
     assert log_lines(w)[-1]["verified"] == 0
 
 
+def test_a_group_refused_only_for_its_rewording_is_not_applied_and_not_marked(w):
+    a, b = two_projects(w)
+    model(w, [group(a, b)], [verdict(1, faithful=False)])
+    before = snapshot(w)
+    assert run(w).returncode == 0
+    assert snapshot(w) == before
+    assert not json.loads((w.cdir / "seen.json").read_text()).get("refused")  # the next run rewords it again
+    assert log_lines(w)[-1]["verified"] == 0
+
+
 @pytest.mark.parametrize("verdicts", [None, "garbage"])
 def test_missing_verdicts_apply_nothing(w, verdicts):
     a, b = two_projects(w)
