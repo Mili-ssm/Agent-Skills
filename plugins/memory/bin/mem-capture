@@ -513,10 +513,11 @@ def start_corroboration(claude: str | None) -> None:
         pass
 
 
-def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> None:
+def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> dict | None:
     """The whole of `auto` for one transcript; see the module docstring. Never raises and never prints.
     After a run that wrote a record and did not fail, and once the capture lock is released, it starts the
-    corroboration pass."""
+    corroboration pass. Returns the run's log line (`windows` above 0 when a model session ran), or None when
+    the engine could not load."""
     data = data_dir()
     cdir = cs.capture_dir(data)
     start = time.time()
@@ -537,18 +538,18 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> N
     try:
         if IMPORT_ERROR is not None:
             if not has_memory_folder(cwd.resolve()):
-                return
+                return None
             reason = f"cannot load the engine: {' '.join(str(IMPORT_ERROR).split())[:200]}"
             line["failed"] = without_paths(reason)
             save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": reason, "log": ""})
             finish_log()
-            return
+            return None
         project = records.project_root(cwd.resolve(), os.environ)
         if project is None or not records.project_dir(project).is_dir():
             usable = True
             line["skipped"] = "the project has no memory folder"
             finish_log()
-            return
+            return line
         usable = True
         if trigger == "pre-compact":
             time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
@@ -560,7 +561,7 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> N
         if lock is None:
             line["skipped"] = "another capture is running"
             finish_log()
-            return
+            return line
         run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
         au.private_dir(run)
 
@@ -632,14 +633,13 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> N
         corroborate = not failed and bool(line["written"]["remembered"] or line["written"]["sighting"])
     except Exception as exc:   # noqa: BLE001 - a background process reports and ends
         try:
-            reason = type(exc).__name__
+            reason = line["failed"] = type(exc).__name__
             save_status(cdir, state="failed", finished=time.time(),
                         failure={"at": time.time(), "reason": reason, "log": str(au.read_json(cdir / au.STATUS_NAME).get("log") or "")})
         except Exception:   # noqa: BLE001
             pass
         if not logged and (usable or cdir.exists()):
             try:
-                line["failed"] = type(exc).__name__
                 finish_log()
             except Exception:   # noqa: BLE001
                 pass
@@ -648,6 +648,10 @@ def auto_run(trigger: str, transcript: Path, cwd: Path, claude: str | None) -> N
             os.close(lock)
     if corroborate:
         start_corroboration(claude)
+    return line
+
+
+CWD_SCAN_LINES = 200
 
 
 def count_lines(path: Path) -> int:
@@ -656,9 +660,11 @@ def count_lines(path: Path) -> int:
 
 
 def first_cwd(path: Path) -> Path | None:
-    """The first `cwd` value in the file's own JSON lines, when it is an existing directory; read line by line."""
+    """The first `cwd` value that is an existing directory among the first CWD_SCAN_LINES lines; read line by line."""
     with open(path, "rb") as f:
-        for raw in f:
+        for number, raw in enumerate(f):
+            if number >= CWD_SCAN_LINES:
+                break
             if b'"cwd"' not in raw:
                 continue
             try:
@@ -668,7 +674,8 @@ def first_cwd(path: Path) -> Path | None:
             value = item.get("cwd") if isinstance(item, dict) else None
             if isinstance(value, str) and value:
                 folder = Path(value).expanduser()
-                return folder if folder.is_dir() else None
+                if folder.is_dir():
+                    return folder
     return None
 
 
@@ -693,19 +700,27 @@ def sweep(claude: str | None) -> None:
             info = item.stat()
             if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
                 found.append((info.st_mtime, info.st_size, item))
-        for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
+        newest = sorted(found, key=lambda row: row[0], reverse=True)[:cs.SWEEP_MAX_EXAMINED]
+        for _mtime, size, item in newest:
             if swept >= cs.SWEEP_MAX_SESSIONS or cs.sweeps_today(store, now) >= cs.SWEEP_MAX_PER_DAY:
                 break
-            state = cs.read_session(store, item.stem)
-            if cs.swept_size(store, item.stem) == size or count_lines(item) <= state["offset"]:
+            if cs.swept_size(store, item.stem) == size:
+                continue
+            # Fully read, or no usable cwd: nothing can change while the file does not, so remember its size.
+            if count_lines(item) <= cs.read_session(store, item.stem)["offset"]:
+                cs.save_swept_size(store, item.stem, size)
                 continue
             cwd = first_cwd(item)
             if cwd is None:
+                cs.save_swept_size(store, item.stem, size)
                 continue
-            cs.note_sweep(store, now)
             swept += 1
-            auto_run("sweep", item, cwd, claude)
-            cs.save_swept_size(store, item.stem, size)
+            run = auto_run("sweep", item, cwd, claude)
+            if run is None or not run["windows"]:
+                continue   # nothing was read (lock held, no memory folder): a later start may
+            cs.note_sweep(store, now)
+            if not run["failed"] and not run["more"]:
+                cs.save_swept_size(store, item.stem, size)   # read to the end; otherwise a later start continues
     except Exception:   # noqa: BLE001 - a background process ends quietly
         pass
 

@@ -152,3 +152,103 @@ def test_the_command_exits_0_and_prints_nothing(world):
                           env=env_of(world), capture_output=True, text=True, timeout=120)
     assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
     assert swept(world) == ["idle"] and status(world)["state"] == "ok"
+
+
+def long_file(w, name, age=DAY):
+    """An idle transcript of more than three windows, every line carrying the project's `cwd`."""
+    from test_capture_auto import lines_for
+    path = w.transcript.parent / f"{name}.jsonl"
+    rows = [json.loads(x) for x in lines_for("O" * 220, pad=1900).splitlines()]
+    path.write_text("".join(json.dumps({**row, "cwd": str(w.project)}) + "\n" for row in rows), encoding="utf-8")
+    stamp = time.time() - age
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+def spy_reads(mod, monkeypatch):
+    reads = []
+    for name in ("count_lines", "first_cwd"):
+        real = getattr(mod, name)
+        monkeypatch.setattr(mod, name, lambda path, real=real, name=name: (reads.append((name, path.stem)), real(path))[1])
+    return reads
+
+
+def test_a_file_that_needs_no_sweep_is_read_once(world, mod, monkeypatch):
+    make(world, "read")
+    capture_state.save_session(world.data, "read", 12, 0)
+    make(world, "nocwd", cwd=None)
+    reads = spy_reads(mod, monkeypatch)
+    start(mod, world, monkeypatch)
+    first = list(reads)
+    start(mod, world, monkeypatch)
+    assert reads == first and {stem for _n, stem in first} == {"read", "nocwd"}
+    assert capture_state.swept_size(world.data, "read") == (world.transcript.parent / "read.jsonl").stat().st_size
+    assert capture_state.swept_size(world.data, "nocwd") == (world.transcript.parent / "nocwd.jsonl").stat().st_size
+    assert swept(world) == []
+
+
+def test_at_most_ten_candidates_are_examined(world, mod, monkeypatch):
+    for n in range(12):
+        make(world, f"s{n:02d}", cwd=None, age=DAY * (1 + n / 100))
+    reads = spy_reads(mod, monkeypatch)
+    start(mod, world, monkeypatch)
+    assert {stem for _n, stem in reads} == {f"s{n:02d}" for n in range(10)}
+
+
+def test_a_long_session_continues_at_the_next_start(world, mod, monkeypatch):
+    long_file(world, "long")
+    start(mod, world, monkeypatch)
+    first = capture_state.read_session(world.data, "long")["offset"]
+    assert 0 < first < 220 and capture_state.swept_size(world.data, "long") is None
+    start(mod, world, monkeypatch)
+    assert capture_state.read_session(world.data, "long")["offset"] > first
+    assert swept(world) == ["long", "long"]
+
+
+def test_a_session_read_to_the_end_is_not_swept_again(world, mod, monkeypatch):
+    make(world, "idle")
+    start(mod, world, monkeypatch)
+    start(mod, world, monkeypatch)
+    assert swept(world) == ["idle"] and capture_state.swept_size(world.data, "idle") is not None
+
+
+def test_the_first_cwd_that_exists_is_used(world, mod):
+    path = make(world, "late", cwd=world.tmp / "gone")
+    rows = path.read_text().splitlines()
+    rows[3] = json.dumps({**json.loads(rows[3]), "cwd": str(world.project)})
+    path.write_text("\n".join(rows) + "\n")
+    assert mod.first_cwd(path) == world.project
+
+
+def test_a_valid_cwd_after_the_first_200_lines_is_not_looked_for(world, mod):
+    path = make(world, "deep", cwd=world.tmp / "gone", spec="O" * 205)
+    rows = path.read_text().splitlines()
+    rows[202] = json.dumps({**json.loads(rows[202]), "cwd": str(world.project)})
+    path.write_text("\n".join(rows) + "\n")
+    assert mod.first_cwd(path) is None
+
+
+def test_a_skipped_run_does_not_use_up_the_day(world, mod, monkeypatch):
+    make(world, "idle")
+    monkeypatch.setenv("MEM_CAPTURE_LOCK_WAIT", "0")
+    fd = capture_state.auto_state.take_run_lock(world.cdir)
+    try:
+        start(mod, world, monkeypatch)
+    finally:
+        os.close(fd)
+    assert capture_state.sweeps_today(world.data, time.time()) == 0
+    assert capture_state.swept_size(world.data, "idle") is None
+
+
+def test_a_project_without_a_memory_folder_does_not_use_up_the_day(world, mod, monkeypatch):
+    other = world.tmp / "plain"
+    other.mkdir()
+    make(world, "idle", cwd=other)
+    start(mod, world, monkeypatch)
+    assert capture_state.sweeps_today(world.data, time.time()) == 0
+
+
+def test_a_run_that_used_the_model_counts(world, mod, monkeypatch):
+    make(world, "idle")
+    start(mod, world, monkeypatch)
+    assert capture_state.sweeps_today(world.data, time.time()) == 1
