@@ -268,7 +268,8 @@ def run_window(transcript: Path, out_path: Path, project: Path | None, since_lin
     given = Path(project or ".").expanduser().resolve()
     out: dict = {"reason": None}
     if project is not None and not given.is_dir():
-        print(f"mem-capture: --project is not a folder: {given.name}", file=sys.stderr)
+        out["reason"] = f"--project is not a folder: {given.name}"
+        print(f"mem-capture: {out['reason']}", file=sys.stderr)
         return out, 2
     # an explicit --project wins over MEM_PROJECT in the caller's environment
     env = os.environ if project is None else {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
@@ -282,10 +283,12 @@ def run_window(transcript: Path, out_path: Path, project: Path | None, since_lin
     out_path = Path(out_path).expanduser()
     repo = None if allow_out_in_repo else repo_above(out_path.parent.resolve())
     if repo is not None:
-        print(f"mem-capture: --out is inside a repository ({repo}); the result holds session text", file=sys.stderr)
+        out["reason"] = f"--out is inside a repository ({repo}); the result holds session text"
+        print(f"mem-capture: {out['reason']}", file=sys.stderr)
         return out, 1
     if out_path.is_symlink():
-        print("mem-capture: --out is a symlink; refusing to write through it", file=sys.stderr)
+        out["reason"] = "--out is a symlink; refusing to write through it"
+        print(f"mem-capture: {out['reason']}", file=sys.stderr)
         return out, 1
 
     def finish(code: int) -> tuple[dict, int]:

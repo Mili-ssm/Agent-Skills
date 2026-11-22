@@ -33,11 +33,15 @@ def session_path(data: Path, session: str) -> Path:
     return capture_dir(data) / "sessions" / (hashlib.sha1(session.encode("utf-8", "replace")).hexdigest()[:16] + ".json")
 
 
+def _count(value) -> int:
+    """A stored counter: a non-negative int (a JSON boolean is not one), else 0."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else 0
+
+
 def read_session(data: Path, session: str) -> dict:
     found = auto_state.read_json(session_path(data, session))
     offset, attempts = found.get("offset"), found.get("attempts")
-    return {"offset": offset if isinstance(offset, int) and offset >= 0 else 0,
-            "attempts": attempts if isinstance(attempts, int) and attempts >= 0 else 0}
+    return {"offset": _count(offset), "attempts": _count(attempts)}
 
 
 def save_session(data: Path, session: str, offset: int, attempts: int) -> None:
@@ -53,7 +57,10 @@ def failure_line(data: Path | None, now: float) -> str | None:
     found = auto_state.failure(auto_state.read_json(capture_dir(data) / auto_state.STATUS_NAME), now)
     if found is None:
         return None
-    when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
+    try:
+        when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
+    except (TypeError, ValueError, OverflowError, OSError):
+        when = datetime.datetime.fromtimestamp(now).date().isoformat()
     reason = " ".join(str(found["reason"]).split())[:200]
     return (f"Automatic capture failed on {when}: {reason}; log: {found.get('log') or '(none)'} "
             "(mem-capture ack clears this).")
@@ -62,7 +69,7 @@ def failure_line(data: Path | None, now: float) -> str | None:
 def prune_runs(runs: Path, keep: int, max_age_days: int, now: float) -> None:
     """Delete run folders beyond the newest `keep` and any older than `max_age_days`."""
     try:
-        folders = [(p.stat().st_mtime, p) for p in Path(runs).iterdir() if p.is_dir()]
+        folders = [(p.stat().st_mtime, p) for p in Path(runs).iterdir() if p.is_dir() and not p.is_symlink()]
     except OSError:
         return
     folders.sort(key=lambda item: item[0], reverse=True)
