@@ -3334,6 +3334,26 @@ def _refuse_secret(texts: Sequence[str]) -> bool:
     return True
 
 
+def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, today: datetime.date, folder: Path,
+                   project: Path | None) -> bool:
+    """An identical claim from another session: when both the existing record and this call come from a transcript,
+    the session goes onto the existing record. True when the call was handled (the caller still exits 3)."""
+    keys = [k for k in map(records.session_key, args.source) if k]
+    target = next((m for m in same if m.origin == "transcript"), None)
+    if target is None or getattr(args, "origin", None) != "transcript" or not keys:
+        return False
+    rel = target.path.relative_to(project if project is not None else folder).as_posix()
+    print(f"m:{target.handle}\t{rel}")
+    for key in keys:
+        if key in records.sessions(target):
+            print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
+            continue
+        records.log_before(target, "confirm")
+        target, _ = records.add_sighting(target, key, today)
+        print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
+    return True
+
+
 def cmd_remember(args: argparse.Namespace) -> int:
     today = datetime.date.today()
     store = _optional_store(args)
@@ -3388,6 +3408,9 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if not args.force:
         same = [m for m in live if _same_claim(m.claim, args.claim)]
         if same:
+            seen = _add_sightings(same, args, today, folder, project)
+            if seen:
+                return 3
             for m in same:
                 print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
             print(f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
@@ -3515,12 +3538,17 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         source = getattr(args, "source", None)
         if source is None and getattr(args, "note", None):
             raise ValueError("--note needs --source")
+        if source is not None and (key := records.session_key(source)) is None:
+            raise ValueError(f"--source takes a session ('session <id>'), not {source!r}")
+        if until is not None and records.standing(found[0]) == "unconfirmed":
+            raise ValueError("a record from a transcript is confirmed only by another session showing it: "
+                             "use --source 'session <id>', not --until")
+        if source is not None and key in records.sessions(found[0]):
+            repeated.append(True)
+            return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
         records.log_before(found[0], "confirm")
         if source is not None:
-            updated, added = records.add_sighting(found[0], source, today, args.note)
-            if not added:
-                repeated.append(True)
-                return [f"m:{updated.handle}\t{source} is already a source: nothing changed"]
+            updated, _ = records.add_sighting(found[0], source, today, args.note)
         else:
             updated = records.observe(found[0], today)
         if until is not None:
@@ -3654,11 +3682,15 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
     changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
     if drop.body.strip():
         changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
-    if keep.origin == "transcript":
-        sources = list(dict.fromkeys([*keep.sources, *drop.sources]))
+    if "transcript" in (keep.origin, drop.origin):  # a session must survive the merge, whichever record holds it
+        sources = records.normalized_sources([*keep.sources, *drop.sources])
         changes["sources"] = sources
-        if records.standing(dataclasses.replace(keep, sources=sources)) == "established":
-            changes["valid_until"] = None  # enough sessions now: no end date
+        if keep.origin == "transcript":
+            after = dataclasses.replace(keep, sources=sources)
+            if records.standing(after) == "established":
+                changes["valid_until"] = None  # enough sessions now: no end date
+            elif len(records.sessions(after)) > len(records.sessions(keep)):
+                changes["valid_until"] = today + datetime.timedelta(days=records.UNCONFIRMED_DAYS)
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
@@ -4319,9 +4351,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
         out.append("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
         for a, b, _ in same:
             out += [_tagged(a), _tagged(b), f"  differ in: {', '.join(records.differing_words(a.claim, b.claim))}"]
-    unconfirmed = [m for m in every if records.standing(m) == "unconfirmed"]  # their own category below
+    unconfirmed = {m.handle for m in every if records.standing(m) == "unconfirmed"}  # their own category below
     expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today
-               and m not in unconfirmed]
+               and m.handle not in unconfirmed]
     if expired:
         out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
         out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
@@ -4329,12 +4361,12 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if frequent:
         out.append(f"seen {_FREQUENT} times or more: general enough for a note? (mem promote <h>)")
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
-    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m not in unconfirmed
+    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
              and max(m.created, m.last_observed or m.created) <= cutoff]
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
-    waiting = [m for m in live if m in unconfirmed]
+    waiting = [m for m in live if m.handle in unconfirmed]
     if waiting:
         out.append("from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
                    "when another session shows it)")

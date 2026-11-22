@@ -332,16 +332,18 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
         raise ValueError("claim is empty")
     if kind in ("finding", "document") and not sources:
         raise ValueError(f"a {kind} needs at least one source")
-    if kind == "finding":
+    sources = normalized_sources(sources)
+    if origin == "transcript":
+        # the standing decides the end date, before the per-kind defaults
         if valid_until is None:
-            valid_until = today + datetime.timedelta(days=90)
-    if kind == "state" and valid_until is None:
+            draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, sources, "", None,
+                           origin=origin, weight=weight)
+            if standing(draft) != "established":
+                valid_until = today + datetime.timedelta(days=UNCONFIRMED_DAYS)
+    elif kind == "finding" and valid_until is None:
+        valid_until = today + datetime.timedelta(days=90)
+    elif kind == "state" and valid_until is None:
         valid_until = today + datetime.timedelta(days=30)
-    if origin == "transcript" and valid_until is None:
-        draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, list(sources), "", None,
-                       origin=origin, weight=weight)
-        if standing(draft) != "established":
-            valid_until = today + datetime.timedelta(days=UNCONFIRMED_DAYS)
     folder.mkdir(parents=True, exist_ok=True)
     base = slug_of(claim)
     handle, n = base, 1
@@ -395,9 +397,21 @@ def observe(memory: Memory, today: datetime.date) -> Memory:
     return update(memory, today, observed=memory.observed + 1, last_observed=today)
 
 
+def session_key(source: str) -> str | None:
+    """The normalized form of a session source (stripped, whitespace collapsed, lower-cased) when it is
+    "session <id>", else None: two spellings of one session are one key."""
+    key = " ".join(source.split()).lower()
+    return key if key.startswith(SESSION_PREFIX) and len(key) > len(SESSION_PREFIX) else None
+
+
+def normalized_sources(sources: Iterable[str]) -> list[str]:
+    """Session entries in their normalized form, each once; other sources unchanged."""
+    return list(dict.fromkeys(session_key(s) or s for s in sources))
+
+
 def sessions(memory: Memory) -> list[str]:
-    """The distinct session entries of `sources`, in order."""
-    return list(dict.fromkeys(s for s in memory.sources if s.startswith(SESSION_PREFIX)))
+    """The distinct sessions of `sources` as normalized keys, in order."""
+    return list(dict.fromkeys(k for k in map(session_key, memory.sources) if k))
 
 
 def standing(memory: Memory) -> str | None:
@@ -413,12 +427,16 @@ def standing(memory: Memory) -> str | None:
 def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None) -> tuple[Memory, bool]:
     """Record that another session shows the memory: `session` is a full source entry ("session <id>").
 
-    Already a source: the memory unchanged and False. Else the entry is added, `observed` raised as `observe`
+    Not a session entry: ValueError. Already counted (under any spelling): the memory unchanged and False, with no
+    write. Else the normalized entry is added, `observed` raised as `observe`
     does and the note appended to the body; a transcript memory also gets its validity rule (established: no end
     date; unconfirmed: 30 days from today, which revives a lapsed one)."""
-    if session in memory.sources:
+    key = session_key(session)
+    if key is None:
+        raise ValueError(f"{session!r} is not a session source: write it as 'session <id>'")
+    if key in sessions(memory):
         return memory, False
-    sources = [*memory.sources, session]
+    sources = [*memory.sources, key]
     changes: dict = {"sources": sources, "observed": memory.observed + 1, "last_observed": today}
     if note and note.strip():
         head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
