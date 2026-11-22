@@ -84,3 +84,11 @@ The capture trial (learning loop L3, phase A; [its plan and results](../superpow
 The owner's rulings while marking, recorded as C11 to C18 of [the capture design](../superpowers/specs/2026-11-21-memory-capture-design.md): what the owner says is evidence, not truth; a lesson is established by corroboration, kept per scope, and the more it restricts the more sightings it needs; its wording carries its certainty, its possible temporariness and its weight, and reads as a suggestion or a recommendation; a project decision or a technical note is not a lesson; a lesson corroborated across projects goes to a triage; an established rule lives in the memory store and moves to a skill, an agent definition or the instructions only if it is not followed there.
 
 Limits: the marks are not independent of the agent that presented the candidates; no claim but one was checked against code; 8 of 10 sessions were read only at their end.
+
+### Stage B1, the same day
+
+Stage B1 of the capture design is built ([plan and results](../superpowers/plans/2026-11-22-memory-capture-records.md)): a memory may carry the origin `transcript`, a `reach` and a `weight`; whether it is established is derived from the number of distinct sessions in its sources, never from its `observed` count, so that a re-read of one session, a curation pass or a merge cannot establish it; `mem-capture run --write` records candidates in the project scope through `mem remember` and adds a sighting to a lesson the project already holds. Nothing runs by itself yet. The first real write recorded 11 project memories from two sessions of this repository; a second run of one session changed no existing record.
+
+The texts given to models changed without an eval suite (N6): the capture brief, one sentence in the `memory` skill, one in the `memory-curation` skill and one in the `memory-curator` agent. Kill criteria are in the plan; the one already read (the model still returned its ceiling of five in 6 of 10 runs) led to the single revision it allows.
+
+Open after this stage: a lesson said again in other words is still recorded twice; a `light` lesson is established by one session, which includes lessons drawn from one comment of the owner; the owner's marks on the first three matches the model made.

@@ -168,11 +168,11 @@ Leave out: what a (general) line of recorded.txt or rules.txt already says; what
 
 Run by the controller; nothing but this file's `## Results` enters the repository.
 
-- [ ] **Step 1:** Run the new brief without `--write` on the 10 transcripts of the trial, each with its own `--project`. Record per transcript the counts kept and dropped by reason, and in total: how many runs returned the ceiling of 5 (8 of 10 before), the split by reach, weight and form, how many `same_as`, the size and cut of the rules file, the cost.
-- [ ] **Step 2:** Show the owner, in conversation, the claims of 2 transcripts beside the claims the first brief gave for the same transcripts, for a judgment on the wording (C11, C13, C15, C16), and every `same_as` with both claims, to be marked right or wrong. No claim text enters the repository.
-- [ ] **Step 3:** With the owner's word, run `--write` on two sessions of this repository's project, one after the other; list the written memories with `mem memories` and `mem curate`; note each record's sessions and standing. Then run the first one again and confirm that no record's sources, `observed` or standing changed.
-- [ ] **Step 4:** Record the figures in `## Results` and in ADR 0023 as a `## Review`; set the design's stage B1 as done.
-- [ ] **Step 5:** Commit: `docs(plan): results of the capture records stage`.
+- [x] **Step 1:** Run the new brief without `--write` on the 10 transcripts of the trial, each with its own `--project`. Record per transcript the counts kept and dropped by reason, and in total: how many runs returned the ceiling of 5 (8 of 10 before), the split by reach, weight and form, how many `same_as`, the size and cut of the rules file, the cost.
+- [x] **Step 2:** Show the owner, in conversation, the claims of 2 transcripts beside the claims the first brief gave for the same transcripts, for a judgment on the wording (C11, C13, C15, C16), and every `same_as` with both claims, to be marked right or wrong. No claim text enters the repository.
+- [x] **Step 3:** With the owner's word, run `--write` on two sessions of this repository's project, one after the other; list the written memories with `mem memories` and `mem curate`; note each record's sessions and standing. Then run the first one again and confirm that no record's sources, `observed` or standing changed.
+- [x] **Step 4:** Record the figures in `## Results` and in ADR 0023 as a `## Review`; set the design's stage B1 as done.
+- [x] **Step 5:** Commit: `docs(plan): results of the capture records stage`.
 
 Kill criteria, read in Task 4 and at the kill read of the plugin:
 
@@ -191,4 +191,38 @@ Not shown by this stage: a real second sighting weeks apart; a wrong match the g
 
 ## Results
 
-Empty until Task 4.
+### The new brief on the trial's 10 transcripts, no write (2026-11-22)
+
+| | First brief | New brief |
+|---|---|---|
+| Kept by validation | 47 | 40 |
+| Dropped by validation | 0 | 5, all `claim length` (over 300 characters) |
+| Runs that returned the ceiling of 5 | 8 of 10 | 6 of 10 |
+| Reach `general` / `project` | 26 / 21 | 29 / 11 |
+| Weight | — | `light` 21, `medium` 17, `strong` 2 |
+| Form | — | `suggestion` 35, `recommendation` 5 |
+| `same_as` | — | 0 (few of these projects hold memories) |
+| Rules file | — | 24,063 to 38,974 characters, never cut |
+| Cost | 0.196 USD | 0.350 USD |
+
+The owner read the claims of two transcripts beside the first brief's claims and judged the new wording better (2026-11-22). Three changes followed, agreed with the owner: a claim may run to 400 characters; a project claim names its file or command (the first run had blurred them); and, because 6 of 10 runs still returned 5, the one revision the kill criterion allows: the brief asks to order what was found and keep only what it would defend. The owner also asked for positive lessons: signals `owner_approval` and `effective_practice` (design C21). The 10 transcripts were not run again with this last text.
+
+### The first real write (2026-11-22, with the owner's word)
+
+Two sessions of this repository's project, one after the other, into its project memory (a copy of the memory folder was kept first).
+
+| Run | Kept | Written | Sightings | Skipped | Cost (USD) |
+|---|---|---|---|---|---|
+| Session A | 5 | 5 new | 0 | 0 | 0.050 |
+| Session B | 5 | 5 new | 0 | 0 | 0.040 |
+| Session A again | 4 (1 dropped) | 1 new | 0 | 3, `this session already counted` | 0.054 |
+
+- The sighting rule held: on the second run of session A the model named three of the records the first run had written (`same_as`), all three were refused as already counted, and no existing memory file changed (compared by content before and after). The controller read the three pairs as correct matches; the owner's marks on them are pending.
+- A second run of the same session is not idempotent in what it adds: the model chose one lesson the first run had not, and it was written as a new record. Stage B2 reads each part of a session once, from an offset, so this does not arise there; a manual rerun can add to a session's records.
+- Of the 11 records, both positive signals appeared (`effective_practice`, `owner_approval`).
+- Session B's records about the owner's rulings say again, in other words, what the agent had already recorded in the global scope during that session: the "already recorded" list did not stop them. A duplicate worded differently is still not caught.
+- Weight `light` establishes a record at its first session, by C20: several of the 11 are established at once, including lessons drawn from one comment of the owner.
+
+Engine suite at the end of the stage: `1409 passed, 5 skipped`; `python3 scripts/validate.py` and `claude plugin validate .` pass.
+
+Kill criteria read: no record changed on a rerun (holds); no `same_as` marked wrong (the owner's marks pending); no record established with one session and a weight other than `light` (holds by construction, checked on the written files); the ceiling: 6 of 10 before the revision, not measured after it; the curator's text: no curation pass has run since.
