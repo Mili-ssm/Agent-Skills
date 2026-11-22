@@ -448,6 +448,8 @@ def sighting(source: str) -> tuple[str, str | None] | None:
         text, key = found.group(1), found.group(2)
         if not _PROJECT_KEY.fullmatch(key):
             return None
+    elif "project" in text[len(SESSION_PREFIX):].split():
+        return None   # "session a project" or "... project <key> extra": a keyed entry gone wrong, not a session id
     return (text, key) if len(text) - len(SESSION_PREFIX) <= MAX_SESSION_ID else None
 
 
@@ -488,9 +490,13 @@ def sessions(memory: Memory) -> list[str]:
 
 
 def projects(memory: Memory) -> list[str]:
-    """The distinct project keys of the sighting entries, in order."""
-    found = (sighting(s) for s in memory.sources)
-    return list(dict.fromkeys(f[1] for f in found if f and f[1]))
+    """The distinct project keys of the sighting entries, in order: one per session, its first keyed entry, so a
+    file that holds one session under two keys still counts one project."""
+    first: dict[str, str] = {}
+    for found in map(sighting, memory.sources):
+        if found and found[1]:
+            first.setdefault(found[0], found[1])
+    return list(dict.fromkeys(first.values()))
 
 
 def standing(memory: Memory) -> str | None:

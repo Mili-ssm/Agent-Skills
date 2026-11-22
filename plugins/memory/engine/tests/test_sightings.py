@@ -141,3 +141,18 @@ def test_owner_confirmation_of_a_released_record_ends_triage(tmp_path):
     changes = records.standing_changes(m, after, TODAY)
     assert changes["triage"] is None and "released" not in changes
     assert records.update(m, TODAY, owner_confirmed=TODAY, **changes).triage is None
+
+
+@pytest.mark.parametrize("source", ["session a project", "session a project 0123456789ab extra", "session project"])
+def test_a_keyed_entry_gone_wrong_is_no_sighting(source):
+    assert records.sighting(source) is None and records.session_key(source) is None
+
+
+def test_a_file_with_one_session_under_two_keys_counts_one_project(tmp_path):
+    path = tmp_path / "two-keys.md"
+    path.write_text("---\nkind: lesson\nclaim: An invented lesson about two keys.\ncreated: 2026-01-01\nobserved: 1\n"
+                    "status: active\nsources:\n- session a project 0123456789ab\n- session a project ba9876543210\n"
+                    "origin: transcript\nreach: general\nweight: light\n---\n", encoding="utf-8")
+    (m,) = records.load_memories(tmp_path, "global")
+    assert m.error is None and records.sessions(m) == ["session a"]
+    assert records.projects(m) == ["0123456789ab"] and records.standing(m) == "unconfirmed"
