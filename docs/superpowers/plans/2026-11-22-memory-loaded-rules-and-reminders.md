@@ -1,6 +1,6 @@
 # Memory capture, stage B4: loaded rules and reminders
 
-**Status (2026-11-22): recall and research done, a draft design awaits the owner's rulings, nothing built.** This file is the handoff for the session that designs and plans B4. Replace the sections below with a `writing-plans` plan once the design is settled with the owner.
+**Status (2026-11-22): designed and ruled on by the owner; decisions C40 to C50 of the spec. First release, reminders: [its plan](2026-11-22-memory-reminders.md). Second release, loaded rules: no plan yet.** This file is the handoff for the session that designs and plans B4. Replace the sections below with a `writing-plans` plan once the design is settled with the owner.
 
 **Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: [the learning loop study](../../studies/2026-11-21-memory-learning-loop.md) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
 
@@ -40,24 +40,16 @@ What the owner's memory and outside sources say, and what each changes in the de
 | The session start text is capped at 1500 characters; no count of sessions exists; the hook receives `source` (`startup`, `clear`, `compact`) and only logs it; `resume` loads no text | `session_index`, `cmd_session_index` in `plugins/memory/engine/mem.py`; `plugins/memory/hooks/hooks.json` | Where the count of R5 and the summary line go |
 | First real logs: one capture (8 written, 190 s, 0.11 USD), two passes from reviewed groups, none with model sessions yet | `<data>/capture/log.jsonl`, `<data>/corroborate/log.jsonl` | Nothing to correct before B4; the first pass with model sessions is still to be read |
 
-## Draft design, awaiting the owner
+## Design
 
-The author's proposal for Q1 to Q7, to become C40 onward once the owner rules. "Owner" in the last column marks a choice that is the owner's and not yet made.
+The owner ruled on 2026-11-22; the decisions are C40 to C50 of [the capture design](../specs/2026-11-21-memory-capture-design.md), which is their one home.
 
-| Q | Proposal | Reason | Open |
+| Release | Scope | Decisions | Plan |
 |---|---|---|---|
-| Record | A reminder is a record of the same format and history as a memory, written with `mem remind "<topic>" [--after DATE] [--in-sessions N] [--until DATE] [--every 30d\|10s] [--global]`, with a body that says the work and why. It is kept out of memory search, curation and the loaded rules | One store, history and restore for free; shape as Pro-Memory (condition, once or recurring) | |
-| Q2 | One file in the data folder holds a count per project and a total. `mem session-index --hook` raises both when `source` is `startup`, `clear` or `compact` (R5). A reminder stores the count at its creation, so "sessions since" is a subtraction and no record is rewritten at session start. A project reminder uses the project's count, a global one the total | No write per reminder per start; the plugin's own model sessions do not run this hook (to verify in the plan) | |
-| Q1 | One line, at most 300 characters, only when a reminder is due: `Reminders: 3 due (refactor the capture bins, 6 sessions; review the docs, 2; new studies on lesson usefulness, 14, shown 3 times); 2 waiting. After the current task: mem reminders.` Topic at most 40 characters, at most 4 topics, then `+N more`. Waiting ones appear as a count only. Full text: `mem reminders`, `mem reminder show <h>` | R4; index and fetch | |
-| Q4 | Four exits, each restorable: `mem reminder done <h> --note "<what was done>"` (a recurring one arms again from that count or date), `close <h> --reason`, `snooze <h> --sessions N \| --until DATE`, and the end date passing. A reminder shown at 5 starts with none of these is marked in the line as `ask the owner: keep or close`; nothing is removed in silence | R2; a line shown at every start is learned to be ignored; closing states the work, since "answered" is not "done" | |
-| Who acts | When a reminder is due, the agent names it to the owner after the current task and proposes the work; it starts by itself only work the reminder marks `--auto` (reading, checks, a search for new studies) | A refactoring started without the owner's word widens scope | Owner |
-| Q7 | The owner and the agent write reminders (the agent when it defers a finding or leaves an item open). A background pass writes none: a state that can be computed from the records ("2 lessons in quarantine lapse within 5 days") is a count line like `Triage`, not a stored reminder. At most 10 live reminders per project; beyond it `mem remind` refuses and asks for a tidy-up | A stored copy of a computable state goes stale; a cap keeps the line short | |
-| Q5 | Loaded rules are part of the session start text, built at each start by code from the records (`mem rules` prints the same text; no file to go stale, no edit of an instruction file). A lesson qualifies when it is established and, for a global one, accepted at triage or confirmed by the owner; pending triage does not load. Each lesson gets a short form of at most 120 characters, written once when it is accepted and kept in the record. Order: weight, then projects and sessions that saw it, then the latest sighting. The top ones load in short form until the limit, the rest as `+N more: mem rules` | C18, C19, C20 (the instruction form is given only at triage); ACE (no whole rewrite); IFScale (strongest first) | Owner: only accepted lessons load |
-| Q3 | Limits in characters, starting values: rules 1200, reminder line 300, the whole text 2400 (today 1500). Dropped first when over: project memory rows other than `state`, then the lowest rules. Never dropped: failure lines, the reminder line, `Curation due`, `Triage` | The rows can be found by search; a rule that did not load cannot act | |
-| Q6 | A sighting later than a lesson's `released` date counts as "loaded and it still happened". At 2 such sightings the lesson returns to triage with that reason (reword, move up the ladder of C18, or drop). An exception (C13) is counted too; when exceptions reach the confirming sightings the lesson returns to triage as "may not hold". Nothing is dropped without the owner | ExpeL and ACE count against a lesson; here the owner decides, as in triage (C33) | |
-| Measure | The hook log gains, per start, the reminders shown and the rules loaded (handles only). Read against `done`, `snooze` and sightings after release, it gives "shown against done" and "loaded against repeated" | No outside measure exists; these are the kill criteria of the stage | |
-| Order | Two releases: reminders with the session count first, then loaded rules with usefulness | Reminders are small and useful at once, and give the measure before the costlier part | Owner |
-| Not in B4 | Choosing rules by the task in front of the agent (a look-up at each prompt) | It would answer "irrelevant rules are cost only" better than a fixed list, at a cost and latency per prompt; revisit if "loaded against repeated" shows the fixed list is not followed | |
+| First | Reminders, the session count, the summary line, the measure of showings | C40 to C45, C50 | [reminders](2026-11-22-memory-reminders.md) |
+| Second | Loaded rules, the line for lessons that did not load, usefulness of a released lesson, the limits of the whole text | C46 to C49, C50 | Not written |
+
+To settle before the second release: whether lessons in quarantine count in the line of C47 (the author's reading, not yet the owner's word), and where a lesson's topic and short form are written (at capture, at triage, or by the corroboration pass).
 
 ## Facts to reuse
 
@@ -75,5 +67,6 @@ The author's proposal for Q1 to Q7, to become C40 onward once the owner rules. "
 
 - [x] Recall: `mem search` for loaded rules, reminders, session start budget; then research outside what the memory does not cover (scheduled or deferred intents in agent memory systems; how loaded context is kept small and acted on)
 - [x] Read the first real runs: `<data>/capture/log.jsonl` and `<data>/corroborate/log.jsonl`
-- [ ] Settle Q1 to Q7 with the owner, one at a time with a recommendation; add the decisions to the design as C40 onward
-- [ ] Write the task plan here (`writing-plans`), then a pre-mortem before execution
+- [x] Settle Q1 to Q7 with the owner; decisions C40 to C50 in the design
+- [x] First release: task plan and pre-mortem, in [its plan](2026-11-22-memory-reminders.md)
+- [ ] Second release: task plan and pre-mortem, after the first release's measure has data
