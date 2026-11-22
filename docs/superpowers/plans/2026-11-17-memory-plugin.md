@@ -38,7 +38,8 @@ Open items, none blocking:
 | `mem memories --project <name>` prints nothing, without a message, when the registered project's folder moved | Small |
 | A replaced part of a project synthesis cannot be undone (stage 10 leaves it out) | A decision for the owner |
 | The fixes of stage 5b's review round were confirmed by tests, not by a second review ([its results](2026-11-17-memory-plugin-stage-5b.md#results)) | One review |
-| Matching by meaning, and a paired evaluation of task outcomes with and without the plugin | Not planned yet |
+| The `SessionEnd` hook has a default limit of 1.5 s (hooks reference, read 2026-11-22), and the hook's `mem history commit` is allowed 5 s: whether the commit is cut is not measured | Small: measure, then raise the hook's `timeout` |
+| Matching by meaning: stage B3 of the capture design (C28). A paired evaluation of task outcomes with and without the plugin | The second is not planned yet |
 
 Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `dev` or `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D25) and are not reopened without new evidence.
 
