@@ -68,6 +68,43 @@ The start text every other subagent receives is not given to these four: they ca
 
 `mem curate` lists what needs a decision (memories that say the same or the opposite, expired ones, ones seen several times, ones nobody confirmed); `mem merge`, `refute`, `distinct`, `supersede`, `forget`, `confirm` and `promote` carry a decision out, and `mem restore` undoes the last one on a memory. Records change only through commands, never by editing files: `mem note edit` corrects a note (claim, topics or one section) and `mem memory edit` a memory (`mem restore` a retired one first). `mem note confirm` adds a source-backed line to a note's evidence and `mem note dispute` marks the note `[disputed]` (a claim a source contradicts: check it before relying on it; `--clear` removes the mark); a memory marked `web, unconfirmed` is a web finding no second source has confirmed. Nothing is deleted. The session start text says when a pass is due; the `memory-curation` skill holds the procedure and the `memory-curator` subagent proposes actions without applying them.
 
+## Reminders
+
+**What it is:** a reminder asks for a piece of work in a later session: a finding deferred from a review, an item left open, a periodic check. It is not a fact (that is a memory) and it is never part of search, curation or the loaded rules. It has a topic of at most 40 characters, a body that says the work and why, and optional conditions. It lives in a `reminders` folder beside the memories, in the project or (`--global`) the global scope, with the same history and restore as a memory. The owner and the agent write them; no background pass does.
+
+| Command | What it does |
+| --- | --- |
+| `mem remind <topic> --body TEXT` | Writes one; due now unless a condition says otherwise. `--after YYYY-MM-DD`, `--in-days N` (1 to 999, `mem` computes the date), `--in-sessions N` (1 to 999), `--until YYYY-MM-DD` (the reminder ends on that date), `--every Nd` or `--every Ns` (repeats once done), `--effort` and `--risk` (`low`, `medium`, `high`), `--global` |
+| `mem reminders` | Lists the live ones with the text of each due one and the rule for acting on it. `--global` lists only the global ones; `--all` adds ended, lapsed and broken ones; `--stats` counts each kind with its median showings |
+| `mem reminder show\|done\|close\|snooze\|restore <handle>` | Handles are `r:<topic>`; `--global` looks only in the global scope |
+
+**The line at session start:** only when one is due, and at most 300 characters: `Reminders: 1 due (check the thing, 0 sessions); 2 waiting. After the current task: mem reminders.` It names how many are due, up to 4 topics with the sessions since each was written, and how many wait. Topics are ordered by most showings, then most sessions; the ones that do not fit are counted as `+N more`. A topic shown at 5 session starts with no ending gets `, ask the owner: keep or close` after it. `mem reminders` prints the rule for a due one: low effort and low risk, do it after the current task and say so; otherwise propose it to the owner first.
+
+**Four endings, each restorable with `mem reminder restore`:**
+
+| Ending | Command | Effect |
+| --- | --- | --- |
+| Done | `mem reminder done <handle> --note "<what was done>"` | A repeating one arms itself again |
+| Closed | `mem reminder close <handle> --reason "<why>"` | Ends without the work |
+| Put off | `mem reminder snooze <handle> --sessions N`, `--days N` or `--to YYYY-MM-DD` | Waits |
+| Lapsed | Its `--until` date passes | Listed by `--all` |
+
+**The session count:** `<data folder>/sessions.json` (outside the store) holds a count of sessions per project, named by an opaque key, and a total. The `SessionStart` hook raises both on `startup`, `clear` and `compact`; a resumed session raises nothing. A project reminder counts the project's sessions, a global one the total; a reminder stores the count when it is armed. The same file counts how often each reminder was shown, which `mem reminders --stats` reads.
+
+| Limit | Value |
+| --- | --- |
+| Live reminders | At most 10 a scope |
+| Line | At most 300 characters and 4 topics; the rest is counted as `+N more` |
+| Background | Nothing runs by itself: a reminder is seen only when a session starts, and acted on only when that session does it |
+| Count | A project that is moved or renamed gets a new key, so its session reminders count from 0 again (a delay, not a loss); in a bare-repository layout each worktree has its own key |
+| Simultaneous starts | Two starts in the same half second may lose one count: the lock gives up rather than delay a session |
+| Sessions without a terminal | `claude -p` or an eval run raises the count if it runs the plugin's hooks; not measured. The hook log gains `count` to compare |
+| Ended reminders | Kept as files and never removed; `reminders/.curation-log` is never trimmed |
+| Restore | A restored reminder starts its showings at 0 again |
+| `mem check` | Skips only `<store>/memories/reminders`; a global reminders folder elsewhere inside a store is checked like notes |
+| Orphans | A note linked only from a reminder body counts as an orphan |
+| Evidence | Not measured: no figure yet for reminders acted on, and the skill text is unmeasured (ADR 0023 has the kill criteria) |
+
 ## Automatic curation (off by default)
 
 Plugin option `auto_curation` (exactly `true` turns it on; any other value is off). **What starts it:** the `SessionEnd` hook, after its commit, starts `bin/mem-auto run` detached (it outlives the session; the claude binary is `CLAUDE_CODE_EXECPATH`, `claude` on `PATH`, or the hook's parent process). The run counts the global memories and notes written since the last run ended (so its own edits do not count) or the last curation pass (`mem curate --new-since`; an edit counts) and goes on only when the count reaches `auto_curation_threshold` (default 10); right after a run the count is 0.

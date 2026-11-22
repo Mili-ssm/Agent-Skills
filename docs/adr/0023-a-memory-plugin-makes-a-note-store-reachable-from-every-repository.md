@@ -129,3 +129,13 @@ The texts given to models changed without an eval suite (N6): the proposal and v
 - After the release, a global record of origin `transcript` is in quarantine with no end date.
 - The capture sets `same_as` to a `g:` record for a lesson the owner judges only related: revert the capture brief's sentence.
 
+### Stage B4, first release: reminders, the same day
+
+The first release of stage B4 is built on branch `feat/memory-reminders` ([plan](../superpowers/plans/2026-11-22-memory-reminders.md); capture design, C40 to C45 and C50), not merged and not released. A reminder asks for work in a later session; the session start text gains at most one line when one is due; the agent decides from the reminder's effort and risk whether to start the work or ask the owner. The second release, the loaded rules, has no plan yet. The decisions are C40 to C45 and C50, not copied here. The owner's rulings and the research read are in [the B4 handoff](../superpowers/plans/2026-11-22-memory-loaded-rules-and-reminders.md): no outside measure of reminders acted on was found.
+
+The prompt text of the skill's `## Reminders` section ships unmeasured. Kill criteria, from the plan's pre-mortem:
+
+- `mem reminders --stats`, over at least 10 ended reminders, shows a median of more than 3 showings before `done`, or more closed than done: the line is not acted on; revisit C42 to C44.
+- After release, the hook's `ms` at the 99th percentile in `hooks/log.jsonl` is over 1500 (742 before): move the reminder load or the count out of the hook.
+- `count` is null on more than 10% of counted hook lines in the first week: re-plan the count.
+- A file under `.memory/reminders` appears in a project's `git status`: stop and patch before further use.

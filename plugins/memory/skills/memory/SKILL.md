@@ -53,6 +53,18 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 - Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree. Exit code 2 from a global write when neither `HOME` nor `XDG_CONFIG_HOME` is set: nothing was written; set one of them.
 - When a memory you used proved right: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`.
 
+## Reminders
+
+A reminder asks for work that belongs to a later session: a finding deferred from a review, an item left open, a periodic check. Work for this session is not a reminder, and a fact is a memory.
+
+```
+mem remind "<topic, up to 40 characters>" --body "the work and why" --effort low --risk low
+```
+
+Add one condition when it should wait: `--in-sessions 3`, `--in-days 14` or `--every 30d` (`10s` counts sessions). Give `--effort` and `--risk` (`low`, `medium`, `high`) honestly: they decide whether a later session starts the work by itself.
+
+When the session start text shows `Reminders:`, finish the current task, run `mem reminders` and follow the rule it prints. End each reminder you act on with `mem reminder done <handle> --note "<what was done>"`, `mem reminder snooze <handle> --sessions 2` or `mem reminder close <handle> --reason "<why>"`. One left open is shown again and again, and a line that never changes is learned to be ignored.
+
 ## Not while working
 
 Related memories printed when you write, near-duplicates, contradictions, expired records, notes that belong in a synthesis: leave them. When `mem` says a curation pass is due, finish the task first, then hand the pass to the `memory-curator` subagent (or load the `memory-curation` skill). Writing or extending a synthesis is the `memory-synthesis` skill, and belongs to that pass too. Change records only with `mem` commands (`mem note edit`, `mem memory edit`), never by editing their files: the commands carry the guards, the secret check and the undo. That is curation work. Each change is undone with `mem restore <handle>`.
