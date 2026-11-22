@@ -352,7 +352,7 @@ Not dispatched: the controller runs it.
 - [x] Migration, whatever the gate's result, and before any release carries Tasks 1 and 2: confirm the 15 recovered global lessons with the working-tree `bin/mem confirm --global --by-owner` on the real store (the owner reviewed them on 2026-11-21 and agreed to this on 2026-11-22), then check that no global transcript record is in quarantine with no end date.
 - [ ] The first pass on the real store: `run --groups <the file the owner reviewed>`, not a new model session.
 - [x] Records: `plugins/memory/README.md` (the pass, quarantine, triage, the sweep; implemented apart from planned), `plugins/memory/CHANGELOG.md`, ADR 0023 `### Stage B3` with the gate's figures and kill criteria, the state tables of [the stage plan](2026-11-17-memory-plugin.md) and of the spec's Phases, and the Results section below.
-- [ ] `python3 scripts/validate.py`, `claude plugin validate .`, the whole suite; then the narrow final reviews of the plan loop.
+- [x] `python3 scripts/validate.py`, `claude plugin validate .`, the whole suite (1701 passed, 5 skipped); then the narrow final reviews of the plan loop (docs against code, the flow across tasks).
 
 ## Results
 
