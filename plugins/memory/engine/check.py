@@ -912,5 +912,5 @@ def invalid_changed(store: Path) -> Callable[[list[str]], list[str]]:
     held-back one."""
     def validate(paths: list[str]) -> list[str]:
         bad = {p.path for p in check(store)}
-        return [p for p in paths if p in bad]
+        return [p for p in paths if p in bad or any(p.startswith(b + "/") for b in bad)]  # a problem may name a folder
     return validate

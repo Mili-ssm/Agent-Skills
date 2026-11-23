@@ -573,7 +573,7 @@ def test_held_back_file_written_when_nothing_else_staged(repo):
             git(repo, "commit", "-q", "-m", "rest")
     # only the invalid note and files it drags along remain; hold everything that fails
     assert store_git.commit_if_changed(repo, "m", validate=lambda paths: list(paths)) is None
-    assert store_git.held_back(repo)
+    assert store_git.held_back(repo) == [bad]
 
 
 def test_valid_note_linking_held_back_note_is_committed(repo):
@@ -591,3 +591,47 @@ def test_history_commit_prints_held_back_paths(repo, capsys):
     capsys.readouterr()
     assert mem.main(["history", "commit"]) == 0
     assert f"held back: {bad}" in capsys.readouterr().err
+
+
+def test_held_back_rename_keeps_old_note_in_history(repo):
+    old = note(repo, "old")
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    git(repo, "mv", old, "knowledge/notes/new.md")
+    (repo / "knowledge/notes/new.md").write_text(NOTE.format(claim="new", tail=""), encoding="utf-8")
+    assert mem.main(["index"]) == 0
+    store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    assert old in tracked(repo) and "knowledge/notes/new.md" not in tracked(repo)
+    assert store_git.held_back(repo) == ["knowledge/notes/new.md"]
+
+
+def test_note_in_stray_folder_is_held_back(repo):
+    note(repo, "ok")
+    stray = repo / "knowledge" / "notes" / "stray"
+    stray.mkdir()
+    (stray / "deep.md").write_text(NOTE.format(claim="deep", tail=FULL_TAIL), encoding="utf-8")
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert "knowledge/notes/stray/deep.md" not in tracked(repo)
+    assert store_git.held_back(repo) == ["knowledge/notes/stray/deep.md"]
+
+
+def test_lock_failure_prints_no_stale_held_paths(repo, capsys, monkeypatch):
+    bad = note(repo, "bad", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert store_git.held_back(repo) == [bad]
+    monkeypatch.setattr(store_git, "LOCK_WAIT", 0)
+    fd = store_git._lock(repo)
+    try:
+        capsys.readouterr()
+        assert mem.main(["history", "commit"]) == 1
+    finally:
+        os.close(fd)
+    assert "held back:" not in capsys.readouterr().err
+
+
+def test_unwritable_held_list_still_commits(repo):
+    good = note(repo, "good")
+    bad = note(repo, "bad", valid=False)
+    (repo / ".git" / "mem-held-back").mkdir()  # a directory: writing the list fails
+    warned = []
+    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo), warn=warned.append)
+    assert good in tracked(repo) and bad not in tracked(repo) and warned

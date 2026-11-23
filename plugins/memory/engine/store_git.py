@@ -110,7 +110,7 @@ def held_back(store: Path) -> list[str]:
         text = (Path(store) / ".git" / HELD_NAME).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
-    return [ln for ln in text.splitlines() if ln]
+    return [ln for ln in text.split("\n") if ln]
 
 
 def _write_held(store: Path, held: list[str]) -> None:
@@ -129,6 +129,19 @@ def _staged_paths(store: Path) -> list[str]:
     return [p for p in out.split("\0") if p]
 
 
+def _rename_sources(store: Path, held: list[str]) -> list[str]:
+    """The old paths of the staged renames whose new path is held: resetting only the new side would commit the deletion."""
+    fields = _git(store, "diff", "--cached", "-M", "--name-status", "-z").split("\0")
+    sources, i = [], 0
+    while i < len(fields) and fields[i]:
+        status = fields[i]
+        width = 3 if status[0] in "RC" else 2
+        if status[0] == "R" and fields[i + 2] in held:
+            sources.append(fields[i + 1])
+        i += width
+    return sources
+
+
 def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Callable[[str], None]) -> list[str]:
     """Unstage the changed files that fail `validate`, and any that a writer changed while it ran."""
     paths = _staged_paths(store)
@@ -143,7 +156,7 @@ def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Ca
     changed = _git(store, "diff", "--name-only", "-z", "--", *paths).split("\0")
     held = sorted(set(bad) | {p for p in changed if p})
     if held:
-        _git(store, "reset", "-q", "--", *held)
+        _git(store, "reset", "-q", "--", *held, *_rename_sources(store, held))
     return held
 
 
@@ -152,13 +165,22 @@ def _commit(store: Path, message: str | Callable[[int], str],
             warn: Callable[[str], None] = lambda reason: None) -> str | None:
     try:
         fd = _lock(store)
-    except OSError as exc:
-        raise GitError(f"lock: {exc}") from exc
+    except (OSError, GitError) as exc:
+        if validate is not None:
+            try:
+                _write_held(store, [])  # this run held nothing back: an earlier list would mislead
+            except GitError:
+                pass
+        raise (exc if isinstance(exc, GitError) else GitError(f"lock: {exc}")) from None
     try:
         _drop_stale_index_lock(store)
         _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
         if validate is not None:
-            _write_held(store, _hold_back(store, validate, warn))
+            held = _hold_back(store, validate, warn)
+            try:
+                _write_held(store, held)
+            except GitError as exc:  # the list is a convenience: the commit must not be lost for it
+                warn(str(exc))
         staged = subprocess.run(["git", "-C", str(store), *_GIT_FLAGS, "diff", "--cached", "--quiet"],
                                 capture_output=True, text=True, check=False, timeout=TIMEOUT, env=_env())
         if staged.returncode == 0:

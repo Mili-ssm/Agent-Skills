@@ -342,6 +342,31 @@ def test_session_end_hook_commits_the_store(hub_root, tmp_path):
 
 
 @needs_uv
+def test_session_end_hook_commits_a_valid_note_through_the_gate(tmp_path, monkeypatch):
+    import mem
+    import store_git
+    from test_store_git import FULL_TAIL, NOTE
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    store = tmp_path / "store"
+    monkeypatch.setenv("MEM_STORE", str(store))
+    assert mem.main(["init", str(store)]) == 0
+    store_git.init(store)
+    folder = store / "knowledge" / "notes"
+    folder.mkdir(parents=True)
+    (folder / "good.md").write_text(NOTE.format(claim="good", tail=FULL_TAIL), encoding="utf-8")
+    assert mem.main(["index"]) == 0
+    r = _session_end(tmp_path, store)
+    assert r.returncode == 0 and r.stderr == ""
+    deadline = time.monotonic() + 10
+    tracked = ""
+    while time.monotonic() < deadline and "knowledge/notes/good.md" not in tracked:
+        time.sleep(0.1)
+        tracked = subprocess.run(["git", "-C", str(store), "ls-files"], capture_output=True, text=True).stdout
+    assert "knowledge/notes/good.md" in tracked
+
+
+@needs_uv
 def test_session_end_hook_exits_0_when_git_fails(hub_root, tmp_path):
     subprocess.run(["git", "-C", str(hub_root), "init", "-q"], check=True)
     r = _session_end(tmp_path, hub_root, fake_git="#!/bin/sh\nexit 1\n")
