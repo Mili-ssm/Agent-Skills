@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Lessons that load at session start are no longer limited in number: they fill up to 3200 characters of rule lines (was 16 lessons and 2400 characters), and the index line of the lessons left out may take up to 1600 characters (was 200), so it names more topics. Nothing has to be done; the session start text can be longer.
+
 ## [0.8.0] - 2026-11-23
 
 ### Added

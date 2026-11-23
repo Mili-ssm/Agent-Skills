@@ -15,6 +15,16 @@ import rules
 PLUGIN = Path(__file__).resolve().parents[2]
 K1, K2 = "0123456789ab", "ba9876543210"
 LINE1 = "memory: the mem command searches notes and memories (skill: memory)."
+# Lessons are limited by characters only. A short form of LONG characters makes a line of 132 characters
+# when the owner vouched for the lesson (25 for the standing words, 2 for "- ", 1 for the newline plus the space),
+# and 127 when it is held in 2 projects or sessions; FIT and FIT_HELD are how many of each fit in RULES_LIMIT.
+LONG = 103
+FIT = rules.RULES_LIMIT // (LONG + 29)
+FIT_HELD = rules.RULES_LIMIT // (LONG + 24)
+
+
+def pad(text, size=LONG):
+    return (text + " " + "y" * size)[:size]
 
 
 @pytest.fixture
@@ -98,12 +108,12 @@ def test_without_short_forms_the_text_is_unchanged_in_other_setups(project, gfol
 
 
 def test_rules_block_and_more_line_are_in_the_text_in_order(project, gfolder, capsys):
-    write("Run the checks lesson.", short="Run the checks before you report a change.", weight="strong")
-    for i in range(rules.RULES_MAX):
-        write(f"Other lesson {i}.", short=f"Other rule {i}.")
+    write("Run the checks lesson.", short=pad("Run the checks before you report a change."), weight="strong")
+    for i in range(FIT):
+        write(f"Other lesson {i}.", short=pad(f"Other rule {i}."))
     out = run(capsys, "--list", "5")
     assert out.index("To remember:") < out.index(rules.HEADER) < out.index("- Run the checks") < out.index("1 more lesson")
-    assert out.count("\n- Other rule") == rules.RULES_MAX - 1 and out.count("(the user vouched for it)") == rules.RULES_MAX
+    assert out.count("\n- Other rule") == FIT - 1 and out.count("(the user vouched for it)") == FIT
 
 
 def test_project_rows_keep_their_own_limit(project, gfolder, capsys):
@@ -145,12 +155,12 @@ def test_an_unreadable_global_folder_keeps_the_text(project, gfolder, capsys):
 
 
 def test_the_hook_log_counts_rules(project, gfolder, capsys, monkeypatch):
-    for i in range(rules.RULES_MAX + 1):
-        write(f"Lesson {i}.", short=f"Rule {i}.")
+    for i in range(FIT + 1):
+        write(f"Lesson {i}.", short=pad(f"Rule {i}."))
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps({"cwd": str(project), "source": "startup"})))
     out = run(capsys, "--hook")
     line = json.loads((Path(os.environ["MEM_DATA"]) / "hooks" / "log.jsonl").read_text().splitlines()[-1])
-    assert line["rules"] == rules.RULES_MAX and line["rules_left"] == 1
+    assert line["rules"] == FIT and line["rules_left"] == 1
     assert line["rules_chars"] == len("\n".join([*out.split("\n")[out.split("\n").index(rules.HEADER):]]).rstrip("\n"))
     assert all(isinstance(v, (int, str, type(None))) for v in line.values())
     assert "Rule" not in json.dumps(line)
@@ -214,9 +224,9 @@ def test_the_real_hook_script_with_only_mem_store(tmp_path):
 
 
 def test_the_option_off_removes_the_block_and_nothing_else(project, gfolder, capsys, monkeypatch):
-    write("A lesson.", short="A rule that loads.")
-    for i in range(rules.RULES_MAX):
-        write(f"Other lesson {i}.", short=f"Other rule {i}.")
+    write("A lesson.", short=pad("A rule that loads."))
+    for i in range(FIT):
+        write(f"Other lesson {i}.", short=pad(f"Other rule {i}."))
     on = run(capsys)
     assert rules.HEADER in on and "more lesson" in on
     monkeypatch.setenv("MEM_LOADED_RULES", "off")

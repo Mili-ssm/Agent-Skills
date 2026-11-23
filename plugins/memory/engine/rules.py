@@ -14,9 +14,8 @@ from records import Memory
 
 HEADER = ("memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "
           "not to, and mention a skipped one only when it matters to the user.")
-RULES_MAX = 16
-RULES_LIMIT = 2400
-MORE_LIMIT = 200
+RULES_LIMIT = 3200
+INDEX_LIMIT = 1600
 TOPICS_NAMED = 4
 PROJECT_FIRST = 3
 OVER, PENDING, INDEX = "over the limit", "awaits triage", "index only"
@@ -78,7 +77,7 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
     used, full = 0, False
     for m in [*first, *rest]:
         size = len(line(m)) + 1
-        if not full and len(out.loaded) < RULES_MAX and used + size <= RULES_LIMIT:
+        if not full and used + size <= RULES_LIMIT:
             out.loaded.append(m)
             used += size
         else:
@@ -133,7 +132,7 @@ def more_line(choice: Choice) -> str | None:
         other = total - sum(n for _, n in named)
         parts = [f"{t} {n}" for t, n in named] + ([f"other {other}"] if other else [])
         text = f"{total} more {noun} by topic: {', '.join(parts)} (mem rules --more <topic>, when a topic fits your task)"
-        if len(text) <= MORE_LIMIT or not named:
+        if len(text) <= INDEX_LIMIT or not named:
             break
         named = named[:-1]
     return text if named else f"{total} more {noun}: mem rules --more"
