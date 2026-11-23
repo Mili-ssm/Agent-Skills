@@ -1208,12 +1208,15 @@ def _reword_run_folder(cdir: Path) -> Path:
     return run
 
 
-REWORD_REFUSED_EXITS = (2, 4)   # `mem memory edit` refuses a text with 2 (a failed code check) or 4 (a secret, a forbidden term)
+# Only exit 4 of `mem memory edit` (a secret, a forbidden term) refuses the text. Exit 2 is also a usage error, "not found"
+# or "not active": counting it as a refusal would make every lesson give up if the command line were ever wrong, and the
+# step has run the same code check itself before the edit.
+REWORD_REFUSED_EXITS = (4,)
 
 
 def _reword_edit(applier: Applier, project: Path | None, m, *flags: str) -> str:
-    """One `mem memory edit` of the step, journaled: "ok", "refused" (the command refused the text) or "failed" (it
-    could not run, timed out or exited otherwise: nothing says the text is bad, so no attempt is spent)."""
+    """One `mem memory edit` of the step, journaled: "ok", "refused" (exit 4: the command refused the text) or "failed"
+    (it could not run, timed out or exited otherwise: nothing says the text is bad, so no attempt is spent)."""
     watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # a global edit may update it
     before = applier.journal.watch(watched)
     done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []), *flags], project,
@@ -1257,6 +1260,29 @@ def reword_auto(claude: str | None, budget: float, *, every: bool = False, apply
         return {**result, "stopped": "the step failed"}
 
 
+def _reword_applier(cdir: Path, gfolder: Path | None) -> Applier:
+    run = _reword_run_folder(cdir)
+    au.private_dir(run)
+    write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
+    return Applier(Journal(run), {}, gfolder, run, lambda _text: None)
+
+
+def _retry_give_ups(cdir: Path, state: dict, projects, gfolder: Path | None) -> int:
+    """The `--reword-failed` edit of a give-up that did not run: every lesson the state counts REWORD_ATTEMPTS or more
+    for its present version and whose record lacks the mark gets it again. Returns the marks written."""
+    applier, done, seen = None, 0, set()
+    for _i, p, m in corroborate.fill_records(projects, gfolder):
+        key, versions = corroborate.reword_key(p, m.handle), records.version_list(m)
+        if key in seen or not versions or m.reword_failed == versions[-1][0]:
+            continue
+        seen.add(key)
+        if corroborate._count(corroborate._entry(state, key), versions[-1][0]) >= corroborate.REWORD_ATTEMPTS:
+            applier = applier or _reword_applier(cdir, gfolder)
+            if _reword_edit(applier, p, m, "--reword-failed") == "ok":
+                done += 1
+    return done
+
+
 def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, every: bool, apply: bool,
                    sheet: Path | None, limit: int) -> dict:
     def finish(**changes) -> dict:
@@ -1269,6 +1295,8 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     except ValueError:
         return finish(stopped="the registry is unreadable")
     state = _reword_state(cdir)
+    if apply:
+        result["gave_up"] += _retry_give_ups(cdir, state, projects, gfolder)
     candidates = corroborate.reword_candidates(projects, gfolder, datetime.date.today(), state, every=every)
     if every:
         candidates = candidates[:max(limit, 0)]
@@ -1330,42 +1358,38 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
 
     outcome = corroborate.reword_outcome(candidates, proposed, accepted)
     if apply:
-        run = None
         applier = None
         now = {i: m for i, _p, m in corroborate.fill_records(projects, gfolder)}   # the owner may have edited meanwhile
         for i, m in candidates:
             if outcome[i] != "written":
                 continue
             seen = now.get(i)
-            if seen is None or (seen.claim, seen.short) != (m.claim, m.short):
-                outcome[i] = "no_proposal"
-                result["changed"] += 1
+            # keeping a wording (`reviewed`) or a rewording made meanwhile must not be overwritten
+            if (seen is None or (seen.claim, seen.short) != (m.claim, m.short) or seen.reviewed is not None
+                    or seen.reworded is not None or seen.weight == "strong" or seen.status != "active"):
+                outcome[i] = "changed"
                 continue
-            if applier is None:
-                run = _reword_run_folder(cdir)
-                au.private_dir(run)
-                write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
-                applier = Applier(Journal(run), {}, gfolder, run, lambda _text: None)
+            applier = applier or _reword_applier(cdir, gfolder)
             edit = _reword_edit(applier, where[i], m, f"--short={proposed[i]['short']}", "--reworded")
             if edit == "refused":
                 outcome[i] = "refused_code"
             elif edit == "failed":
-                outcome[i] = "no_proposal"
-                result["failed_edits"] += 1
+                outcome[i] = "failed_edit"
         new_state, giveup = corroborate.reword_state_after(state, candidates, outcome, datetime.date.today())
         state["lessons"] = new_state["lessons"]
-        failures["count"], failures["fingerprint"] = 0, None
+        if "failed_edit" in outcome.values():   # as a failed session: repeated failures end in the wait
+            failures["count"] += 1
+            failures["fingerprint"] = fingerprint
+        else:
+            failures["count"], failures["fingerprint"] = 0, None
         save_state()
         for i in giveup:
-            if applier is None:
-                run = _reword_run_folder(cdir)
-                au.private_dir(run)
-                write_private(run / "fill", "")
-                applier = Applier(Journal(run), {}, gfolder, run, lambda _text: None)
+            applier = applier or _reword_applier(cdir, gfolder)
             if _reword_edit(applier, where[i], by_id[i], "--reword-failed") == "ok":
                 result["gave_up"] += 1
-    for word in ("refused_code", "refused_check", "same_text", "no_proposal"):
+    for word in ("refused_code", "refused_check", "same_text", "no_proposal", "changed"):
         result[word] = sum(1 for v in outcome.values() if v == word)
+    result["failed_edits"] = sum(1 for v in outcome.values() if v == "failed_edit")
     result["written"] = sum(1 for v in outcome.values() if v == "written") if apply else 0
     if sheet is not None:
         try:   # the run is done: a sheet that cannot be written must not turn it into a failed step
@@ -1398,6 +1422,10 @@ def cmd_reword(args) -> int:
     if IMPORT_ERROR is not None:
         print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
         return 1
+    if args.every and not args.dry_run:   # --every is for the gate on a copy: on a real store it would mark every lesson reworded
+        print("mem-corroborate: --every goes with --dry-run: it takes lessons that did not get worse, for a trial on a copy",
+              file=sys.stderr)
+        return 2
     sheet = Path(args.sheet).expanduser() if args.sheet else None
     if sheet is not None:
         repo = repo_above(sheet.resolve().parent)

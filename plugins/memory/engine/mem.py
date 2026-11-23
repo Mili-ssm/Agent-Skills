@@ -3951,8 +3951,8 @@ def cmd_memory(args: argparse.Namespace) -> int:
     """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
     if args.reword_failed:
         return _reword_failed(args)
-    if args.reworded and (args.short is None or args.user_read):
-        print("mem: --reworded goes with --short and without --user-read: it marks a model's rewording.", file=sys.stderr)
+    if args.reworded and (not args.short or args.user_read):
+        print("mem: --reworded goes with a non-empty --short and without --user-read: it marks a model's rewording.", file=sys.stderr)
         return 2
     if (args.claim is None and args.context is None and args.body_file is None and args.short is None
             and args.topic is None and not args.no_load and not args.load and not args.index_only):

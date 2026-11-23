@@ -311,3 +311,16 @@ def test_the_hook_passes_the_layout(tmp_path, value, grouped):
                        env=env, capture_output=True, text=True)
     assert "Global rule for the hook." in r.stdout
     assert ("other:\n- Global rule for the hook." in r.stdout) is grouped
+
+
+@pytest.mark.parametrize("layout, exported", [("grouped", True), ("flat", False), (None, False)])
+def test_session_env_exports_the_layout(tmp_path, layout, exported):
+    envfile = tmp_path / "env"
+    envfile.write_text("")
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / "c"),
+           "XDG_DATA_HOME": str(tmp_path / "d"), "CLAUDE_ENV_FILE": str(envfile)}
+    if layout:
+        env["CLAUDE_PLUGIN_OPTION_RULES_LAYOUT"] = layout
+    done = subprocess.run([str(PLUGIN / "hooks" / "session-env.sh")], env=env, capture_output=True, text=True)
+    assert done.returncode == 0 and done.stdout == ""
+    assert ("export MEM_RULES_LAYOUT=grouped" in envfile.read_text().splitlines()) is exported

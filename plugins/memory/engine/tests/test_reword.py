@@ -1,8 +1,11 @@
 import datetime
 
+import pytest
+
 import corroborate
 import mem
 import records
+import rules
 from test_case_log import (CATEGORY, FAILS, TODAY, ago, curated, global_lesson, queue, reload, shown,  # noqa: F401
                            worse_lesson)
 from test_case_log import project  # noqa: F401  (fixtures)
@@ -244,7 +247,7 @@ def test_outcome_words(project, gfolder):
     got = proposals(items[:4], "A new wording.", "first text", "Always a new wording.", "Another wording.")
     out = corroborate.reword_outcome(items, got, {"g:a"})
     assert out == {"g:a": "written", "g:b": "same_text", "g:c": "refused_code", "g:d": "refused_check",
-                   "g:e": "no_proposal"}
+                   "g:e": "no_proposal"}   # no_proposal: the writer's answer has no item for the lesson
 
 
 def entry_of(state, m, project=None):
@@ -287,8 +290,36 @@ def test_a_project_lesson_has_the_key_of_its_project(project):
     assert list(state["lessons"]) == [corroborate.reword_key(project, m.handle)]
 
 
-def test_no_proposal_spends_nothing(project, gfolder):
+def test_a_missing_proposal_counts_an_attempt(project, gfolder):
+    m = worse("Lesson a.")
+    items = [("g:a", m)]
+    once, giveup = corroborate.reword_state_after(NONE_YET, items, {"g:a": "no_proposal"}, TODAY)
+    assert entry_of(once, m) == {"version": ago(10).isoformat(), "count": 1, "spent": False} and giveup == []
+    twice, giveup = corroborate.reword_state_after(once, items, {"g:a": "no_proposal"}, TODAY)
+    assert entry_of(twice, m)["count"] == 2 and giveup == ["g:a"]
+
+
+@pytest.mark.parametrize("word", ["changed", "failed_edit"])
+def test_a_changed_lesson_and_a_failed_edit_count_nothing(project, gfolder, word):
     m = worse("Lesson a.")
     before = {"lessons": {"k": {"version": "2026-01-01", "count": 1, "spent": False}}, "failures": {}}
-    state, giveup = corroborate.reword_state_after(before, [("g:a", m)], {"g:a": "no_proposal"}, TODAY)
+    state, giveup = corroborate.reword_state_after(before, [("g:a", m)], {"g:a": word}, TODAY)
     assert state == before and giveup == []
+
+
+def test_a_lesson_cut_only_by_the_cap_is_a_candidate(project, gfolder):
+    for n in range(rules.RULES_MAX):   # these rank first: the vouched-for strong lessons
+        m = global_lesson(f"Filler lesson number {n}.", versions=[(10, "First text.")])
+        records.update(m, TODAY, weight="strong")
+    late = worse("Late lesson.")
+    glob = [m for m in records.load_memories(os_gmem(), "global")]
+    choice = rules.choose([], glob, TODAY)
+    assert [m.claim for m, why in choice.left if why == rules.OVER] == ["Late lesson."] and len(choice.loaded) == rules.RULES_MAX
+    assert candidates() == ["Late lesson."] and late.claim == "Late lesson."
+
+
+def test_reworded_refuses_an_empty_short_form(project, gfolder):
+    m = global_lesson("Failing lesson.", versions=[(10, "First text.")])
+    before = m.path.read_bytes()
+    assert edit(f"m:{m.handle}", "--short", "", "--reworded") == 2
+    assert m.path.read_bytes() == before

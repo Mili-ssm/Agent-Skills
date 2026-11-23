@@ -2037,20 +2037,127 @@ def test_reword_skips_a_lesson_edited_meanwhile(w, monkeypatch):
     reword_answers(w, monkeypatch)
     mod = corr_module()
     by_hand = "A short form the owner wrote while the sessions ran, which the step must not overwrite."
+    edit_between(w, mod, monkeypatch, short=by_hand)
+    result = reword(w, mod)
+    assert result["changed"] == 1 and result["written"] == 0 and result["no_proposal"] == 0
+    m = by_claim(w, NARROW)
+    assert m.short == by_hand and m.reworded is None
+    assert reword_state(w)["lessons"] == {} and not reword_runs(w)
+
+
+def edit_between(w, mod, mp, **changes):
+    """The record is changed after the checker session and before the step's edit."""
     real = mod._ask
 
     def ask_then_edit(*args, **kw):
         got = real(*args, **kw)
-        if args[2] == "check":   # the owner edits between the model sessions and the apply
-            records.update(by_claim(w, NARROW), TODAY, short=by_hand)
+        if args[2] == "check":
+            records.update(by_claim(w, NARROW), TODAY, **changes)
         return got
 
-    monkeypatch.setattr(mod, "_ask", ask_then_edit)
+    mp.setattr(mod, "_ask", ask_then_edit)
+
+
+@pytest.mark.parametrize("changes", [{"reviewed": TODAY}, {"reworded": TODAY}, {"weight": "strong"},
+                                     {"status": "superseded", "superseded_by": "other"}])
+def test_reword_skips_a_lesson_the_owner_kept_meanwhile(w, monkeypatch, changes):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    edit_between(w, mod, monkeypatch, **changes)
     result = reword(w, mod)
-    assert result["changed"] == 1 and result["written"] == 0 and result["no_proposal"] == 1
-    m = by_claim(w, NARROW)
-    assert m.short == by_hand and m.reworded is None
+    assert (result["changed"], result["written"], result["no_proposal"], result["failed_edits"]) == (1, 0, 0, 0)
     assert reword_state(w)["lessons"] == {} and not reword_runs(w)
+    assert [m for m in project_lessons(w) if m.claim == NARROW][0].short == OLD_WORDING
+
+
+def project_lessons(w):
+    return records.load_memories(records.project_dir(w.pa), "project")
+
+
+def fake_mem(w, mod, mp, shell):
+    """The step's `mem` calls go through a wrapper: `shell` runs first (REAL is the real command), then the real one."""
+    script = w.tmp / "mem-fake"
+    script.write_text("#!/bin/sh\n" + shell.replace("REAL", str(mod.MEM)) + f'\nexec {mod.MEM} "$@"\n')
+    script.chmod(0o755)
+    mp.setattr(mod, "MEM", script)
+
+
+EDIT_EXITS = 'if [ "$1" = memory ] && [ "$2" = edit ]; then case "$*" in *--short=*) exit %d;; esac; fi'
+
+
+def test_a_missing_proposal_spends_an_attempt_and_two_give_up(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch, writer=json.dumps({"items": []}))
+    first = reword(w)
+    assert (first["no_proposal"], first["gave_up"]) == (1, 0) and first["stopped"] is None
+    assert list(reword_state(w)["lessons"].values())[0]["count"] == 1
+    second = reword(w)
+    assert (second["no_proposal"], second["gave_up"]) == (1, 1)
+    assert by_claim(w, NARROW).reword_failed == ago(10) and by_claim(w, NARROW).short == OLD_WORDING
+    before = calls(w)
+    assert reword(w) == NOTHING and calls(w) == before
+
+
+def test_a_usage_error_of_the_edit_is_a_failed_edit(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    fake_mem(w, mod, monkeypatch, EDIT_EXITS % 2)
+    for n in (1, 2, 3):
+        got = reword(w, mod)
+        assert (got["failed_edits"], got["written"], got["refused_code"], got["gave_up"]) == (1, 0, 0, 0)
+        assert reword_state(w)["lessons"] == {} and reword_state(w)["failures"]["count"] == n
+        assert by_claim(w, NARROW).reword_failed is None and by_claim(w, NARROW).short == OLD_WORDING
+    before = calls(w)
+    waiting = reword(w, mod)
+    assert calls(w) == before and "waiting" in waiting["stopped"]
+
+
+def test_a_forbidden_term_is_a_refusal(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    fake_mem(w, mod, monkeypatch, EDIT_EXITS % 4)
+    got = reword(w, mod)
+    assert (got["refused_code"], got["failed_edits"], got["written"]) == (1, 0, 0)
+    (entry,) = reword_state(w)["lessons"].values()
+    assert entry["count"] == 1 and reword_state(w)["failures"]["count"] == 0
+
+
+def test_a_failed_give_up_is_retried_without_a_session(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch, checker=False)
+    mod = corr_module()
+    marker = w.tmp / "failed-once"
+    fake_mem(w, mod, monkeypatch, f'case "$*" in *--reword-failed*) if [ ! -f {marker} ]; then touch {marker}; exit 2; fi;; esac')
+    assert reword(w, mod)["gave_up"] == 0
+    second = reword(w, mod)
+    assert (second["refused_check"], second["gave_up"]) == (1, 0)
+    assert list(reword_state(w)["lessons"].values())[0]["count"] == 2 and by_claim(w, NARROW).reword_failed is None
+    before = calls(w)
+    third = reword(w, mod)
+    assert third == {**NOTHING, "gave_up": 1} and calls(w) == before
+    assert by_claim(w, NARROW).reword_failed == ago(10)
+    assert reword(w, mod) == NOTHING and calls(w) == before
+
+
+def test_every_needs_dry_run(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    done = run(w, "--every", cmd="reword")
+    assert done.returncode == 2 and "--dry-run" in done.stderr and calls(w) == 0
+    assert by_claim(w, NARROW).short == OLD_WORDING and not (w.cdir / "reword-attempts.json").exists()
+
+
+@pytest.mark.parametrize("content", ["[1, 2]", "not json", '"text"', '{"lessons": [], "failures": 5}',
+                                     '{"lessons": {"k": 5, "j": []}, "failures": {"count": "x", "fingerprint": 3}}',
+                                     '{"lessons": 7, "failures": []}'])
+def test_a_broken_state_file_reads_as_empty(w, content):
+    auto_state.private_dir(w.cdir)
+    (w.cdir / "reword-attempts.json").write_text(content)
+    got = corr_module()._reword_state(w.cdir)
+    assert got["lessons"] == {} and got["failures"]["count"] == 0 and got["failures"]["fingerprint"] in (None, 3)
 
 
 # ---- the option auto_reword: the step in the automatic run ---------------------------------------------------------
@@ -2144,7 +2251,7 @@ def _edit_exits(monkeypatch, mod, code):
     monkeypatch.setattr(mod.Applier, "mem", mem)
 
 
-@pytest.mark.parametrize("code", [None, 1, 3])
+@pytest.mark.parametrize("code", [None, 1, 2, 3])
 def test_a_failed_edit_spends_no_attempt(w, monkeypatch, code):
     worse_one(w)
     reword_answers(w, monkeypatch)
@@ -2153,12 +2260,12 @@ def test_a_failed_edit_spends_no_attempt(w, monkeypatch, code):
     before = by_claim(w, NARROW)
     for _ in range(2):
         result = reword(w, mod)
-        assert (result["failed_edits"], result["written"], result["refused_code"], result["no_proposal"]) == (1, 0, 0, 1)
+        assert (result["failed_edits"], result["written"], result["refused_code"], result["no_proposal"]) == (1, 0, 0, 0)
     assert by_claim(w, NARROW) == before and by_claim(w, NARROW).reword_failed is None
     assert reword_state(w)["lessons"] == {}
 
 
-@pytest.mark.parametrize("code", [2, 4])
+@pytest.mark.parametrize("code", [4])
 def test_a_refused_edit_still_spends_an_attempt(w, monkeypatch, code):
     worse_one(w)
     reword_answers(w, monkeypatch)

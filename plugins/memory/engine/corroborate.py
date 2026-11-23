@@ -603,7 +603,8 @@ def reword_survivors(proposed: Mapping[str, dict], items: Sequence[tuple[str, re
 
 def reword_outcome(items: Sequence[tuple[str, records.Memory]], proposed: Mapping[str, dict],
                    accepted: Collection[str]) -> dict[str, str]:
-    """One word per candidate: written, same_text, refused_code, refused_check or no_proposal."""
+    """One word per candidate: written, same_text, refused_code, refused_check or no_proposal (the writer's answer has
+    no item for it). The step itself adds `changed` and `failed_edit`, which count no attempt."""
     kept, refused = reword_survivors(proposed, items)
     survivors = {ident for ident, _, _ in kept}
     out = {}
@@ -624,15 +625,15 @@ def _key_of(m: records.Memory) -> str:
 def reword_state_after(state: Mapping, items: Sequence[tuple[str, records.Memory]], outcome: Mapping[str, str],
                        today: datetime.date) -> tuple[dict, list[str]]:
     """The state once the step has run, and the ids to give up on (a `reword_failed` mark): `written` spends the
-    lesson; a refusal counts against its present version (a count for another version starts again); no proposal
-    changes nothing. `state` is not mutated."""
+    lesson; a refusal or a missing proposal counts an attempt against its present version (a count for another
+    version starts again); `changed` and `failed_edit` change nothing. `state` is not mutated."""
     lessons = {k: dict(v) for k, v in (state.get("lessons") or {}).items() if isinstance(v, Mapping)}
     new = {**{k: v for k, v in state.items() if k != "lessons"}, "lessons": lessons}
     giveup: list[str] = []
     for ident, m in items:
         word = outcome.get(ident, "no_proposal")
         versions = records.version_list(m)
-        if word == "no_proposal" or not versions:
+        if word in ("changed", "failed_edit") or not versions:
             continue
         key, on = _key_of(m), versions[-1][0]
         entry = lessons.get(key, {})
