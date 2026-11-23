@@ -1,6 +1,6 @@
 # Using agent-skills from GitHub Copilot and OpenAI Codex
 
-`agent-skills` is written for Claude Code. `scripts/port.py` generates equivalent copies for GitHub Copilot CLI and OpenAI Codex under `ports/` (ADR 0015). The mods (`tool-fold`, `plan-progress`) are Claude-only and are not listed for other tools.
+`agent-skills` is written for Claude Code. `scripts/port.py` generates equivalent copies for GitHub Copilot CLI and OpenAI Codex under `ports/` (ADR 0015). The mods (`tool-fold`, `plan-progress`) are Claude-only and are not listed for other tools. What each tool supports of the Claude Code plugin surface, including hooks and Google's Antigravity CLI, is in [platform-parity.md](platform-parity.md).
 
 > Generated files: never edit `ports/`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json` or `user-config/{offload-policy,routing}.{copilot,codex}.md` or the README block between the `recommended-prompt` markers by hand. Change the Claude source, then run `python3 scripts/port.py`; `scripts/validate.py` fails while they are stale.
 

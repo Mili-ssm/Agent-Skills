@@ -282,7 +282,7 @@ def test_history_without_a_repository_is_an_error(store, capsys):
 
 
 def test_history_commit_commits_with_the_message_or_says_nothing(repo, capsys):
-    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
+    (repo / "scratch-a.txt").write_text("a\n", encoding="utf-8")
     capsys.readouterr()
     assert mem.main(["history", "commit", "-m", "by hand"]) == 0
     assert capsys.readouterr().out.strip() == git(repo, "rev-parse", "--short", "HEAD").strip()
@@ -292,8 +292,8 @@ def test_history_commit_commits_with_the_message_or_says_nothing(repo, capsys):
 
 
 def test_history_commit_without_a_message_names_the_files(repo, capsys):
-    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
-    (repo / "knowledge" / "b.md").write_text("b\n", encoding="utf-8")
+    (repo / "scratch-a.txt").write_text("a\n", encoding="utf-8")
+    (repo / "scratch-b.txt").write_text("b\n", encoding="utf-8")
     assert mem.main(["history", "commit"]) == 0
     assert commits(repo)[0].startswith("manual commit ") and commits(repo)[0].endswith(": 2 files")
 
@@ -310,7 +310,7 @@ def test_history_commit_hook_is_silent_and_exit_0_when_git_fails(repo, monkeypat
 
 
 def test_history_commit_hook_commits_a_session_end_message(repo, capsys):
-    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
+    (repo / "scratch-a.txt").write_text("a\n", encoding="utf-8")
     assert mem.main(["history", "commit", "--hook"]) == 0
     assert commits(repo)[0].startswith("session end ") and commits(repo)[0].endswith(": 1 files")
 
@@ -322,8 +322,8 @@ def test_history_commit_hook_exits_0_without_a_store_or_a_repository(store, monk
 
 
 def test_curate_done_commits_with_the_pass_message(repo, capsys):
-    (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
-    (repo / "knowledge" / "b.md").write_text("b\n", encoding="utf-8")
+    (repo / "scratch-a.txt").write_text("a\n", encoding="utf-8")
+    (repo / "scratch-b.txt").write_text("b\n", encoding="utf-8")
     assert mem.main(["curate", "--done"]) == 0
     assert commits(repo)[0] == f"curation pass {datetime.date.today().isoformat()}: 2 files"
     assert git(repo, "status", "--porcelain") == ""
@@ -452,3 +452,228 @@ def test_trimming_waits_for_nothing_when_the_commit_lock_is_busy(repo):
     finally:
         os.close(fd)
     assert store_git.trim_logs_locked(repo) == 1
+
+
+# --- notes that fail `mem check` are held back (gap G1) ---
+
+NOTE = """---
+claim: {claim}
+topics: [notes]
+confidence: medium
+level: intermediate
+origin: literature
+updated: 2026-11-07
+---
+
+## Claim
+
+C.
+
+## Evidence
+
+E.
+{tail}"""
+FULL_TAIL = "\n## Applies when\n\nA.\n\n## Does not apply when\n\nB.\n"
+
+
+def note(store, name, *, valid=True, claim=None):
+    """Write a knowledge note (invalid: its last two headings are missing) and refresh the folder index."""
+    folder = store / "knowledge" / "notes"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / f"{name}.md").write_text(NOTE.format(claim=claim or name, tail=FULL_TAIL if valid else ""),
+                                       encoding="utf-8")
+    assert mem.main(["index"]) == 0
+    return f"knowledge/notes/{name}.md"
+
+
+def tracked(store):
+    return git(store, "ls-files").splitlines()
+
+
+def test_invalid_note_is_held_back(repo):
+    good = note(repo, "good")
+    bad = note(repo, "bad", valid=False)
+    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert good in tracked(repo) and bad not in tracked(repo)
+    assert store_git.held_back(repo) == [bad]
+    assert (repo / bad).exists()
+
+
+def test_invalid_note_in_new_folder_is_held_back(repo):
+    bad = note(repo, "bad", valid=False)  # knowledge/notes/ is untracked as a whole
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert bad not in tracked(repo) and store_git.held_back(repo) == [bad]
+
+
+def test_fixed_note_is_committed_next_time(repo):
+    bad = note(repo, "bad", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    note(repo, "bad")
+    assert store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    assert bad in tracked(repo) and store_git.held_back(repo) == []
+    assert not (repo / ".git" / "mem-held-back").exists()
+
+
+def test_deleted_note_is_not_held_back(repo):
+    gone = note(repo, "gone")
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    (repo / gone).unlink()
+    assert mem.main(["index"]) == 0
+    assert store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    assert gone not in tracked(repo) and store_git.held_back(repo) == []
+
+
+def test_validator_error_commits_everything(repo, capsys):
+    bad = note(repo, "bad", valid=False)
+    warned, reported = [], []
+
+    def broken(paths):
+        raise RuntimeError("boom")
+
+    assert store_git.commit_if_changed(repo, "m", validate=broken, warn=warned.append, report=reported.append)
+    assert bad in tracked(repo) and len(warned) == 1 and "boom" in warned[0] and reported == []
+
+
+def test_validator_exception_through_history_commit_exits_0(repo, monkeypatch, capsys):
+    bad = note(repo, "bad", valid=False)
+
+    def broken(store):
+        def validate(paths):
+            raise RuntimeError("boom")
+        return validate
+
+    monkeypatch.setattr(mem, "invalid_changed", broken)
+    capsys.readouterr()
+    assert mem.main(["history", "commit"]) == 0
+    assert "boom" in capsys.readouterr().err and bad in tracked(repo)
+
+
+def test_note_changed_during_check_is_held_back(repo):
+    late = note(repo, "late")
+
+    def validate(paths):
+        (repo / late).write_text("changed while the check ran\n", encoding="utf-8")
+        return []
+
+    store_git.commit_if_changed(repo, "m", validate=validate)
+    assert late not in tracked(repo) and store_git.held_back(repo) == []  # committed next time, not a check failure
+
+
+def test_no_validator_keeps_old_behavior(repo):
+    bad = note(repo, "bad", valid=False)
+    assert store_git.commit_if_changed(repo, "m")
+    assert bad in tracked(repo) and store_git.held_back(repo) == []
+
+
+def test_held_back_file_written_when_nothing_else_staged(repo):
+    bad = note(repo, "bad", valid=False)
+    for rel in git(repo, "ls-files", "--others", "--exclude-standard").splitlines():
+        if rel != bad:
+            git(repo, "add", rel)
+            git(repo, "commit", "-q", "-m", "rest")
+    # only the invalid note and files it drags along remain; hold everything that fails
+    assert store_git.commit_if_changed(repo, "m", validate=lambda paths: list(paths)) is None
+    assert store_git.held_back(repo) == [bad]
+
+
+def test_valid_note_linking_held_back_note_is_committed(repo):
+    bad = note(repo, "bad", valid=False)
+    good = note(repo, "good")
+    (repo / good).write_text((repo / good).read_text(encoding="utf-8").replace("E.", "See [bad](bad.md).", 1),
+                             encoding="utf-8")
+    assert mem.main(["index"]) == 0
+    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert good in tracked(repo) and bad not in tracked(repo)
+
+
+def test_history_commit_prints_held_back_paths(repo, capsys):
+    bad = note(repo, "bad", valid=False)
+    capsys.readouterr()
+    assert mem.main(["history", "commit"]) == 0
+    assert f"held back: {bad}" in capsys.readouterr().err
+
+
+def test_held_back_rename_keeps_old_note_in_history(repo):
+    old = note(repo, "old")
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    git(repo, "mv", old, "knowledge/notes/new.md")
+    (repo / "knowledge/notes/new.md").write_text(NOTE.format(claim="new", tail=""), encoding="utf-8")
+    assert mem.main(["index"]) == 0
+    store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    assert old in tracked(repo) and "knowledge/notes/new.md" not in tracked(repo)
+    assert store_git.held_back(repo) == ["knowledge/notes/new.md"]
+
+
+def test_note_in_stray_folder_is_held_back(repo):
+    note(repo, "ok")
+    stray = repo / "knowledge" / "notes" / "stray"
+    stray.mkdir()
+    (stray / "deep.md").write_text(NOTE.format(claim="deep", tail=FULL_TAIL), encoding="utf-8")
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert "knowledge/notes/stray/deep.md" not in tracked(repo)
+    assert store_git.held_back(repo) == ["knowledge/notes/stray/deep.md"]
+
+
+def test_lock_failure_prints_no_stale_held_paths(repo, capsys, monkeypatch):
+    bad = note(repo, "bad", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert store_git.held_back(repo) == [bad]
+    monkeypatch.setattr(store_git, "LOCK_WAIT", 0)
+    fd = store_git._lock(repo)
+    try:
+        capsys.readouterr()
+        assert mem.main(["history", "commit"]) == 1
+    finally:
+        os.close(fd)
+    assert "held back:" not in capsys.readouterr().err
+
+
+def test_unwritable_held_list_still_commits(repo):
+    good = note(repo, "good")
+    bad = note(repo, "bad", valid=False)
+    (repo / ".git" / "mem-held-back").mkdir()  # a directory: writing the list fails
+    warned = []
+    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo), warn=warned.append)
+    assert good in tracked(repo) and bad not in tracked(repo) and warned
+
+
+def test_a_lock_loser_leaves_the_holders_list_unchanged(repo):
+    bad = note(repo, "bad", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    before = (repo / ".git" / "mem-held-back").read_text(encoding="utf-8")
+    note(repo, "other")
+    fd = store_git._lock(repo)
+    try:
+        assert store_git.commit_if_changed(repo, "m2", report=lambda r: None, validate=mem.invalid_changed(repo)) is None
+    finally:
+        os.close(fd)
+    assert (repo / ".git" / "mem-held-back").read_text(encoding="utf-8") == before == f"{bad}\n"
+
+
+def test_the_list_is_never_empty_or_partial_while_a_commit_runs(repo):
+    first = note(repo, "bad1", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    note(repo, "bad2", valid=False)
+    seen = []
+    real = mem.invalid_changed(repo)
+
+    def validate(paths):
+        seen.append(store_git.held_back(repo))  # between the gate's start and the write
+        result = real(paths)
+        seen.append(store_git.held_back(repo))  # the gate ran, the new list is not written yet
+        return result
+
+    store_git.commit_if_changed(repo, "m2", validate=validate)
+    assert seen == [[first], [first]]
+    assert len(store_git.held_back(repo)) == 2
+    assert not [p for p in (repo / ".git").iterdir() if p.name.startswith("mem-held-back.")]
+
+
+def test_history_commit_prints_no_stale_held_back_after_a_failed_run(repo, capsys, monkeypatch):
+    note(repo, "bad", valid=False)
+    assert mem.main(["history", "commit"]) == 0
+    capsys.readouterr()
+    note(repo, "more")
+    monkeypatch.setattr(store_git, "_git", lambda *a, **k: (_ for _ in ()).throw(store_git.GitError("boom")))
+    assert mem.main(["history", "commit"]) == 1
+    assert "held back:" not in capsys.readouterr().err

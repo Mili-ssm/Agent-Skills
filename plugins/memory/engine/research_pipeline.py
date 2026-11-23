@@ -27,6 +27,7 @@ from typing import Any
 
 import auto_state as au
 import mem
+from notes import FrontmatterError, split_frontmatter
 import research_checks as rc
 import synth_pipeline as sp
 
@@ -351,8 +352,8 @@ def contrast_notes(store: Path, handles: list[str]) -> tuple[list[dict[str, str]
             dropped.append({"handle": raw, "reason": "not a knowledge note of the store"})
             continue
         try:
-            claim = mem.split_frontmatter(known[handle].read_text(encoding="utf-8"))[0].get("claim")
-        except (OSError, mem.FrontmatterError, AttributeError):
+            claim = split_frontmatter(known[handle].read_text(encoding="utf-8"))[0].get("claim")
+        except (OSError, FrontmatterError, AttributeError):
             claim = None
         if not isinstance(claim, str) or not claim.strip():
             dropped.append({"handle": handle, "reason": "no claim"})
@@ -463,8 +464,8 @@ def without_experience(store: Path, handles: list[str]) -> tuple[list[str], list
     for raw in handles:
         path = known.get(Path(raw.strip()).name.removesuffix(".md"))
         try:
-            origin = mem.split_frontmatter(path.read_text(encoding="utf-8"))[0].get("origin") if path else None
-        except (OSError, mem.FrontmatterError, AttributeError):
+            origin = split_frontmatter(path.read_text(encoding="utf-8"))[0].get("origin") if path else None
+        except (OSError, FrontmatterError, AttributeError):
             origin = None
         (dropped if origin == "experience" else kept).append(raw)
     return kept, dropped

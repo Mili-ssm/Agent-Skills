@@ -2,7 +2,7 @@
 
 **Status (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. What remains of B4 is the loaded rules (C46 to C49); no plan yet.**
 
-**Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: [the learning loop study](../../studies/2026-11-21-memory-learning-loop.md) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
+**Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
 
 ## Goal of B4
 

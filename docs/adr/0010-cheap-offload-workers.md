@@ -50,7 +50,7 @@ ADR 0019 puts `implementer` inside the Superpowers plan loop as its implementer.
 
 ## Review 2026-11-18
 
-The checks row of `user-config/offload-policy.md` is narrowed, at the owner's request, from "another long read-only command" to a command "that you expect to take over a minute or to print more than a screen of output", and "Keep inline" gains "a short check with its output cut". Reason, from [docs/studies/2026-11-18-weekly-usage.md](../studies/2026-11-18-weekly-usage.md): in one week the main sessions ran 453 checks inline against 51 `check-runner` calls; 94% of the inline ones already cut their output (median result 394 characters), while one `check-runner` call took about 35k weighted Haiku tokens. The old row asked for a dispatch that costs more than the lines it keeps out.
+The checks row of `user-config/offload-policy.md` is narrowed, at the owner's request, from "another long read-only command" to a command "that you expect to take over a minute or to print more than a screen of output", and "Keep inline" gains "a short check with its output cut". Reason, from the local, unpublished study `.local/studies/2026-11-18-weekly-usage.md`: in one week the main sessions ran 453 checks inline against 51 `check-runner` calls; 94% of the inline ones already cut their output (median result 394 characters), while one `check-runner` call took about 35k weighted Haiku tokens. The old row asked for a dispatch that costs more than the lines it keeps out.
 
 The case `offload-check-runner-with-policy` changed with the row: its suite now takes over a minute (a 65-second module fixture) and the prompt says so, because the old two-test suite is what the new row keeps inline. Its earlier results are not comparable.
 

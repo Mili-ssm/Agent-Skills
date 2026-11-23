@@ -46,6 +46,7 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 | The owner's preferences, personal matters, how they want you to work | Claude Code's auto memory, not `mem` |
 | A discovery, a fact, an assumption: `decision`, `constraint`, `pitfall`, `lesson`; a web or documentation result not yet checked: `finding` (needs `--source <url>`); what a document says: `document` (needs `--source <url or path>`) | `mem remember` |
 | The project's current situation or a special condition (true now, may change) | Both: auto memory, and `mem remember --kind state` |
+| A note from an external source (`literature`) or a reusable, sourced conclusion (`knowledge`) | `mem new literature\|knowledge`; first read [research-notes.md](references/research-notes.md): source ranks, `confidence`, inference labels, fact-check |
 
 - The global scope is for what holds anywhere. It does not hold a project's data: no names of its systems, people or clients, no figures, paths or incidents of it; at most a passing mention that the lesson came from a project.
 - Scope, one question: **would this be true and useful in another project?** No, or it names this project's systems, people or business: the project (the default). Yes, and it names no client, company, system or data: add `--global`. Both parts in one discovery: two memories.

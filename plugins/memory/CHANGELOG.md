@@ -4,6 +4,20 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-23
+
+### Added
+
+- New skill `memory-research-wave`: a procedure for a research wave (several sources or several agents) into the store: leads, parallel writers that work from full page text, a fresh-context fact-check per area, one fixer, a review of the whole and a lesson with the wave's figures. Nothing to migrate.
+- The `memory` skill gains a reference, `references/research-notes.md`, with the rules for writing `literature` and `knowledge` notes from sources: source ranks 1 to 5 and what each may support, the `confidence` rubric, `Inference:` labels, declarative filenames, local copies with `mem fetch-sources`, and fact-check results. Nothing to migrate.
+- The session-start text now adds up to two lines about the store, each only when its count is above zero. `History: N changed notes held back from the last commit: run mem check.` means the last history commit left notes out because they fail `mem check`: run `mem check` and fix what it reports. `Re-read due: N notes are past their review date: mem review.` counts the llm notes that `mem review` lists as due for re-testing or re-reading: run `mem review` and re-read them when the task touches that topic. The count of due notes is refreshed once a day and kept in the plugin's data folder (`due-counts.json`), so a note edited or re-read today leaves the count from tomorrow. Nothing to migrate.
+
+### Changed
+
+- The session-end history commit (and the automatic curation and settling that start after it) now runs detached from the hook, because Claude Code gives all SessionEnd hooks one 1.5 s budget that could cut the commit short. The commit appears a moment after the session ends; the hook log (`hooks/log.jsonl`) gets a `started` and a `done` record for it, and a `started` without a `done` means it was killed (30 s limit). Nothing to migrate.
+- History commits (session end, curation pass, `mem history commit`) now hold back a changed note that fails `mem check`, so a broken note is not pushed to the store's remote; the other changed notes are committed. A held-back note stays in the working tree. `mem history commit` and the session-start line list only the notes that fail `mem check` (run `mem check`, fix what it reports); the next commit takes them once they pass. A note you edited while the check ran is also left for the next commit, silently. The check runs on the working tree, not on the committed snapshot, so a committed note may link to a note that is still held back. Nothing to migrate.
+- The session start and every `mem` command start faster (the session-start hook about 40% less, `mem search` about a third less, measured before this release). Notes read the same as before, with one difference: a note whose frontmatter has a tab right after a colon (`key:\tvalue`) is now accepted instead of reported by `mem check`, and other frontmatter errors are worded slightly differently. Nothing to migrate.
+
 ## [0.10.0] - 2026-11-23
 
 ### Changed
