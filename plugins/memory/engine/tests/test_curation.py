@@ -265,17 +265,81 @@ def test_curate_prints_the_four_blocks(project, capsys):
     assert out.splitlines() == [
         "same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)",
         f"  m:k1  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls",
-        f"  m:k2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
-        "  differ in: never",
+        "    m:k2  differ in: never",
         "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)",
         f"  m:exp  valid until {days_ago(3)}  Cache warmup takes long",
-        "seen 3 times or more: general enough for a note? (mem promote <h>)",
+        "seen 3 times or more: general enough for a note in the store? (mem promote <h>)",
         "  m:often  observed 4  Zebra crossing lights flicker",
         "not confirmed in 90 days (decide: mem confirm <h> or mem forget <h>)",
         f"  m:stale  {days_ago(120)}  Quartz clocks drift slowly",
         "-- project syntheses: none yet --",
         "6 active memories and no project synthesis: organize them (see the memory-curation skill).",
     ]
+
+
+def test_curate_groups_pairs_by_memory(project, capsys):
+    put(project, "hub", "Retries need idempotency keys on payment calls")
+    put(project, "p1", "Retries need idempotency keys on payment calls always")
+    put(project, "p2", "Retries never need idempotency keys on payment calls")
+    put(project, "p3", "Retries need the idempotency keys on payment calls")
+    out = run(capsys, "curate", "--project")[1].splitlines()
+    head = out.index("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
+    block = [ln for ln in out[head + 1:] if ln.startswith("  m:") or ln.startswith("    m:")]
+    assert block[0].startswith("  m:hub  [lesson,") and out.count(block[0]) == 1
+    assert [ln.split()[0] for ln in block if not ln.startswith("    ")] == ["m:hub", "m:p1", "m:p2"]
+    assert sum(ln.startswith("    ") for ln in block) == 6  # six pairs, each once
+    assert block[1:4] == ["    m:p1  differ in: always", "    m:p2  differ in: never", "    m:p3  differ in: wording only"]
+
+
+def test_curate_lists_state_pairs_as_newer_state(project, capsys):
+    put(project, "s-old", "Migration window is open for the billing service", kind="state", created=days_ago(9))
+    put(project, "s-new", "Migration window is open for the billing service now", kind="state", created=days_ago(2))
+    out = run(capsys, "curate", "--project")[1].splitlines()
+    assert ("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)"
+            in out)
+    assert "  m:s-old  ->  m:s-new" in out
+    assert not any(ln.startswith("same or opposite") for ln in out)
+
+
+def test_curate_seen_often_says_note_in_the_store(project, capsys):
+    put(project, "often", "Zebra crossing lights flicker", observed=3)
+    out = run(capsys, "curate", "--project")[1]
+    assert "seen 3 times or more: general enough for a note in the store? (mem promote <h>)" in out.splitlines()
+
+
+def test_differ_in_wording_only(project, capsys):
+    put(project, "a", "Retries need idempotency keys on payment calls")
+    put(project, "b", "Retries need the idempotency keys on payment calls")
+    assert "    m:b  differ in: wording only" in run(capsys, "curate", "--project")[1].splitlines()
+
+
+def _load(folder):
+    return records.load_memories(folder, "project")
+
+
+def test_decisions_keys(project):
+    put(project, "k2", "Retries never need idempotency keys on payment calls")
+    put(project, "k1", "Retries need idempotency keys on payment calls")
+    put(project, "s-old", "Migration window is open for the billing service", kind="state", created=days_ago(9))
+    put(project, "s-new", "Migration window is open for the billing service now", kind="state", created=days_ago(2))
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(project, "often", "Zebra crossing lights flicker", observed=4)
+    put(project, "stale", "Quartz clocks drift slowly", created=days_ago(120))
+    put(project, "dead", "Pottery glaze firing chart", status="refuted", created=days_ago(20),
+        extra=f"refuted: '{days_ago(10)}'\n")
+    put(project, "again", "Pottery glaze firing chart", created=days_ago(2))
+    keys = mem._decisions(_load(project), TODAY).keys()
+    assert keys == {"refuted:again|dead": "refuted again", "pair:k1|k2": "same or opposite",
+                    "state:s-old|s-new": "newer state", "expired:exp": "expired", "seen:often": "seen often",
+                    "stale:stale": "not confirmed in 90 days"}
+
+
+def test_decisions_drops_superseded(project):
+    put(project, "a", "Retries need idempotency keys on payment calls")
+    put(project, "b", "Retries never need idempotency keys on payment calls", extra="superseded_by: a\n")
+    put(project, "c", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\nsuperseded_by: a\n")
+    d = mem._decisions(_load(project), TODAY)
+    assert d.keys() == {} and d.pairs_checked
 
 
 def test_curate_empty_prints_nothing_even_without_store_or_git(tmp_path, monkeypatch, capsys):

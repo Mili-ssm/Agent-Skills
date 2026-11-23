@@ -4537,6 +4537,114 @@ def _tagged(m: records.Memory, extra: str = "") -> str:
     return f"  m:{m.handle}  [{m.kind}, {created}{extra}]  {_flat(m.claim)}"
 
 
+def _differ_in(a: str, b: str) -> str:
+    words = records.differing_words(a, b)
+    return f"differ in: {', '.join(words)}" if words else "differ in: wording only"
+
+
+PAIR_WORK = 150_000  # claim comparisons the session start line may spend on pair searches, both folders together
+_DECISION_LABELS = {"refuted": "refuted again", "pair": "same or opposite", "state": "newer state",
+                    "expired": "expired", "seen": "seen often", "stale": f"not confirmed in {_STALE_DAYS} days"}
+
+
+@dataclass(frozen=True)
+class Decisions:
+    """The decision items of one folder's curation queue (C98): `mem curate` prints them, the count counts them."""
+    refuted: list[tuple[records.Memory, records.Memory]]  # (live, refuted)
+    same: list[tuple[records.Memory, records.Memory]]
+    state: list[tuple[records.Memory, records.Memory]]  # (old, new)
+    expired: list[records.Memory]
+    seen: list[records.Memory]
+    stale: list[records.Memory]
+    pairs_checked: bool
+
+    def keys(self) -> dict[str, str]:
+        """Each item's key (C100) with the label of its part."""
+        found: dict[str, str] = {}
+        for a, r in self.refuted:
+            found[f"refuted:{a.handle}|{r.handle}"] = _DECISION_LABELS["refuted"]
+        for a, b in self.same:
+            found[f"pair:{'|'.join(sorted((a.handle, b.handle)))}"] = _DECISION_LABELS["pair"]
+        for old, new in self.state:
+            found[f"state:{old.handle}|{new.handle}"] = _DECISION_LABELS["state"]
+        for name, items in (("expired", self.expired), ("seen", self.seen), ("stale", self.stale)):
+            for m in items:
+                found[f"{name}:{m.handle}"] = _DECISION_LABELS[name]
+        return found
+
+
+def _changed_since(live: Sequence[records.Memory], since: datetime.date) -> list[str]:
+    """Handles of the memories changed on or after `since`, newest change first: created then, or its file written
+    then (local time), or no `created`, or the file cannot be read."""
+    found = []
+    for m in live:
+        try:
+            written: datetime.date | None = datetime.date.fromtimestamp(m.path.stat().st_mtime)
+        except OSError:
+            written = None
+        if m.created is not None and written is not None and m.created < since and written < since:
+            continue
+        found.append((max(m.created, written) if m.created is not None and written is not None else datetime.date.max,
+                      m.handle))
+    found.sort(key=lambda t: (-t[0].toordinal(), t[1]))
+    return [h for _, h in found]
+
+
+def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since: datetime.date | None = None,
+               budget: records.Budget | None = None) -> Decisions:
+    """The decision items of one folder from what `records.load_memories` returned: superseded memories and
+    unreadable files are left out. With `since` the pair kinds compare only pairs with a memory changed since then;
+    `budget` is spent by those comparisons."""
+    kept = [m for m in loaded if m.error is None and m.superseded_by is None]
+    live = [m for m in kept if records.is_live(m, today)]
+    among = _changed_since(live, since) if since is not None else None
+    again = [(a, r) for a, r, _ in records.refuted_pairs(kept, today, tokenize=tokenize, among=among, budget=budget)]
+    same: list[tuple[records.Memory, records.Memory]] = []
+    state: list[tuple[records.Memory, records.Memory]] = []
+    for a, b, _ in records.pairs(kept, today, tokenize=tokenize, among=among, budget=budget):
+        if a.kind == "state" and b.kind == "state":
+            old, new = sorted((a, b), key=lambda m: (m.created or datetime.date.min, m.handle))
+            state.append((old, new))
+        else:
+            same.append((a, b))
+    unconfirmed = {m.handle for m in kept if records.standing(m) == "unconfirmed"}  # their own category
+    expired = [m for m in kept if m.status == "active" and m.valid_until is not None and m.valid_until < today
+               and m.handle not in unconfirmed]
+    seen = [m for m in live if m.observed >= _FREQUENT and not m.promote]
+    cutoff = today - datetime.timedelta(days=_STALE_DAYS)
+    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
+             and max(m.created, m.last_observed or m.created) <= cutoff]
+    return Decisions(again, same, state, expired, seen, stale, budget is None or not budget.exhausted)
+
+
+def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> list[str]:
+    """C102: the memory in the most remaining pairs first (ties by handle) with its line, then one indented line per
+    partner with its `differ in`; each pair once."""
+    left = list(pairs)
+    out: list[str] = []
+    while left:
+        count: collections.Counter = collections.Counter()
+        for a, b in left:
+            count.update([(a.scope, a.handle), (b.scope, b.handle)])
+        top = min(count, key=lambda k: (-count[k], k[1], k[0]))
+        rest = []
+        head = None
+        lines = []
+        for a, b in left:
+            if (a.scope, a.handle) == top:
+                head, other = a, b
+            elif (b.scope, b.handle) == top:
+                head, other = b, a
+            else:
+                rest.append((a, b))
+                continue
+            lines.append((other.handle, f"    m:{other.handle}  {_differ_in(head.claim, other.claim)}"))
+        out.append(_tagged(head))
+        out += [line for _, line in sorted(lines)]
+        left = rest
+    return out
+
+
 TOPIC_CROWD = 8
 TOPIC_LOOSE = 5  # of them, knowledge notes not yet part of any synthesis
 
@@ -4618,7 +4726,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
                    "mem distinct <a> <b>, or leave)")
         for a, b in same:
             out += [_note_line(a), _note_line(b),
-                    f"  differ in: {', '.join(records.differing_words(str(a.meta.get('claim', '')), str(b.meta.get('claim', ''))))}"]
+                    f"  {_differ_in(str(a.meta.get('claim', '')), str(b.meta.get('claim', '')))}"]
     covered = {t for x in synths for t in x.topics}
     counts: collections.Counter = collections.Counter()
     loose: collections.Counter = collections.Counter()  # knowledge notes that are part of no synthesis
@@ -4854,32 +4962,32 @@ def cmd_curate(args: argparse.Namespace) -> int:
     scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
     live = [m for m in every if records.is_live(m, today)]
-    cutoff = today - datetime.timedelta(days=_STALE_DAYS)
     out: list[str] = []
-    again = [pair for _, _, loaded in scopes for pair in records.refuted_pairs(loaded, today, tokenize=tokenize)]
+    found = [_decisions(loaded, today) for _, _, loaded in scopes]
+    unconfirmed = {m.handle for m in every if records.standing(m) == "unconfirmed"}  # their own category below
+    again = [pair for d in found for pair in d.refuted]
     if again:
         out.append("written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
                    "different claim)")
-        for a, r, _ in again:
+        for a, r in again:
             out += [_tagged(a), _tagged(r, ", refuted")]
-    same = [pair for _, _, loaded in scopes for pair in records.pairs(loaded, today, tokenize=tokenize)]
-    same.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    same = [pair for d in found for pair in d.same]
     if same:
         out.append("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
-        for a, b, _ in same:
-            out += [_tagged(a), _tagged(b), f"  differ in: {', '.join(records.differing_words(a.claim, b.claim))}"]
-    unconfirmed = {m.handle for m in every if records.standing(m) == "unconfirmed"}  # their own category below
-    expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today
-               and m.handle not in unconfirmed]
+        out += _grouped_pairs(same)
+    state = [pair for d in found for pair in d.state]
+    if state:
+        out.append("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)")
+        out += [f"  m:{old.handle}  ->  m:{new.handle}" for old, new in state]
+    expired = [m for d in found for m in d.expired]
     if expired:
         out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
         out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
-    frequent = [m for m in live if m.observed >= _FREQUENT and not m.promote]
+    frequent = [m for d in found for m in d.seen]
     if frequent:
-        out.append(f"seen {_FREQUENT} times or more: general enough for a note? (mem promote <h>)")
+        out.append(f"seen {_FREQUENT} times or more: general enough for a note in the store? (mem promote <h>)")
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
-    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
-             and max(m.created, m.last_observed or m.created) <= cutoff]
+    stale = [m for d in found for m in d.stale]
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
