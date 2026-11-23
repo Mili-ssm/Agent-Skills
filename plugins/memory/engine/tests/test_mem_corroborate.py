@@ -2242,6 +2242,61 @@ def test_a_failure_in_reword_does_not_fail_auto(w, monkeypatch):
     assert any("fill" in x for x in lines) and not any("reword" in x for x in lines)
 
 
+# ---- the option rules_layout: the digest step in the automatic run -------------------------------------------------
+
+LAYOUT_OPTION = "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT"
+
+
+def test_auto_runs_digest_only_with_the_layout(w, monkeypatch):
+    worse_one(w)
+    model(w, [])
+    for env in ({}, {LAYOUT_OPTION: "flat"}, {LAYOUT_OPTION: "grouped"}, {LAYOUT_OPTION: "DIGEST"}):
+        done = run(w, cmd="auto", env={OPTION: "true", **env})
+        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+        assert not any("digest" in x for x in log_lines(w)) and not (w.data / "rules-digest.json").exists()
+    for off in ({"MEM_LOADED_RULES": "off"}, {"CLAUDE_PLUGIN_OPTION_LOADED_RULES": "false"}):
+        done = run(w, cmd="auto", env={OPTION: "true", LAYOUT_OPTION: "digest", **off})
+        assert done.returncode == 0 and not any("digest" in x for x in log_lines(w))
+    done = run(w, cmd="auto", env={OPTION: "true", LAYOUT_OPTION: "digest"})
+    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    lines = log_lines(w)
+    (digested,) = [x for x in lines if "digest" in x]
+    assert lines[-1] is digested and "fill" in lines[-2] and isinstance(digested["digest"], dict)
+    assert isinstance(digested["ms"], int) and digested["t"]
+
+
+def test_a_failure_in_digest_does_not_fail_auto(w, monkeypatch):
+    worse_one(w)
+    model(w, [])
+    mod = corr_module()
+
+    def boom(*_args, **_kw):
+        raise RuntimeError("the step broke")
+
+    monkeypatch.setattr(mod, "digest_auto", boom)
+    monkeypatch.setenv(OPTION, "true")
+    monkeypatch.setenv(LAYOUT_OPTION, "digest")
+    monkeypatch.setattr(sys, "argv", ["mem-corroborate", "auto", "--claude", str(w.fake)])
+    assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
+    lines = log_lines(w)
+    assert any("fill" in x for x in lines) and not any("digest" in x for x in lines)
+
+
+def test_auto_without_the_layout_is_as_before(w, monkeypatch):
+    worse_one(w)
+    model(w, [])
+    reword_answers(w, monkeypatch)
+    env = {OPTION: "true", REWORD_OPTION: "true"}
+    run(w, cmd="auto", env=env)
+    before = [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in log_lines(w)]
+    store = by_claim(w, NARROW).short
+    assert [list(x) for x in before][-1] == ["reword"] and store == NEW_WORDING
+    run(w, cmd="auto", env=env)
+    after = [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in log_lines(w)]
+    assert after[:len(before)] == before and not any("digest" in x for x in after)
+    assert by_claim(w, NARROW).short == store and not (w.data / "rules-digest.json").exists()
+
+
 def test_plugin_json_has_the_option_off():
     config = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
     assert config["auto_reword"]["type"] == "boolean" and config["auto_reword"].get("default") is False

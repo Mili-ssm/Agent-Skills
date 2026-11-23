@@ -1660,6 +1660,14 @@ def cmd_auto(args) -> int:
                     append_log(corroborate_dir(data_dir()), {"t": stamp, "reword": result, "ms": int((time.time() - began) * 1000)})
                 except BaseException:   # noqa: BLE001
                     pass
+            if os.environ.get("CLAUDE_PLUGIN_OPTION_RULES_LAYOUT") == "digest":   # option rules_layout, "flat" by default
+                try:
+                    began = time.time()
+                    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+                    result = digest_auto(args.claude, budget)
+                    append_log(corroborate_dir(data_dir()), {"t": stamp, "digest": result, "ms": int((time.time() - began) * 1000)})
+                except BaseException:   # noqa: BLE001
+                    pass
     except BaseException:   # noqa: BLE001
         pass
     return 0
