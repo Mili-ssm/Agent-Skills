@@ -69,7 +69,7 @@ Measured, with one or two runs per case on a Sonnet-class model, which the owner
 
 ## Review 2026-11-21
 
-The owner accepted the order of [the learning loop study](../studies/2026-11-21-memory-learning-loop.md): L1 outcome metrics and a `PostCompact` log line, L2 a handoff block written by the agent and checked by a hook, L3 capture anchored in evidence (stage 9, after a spike), L4 graduation of repeated lessons; L5, hooks during a run, is deferred. The owner's goal behind it: the agent learns locally after each session and compaction, with the least context.
+The owner accepted the order of the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published): L1 outcome metrics and a `PostCompact` log line, L2 a handoff block written by the agent and checked by a hook, L3 capture anchored in evidence (stage 9, after a spike), L4 graduation of repeated lessons; L5, hooks during a run, is deferred. The owner's goal behind it: the agent learns locally after each session and compaction, with the least context.
 
 - A deterministic "active plan and next open task" injection after a compaction was declined by the owner: it can name the wrong plan or read progress that was not ticked. L2 replaces it.
 - The study's usage read (2026-11-17 to 2026-11-20, four days) is a preview, not the kill read of stage 4, which stays due around 2026-12-01.
