@@ -66,21 +66,21 @@
 **Interfaces:**
 - Produces: `RULES_LIMIT = 3200` (characters of lesson lines); `INDEX_LIMIT = 1600` (characters of the index; `MORE_LIMIT` is removed and every use of it reads `INDEX_LIMIT`); `RULES_MAX` is removed and `choose` no longer counts lessons. Everything else of `choose` (the order, `PROJECT_FIRST`, "nothing ranked lower jumps ahead of a rule that did not fit") is unchanged. `more_line` keeps its present text and logic within the new limit (it can now name more topics; `TOPICS_NAMED` stays).
 
-- [ ] **Step 1: Change the tests that state the limits to the constants, and add `test_no_limit_of_number_only_of_characters` in `test_rules.py`**
+- [x] **Step 1: Change the tests that state the limits to the constants, and add `test_no_limit_of_number_only_of_characters` in `test_rules.py`**
 
 Thirty lessons that are ready to load, with short forms of about 100 characters: the loaded ones fill at most `RULES_LIMIT` characters, there are more than 16 of them, and the rest are left out with the reason `OVER`.
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Change the constants and `choose`**
+- [x] **Step 3: Change the constants and `choose`**
 
-- [ ] **Step 4: Write the documents**
+- [x] **Step 4: Write the documents**
 
 ADR 0023, `## Review 2026-11-24`, two or three sentences: the limits of C73 are replaced by C96 of the topic digest design (no limit of number; 3200 characters of lessons and 1600 of index); unmeasured; kill criterion: "Lower the limits again if, a month after the release that carries C96, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often." Changelog: what a user sees (more lessons load; nothing to do). No line numbers.
 
-- [ ] **Step 5: Run the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
+- [x] **Step 5: Run the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add plugins/memory/engine/rules.py plugins/memory/engine/tests plugins/memory/CHANGELOG.md plugins/memory/README.md docs/adr
@@ -106,7 +106,7 @@ git commit -m "feat(memory): no limit on the number of loaded lessons, 3200 char
   - `topics_of(global_lessons: Sequence[Memory], today: datetime.date) -> dict[str, list[Memory]]`: the lessons that are ready to load (what `rules.choose` treats as ready: its `loaded` and its `left` with the reasons `OVER` or `INDEX`, when called with no project lesson and `today`) grouped by topic, keeping only the topics with at least two lessons; a lesson without a topic is in none.
   - `heading(digest, topic: str, lessons: Sequence[Memory]) -> str | None`: the stored heading when its `of` equals `heading_print(lessons)`, else None.
   - `line(digest, topic: str, m: Memory, lessons: Sequence[Memory]) -> str | None`: the stored text when its `of` equals `line_print(m)` and its `under` equals the `of` of the topic's stored heading and that heading is fresh, else None.
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Build lessons as `test_rules.py` builds lessons that load (import its helpers).
 
@@ -118,15 +118,15 @@ Build lessons as `test_rules.py` builds lessons that load (import its helpers).
 | `test_heading_and_line_are_returned_only_when_fresh` | a digest written for three lessons: `heading` and `line` return the texts; after one lesson's short form changes its `line` is None and the others' are not; after a lesson joins the topic `heading` is None and every `line` is None; a line whose `under` differs from the stored heading's `of` is None |
 | `test_write_then_read_round_trip` | `write` through a temporary file, then `read` gives the same dict; no record file is touched |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
 Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_digest.py -q`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_digest.py`, then the whole suite**
+- [x] **Step 4: Run `test_digest.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine/digest.py plugins/memory/engine/tests/test_digest.py
@@ -206,7 +206,7 @@ git commit -m "feat(memory): a digest per topic is printed when present and fres
   - `pairs(works, proposed) -> list[tuple[str, Memory, str, str]]`: `(id, lesson, heading, line)` for every lesson that has a line to judge: a proposed one that passed `line_problem`, or a kept one in a topic whose heading is being written; the heading is the proposed one when it passed `heading_problem`, else the kept one; a topic whose proposed heading has a problem, and that keeps none, yields no pair.
   - `decide(works, proposed, verdicts: Mapping[str, Mapping], digest, state) -> tuple[dict, dict, dict[str, int]]`: the new digest, the new state and the counts `headings_written`, `lines_written`, `refused_code`, `refused_check`, `missing`. `verdicts` maps an id to `{"fits": bool, "faithful": bool}`; only exact `true` counts. A written heading is accepted when it has no problem, at least one lesson of its topic has a pair, and `fits` is true for every lesson of its topic that has a pair. A line is accepted when its heading is accepted or kept, it has no problem, and both `fits` and `faithful` are true. An accepted heading and line are stored with their fingerprints (`of`, and for a line `under` equal to the `of` of the heading it stands under). When a heading is rewritten and accepted, every kept line of its topic that is still `fits` and `faithful` under it has its `under` set to the new heading's `of`, so that it keeps printing. A refused or missing heading or line adds one to its try-key; a kept line that is no longer `faithful` under a new heading is removed from the digest. A heading refused leaves the topic's stored lines unprinted by Task 2's rule, and none of the topic's proposed lines is stored. The inputs are not mutated.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -228,13 +228,13 @@ git commit -m "feat(memory): a digest per topic is printed when present and fres
 | `test_the_limit_of_lessons_keeps_topics_whole` | topics of 20, 15 and 5 lessons to write: the first two are asked (35 passes the limit only after the second is added), the third waits |
 | `test_decide_does_not_mutate_its_inputs` | deep copies compare equal |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_digest.py`, then the whole suite**
+- [x] **Step 4: Run `test_digest.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine/digest.py plugins/memory/engine/tests/test_digest.py
