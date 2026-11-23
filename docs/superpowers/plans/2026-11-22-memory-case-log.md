@@ -369,7 +369,7 @@ git commit -m "feat(memory): a lesson whose balance got worse is listed for the 
 - Consumes: `records.got_worse`, `Memory.reviewed` of Task 2; the category and the sentence of Task 6.
 - Produces: `mem triage accept <h>`, for a lesson for which `got_worse` is true and `triage` is not `pending`, writes `reviewed` with the date of today, journaled as the other triage actions are, and prints `m:<handle>\tkept as worded`. A new flag `--project-scope` (argparse dest `project_scope`, not `project`, which `_find_memory` reads as a project name) makes `accept` act on the project scope, where this is its only use. A pending lesson is accepted as today; every present error message stays.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -379,15 +379,15 @@ git commit -m "feat(memory): a lesson whose balance got worse is listed for the 
 | `test_accept_on_a_project_lesson_needs_the_flag` | `mem triage accept <h> --project-scope` works on a listed project lesson; without the flag the present error is unchanged |
 | `test_restore_undoes_the_accept` | `mem restore` after it: `reviewed` is gone |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 `cmd_triage` sets `args.is_global = True` in its first line and raises "was already accepted or never awaited triage" for a lesson that is not pending: the flag has to decide the scope before that line, and the new branch has to come before that raise.
 
-- [ ] **Step 4: Run the tests of this file, then the whole suite**
+- [x] **Step 4: Run the tests of this file, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine
