@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-23
+
 ### Added
 
 - The option `auto_reword` (off by default; it needs `auto_capture`) lets the background pass reword the short form of a loaded lesson that got worse, once for each wording you wrote or read, with the same checks as a first short form; a reworded lesson shows in `mem rules --unread`. The pass never rewords its own rewording nor a wording you kept with `mem triage accept`: those come to you. `mem-corroborate reword` runs the step by hand (`--dry-run`, `--sheet FILE`). Its gate passed on one store (15 lessons); read `mem rules --unread` after it runs.
