@@ -27,20 +27,21 @@
 
 | Observation | Action |
 |---|---|
-| A test of the fill, the rewording, corroboration or capture changes its result | Stop |
+| A test of the fill, the rewording, corroboration or capture changes its result, other than a test that states the old limit of number (`test_reword.py`, `test_case_log.py`, `test_rules.py`, `test_rules_session.py` build cases from `RULES_MAX`): those are rewritten from the limit of characters in Task 1 and named in its report | Stop |
 | A record file changes during a run of the digest step | Stop |
-| The session start text passes the size a session start hook may print (find the limit in the hook's own code or tests; if none is stated, 9000 characters) | Stop and report the figure |
-| Task 5: an authentication error, nothing asked, or anything under the owner's real memory folders or the plugin's real logs changes | Stop; do not point `HOME` elsewhere |
+| The session start text passes 9500 characters in any test (text a hook injects is cut at 10,000 characters: [the plugin design](../specs/2026-11-17-memory-plugin-design.md)) | Stop and report the figure |
+| Task 7: fewer than half of the lines that pass the code check are accepted, or more than one heading is refused | Stop: record the figures; do not edit the briefs |
+| Task 7: an authentication error, nothing asked, or anything under the owner's real memory folders or the plugin's real logs changes | Stop; do not point `HOME` elsewhere |
 
 ## Review Focus
 
 | Input or condition | Expected | Pinned in |
 |---|---|---|
 | A digest file that is missing, empty, not JSON, or holds values of the wrong type | Reads as no digest; the block prints as `grouped` | Task 2 |
-| A lesson reworded, or its claim edited, since its line was written | Its short form is printed; the other lines of the topic stay | Task 2 |
+| A lesson reworded, or its claim edited, since its line was written | Its short form is printed; the other lines of the topic stay | Task 2, Task 3 |
 | A topic that lost or gained a lesson since its heading was written | The bare topic and, per lesson, its line if fresh | Task 2 |
-| A topic with one lesson that is ready to load | Not digested: no heading asked, printed as `grouped` | Task 3 |
-| The writer returns a line for a lesson it was not asked about, or a heading for a topic that did not ask | Ignored | Task 3 |
+| A topic with one lesson that is ready to load | Not digested: no heading asked, printed as `grouped` | Task 2, Task 4 |
+| The writer returns a line for a lesson it was not asked about, or a heading for a topic that did not ask | Ignored | Task 4 |
 
 ## File Structure
 
@@ -51,7 +52,7 @@
 | `plugins/memory/engine/mem.py` | `mem rules --layout digest`, the session start text |
 | `plugins/memory/hooks/session-index.sh`, `session-env.sh`, `plugins/memory/.claude-plugin/plugin.json` | The value `digest` of `rules_layout` |
 | `plugins/memory/bin/mem-corroborate` | `DIGEST_BRIEF`, `DIGEST_CHECK_BRIEF`, `digest_auto`, the subcommand `digest`, the step in `cmd_auto` |
-| `plugins/memory/engine/tests/test_digest.py` | New: the tests of Tasks 2 and 3 |
+| `plugins/memory/engine/tests/test_digest.py` | New: the tests of Tasks 2, 3 and 4 |
 
 ---
 
@@ -59,7 +60,7 @@
 
 **Files:**
 - Modify: `plugins/memory/engine/rules.py` (`RULES_MAX`, `RULES_LIMIT`, `MORE_LIMIT`, `choose`, `more_line`)
-- Modify: tests under `plugins/memory/engine/tests/` that state the old limits (search for `RULES_MAX`, `RULES_LIMIT`, `MORE_LIMIT`)
+- Modify: every test under `plugins/memory/engine/tests/` that states the old limits or builds a case from the limit of number (search for `RULES_MAX`, `RULES_LIMIT`, `MORE_LIMIT`; at least `test_rules.py`, `test_rules_session.py`, `test_reword.py`, `test_case_log.py`): a case that needed "one lesson more than the limit" is rebuilt from the limit of characters
 - Modify: `docs/adr/0023-a-memory-plugin-makes-a-note-store-reachable-from-every-repository.md` (a new section at its end, `## Review 2026-11-24`; never edit an existing section or the Status line), `plugins/memory/CHANGELOG.md` (one line under `## [Unreleased]`, `### Changed`), `plugins/memory/README.md` where it states the limits
 
 **Interfaces:**
@@ -88,12 +89,11 @@ git commit -m "feat(memory): no limit on the number of loaded lessons, 3200 char
 
 ---
 
-### Task 2: The digest file, and printing it (C88, C89, C90, C93, C97)
+### Task 2: The digest file and what is fresh (C88, C89, C90)
 
 **Files:**
 - Create: `plugins/memory/engine/digest.py`
-- Modify: `plugins/memory/engine/rules.py` (`LAYOUTS`, `block`, `more_line` or a new index function), `plugins/memory/engine/mem.py` (`session_index`, `cmd_rules` and its parser, the function that resolves the layout), `plugins/memory/hooks/session-index.sh`, `plugins/memory/hooks/session-env.sh`, `plugins/memory/.claude-plugin/plugin.json` (the description of `rules_layout` names the third value; the version is not changed)
-- Test: `plugins/memory/engine/tests/test_digest.py` (create), `plugins/memory/engine/tests/test_rules_session.py`
+- Test: `plugins/memory/engine/tests/test_digest.py` (create)
 
 **Interfaces:**
 - Produces, in `digest.py`:
@@ -103,15 +103,9 @@ git commit -m "feat(memory): no limit on the number of loaded lessons, 3200 char
   - `line_print(m: Memory) -> str`: a fingerprint of the lesson's claim and short form.
   - `heading_print(lessons: Sequence[Memory]) -> str`: a fingerprint of the sorted handles of the topic's lessons and of each one's claim.
   - `read(data: Path | None) -> dict`: the file's content in the shape above; anything missing, unreadable or of the wrong type reads as `{"topics": {}}`, entry by entry (a bad entry is dropped, the good ones kept). `write(data: Path, digest: dict) -> None`: through a temporary file.
-  - `topics_of(global_lessons: Sequence[Memory]) -> dict[str, list[Memory]]`: the lessons that are ready to load (what `rules.choose` treats as ready: its `loaded` and its `left` with the reasons `OVER` or `INDEX`, when called with no project lesson) grouped by topic, keeping only the topics with at least two lessons; a lesson without a topic is in none.
+  - `topics_of(global_lessons: Sequence[Memory], today: datetime.date) -> dict[str, list[Memory]]`: the lessons that are ready to load (what `rules.choose` treats as ready: its `loaded` and its `left` with the reasons `OVER` or `INDEX`, when called with no project lesson and `today`) grouped by topic, keeping only the topics with at least two lessons; a lesson without a topic is in none.
   - `heading(digest, topic: str, lessons: Sequence[Memory]) -> str | None`: the stored heading when its `of` equals `heading_print(lessons)`, else None.
   - `line(digest, topic: str, m: Memory, lessons: Sequence[Memory]) -> str | None`: the stored text when its `of` equals `line_print(m)` and its `under` equals the `of` of the topic's stored heading and that heading is fresh, else None.
-- Produces, in `rules.py`:
-  - `LAYOUTS = ("flat", "grouped", "digest")`.
-  - `block(choice, layout="flat", *, digest=None, topics=None) -> list[str]`: for `digest`, the grouped block in which a topic with a fresh heading prints `<topic>: <heading>` in place of `<topic>:`, and a global lesson with a fresh line prints `- <line> <standing words>` in place of `rules.line(m)` (same standing words as today). A project lesson, a lesson without a fresh line, and a topic without a fresh heading print as `grouped` prints them. With `digest` None or empty the result equals the `grouped` block.
-  - `index_lines(choice, *, digest=None, topics=None) -> list[str]`: the lines printed after the block for the lessons that did not fit or load by topic only (`not_fitted`): when no fresh heading exists for any of their topics, `[more_line(choice)]` (or `[]` when that is None), as today; otherwise the line `More lessons, by topic (mem rules --more <topic>):` followed by one line per topic, the most lessons first then by name, `- <topic> (<n>): <heading>` or `- <topic> (<n>)`, lessons without a topic under `other`, all within `INDEX_LIMIT` characters; topics that do not fit are summed in a last line `- and <n> more in <k> topics`.
-- Produces, in `mem.py`: `mem rules --layout digest` and the session start text read the digest file and the global lessons and pass them to `block` and `index_lines`; `MEM_RULES_LAYOUT=digest` selects it as `grouped` is selected today; both hooks pass the value `digest` as they pass `grouped`. The index with headings is printed in every layout when fresh headings exist. Reading the digest sits inside the `try` that already protects the rules block; on any failure the block is the `grouped` one.
-
 - [ ] **Step 1: Write the failing tests**
 
 Build lessons as `test_rules.py` builds lessons that load (import its helpers).
@@ -121,6 +115,48 @@ Build lessons as `test_rules.py` builds lessons that load (import its helpers).
 | `test_fingerprints_follow_the_claim_and_the_short_form` | `line_print` changes with the claim and with the short form, not with `log`, `versions` or `topic`; `heading_print` changes when a lesson joins or leaves or a claim changes, not with the order |
 | `test_read_drops_what_is_wrong_and_keeps_the_rest` | a missing file, an empty one, `[]`, a topic whose `lines` is a string, a line without `of`: `{"topics": {}}` or the good entries only; nothing raises |
 | `test_topics_of_keeps_topics_with_two_ready_lessons` | three lessons under `a` (one index-only), one under `b`, one with no topic, one pending under `a`: `{"a": [the two ready ones and the index-only one]}` per the rule above |
+| `test_heading_and_line_are_returned_only_when_fresh` | a digest written for three lessons: `heading` and `line` return the texts; after one lesson's short form changes its `line` is None and the others' are not; after a lesson joins the topic `heading` is None and every `line` is None; a line whose `under` differs from the stored heading's `of` is None |
+| `test_write_then_read_round_trip` | `write` through a temporary file, then `read` gives the same dict; no record file is touched |
+
+- [ ] **Step 2: Run them and see them fail**
+
+Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_digest.py -q`
+
+- [ ] **Step 3: Implement**
+
+- [ ] **Step 4: Run `test_digest.py`, then the whole suite**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugins/memory/engine/digest.py plugins/memory/engine/tests/test_digest.py
+git commit -m "feat(memory): the digest file of the loaded lessons and what is fresh in it"
+```
+
+---
+
+### Task 3: Printing the digest and the index (C93, C96, C97)
+
+**Files:**
+- Modify: `plugins/memory/engine/rules.py` (`LAYOUTS`, `block`, a new `index_lines`), `plugins/memory/engine/mem.py` (`session_index`, `cmd_rules` and its parser, the function that resolves the layout), `plugins/memory/hooks/session-index.sh`, `plugins/memory/hooks/session-env.sh`, `plugins/memory/.claude-plugin/plugin.json` (the description of `rules_layout` names the third value; the version is not changed)
+- Test: `plugins/memory/engine/tests/test_digest.py`, `plugins/memory/engine/tests/test_rules.py` (it asserts `LAYOUTS`), `plugins/memory/engine/tests/test_rules_session.py`
+
+**Interfaces:**
+- Consumes: Task 2's `digest.read`, `digest.topics_of`, `digest.heading`, `digest.line`.
+- Produces, in `rules.py`:
+  - `HEADINGS_LIMIT = 800`.
+  - `LAYOUTS = ("flat", "grouped", "digest")`.
+  - `block(choice, layout="flat", *, digest=None, topics=None) -> list[str]`: for `digest`, the grouped block in which a topic with a fresh heading prints `<topic>: <heading>` in place of `<topic>:`, and a global lesson with a fresh line prints `- <line> <standing words>` in place of `rules.line(m)` (same standing words as today). A project lesson, a lesson without a fresh line, and a topic without a fresh heading print as `grouped` prints them. With `digest` None or empty the result equals the `grouped` block. Two bounds keep the text within what a hook may print: a digest line replaces a short form only while the characters of the lesson lines printed so far, this one included, stay within `RULES_LIMIT` (else the short form is printed for it and for every later lesson); and a heading is printed only while the characters of the headings printed so far, this one included, stay within `HEADINGS_LIMIT` (later topics print bare).
+  - `index_lines(choice, *, digest=None, topics=None) -> list[str]`: the lines printed after the block for the lessons that did not fit or load by topic only (`not_fitted`): when no fresh heading exists for any of their topics, `[more_line(choice)]` (or `[]` when that is None), as today; otherwise the line `More lessons, by topic (mem rules --more <topic>):` followed by one line per topic, the most lessons first then by name, `- <topic> (<n>): <heading>` or `- <topic> (<n>)`, lessons without a topic under `other`, all within `INDEX_LIMIT` characters; topics that do not fit are summed in a last line `- and <n> more in <k> topics`.
+- Produces, in `mem.py`: `mem rules --layout digest` and the session start text read the digest file and the global lessons and pass them to `block` and `index_lines`; `MEM_RULES_LAYOUT=digest` selects it as `grouped` is selected today; both hooks pass the value `digest` as they pass `grouped`. The index with headings is printed in every layout when fresh headings exist. Reading the digest sits inside the `try` that already protects the rules block; on any failure the block is the `grouped` one.
+
+
+- [ ] **Step 1: Write the failing tests**
+
+Build lessons as `test_rules.py` builds lessons that load (import its helpers).
+
+| Test | Asserts |
+|---|---|
 | `test_a_fresh_digest_prints_heading_and_lines` | the exact block: `a: when doing x`, then `- <line> (the user vouched for it)` per lesson |
 | `test_a_changed_lesson_prints_its_short_form_and_the_rest_keep_their_lines` | after one lesson's short form changes |
 | `test_a_changed_topic_prints_the_bare_topic` | after a lesson joins the topic: `a:` and every lesson's short form (a line is fresh only under a fresh heading) |
@@ -132,10 +168,11 @@ Build lessons as `test_rules.py` builds lessons that load (import its helpers).
 | `test_a_broken_digest_file_leaves_the_grouped_block` | the file holds `{`: `mem session-index` with the variable set prints the grouped block and exits 0 |
 | `test_the_hooks_pass_the_digest_value` | `session-index.sh` and `session-env.sh` with `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT=digest`, as the existing hook tests run them |
 | `test_session_start_text_stays_printable` | thirty loading lessons with a full digest and a full index: the whole text is under the size named in "Stop and report" |
+| `test_digest_lines_stay_within_the_limit_of_lesson_lines` | forty lessons with short forms of 60 characters and digest lines of 120: the lesson lines printed total at most `RULES_LIMIT`, the first ones are digest lines and the rest short forms |
+| `test_headings_stay_within_their_limit` | thirty topics with headings of 80 characters: the characters of the headings printed total at most `HEADINGS_LIMIT`, the later topics print bare |
+| `test_layouts` | `rules.LAYOUTS == ("flat", "grouped", "digest")` (replace the test that asserts two) |
 
 - [ ] **Step 2: Run them and see them fail**
-
-Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_digest.py -q`
 
 - [ ] **Step 3: Implement**
 
@@ -144,13 +181,13 @@ Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test
 - [ ] **Step 5: Commit**
 
 ```bash
-git add plugins/memory/engine/digest.py plugins/memory/engine/rules.py plugins/memory/engine/mem.py plugins/memory/hooks/session-index.sh plugins/memory/hooks/session-env.sh plugins/memory/.claude-plugin/plugin.json plugins/memory/engine/tests/test_digest.py plugins/memory/engine/tests/test_rules_session.py
+git add plugins/memory/engine/rules.py plugins/memory/engine/mem.py plugins/memory/hooks/session-index.sh plugins/memory/hooks/session-env.sh plugins/memory/.claude-plugin/plugin.json plugins/memory/engine/tests/test_digest.py plugins/memory/engine/tests/test_rules.py plugins/memory/engine/tests/test_rules_session.py
 git commit -m "feat(memory): a digest per topic is printed when present and fresh, and the index names what each topic is about"
 ```
 
 ---
 
-### Task 3: What the step asks for and what it keeps (C87, C89, C91, C92)
+### Task 4: What the step asks for and what it keeps (C87, C89, C91, C92)
 
 **Files:**
 - Modify: `plugins/memory/engine/digest.py`
@@ -159,15 +196,15 @@ git commit -m "feat(memory): a digest per topic is printed when present and fres
 **Interfaces:**
 - Consumes: Task 2's functions; `shortcheck.problems` (read how `corroborate.py` calls it on a claim and a short form); `records.SHORT_LIMIT`.
 - Produces, all pure (no file, no model):
-  - `DIGEST_ATTEMPTS = 2`.
-  - `class Work(NamedTuple)`: `topic: str`, `lessons: list[Memory]` (every ready lesson of the topic), `heading: str | None` (the fresh stored heading to keep, or None when one must be written), `write: list[Memory]` (lessons that need a line), `keep: dict[str, str]` (handle to the stored text of the lessons whose line is still written from their present claim and short form).
-  - `work(topics: Mapping[str, list[Memory]], digest, state: Mapping) -> list[Work]`: one per topic that needs anything: a heading when the stored one is not fresh, a line for every lesson whose stored line is not written from its present claim and short form (compare `of` only; when the heading is rewritten the kept lines are checked again under it, not rewritten). Left out: a heading or a line whose try-key counts `DIGEST_ATTEMPTS` in `state`; a topic that then has nothing to ask for. The try-key of a heading is `"h:" + topic + "@" + heading_print(lessons)`; of a line, `"l:" + handle + "@" + line_print(m) + "@" + <the heading's fingerprint>`. `state` is `{"tries": {key: int}, "failures": {"count": int, "fingerprint": str}}`.
+  - `DIGEST_ATTEMPTS = 2`; `DIGEST_LIMIT = 30` (lessons one run asks lines for).
+  - `class Work(NamedTuple)`: `topic: str`, `lessons: list[Memory]` (every ready lesson of the topic), `heading_state: str` (`"keep"`: the stored heading is fresh; `"write"`: one must be written; `"given_up"`: one is needed and its try-key counts `DIGEST_ATTEMPTS`), `heading: str | None` (the stored text when the state is `keep`, else None), `write: list[Memory]` (lessons that need a line), `keep: dict[str, str]` (handle to the stored text of the lessons whose line is still written from their present claim and short form).
+  - `work(topics: Mapping[str, list[Memory]], digest, state: Mapping) -> list[Work]`: one per topic that needs anything: a heading when the stored one is not fresh (`digest.heading` returns None), a line for every lesson whose stored line is not written from its present claim and short form (compare `of` only; when the heading is rewritten the kept lines are checked again under it, not rewritten). A topic whose heading state is `given_up` gives no work at all: without a heading no line is asked for. Left out besides: a line whose try-key counts `DIGEST_ATTEMPTS` in `state`; a topic that then has nothing to ask for. The works are in the order of the topics' names, and no further topic is added once the lessons to write reach `DIGEST_LIMIT` (a topic is never split). The try-key of a heading is `"h:" + topic + "@" + heading_print(lessons)`; of a line, `"l:" + handle + "@" + line_print(m) + "@" + heading_print(lessons)`. `state` is `{"tries": {key: int}, "failures": {"count": int, "fingerprint": str}}`.
   - `blocks(works: Sequence[Work]) -> str`: what the writer reads: per topic `topic: <name>`, then `heading: <text>` and `heading: keep` when a fresh one is kept or `heading: write`; then per lesson `id: g:<handle>`, `do: write` or `do: keep`, `claim:`, `context:` when there is one, `short:`, and `line: <stored text>` for a kept lesson. Every value on one line, a blank line between lessons and two between topics.
   - `validate(payload, works) -> dict[str, dict]`: the writer's whole answer `{"topics": [{"topic", "heading"?, "lines": [{"id", "line"}]}]}` turned into `{topic: {"heading": str | None, "lines": {handle: str}}}`, keeping only a heading for a topic that asked for one and lines for lessons marked `write`; a non-string reads as absent; raises `ValueError` when the payload is not an object with a list `topics`.
   - `heading_problem(text: str) -> str | None`: empty, more than one line, spaces at its ends, over `HEADING_LIMIT`, or ending with a period or a colon.
   - `line_problem(text: str, m: Memory) -> str | None`: empty, more than one line, spaces at its ends, over `records.SHORT_LIMIT`, or what `shortcheck.problems` reports against the lesson's claim.
   - `pairs(works, proposed) -> list[tuple[str, Memory, str, str]]`: `(id, lesson, heading, line)` for every lesson that has a line to judge: a proposed one that passed `line_problem`, or a kept one in a topic whose heading is being written; the heading is the proposed one when it passed `heading_problem`, else the kept one; a topic whose proposed heading has a problem, and that keeps none, yields no pair.
-  - `decide(works, proposed, verdicts: Mapping[str, Mapping], digest, state) -> tuple[dict, dict, dict[str, int]]`: the new digest, the new state and the counts `headings_written`, `lines_written`, `refused_code`, `refused_check`, `missing`. `verdicts` maps an id to `{"fits": bool, "faithful": bool}`; only exact `true` counts. A written heading is accepted when it has no problem and `fits` is true for every lesson of its topic that has a pair. A line is accepted when its heading is accepted or kept, it has no problem, and both `fits` and `faithful` are true. An accepted heading and line are stored with their fingerprints. A refused or missing heading or line adds one to its try-key; a kept line that is no longer `faithful` under a new heading is removed from the digest. A heading refused leaves the topic's stored lines unprinted by Task 2's rule, and none of the topic's proposed lines is stored. The inputs are not mutated.
+  - `decide(works, proposed, verdicts: Mapping[str, Mapping], digest, state) -> tuple[dict, dict, dict[str, int]]`: the new digest, the new state and the counts `headings_written`, `lines_written`, `refused_code`, `refused_check`, `missing`. `verdicts` maps an id to `{"fits": bool, "faithful": bool}`; only exact `true` counts. A written heading is accepted when it has no problem, at least one lesson of its topic has a pair, and `fits` is true for every lesson of its topic that has a pair. A line is accepted when its heading is accepted or kept, it has no problem, and both `fits` and `faithful` are true. An accepted heading and line are stored with their fingerprints (`of`, and for a line `under` equal to the `of` of the heading it stands under). When a heading is rewritten and accepted, every kept line of its topic that is still `fits` and `faithful` under it has its `under` set to the new heading's `of`, so that it keeps printing. A refused or missing heading or line adds one to its try-key; a kept line that is no longer `faithful` under a new heading is removed from the digest. A heading refused leaves the topic's stored lines unprinted by Task 2's rule, and none of the topic's proposed lines is stored. The inputs are not mutated.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -185,6 +222,10 @@ git commit -m "feat(memory): a digest per topic is printed when present and fres
 | `test_a_refused_line_is_tried_twice_then_left` | `faithful` false: not stored, one try; a second refusal: `work` no longer asks for it |
 | `test_a_heading_that_does_not_fit_stores_nothing_for_the_topic` | `fits` false for one lesson: no heading, no line stored, the heading's try counted, the lines' not |
 | `test_a_kept_line_unfaithful_under_a_new_heading_is_removed` | then `work` asks for it at the next run |
+| `test_a_kept_line_still_prints_under_a_rewritten_heading` | a lesson joins a digested topic; the heading is rewritten and accepted, the kept lines judged faithful: `digest.line` returns each kept line again, and `work` asks for nothing more |
+| `test_a_given_up_heading_asks_for_nothing` | the heading's try-key counts two: the topic gives no work, although its lessons have no line |
+| `test_a_heading_without_any_pair_is_not_accepted` | every proposed line of a new topic has a code problem: no heading stored, the heading's try counted |
+| `test_the_limit_of_lessons_keeps_topics_whole` | topics of 20, 15 and 5 lessons to write: the first two are asked (35 passes the limit only after the second is added), the third waits |
 | `test_decide_does_not_mutate_its_inputs` | deep copies compare equal |
 
 - [ ] **Step 2: Run them and see them fail**
@@ -202,26 +243,25 @@ git commit -m "feat(memory): what the digest step asks for, checks and keeps"
 
 ---
 
-### Task 4: The step in the pass, and the option (C87, C91, C92, C94)
+### Task 5: The step in the pass (C87, C91, C92)
 
 **Files:**
 - Modify: `plugins/memory/bin/mem-corroborate`
-- Test: `plugins/memory/engine/tests/test_mem_corroborate.py` (its fake `claude` chooses its answer by the name of the output file: give the two sessions of this step output names of their own and add their modes)
+- Test: `plugins/memory/engine/tests/test_mem_corroborate.py` (its fake `claude` chooses its answer by the end of the output file's name: name this step's two outputs `digest-write.json` and `digest-check.json`, which no existing rule of the fake matches, add their modes, and make the fake save the text it was given for these two, so a test can read what the writer was asked)
 
 **Interfaces:**
-- Consumes: `digest.py` of Tasks 2 and 3; in this file, called as they are: `_ask`, `PROPOSE_MODEL`, `CHECK_MODEL`, the run lock, the budget and cost accounting, the way `fill_auto` and `reword_auto` find the global lessons and the data folder. Read `reword_auto` and its locked body from their first line to their last before writing: the new step follows their order and failure handling in code of its own.
+- Consumes: `digest.py` of Tasks 2 and 4; in this file, called as they are: `_ask`, `PROPOSE_MODEL`, `CHECK_MODEL`, the run lock, the budget and cost accounting, the way `fill_auto` and `reword_auto` find the global lessons and the data folder. Read `reword_auto` and its locked body from their first line to their last before writing: the new step follows their order and failure handling in code of its own.
 - Produces:
   - `DIGEST_BRIEF` and `DIGEST_CHECK_BRIEF`: the texts below, verbatim.
   - `digest_auto(claude, budget, *, apply: bool = True, sheet: Path | None = None) -> dict`: one run, never raising. Result keys: `topics` (works asked), `headings_written`, `lines_written`, `refused_code`, `refused_check`, `missing`, `cost`, `stopped`. Order: take the lock; read the global lessons, the digest and the state (`digest-attempts.json` beside the fill's state file); `digest.work`; stop with `stopped` when there is no work, or when the same work failed three runs in a row (a fingerprint over the try-keys asked); one writing session over `digest.blocks`; `digest.validate`; one checking session over `digest.pairs`, none when there is no pair; `digest.decide`; write the digest file and the state. A session that fails or whose answer cannot be read changes neither file except `failures`, and sets `stopped`. The records are never written.
   - `apply=False` writes neither the digest nor the state; both sessions still run. `sheet`, when given, receives a Markdown table, one row per lesson judged: topic, heading, id, claim, short form, line, outcome, the checker's reason; refused inside a git repository as the rewording's sheet is.
   - The subcommand `mem-corroborate digest [--dry-run] [--sheet PATH]`, built as `reword` is, printing its result as JSON.
-  - In `cmd_auto`, after the rewording and under the same condition on the loaded rules, when `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` is `"digest"`: `digest_auto(args.claude, budget)` and one log line `{"t", "digest": result, "ms"}`, in a `try` of its own. With any other value nothing runs and no line is written.
 
 ```text
 DIGEST_BRIEF = """You write, for groups of lessons that coding sessions wrote down, the text that later sessions read at their start. The lessons of one topic are printed together under one heading, so the heading says once what they share and each lesson's line does not repeat it.
 Read {topics}: one block per topic, with its name, a heading (a text to keep, or the word write), and its lessons. Each lesson has an id, a claim, sometimes a context, its short form, and the word write or keep; a kept lesson shows the line it already has, for you to read and not to change.
 For a topic whose heading says write, write: heading: at most 80 characters, the situation in which the topic's lessons apply, as a clause a line can follow ("when briefing or reading a subagent"), true of every lesson under it, holding no advice, ending without a period, and naming no project, person or company.
-For each lesson that says write, write: line: one sentence of at most 120 characters (aim for 100) that reads on from the heading. It does not repeat the situation the heading names; it says what may be worth doing and why, drawn from the claim and not from the short form. It is a suggestion and never stronger than the claim: keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. Name the action as a thing or an -ing form ("quoting the source line may catch errors"), not as a command to the reader, unless the claim itself is a command. If the claim applies in a narrower situation than the heading, say so in the line. Say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. An id is copied whole.
+For each lesson that says write, write: line: one sentence of at most 120 characters (aim for 100) that reads on from the heading. It does not repeat the situation the heading names; it says what may be worth doing, and why when the claim says why, drawn from the claim and not from the short form. It is a suggestion and never stronger than the claim: keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. Name the action as a thing or an -ing form ("quoting the source line may catch errors"), not as a command to the reader, unless the claim itself is a command. If the claim applies in a narrower situation than the heading, say so in the line. Say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. An id is copied whole.
 Write {out} as JSON: {{"topics": [{{"topic": "example", "heading": "...", "lines": [{{"id": "g:example", "line": "..."}}]}}]}}
 Leave "heading" out for a topic whose heading is kept, and write lines only for lessons that say write. Write nothing else and use no other tool.
 """
@@ -248,8 +288,6 @@ Drive the step as the rewording's tests in `test_mem_corroborate.py` drive `rewo
 | `test_a_reworded_lesson_gets_a_new_line_and_the_rest_keep_theirs` | after the first run, change one lesson's short form with `mem memory edit --short ... --user-read`: the next run's writer is asked for one line only (assert on what the fake received), and the other stored texts are unchanged |
 | `test_an_unusable_answer_changes_nothing_and_three_in_a_row_wait` | as the rewording's test |
 | `test_dry_run_writes_the_sheet_and_nothing_else` | the digest file and the state are absent or unchanged, the sheet has one row per lesson judged; `--sheet` inside a git repository is refused before any session |
-| `test_auto_runs_digest_only_with_the_layout` | `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` unset, `flat` or `grouped`: no `digest` line in the log and no digest file; `digest`: one `digest` line after the others; with the loaded rules off: none |
-| `test_a_failure_in_digest_does_not_fail_auto` | `digest_auto` patched to raise: exit 0, the other lines are there |
 | `test_digest_respects_the_lock` | `stopped` names the lock, nothing asked |
 
 - [ ] **Step 2: Run them and see them fail**
@@ -262,12 +300,46 @@ Drive the step as the rewording's tests in `test_mem_corroborate.py` drive `rewo
 
 ```bash
 git add plugins/memory/bin/mem-corroborate plugins/memory/engine/tests/test_mem_corroborate.py
-git commit -m "feat(memory): the pass writes a digest per topic when rules_layout is digest"
+git commit -m "feat(memory): the pass can write a digest per topic, checked as a short form is"
 ```
 
 ---
 
-### Task 5: The gate's automatic half, and the documents (C95)
+### Task 6: The option turns the step on (C94)
+
+**Files:**
+- Modify: `plugins/memory/bin/mem-corroborate` (`cmd_auto`)
+- Test: `plugins/memory/engine/tests/test_mem_corroborate.py`
+
+**Interfaces:**
+- Consumes: `digest_auto` of Task 5.
+- Produces:
+  - In `cmd_auto`, after the rewording and under the same condition on the loaded rules, when `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` is `"digest"`: `digest_auto(args.claude, budget)` and one log line `{"t", "digest": result, "ms"}`, in a `try` of its own. With any other value nothing runs and no line is written.
+
+- [ ] **Step 1: Write the failing tests**
+
+| Test | Asserts |
+|---|---|
+| `test_auto_runs_digest_only_with_the_layout` | `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` unset, `flat` or `grouped`: no `digest` line in the log and no digest file; `digest`: one `digest` line after the others; with the loaded rules off: none |
+| `test_a_failure_in_digest_does_not_fail_auto` | `digest_auto` patched to raise: exit 0, the other lines are there |
+| `test_auto_without_the_layout_is_as_before` | with the option unset, the log lines and the store after `auto` equal those of a run before this task (the existing test of the rewording's option shows how to compare) |
+
+- [ ] **Step 2: Run them and see them fail**
+
+- [ ] **Step 3: Implement**
+
+- [ ] **Step 4: Run `test_mem_corroborate.py`, then the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugins/memory/bin/mem-corroborate plugins/memory/engine/tests/test_mem_corroborate.py
+git commit -m "feat(memory): the automatic run writes the digest when rules_layout is digest"
+```
+
+---
+
+### Task 7: The gate's automatic half, and the documents (C95)
 
 **Files:**
 - Modify: `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md` (under `## [Unreleased]`), `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (the `## Phases` table), `docs/superpowers/plans/2026-11-17-memory-plugin.md` ("Current state and where to resume")
@@ -306,4 +378,4 @@ git commit -m "docs(memory): the digest per topic, its gate's first half and whe
 
 ## Results
 
-Filled by Task 5.
+Filled by Task 7.
