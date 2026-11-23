@@ -75,6 +75,21 @@ No head-to-head measurement of files against a database for agent memory was fou
 2. Versioning: `format` major/minor in `mem-store.yaml`, an upgrade-on-read converter, `mem migrate` with a dry run, and a test fixture per older format.
 3. Export and import in JSON Lines, round-trip tested (export then import gives byte-identical records).
 
+## Size, deltas and merges (owner's points, 2026-11-23; for later)
+
+Measured on the real store the same day (1,583 Markdown files, 33 history commits, `.sources/` excluded):
+
+| Form | Size |
+|---|---|
+| Working tree | 27 MB |
+| The same files as `tar.gz` | 6.9 MB |
+| `.git` today (1,867 loose objects, never packed) | 9.3 MB |
+| The whole history packed by git (`pack-objects`, deltas and zlib; measured without changing the repository) | 3.4 MB |
+
+- **Deltas and compression already come with git for text:** every commit since the import fits in 3.4 MB once packed, about an eighth of the working tree. A binary database gets worse deltas, because small edits move pages around. The cheap gain is to let git pack the store (`git gc --auto` after history commits, or on a schedule), not to change format.
+- **Merging through deltas before a pull (owner's idea):** fetch the remote, merge record by record against the common ancestor, commit, then push. Git supports exactly this as a custom merge driver (`.gitattributes` `merge=<driver>`, given base, ours and theirs), and the sync of stage 7 would run fetch, merge and push in that order. With one file per record git already merges per record on its own, so the driver only earns its cost if a single-file format is chosen for other reasons; with a database it would need a record-level three-way merge and a conflict policy (newest wins, keep both, or ask).
+- **For the stage 7 sync:** pull before push, a merge driver only for files that are not per-record (`topics.yaml`, indexes), and periodic packing.
+
 ## Revisit when
 
-The derived index is built and a hook stays over its budget; a record change can no longer be handled by tolerant reading; or a later transcript measurement shows agents reading or listing the store's files directly during ordinary work.
+The derived index is built and a hook stays over its budget; the store's packed history grows past what a git host handles comfortably; a record change can no longer be handled by tolerant reading; or a later transcript measurement shows agents reading or listing the store's files directly during ordinary work.
