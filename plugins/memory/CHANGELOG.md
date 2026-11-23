@@ -6,6 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Added
 
+- The `memory` skill gains a reference, `references/research-notes.md`, with the rules for writing `literature` and `knowledge` notes from sources: source ranks 1 to 5 and what each may support, the `confidence` rubric, `Inference:` labels, declarative filenames, local copies with `mem fetch-sources`, and fact-check results. Nothing to migrate.
 - The session-start text now adds up to two lines about the store, each only when its count is above zero. `History: N changed notes held back from the last commit: run mem check.` means the last history commit left notes out because they fail `mem check`: run `mem check` and fix what it reports. `Re-read due: N notes are past their review date: mem review.` counts the llm notes that `mem review` lists as due for re-testing or re-reading: run `mem review` and re-read them when the task touches that topic. The count of due notes is refreshed once a day and kept in the plugin's data folder (`due-counts.json`), so a note edited or re-read today leaves the count from tomorrow. Nothing to migrate.
 
 ### Changed

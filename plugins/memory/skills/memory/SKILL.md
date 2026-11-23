@@ -52,6 +52,7 @@ mem remember --kind pitfall --claim "One sentence, in English, that stands on it
 - When in doubt about scope or worth, write it to the project: a curation pass decides later what moves up.
 - Exit code 3: a memory with exactly that claim exists; run the `mem confirm m:<handle>` it suggests. Exit code 4: the text holds a forbidden term or looks like a secret; rewrite it in general terms, never work around the check. Exit code 5: it mentions a term the owner wants to be asked about: ask them, and add `--owner-approved` only if they agree. Exit code 2 from a global write when neither `HOME` nor `XDG_CONFIG_HOME` is set: nothing was written; set one of them.
 - When a memory you used proved right: `mem confirm m:<handle>`. When it proved wrong: `mem refute m:<handle> --because "<why>"`.
+- Writing a `literature` or `knowledge` note from a source: read [research-notes.md](references/research-notes.md) first (source ranks, `confidence`, inference labels, fact-check).
 
 ## Not while working
 
