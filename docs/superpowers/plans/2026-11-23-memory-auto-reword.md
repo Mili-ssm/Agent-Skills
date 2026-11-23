@@ -118,7 +118,7 @@ git commit -m "feat(memory): a lesson records an automatic rewording and one tha
   - `reword_problem(short: str, memory: Memory) -> str | None`: why a proposed short form cannot be applied: the same tests on the text that `fill_problem` makes on a short form (empty, spaces at its ends, more than one line, over `records.SHORT_LIMIT`), copied here without the topic, then `"same as an earlier wording"` when `same_text` holds against any text of `version_list(memory)`; else None.
   - `validate_reword(payload, items) -> dict[str, dict]`: the model's whole answer `{"items": [{"id", "short"}]}` turned into `{id: {"short": str, "problem": str | None}}` for the ids of `items` only; an id that is missing from the answer is absent from the result; a `short` that is not a string reads as `""`; the first item of an id wins. It raises `ValueError` when the payload is not an object with a list `items`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -132,13 +132,13 @@ git commit -m "feat(memory): a lesson records an automatic rewording and one tha
 | `test_reword_problem` | an over-long short, an empty one, and one equal to version 1 each give a problem; a new valid one gives None |
 | `test_validate_reword` | an answer without any `topic` is read; a missing id is absent; a non-list `items` raises |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_reword.py`, `test_corroborate.py`, `test_fill_auto.py`, then the whole suite**
+- [x] **Step 4: Run `test_reword.py`, `test_corroborate.py`, `test_fill_auto.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine/corroborate.py plugins/memory/engine/tests/test_reword.py
@@ -160,7 +160,7 @@ git commit -m "feat(memory): the candidates and the reading of an automatic rewo
   - `reword_outcome(items, proposed, accepted: Collection[str]) -> dict[str, str]`: one word per candidate id: `"written"` (a survivor the checker accepted), `"same_text"`, `"refused_code"`, `"refused_check"` (a survivor the checker did not accept), or `"no_proposal"` (the id is missing from the writer's answer).
   - `reword_state_after(state, items, outcome, today) -> tuple[dict, list[str]]`: the new state and the ids to give up on. `written` sets `spent: true`. `same_text`, `refused_code` and `refused_check` add one to the count for the lesson's present version date (a count for another date starts again at one). `no_proposal` changes nothing. An id whose count reaches `REWORD_ATTEMPTS` is in the list to give up on. The input state is not mutated.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -171,13 +171,13 @@ git commit -m "feat(memory): the candidates and the reading of an automatic rewo
 | `test_a_refusal_for_a_new_version_starts_again` | a count of 1 for an earlier date, then a refusal for the present date: count 1 |
 | `test_no_proposal_spends_nothing` | the state is equal to the input |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_reword.py`, `test_corroborate.py`, then the whole suite**
+- [x] **Step 4: Run `test_reword.py`, `test_corroborate.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine/corroborate.py plugins/memory/engine/tests/test_reword.py
