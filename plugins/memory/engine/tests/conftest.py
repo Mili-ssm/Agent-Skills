@@ -29,6 +29,10 @@ def isolated_env(monkeypatch, tmp_path):
     # not the repository the tests run in: its own .memory/ would leak into every command that reads project memories
     monkeypatch.setenv("MEM_PROJECT", str(tmp_path / "mem-project"))
     monkeypatch.delenv("MEM_MEMORIES", raising=False)
+    # a session sets MEM_* and the plugin options (user config) in its environment; the tests must not read them
+    for name in [n for n in os.environ if n.startswith(("MEM_", "CLAUDE_PLUGIN_OPTION_"))]:
+        if name not in {"MEM_DATA", "MEM_PROJECT"}:
+            monkeypatch.delenv(name, raising=False)
 
 
 def usage_log_path() -> Path:
