@@ -85,4 +85,4 @@ For anything beyond one note, follow the research-wave procedure (the `memory-re
 
 ## Record what the work teaches about researching
 
-When a task teaches something about how to research (a route that works or fails, an error class, a better order of steps), record it as a `knowledge` note on the topic `research-practice`. When it is experience from one wave, record it instead as a global lesson: `mem remember --global --kind lesson --topic research`.
+When a task teaches something about how to research (a route that works or fails, an error class, a better order of steps), record it as a `knowledge` note on the topic `research-practice`. When it is experience from one wave, record it instead as a global lesson: `mem remember --global --kind lesson --topic research`. Before a research task, list the past lessons with `mem find --topic research-practice` and `mem rules --more research`; when a lesson changes the procedure, update the `memory-research-wave` skill.
