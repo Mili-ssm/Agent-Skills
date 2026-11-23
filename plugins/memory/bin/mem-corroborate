@@ -49,6 +49,7 @@ import capture_state as cs  # noqa: E402
 
 try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
     import corroborate  # noqa: E402
+    import digest as dg  # noqa: E402   (`digest` is a function of this file)
     import records  # noqa: E402
     import rules  # noqa: E402
     import research_pipeline as rp  # noqa: E402
@@ -145,6 +146,24 @@ Read {lessons}: one block per lesson, with an id, a claim, sometimes a context, 
 For each lesson write: short: one sentence of at most 120 characters (aim for 100), drawn from the claim and not from the earlier wordings, that differs from all of them. Start with the situation in which it applies, in words a reader in that situation would recognize, then name what may be worth doing as a thing or an -ing form ("quoting the source line may catch errors"), not as a command to the reader, unless the claim itself is a command. It is a suggestion and never stronger than the claim: keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. It must stand on its own, say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. An id is copied whole.
 Write {out} as JSON: {{"items": [{{"id": "g:example", "short": "..."}}]}}
 One item per lesson. Write nothing else and use no other tool.
+"""
+
+DIGEST_BRIEF = """You write, for groups of lessons that coding sessions wrote down, the text that later sessions read at their start. The lessons of one topic are printed together under one heading, so the heading says once what they share and each lesson's line does not repeat it.
+Read {topics}: one block per topic, with its name, its heading (marked keep and followed by its text, or the word write), and its lessons. Each lesson has an id, a claim, sometimes a context, its short form, and the word write or keep; a kept lesson shows the line it already has, for you to read and not to change.
+For a topic whose heading says write, write: heading: at most 80 characters, the situation in which the topic's lessons apply, as a clause a line can follow ("when briefing or reading a subagent"), true of every lesson under it, holding no advice, ending without a period, and naming no project, person or company.
+For each lesson that says write, write: line: one sentence of at most 120 characters (aim for 100) that reads on from the heading. It does not repeat the situation the heading names; it says what may be worth doing, and why when the claim says why, drawn from the claim and not from the short form. It is a suggestion and never stronger than the claim: keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. Name the action as a thing or an -ing form ("quoting the source line may catch errors"), not as a command to the reader, unless the claim itself is a command. If the claim applies in a narrower situation than the heading, say so in the line. Say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. An id is copied whole.
+Write {out} as JSON: {{"topics": [{{"topic": "example", "heading": "...", "lines": [{{"id": "g:example", "line": "..."}}]}}]}}
+Leave "heading" out for a topic whose heading is kept, and write lines only for lessons that say write. Write nothing else and use no other tool.
+"""
+
+DIGEST_CHECK_BRIEF = """You check texts that are loaded into every later coding session. The lessons of one topic are printed under a heading that names a situation, each as a line that reads on from it. Another writer made the headings and lines; it sometimes makes a line stronger or wider than its lesson, so say true only when you are sure.
+Read {pairs}: one block per lesson, with an id, a claim, sometimes a context that says when the lesson applies, the heading of its topic, and its line.
+For each block answer in this order:
+- reason: one sentence comparing what the claim asks, and when, with what the heading and the line ask together, and when.
+- fits: true only if the situation the claim is about lies inside the situation the heading names.
+- faithful: true only if the heading and the line, read together, ask for nothing the claim does not, in no wider a situation than the claim's (when the heading is wider, the line must narrow it), with no more certainty (a "may" or "once" in the claim is still there), as a suggestion and not an order unless the claim is an order, and name no project, person or company. A line that leaves out examples or alternatives is still faithful; one that adds a reason or a condition the claim does not state is not.
+Write {out} as JSON: {{"verdicts": [{{"id": "g:example", "reason": "...", "fits": true, "faithful": true}}]}}
+One entry per block. Write nothing else and use no other tool.
 """
 
 
@@ -1401,6 +1420,168 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     return finish()
 
 
+# ---- digest: a heading per topic and a line per lesson, for the session start ---------------------------------------------
+
+DIGEST_ATTEMPTS_NAME = "digest-attempts.json"
+DIGEST_WRITER_OUT = "digest-write.json"
+DIGEST_CHECK_OUT = "digest-check.json"
+
+
+def _digest_state(cdir: Path) -> dict:
+    """The step's memory, read defensively: a missing or broken file is an empty state."""
+    data = au.read_json(cdir / DIGEST_ATTEMPTS_NAME)
+    tries = data.get("tries")
+    failures = data.get("failures")
+    tries = {k: v for k, v in tries.items() if isinstance(k, str) and isinstance(v, int) and v > 0} if isinstance(tries, dict) else {}
+    failures = failures if isinstance(failures, dict) else {}
+    count = failures.get("count")
+    return {"tries": tries, "failures": {"count": count if isinstance(count, int) and count > 0 else 0,
+                                         "fingerprint": failures.get("fingerprint")}}
+
+
+def _digest_pair_text(pairs: list) -> str:
+    """What the checker reads: per lesson `id`, `claim`, `context` when there is one, `heading`, `line`; a blank line between."""
+    one = lambda t: " ".join(str(t).split())   # noqa: E731
+    blocks = []
+    for ident, m, head, text in pairs:
+        rows = [f"id: {ident}", f"claim: {one(m.claim)}"]
+        if m.context:
+            rows.append(f"context: {one(m.context)}")
+        rows += [f"heading: {one(head)}", f"line: {one(text)}"]
+        blocks.append("\n".join(rows))
+    return "\n\n".join(blocks)
+
+
+def _digest_verdicts(payload: object) -> tuple[dict, dict] | None:
+    """({id: {"fits", "faithful"}}, {id: reason}) from the checker's answer, or None when it is not one. Only the value
+    `true` counts; an id the checker left out is neither."""
+    if not isinstance(payload, dict) or not isinstance(payload.get("verdicts"), list):
+        return None
+    verdicts, reasons = {}, {}
+    for v in payload["verdicts"]:
+        if isinstance(v, dict) and isinstance(v.get("id"), str) and v["id"] not in verdicts:
+            verdicts[v["id"]] = {"fits": v.get("fits") is True, "faithful": v.get("faithful") is True}
+            if isinstance(v.get("reason"), str):
+                reasons[v["id"]] = v["reason"]
+    return verdicts, reasons
+
+
+def _digest_sheet(path: Path, rows: list[tuple]) -> None:
+    lines = ["| topic | heading | id | claim | short form | line | outcome | checker's reason |", "|---|---|---|---|---|---|---|---|"]
+    lines += ["| " + " | ".join(_cell(x) for x in row) + " |" for row in rows]
+    write_private(path, "\n".join(lines) + "\n")
+
+
+def digest_auto(claude: str | None, budget: float, *, apply: bool = True, sheet: Path | None = None) -> dict:
+    """Writes the digest of the loaded lessons, with nobody reading it first: a writer session (a heading per topic, a
+    line per lesson), the code checks (`digest.decide`), a second session that checks every line against its claim, then
+    the digest file and the step's state. It writes no record and runs no `mem` command: nothing to journal or undo. With
+    `apply` false it writes neither file (the sessions still run, and cost). Never raises: a failure is a counted result
+    with `stopped` set."""
+    result = {"topics": 0, "headings_written": 0, "lines_written": 0, "refused_code": 0, "refused_check": 0, "missing": 0,
+              "cost": 0.0, "stopped": None}
+    try:
+        cdir = corroborate_dir(data_dir())
+        lock = au.take_run_lock(cdir)
+        if lock is None:
+            return {**result, "stopped": "a run is going"}
+        try:
+            return _digest_locked(claude, budget, cdir, result, apply, sheet)
+        finally:
+            os.close(lock)
+    except Exception:   # noqa: BLE001
+        result["cost"] = round(result["cost"], 6)
+        return {**result, "stopped": "the step failed"}
+
+
+def _digest_locked(claude: str | None, budget: float, cdir: Path, result: dict, apply: bool, sheet: Path | None) -> dict:
+    def finish(**changes) -> dict:
+        result.update(changes)
+        result["cost"] = round(result["cost"], 6)
+        return result
+
+    data = data_dir()
+    lessons = [m for m in records.load_memories(records.global_memories_root(os.environ), "global") if m.error is None]
+    stored = dg.read(data)
+    state = _digest_state(cdir)
+    works = dg.work(dg.topics_of(lessons, datetime.date.today()), stored, state)
+    result["topics"] = len(works)
+    if not works:
+        return finish()
+    keys = sorted([*(dg._heading_key(w.topic, w.lessons) for w in works if w.heading_state == "write"),
+                   *(dg._line_key(m, w.lessons) for w in works for m in w.write)])
+    fingerprint = hashlib.sha256(json.dumps(keys).encode()).hexdigest()
+    failures = state["failures"]
+    if failures["fingerprint"] != fingerprint:
+        failures["count"] = 0
+    if failures["count"] >= corroborate.FILL_FAILURES:
+        return finish(stopped="waiting for the lessons to change", topics=0)
+    if not claude:
+        return finish(stopped="no claude binary")
+
+    def save_state(new: dict) -> None:
+        if apply:
+            au.write_json(cdir / DIGEST_ATTEMPTS_NAME, new)
+
+    def failed_session(why: str) -> dict:
+        failures["count"] += 1
+        failures["fingerprint"] = fingerprint
+        save_state(state)
+        return finish(stopped=why)
+
+    scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-digest-"))
+    reasons: dict[str, str] = {}
+    try:
+        write_private(scratch / "settings.json", json.dumps({"disableAllHooks": True}))
+        payload, cost, ok = _ask(claude, scratch, "write", PROPOSE_MODEL, budget, DIGEST_BRIEF, dg.blocks(works), "topics",
+                                 DIGEST_WRITER_OUT)
+        result["cost"] += cost
+        try:
+            proposed = dg.validate(payload, works) if ok else None
+        except ValueError:
+            proposed = None
+        if proposed is None:
+            return failed_session("the writer session gave no usable answer")
+        pairs = dg.pairs(works, proposed)
+        verdicts: dict = {}
+        if pairs:
+            payload, cost, ok = _ask(claude, scratch, "check", CHECK_MODEL, budget, DIGEST_CHECK_BRIEF, _digest_pair_text(pairs),
+                                     "pairs", DIGEST_CHECK_OUT)
+            result["cost"] += cost
+            checked = _digest_verdicts(payload) if ok else None
+            if checked is None:
+                return failed_session("the checker session gave no usable answer")
+            verdicts, reasons = checked
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+    new_digest, new_state, counts = dg.decide(works, proposed, verdicts, stored, state)
+    new_state["failures"] = {"count": 0, "fingerprint": None}
+    if apply:
+        dg.write(data, new_digest)
+        save_state(new_state)
+    result.update(counts)
+    if not apply:   # as the rewording: a dry run reports nothing as written
+        result["headings_written"] = result["lines_written"] = 0
+    if sheet is not None:
+        try:   # the run is done: a sheet that cannot be written must not turn it into a failed step
+            by_topic = {w.topic: w for w in works}
+            rows = []
+            for ident, m, head, text in pairs:
+                topic = next(w.topic for w in works if m in w.lessons)
+                line = new_digest["topics"].get(topic, {}).get("lines", {}).get(m.handle)
+                if line is not None and line["text"] == text:
+                    outcome = "written" if m in by_topic[topic].write else "kept"
+                    outcome = f"would be {outcome}" if not apply and outcome == "written" else outcome
+                else:
+                    outcome = "refused_check"
+                rows.append((topic, head, ident, m.claim, m.short, text, outcome, reasons.get(ident)))
+            _digest_sheet(sheet, rows)
+        except Exception:   # noqa: BLE001
+            return finish(stopped=result["stopped"] or "the sheet could not be written")
+    return finish()
+
+
 def cmd_fill(args) -> int:
     if IMPORT_ERROR is not None:
         print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
@@ -1433,6 +1614,21 @@ def cmd_reword(args) -> int:
             print(f"mem-corroborate: --sheet is inside a repository ({repo}); the sheet holds memory text", file=sys.stderr)
             return 2
     result = reword_auto(args.claude, args.budget, every=args.every, apply=not args.dry_run, sheet=sheet, limit=args.limit)
+    print(json.dumps(result))
+    return 1 if result["stopped"] else 0
+
+
+def cmd_digest(args) -> int:
+    if IMPORT_ERROR is not None:
+        print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
+        return 1
+    sheet = Path(args.sheet).expanduser() if args.sheet else None
+    if sheet is not None:
+        repo = repo_above(sheet.resolve().parent)
+        if repo is not None:
+            print(f"mem-corroborate: --sheet is inside a repository ({repo}); the sheet holds memory text", file=sys.stderr)
+            return 2
+    result = digest_auto(args.claude, args.budget, apply=not args.dry_run, sheet=sheet)
     print(json.dumps(result))
     return 1 if result["stopped"] else 0
 
@@ -1539,6 +1735,8 @@ def self_check() -> int:
     VERIFY_BRIEF.format(groups="a", out="b")
     FILL_BRIEF.format(lessons="a", out="b")
     REWORD_BRIEF.format(lessons="a", out="b")
+    DIGEST_BRIEF.format(topics="a", out="b")
+    DIGEST_CHECK_BRIEF.format(pairs="a", out="b")
     with tempfile.TemporaryDirectory(prefix="mem-corroborate-check-") as tmp:
         tmp = Path(tmp)
         os.environ.pop(cs.OPTION, None)
@@ -1604,6 +1802,12 @@ def main() -> int:
     reword.add_argument("--dry-run", action="store_true", help="run both sessions; change no record and save no state")
     reword.add_argument("--sheet", help="write a Markdown table of every candidate and its outcome to this file")
     reword.set_defaults(func=cmd_reword)
+    digest_cmd = commands.add_parser("digest", help="write the heading and the lines of the loaded lessons' digest, as the pass does")
+    digest_cmd.add_argument("--claude", default=default_claude)
+    digest_cmd.add_argument("--budget", type=budget_of, default=DEFAULT_BUDGET, help=f"USD per session (default {DEFAULT_BUDGET})")
+    digest_cmd.add_argument("--dry-run", action="store_true", help="run both sessions; write no digest and save no state")
+    digest_cmd.add_argument("--sheet", help="write a Markdown table of every line judged and its outcome to this file")
+    digest_cmd.set_defaults(func=cmd_digest)
     auto = commands.add_parser("auto", help="what a hook starts: one run when the option is on; silent")
     auto.add_argument("--claude", default=default_claude)
     auto.set_defaults(func=cmd_auto)
