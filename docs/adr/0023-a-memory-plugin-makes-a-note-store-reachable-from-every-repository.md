@@ -177,3 +177,7 @@ The `Curation due` count changed meaning (C98 to C107 of the [curation due desig
 | A `Curation due` line stays after `mem curate --done` on an unchanged store | The session start text of the next session |
 | `at least N` in the line in three sessions in a row on the owner's store | The session start text; the pair search budget (C101) is too small |
 | A session-index duration over 2 seconds in the hooks log | The hooks log; the start-time pair search costs too much |
+
+## Review 2026-11-23
+
+Rust decision (stage 8): no port now (owner, 2026-11-23). Measured through `bin/mem` (20 runs, store of 1,132 notes): SessionStart hook p50 442 ms, p95 539 ms against its 0.5 s budget; `search` 432 to 441 ms p50; `check` 1,006 ms; start-up floor 157 ms. The time goes to Python start-up (`mem.py` recompiled on every run, 70 ms) and to `yaml.safe_load`, the pure-Python loader, at four sites (about 0.6 s of a profiled search); two Python fixes measured on a copy bring the hook to 273 ms and search to 277 ms with byte-identical output. The record model changed in 24 commits since 2026-11-17. The trigger above (a hook over budget after an on-disk index) has not fired; the fixes ship first. Detail, port sizing and a parity procedure: [docs/studies/2026-11-23-memory-rust-port.md](../studies/2026-11-23-memory-rust-port.md).

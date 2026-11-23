@@ -1,6 +1,6 @@
 # Note repository features the memory plugin lacks
 
-Status: proposed · Date: 2026-11-23
+Status: G1 to G4 approved for building, the rest documented · Date: 2026-11-23
 
 The owner's note repository stops receiving studies (owner, 2026-11-23); the `mem` store, which imported all its notes on 2026-11-17, takes over. This lists what the note repository does that the memory plugin (or `agent-skills`) does not yet do, and proposes where each gap would go. Nothing here is built. The checklist was the note repository's own requirements (`I-*`, `C-*`) and its agent contract and research playbook.
 
@@ -9,6 +9,16 @@ The owner's note repository stops receiving studies (owner, 2026-11-23); the `me
 The commands are at parity: every command of the note repository's tool exists in `mem` (same engine), and search quality matches on the same evaluation set (recall@10 0.74 in the store against 0.75 in the note repository, MRR@10 0.48 in both, 216 questions, 2026-11-23). Both sit below C-6's trigger (recall@10 0.8, MRR@10 0.6), so the measured comparison that trigger starts is due in either place (G5). The gaps are the processes around the commands: no commit gate, no research-wave procedure, no writing rules for research notes, and three loops (search misses, stale notes, weekly source watch) that nothing triggers.
 
 ---
+
+## Owner rulings (2026-11-23)
+
+| Gap | Ruling |
+|---|---|
+| G1 | Build now. A changed note that fails `mem check` is held back from the history commit (as oversized files are); valid notes are committed; the session index reports how many were held back |
+| G2 | Build now, as a skill first (`memory-research-wave`); a headless pipeline only if the skill is used often |
+| G3 | Build now: the note-writing rules the G2 skill and the writing agents load |
+| G4 | Build now: one session-index line when notes are due for re-reading, nothing when none is; no background re-reading |
+| G5 to G12 | Documented only |
 
 ## Already at parity
 
@@ -28,7 +38,7 @@ The commands are at parity: every command of the note repository's tool exists i
 |---|---|---|---|---|---|
 | G1 | Commit gate: `check` on the staged snapshot blocks an invalid commit (C-7, I-6) | `mem history commit` stages with `add -A` and commits without checking; git hooks are disabled on purpose (`core.hooksPath=` in `engine/store_git.py`), so a hook cannot be the gate | Run `mem check` on the changed notes in `store_git._commit`, before staging, which covers `mem history commit`, the automatic commits and `init`; refuse, or commit and flag, on a problem. Matters now that a remote receives the store | memory plugin | high |
 | G2 | Research-wave procedure: frame, common brief, parallel writers from full text with local copies, fresh fact-check per area, review of the whole, commit order, lessons (C-18, playbook) | nothing; `mem-research` records short web findings, not literature notes; `mem-synthesize` runs write → fact-check → fix for syntheses only | A skill (or a `mem-synthesize`-like pipeline) for literature and knowledge notes. The 2026-11-23 platform parity study ran this procedure by hand and it caught errors at each step | memory plugin | high |
-| G3 | Writing rules for research notes: source ranks, knowledge confidence rubric, `Inference:` labels, conservative level, notes only from a source read (C-9, I-3) | partly: `memory-synthesis` has `Inference:`; `web-research` has source ranks and a confidence scale for answers. Missing are the note-only rules: a single study stays `medium`, `origin: experience`, a note only from a source read, level judged conservatively | A reference file the writing skill and agents load. The owner wants to evaluate these rules first (2026-11-23) | memory plugin, after the owner's evaluation | high |
+| G3 | Writing rules for research notes: source ranks, knowledge confidence rubric, `Inference:` labels, conservative level, notes only from a source read (C-9, I-3) | partly: `memory-synthesis` has `Inference:`; `web-research` has source ranks and a confidence scale for answers. Missing are the note-only rules: a single study stays `medium`, `origin: experience`, a note only from a source read, level judged conservatively | A reference file the writing skill and agents load. The owner wants to evaluate these rules first (2026-11-23) | memory plugin; the owner reviews the rules before the branch merges | high |
 | G4 | Stale-note review: `llm` knowledge older than 365 days (C-13) and `llm` web literature older than 182 days (C-15) listed for re-reading | `mem review` lists them, but no hook, index line or curation pass runs it | Count the due notes in the curation queue and the `Curation due` line. The 15 vendor-documentation notes of 2026-11-23 come due in May 2027 | memory plugin | medium |
 | G5 | Search-quality loop: add a row to the evaluation set on each search miss; a recall or MRR below the trigger starts a measured comparison (C-6, ADR 0009 of the note repository) | `mem search-eval` runs, but no command adds a row and nothing reads the trigger; the store's evaluation file is the imported one | `mem search-eval add "<question>" <note>`; the trigger checked in curation; a line in the `memory` skill on reporting misses | memory plugin | medium |
 | G6 | Weekly source watch: a cloud routine proposes new primary sources per domain on a weekly branch, never writing notes (C-16) | set up for the note repository; its current target was not checked | Retarget it to the store's remote, or retire it (owner's choice) | owner, then a routine | medium |
