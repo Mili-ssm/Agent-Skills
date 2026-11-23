@@ -140,6 +140,13 @@ Write {out} as JSON: {{"verdicts": [{{"id": "g:example", "reason": "...", "faith
 One entry per block. Write nothing else and use no other tool.
 """
 
+REWORD_BRIEF = """You rewrite the short form of lessons that coding sessions wrote down. Each short form below was loaded into later sessions and the thing the lesson warns about still happened, so the present wording did not reach its reader.
+Read {lessons}: one block per lesson, with an id, a claim, sometimes a context, every wording tried so far with how often the lesson then worked and failed, and what kind of failure followed where it is recorded.
+For each lesson write: short: one sentence of at most 120 characters (aim for 100), drawn from the claim and not from the earlier wordings, that differs from all of them. Start with the situation in which it applies, in words a reader in that situation would recognize, then name what may be worth doing as a thing or an -ing form ("quoting the source line may catch errors"), not as a command to the reader, unless the claim itself is a command. It is a suggestion and never stronger than the claim: keep the claim's hedge (may, once, sometimes, untested, provisional); if it is too long, drop alternatives and detail first, never the hedge. It must stand on its own, say "the user" and never "the owner", name no project, person or company, and add nothing the claim does not say. An id is copied whole.
+Write {out} as JSON: {{"items": [{{"id": "g:example", "short": "..."}}]}}
+One item per lesson. Write nothing else and use no other tool.
+"""
+
 
 # ---- state folder -----------------------------------------------------------------------------------------------
 
@@ -1173,6 +1180,227 @@ def _hold(handle: str, why: str, cdir: Path, gfolder: Path | None) -> bool:
     return done is not None and done.returncode == 0
 
 
+# ---- reword: a new short form for a loaded lesson that got worse -----------------------------------------------------
+
+REWORD_ATTEMPTS_NAME = "reword-attempts.json"
+REWORD_WRITER_OUT = "reword.json"
+REWORD_CHECK_OUT = "reword-check.json"
+
+
+def _reword_state(cdir: Path) -> dict:
+    """The step's memory, read defensively: a missing or broken file is an empty state."""
+    data = au.read_json(cdir / REWORD_ATTEMPTS_NAME)
+    lessons = data.get("lessons")
+    failures = data.get("failures")
+    lessons = {k: v for k, v in lessons.items() if isinstance(v, dict)} if isinstance(lessons, dict) else {}
+    failures = failures if isinstance(failures, dict) else {}
+    count = failures.get("count")
+    return {"lessons": lessons, "failures": {"count": count if isinstance(count, int) and count > 0 else 0,
+                                             "fingerprint": failures.get("fingerprint")}}
+
+
+def _reword_run_folder(cdir: Path) -> Path:
+    base = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+    run, n = cdir / "runs" / f"{base}-reword", 1
+    while run.exists():
+        n += 1
+        run = cdir / "runs" / f"{base}-{n}-reword"
+    return run
+
+
+# Only exit 4 of `mem memory edit` (a secret, a forbidden term) refuses the text. Exit 2 is also a usage error, "not found"
+# or "not active": counting it as a refusal would make every lesson give up if the command line were ever wrong, and the
+# step has run the same code check itself before the edit.
+REWORD_REFUSED_EXITS = (4,)
+
+
+def _reword_edit(applier: Applier, project: Path | None, m, *flags: str) -> str:
+    """One `mem memory edit` of the step, journaled: "ok", "refused" (exit 4: the command refused the text) or "failed"
+    (it could not run, timed out or exited otherwise: nothing says the text is bad, so no attempt is spent)."""
+    watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # a global edit may update it
+    before = applier.journal.watch(watched)
+    done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []), *flags], project,
+                       drop_env=SETTLE_VARS)
+    applier.journal.commit("reword", before)
+    if done is not None and done.returncode == 0:
+        return "ok"
+    return "refused" if done is not None and done.returncode in REWORD_REFUSED_EXITS else "failed"
+
+
+def _cell(text: object) -> str:
+    return " ".join(str(text or "").split()).replace("|", "\\|")
+
+
+def _reword_sheet(path: Path, rows: list[tuple]) -> None:
+    lines = ["| id | claim | present short form | proposed short form | outcome | checker's reason |", "|---|---|---|---|---|---|"]
+    lines += ["| " + " | ".join(_cell(x) for x in row) + " |" for row in rows]
+    write_private(path, "\n".join(lines) + "\n")
+
+
+def reword_auto(claude: str | None, budget: float, *, every: bool = False, apply: bool = True,
+                sheet: Path | None = None, limit: int = 30) -> dict:
+    """Rewrites the short form of loaded lessons that got worse, with nobody reading it first: a writer session, the
+    code check, a second session that checks the survivors against their claims, then one `mem memory edit
+    --reworded` each. Follows `fill_auto`: every doubt ends in not writing; a session with no usable answer is a
+    failed session that charges no lesson. With `apply` false it writes no record and saves no state (the sessions
+    still run, and cost). Never raises: a failure is a counted result with `stopped` set."""
+    result = {"asked": 0, "written": 0, "refused_code": 0, "refused_check": 0, "same_text": 0, "no_proposal": 0,
+              "gave_up": 0, "changed": 0, "failed_edits": 0, "cost": 0.0, "stopped": None}
+    try:
+        cdir = corroborate_dir(data_dir())
+        lock = au.take_run_lock(cdir)
+        if lock is None:
+            return {**result, "stopped": "a run is going"}
+        try:
+            return _reword_locked(claude, budget, cdir, result, every, apply, sheet, limit)
+        finally:
+            os.close(lock)
+    except Exception:   # noqa: BLE001
+        result["cost"] = round(result["cost"], 6)
+        return {**result, "stopped": "the step failed"}
+
+
+def _reword_applier(cdir: Path, gfolder: Path | None) -> Applier:
+    run = _reword_run_folder(cdir)
+    au.private_dir(run)
+    write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
+    return Applier(Journal(run), {}, gfolder, run, lambda _text: None)
+
+
+def _retry_give_ups(cdir: Path, state: dict, projects, gfolder: Path | None) -> int:
+    """The `--reword-failed` edit of a give-up that did not run: every lesson the state counts REWORD_ATTEMPTS or more
+    for its present version and whose record lacks the mark gets it again. Returns the marks written."""
+    applier, done, seen = None, 0, set()
+    for _i, p, m in corroborate.fill_records(projects, gfolder):
+        key, versions = corroborate.reword_key(p, m.handle), records.version_list(m)
+        if key in seen or not versions or m.reword_failed == versions[-1][0]:
+            continue
+        seen.add(key)
+        if corroborate._count(corroborate._entry(state, key), versions[-1][0]) >= corroborate.REWORD_ATTEMPTS:
+            applier = applier or _reword_applier(cdir, gfolder)
+            if _reword_edit(applier, p, m, "--reword-failed") == "ok":
+                done += 1
+    return done
+
+
+def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, every: bool, apply: bool,
+                   sheet: Path | None, limit: int) -> dict:
+    def finish(**changes) -> dict:
+        result.update(changes)
+        result["cost"] = round(result["cost"], 6)
+        return result
+
+    try:
+        _data, projects, gfolder, _names = _fill_world()
+    except ValueError:
+        return finish(stopped="the registry is unreadable")
+    state = _reword_state(cdir)
+    if apply:
+        result["gave_up"] += _retry_give_ups(cdir, state, projects, gfolder)
+    candidates = corroborate.reword_candidates(projects, gfolder, datetime.date.today(), state, every=every)
+    if every:
+        candidates = candidates[:max(limit, 0)]
+    result["asked"] = len(candidates)
+    if not candidates:
+        return finish()
+    where = {i: p for i, p, _m in corroborate.fill_records(projects, gfolder)}
+    by_id = dict(candidates)
+    keys = {i: corroborate.reword_key(where[i], m.handle) for i, m in candidates}
+    fingerprint = hashlib.sha256(json.dumps(sorted(
+        (keys[i], records.version_list(m)[-1][0].isoformat()) for i, m in candidates)).encode()).hexdigest()
+    failures = state["failures"]
+    if failures["fingerprint"] != fingerprint:
+        failures["count"] = 0
+
+    def save_state() -> None:
+        if apply:
+            au.write_json(cdir / REWORD_ATTEMPTS_NAME, state)
+
+    if failures["count"] >= corroborate.FILL_FAILURES:
+        return finish(stopped="waiting for the lessons to change", asked=0)
+    if not claude:
+        return finish(stopped="no claude binary")
+
+    def failed_session(why: str) -> dict:
+        failures["count"] += 1
+        failures["fingerprint"] = fingerprint
+        save_state()
+        return finish(stopped=why)
+
+    scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-reword-"))
+    reasons: dict[str, str] = {}
+    try:
+        write_private(scratch / "settings.json", json.dumps({"disableAllHooks": True}))
+        payload, cost, ok = _ask(claude, scratch, "write", PROPOSE_MODEL, budget, REWORD_BRIEF,
+                                 corroborate.reword_blocks(candidates), "lessons", REWORD_WRITER_OUT)
+        result["cost"] += cost
+        try:
+            proposed = corroborate.validate_reword(payload, candidates) if ok else None
+        except ValueError:
+            proposed = None
+        if proposed is None:
+            return failed_session("the writer session gave no usable answer")
+        kept, _refused = corroborate.reword_survivors(proposed, candidates)
+        accepted: set[str] = set()
+        if kept:
+            text = corroborate.check_lines([(i, m.claim, m.context, short) for i, m, short in kept])
+            payload, cost, ok = _ask(claude, scratch, "check", CHECK_MODEL, budget, CHECK_BRIEF, text, "pairs",
+                                     REWORD_CHECK_OUT)
+            result["cost"] += cost
+            checked = corroborate.validate_check(payload, [i for i, _m, _s in kept]) if ok else None
+            if checked is None:
+                return failed_session("the checker session gave no usable answer")
+            accepted = {i for i, faithful in checked.items() if faithful}
+            reasons = {v["id"]: v["reason"] for v in payload["verdicts"]
+                       if isinstance(v, dict) and isinstance(v.get("id"), str) and isinstance(v.get("reason"), str)}
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+    outcome = corroborate.reword_outcome(candidates, proposed, accepted)
+    if apply:
+        applier = None
+        now = {i: m for i, _p, m in corroborate.fill_records(projects, gfolder)}   # the owner may have edited meanwhile
+        for i, m in candidates:
+            if outcome[i] != "written":
+                continue
+            seen = now.get(i)
+            # keeping a wording (`reviewed`) or a rewording made meanwhile must not be overwritten
+            if (seen is None or (seen.claim, seen.short) != (m.claim, m.short) or seen.reviewed is not None
+                    or seen.reworded is not None or seen.weight == "strong" or seen.status != "active"):
+                outcome[i] = "changed"
+                continue
+            applier = applier or _reword_applier(cdir, gfolder)
+            edit = _reword_edit(applier, where[i], m, f"--short={proposed[i]['short']}", "--reworded")
+            if edit == "refused":
+                outcome[i] = "refused_code"
+            elif edit == "failed":
+                outcome[i] = "failed_edit"
+        new_state, giveup = corroborate.reword_state_after(state, candidates, outcome, datetime.date.today())
+        state["lessons"] = new_state["lessons"]
+        if "failed_edit" in outcome.values():   # as a failed session: repeated failures end in the wait
+            failures["count"] += 1
+            failures["fingerprint"] = fingerprint
+        else:
+            failures["count"], failures["fingerprint"] = 0, None
+        save_state()
+        for i in giveup:
+            applier = applier or _reword_applier(cdir, gfolder)
+            if _reword_edit(applier, where[i], by_id[i], "--reword-failed") == "ok":
+                result["gave_up"] += 1
+    for word in ("refused_code", "refused_check", "same_text", "no_proposal", "changed"):
+        result[word] = sum(1 for v in outcome.values() if v == word)
+    result["failed_edits"] = sum(1 for v in outcome.values() if v == "failed_edit")
+    result["written"] = sum(1 for v in outcome.values() if v == "written") if apply else 0
+    if sheet is not None:
+        try:   # the run is done: a sheet that cannot be written must not turn it into a failed step
+            _reword_sheet(sheet, [(i, m.claim, m.short, proposed.get(i, {}).get("short"),
+                                   "would be written" if outcome[i] == "written" and not apply else outcome[i], reasons.get(i))
+                                  for i, m in candidates])
+        except Exception:   # noqa: BLE001
+            return finish(stopped=result["stopped"] or "the sheet could not be written")
+    return finish()
+
+
 def cmd_fill(args) -> int:
     if IMPORT_ERROR is not None:
         print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
@@ -1188,6 +1416,25 @@ def cmd_fill(args) -> int:
               file=sys.stderr)
         return 2
     return fill_dry_run(args)
+
+
+def cmd_reword(args) -> int:
+    if IMPORT_ERROR is not None:
+        print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
+        return 1
+    if args.every and not args.dry_run:   # --every is for the gate on a copy: on a real store it would mark every lesson reworded
+        print("mem-corroborate: --every goes with --dry-run: it takes lessons that did not get worse, for a trial on a copy",
+              file=sys.stderr)
+        return 2
+    sheet = Path(args.sheet).expanduser() if args.sheet else None
+    if sheet is not None:
+        repo = repo_above(sheet.resolve().parent)
+        if repo is not None:
+            print(f"mem-corroborate: --sheet is inside a repository ({repo}); the sheet holds memory text", file=sys.stderr)
+            return 2
+    result = reword_auto(args.claude, args.budget, every=args.every, apply=not args.dry_run, sheet=sheet, limit=args.limit)
+    print(json.dumps(result))
+    return 1 if result["stopped"] else 0
 
 
 def cmd_auto(args) -> int:
@@ -1209,6 +1456,14 @@ def cmd_auto(args) -> int:
             stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
             result = fill_auto(args.claude, budget)
             append_log(corroborate_dir(data_dir()), {"t": stamp, "fill": result, "ms": int((time.time() - began) * 1000)})
+            if os.environ.get("CLAUDE_PLUGIN_OPTION_AUTO_REWORD") == "true":   # option auto_reword, off by default
+                try:
+                    began = time.time()
+                    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+                    result = reword_auto(args.claude, budget)
+                    append_log(corroborate_dir(data_dir()), {"t": stamp, "reword": result, "ms": int((time.time() - began) * 1000)})
+                except BaseException:   # noqa: BLE001
+                    pass
     except BaseException:   # noqa: BLE001
         pass
     return 0
@@ -1283,6 +1538,7 @@ def self_check() -> int:
     PROPOSE_BRIEF.format(lessons="a", out="b")
     VERIFY_BRIEF.format(groups="a", out="b")
     FILL_BRIEF.format(lessons="a", out="b")
+    REWORD_BRIEF.format(lessons="a", out="b")
     with tempfile.TemporaryDirectory(prefix="mem-corroborate-check-") as tmp:
         tmp = Path(tmp)
         os.environ.pop(cs.OPTION, None)
@@ -1340,6 +1596,14 @@ def main() -> int:
     fill.add_argument("--out", help="with --dry-run: the file for the proposal")
     fill.add_argument("--items", help="apply a proposal file, as read and edited by the owner; starts no model session")
     fill.set_defaults(func=cmd_fill)
+    reword = commands.add_parser("reword", help="write a new short form for loaded lessons that got worse, as the pass does")
+    reword.add_argument("--claude", default=default_claude)
+    reword.add_argument("--budget", type=budget_of, default=DEFAULT_BUDGET, help=f"USD per session (default {DEFAULT_BUDGET})")
+    reword.add_argument("--every", action="store_true", help="take loaded lessons that did not get worse too")
+    reword.add_argument("--limit", type=int, default=30, help="with --every: at most this many lessons (default 30)")
+    reword.add_argument("--dry-run", action="store_true", help="run both sessions; change no record and save no state")
+    reword.add_argument("--sheet", help="write a Markdown table of every candidate and its outcome to this file")
+    reword.set_defaults(func=cmd_reword)
     auto = commands.add_parser("auto", help="what a hook starts: one run when the option is on; silent")
     auto.add_argument("--claude", default=default_claude)
     auto.set_defaults(func=cmd_auto)

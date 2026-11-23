@@ -249,3 +249,78 @@ def test_the_hook_exports_the_switch_only_for_false(tmp_path, value, loads):
     r = subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
                        env=env, capture_output=True, text=True)
     assert (rules.HEADER in r.stdout) is loads and ("Global rule for the hook." in r.stdout) is loads
+
+
+def _lessons():
+    for i in range(3):
+        write(f"Lesson {i}.", short=f"Rule {i}.")
+
+
+def test_session_start_uses_the_layout_variable(project, gfolder, capsys, monkeypatch):
+    _lessons()
+    monkeypatch.delenv("MEM_RULES_LAYOUT", raising=False)
+    before = run(capsys)
+    assert "other:" not in before
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
+    grouped = run(capsys)
+    assert "other:\n- Rule" in grouped
+    monkeypatch.delenv("MEM_RULES_LAYOUT")
+    assert run(capsys) == before
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "nonsense")
+    assert run(capsys) == before
+    stats = {}
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
+    mem.session_index(None, records.project_dir(project), gfolder, datetime.date.today(), stats=stats)
+    printed = rules.HEADER + grouped.split(rules.HEADER, 1)[1].rstrip("\n")
+    assert stats["rules_chars"] == len(printed) and "other:" in printed
+
+
+def test_rules_off_prints_no_block_in_either_layout(project, gfolder, capsys, monkeypatch):
+    _lessons()
+    monkeypatch.setenv("MEM_LOADED_RULES", "off")
+    monkeypatch.delenv("MEM_RULES_LAYOUT", raising=False)
+    flat = run(capsys)
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
+    assert run(capsys) == flat and rules.HEADER not in flat and "other:" not in flat
+
+
+def test_plugin_json_has_the_layout_option():
+    option = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]["rules_layout"]
+    assert option["type"] == "string" and option["default"] == "flat"
+
+
+@pytest.mark.parametrize("value, grouped", [("grouped", True), ("flat", False), (None, False), ("nonsense", False)])
+def test_the_hook_passes_the_layout(tmp_path, value, grouped):
+    home, store, proj = tmp_path / "home", tmp_path / "store", tmp_path / "work" / "proj"
+    for d in (home, store, proj):
+        d.mkdir(parents=True)
+    (store / "mem-store.yaml").write_text("format: 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(proj), "init", "-q"], check=True)
+    env = {"HOME": str(home), "PATH": os.environ["PATH"], "MEM_STORE": str(store), "MEM_DATA": str(tmp_path / "data")}
+    r = subprocess.run([str(PLUGIN / "bin" / "mem"), "remember", "--global", "--kind", "lesson", "--claim", "Global lesson.",
+                        "--origin", "transcript", "--reach", "general", "--short", "Global rule for the hook.",
+                        "--source", f"session a project {K1}", "--source", f"session b project {K2}"],
+                       cwd=proj, env=env, capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    handle = next(p.stem for p in (store / "memories").glob("*.md"))
+    subprocess.run([str(PLUGIN / "bin" / "mem"), "confirm", f"m:{handle}", "--global", "--by-owner"],
+                   cwd=proj, env=env, capture_output=True, text=True, check=True)
+    if value is not None:
+        env["CLAUDE_PLUGIN_OPTION_RULES_LAYOUT"] = value
+    r = subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")], input=json.dumps({"cwd": str(proj), "source": "startup"}),
+                       env=env, capture_output=True, text=True)
+    assert "Global rule for the hook." in r.stdout
+    assert ("other:\n- Global rule for the hook." in r.stdout) is grouped
+
+
+@pytest.mark.parametrize("layout, exported", [("grouped", True), ("flat", False), (None, False)])
+def test_session_env_exports_the_layout(tmp_path, layout, exported):
+    envfile = tmp_path / "env"
+    envfile.write_text("")
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "XDG_CONFIG_HOME": str(tmp_path / "c"),
+           "XDG_DATA_HOME": str(tmp_path / "d"), "CLAUDE_ENV_FILE": str(envfile)}
+    if layout:
+        env["CLAUDE_PLUGIN_OPTION_RULES_LAYOUT"] = layout
+    done = subprocess.run([str(PLUGIN / "hooks" / "session-env.sh")], env=env, capture_output=True, text=True)
+    assert done.returncode == 0 and done.stdout == ""
+    assert ("export MEM_RULES_LAYOUT=grouped" in envfile.read_text().splitlines()) is exported

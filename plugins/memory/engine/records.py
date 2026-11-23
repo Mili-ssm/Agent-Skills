@@ -74,6 +74,8 @@ class Memory:
     log: list[str] = field(default_factory=list)  # valid case entries "<date> session <id> <outcome>", in file order
     versions: list[str] = field(default_factory=list)  # valid entries "<date> <short form>", sorted by date
     reviewed: datetime.date | None = None  # the day the owner looked at a lesson that got worse
+    reworded: datetime.date | None = None  # the day the automatic step reworded the short form (once, for good)
+    reword_failed: datetime.date | None = None  # the date of the version the automatic step gave up on
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
@@ -329,6 +331,14 @@ def _parse(path: Path, scope: str) -> Memory:
             reviewed = _date(meta.get("reviewed"), "reviewed")
         except ValueError:  # a bad value reads as absent
             reviewed = None
+        try:
+            reworded = _date(meta.get("reworded"), "reworded")
+        except ValueError:  # a bad value reads as absent
+            reworded = None
+        try:
+            reword_failed = _date(meta.get("reword_failed"), "reword_failed")
+        except ValueError:  # a bad value reads as absent
+            reword_failed = None
         raw_load = meta.get("load")
         load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
         try:
@@ -340,7 +350,7 @@ def _parse(path: Path, scope: str) -> Memory:
         except ValueError:
             released = None
         return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage, triage_reason=triage_reason,
-                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, log=log, versions=versions, reviewed=reviewed, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
+                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, log=log, versions=versions, reviewed=reviewed, reworded=reworded, reword_failed=reword_failed, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
                        observed=observed, status=status, context=context,
                        valid_until=_date(meta.get("valid_until"), "valid_until"),
                        sources=list(sources), body=body)
@@ -406,6 +416,10 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
         meta["versions"] = list(m.versions)
     if m.reviewed:
         meta["reviewed"] = m.reviewed.isoformat()
+    if m.reworded:
+        meta["reworded"] = m.reworded.isoformat()
+    if m.reword_failed:
+        meta["reword_failed"] = m.reword_failed.isoformat()
     meta.update(extra or {})
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
     return f"---\n{head}---\n{m.body}"
@@ -753,6 +767,19 @@ def tallies(memory: Memory) -> list[Tally]:
         if owners:
             counts[owners[-1]][c.outcome == "failed"] += 1
     return [Tally(i + 1, on, text, w, f) for i, ((on, text), (w, f)) in enumerate(zip(versions, counts))]
+
+
+def reword_note(memory: Memory) -> str:
+    """What the automatic rewording did to this lesson, for the owner's queue; "" when it did nothing that still applies."""
+    versions = version_list(memory)
+    last = versions[-1][0] if versions else None
+    if memory.reworded is not None:
+        if memory.reworded == last:
+            return f"the automatic rewording of {memory.reworded.isoformat()} got worse too"
+        return f"an automatic rewording was made on {memory.reworded.isoformat()}; this wording is the owner's"
+    if memory.reword_failed is not None and memory.reword_failed == last:
+        return "an automatic rewording could not be written"
+    return ""
 
 
 def got_worse(memory: Memory) -> bool:

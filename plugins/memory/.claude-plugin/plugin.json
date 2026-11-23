@@ -45,11 +45,23 @@
       "title": "Automatic capture",
       "description": "When a compaction starts and when the session ends, a background run reads the new part of the session's transcript with a small model and writes lessons as unconfirmed project memories (only in a project that already has its memory folder). Sends transcript text of the session to a small model through your own claude and spends model usage; off by default. Not yet measured."
     },
+    "auto_reword": {
+      "type": "boolean",
+      "title": "Automatic rewording",
+      "default": false,
+      "description": "After the automatic run (needs auto_capture and loaded rules on), a small model rewrites the short form of a loaded lesson whose wording got worse and a second one checks it against the lesson, with nobody reading it first; each change is undoable. Spends model usage; off by default. Not yet measured."
+    },
     "loaded_rules": {
       "type": "boolean",
       "title": "Loaded rules",
       "default": true,
       "description": "Load established lessons as short rules at session start (on by default); set it to false to load none."
+    },
+    "rules_layout": {
+      "type": "string",
+      "title": "Loaded rules layout",
+      "default": "flat",
+      "description": "How the loaded rules are printed at session start: flat (one list, the default) or grouped (the same lessons under a heading per topic). Any other value means flat."
     },
     "auto_capture_budget": {
       "type": "number",
