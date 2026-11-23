@@ -62,10 +62,10 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
 **Interfaces:**
 - Produces: `notes` imports no other engine module except leaf helpers; `check` imports `notes` and never `mem`; `mem` imports both. Tasks 3 and 4 add their new logic to `check.py`, not `mem.py`.
 
-- [ ] **Step 1:** Write `test_import_graph.py`: `notes` and `check` import without importing `mem` (`'mem' not in sys.modules` after a fresh import in a subprocess). Run: FAIL (modules do not exist).
-- [ ] **Step 2:** Move the code (cut and paste, no rewrites), add the re-exports, fix the two research modules' imports and the moved patch targets. Never loosen an assertion; if more than 5 tests need anything other than a new patch target, stop and report.
-- [ ] **Step 3:** Whole suite green; outputs byte-identical on a scratch copy of the real store for `check`, `search`, `review`, `session-index`; `wc -l` of `mem.py` reported (expect about 6,000).
-- [ ] **Step 4: Commit** `refactor(memory): move notes and check out of mem.py`.
+- [x] **Step 1:** Write `test_import_graph.py`: `notes` and `check` import without importing `mem` (`'mem' not in sys.modules` after a fresh import in a subprocess). Run: FAIL (modules do not exist).
+- [x] **Step 2:** Move the code (cut and paste, no rewrites), add the re-exports, fix the two research modules' imports and the moved patch targets. Never loosen an assertion; if more than 5 tests need anything other than a new patch target, stop and report.
+- [x] **Step 3:** Whole suite green; outputs byte-identical on a scratch copy of the real store for `check`, `search`, `review`, `session-index`; `wc -l` of `mem.py` reported (expect about 6,000).
+- [x] **Step 4: Commit** `refactor(memory): move notes and check out of mem.py`.
 
 ### Task 2: Detach the `SessionEnd` history commit
 
