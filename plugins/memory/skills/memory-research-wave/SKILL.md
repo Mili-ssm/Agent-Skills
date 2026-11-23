@@ -5,7 +5,7 @@ description: Guides a research wave into the `mem` store - a study that reads se
 
 # Research wave
 
-**Core rule:** cheap agents find leads, shell-equipped writers write notes from the full page text, fresh-context fact-checkers compare every claim with the local copies, and one fixer applies what was verified. Never rely on a note that nobody checked: in the wave measured (2026-11-23, four vendors' documentation), about 6% of claims had problems, mostly overstatement.
+**Core rule:** cheap agents find leads, shell-equipped writers write notes from the full page text, fresh-context fact-checkers compare every claim with the local copies, and one fixer applies what was verified. Never rely on a note that nobody checked: claims in written notes do carry errors, mostly overstatement (figures in [research-notes.md](../memory/references/research-notes.md)).
 
 The note rules (source ranks, `confidence`, `Inference:`, declarative names, no business specifics) live in [research-notes.md](../memory/references/research-notes.md) of the `memory` skill. Do not restate them here; quote them into each brief (step 2).
 
@@ -13,7 +13,7 @@ The note rules (source ranks, `confidence`, `Inference:`, declarative names, no 
 
 1. **Frame and recall.** Write down the question, the areas (one per vendor, paper family or sub-question) and what a finished wave contains. Run `mem search "<subject>"` and `mem find --topic research-practice` and `mem rules --more research`: reuse notes that exist, and learn from past waves before planning.
 2. **Common brief plus one dispatch per area.** One shared text, then each area's scope. Quote the rules inline (hard rule on business specifics, source ranks, `Inference:`, declarative names, conservative `confidence` and `level`, the commands of step 4): a subagent cannot be relied on to open a document the brief points to. Say each writer owns only its own notes and may not edit others.
-3. **First pass (optional, cheap).** One researcher per area returns leads only: URLs and what each page covers. A fetch summary is never the source of a note (about a fifth of its claims needed correction).
+3. **First pass (optional, cheap).** One researcher per area returns leads only: URLs and what each page covers. A fetch summary is never the source of a note (see the figures in [research-notes.md](../memory/references/research-notes.md)).
 4. **Writers, in parallel.** One shell-equipped writer per area, each with a disjoint set of notes:
    - fetch the full page text through a shell, read it, record which version you read;
    - `mem new literature ... --body-file <file>` (a knowledge note only for a cross-cutting claim a source states);
