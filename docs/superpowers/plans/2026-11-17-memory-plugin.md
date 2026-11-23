@@ -21,7 +21,7 @@ Read this section first; the stage list below is the detail. Release-by-release 
 | Codex port | Not built; ADR 0023 excludes it for now. The owner wants it after the plugin settles: engine portable, Claude ties are the hooks, the option wiring, the agents and the `claude -p` call sites |
 | Structure | Assessment: [study](../../studies/2026-11-23-memory-plugin-structure.md); this section is its step 1 |
 
-Next, in the owner's order: 1. release the unreleased branch (owner's word); 2. **seamless stage 3** ([plan](2026-11-17-memory-seamless.md#stage-3-integration-and-sibling-updates)); 3. real use feeds **stage 4**, the kill read, around 2026-12-01 (ADR 0023 `## Review`); 4. the **Codex port** (new ADR first), **stage 7**'s remote, **stage 9**, **stage 8**.
+Next, in the owner's order: 1. the **refactor** ([plan](2026-11-23-memory-refactor.md)), postponed by the owner for usage limits; 2. **seamless stage 3** ([plan](2026-11-17-memory-seamless.md#stage-3-integration-and-sibling-updates)); 3. real use feeds **stage 4**, the kill read, around 2026-12-01 (ADR 0023 `## Review`); 4. the **Codex port** (new ADR first), **stage 7**'s remote, **stage 9**, **stage 8**.
 
 Open items, none blocking:
 

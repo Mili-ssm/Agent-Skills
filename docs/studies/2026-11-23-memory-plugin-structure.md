@@ -1,6 +1,6 @@
 # Memory plugin structure assessment
 
-Status: sequence adopted (owner, 2026-11-23): the test-environment fix and the two speed fixes first, then G1 to G4, then steps 1 to 7 in a plan of their own · Date: 2026-11-23
+Status: sequence adopted (owner, 2026-11-23): the test-environment fix and the two speed fixes first, then G1 to G4, then steps 1 to 7 in a plan of their own ([refactor plan](../superpowers/plans/2026-11-23-memory-refactor.md)) · Date: 2026-11-23
 
 Should the `memory` plugin be refactored or reorganized to make it cleaner and easier to maintain, and in what order relative to the commit gate (G1 to G4, [plan](../superpowers/plans/2026-11-23-memory-research-gaps.md)) and a possible Rust port ([study](2026-11-23-memory-rust-port.md))? Assessment by the `architect` agent; the findings marked **verified** were re-run by the main session.
 
