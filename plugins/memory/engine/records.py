@@ -14,7 +14,7 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Protocol, Sequence
+from typing import Callable, Collection, Iterable, Iterator, Mapping, NamedTuple, Protocol, Sequence
 
 import yaml
 
@@ -890,11 +890,24 @@ def _terms(tokens: Iterable[str]) -> frozenset[str]:
     return frozenset(t for t in tokens if not t.isdigit()) - STOPWORDS
 
 
-def _share(terms: frozenset[str], other_tokens: Collection[str]) -> float:
+def _containment_of_terms(terms: frozenset[str], other_tokens: Collection[str]) -> float:
     """`containment` over precomputed terms."""
     if len(terms) < MIN_TERMS:
         return 0.0
     return len(terms & other_tokens) / len(terms)
+
+
+def _among_order(live: Sequence[Memory], index: Mapping[str, int], among: Sequence[str]) -> Iterator[tuple[int, int]]:
+    """Index pairs with at least one `among` memory, each pair once, in the order of `among`."""
+    seen: set[str] = set()
+    for h in among:
+        i = index.get(h)
+        if i is None or h in seen:
+            continue
+        seen.add(h)
+        for j in range(len(live)):
+            if j != i and live[j].handle not in seen:
+                yield min(i, j), max(i, j)
 
 
 def pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callable[[str], list[str]],
@@ -912,16 +925,9 @@ def pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callabl
     tokens = [set(tokenize(m.claim)) for m in live]
     terms = [_terms(t) for t in tokens]
     if among is None:
-        order = [(i, j) for i in range(len(live)) for j in range(i + 1, len(live))]
+        order = ((i, j) for i in range(len(live)) for j in range(i + 1, len(live)))
     else:
-        seen: set[str] = set()
-        order = []
-        for h in among:
-            i = index.get(h)
-            if i is None or h in seen:
-                continue
-            seen.add(h)
-            order.extend((min(i, j), max(i, j)) for j in range(len(live)) if j != i and live[j].handle not in seen)
+        order = _among_order(live, index, among)
     found = []
     for i, j in order:
         a, b = live[i], live[j]
@@ -929,7 +935,7 @@ def pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callabl
             continue
         if budget is not None and not budget.spend():
             break
-        score = max(_share(terms[i], tokens[j]), _share(terms[j], tokens[i]))
+        score = max(_containment_of_terms(terms[i], tokens[j]), _containment_of_terms(terms[j], tokens[i]))
         if score >= STRONG:
             found.append((a, b, score))
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
@@ -949,24 +955,32 @@ def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize:
         by_handle = {m.handle: m for m in live}
         live = [by_handle[h] for h in dict.fromkeys(among) if h in by_handle]
     dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
-    dead_tokens = [set(tokenize(r.claim)) for r in dead]
-    dead_terms = [_terms(t) for t in dead_tokens]
+    dead_seen: dict[str, tuple[set[str], frozenset[str]]] = {}  # tokenized when first compared
     found = []
+    spent = False
     for a in live:
-        ta = set(tokenize(a.claim))
-        terms_a = _terms(ta)
-        for r, tr, terms_r in zip(dead, dead_tokens, dead_terms):
+        ta = terms_a = None
+        for r in dead:
             if r.handle in a.distinct_from or a.handle in r.distinct_from:
                 continue
             since = r.refuted or r.created
             if a.created is None or (since is not None and a.created <= since):
                 continue  # not written after the refutation
             if budget is not None and not budget.spend():
-                found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
-                return found
-            score = max(_share(terms_a, tr), _share(terms_r, ta))
+                spent = True
+                break
+            if ta is None:
+                ta = set(tokenize(a.claim))
+                terms_a = _terms(ta)
+            if r.handle not in dead_seen:
+                tr = set(tokenize(r.claim))
+                dead_seen[r.handle] = (tr, _terms(tr))
+            tr, terms_r = dead_seen[r.handle]
+            score = max(_containment_of_terms(terms_a, tr), _containment_of_terms(terms_r, ta))
             if score >= STRONG:
                 found.append((a, r, score))
+        if spent:
+            break
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
     return found
 
@@ -1297,10 +1311,7 @@ def containment(claim_tokens: Iterable[str], text_tokens: Collection[str]) -> fl
 
     Measured from the claim's side: a brief has hundreds of words and a claim about ten. A token of only digits
     (a year, a count) is not a term: it matches unrelated briefs."""
-    terms = {t for t in claim_tokens if not t.isdigit()} - STOPWORDS
-    if len(terms) < MIN_TERMS:
-        return 0.0
-    return len(terms & set(text_tokens)) / len(terms)
+    return _containment_of_terms(_terms(claim_tokens), set(text_tokens))
 
 
 class Related(NamedTuple):

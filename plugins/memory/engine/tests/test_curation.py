@@ -153,6 +153,77 @@ def test_refuted_pairs_among_and_budget(tmp_path):
     assert len(got) == 1 and budget.left == 0 and budget.exhausted
 
 
+def _old_refuted_pairs(memories, today, *, tokenize):
+    """A copy of the implementation before the search took `among` and `budget`."""
+    live = sorted((m for m in memories if records.is_live(m, today)), key=lambda m: m.handle)
+    dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
+    found = []
+    for a in live:
+        ta = tokenize(a.claim)
+        for r in dead:
+            if r.handle in a.distinct_from or a.handle in r.distinct_from:
+                continue
+            since = r.refuted or r.created
+            if a.created is None or (since is not None and a.created <= since):
+                continue
+            tr = tokenize(r.claim)
+            score = max(records.containment(ta, set(tr)), records.containment(tr, set(ta)))
+            if score >= records.STRONG:
+                found.append((a, r, score))
+    found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    return found
+
+
+def _refuted_fixture(tmp_path):
+    base = "Retries need idempotency keys on every payment call"
+    old = TODAY - datetime.timedelta(days=9)
+    ms = []
+    for n in range(4):
+        ms.append(_mem(tmp_path, f"r{n}", f"{base} version{n}", status="refuted", created=old,
+                       refuted=TODAY - datetime.timedelta(days=3 + n)))
+        ms.append(_mem(tmp_path, f"a{n}", f"{base} never version{n}", created=TODAY - datetime.timedelta(days=n)))
+    ms.append(_mem(tmp_path, "older", f"{base} version1", created=old - datetime.timedelta(days=1)))
+    ms.append(_mem(tmp_path, "same", f"{base} version2 again", created=old))
+    ms += [_mem(tmp_path, f"x{n}", f"Unrelated topic{n} words alpha{n} beta{n}") for n in range(5)]
+    ms[1] = records.replace(ms[1], distinct_from=["r0"])
+    return ms
+
+
+def test_refuted_pairs_unchanged_without_new_arguments(tmp_path):
+    ms = _refuted_fixture(tmp_path)
+    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+    assert len(got) > 2 and got == _old_refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+
+
+def _counting(calls):
+    def tokenize(text):
+        calls.append(text)
+        return mem.tokenize(text)
+    return tokenize
+
+
+def test_pairs_tokenizes_once_per_live_memory(tmp_path):
+    ms = _abc(tmp_path) + [_mem(tmp_path, "gone", "Pottery glaze chart", status="forgotten")]
+    calls = []
+    records.pairs(ms, TODAY, tokenize=_counting(calls))
+    assert len(calls) == 10
+
+
+def test_refuted_pairs_tokenizes_each_claim_at_most_once(tmp_path):
+    ms = _refuted_fixture(tmp_path)
+    live = [m for m in ms if records.is_live(m, TODAY)]
+    dead = [m for m in ms if m.status == "refuted"]
+    calls = []
+    records.refuted_pairs(ms, TODAY, tokenize=_counting(calls))
+    assert len(calls) <= len(live) + len(dead)
+    calls.clear()
+    records.refuted_pairs(ms, TODAY, tokenize=_counting(calls), among=["a3"])
+    assert len(calls) <= 1 + len(dead)
+    calls.clear()
+    records.refuted_pairs(ms, TODAY, tokenize=_counting(calls), among=["x0"], budget=records.Budget(1))
+    assert len(calls) <= 2
+
+
 def test_differing_words_drops_stopwords_and_keeps_negations():
     assert records.differing_words("the cache is warm", "cache is not warm") == ["not"]
     assert records.differing_words("retry 3 times", "retry 5 times") == ["3", "5"]
