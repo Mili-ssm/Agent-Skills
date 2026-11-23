@@ -85,7 +85,7 @@ def _parse(path: Path) -> list[Part]:
         raise fail(f"cannot be read ({type(e).__name__})") from None
     m = syntheses._FRONTMATTER.match(text)
     try:
-        meta = yaml.safe_load(m.group(1)) if m else None
+        meta = records.safe_load(m.group(1)) if m else None
     except yaml.YAMLError:
         meta = None
     if not isinstance(meta, dict) or not isinstance(meta.get("title"), str):

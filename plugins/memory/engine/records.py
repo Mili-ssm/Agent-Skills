@@ -251,11 +251,20 @@ def _date(value, name: str) -> datetime.date | None:
     raise ValueError(f"{name} must be an ISO date")
 
 
+# The C parser is several times faster than yaml.safe_load's; same constructors and resolvers, so same results.
+# Dates stay dates here (mem.HubLoader, built on the same base, keeps them as strings).
+_SafeLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
+
+def safe_load(text: str):
+    return yaml.load(text, Loader=_SafeLoader)
+
+
 def _split(text: str) -> tuple[dict, str]:
     m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
     if not m:
         raise ValueError("no YAML frontmatter")
-    meta = yaml.safe_load(m.group(1))
+    meta = safe_load(m.group(1))
     if not isinstance(meta, dict):
         raise ValueError("frontmatter is not a mapping")
     return meta, text[m.end():]
