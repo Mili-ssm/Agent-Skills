@@ -6,7 +6,7 @@ Asks whether the grouped layout (`mem rules --layout grouped`) keeps three check
 
 `python3 plugins/memory/evals/rules_layout/run_trial.py --out <folder outside the repository> [--runs 3] [--max-cost-usd 1.00]`
 
-`--dry-run` builds everything and prints the two blocks without calling a model (no cost). A real run takes about 7 headless Sonnet sessions (one canary, then F and G alternating) and costs about 0.5 USD; each run is capped at 0.25 USD and the whole trial at the cap given.
+`--dry-run` builds everything and prints the two blocks without calling a model (no cost). A real run takes about 7 headless Sonnet sessions (one canary, then F and G alternating) and is estimated at about 0.5 USD from the cost of a run in the measure of 2026-11-22 (the two attempts of 2026-11-23, which stopped early, cost 0.12 and 0.26 USD); each run is capped at 0.25 USD and the whole trial at the cap given.
 
 ## What it does
 

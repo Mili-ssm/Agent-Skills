@@ -59,6 +59,22 @@ The lessons that load are printed under their topic, so related ones sit togethe
 | C84 | The measure before `grouped` becomes the default: the protocol of 2026-11-22 (one small task, a real model, three runs a condition, a hook that prints the block), with the three rules that leave a trace placed among thirteen others, flat against grouped. Grouped is adopted only if it follows the three rules in as many runs as flat | Fix the measure before the change. The protocol is the one the loaded rules were measured with |
 | C85 | The digest per topic (a text written by a model from the claims of a topic, checked, with the short forms as fallback) is not built here. It is the plan after this one, and starts from the grouped block | The owner's third idea; it rewrites what loads, so it needs a gate like C80 |
 
+## Rulings made while building (2026-11-23)
+
+Made by the agent that ran the plans, from pre-mortems and review findings, while the owner was away; each narrows a row above. The code follows this table where it says more than the row.
+
+| Row | Ruling | Reason |
+|---|---|---|
+| C74 | A lesson the step applied a wording to is marked spent in the step's own state as well as on the record, so it is not taken again after an undo. With several projects, a lesson is a candidate when it loads, or is cut only by the cap, in the view of at least one project together with the global lessons | C61 holds the same for the fill. The pass serves every registered project |
+| C76 | The edit command is the last check, not a second code check: only its refusal for a secret or a forbidden term counts as a refused text. Any other failure of that command is a failed edit, which spends no try and counts toward the wait of C78 | The command's exit status for a refused text is also its status for a usage error or a lesson that is gone; counting those as refusals would make every lesson give up after two runs of a broken command line |
+| C77 | Just before the edit the lesson is read again; the wording is not applied when its claim or short form changed, when it was kept as worded, reworded or made `strong` meanwhile, or when it is no longer active. Such a lesson counts as changed and spends no try | The owner may act between the model sessions and the edit; the fill guards the same window |
+| C78 | A lesson missing from the writer's answer spends a try, as in the fill; a changed lesson and a failed edit do not. A give-up whose mark could not be written is written again at the start of the next run, without a session. A run with a failed edit counts as a failed run for the wait | Without the first, a lesson the model keeps skipping would be paid for at every compaction |
+| C79 | The log line and the result also carry `no_proposal`, `changed`, `failed_edits` and `stopped`. Each of the two sessions is bounded by the pass's budget for one session, as the fill's are, so an automatic run with the option on can start four sessions where it started two | The keys name every outcome a lesson can have |
+| C80 | The gate's run is `mem-corroborate reword --every --dry-run --sheet <path>`: `--every` is refused without `--dry-run`, a dry run starts both sessions and costs what a real run costs, and the sheet is refused inside a repository. The automatic half was run once on a copy of the owner's global lessons on 2026-11-23 and passed ([results](../plans/2026-11-23-memory-auto-reword.md#results)); it covered no project lesson, no lesson with real failed cases, and one run gives no variance | The sheet holds the owner's lessons and this repository is public |
+| C84 | The measure was tried twice on 2026-11-23 and gave no figure ([results](../plans/2026-11-23-memory-rules-grouped.md#results)): the model does the task in one chained shell command, which a bounded list of allowed tools refuses, and the agent did not grant a headless session unrestricted shell access in the owner's absence. The flags of the measure of 2026-11-22 were never recorded, so the tool list is this plan's own. The grouped block ships as an unmeasured option and `flat` stays the default | Granting that access is the owner's decision |
+
+Known limit of Part 1: the rewording brief asks to start with the situation in which the lesson applies, and the checking session refuses a short form that is wider than its claim; a claim that names no situation may therefore be refused twice and go to the owner. The gate used the same small model as writer and checker, so their agreement may be correlated.
+
 ## Checks
 
 | Check | Proves |
@@ -78,3 +94,4 @@ The lessons that load are printed under their topic, so related ones sit togethe
 | 3 | Make `grouped` the default layout if the measure of C84 passes? | `flat` stays the default; the measure is recorded |
 | 4 | Is the digest per topic (C85) still wanted after seeing the grouped block? | Not built |
 | 5 | After you write a new short form for a lesson that was reworded once, may the step try again when that wording gets worse? | No: one automatic rewording per lesson |
+| 6 | The measure of the grouped block (C84) needs a headless session with unrestricted shell access in a throwaway project, or a prompt that asks for one command per call. Which, or is an unmeasured option enough? | Not measured; the option exists |
