@@ -3133,23 +3133,30 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         if waiting:
             head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
                         "(mem curate --global).")
-    try:
-        worse = sum(1 for _, loaded in _got_worse(loaded_project, loaded_global, today) if loaded)
-        if worse:
-            head.append(f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
-                        "(mem curate).")
-    except Exception:
-        pass
+    rules_off = _rules_off()
+    choice: rules.Choice | None = None
+    if not rules_off:
+        try:
+            choice = rules.choose(loaded_project, loaded_global, today)
+        except Exception:
+            choice = None
+    if choice is not None:  # nothing loads when the rules are off, so nothing "got worse after loading"
+        try:
+            worse = sum(1 for _, loaded in _got_worse(loaded_project, loaded_global, today, choice) if loaded)
+            if worse:
+                head.append(f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
+                            "(mem curate).")
+        except Exception:
+            pass
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
     extra: list[str] = []
-    if _rules_off():
+    if rules_off:
         if stats is not None:
             stats.update(rules=0, rules_left=0, rules_chars=0)
-    else:
+    elif choice is not None:
         try:
-            choice = rules.choose(loaded_project, loaded_global, today)
             extra = rules.block(choice)
             more = rules.more_line(choice)
             if more:
@@ -3177,10 +3184,10 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
 
 
 def _got_worse(project: Sequence[records.Memory], global_: Sequence[records.Memory],
-               today: datetime.date) -> list[tuple[records.Memory, bool]]:
+               today: datetime.date, choice: "rules.Choice | None" = None) -> list[tuple[records.Memory, bool]]:
     """The lessons whose present version got worse (records.got_worse) and that the rules block loads or leaves out
     over the cap; the flag says "loaded". `choose` gets both scopes so that the cap is the one of session start."""
-    choice = rules.choose(project, global_, today)
+    choice = choice if choice is not None else rules.choose(project, global_, today)
     found = [(m, True) for m in choice.loaded] + [(m, False) for m, why in choice.left if why == rules.OVER]
     return [(m, loaded) for m, loaded in found if records.got_worse(m)]
 
@@ -4734,6 +4741,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if args.is_project or args.is_global:
         folders = [f for f in folders if (f[0] == "global") == args.is_global]
     scopes = _loaded(folders)
+    raw = {scope: loaded for scope, _, loaded in scopes}
     if args.done:
         store = _optional_store(args)
         covered = []
@@ -4800,9 +4808,11 @@ def cmd_curate(args: argparse.Namespace) -> int:
             if m.triage_reason:
                 out.append(f"    held: {m.triage_reason}")
     asked = {scope for scope, _, _ in scopes}
-    both = {scope: records.load_memories(folder, scope) for scope, folder in _memory_folders(args)}  # quiet: _loaded warned
-    worse = [(m, loaded) for m, loaded in _got_worse(both.get("project", []), both.get("global", []), today)
-             if m.scope in asked]
+    for scope, folder in _memory_folders(args):  # the scope not asked for still counts toward the cap; loaded quietly
+        if scope not in raw:
+            raw[scope] = records.load_memories(folder, scope)
+    worse = [(m, loaded) for m, loaded in _got_worse(raw.get("project", []), raw.get("global", []), today)
+             if m.scope in asked and m.superseded_by is None]
     if worse:
         out.append("balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
                    "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)")

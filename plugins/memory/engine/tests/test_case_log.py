@@ -512,15 +512,22 @@ def test_rules_more_has_the_column(project, gfolder, capsys):
     assert {r[-1] for r in rows} == {"-", "version 1: worked 0, failed 1"}
 
 
+def rules_block(text):
+    """The rules block of the session start text: from its header line to the end of the rule lines and the more line."""
+    lines = text.splitlines()
+    return "\n".join(lines[next(i for i, x in enumerate(lines) if x.startswith("memory: lessons learned")):])
+
+
 def test_session_start_block_is_unchanged(project, gfolder, capsys):
     m = global_lesson("Failing lesson.", versions=[(10, "First text.")])
     before = shown(capsys, "session-index")
     records.update(m, datetime.date.today(), log=[records.case_entry(ago(2), "session q", "failed"),
                                                  records.case_entry(ago(1), "session r", "failed")])
     after = shown(capsys, "session-index")
-    sentence = " Got worse: 1 loaded lesson needs a decision (mem curate)."  # the one line C68 adds to the first line
-    assert before == after.replace(sentence, "") and sentence in after
-    assert "First text." in after and "Failed after" not in after
+    sentence = "Got worse: 1 loaded lesson needs a decision (mem curate)."  # what C68 adds to the first line
+    assert sentence in after and sentence not in before
+    assert rules_block(before) == rules_block(after) and "First text." in rules_block(after)
+    assert "Failed after" not in after
 
 
 # --- the owner's queue (C68) ---
@@ -558,7 +565,7 @@ def test_curate_lists_a_lesson_that_got_worse(project, gfolder, capsys):
     assert out[1] == f"  m:{m.handle}  loaded  Failing lesson."
     assert out[2:] == [f"    version 1 since {ago(10)} (10 days): worked 0, failed 2: First text."]
     assert reload(m).triage is None and "triage:" not in m.path.read_text()
-    assert "First text." in shown(capsys, "rules")
+    assert "First text." in shown(capsys, "rules")  # the rules output prints the short form
 
 
 def test_curate_shows_the_version_before(project, gfolder, capsys):
@@ -592,6 +599,7 @@ def test_a_lesson_that_does_not_load_is_not_listed(project, gfolder, capsys):
     assert all(records.got_worse(now[m.handle]) for m in (no, index, pending, held))
     assert queue(curated(capsys, "--global")) is None
     assert records.quarantined(now[held.handle]) and now[pending.handle].triage == "pending"
+    assert "First text." not in shown(capsys, "rules")  # none of them loads; their short form is the one printed
 
 
 def test_a_lesson_left_out_by_the_cap_is_listed_as_such(project, gfolder, capsys):
@@ -600,7 +608,7 @@ def test_a_lesson_left_out_by_the_cap_is_listed_as_such(project, gfolder, capsys
     m = worse_lesson("Failing lesson.")
     out = queue(curated(capsys, "--global"))
     assert out[1] == f"  m:{m.handle}  left out by the cap  Failing lesson."
-    assert "Failing lesson" not in shown(capsys, "rules").split("Failed after")[0]
+    assert "First text." not in shown(capsys, "rules")  # the short form of the lesson left out
 
 
 def test_session_start_counts_what_got_worse(project, gfolder, capsys):
@@ -617,11 +625,54 @@ def test_session_start_counts_what_got_worse(project, gfolder, capsys):
 
 def test_a_fault_in_the_count_leaves_the_rules_block(project, gfolder, capsys, monkeypatch):
     worse_lesson("Failing lesson.")
-    plain = shown(capsys, "session-index").replace(
-        " Got worse: 1 loaded lesson needs a decision (mem curate).", "")
+    with_sentence = shown(capsys, "session-index")
+    assert "Got worse: 1 loaded lesson needs a decision" in with_sentence
+    [m] = records.load_memories(Path(os.environ["MEM_MEMORIES"]), "global")
+    log = m.log
+    records.update(m, datetime.date.today(), log=None)  # the same store without any case
+    plain = shown(capsys, "session-index")
     assert "Got worse" not in plain and "First text." in plain
+    records.update(m, datetime.date.today(), log=log)
     monkeypatch.setattr(records, "got_worse", lambda m: 1 / 0)
     assert shown(capsys, "session-index") == plain
+
+
+def test_no_sentence_when_loaded_rules_are_off(project, gfolder, capsys, monkeypatch):
+    m = worse_lesson("Failing lesson.")
+    assert "Got worse" in shown(capsys, "session-index")
+    monkeypatch.setenv("MEM_LOADED_RULES", "off")
+    assert "Got worse" not in shown(capsys, "session-index")
+    assert queue(curated(capsys, "--global"))[1] == f"  m:{m.handle}  loaded  Failing lesson."
+
+
+def test_a_superseded_lesson_is_not_listed(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.")
+    assert queue(curated(capsys, "--global")) is not None
+    records.update(m, datetime.date.today(), superseded_by="other")
+    assert queue(curated(capsys, "--global")) is None
+
+
+def test_choose_runs_once_at_session_start(project, gfolder, capsys, monkeypatch):
+    worse_lesson("Failing lesson.")
+    calls = []
+    real = rules.choose
+    monkeypatch.setattr(rules, "choose", lambda *a, **k: calls.append(1) or real(*a, **k))
+    assert "Got worse" in shown(capsys, "session-index")
+    assert len(calls) == 1
+
+
+def test_the_sentence_fits_the_limit_with_the_project_list(project, gfolder, capsys):
+    worse_lesson("Failing lesson.")
+    for i in range(12):
+        write(f"Project lesson number {i} with some words to make the row longer than a few characters.",
+              short=f"Project rule {i}.", scope="project")
+    out = shown(capsys, "session-index", "--list", "8")
+    assert "  m:" in out and "Got worse: 1 loaded lesson" in out
+    lines = out.splitlines()
+    start = lines.index(rules.HEADER)
+    end = next(i for i in range(start, len(lines)) if lines[i].startswith("  m:") or lines[i].startswith("  …"))
+    assert len("\n".join(lines[:start] + lines[end:])) <= mem._INDEX_LIMIT  # the limit leaves the rules block out
+    assert sum(x.startswith("  m:") for x in lines) >= 1
 
 
 def test_a_new_short_form_clears_the_listing(project, gfolder, capsys):
