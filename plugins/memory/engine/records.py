@@ -18,6 +18,8 @@ from typing import Callable, Collection, Iterable, Iterator, Mapping, NamedTuple
 
 import yaml
 
+from notes import safe_load  # noqa: F401  (the one place that picks libyaml's C parser; dates stay dates, unlike HubLoader)
+
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
 ORIGINS = ("web", "pipeline", "transcript")
 REACHES = ("project", "general")
@@ -249,16 +251,6 @@ def _date(value, name: str) -> datetime.date | None:
     if isinstance(value, str):
         return datetime.date.fromisoformat(value)
     raise ValueError(f"{name} must be an ISO date")
-
-
-# The C parser is several times faster than yaml.safe_load's; same constructors and resolvers, so same values for valid
-# YAML frontmatter. libyaml accepts a tab after a colon (`a:\tb`) and words parse errors differently.
-# Dates stay dates here (mem.HubLoader, built on the same base, keeps them as strings).
-_SafeLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-
-
-def safe_load(text: str):
-    return yaml.load(text, Loader=_SafeLoader)
 
 
 def _split(text: str) -> tuple[dict, str]:
