@@ -1208,14 +1208,20 @@ def _reword_run_folder(cdir: Path) -> Path:
     return run
 
 
-def _reword_edit(applier: Applier, project: Path | None, m, *flags: str) -> bool:
-    """One `mem memory edit` of the step, journaled; whether `mem` accepted it."""
+REWORD_REFUSED_EXITS = (2, 4)   # `mem memory edit` refuses a text with 2 (a failed code check) or 4 (a secret, a forbidden term)
+
+
+def _reword_edit(applier: Applier, project: Path | None, m, *flags: str) -> str:
+    """One `mem memory edit` of the step, journaled: "ok", "refused" (the command refused the text) or "failed" (it
+    could not run, timed out or exited otherwise: nothing says the text is bad, so no attempt is spent)."""
     watched = [m.path] if project is not None else [m.path, m.path.parent / SETTLE_STATE]   # a global edit may update it
     before = applier.journal.watch(watched)
     done = applier.mem(["memory", "edit", f"m:{m.handle}", *(["--global"] if project is None else []), *flags], project,
                        drop_env=SETTLE_VARS)
     applier.journal.commit("reword", before)
-    return done is not None and done.returncode == 0
+    if done is not None and done.returncode == 0:
+        return "ok"
+    return "refused" if done is not None and done.returncode in REWORD_REFUSED_EXITS else "failed"
 
 
 def _cell(text: object) -> str:
@@ -1236,7 +1242,7 @@ def reword_auto(claude: str | None, budget: float, *, every: bool = False, apply
     failed session that charges no lesson. With `apply` false it writes no record and saves no state (the sessions
     still run, and cost). Never raises: a failure is a counted result with `stopped` set."""
     result = {"asked": 0, "written": 0, "refused_code": 0, "refused_check": 0, "same_text": 0, "no_proposal": 0,
-              "gave_up": 0, "changed": 0, "cost": 0.0, "stopped": None}
+              "gave_up": 0, "changed": 0, "failed_edits": 0, "cost": 0.0, "stopped": None}
     try:
         cdir = corroborate_dir(data_dir())
         lock = au.take_run_lock(cdir)
@@ -1340,8 +1346,12 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
                 au.private_dir(run)
                 write_private(run / "fill", "")   # marks the run: its undo leaves the pass's `seen.json` alone
                 applier = Applier(Journal(run), {}, gfolder, run, lambda _text: None)
-            if not _reword_edit(applier, where[i], m, f"--short={proposed[i]['short']}", "--reworded"):
+            edit = _reword_edit(applier, where[i], m, f"--short={proposed[i]['short']}", "--reworded")
+            if edit == "refused":
                 outcome[i] = "refused_code"
+            elif edit == "failed":
+                outcome[i] = "no_proposal"
+                result["failed_edits"] += 1
         new_state, giveup = corroborate.reword_state_after(state, candidates, outcome, datetime.date.today())
         state["lessons"] = new_state["lessons"]
         failures["count"], failures["fingerprint"] = 0, None
@@ -1352,15 +1362,18 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
                 au.private_dir(run)
                 write_private(run / "fill", "")
                 applier = Applier(Journal(run), {}, gfolder, run, lambda _text: None)
-            if _reword_edit(applier, where[i], by_id[i], "--reword-failed"):
+            if _reword_edit(applier, where[i], by_id[i], "--reword-failed") == "ok":
                 result["gave_up"] += 1
     for word in ("refused_code", "refused_check", "same_text", "no_proposal"):
         result[word] = sum(1 for v in outcome.values() if v == word)
     result["written"] = sum(1 for v in outcome.values() if v == "written") if apply else 0
     if sheet is not None:
-        _reword_sheet(sheet, [(i, m.claim, m.short, proposed.get(i, {}).get("short"),
-                               "would be written" if outcome[i] == "written" and not apply else outcome[i], reasons.get(i))
-                              for i, m in candidates])
+        try:   # the run is done: a sheet that cannot be written must not turn it into a failed step
+            _reword_sheet(sheet, [(i, m.claim, m.short, proposed.get(i, {}).get("short"),
+                                   "would be written" if outcome[i] == "written" and not apply else outcome[i], reasons.get(i))
+                                  for i, m in candidates])
+        except Exception:   # noqa: BLE001
+            return finish(stopped=result["stopped"] or "the sheet could not be written")
     return finish()
 
 
@@ -1385,8 +1398,13 @@ def cmd_reword(args) -> int:
     if IMPORT_ERROR is not None:
         print(f"mem-corroborate: cannot load the engine: {IMPORT_ERROR}", file=sys.stderr)
         return 1
-    result = reword_auto(args.claude, args.budget, every=args.every, apply=not args.dry_run,
-                         sheet=Path(args.sheet).expanduser() if args.sheet else None, limit=args.limit)
+    sheet = Path(args.sheet).expanduser() if args.sheet else None
+    if sheet is not None:
+        repo = repo_above(sheet.resolve().parent)
+        if repo is not None:
+            print(f"mem-corroborate: --sheet is inside a repository ({repo}); the sheet holds memory text", file=sys.stderr)
+            return 2
+    result = reword_auto(args.claude, args.budget, every=args.every, apply=not args.dry_run, sheet=sheet, limit=args.limit)
     print(json.dumps(result))
     return 1 if result["stopped"] else 0
 

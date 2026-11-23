@@ -1863,18 +1863,28 @@ def mem_curate(w):
 
 
 NOTHING = {"asked": 0, "written": 0, "refused_code": 0, "refused_check": 0, "same_text": 0, "no_proposal": 0,
-           "gave_up": 0, "changed": 0, "cost": 0.0, "stopped": None}
+           "gave_up": 0, "changed": 0, "failed_edits": 0, "cost": 0.0, "stopped": None}
 
 
 def test_reword_applies_an_accepted_wording(w, monkeypatch):
     worse_one(w)
-    reword_answers(w, monkeypatch)
+    found = candidate_ids(w)
+    answer = json.dumps({"items": [{"id": i, "short": NEW_WORDING, "topic": "other-topic"} for ids in found.values() for i in ids]})
+    reword_answers(w, monkeypatch, writer=answer)
+    topic_before = by_claim(w, NARROW).topic
     assert reword(w) == {**NOTHING, "asked": 1, "written": 1, "cost": 0.06}
     assert calls(w) == 2
     m = by_claim(w, NARROW)
     assert (m.short, m.reworded, m.short_by) == (NEW_WORDING, TODAY, "model")
+    assert m.topic == topic_before and m.topic != "other-topic"
     assert [t for _, t in records.version_list(m)] == [OLD_WORDING, NEW_WORDING]
     assert not records.got_worse(m)
+
+
+def test_reword_applies_an_answer_with_no_topic(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)   # the default answer has no `topic`
+    assert reword(w)["written"] == 1 and by_claim(w, NARROW).short == NEW_WORDING
 
 
 def test_reword_applies_to_a_global_lesson(w, monkeypatch):
@@ -2105,3 +2115,65 @@ def test_a_failure_in_reword_does_not_fail_auto(w, monkeypatch):
 def test_plugin_json_has_the_option_off():
     config = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
     assert config["auto_reword"]["type"] == "boolean" and config["auto_reword"].get("default") is False
+
+
+def test_reword_sheet_is_refused_inside_a_repository(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    repo = w.tmp / "repo"
+    (repo / ".git").mkdir(parents=True)
+    done = run(w, "--every", "--dry-run", "--sheet", str(repo / "sheet.md"), cmd="reword", mode="never")
+    assert done.returncode == 2 and "repository" in done.stderr and "--sheet" in done.stderr
+    assert calls(w) == 0 and not (repo / "sheet.md").exists()
+
+
+class _Run:
+    def __init__(self, code):
+        self.returncode, self.stdout, self.stderr = code, "", "fake"
+
+
+def _edit_exits(monkeypatch, mod, code):
+    """Every `mem memory edit --reworded` call ends with `code` (None: could not run) and writes nothing."""
+    real = mod.Applier.mem
+
+    def mem(self, args, *a, **kw):
+        if "--reworded" in args:
+            return None if code is None else _Run(code)
+        return real(self, args, *a, **kw)
+
+    monkeypatch.setattr(mod.Applier, "mem", mem)
+
+
+@pytest.mark.parametrize("code", [None, 1, 3])
+def test_a_failed_edit_spends_no_attempt(w, monkeypatch, code):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    _edit_exits(monkeypatch, mod, code)
+    before = by_claim(w, NARROW)
+    for _ in range(2):
+        result = reword(w, mod)
+        assert (result["failed_edits"], result["written"], result["refused_code"], result["no_proposal"]) == (1, 0, 0, 1)
+    assert by_claim(w, NARROW) == before and by_claim(w, NARROW).reword_failed is None
+    assert reword_state(w)["lessons"] == {}
+
+
+@pytest.mark.parametrize("code", [2, 4])
+def test_a_refused_edit_still_spends_an_attempt(w, monkeypatch, code):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    _edit_exits(monkeypatch, mod, code)
+    result = reword(w, mod)
+    assert (result["refused_code"], result["failed_edits"], result["written"]) == (1, 0, 0)
+    (entry,) = reword_state(w)["lessons"].values()
+    assert entry["count"] == 1 and not entry["spent"]
+
+
+def test_an_unwritable_sheet_does_not_fail_an_applied_run(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    result = reword(w, sheet=w.tmp / "no-such-folder" / "sheet.md")
+    assert result["written"] == 1 and by_claim(w, NARROW).short == NEW_WORDING
+    assert "sheet" in result["stopped"] and result["stopped"] != "the step failed"
+    assert reword_state(w)["lessons"]
