@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionEnd hook: commits what changed in the store, when the store is a git repository (`mem history init`).
-# Options are passed on as in session-index.sh. Bounded by `timeout 5`, silent, always exit 0: a failing hook
+# Options are passed on as in session-index.sh. Silent, always exit 0, and quick: the commit runs detached (below): a failing hook
 # must never disturb the end of a session. mem logs the call in the hook log (hook "session-end", ms). With the plugin
 # option auto_curation it also starts the background curation run (end of this script).
 [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ] && export MEM_STORE="$CLAUDE_PLUGIN_OPTION_STORE"
@@ -26,36 +26,38 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ] && [ -n "$here" ]; then
     (nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
   fi
 fi
+# The commit and the automatic runs leave the hook: Claude Code gives all SessionEnd hooks one shared 1.5 s budget that
+# the hook's `timeout` cannot raise, and the commit runs `mem check` (about 1 s). One detached wrapper keeps the order:
+# the commit first (`history commit --hook` skips while an automatic run holds the lock), then mem-auto and mem-settle
+# when their options are exactly "true". `--detached` makes mem log a `started` and a `done` record in the hook log, so
+# a commit that was killed (30 s) shows as a `started` without its `done`. Each automatic run checks its own lock and
+# threshold, so nothing here waits on git or a model.
 if [ -n "$here" ]; then
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 5 "$here/../bin/mem" history commit --hook </dev/null >/dev/null 2>&1
-  else
-    "$here/../bin/mem" history commit --hook </dev/null >/dev/null 2>&1
-  fi
-fi
-# Automatic curation (option auto_curation, exactly "true"): start mem-auto detached, after the commit. It outlives
-# this hook (spike, plan 2026-11-17-memory-quiet-synthesis), and checks the lock and the threshold itself, so
-# nothing here waits on git or a model.
-if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CURATION:-}" = "true" ] && [ -n "$here" ] && [ -n "${MEM_STORE:-}" ]; then
   claude="$(find_claude)"
-  set -- run --store "$MEM_STORE"
-  [ -n "$claude" ] && set -- "$@" --claude "$claude"
-  if command -v setsid >/dev/null 2>&1; then
-    (setsid nohup "$here/../bin/mem-auto" "$@" >/dev/null 2>&1 </dev/null &)
-  else
-    (nohup "$here/../bin/mem-auto" "$@" >/dev/null 2>&1 </dev/null &)
+  auto=0; settle=0
+  if [ -n "${MEM_STORE:-}" ]; then
+    [ "${CLAUDE_PLUGIN_OPTION_AUTO_CURATION:-}" = "true" ] && auto=1
+    [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ] && settle=1
   fi
-fi
-# Settling what is left (option auto_settle, exactly "true"): the same detached run the write path starts. The run
-# asks `mem settle due --minutes 0` itself and exits quietly when nothing waits, so nothing here waits on a model.
-if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ] && [ -n "$here" ] && [ -n "${MEM_STORE:-}" ]; then
-  claude="$(find_claude)"
-  set -- run --store "$MEM_STORE" --minutes 0
-  [ -n "$claude" ] && set -- "$@" --claude "$claude"
+  wrapper='here=$1; claude=$2; auto=$3; settle=$4
+    if command -v timeout >/dev/null 2>&1; then
+      timeout 30 "$here/../bin/mem" history commit --hook --detached
+    else
+      "$here/../bin/mem" history commit --hook --detached
+    fi
+    if [ "$auto" = 1 ]; then
+      set -- run --store "$MEM_STORE"; [ -n "$claude" ] && set -- "$@" --claude "$claude"
+      "$here/../bin/mem-auto" "$@" &
+    fi
+    if [ "$settle" = 1 ]; then
+      set -- run --store "$MEM_STORE" --minutes 0; [ -n "$claude" ] && set -- "$@" --claude "$claude"
+      "$here/../bin/mem-settle" "$@" &
+    fi
+    wait'
   if command -v setsid >/dev/null 2>&1; then
-    (setsid nohup "$here/../bin/mem-settle" "$@" >/dev/null 2>&1 </dev/null &)
+    (setsid nohup bash -c "$wrapper" _ "$here" "$claude" "$auto" "$settle" >/dev/null 2>&1 </dev/null &)
   else
-    (nohup "$here/../bin/mem-settle" "$@" >/dev/null 2>&1 </dev/null &)
+    (nohup bash -c "$wrapper" _ "$here" "$claude" "$auto" "$settle" >/dev/null 2>&1 </dev/null &)
   fi
 fi
 exit 0

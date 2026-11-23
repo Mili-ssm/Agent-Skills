@@ -269,12 +269,16 @@ def test_session_end_commit_skips_while_a_run_holds_the_lock(world):
     try:
         hook(world, CLAUDE_PLUGIN_OPTION_AUTO_CURATION="false", GIT_CONFIG_GLOBAL=os.devnull,
              GIT_CONFIG_SYSTEM=os.devnull)
+        time.sleep(2)   # the commit is detached: keep the lock until it has looked
     finally:
         os.close(held)
     log = subprocess.run(["git", "-C", str(world.store), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert "session end" not in log
     hook(world, CLAUDE_PLUGIN_OPTION_AUTO_CURATION="false", GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_SYSTEM=os.devnull)
-    log = subprocess.run(["git", "-C", str(world.store), "log", "--format=%s"], capture_output=True, text=True).stdout
+    deadline = time.time() + 5
+    while time.time() < deadline and "session end" not in log:
+        time.sleep(0.1)
+        log = subprocess.run(["git", "-C", str(world.store), "log", "--format=%s"], capture_output=True, text=True).stdout
     assert "session end" in log
 
 

@@ -4010,7 +4010,13 @@ def cmd_history(args: argparse.Namespace) -> int:
             print(f"mem: {store} is not a git repository (run \"mem history init\")", file=sys.stderr)
         return 0 if hook else 2
     if args.history_command == "commit":
+        detached = hook and args.detached
+        if detached:
+            _log_hook({"hook": "session-end", "phase": "started"})
         if hook and auto_state.run_lock_held(data_dir(os.environ), store):
+            if detached:
+                _log_hook({"hook": "session-end", "phase": "done", "ms": int((time.monotonic() - started) * 1000),
+                           "committed": False, "failed": False})
             return 0  # an automatic run holds the store: it commits its own work
         now = datetime.datetime.now()
         if args.message:
@@ -4020,8 +4026,8 @@ def cmd_history(args: argparse.Namespace) -> int:
             message = lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"  # noqa: E731
         commit, failed = _commit_points(store, message, quiet=hook)  # the hook is silent; a failure is in the usage log
         if hook:
-            _log_hook({"hook": "session-end", "ms": int((time.monotonic() - started) * 1000),
-                       "committed": commit is not None, "failed": failed})
+            _log_hook({"hook": "session-end", **({"phase": "done"} if detached else {}),
+                       "ms": int((time.monotonic() - started) * 1000), "committed": commit is not None, "failed": failed})
             return 0
         print(commit or "nothing to commit")
         return 1 if failed else 0
@@ -5830,6 +5836,8 @@ def build_parser() -> argparse.ArgumentParser:
     history_commit.add_argument("-m", dest="message", metavar="TEXT", help="the commit message")
     history_commit.add_argument("--hook", action="store_true",
                                 help="the SessionEnd hook: a `session end` message, silent, always exit 0, log the call")
+    history_commit.add_argument("--detached", action="store_true",
+                                help="with --hook: also log a `started` record before and a `done` one after, so a killed run shows")
     history_parser.set_defaults(func=cmd_history)
     memory_parser = sub.add_parser("memory", help="change a memory through mem, never by editing its file")
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)

@@ -325,9 +325,19 @@ def test_session_end_hook_commits_the_store(hub_root, tmp_path):
     (hub_root / "knowledge" / "new.md").write_text("new\n", encoding="utf-8")
     r = _session_end(tmp_path, hub_root)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
-    subject = subprocess.run(["git", "-C", str(hub_root), "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
+    deadline = time.monotonic() + 5   # the commit runs detached from the hook
+    while time.monotonic() < deadline:
+        subject = subprocess.run(["git", "-C", str(hub_root), "log", "-1", "--format=%s"], capture_output=True, text=True).stdout
+        if subject.startswith("session end "):
+            break
+        time.sleep(0.1)
     assert subject.startswith("session end ")
-    rec = json.loads((tmp_path / "d" / "hooks" / "log.jsonl").read_text().splitlines()[-1])
+    log = tmp_path / "d" / "hooks" / "log.jsonl"
+    while time.monotonic() < deadline and not (log.exists() and '"done"' in log.read_text()):
+        time.sleep(0.1)   # the done record follows the commit
+    hooks = [json.loads(x) for x in log.read_text().splitlines()]
+    assert [x.get("phase") for x in hooks if x["hook"] == "session-end"] == ["started", "done"]
+    rec = hooks[-1]
     assert rec["hook"] == "session-end" and "ms" in rec
 
 
@@ -344,7 +354,48 @@ def test_session_end_hook_exits_0_when_git_hangs(hub_root, tmp_path):
     subprocess.run(["git", "-C", str(hub_root), "init", "-q"], check=True)
     started = time.monotonic()
     r = _session_end(tmp_path, hub_root, fake_git="#!/bin/sh\nsleep 30\n")
-    assert r.returncode == 0 and time.monotonic() - started < 9
+    assert r.returncode == 0 and time.monotonic() - started < 2   # the commit is detached; its own timeout is 30 s
+
+
+def _stub_plugin(tmp_path, commit_sleep):
+    """A copy of the hook with stub `mem`, `mem-auto` and `mem-settle` that record their calls in order."""
+    root = tmp_path / "plug"
+    (root / "hooks").mkdir(parents=True)
+    (root / "bin").mkdir()
+    for name in ("session-end.sh", "find-claude.sh"):
+        shutil.copy(HOOKS / name, root / "hooks" / name)
+    order = tmp_path / "order.txt"
+    stubs = {"mem": f'case "$*" in *"history commit"*) sleep {commit_sleep}; echo commit >> "{order}";; esac\n',
+             "mem-auto": f'echo auto >> "{order}"\n', "mem-settle": f'echo settle >> "{order}"\n'}
+    for name, body in stubs.items():
+        (root / "bin" / name).write_text("#!/bin/sh\n" + body)
+        (root / "bin" / name).chmod(0o755)
+    env = {"PATH": os.environ["PATH"], "HOME": str(tmp_path), "CLAUDE_PLUGIN_OPTION_STORE": str(tmp_path),
+           "CLAUDE_PLUGIN_OPTION_AUTO_CURATION": "true", "CLAUDE_PLUGIN_OPTION_AUTO_SETTLE": "true"}
+    return root, env, order
+
+
+def _wait_lines(path, count, seconds=8):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if path.exists() and len(path.read_text().split()) >= count:
+            break
+        time.sleep(0.1)
+    return path.read_text().split() if path.exists() else []
+
+
+def test_session_end_returns_before_commit_finishes(tmp_path):
+    root, env, order = _stub_plugin(tmp_path, 3)
+    started = time.monotonic()
+    r = subprocess.run([str(root / "hooks" / "session-end.sh")], input="{}", env=env, capture_output=True, text=True)
+    assert r.returncode == 0 and time.monotonic() - started < 1
+    assert _wait_lines(order, 1, 5)[:1] == ["commit"]   # the marker appears within 5 s
+
+
+def test_session_end_commits_before_auto_runs(tmp_path):
+    root, env, order = _stub_plugin(tmp_path, 1)
+    subprocess.run([str(root / "hooks" / "session-end.sh")], input="{}", env=env, capture_output=True, text=True)
+    assert _wait_lines(order, 3) == ["commit", "auto", "settle"]
 
 
 def test_plugin_declares_auto_capture():
