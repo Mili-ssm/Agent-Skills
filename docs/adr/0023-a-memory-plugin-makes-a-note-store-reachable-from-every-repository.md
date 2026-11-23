@@ -184,12 +184,13 @@ Rust decision (stage 8): no port now (owner, 2026-11-23). Measured through `bin/
 
 ## Review 2026-11-23 (memory-research-wave)
 
-A new skill, `memory-research-wave` (gap G2 of [docs/studies/2026-11-23-note-repository-parity.md](../studies/2026-11-23-note-repository-parity.md)), measured per the eval protocol (`claude plugin eval plugins/memory --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5`). This plugin has no `neg-*` cases, so the trigger cases of the two sibling skills a research request could also reach stand in as the negative check.
+A new skill, `memory-research-wave` (gap G2 of [docs/studies/2026-11-23-note-repository-parity.md](../studies/2026-11-23-note-repository-parity.md)), measured per the eval protocol (`claude plugin eval plugins/memory --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5`). The trigger cases of the two sibling skills a research request could also reach, and a new one-source case that must not load the wave skill, are the negative check.
 
 | Case | Runs | Fired | Cost (USD) |
 |---|---|---|---|
 | `memory-research-wave` (new) | 2 | 2/2 | 0.25 |
 | `memory-synthesis` | 2 | 2/2 | 0.11 |
 | `memory` | 2 | 2/2 | 0.10 |
+| `memory-research-wave-neg-one-source` (new; passes when the wave skill does not load for a one-paper request) | 2 | 0/2 loaded: pass | 0.19 |
 
 Kill criterion: revert the skill's description if a later run of either sibling case drops below its record above, or the new case fires on a request for one note or one fact.
