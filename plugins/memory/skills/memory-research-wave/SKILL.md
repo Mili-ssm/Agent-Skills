@@ -24,7 +24,7 @@ The note rules (source ranks, `confidence`, `Inference:`, declarative names, no 
 6. **One fixer.** Apply only verified corrections, with `mem note edit <note> --section <heading> --body-file <file>`; `--shrink` when a sentence is reworded (a reworded sentence counts as dropped). Re-run `mem check`.
 7. **Cross-cutting knowledge.** Now write the `knowledge` notes for claims that span areas, each linking its literature notes in `## Evidence`; fact-check them the same way.
 8. **Review the whole.** `mem related` on the new notes, `mem stats --orphans`, links between the area notes, `mem check` on the store. Fix what a note misses.
-9. **Record the wave.** Figures (notes, claims checked, problem rate by kind, cost, what worked or failed) as one lesson: `mem remember --global --kind lesson --topic research "<abstract lesson>"`. No client, company or system names.
+9. **Record the wave.** Figures (notes, claims checked, problem rate by kind, cost, what worked or failed) as one lesson: `mem remember --global --kind lesson --topic research --claim "<the abstract lesson>"`. No client, company or system names.
 
 ## Who runs each role
 
