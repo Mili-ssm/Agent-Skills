@@ -93,11 +93,11 @@
 - Produces: `session_index(..., marks: Mapping[str, frozenset[str]] | None = None)`; one `records.Budget(PAIR_WORK)` shared by both folders (project first); the count per folder is the keys of `_decisions(loaded, today, since=<the folder's pass date>, budget=<shared>)` not in the folder's marks. Line (C99): `Curation due: {n} {item|items} ({parts}) (run mem curate after the current task).`, parts `"<k> <label>"` joined by `", "` in the order of `Decisions` fields, summed over both folders; when a folder's pairs were not all checked and n > 0: `Curation due: at least {n} {item|items} ({parts}) (run mem curate after the current task).`; no line when n is 0.
 - `cmd_remember` no longer prints the count of new memories (C106).
 
-- [ ] **Step 1: Write the failing tests**: `test_new_memories_alone_do_not_make_curation_due` (fifteen new memories that pair with nothing: no line); `test_done_clears_the_count_and_a_new_pair_counts_one` (one pair → `Curation due: 1 item (1 same or opposite) ...`; after `--done`, no line; a new memory pairing an old one → 1 again); `test_done_on_a_mixed_store_leaves_no_line` (superseded but active, unconfirmed from a transcript, quarantined, expired, a state pair, a refuted-again pair; `--done`; no line); `test_done_prints_recorded_items`; `test_count_names_its_parts`; `test_old_pairs_are_not_searched_after_a_pass_without_marks` (pass date set, no keys file, a pair of two memories created before it with file times before it: no line); `test_edited_old_memory_pair_is_counted` (same, then one file's time set after the pass: counted); `test_marks_file_malformed_reads_as_none`; `test_done_global_keeps_project_marks`; `test_curated_json_keeps_its_format`; `test_budget_shared_across_folders_never_exceeded` (count comparisons through a wrapped `records.Budget`: at most `PAIR_WORK`); `test_past_the_budget_found_items_say_at_least_and_none_say_nothing` (monkeypatch `PAIR_WORK` small); `test_count_failure_keeps_the_rules` (`_decisions` forced to raise: no `Curation due` line, the loaded lessons still print); `test_session_index_near_the_budget_is_fast` (2000 generated memories of about 60 words each in one folder, 70 changed since the pass, so the search stays within the budget and `pairs_checked` is True; `session_index` under 1 second by `time.perf_counter`); `test_remember_prints_no_curation_count`.
-- [ ] **Step 2: Run them**; expected FAIL.
-- [ ] **Step 3: Implement**. Remove `records.curation_due` once nothing calls it.
-- [ ] **Step 4: Run them**, then the whole suite; update and name `test_curation_due_rule`, `test_index_line_says_curation_is_due`, the `test_transcript_records.py` test and the `test_remember.py` test.
-- [ ] **Step 5: Commit**: stage the named files by path; `git commit -m "feat(memory): Curation due counts the decisions the last pass did not list"`
+- [x] **Step 1: Write the failing tests**: `test_new_memories_alone_do_not_make_curation_due` (fifteen new memories that pair with nothing: no line); `test_done_clears_the_count_and_a_new_pair_counts_one` (one pair → `Curation due: 1 item (1 same or opposite) ...`; after `--done`, no line; a new memory pairing an old one → 1 again); `test_done_on_a_mixed_store_leaves_no_line` (superseded but active, unconfirmed from a transcript, quarantined, expired, a state pair, a refuted-again pair; `--done`; no line); `test_done_prints_recorded_items`; `test_count_names_its_parts`; `test_old_pairs_are_not_searched_after_a_pass_without_marks` (pass date set, no keys file, a pair of two memories created before it with file times before it: no line); `test_edited_old_memory_pair_is_counted` (same, then one file's time set after the pass: counted); `test_marks_file_malformed_reads_as_none`; `test_done_global_keeps_project_marks`; `test_curated_json_keeps_its_format`; `test_budget_shared_across_folders_never_exceeded` (count comparisons through a wrapped `records.Budget`: at most `PAIR_WORK`); `test_past_the_budget_found_items_say_at_least_and_none_say_nothing` (monkeypatch `PAIR_WORK` small); `test_count_failure_keeps_the_rules` (`_decisions` forced to raise: no `Curation due` line, the loaded lessons still print); `test_session_index_near_the_budget_is_fast` (2000 generated memories of about 60 words each in one folder, 70 changed since the pass, so the search stays within the budget and `pairs_checked` is True; `session_index` under 1 second by `time.perf_counter`); `test_remember_prints_no_curation_count`.
+- [x] **Step 2: Run them**; expected FAIL.
+- [x] **Step 3: Implement**. Remove `records.curation_due` once nothing calls it.
+- [x] **Step 4: Run them**, then the whole suite; update and name `test_curation_due_rule`, `test_index_line_says_curation_is_due`, the `test_transcript_records.py` test and the `test_remember.py` test.
+- [x] **Step 5: Commit**: stage the named files by path; `git commit -m "feat(memory): Curation due counts the decisions the last pass did not list"`
 
 ### Task 4: Curator texts, changelog, design records and the digest dates
 
@@ -105,9 +105,9 @@
 - Modify: `plugins/memory/skills/memory-curation/SKILL.md` (queue table: a `newer state of the same project?` row, action `mem supersede <old> <new>` after reading both whole, or `mem distinct`; the seen-often row's text; step 4 says `--done` records what the queue held and prints how many, so only later decisions are announced), `plugins/memory/agents/memory-curator.md` (step 2 covers the newer-state category as a proposed `supersede` row, never applied by `apply --safe`), `plugins/memory/CHANGELOG.md` (`## [Unreleased]`: the count's new meaning, its parts, the new file, `--done` printing what it recorded, no count after `mem remember`, grouped pairs, newer state, `differ in`), `plugins/memory/README.md` where it describes the count, `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (reservation row C98 to C107 and phase row B7), `docs/adr/0023-a-memory-plugin-makes-a-note-store-reachable-from-every-repository.md` (`## Review 2026-11-23`: the curator and skill texts changed unmeasured; kill criteria: a curator pass that supersedes a state memory still in use; a `Curation due` line left after `--done` on an unchanged store; "at least" in three sessions in a row on the owner's store; a session-index duration over 2 seconds in the hooks log)
 - Also: the digest work of 0.9.0 was dated one day late by mistake; it was built and released on 2026-11-23 (the tag's commit). Rename `docs/superpowers/specs/<wrong date>-memory-topic-digest-design.md` and `docs/superpowers/plans/<wrong date>-memory-topic-digest.md` to `2026-11-23-…` with `git mv`, update every link to them, and change the wrong date to `2026-11-23` in those two files, the 0.9.0 heading of `plugins/memory/CHANGELOG.md`, ADR 0023 (merge two `## Review` sections of the same date into one if that results), `docs/superpowers/plans/2026-11-17-memory-plugin.md` and the capture design.
 
-- [ ] **Step 1**: Make the edits. Plain English, tables over prose; no line numbers.
-- [ ] **Step 2: Check**: `python3 scripts/validate.py` and `claude plugin validate .` pass; `grep -rn "<wrong date>" docs plugins` prints nothing; every link to the renamed files resolves (`grep -rn "memory-topic-digest" docs plugins`).
-- [ ] **Step 3: Commit**: stage the named files and the renames by path; `git commit -m "docs(memory): curator texts, changelog and records for the Curation due count; digest dates corrected"`
+- [x] **Step 1**: Make the edits. Plain English, tables over prose; no line numbers.
+- [x] **Step 2: Check**: `python3 scripts/validate.py` and `claude plugin validate .` pass; `grep -rn "<wrong date>" docs plugins` prints nothing; every link to the renamed files resolves (`grep -rn "memory-topic-digest" docs plugins`).
+- [x] **Step 3: Commit**: stage the named files and the renames by path; `git commit -m "docs(memory): curator texts, changelog and records for the Curation due count; digest dates corrected"`
 
 ### Task 5: The count on a copy of the owner's store
 
@@ -121,4 +121,16 @@
 
 ## Results
 
-Filled by Task 5.
+Task 5, run on 2026-11-23 by the coordinator on a copy of the owner's store (`cp -rp`, file times kept; 189 global and 179 project memories, last passes 2026-11-20 and 2026-11-19; `curated.json` rewritten to the copied folders' paths; `MEM_*` and `XDG_STATE_HOME` pointed at the copy, `HOME` kept). The baseline is the released 0.9.0 (commit 2449639, in a detached worktree).
+
+| Measure | 0.9.0 | This branch |
+|---|---|---|
+| `Curation due` line | 189 items | 3 items (3 seen often), the 3 decision items `mem curate` lists |
+| `mem session-index`, three runs | 0.28, 0.29, 0.32 s | 0.33, 0.33, 0.44 s |
+| `mem session-index --hook` (the hook's path), three runs | not measured | 0.33, 0.34, 0.45 s; 3074 characters |
+| `mem curate` length | | 22 lines |
+| `mem curate --done`, then `mem session-index` | | `recorded 2 items (global)`, `recorded 1 item (project)`; then no `Curation due` line |
+
+- The kill criteria of the plan held: under 1 second end to end and at most about 0.1 seconds above 0.9.0.
+- The checksum of the owner's real memory folders was the same before and after, and no `curated-items.json` was written to the real data folder.
+- Timing of the bounded search with 2000 memories (Task 3's test): 0.80 s standalone with the count, 0.48 s without; 0.95 to 1.04 s inside pytest. The test's threshold was raised to 2 s (half the hook's 4 s) by a ruling.
