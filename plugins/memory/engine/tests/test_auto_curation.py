@@ -258,6 +258,14 @@ def test_session_end_hook_below_the_threshold_starts_no_model(world):
     assert calls(world) == 0
 
 
+def _session_end_done(w):
+    path = w.data / "hooks" / "log.jsonl"
+    if not path.exists():
+        return []
+    recs = [json.loads(x) for x in path.read_text().splitlines() if x.strip()]
+    return [r for r in recs if r.get("hook") == "session-end" and r.get("phase") == "done"]
+
+
 def test_session_end_commit_skips_while_a_run_holds_the_lock(world):
     env = {**world.env, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull}
     init = subprocess.run([str(PLUGIN / "bin" / "mem"), "history", "init"], env={**env, "MEM_STORE": str(world.store)},
@@ -269,7 +277,12 @@ def test_session_end_commit_skips_while_a_run_holds_the_lock(world):
     try:
         hook(world, CLAUDE_PLUGIN_OPTION_AUTO_CURATION="false", GIT_CONFIG_GLOBAL=os.devnull,
              GIT_CONFIG_SYSTEM=os.devnull)
-        time.sleep(2)   # the commit is detached: keep the lock until it has looked
+        # the commit is detached: keep the lock until its run has logged that it looked and did not commit
+        end = time.time() + 10
+        while time.time() < end and not _session_end_done(world):
+            time.sleep(0.1)
+        done = _session_end_done(world)
+        assert done and done[-1]["committed"] is False
     finally:
         os.close(held)
     log = subprocess.run(["git", "-C", str(world.store), "log", "--format=%s"], capture_output=True, text=True).stdout

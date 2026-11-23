@@ -6,7 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
-- The session-end history commit (and the `auto_curation` and `auto_settle` runs that follow it) now runs detached from the hook, in the same order, because Claude Code gives all SessionEnd hooks one shared 1.5 s budget and the commit now includes `mem check`. The commit appears a moment after the session ends; the hook log (`hooks/log.jsonl`) gets a `started` and a `done` record for it, and a `started` without a `done` means it was killed (30 s limit). Nothing to migrate.
+- The session-end history commit (and the `auto_curation` and `auto_settle` runs that start after it) now runs detached from the hook: the commit runs first, then the automatic curation and settling start, in no fixed order between them. Claude Code gives all SessionEnd hooks one shared 1.5 s budget that a hook's timeout cannot raise, so the commit could be cut short. The commit appears a moment after the session ends; the hook log (`hooks/log.jsonl`) gets a `started` and a `done` record for it, and a `started` without a `done` means it was killed (30 s limit). Nothing to migrate.
 - The session start and every `mem` command start faster (the session-start hook about 40% less, `mem search` about a third less): note frontmatter is read with the C YAML parser and `bin/mem` runs through a launcher that lets Python cache the compiled engine. Notes read the same as before; one difference: a note whose frontmatter has a tab right after a colon (`key:\tvalue`) is now accepted instead of reported by `mem check`, and other frontmatter errors are worded slightly differently. Nothing to migrate; a read-only plugin folder still works, it just compiles each time.
 
 ## [0.10.0] - 2026-11-23

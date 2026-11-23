@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SessionEnd hook: commits what changed in the store, when the store is a git repository (`mem history init`).
-# Options are passed on as in session-index.sh. Silent, always exit 0, and quick: the commit runs detached (below): a failing hook
+# Options are passed on as in session-index.sh. Silent, always exit 0, and quick: the commit runs detached (below), so a failing hook
 # must never disturb the end of a session. mem logs the call in the hook log (hook "session-end", ms). With the plugin
 # option auto_curation it also starts the background curation run (end of this script).
 [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ] && export MEM_STORE="$CLAUDE_PLUGIN_OPTION_STORE"
@@ -27,8 +27,8 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ] && [ -n "$here" ]; then
   fi
 fi
 # The commit and the automatic runs leave the hook: Claude Code gives all SessionEnd hooks one shared 1.5 s budget that
-# the hook's `timeout` cannot raise, and the commit runs `mem check` (about 1 s). One detached wrapper keeps the order:
-# the commit first (`history commit --hook` skips while an automatic run holds the lock), then mem-auto and mem-settle
+# the hook's `timeout` cannot raise, so the commit could be cut short. One detached wrapper runs it after the hook
+# returns: the commit first (`history commit --hook` skips while an automatic run holds the lock), then mem-auto and mem-settle
 # when their options are exactly "true". `--detached` makes mem log a `started` and a `done` record in the hook log, so
 # a commit that was killed (30 s) shows as a `started` without its `done`. Each automatic run checks its own lock and
 # threshold, so nothing here waits on git or a model.
