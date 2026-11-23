@@ -6,7 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
-- The session start and every `mem` command start faster (the session-start hook about 40% less, `mem search` about a third less): note frontmatter is read with the C YAML parser and `bin/mem` runs through a launcher that lets Python cache the compiled engine. Nothing to migrate; a read-only plugin folder still works, it just compiles each time.
+- The session start and every `mem` command start faster (the session-start hook about 40% less, `mem search` about a third less): note frontmatter is read with the C YAML parser and `bin/mem` runs through a launcher that lets Python cache the compiled engine. The C parser reads the same values for valid frontmatter; it accepts a tab after a colon and words parse errors differently. Nothing to migrate; a read-only plugin folder still works, it just compiles each time.
 
 ## [0.10.0] - 2026-11-23
 

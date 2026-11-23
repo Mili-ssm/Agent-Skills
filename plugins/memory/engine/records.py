@@ -251,7 +251,8 @@ def _date(value, name: str) -> datetime.date | None:
     raise ValueError(f"{name} must be an ISO date")
 
 
-# The C parser is several times faster than yaml.safe_load's; same constructors and resolvers, so same results.
+# The C parser is several times faster than yaml.safe_load's; same constructors and resolvers, so same values for valid
+# YAML frontmatter. libyaml accepts a tab after a colon (`a:\tb`) and words parse errors differently.
 # Dates stay dates here (mem.HubLoader, built on the same base, keeps them as strings).
 _SafeLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
