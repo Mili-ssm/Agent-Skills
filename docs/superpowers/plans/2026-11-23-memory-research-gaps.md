@@ -139,7 +139,7 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
 - [x] **Step 1:** Write the reference (dense, tables, under 150 lines; `outline.py` headings that name their content).
 - [x] **Step 2:** Add the pointers. `python3 scripts/validate.py` passes.
 - [x] **Step 3: Commit** `docs(memory): rules for writing research notes`.
-- [ ] **Step 4: Owner review** of `research-notes.md` (the owner wanted to evaluate these rules, 2026-11-23); `grep` it for home paths and private names first. Task 7 may be drafted meanwhile; the branch does not merge before this review.
+- [x] **Step 4: Owner review** of `research-notes.md` (the owner wanted to evaluate these rules, 2026-11-23); `grep` it for home paths and private names first. Task 7 may be drafted meanwhile; the branch does not merge before this review.
 
 ### Task 7: `memory-research-wave` skill (G2)
 
@@ -150,11 +150,11 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
 
 **Content:** when to use (several sources or several agents; one note or one fact needs only the `memory` skill); the procedure: frame and `mem search` first → one common brief plus one dispatch per area, rules quoted inline (writers cannot be relied on to open documents) and pointing to `references/research-notes.md` of the `memory` skill → writers in parallel, each owning only its notes, full text via a shell, `mem new --body-file`, `mem fetch-sources`, `mem check` → one fresh-context fact-checker per area against the local copies → one fixer applies verified corrections with `mem note edit` (`--shrink` for rewording) → review of the whole (`mem related`, `mem stats --orphans`, links) → record the wave's figures as a lesson with topic `research` (`mem remember --global --kind lesson`). Use the `agent-skills` workers when installed (`implementer` writers, `fact-checker`), else general-purpose subagents with the same briefs. Body under 200 lines.
 
-- [ ] **Step 1:** Write `SKILL.md` and its trigger case (prompts that should fire it: a multi-source study, "research X and record it"; the `neg-*` cases stay as they are).
-- [ ] **Step 2:** `python3 scripts/validate.py`, `claude plugin validate plugins/memory`.
-- [ ] **Step 3: Commit** the skill alone (`feat(memory): memory-research-wave skill`), so the description can be reverted alone.
-- [ ] **Step 4: Measure** per CLAUDE.md § Eval protocol: `claude plugin eval plugins/memory --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<the new trigger case>'`, then each `neg-*` glob. Record the table in ADR 0023 as `## Review 2026-11-23` (or the run date). A trigger below 2/2 or a `neg-*` that fires reruns at 6 runs; a drop of 2 or more of 6 on a `neg-*` reverts the description.
-- [ ] **Step 5: Commit** the ADR review and the CHANGELOG line.
+- [x] **Step 1:** Write `SKILL.md` and its trigger case (prompts that should fire it: a multi-source study, "research X and record it"; the `neg-*` cases stay as they are).
+- [x] **Step 2:** `python3 scripts/validate.py`, `claude plugin validate plugins/memory`.
+- [x] **Step 3: Commit** the skill alone (`feat(memory): memory-research-wave skill`), so the description can be reverted alone.
+- [x] **Step 4: Measure** per CLAUDE.md § Eval protocol: `claude plugin eval plugins/memory --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<the new trigger case>'`, then each `neg-*` glob. Record the table in ADR 0023 as `## Review 2026-11-23` (or the run date). A trigger below 2/2 or a `neg-*` that fires reruns at 6 runs; a drop of 2 or more of 6 on a `neg-*` reverts the description.
+- [x] **Step 5: Commit** the ADR review and the CHANGELOG line.
 
 ## Kill criteria (pre-mortem 2026-11-23)
 
