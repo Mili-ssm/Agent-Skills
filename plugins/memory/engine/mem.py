@@ -3120,7 +3120,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
                     due[label] = due.get(label, 0) + 1
             complete = complete and found.pairs_checked
         except Exception:
-            pass  # this folder stays out of the count; the rest of the index prints
+            complete = False  # this folder stays out of the count, so the line says "at least"; the rest prints
     if has_store:
         head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
@@ -4548,14 +4548,20 @@ def _marks_file(env: Mapping[str, str]) -> Path | None:
     return folder / "curated-items.json" if folder is not None else None
 
 
+def _parse_marks(text: str) -> dict[str, frozenset[str]]:
+    try:
+        return {k: frozenset(v) for k, v in json.loads(text).items()
+                if isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v)}
+    except (ValueError, AttributeError, TypeError):
+        return {}
+
+
 def read_marks(env: Mapping[str, str]) -> dict[str, frozenset[str]]:
     """Decision keys recorded by the last pass per memory folder (resolved path); anything unreadable reads as none."""
     path = _marks_file(env)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8")) if path is not None else {}
-        return {k: frozenset(v) for k, v in raw.items()
-                if isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v)}
-    except (OSError, ValueError, AttributeError, TypeError):
+        return _parse_marks(path.read_text(encoding="utf-8")) if path is not None else {}
+    except OSError:
         return {}
 
 
@@ -4564,7 +4570,8 @@ def _write_marks(env: Mapping[str, str], covered: Mapping[Path, Collection[str]]
     path = _marks_file(env)
     if path is None:
         raise OSError("no data folder: set MEM_DATA or HOME")
-    known = {k: sorted(v) for k, v in read_marks(env).items()}
+    # a missing or malformed file starts empty; one that exists but cannot be read raises, so no key is dropped
+    known = {k: sorted(v) for k, v in _parse_marks(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
     known.update({str(f.resolve()): sorted(keys) for f, keys in covered.items()})
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -4647,7 +4654,7 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
     same: list[tuple[records.Memory, records.Memory]] = []
     state: list[tuple[records.Memory, records.Memory]] = []
     for a, b, _ in records.pairs(kept, today, tokenize=tokenize, among=among, budget=budget):
-        if a.kind == "state" and b.kind == "state":
+        if a.kind == "state" and b.kind == "state" and a.scope == b.scope == "project":  # C103: a project matter
             old, new = sorted((a, b), key=lambda m: (m.created or datetime.date.min, m.handle))
             state.append((old, new))
         else:
@@ -4998,8 +5005,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
             labels[folder] = scope
         if covered:
             try:
+                _write_marks(os.environ, keys)  # first: a failed write leaves the pass date where it was
                 _write_passes(os.environ, covered, today)
-                _write_marks(os.environ, keys)
             except OSError as exc:
                 print(f"mem: {exc}", file=sys.stderr)
                 return 2

@@ -881,6 +881,9 @@ def test_done_on_a_mixed_store_leaves_no_line(project, gfolder, capsys):
     put(project, "gone", "Queues drain slowly under heavy load tonight", status="refuted")
     put(project, "q", "Quarantined lesson about gizmos", extra="quarantine: true\n")
     put(gfolder, "g", "General lesson about widgets", observed=4)
+    put(gfolder, "gq", "General lesson about widgets and gadgets", observed=1,
+        extra="origin: transcript\nweight: medium\nsources:\n- session b\n")
+    assert records.quarantined(records.load_memories(gfolder, "global")[1])
     assert "Curation due" in run(capsys, "session-index")[1]
     run(capsys, "curate", "--done")
     assert "Curation due" not in run(capsys, "session-index")[1]
@@ -1053,3 +1056,68 @@ def test_promote_done_records_and_removes_from_the_frequent_block(project, capsy
     assert run(capsys, "restore", "m:often")[0] == 0 and p.read_bytes() == before
     out = run(capsys, "promote", "m:often")[1]
     assert out.splitlines()[-1].endswith("before you run it; then run: mem promote --done <h>")
+
+
+# fix round 1 of Task 3
+
+def test_a_folder_whose_count_failed_says_at_least(project, gfolder, monkeypatch):
+    put(project, "r1", "Always run the linter before committing", extra="reach: general\n")
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(gfolder, "g", "General lesson about widgets", observed=4)
+    real = mem._decisions
+
+    def flaky(loaded, today, **kw):
+        if loaded and loaded[0].scope == "global":
+            raise RuntimeError("boom")
+        return real(loaded, today, **kw)
+    monkeypatch.setattr(mem, "_decisions", flaky)
+    text = _session(project, gfolder)
+    assert "Curation due: at least 1 item (1 expired)" in text and "This project: 1 memories." in text
+
+
+def test_done_that_fails_writing_marks_keeps_the_old_pass_date(project, gfolder, monkeypatch, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    _set_pass(project, 10)
+    old = mem.read_passes(os.environ)
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(mem, "_write_marks", boom)
+    assert run(capsys, "curate", "--done")[0] == 2
+    assert mem.read_passes(os.environ) == old
+
+
+def test_write_marks_does_not_drop_keys_it_could_not_read(tmp_path, monkeypatch):
+    env = {"MEM_DATA": str(tmp_path / "data")}
+    other, covered = tmp_path / "a", tmp_path / "b"
+    other.mkdir()
+    covered.mkdir()
+    mem._write_marks(env, {other: ["x"]})
+    path = mem._marks_file(env)
+    real = type(path).read_text
+
+    def failing(self, *a, **k):
+        if self == path:
+            raise OSError("denied")
+        return real(self, *a, **k)
+    monkeypatch.setattr(type(path), "read_text", failing)
+    with pytest.raises(OSError):
+        mem._write_marks(env, {covered: ["y"]})
+    monkeypatch.undo()
+    assert mem.read_marks(env) == {str(other.resolve()): frozenset({"x"})}
+    path.write_text("not json", encoding="utf-8")  # malformed stays lenient
+    mem._write_marks(env, {covered: ["y"]})
+    assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"y"})}
+
+
+def _state_pair(folder, scope):
+    put(folder, "s-old", "Migration window is open for the billing service", kind="state", created=days_ago(9))
+    put(folder, "s-new", "Migration window is open for the billing service now", kind="state", created=days_ago(2))
+    return mem._decisions(records.load_memories(folder, scope), TODAY)
+
+
+def test_newer_state_is_a_project_matter(project, gfolder):
+    found = _state_pair(project, "project")
+    assert len(found.state) == 1 and found.same == []
+    found = _state_pair(gfolder, "global")
+    assert found.state == [] and len(found.same) == 1
