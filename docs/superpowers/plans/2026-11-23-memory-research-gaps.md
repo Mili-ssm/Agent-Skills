@@ -123,9 +123,9 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
 
 **Files:** `plugins/memory/CHANGELOG.md` (`## [Unreleased]`), `plugins/memory/README.md` (behavior of history commits and the index, if described there), `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table row "Unreleased work"; the open item on the `SessionEnd` budget marked solved by Task 2).
 
-- [ ] **Step 1:** Write the entries, for users: what changes, what to do when the index says notes are held back.
-- [ ] **Step 2:** `python3 scripts/validate.py` and `claude plugin validate .` pass.
-- [ ] **Step 3: Commit** `docs(memory): changelog and plan for the commit gate and re-read reminder`.
+- [x] **Step 1:** Write the entries, for users: what changes, what to do when the index says notes are held back.
+- [x] **Step 2:** `python3 scripts/validate.py` and `claude plugin validate .` pass.
+- [x] **Step 3: Commit** `docs(memory): changelog and plan for the commit gate and re-read reminder`.
 
 ### Task 6: Note-writing rules reference (G3)
 
