@@ -11,6 +11,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- `mem confirm --source` on a session the lesson already counts, given with `--outcome`, now adds that case, prints `m:<handle>\tcase <outcome> added` and exits 0; without `--outcome` it still changes nothing and exits 3. `--outcome` or `--seen-on` without `--source`, and a `--seen-on` later than today, are usage errors.
+- The log line of the corroboration pass has one more key, `cases`: the case entries it carried to general lessons.
 - Up to 16 lessons (was 6) and 2400 characters of rule lines (was 900) now load at session start, so more established lessons reach the agent without asking by topic; nothing has to be done.
 
 ## [0.6.0] - 2026-11-22

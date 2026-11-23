@@ -36,6 +36,20 @@ Rows marked *owner* are the owner's rulings of 2026-11-22; the others are the au
 | C71 | The owner answers a listed lesson in one of four ways. Rewording it or making it firmer, and going back to an earlier text, are both `mem memory edit <h> --short`, which adds a version. Dropping it uses the existing commands. Keeping the wording uses `mem triage accept <h>`, with `--project-scope` for a project lesson, which writes a date `reviewed`; the lesson is listed again only when C68 holds counting the `failed` cases later than that date | Without the last answer a lesson kept on purpose would stay listed for ever |
 | C72 | A second plan puts an automatic attempt before the owner: when a version gets worse, the background pass writes a new short form once, told what failed, and only if that version gets worse too does the lesson reach the owner. It may reword, not make firmer than the claim (C60). It ships behind its own gate, measured on the tallies this change collects. Until then a listed lesson goes straight to the owner | *Owner*: first an automatic attempt, then one with human feedback, in two plans. An automatic change to what loads needs its own measure, as C62 was for C52 |
 
+## Rulings made while building (2026-11-23)
+
+Made by the agent that ran the plan, from review findings; each narrows a row above and none changes what the owner ruled. The code follows this table where it says more than the row.
+
+| Row | Ruling | Reason |
+|---|---|---|
+| C64 | A session the lesson already counts gets a case only when the caller names the outcome (`mem confirm --source ... --outcome`); the command then prints `m:<handle>\tcase <outcome> added` and exits 0. A bare repeated `--source` still changes nothing. A case cannot be dated later than today | Two existing tests pin "nothing changed" for a repeat; the callers need to tell a written case from a no-op; a future date made `mem triage accept` repeatable |
+| C64 | A `seen` entry stays when the session later gets `worked` or `failed`, because the log only grows; a merge drops it | `seen` is in no tally, so it costs nothing |
+| C65 | The corroboration pass carries the cases of each session to the general lesson: with the sighting, after a new general lesson is written, and through an action `cases` for a session the general lesson already counts, which also repairs a half-applied sighting. When two project records give one session the same outcome on two days, the earlier day is kept | A failed call left a counted session without its cases for ever |
+| C66 | Going back to an earlier text is a version like any other, also on the day of a change. A lesson with a short form and neither `released` nor `created` has no implicit version | Every writer sets `created`; the list records what loaded when |
+| C68 | The sentence of the session start text counts loaded lessons only and is absent while the loaded rules are switched off; the category also lists lessons cut by the cap, and says `rules off` in that case. `mem rules` names under "Failed after it loaded:" only lessons that load or are cut by the cap | The sentence says "loaded lesson"; nothing loads while the rules are off |
+| C70 | Merged `versions`: one entry per day, the kept record's text winning, implicit versions included; when the kept record's short form is not the text of the last entry, an entry dated today with that text is added, since it is what loads after the merge. Merged `log`: one entry per session and outcome, the earlier date kept | The raw union lost the wording of a lesson written before versions existed and could leave two versions on one day |
+| C71 | After `mem triage accept`, only the threshold of two `failed` cases counts the cases later than `reviewed`; the comparison of `failed` with `worked` and with the version before uses the whole tally of the version | An accepted lesson that keeps failing should come back, and old failures are still evidence |
+
 ## Not in this change
 
 | Left out | Why |
