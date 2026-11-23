@@ -556,7 +556,7 @@ def test_note_changed_during_check_is_held_back(repo):
         return []
 
     store_git.commit_if_changed(repo, "m", validate=validate)
-    assert late not in tracked(repo) and store_git.held_back(repo) == [late]
+    assert late not in tracked(repo) and store_git.held_back(repo) == []  # committed next time, not a check failure
 
 
 def test_no_validator_keeps_old_behavior(repo):
@@ -635,3 +635,45 @@ def test_unwritable_held_list_still_commits(repo):
     warned = []
     assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo), warn=warned.append)
     assert good in tracked(repo) and bad not in tracked(repo) and warned
+
+
+def test_a_lock_loser_leaves_the_holders_list_unchanged(repo):
+    bad = note(repo, "bad", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    before = (repo / ".git" / "mem-held-back").read_text(encoding="utf-8")
+    note(repo, "other")
+    fd = store_git._lock(repo)
+    try:
+        assert store_git.commit_if_changed(repo, "m2", report=lambda r: None, validate=mem.invalid_changed(repo)) is None
+    finally:
+        os.close(fd)
+    assert (repo / ".git" / "mem-held-back").read_text(encoding="utf-8") == before == f"{bad}\n"
+
+
+def test_the_list_is_never_empty_or_partial_while_a_commit_runs(repo):
+    first = note(repo, "bad1", valid=False)
+    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    note(repo, "bad2", valid=False)
+    seen = []
+    real = mem.invalid_changed(repo)
+
+    def validate(paths):
+        seen.append(store_git.held_back(repo))  # between the gate's start and the write
+        result = real(paths)
+        seen.append(store_git.held_back(repo))  # the gate ran, the new list is not written yet
+        return result
+
+    store_git.commit_if_changed(repo, "m2", validate=validate)
+    assert seen == [[first], [first]]
+    assert len(store_git.held_back(repo)) == 2
+    assert not [p for p in (repo / ".git").iterdir() if p.name.startswith("mem-held-back.")]
+
+
+def test_history_commit_prints_no_stale_held_back_after_a_failed_run(repo, capsys, monkeypatch):
+    note(repo, "bad", valid=False)
+    assert mem.main(["history", "commit"]) == 0
+    capsys.readouterr()
+    note(repo, "more")
+    monkeypatch.setattr(store_git, "_git", lambda *a, **k: (_ for _ in ()).throw(store_git.GitError("boom")))
+    assert mem.main(["history", "commit"]) == 1
+    assert "held back:" not in capsys.readouterr().err

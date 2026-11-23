@@ -1,6 +1,6 @@
 """The store lines of the session index: notes held back from history commits and notes due for re-reading.
 
-Keeps the day's due count in the data folder. Imports check, notes and store_git, never mem."""
+Keeps the day's due count in the data folder. Imports check and store_git, never mem."""
 
 from __future__ import annotations
 

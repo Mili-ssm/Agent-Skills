@@ -25,13 +25,12 @@ import subprocess
 import sys
 import tempfile
 import time
-import unicodedata
 import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Collection, Iterable, Iterator, Mapping, NamedTuple, Sequence
+from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
 
 import yaml
 
@@ -3969,8 +3968,11 @@ def _history_store(args: argparse.Namespace) -> Path | None:
     return root
 
 
-def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: bool = False) -> tuple[str | None, bool]:
-    """Commit the store; (commit id or None, whether git failed). The failure is reported and logged."""
+def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: bool = False,
+                   held: list[str] | None = None) -> tuple[str | None, bool]:
+    """Commit the store; (commit id or None, whether git failed). The failure is reported and logged.
+
+    `held` receives the paths this run held back, so a caller never reads an older run's list."""
     failed: list[str] = []
 
     def report(reason: str) -> None:
@@ -3985,7 +3987,8 @@ def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: b
         log_usage(store, {"cmd": "history", "warning": reason})
 
     commit = store_git.commit_if_changed(store, message, report=report, warn=warn,
-                                         validate=invalid_changed(store))
+                                         validate=invalid_changed(store),
+                                         on_held=lambda paths: held is not None and held.extend(paths))
     return commit, bool(failed)
 
 
@@ -4035,13 +4038,14 @@ def cmd_history(args: argparse.Namespace) -> int:
         else:
             label = "session end" if hook else "manual commit"
             message = lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"  # noqa: E731
-        commit, failed = _commit_points(store, message, quiet=hook)  # the hook is silent; a failure is in the usage log
+        held: list[str] = []
+        commit, failed = _commit_points(store, message, quiet=hook, held=held)  # the hook is silent; a failure is in the usage log
         if hook:
             _log_hook({"hook": "session-end", **({"phase": "done"} if detached else {}),
                        "ms": int((time.monotonic() - started) * 1000), "committed": commit is not None, "failed": failed})
             return 0
         print(commit or "nothing to commit")
-        for path in store_git.held_back(store):
+        for path in ([] if failed else held):
             print(f"held back: {path}", file=sys.stderr)
         return 1 if failed else 0
     try:
@@ -5535,7 +5539,7 @@ def build_parser() -> argparse.ArgumentParser:
     stats_parser.add_argument("--orphans", action="store_true", help="list notes no other file links to")
     stats_parser.add_argument("paths", nargs="*", metavar="PATH", help="with --orphans: only these notes or folders")
     stats_parser.set_defaults(func=cmd_stats)
-    review_parser = sub.add_parser("review", help="list concrete requirements due for review")
+    review_parser = sub.add_parser("review", help="list concrete requirements due for review and notes due for re-testing or re-reading")
     review_parser.add_argument("--today", type=_today, default=None, help="YYYY-MM-DD (default: today)")
     review_parser.set_defaults(func=cmd_review)
     fetch_parser = sub.add_parser("fetch-sources", help="download literature note urls into .sources/")

@@ -12,11 +12,12 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable
 
-# Same values as mem.py (_LOCAL_DIRS, MAX_FILE_BYTES); mem.py cannot be imported from here (it runs as __main__)
+# Same values as mem.py (_LOCAL_DIRS, MAX_FILE_BYTES); mem.py cannot be imported from here (it imports this module, and `engine/run.py` runs it)
 # and a test keeps both copies equal.
 LOCAL_DIRS = frozenset({"__pycache__", ".venv", "target", "node_modules", ".pytest_cache", ".sources",
                         ".playwright-mcp"})
@@ -114,13 +115,20 @@ def held_back(store: Path) -> list[str]:
 
 
 def _write_held(store: Path, held: list[str]) -> None:
+    """Replace the list in one step: a reader sees the old list or the new one, never half of one."""
     path = store / ".git" / HELD_NAME
+    tmp = None
     try:
         if held:
-            path.write_text("".join(f"{p}\n" for p in held), encoding="utf-8")
+            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=HELD_NAME + ".")
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write("".join(f"{p}\n" for p in held))
+            os.replace(tmp, path)
         else:
             path.unlink(missing_ok=True)
     except OSError as exc:
+        if tmp:
+            Path(tmp).unlink(missing_ok=True)
         raise GitError(f"held-back list: {exc}") from exc
 
 
@@ -146,7 +154,7 @@ def _rename_sources(store: Path, held: list[str]) -> list[str]:
 
 
 def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Callable[[str], None]) -> list[str]:
-    """Unstage the changed files that fail `validate`, and any that a writer changed while it ran."""
+    """Unstage the changed files that fail `validate` (returned) and, silently, any that a writer changed while it ran."""
     paths = _staged_paths(store)
     if not paths:
         return []
@@ -160,32 +168,24 @@ def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Ca
     held = sorted(set(bad) | {p for p in changed if p})
     if held:
         _git(store, "reset", "-q", "--", *held, *_rename_sources(store, held))
-    return held
+    return sorted(set(bad))
 
 
 def _commit(store: Path, message: str | Callable[[int], str],
             validate: Callable[[list[str]], list[str]] | None = None,
-            warn: Callable[[str], None] = lambda reason: None) -> str | None:
+            warn: Callable[[str], None] = lambda reason: None,
+            on_held: Callable[[list[str]], None] = lambda held: None) -> str | None:
     try:
         fd = _lock(store)
     except (OSError, GitError) as exc:
-        if validate is not None:
-            try:
-                _write_held(store, [])  # this run held nothing back: an earlier list would mislead
-            except GitError:
-                pass
         raise (exc if isinstance(exc, GitError) else GitError(f"lock: {exc}")) from None
     try:
-        if validate is not None:
-            try:
-                _write_held(store, [])  # cleared first, so a failure below cannot leave last run's list
-            except GitError as exc:
-                warn(str(exc))
         _drop_stale_index_lock(store)
         _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
         if validate is not None:
             held = _hold_back(store, validate, warn)
-            try:
+            on_held(held)
+            try:  # only after the gate ran, so a reader never sees a list this run has not decided yet
                 _write_held(store, held)
             except GitError as exc:  # the list is a convenience: the commit must not be lost for it
                 warn(str(exc))
@@ -211,14 +211,16 @@ def _print_reason(reason: str) -> None:
 
 def commit_if_changed(store: Path, message: str | Callable[[int], str], *, report: Callable[[str], None] = _print_reason,
                       warn: Callable[[str], None] = _print_reason,
-                      validate: Callable[[list[str]], list[str]] | None = None) -> str | None:
+                      validate: Callable[[list[str]], list[str]] | None = None,
+                      on_held: Callable[[list[str]], None] = lambda held: None) -> str | None:
     """Stage everything and commit; the short commit id, or None when nothing changed or git failed (reported).
 
     `message` may be a function of the number of files the commit holds. `validate` gets the changed paths (deletions
     excluded) and returns those to hold back: they stay in the working tree, listed by `held_back`. When it raises,
-    everything is committed and `warn` says so (it is not a git failure)."""
+    everything is committed and `warn` says so (it is not a git failure). `on_held` gets the paths this run held back
+    for failing `validate` (not those a writer changed meanwhile), once the gate has run."""
     try:
-        return _commit(Path(store), message, validate, warn)
+        return _commit(Path(store), message, validate, warn, on_held)
     except GitError as exc:
         report(str(exc))
         return None
