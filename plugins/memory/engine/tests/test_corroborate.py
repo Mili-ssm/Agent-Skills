@@ -561,3 +561,13 @@ def test_a_counted_session_with_a_missing_case_gets_a_cases_action(tmp_path):
     got = [x for x in lessons_of([p], glob) if x.memory.claim in ("shared two", "local two")]
     acts = corroborate.actions(corroborate.Group([x.id for x in got], "c", ""), by_id(got))
     assert not [a for a in acts if a.kind in ("cases", "sighting")]
+
+
+def test_cases_of_returns_the_earlier_day_of_a_repeated_case_first(tmp_path):
+    p1, p2 = project(tmp_path, "one"), project(tmp_path, "two")
+    put(records.project_dir(p1), "project", "x one", sources=("session a",), log=["2026-11-22 session a failed"])
+    put(records.project_dir(p2), "project", "x two", sources=("session a",),
+        log=["2026-11-20 session a failed", "2026-11-21 session a worked"])
+    got = lessons_of([p1, p2])
+    assert corroborate._cases_of(got, {"session a"}) == [
+        "2026-11-20 session a failed", "2026-11-21 session a worked", "2026-11-22 session a failed"]

@@ -711,6 +711,22 @@ def merged_versions(keep: Memory, drop: Memory, today: datetime.date) -> list[st
     return [version_entry(on, text) for on, text in result]
 
 
+def merged_log(keep: Memory, drop: Memory) -> list[str]:
+    """The log of a merged lesson by date: one entry per (session, outcome), the earlier day kept, and a `seen` entry
+    only for a session with no other entry. An entry that is not a case is kept once, as it is."""
+    entries = list(dict.fromkeys([*keep.log, *drop.log]))
+    best: dict[tuple[str, str], str] = {}
+    for e in entries:
+        c = case(e)
+        if c is not None and ((c.session, c.outcome) not in best or c.on < case(best[(c.session, c.outcome)]).on):
+            best[(c.session, c.outcome)] = e
+    cased = {session for session, outcome in best if outcome != "seen"}
+    chosen = {e for (session, outcome), e in best.items() if outcome != "seen" or session not in cased}
+    result = [e for e in entries if case(e) is None or e in chosen]
+    result.sort(key=lambda e: e[:10])
+    return result
+
+
 class Tally(NamedTuple):
     number: int
     since: datetime.date

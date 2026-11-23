@@ -3522,6 +3522,12 @@ def cmd_remember(args: argparse.Namespace) -> int:
         if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
             print(_READ_ONLY_PROJECT, file=sys.stderr)
             return 2
+    if not args.source and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
+        print("mem: --outcome and --seen-on need --source.", file=sys.stderr)
+        return 2
+    if getattr(args, "seen_on", None) is not None and args.seen_on > today:
+        print("mem: --seen-on cannot be later than today.", file=sys.stderr)
+        return 2
     scope = "global" if args.is_global else "project"
     if args.kind in ("finding", "document") and not args.source:
         print(f"mem: a {args.kind} needs at least one --source.", file=sys.stderr)
@@ -3705,6 +3711,10 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         source = getattr(args, "source", None)
         if source is None and getattr(args, "note", None):
             raise ValueError("--note needs --source")
+        if source is None and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
+            raise ValueError("--outcome and --seen-on need --source")
+        if getattr(args, "seen_on", None) is not None and args.seen_on > today:
+            raise ValueError("--seen-on cannot be later than today")
         from_transcript = found[0].origin == "transcript"
         key = records.session_key(source) if source is not None else None
         if getattr(args, "by_owner", False):
@@ -3743,9 +3753,11 @@ def cmd_confirm(args: argparse.Namespace) -> int:
                     and not records.has_case(found[0], key, outcome)):
                 records.log_before(found[0], "confirm")
                 found[0], _ = records.add_case(found[0], source, seen_on or today, outcome, today)
+                repeated.pop()   # a case was written: the call changed something
                 if until is None:
-                    repeated.pop()   # a case was written: the call changed something
                     return [f"m:{found[0].handle}\tcase {outcome} added"]
+                records.update(found[0], today, valid_until=until)
+                return [f"m:{found[0].handle}\tcase {outcome} added; valid until {until.isoformat()}"]
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
             records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set
@@ -3850,6 +3862,8 @@ def cmd_triage(args: argparse.Namespace) -> int:
 
     def apply(found, today):
         m = found[0]
+        if getattr(args, "project_scope", False) and m.scope != "project":  # the lookup falls back to the global scope
+            raise ValueError(f"no memory named m:{m.handle}")
         if args.triage_command == "hold":
             if m.status != "active":
                 raise ValueError(f"m:{m.handle} is {m.status}: only an active lesson can be held")
@@ -4015,8 +4029,7 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
             standing_changes = records.standing_changes(keep, after, today)
             if records.standing(after) == "established" or len(records.sessions(after)) > len(records.sessions(keep)):
                 changes.update(standing_changes)  # enough evidence now, or a new session renews the 30 days
-    log = list(dict.fromkeys([*keep.log, *drop.log]))
-    log.sort(key=lambda e: e[:10])
+    log = records.merged_log(keep, drop)
     if log != keep.log:
         changes["log"] = log
     versions = records.merged_versions(keep, drop, today)
@@ -4411,7 +4424,8 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print(more)
     if not lines and choice.unready:
         print(unready)
-    failed = [(m, words) for m in [*choice.loaded, *(m for m, _ in choice.left)] if (words := records.mark_words(m))]
+    failed = [(m, words) for m in [*choice.loaded, *(m for m, why in choice.left if why == rules.OVER)]
+              if (words := records.mark_words(m))]
     if failed:
         print("Failed after it loaded:")
         for m, words in failed:
@@ -4822,7 +4836,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
         out.append("balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
                    "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)")
         for m, loaded in worse:
-            out.append(f"  m:{m.handle}  {'loaded' if loaded else 'left out by the cap'}  {_flat(m.claim)}")
+            state = "rules off" if _rules_off() else "loaded" if loaded else "left out by the cap"
+            out.append(f"  m:{m.handle}  {state}  {_flat(m.claim)}")
             found = records.tallies(m)[-2:]
             ends = [t.since for t in found[1:]] + [today]
             out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends)]

@@ -220,13 +220,14 @@ def test_the_first_change_of_an_old_lesson_keeps_its_old_wording(tmp_path):
 
 
 def test_the_fill_pass_adds_a_version(project, capsys):
+    today = datetime.date.today()
     m = transcript(project)
     # the automatic fill runs `mem memory edit --short=... --topic=...`, without --user-read
     assert mem.main(["memory", "edit", f"m:{m.handle}", "--short=Run the linter before the tests.",
                      "--topic=testing"]) == 0
     capsys.readouterr()
     got = reload(m)
-    assert got.versions == [f"{datetime.date.today().isoformat()} Run the linter before the tests."]
+    assert got.versions == [f"{today.isoformat()} Run the linter before the tests."]
 
 
 def test_a_case_counts_for_the_version_before_it(tmp_path):
@@ -288,6 +289,7 @@ def test_reviewed_asks_for_two_more_failures(tmp_path):
 
 
 def test_merge_joins_log_and_versions(project, capsys):
+    today = datetime.date.today()
     keep = versioned(project, (0, "First text."))
     keep = with_cases(keep, (1, "failed"))
     drop = records.write_memory(project / ".memory", "project", kind="lesson", claim="Run the linter before the tests soon.",
@@ -301,7 +303,7 @@ def test_merge_joins_log_and_versions(project, capsys):
     assert got.log == ["2026-11-21 session c0 failed", "2026-11-22 session d1 worked"]
     # the kept record's text loads after the merge, so it is the newest version
     assert got.versions == ["2026-11-20 First text.", "2026-11-22 Other text.",
-                            f"{datetime.date.today().isoformat()} First text."]
+                            f"{today.isoformat()} First text."]
 
 
 def merge_pair(project, keep_versions, keep_short, drop_versions, drop_short):
@@ -320,9 +322,9 @@ def merge_pair(project, keep_versions, keep_short, drop_versions, drop_short):
 
 
 def test_merge_keeps_the_wording_of_a_lesson_written_before_versions(project, capsys):
+    today = datetime.date.today().isoformat()
     got = merge_pair(project, [], "Old text.", [(1, "Other text.")], "Other text.")
     capsys.readouterr()
-    today = datetime.date.today().isoformat()
     assert got.versions == [f"{D1.isoformat()} Old text.", f"{day(1).isoformat()} Other text.", f"{today} Old text."]
     assert got.short == "Old text."
 
@@ -443,8 +445,11 @@ def test_remember_of_a_known_claim_adds_a_case_to_a_counted_session(project):
 from test_rules_session import K1, gfolder, write  # noqa: E402,F401
 
 
+TODAY = datetime.date.today()   # read once: the helpers below derive every date from it
+
+
 def ago(n):
-    return datetime.date.today() - datetime.timedelta(days=n)
+    return TODAY - datetime.timedelta(days=n)
 
 
 def shown(capsys, *argv):
@@ -459,14 +464,14 @@ def global_lesson(claim, versions=(), log=()):
     [m] = [x for x in records.load_memories(Path(os.environ["MEM_MEMORIES"]), "global") if x.claim == claim]
     changes = {"versions": [records.version_entry(ago(n), t) for n, t in versions] or None,
                "log": [records.case_entry(ago(n), f"session z{i}", o) for i, (n, o) in enumerate(log)] or None}
-    return records.update(m, datetime.date.today(), **changes)
+    return records.update(m, TODAY, **changes)
 
 
 def test_show_prints_each_version_with_its_tally(project, capsys):
+    today = datetime.date.today()
     m = versioned(project, (-30, "First text."), (-10, "Second text."))
     m = with_cases(m, (-20, "worked"), (-5, "failed"))
     out = shown(capsys, "show", f"m:{m.handle}")
-    today = datetime.date.today()
     since1, since2 = day(-30), day(-10)
     lines = [x for x in out.splitlines() if x.startswith("version ")]
     assert lines == [
@@ -495,7 +500,7 @@ def test_rules_names_a_lesson_that_failed_and_the_block_is_unchanged(project, gf
     head, tail = out.split("Failed after it loaded:\n")
     assert tail == f"m:{m.handle}\tversion 1: worked 1, failed 2\n"
     # the same store with an empty log prints the block alone
-    records.update(m, datetime.date.today(), log=None)
+    records.update(m, TODAY, log=None)
     assert shown(capsys, "rules") == head
     assert first.splitlines()[0] in head
 
@@ -521,7 +526,7 @@ def rules_block(text):
 def test_session_start_block_is_unchanged(project, gfolder, capsys):
     m = global_lesson("Failing lesson.", versions=[(10, "First text.")])
     before = shown(capsys, "session-index")
-    records.update(m, datetime.date.today(), log=[records.case_entry(ago(2), "session q", "failed"),
+    records.update(m, TODAY, log=[records.case_entry(ago(2), "session q", "failed"),
                                                  records.case_entry(ago(1), "session r", "failed")])
     after = shown(capsys, "session-index")
     sentence = "Got worse: 1 loaded lesson needs a decision (mem curate)."  # what C68 adds to the first line
@@ -557,7 +562,7 @@ def queue(out):
 def test_curate_lists_a_lesson_that_got_worse(project, gfolder, capsys):
     m = worse_lesson("Failing lesson.", log=[(5, "failed")])
     assert queue(curated(capsys, "--global")) is None
-    records.update(m, datetime.date.today(), log=[records.case_entry(ago(5), "session q", "failed"),
+    records.update(m, TODAY, log=[records.case_entry(ago(5), "session q", "failed"),
                                                  records.case_entry(ago(4), "session r", "failed")])
     out = queue(curated(capsys, "--global"))
     assert out[0] == (f"{CATEGORY} (decide: reword it or go back with mem memory edit <h> --short, drop it with "
@@ -579,7 +584,7 @@ def test_curate_shows_the_version_before(project, gfolder, capsys):
 def test_curate_lists_a_project_lesson(project, gfolder, capsys):
     write("Project failing lesson.", short="First text.", scope="project")
     [m] = records.load_memories(project / ".memory", "project")
-    records.update(m, datetime.date.today(), versions=[records.version_entry(ago(10), "First text.")],
+    records.update(m, TODAY, versions=[records.version_entry(ago(10), "First text.")],
                    log=[records.case_entry(ago(5), "session q", "failed"), records.case_entry(ago(4), "session r", "failed")])
     out = queue(curated(capsys))
     assert out[1] == f"  m:{m.handle}  loaded  Project failing lesson."
@@ -614,7 +619,7 @@ def test_a_lesson_left_out_by_the_cap_is_listed_as_such(project, gfolder, capsys
 def test_session_start_counts_what_got_worse(project, gfolder, capsys):
     a = worse_lesson("First failing lesson.", log=[(5, "failed")])
     assert "Got worse" not in shown(capsys, "session-index")
-    records.update(a, datetime.date.today(), log=[records.case_entry(ago(5), "session q", "failed"),
+    records.update(a, TODAY, log=[records.case_entry(ago(5), "session q", "failed"),
                                                  records.case_entry(ago(4), "session r", "failed")])
     assert "Got worse: 1 loaded lesson needs a decision (mem curate)." in shown(capsys, "session-index")
     worse_lesson("Second failing lesson.")
@@ -629,10 +634,10 @@ def test_a_fault_in_the_count_leaves_the_rules_block(project, gfolder, capsys, m
     assert "Got worse: 1 loaded lesson needs a decision" in with_sentence
     [m] = records.load_memories(Path(os.environ["MEM_MEMORIES"]), "global")
     log = m.log
-    records.update(m, datetime.date.today(), log=None)  # the same store without any case
+    records.update(m, TODAY, log=None)  # the same store without any case
     plain = shown(capsys, "session-index")
     assert "Got worse" not in plain and "First text." in plain
-    records.update(m, datetime.date.today(), log=log)
+    records.update(m, TODAY, log=log)
     monkeypatch.setattr(records, "got_worse", lambda m: 1 / 0)
     assert shown(capsys, "session-index") == plain
 
@@ -642,13 +647,13 @@ def test_no_sentence_when_loaded_rules_are_off(project, gfolder, capsys, monkeyp
     assert "Got worse" in shown(capsys, "session-index")
     monkeypatch.setenv("MEM_LOADED_RULES", "off")
     assert "Got worse" not in shown(capsys, "session-index")
-    assert queue(curated(capsys, "--global"))[1] == f"  m:{m.handle}  loaded  Failing lesson."
+    assert queue(curated(capsys, "--global"))[1] == f"  m:{m.handle}  rules off  Failing lesson."
 
 
 def test_a_superseded_lesson_is_not_listed(project, gfolder, capsys):
     m = worse_lesson("Failing lesson.")
     assert queue(curated(capsys, "--global")) is not None
-    records.update(m, datetime.date.today(), superseded_by="other")
+    records.update(m, TODAY, superseded_by="other")
     assert queue(curated(capsys, "--global")) is None
 
 
@@ -686,21 +691,23 @@ def test_a_new_short_form_clears_the_listing(project, gfolder, capsys):
 # --- keeping the wording (C71) ---
 
 def test_accept_keeps_the_wording(project, gfolder, capsys):
+    today = datetime.date.today()
     m = worse_lesson("Failing lesson.")
     assert queue(curated(capsys, "--global")) and "Got worse:" in shown(capsys, "session-index")
     out = shown(capsys, "triage", "accept", f"m:{m.handle}")
     assert out.strip() == f"m:{m.handle}\tkept as worded"
     kept = reload(m)
-    assert kept.reviewed == datetime.date.today() and kept.triage is None
+    assert kept.reviewed == today and kept.triage is None
     assert queue(curated(capsys, "--global")) is None and "Got worse" not in shown(capsys, "session-index")
-    later = [records.case_entry(ago(-1), "session u", "failed"), records.case_entry(ago(-2), "session v", "failed")]
-    records.update(kept, datetime.date.today(), log=[*kept.log, *later])
+    later = [records.case_entry(today + datetime.timedelta(days=1), "session u", "failed"),
+             records.case_entry(today + datetime.timedelta(days=2), "session v", "failed")]
+    records.update(kept, TODAY, log=[*kept.log, *later])
     assert queue(curated(capsys, "--global")) and "Got worse:" in shown(capsys, "session-index")
 
 
 def test_accept_of_a_pending_lesson_is_as_before(project, gfolder, capsys):
     m = worse_lesson("Waiting lesson.")
-    records.update(m, datetime.date.today(), owner_confirmed=None, triage="pending")
+    records.update(m, TODAY, owner_confirmed=None, triage="pending")
     out = shown(capsys, "triage", "accept", f"m:{m.handle}")
     assert out.strip() == f"m:{m.handle}\taccepted"
     after = reload(m)
@@ -716,16 +723,17 @@ def test_accept_of_a_lesson_that_is_neither_keeps_its_error(project, gfolder, ca
 
 
 def test_accept_on_a_project_lesson_needs_the_flag(project, gfolder, capsys):
+    today = datetime.date.today()
     write("Project failing lesson.", short="First text.", scope="project")
     [m] = records.load_memories(project / ".memory", "project")
-    records.update(m, datetime.date.today(), versions=[records.version_entry(ago(10), "First text.")],
+    records.update(m, TODAY, versions=[records.version_entry(ago(10), "First text.")],
                    log=[records.case_entry(ago(5), "session q", "failed"), records.case_entry(ago(4), "session r", "failed")])
     capsys.readouterr()
     assert mem.main(["triage", "accept", f"m:{m.handle}"]) == 2
     assert f"no memory named m:{m.handle}" in capsys.readouterr().err
     out = shown(capsys, "triage", "accept", f"m:{m.handle}", "--project-scope")
     assert out.strip() == f"m:{m.handle}\tkept as worded"
-    assert records.load_memories(project / ".memory", "project")[0].reviewed == datetime.date.today()
+    assert records.load_memories(project / ".memory", "project")[0].reviewed == today
 
 
 def test_restore_undoes_the_accept(project, gfolder, capsys):
@@ -734,3 +742,135 @@ def test_restore_undoes_the_accept(project, gfolder, capsys):
     assert reload(m).reviewed is not None
     shown(capsys, "restore", f"m:{m.handle}")
     assert reload(m).reviewed is None
+
+
+# --- end-review fixes ---
+
+def test_a_merged_log_has_one_entry_per_session_and_outcome(tmp_path):
+    keep = records.replace(transcript(tmp_path), log=["2026-11-22 session s1 failed", "2026-11-22 session s2 seen"])
+    drop = records.replace(keep, log=["2026-11-20 session s1 failed", "2026-11-21 session s2 failed",
+                                      "2026-11-23 session s3 seen"])
+    assert records.merged_log(keep, drop) == ["2026-11-20 session s1 failed", "2026-11-21 session s2 failed",
+                                              "2026-11-23 session s3 seen"]
+    # the other way round: the earlier day still wins, and a `seen` goes when the session has another entry
+    assert records.merged_log(drop, keep) == records.merged_log(keep, drop)
+
+
+def test_merge_drops_a_seen_entry_beside_another_of_its_session(project, capsys):
+    keep = records.update(transcript(project), D1, log=["2026-11-22 session s1 failed"])
+    drop = records.write_memory(project / ".memory", "project", kind="lesson", claim="Run the linter before the tests soon.",
+                                body="", today=D1, origin="transcript", sources=[records.sighting_entry("session s9", KEY)])
+    drop = records.update(drop, D1, log=["2026-11-20 session s1 failed", "2026-11-21 session s1 seen"])
+    assert mem.main(["merge", f"m:{keep.handle}", f"m:{drop.handle}", "--force"]) == 0
+    capsys.readouterr()
+    kept = next(x for x in records.load_memories(project / ".memory", "project") if x.handle == keep.handle)
+    assert kept.log == ["2026-11-20 session s1 failed"]
+
+
+def test_confirm_needs_source_for_outcome_and_day(project):
+    m = transcript(project)
+    before = m.path.read_bytes()
+    for extra in (["--outcome", "failed"], ["--seen-on", "2026-11-20"], ["--outcome", "worked", "--seen-on", "2026-11-20"]):
+        done = run_mem(project, "confirm", f"m:{m.handle}", *extra)
+        assert done.returncode == 2 and "--source" in done.stderr and len(done.stderr.strip().splitlines()) == 1, done.stderr
+        assert done.stdout == "" and m.path.read_bytes() == before
+
+
+def test_remember_needs_source_for_outcome_and_day(project):
+    for extra in (["--outcome", "failed"], ["--seen-on", "2026-11-20"]):
+        done = run_mem(project, "remember", "--kind=lesson", "--claim=Brand new lesson.", *extra)
+        assert done.returncode == 2 and "--source" in done.stderr, done.stderr
+    assert records.load_memories(project / ".memory", "project") == []
+
+
+def test_a_case_cannot_be_dated_in_the_future(project):
+    tomorrow = (datetime.date.today() + datetime.timedelta(days=1)).isoformat()
+    m = transcript(project)
+    before = m.path.read_bytes()
+    done = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--outcome", "failed",
+                   "--seen-on", tomorrow)
+    assert done.returncode == 2 and "--seen-on" in done.stderr and m.path.read_bytes() == before
+    done = run_mem(project, "remember", "--kind=lesson", f"--claim={m.claim}", "--origin", "transcript",
+                   "--source", "session s2", "--outcome", "failed", "--seen-on", tomorrow)
+    assert done.returncode == 2 and "--seen-on" in done.stderr and m.path.read_bytes() == before
+    today = datetime.date.today().isoformat()
+    assert run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--seen-on", today).returncode == 0
+
+
+def test_confirm_with_a_new_case_and_until_says_both(project):
+    m = transcript(project)
+    m, _ = records.add_sighting(m, f"session s2 project {KEY}", D1, outcome="seen")
+    until = "2099-01-01"
+    first = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--outcome", "failed",
+                    "--until", until)
+    assert first.returncode == 0, first.stderr
+    assert first.stdout == f"m:{m.handle}\tcase failed added; valid until {until}\n"
+    got = reload(m)
+    assert got.valid_until == datetime.date(2099, 1, 1) and got.log[-1].endswith("session s2 failed")
+    # no new case: the message and the exit code stay
+    again = run_mem(project, "confirm", f"m:{m.handle}", "--source", "session s2", "--outcome", "failed",
+                    "--until", until)
+    assert again.returncode == 3 and again.stdout == f"m:{m.handle}\tsession s2 is already a source; valid until {until}\n"
+
+
+def test_failed_after_it_loaded_skips_what_never_loads(project, gfolder, capsys):
+    no, index, pending, held = (worse_lesson(c) for c in ("Lesson that never loads.", "Lesson that is index only.",
+                                                         "Lesson that awaits triage.", "Lesson in quarantine."))
+    records.update(no, TODAY, load="no")
+    records.update(index, TODAY, load="index")
+    records.update(pending, TODAY, owner_confirmed=None, triage="pending")
+    records.update(held, TODAY, sources=[held.sources[0]], owner_confirmed=None)
+    assert "Failed after it loaded" not in shown(capsys, "rules")
+
+
+def test_failed_after_it_loaded_names_one_left_out_by_the_cap(project, gfolder, capsys):
+    for i in range(rules.RULES_MAX):
+        write(f"Strong lesson number {i}.", short=f"Strong rule {i}.", weight="strong")
+    m = worse_lesson("Failing lesson.")
+    out = shown(capsys, "rules")
+    assert out.split("Failed after it loaded:\n")[1] == f"m:{m.handle}\tversion 1: worked 0, failed 2\n"
+
+
+def test_curate_says_rules_off_instead_of_loaded(project, gfolder, capsys, monkeypatch):
+    m = worse_lesson("Failing lesson.")
+    monkeypatch.setenv("MEM_LOADED_RULES", "off")
+    assert queue(curated(capsys, "--global"))[1] == f"  m:{m.handle}  rules off  Failing lesson."
+
+
+def test_the_project_scope_flag_refuses_a_global_lesson(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.")
+    capsys.readouterr()
+    assert mem.main(["triage", "accept", f"m:{m.handle}", "--project-scope"]) == 2
+    assert f"no memory named m:{m.handle}" in capsys.readouterr().err
+    assert reload(m).reviewed is None
+    # the same handle in both scopes: the flag picks the project one
+    write("Failing lesson.", short="First text.", scope="project")
+    [mine] = records.load_memories(project / ".memory", "project")
+    records.update(mine, TODAY, versions=[records.version_entry(ago(10), "First text.")], log=list(m.log))
+    assert shown(capsys, "triage", "accept", f"m:{mine.handle}", "--project-scope").strip().endswith("kept as worded")
+
+
+def test_a_second_accept_on_the_same_day_is_refused(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.")
+    shown(capsys, "triage", "accept", f"m:{m.handle}")
+    capsys.readouterr()
+    assert mem.main(["triage", "accept", f"m:{m.handle}"]) == 2
+    assert "was already accepted or never awaited triage" in capsys.readouterr().err
+
+
+def test_add_sighting_of_a_counted_session_with_the_same_outcome_writes_nothing(tmp_path):
+    m, _ = records.add_sighting(transcript(tmp_path), "session s2", D1, outcome="failed")
+    before = m.path.read_bytes()
+    got, new = records.add_sighting(reload(m), "session s2", D2, outcome="failed")
+    assert not new and got.path.read_bytes() == before
+
+
+def test_a_counted_session_that_gains_a_project_keeps_its_log(tmp_path, monkeypatch):
+    m = transcript(tmp_path, project=None)
+    m, _ = records.add_case(m, "session s1", D1, "failed", D1)
+    writes = []
+    real = records.update
+    monkeypatch.setattr(records, "update", lambda *a, **k: writes.append(1) or real(*a, **k))
+    got, new = records.add_sighting(m, f"session s1 project {KEY}", D2, outcome="failed")
+    assert new and len(writes) == 1
+    assert got.sources == [f"session s1 project {KEY}"] and got.log == ["2026-11-20 session s1 failed"]

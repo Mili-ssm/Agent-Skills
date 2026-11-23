@@ -245,9 +245,11 @@ def _oldest(lessons: Sequence[Lesson]) -> Lesson:
 
 
 def _cases_of(lessons: Sequence[Lesson], sessions: set[str]) -> list[str]:
-    """The raw `log` entries of `lessons` whose case is for one of `sessions`, each once, in order."""
+    """The raw `log` entries of `lessons` whose case is for one of `sessions`, each once, by date (stable): of two
+    records' entries for one session and outcome, the earlier is applied first."""
     found = ((e, records.case(e)) for y in lessons for e in y.memory.log)
-    return list(dict.fromkeys(e for e, c in found if c and c.session in sessions))
+    wanted = {e: c for e, c in found if c and c.session in sessions}
+    return sorted(wanted, key=lambda e: wanted[e].on)
 
 
 def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:

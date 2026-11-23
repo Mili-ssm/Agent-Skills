@@ -1784,3 +1784,14 @@ def test_a_failed_case_call_still_counts_the_sighting(w):
     assert run(w, corr=broken).returncode == 0
     line = log_lines(w)[-1]
     assert (line["sightings"], line["failed_actions"]) == (1, 1)
+
+
+def test_a_failed_case_call_after_a_global_write_still_counts_the_write(w):
+    _with_log(w, w.pa, BRIEF, "s1", ["2026-11-20 session s1 failed"])
+    _with_log(w, w.pb, BRIEF2, "s2", ["2026-11-21 session s2 worked"])
+    model(w, [group(ident(w, "Brief the subagent"), ident(w, "Give a subagent"))])
+    broken = fake_plugin(w, 'if [ "$1" = confirm ]; then echo boom >&2; exit 2; fi')
+    assert run(w, corr=broken).returncode == 0
+    line = log_lines(w)[-1]
+    assert len(globals_(w)) == 1   # the record exists
+    assert (line["written"], line["failed_actions"]) == (1, 1)

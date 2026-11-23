@@ -439,6 +439,8 @@ class Applier:
                 if done is not None and done.returncode in (0, 3) and first and first[0].startswith("m:"):
                     cases_ok = self.add_cases(first[0], a.entries, a.cases)
                 self.journal.commit("write_global", before, self.gfolder)
+                if not cases_ok and done is not None and done.returncode == 0 and first and first[0].startswith("m:"):
+                    self.counts["written"] += 1   # the record exists, though a case call failed
                 if done is None or not cases_ok:
                     return self.fail()
                 if done.returncode == 0 and first and first[0].startswith("m:"):
