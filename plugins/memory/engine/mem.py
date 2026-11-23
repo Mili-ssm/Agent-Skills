@@ -3157,10 +3157,16 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             stats.update(rules=0, rules_left=0, rules_chars=0)
     elif choice is not None:
         try:
-            extra = rules.block(choice, _rules_layout())
-            more = rules.more_line(choice)
-            if more:
-                extra.append(more)
+            layout = _rules_layout()
+            digest, topics = _rules_digest(loaded_global, today)
+            try:
+                extra = rules.block(choice, layout, digest=digest, topics=topics)
+                extra += rules.index_lines(choice, digest=digest, topics=topics)
+            except Exception:  # a failure in the digest leaves the block without it
+                extra = rules.block(choice, "grouped" if layout == "digest" else layout)
+                more = rules.more_line(choice)
+                if more:
+                    extra.append(more)
             if stats is not None:
                 stats.update(rules=len(choice.loaded), rules_left=len(rules.not_fitted(choice)), rules_chars=len("\n".join(extra)))
         except Exception:
@@ -4390,8 +4396,19 @@ RULES_OFF_NOTICE = "Loaded rules are switched off (plugin option loaded_rules): 
 
 
 def _rules_layout(arg: str | None = None) -> str:
-    """`--layout` wins, then MEM_RULES_LAYOUT (set by the hooks from the option rules_layout); only `grouped` switches."""
-    return arg or ("grouped" if os.environ.get("MEM_RULES_LAYOUT") == "grouped" else "flat")
+    """`--layout` wins, then MEM_RULES_LAYOUT (set by the hooks from the option rules_layout); only `grouped` and `digest` switch."""
+    env = os.environ.get("MEM_RULES_LAYOUT")
+    return arg or (env if env in ("grouped", "digest") else "flat")
+
+
+def _rules_digest(global_lessons: list[records.Memory], today: datetime.date) -> tuple[dict | None, dict | None]:
+    """The digest file and the topics it may speak for, (None, None) when either cannot be read: callers then print without it."""
+    try:
+        import digest
+        data = digest.read(data_dir(os.environ))
+        return (data, digest.topics_of(global_lessons, today)) if data["topics"] else (None, None)
+    except Exception:
+        return None, None
 
 
 def _rules_off() -> bool:
@@ -4466,11 +4483,12 @@ def cmd_rules(args: argparse.Namespace) -> int:
         if choice.unready:
             print(unready)
         return 0
-    lines = rules.block(choice, _rules_layout(args.layout))
+    digest, topics = _rules_digest(global_, today)
+    lines = rules.block(choice, _rules_layout(args.layout), digest=digest, topics=topics)
     print("\n".join(lines) if lines else "No rules loaded.")
-    more = rules.more_line(choice)
-    if more:  # also alone: index-only lessons are reachable when no rule loads
-        print(more)
+    index = rules.index_lines(choice, digest=digest, topics=topics)
+    if index:  # also alone: index-only lessons are reachable when no rule loads
+        print("\n".join(index))
     if not lines and choice.unready:
         print(unready)
     failed = [(m, words) for m in [*choice.loaded, *(m for m, why in choice.left if why == rules.OVER)]

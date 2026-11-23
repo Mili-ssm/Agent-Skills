@@ -442,7 +442,7 @@ def test_remember_of_a_known_claim_adds_a_case_to_a_counted_session(project):
 
 # --- the record is shown (C69) ---
 
-from test_rules_session import K1, gfolder, write  # noqa: E402,F401
+from test_rules_session import FIT, K1, gfolder, pad, write  # noqa: E402,F401
 
 
 TODAY = datetime.date.today()   # read once: the helpers below derive every date from it
@@ -458,9 +458,9 @@ def shown(capsys, *argv):
     return capsys.readouterr().out
 
 
-def global_lesson(claim, versions=(), log=()):
+def global_lesson(claim, versions=(), log=(), short="First text."):
     """A loaded global lesson whose versions and log are set by hand: versions (days ago, text), log (days ago, outcome)."""
-    write(claim, short="First text.")
+    write(claim, short=short)
     [m] = [x for x in records.load_memories(Path(os.environ["MEM_MEMORIES"]), "global") if x.claim == claim]
     changes = {"versions": [records.version_entry(ago(n), t) for n, t in versions] or None,
                "log": [records.case_entry(ago(n), f"session z{i}", o) for i, (n, o) in enumerate(log)] or None}
@@ -506,8 +506,8 @@ def test_rules_names_a_lesson_that_failed_and_the_block_is_unchanged(project, gf
 
 
 def test_rules_more_has_the_column(project, gfolder, capsys):
-    for i in range(rules.RULES_MAX + 4):
-        global_lesson(f"Lesson number {i}.", versions=[(10, "First text.")],
+    for i in range(FIT + 4):
+        global_lesson(f"Lesson number {i}.", versions=[(10, "First text.")], short=pad(f"Rule {i}."),
                       log=[(5, "failed" if i % 2 else "worked")])
     rows = [x.split("\t") for x in shown(capsys, "rules", "--more").splitlines() if x.startswith("m:")]
     assert len(rows) >= 2 and all(len(r) == 7 for r in rows)
@@ -608,8 +608,8 @@ def test_a_lesson_that_does_not_load_is_not_listed(project, gfolder, capsys):
 
 
 def test_a_lesson_left_out_by_the_cap_is_listed_as_such(project, gfolder, capsys):
-    for i in range(rules.RULES_MAX):
-        write(f"Strong lesson number {i}.", short=f"Strong rule {i}.", weight="strong")
+    for i in range(FIT):   # FIT lines of the same size leave less than one short line of room
+        write(f"Strong lesson number {i}.", short=pad(f"Strong rule {i}."), weight="strong")
     m = worse_lesson("Failing lesson.")
     out = queue(curated(capsys, "--global"))
     assert out[1] == f"  m:{m.handle}  left out by the cap  Failing lesson."
@@ -824,8 +824,8 @@ def test_failed_after_it_loaded_skips_what_never_loads(project, gfolder, capsys)
 
 
 def test_failed_after_it_loaded_names_one_left_out_by_the_cap(project, gfolder, capsys):
-    for i in range(rules.RULES_MAX):
-        write(f"Strong lesson number {i}.", short=f"Strong rule {i}.", weight="strong")
+    for i in range(FIT):   # FIT lines of the same size leave less than one short line of room
+        write(f"Strong lesson number {i}.", short=pad(f"Strong rule {i}."), weight="strong")
     m = worse_lesson("Failing lesson.")
     out = shown(capsys, "rules")
     assert out.split("Failed after it loaded:\n")[1] == f"m:{m.handle}\tversion 1: worked 0, failed 2\n"

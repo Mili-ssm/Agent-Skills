@@ -9,7 +9,7 @@ import rules
 from test_case_log import (CATEGORY, FAILS, TODAY, ago, curated, global_lesson, queue, reload, shown,  # noqa: F401
                            worse_lesson)
 from test_case_log import project  # noqa: F401  (fixtures)
-from test_rules_session import gfolder  # noqa: F401
+from test_rules_session import FIT, gfolder, pad  # noqa: F401
 
 
 def edit(*argv):
@@ -343,13 +343,13 @@ def test_a_changed_lesson_and_a_failed_edit_count_nothing(project, gfolder, word
 
 
 def test_a_lesson_cut_only_by_the_cap_is_a_candidate(project, gfolder):
-    for n in range(rules.RULES_MAX):   # these rank first: the vouched-for strong lessons
-        m = global_lesson(f"Filler lesson number {n}.", versions=[(10, "First text.")])
+    for n in range(FIT):   # these rank first: the vouched-for strong lessons; FIT lines of 132 characters leave 32, less than a line of "First text."
+        m = global_lesson(f"Filler lesson number {n}.", versions=[(10, "First text.")], short=pad(f"Filler {n}."))
         records.update(m, TODAY, weight="strong")
     late = worse("Late lesson.")
     glob = [m for m in records.load_memories(os_gmem(), "global")]
     choice = rules.choose([], glob, TODAY)
-    assert [m.claim for m, why in choice.left if why == rules.OVER] == ["Late lesson."] and len(choice.loaded) == rules.RULES_MAX
+    assert [m.claim for m, why in choice.left if why == rules.OVER] == ["Late lesson."] and len(choice.loaded) == FIT
     assert candidates() == ["Late lesson."] and late.claim == "Late lesson."
 
 

@@ -4,6 +4,18 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-24
+
+### Added
+
+- The option value `rules_layout: digest` (and `mem rules --layout digest`) prints the loaded lessons under a heading per topic that says when it applies, with a line for each global lesson written for that heading. Off by default; where a text is missing or stale the short form or the bare topic prints, so nothing breaks. Nothing to migrate.
+- `mem-corroborate digest [--dry-run] [--sheet FILE]` writes those texts with two small-model sessions (one writes, one checks each line against its lesson); with `rules_layout: digest`, `auto_capture` on and loaded rules on, the background pass runs it. It changes no lesson.
+- The index line after the rules names what each topic is about when the topic has a heading.
+
+### Changed
+
+- Lessons that load at session start are no longer limited in number: they fill up to 3200 characters of rule lines (was 16 lessons and 2400 characters), and the index line of the lessons left out may take up to 1600 characters (was 200), so it names more topics. Nothing has to be done; the session start text can be longer.
+
 ## [0.8.0] - 2026-11-23
 
 ### Added
