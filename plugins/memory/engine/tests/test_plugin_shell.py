@@ -395,7 +395,8 @@ def test_session_end_returns_before_commit_finishes(tmp_path):
 def test_session_end_commits_before_auto_runs(tmp_path):
     root, env, order = _stub_plugin(tmp_path, 1)
     subprocess.run([str(root / "hooks" / "session-end.sh")], input="{}", env=env, capture_output=True, text=True)
-    assert _wait_lines(order, 3) == ["commit", "auto", "settle"]
+    calls = _wait_lines(order, 3)   # auto and settle start together, in no fixed order
+    assert calls[0] == "commit" and sorted(calls[1:]) == ["auto", "settle"]
 
 
 def test_plugin_declares_auto_capture():
