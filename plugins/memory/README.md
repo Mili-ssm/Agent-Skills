@@ -9,7 +9,7 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 
 ## Requirements
 
-[`uv`](https://docs.astral.sh/uv/) on the path. Without it `mem` exits 127.
+[`uv`](https://docs.astral.sh/uv/) on the path. Without it `mem` exits 127. `bin/mem` runs the engine through a small launcher so Python caches the compiled engine; with a read-only plugin folder it still works, compiling each time.
 
 ## Two kinds of record, two scopes
 
@@ -76,7 +76,7 @@ The queue's categories: pairs of the same project's state memories are listed ap
 
 ## Automatic curation (off by default)
 
-Plugin option `auto_curation` (exactly `true` turns it on; any other value is off). **What starts it:** the `SessionEnd` hook, after its commit, starts `bin/mem-auto run` detached (it outlives the session; the claude binary is `CLAUDE_CODE_EXECPATH`, `claude` on `PATH`, or the hook's parent process). The run counts the global memories and notes written since the last run ended (so its own edits do not count) or the last curation pass (`mem curate --new-since`; an edit counts) and goes on only when the count reaches `auto_curation_threshold` (default 10); right after a run the count is 0.
+Plugin option `auto_curation` (exactly `true` turns it on; any other value is off). **What starts it:** the `SessionEnd` hook starts one detached wrapper that runs `mem history commit`, then `bin/mem-auto run` (the claude binary is `CLAUDE_CODE_EXECPATH`, `claude` on `PATH`, or the hook's parent process; the wrapper outlives the session). The run counts the global memories and notes written since the last run ended (so its own edits do not count) or the last curation pass (`mem curate --new-since`; an edit counts) and goes on only when the count reaches `auto_curation_threshold` (default 10); right after a run the count is 0.
 
 **What it does:** takes the store-wide run lock first (one run at a time; while it holds it, `mem curate --done` does not trim logs and the session-end hook does not commit), writes status `running`, runs the `memory-curator` in apply mode (only `mem curate apply --safe` changes anything) and then `mem-synthesize` for store topics with 8 notes or more and no synthesis. The last step of `mem-synthesize` adds inline note references to each synthesis it wrote (one read-only Haiku session, about 0.05 USD; `mem-synthesize --no-references` skips it, `mem-synthesize --backfill` adds them to existing syntheses, `mem restore s:<handle>` undoes them). Hooks are off in its sessions, so they cannot start another run. It never records `mem curate --done`.
 
@@ -100,7 +100,7 @@ Plugin option `auto_curation` (exactly `true` turns it on; any other value is of
 
 ### Automatic settling (off by default; not yet measured)
 
-Plugin option `auto_settle` (exactly `true` turns it on) and `auto_settle_minutes` (least time between runs, default 30). **What starts it:** the `SessionStart` hook exports `MEM_SETTLE_AUTO`, `MEM_SETTLE_MINUTES` and `MEM_SETTLE_CLAUDE` (the claude binary) to the session's shell commands and creates the settle state, so the first write is not taken as already judged. A `mem remember` or `mem memory edit` of a global memory then checks `mem settle due` (one state file) and, when it is due, starts `bin/mem-settle run` detached; the write is never delayed or failed by it. Without those variables nothing starts, so trials and tests never trigger it; records written with `--origin pipeline` never trigger. The `SessionEnd` hook starts the same run with `--minutes 0` for what is left.
+Plugin option `auto_settle` (exactly `true` turns it on) and `auto_settle_minutes` (least time between runs, default 30). **What starts it:** the `SessionStart` hook exports `MEM_SETTLE_AUTO`, `MEM_SETTLE_MINUTES` and `MEM_SETTLE_CLAUDE` (the claude binary) to the session's shell commands and creates the settle state, so the first write is not taken as already judged. A `mem remember` or `mem memory edit` of a global memory then checks `mem settle due` (one state file) and, when it is due, starts `bin/mem-settle run` detached; the write is never delayed or failed by it. Without those variables nothing starts, so trials and tests never trigger it; records written with `--origin pipeline` never trigger. The same detached `SessionEnd` wrapper starts `bin/mem-settle run --minutes 0` for what is left, after the history commit and beside `mem-auto`.
 
 **What it does:** one run at a time (a second exits silently); `mem settle pending` writes the pairs to a work folder, and with none the run ends without a model. Otherwise one Haiku session (effort medium, budget `--budget`, default 0.25 USD) reads the pairs and writes `verdicts.json`. It has no Bash, because a session with `Bash(mem *)` could run any `mem` command and bypass the limits `mem settle apply` enforces; Python applies the file. A session that fails, has no cost report or leaves no valid list changes nothing and is a failure; a failed run waits `--minutes` before the next. It never reads or writes the `mem-auto` status.
 
@@ -273,9 +273,26 @@ A knowledge note of origin `experience` (the owner's own experiments) is never c
 
 No model session has a shell, and text from the web is data that no later step executes. The run never reads or writes the `mem-auto` or settling status. **Where to look:** every run keeps a folder `<state folder>/research/<id>/runs/<stamp>-<pid>/` (mode 0700, kept 30 days) with each step's brief, stream and files, `events.json` (the web session's queries and URLs), `check.json`, `apply.json`, `report.txt` and `status.json`. When the budget or the time is passed the run stops and reports what it has. `--allow-host` exists for a local test page. **Measured** (stage 1b trial of 2026-11-18, in the plan's Results): no wrong mark in 20 notes, 6 of 12 real notes confirmed, 0.32 USD for 4 runs. The `memory-researcher` agent has no web tools and runs this command for what the memory does not cover (that change to its body is not measured).
 
+## Session start lines about the store
+
+Besides the rules and the curation lines above, the session start text adds up to two lines about the store, each only when its count is above zero (singular: `1 changed note`, `1 note is past its review date`).
+
+| Line | Means | Do |
+|---|---|---|
+| `History: N changed notes held back from the last commit: run mem check.` | The last history commit left out notes that fail `mem check` | Run `mem check` and fix what it reports; the next commit takes the note |
+| `Re-read due: N notes are past their review date: mem review.` | Notes due for re-testing (llm knowledge) plus notes due for re-reading (web literature), as `mem review` lists them; refreshed once a day | Run `mem review`, then re-read or re-test the notes that touch the task |
+
 ## History
 
-A store can keep a git history of its own: `mem history init` makes it a local repository (its `.gitignore` keeps out the `.curation-log` files, `.sources/` downloads, `research/*/data/` and files over 5 MB). `mem` commits at three points only, never per command and never through an agent: when a curation pass ends (`mem curate --done`), at session end (a `SessionEnd` hook starts it detached, so it finishes after the hook returns; bounded to 30 seconds), and on `mem history commit [-m TEXT]`. A changed note that fails `mem check` is held back, not committed: the other notes are, the held-back path stays in the working tree and is listed in `.git/mem-held-back`, and `mem history commit` prints `held back: <path>` on stderr; the next commit takes the note once `mem check` passes. While notes are held back the session start text carries `History: N changed notes held back from the last commit: run mem check.`; when llm notes are past their review date it carries `Re-read due: N notes are past their review date: mem review.` (count refreshed once a day); each line appears only when its count is above zero. `mem history` lists the commits. After `curate --done` commits, curation-log entries older than 30 days are trimmed inside the store (never in a project's `.memory/`, never in a store without git). `mem restore` stays the undo for recent changes; for older ones, git holds the state at each commit point, and states between two commit points older than 30 days are not kept. A remote for backup comes later.
+A store can keep a git history of its own: `mem history init` makes it a local repository (its `.gitignore` keeps out the `.curation-log` files, `.sources/` downloads, `research/*/data/` and files over 5 MB). `mem` commits at three points only, never per command and never through an agent:
+
+| Point | When | Held back |
+|---|---|---|
+| Curation | `mem curate --done` ends a pass | A changed note that fails `mem check` |
+| Session end | A `SessionEnd` hook starts a detached wrapper that runs `mem history commit` (bounded to 30 seconds) after the hook returns, then the automatic runs | Same |
+| By hand | `mem history commit [-m TEXT]` | Same |
+
+A held-back note is not committed: the other notes are, its path stays in the working tree and is listed in `.git/mem-held-back`, and `mem history commit` prints `held back: <path>` on stderr; the next commit takes the note once `mem check` passes. The session start lines are in the table above. `mem history` lists the commits. After `curate --done` commits, curation-log entries older than 30 days are trimmed inside the store (never in a project's `.memory/`, never in a store without git). `mem restore` stays the undo for recent changes; for older ones, git holds the state at each commit point, and states between two commit points older than 30 days are not kept. A remote for backup comes later.
 
 ## Use
 
