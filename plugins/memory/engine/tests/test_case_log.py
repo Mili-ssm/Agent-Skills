@@ -681,3 +681,56 @@ def test_a_new_short_form_clears_the_listing(project, gfolder, capsys):
     shown(capsys, "memory", "edit", m.handle, "--global", "--short", "Better text.")
     assert queue(curated(capsys, "--global")) is None
     assert len([x for x in shown(capsys, "show", f"m:{m.handle}").splitlines() if x.startswith("version ")]) == 2
+
+
+# --- keeping the wording (C71) ---
+
+def test_accept_keeps_the_wording(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.")
+    assert queue(curated(capsys, "--global")) and "Got worse:" in shown(capsys, "session-index")
+    out = shown(capsys, "triage", "accept", f"m:{m.handle}")
+    assert out.strip() == f"m:{m.handle}\tkept as worded"
+    kept = reload(m)
+    assert kept.reviewed == datetime.date.today() and kept.triage is None
+    assert queue(curated(capsys, "--global")) is None and "Got worse" not in shown(capsys, "session-index")
+    later = [records.case_entry(ago(-1), "session u", "failed"), records.case_entry(ago(-2), "session v", "failed")]
+    records.update(kept, datetime.date.today(), log=[*kept.log, *later])
+    assert queue(curated(capsys, "--global")) and "Got worse:" in shown(capsys, "session-index")
+
+
+def test_accept_of_a_pending_lesson_is_as_before(project, gfolder, capsys):
+    m = worse_lesson("Waiting lesson.")
+    records.update(m, datetime.date.today(), owner_confirmed=None, triage="pending")
+    out = shown(capsys, "triage", "accept", f"m:{m.handle}")
+    assert out.strip() == f"m:{m.handle}\taccepted"
+    after = reload(m)
+    assert after.triage is None and after.reviewed is None and "reviewed" not in m.path.read_text()
+
+
+def test_accept_of_a_lesson_that_is_neither_keeps_its_error(project, gfolder, capsys):
+    m = global_lesson("Fine lesson.", versions=[(10, "First text.")], log=[(5, "failed")])
+    capsys.readouterr()
+    assert mem.main(["triage", "accept", f"m:{m.handle}"]) == 2
+    assert "was already accepted or never awaited triage" in capsys.readouterr().err
+    assert reload(m).reviewed is None
+
+
+def test_accept_on_a_project_lesson_needs_the_flag(project, gfolder, capsys):
+    write("Project failing lesson.", short="First text.", scope="project")
+    [m] = records.load_memories(project / ".memory", "project")
+    records.update(m, datetime.date.today(), versions=[records.version_entry(ago(10), "First text.")],
+                   log=[records.case_entry(ago(5), "session q", "failed"), records.case_entry(ago(4), "session r", "failed")])
+    capsys.readouterr()
+    assert mem.main(["triage", "accept", f"m:{m.handle}"]) == 2
+    assert f"no memory named m:{m.handle}" in capsys.readouterr().err
+    out = shown(capsys, "triage", "accept", f"m:{m.handle}", "--project-scope")
+    assert out.strip() == f"m:{m.handle}\tkept as worded"
+    assert records.load_memories(project / ".memory", "project")[0].reviewed == datetime.date.today()
+
+
+def test_restore_undoes_the_accept(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.")
+    shown(capsys, "triage", "accept", f"m:{m.handle}")
+    assert reload(m).reviewed is not None
+    shown(capsys, "restore", f"m:{m.handle}")
+    assert reload(m).reviewed is None

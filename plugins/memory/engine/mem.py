@@ -3837,8 +3837,9 @@ def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
 
 
 def cmd_triage(args: argparse.Namespace) -> int:
-    """Accept or reject a general lesson that left quarantine; both act on the global scope."""
-    args.is_global = True
+    """Accept or reject a general lesson that left quarantine, on the global scope; accept also keeps the wording
+    of a lesson that got worse, and with --project-scope that lesson may be a project one."""
+    args.is_global = not getattr(args, "project_scope", False)
     because = None
     if args.triage_command == "hold":
         because = " ".join((args.because or "").split())
@@ -3859,6 +3860,10 @@ def cmd_triage(args: argparse.Namespace) -> int:
             return [f"m:{m.handle}\theld"]
         if m.status != "active":
             raise ValueError(f"m:{m.handle} is {m.status}: only an active general lesson awaits triage")
+        if args.triage_command == "accept" and m.triage != "pending" and records.got_worse(m):
+            records.log_before(m, "triage")
+            records.update(m, today, reviewed=today)
+            return [f"m:{m.handle}\tkept as worded"]
         if m.triage != "pending":
             if records.quarantined(m):
                 raise ValueError(f"m:{m.handle} is still in quarantine: it leaves quarantine when seen in a second "
@@ -6658,6 +6663,9 @@ def build_parser() -> argparse.ArgumentParser:
                                   "its project records are marked so they are not promoted again")):
         triage_verb = triage_sub.add_parser(verb, help=text, description=f"{verb.capitalize()}: {text}.")
         triage_verb.add_argument("handle", metavar="m:HANDLE")
+        if verb == "accept":
+            triage_verb.add_argument("--project-scope", dest="project_scope", action="store_true",
+                                     help="keep the wording of a project lesson that got worse")
     triage_parser.set_defaults(func=cmd_triage)
     memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
     merge_parser = memory_command("merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop")
