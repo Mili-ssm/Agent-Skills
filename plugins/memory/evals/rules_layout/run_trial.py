@@ -30,7 +30,10 @@ PLUGIN = trial_env.PLUGIN
 REPO = trial_env.REPO
 MEM = PLUGIN / "bin" / "mem"
 PROMPT = "greet.py prints a misspelled greeting. Fix it and commit the change."
-TOOLS = ["Read", "Edit", "Write", "Bash(./check.sh)", "Bash(git *)", "Bash(python3 greet.py)"]
+TOOLS = ["Read", "Edit", "Write", "Bash(./check.sh*)", "Bash(bash check.sh*)", "Bash(sh check.sh*)", "Bash(git *)",
+         "Bash(python3 greet.py*)", "Bash(python greet.py*)", "Bash(echo *)", "Bash(printf *)", "Bash(cat *)",
+         "Bash(ls*)", "Bash(tail *)", "Bash(head *)", "Bash(chmod +x check.sh)"]  # bounded: no Bash(*), no network, no rm
+MAX_VOID = 2  # a void run (a denial) is rerun once in its condition; more than two void runs stop the trial
 PER_RUN_USD = 0.25
 STOP_AFTER_FOUR_USD = 0.60
 PREFIX = re.compile(r"^(fix|feat|docs|chore)(\([^)]*\))?!?: ")
@@ -258,28 +261,36 @@ def real_run(args, work: Path, env: dict, rules: dict[str, Path]) -> int:
         return 3
     spent, rows = result_of(events).get("total_cost_usd") or 0.0, []
     plan = [(c, i) for i in range(1, args.runs + 1) for c in "FG"]
-    for n, (cond, i) in enumerate(plan):
-        if spent >= args.max_cost_usd:
-            print(f"STOP: cost {spent:.3f} reached the cap")
-            return 4
-        project = make_project(work, f"proj-{cond}{i}")
-        settings = write_settings(work, cond, rules["flat" if cond == "F" else "grouped"])
-        events, err = claude(args.claude, PROMPT, project, settings, env, args.model, out / f"trace-{cond}{i}.jsonl")
-        res = result_of(events)
-        row = {"condition": cond, "run": i, **score(events, project), "cost": res.get("total_cost_usd") or 0.0,
-               "denials": len(res.get("permission_denials") or []), "ok": res.get("subtype") == "success",
-               "trace": str(out / f"trace-{cond}{i}.jsonl")}
-        spent += row["cost"]
-        rows.append(row)
-        print(json.dumps(row))
-        with (out / "runs.jsonl").open("a") as f:
-            f.write(json.dumps(row) + "\n")
-        if row["denials"] or not row["ok"]:
-            print("STOP: a scored run has a permission denial or did not finish; no result is recorded")
-            return 5
-        if n == 3 and spent > STOP_AFTER_FOUR_USD:
-            print(f"STOP: cost {spent:.3f} after four runs")
-            return 4
+    void, started = [], 0
+    for cond, i in plan:
+        for attempt in (1, 2):
+            if spent >= args.max_cost_usd:
+                print(f"STOP: cost {spent:.3f} reached the cap")
+                return 4
+            tag = f"{cond}{i}" + ("" if attempt == 1 else "b")
+            project = make_project(work, f"proj-{tag}")
+            settings = write_settings(work, tag, rules["flat" if cond == "F" else "grouped"])
+            events, err = claude(args.claude, PROMPT, project, settings, env, args.model, out / f"trace-{tag}.jsonl")
+            res = result_of(events)
+            row = {"condition": cond, "run": i, "attempt": attempt, **score(events, project),
+                   "cost": res.get("total_cost_usd") or 0.0, "denials": len(res.get("permission_denials") or []),
+                   "ok": res.get("subtype") == "success", "trace": str(out / f"trace-{tag}.jsonl")}
+            row["void"] = bool(row["denials"]) or not row["ok"]
+            spent += row["cost"]
+            started += 1
+            print(json.dumps(row))
+            with (out / "runs.jsonl").open("a") as f:
+                f.write(json.dumps(row) + "\n")
+            if started == 4 and spent > STOP_AFTER_FOUR_USD:
+                print(f"STOP: cost {spent:.3f} after four runs")
+                return 4
+            if not row["void"]:
+                rows.append(row)
+                break
+            void.append(row)
+            if len(void) > MAX_VOID:
+                print("STOP: too many void runs (permission denial or unfinished); no result is recorded")
+                return 5
     after = snapshot(real_folders())
     changed = diff(before, after)
     (out / "checksums-after.json").write_text(json.dumps(after, indent=1))

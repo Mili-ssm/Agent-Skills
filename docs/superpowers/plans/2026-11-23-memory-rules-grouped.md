@@ -81,69 +81,20 @@ git commit -m "feat(memory): the loaded lessons can be printed under their topic
 **Files:**
 - Create: `plugins/memory/evals/rules_layout/run_trial.py` (the runner) and `plugins/memory/evals/rules_layout/README.md` (how to run it, what it costs)
 - Modify: `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md` (under `## [Unreleased]`), `docs/superpowers/plans/2026-11-17-memory-plugin.md` ("Current state and where to resume")
-- Modify: this file (`## Results`)
+- Modify: this file (`## Results
 
-**The protocol** (from "Measurement: loaded rules are followed (2026-11-22)" in [the handoff](2026-11-22-memory-loaded-rules-and-reminders.md); read that section first). No runner of it exists in the repository: this task writes one.
+**No figure is reported: both attempts stopped on void runs (2026-11-23).** Runner: `plugins/memory/evals/rules_layout/run_trial.py`. The layout is **not measured**; the default stays `flat`, and changing it is the owner's decision.
 
-- A fresh git project made with `tempfile.mkdtemp()` outside this repository (a folder inside it would load this repository's instruction file), with `greet.py` printing a misspelled greeting, a `check.sh` the README does not mention, and a session start hook, given through a settings file of the run, that prints a rules file.
-- Isolation, checked before any model is called: the environment comes from `trial_env.make_env` (read `plugins/memory/evals/trial_env.py` and one runner, `plugins/memory/evals/routing/run_trials.py`); run `trial_env.self_check`; assert that every `MEM_*` folder resolves under the work folder; no user instruction file and no installed plugin may load in the trial session (the installed `memory` plugin would otherwise capture the trial as lessons of the owner). Take a checksum list of the owner's real memory folders and of the plugin's capture and corroboration logs before the trial and compare it after: they must be equal.
-- Tools allowed to the model, named explicitly: `Read`, `Edit`, `Write`, `Bash(./check.sh)`, `Bash(git *)`, `Bash(python3 greet.py)`, and a budget per run (`--max-budget-usd`). Keep the permission denials the result reports: a run with any denial is void and is not scored.
-- The prompt, the same in every run: "greet.py prints a misspelled greeting. Fix it and commit the change."
-- The rules file is produced by the engine itself: 16 lessons written into the temporary store in a form that loads (read `test_rules.py` for what a lesson needs to load), three of which leave a trace (run `./check.sh` before reporting and quote its last line; start the commit message with a type prefix; add a line to `NOTES.md`), each of the three under a different topic and none ranked first; the 13 others are unrelated lessons spread over four more topics. Condition F prints `mem rules --layout flat`, condition G `mem rules --layout grouped`, from the same store, with the temporary project as the working directory.
-- A canary run first, not scored: the hook's text ends with a line holding a random token and the prompt asks the model to repeat the token it was given at session start and to say whether it was given any instruction about `validate.py`. Go on only if the token comes back and the reply knows nothing of `validate.py`.
-- Model: Sonnet, headless. Three runs a condition. A cap on the cost of the whole trial of 1.00 USD.
-- Scored from the trace of each run, by code, each rule on its own: `check.sh` was run and its last line appears in the reply; the last commit message starts with a type prefix (`fix:`, `feat:`, `docs:`, `chore:`, with or without a scope); `NOTES.md` has a new line.
+| Item | First attempt | Second attempt |
+| --- | --- | --- |
+| Tool list | `Read`, `Edit`, `Write`, `Bash(./check.sh)`, `Bash(git *)`, `Bash(python3 greet.py)` | Widened after the first attempt, because that list came from the pre-mortem and the flags of the 2026-11-22 measure were never recorded: the bounded list of the protocol above |
+| Dry run, canary | Passed (token returned, no knowledge of `validate.py`, built-in plugins only) | Same |
+| Runs | F1: 1 denial, void; stopped (the rule then stopped at the first void) | F1: void; F1 rerun: void; G1: void; stopped at the third void (more than two) |
+| What was denied | One Bash call chaining a redirect, `>>`, `./check.sh` and `git commit` | Each time a compound command: `sed -i ... && echo ... >> NOTES.md && ./check.sh && git commit`, or `echo ... > greet.py && echo ... >> NOTES.md && ./check.sh`; the model chains the whole task into one call and a chain is denied when any part, or the redirect, is outside the list |
+| Cost | about 0.12 USD | about 0.26 USD (canary and three runs) |
+| Real folders | Global memories, `.memory/` and plugin state: checksums equal | Equal again |
+| Left behind | 3 Claude projects folders, removed | 4 folders (canary and three runs), removed |
 
-**What the trial can say.** Three runs on a task where every rule applies can show a collapse of the grouped block, not a benefit, and not equivalence. The result is worded as "no collapse seen on an easy task; a benefit was not measured" when both conditions follow the rules, in the results and in the README.
+Per-rule scores of the void runs are not reported: a void run is not scored. In the three void runs of the second attempt the model did fix, quote `check.sh`, prefix and write the line, but only after a denial.
 
-**Stop and record nothing when:** the canary fails; any scored run has a permission denial; the flat condition follows any of the three rules in fewer than 3 of 3 runs (the setup then differs from the measure of 2026-11-22: report it); the checksum of the real folders changes; or the cost passes 0.60 USD after four runs.
-
-- [x] **Step 1: Write the runner**
-
-`run_trial.py --runs 3 --max-cost-usd 1.00 --out <folder>` builds the project and the store, runs both conditions, and writes one JSON line per run (condition, the three scores, cost, the path of the saved trace) and a summary table. `--dry-run` builds everything and prints the two rules blocks without calling a model.
-
-- [x] **Step 2: Check it without a model**
-
-Run: `python3 plugins/memory/evals/rules_layout/run_trial.py --dry-run --out <tmp>`
-Expected: two blocks with the same 16 lessons, the second with seven headings; the three rules that leave a trace are in both and not first; the isolation assertions pass.
-
-- [x] **Step 3: Run the trial**
-
-Run it once with a real `claude`. The traces stay in the temporary folder; headless trials leave folders under the user's Claude projects directory that belong to the temporary project: remove those afterwards and say how many were removed.
-
-- [x] **Step 4: Record the figures**
-
-In `## Results`: the table of the six runs, the mean cost per condition, per rule, and the outcome worded as the protocol says. The default stays `flat` either way: the change of default is the owner's.
-
-- [x] **Step 5: Write the documents**
-
-README: the option and the two layouts, with the result of the measure and its limits (one task, one model, three runs). Changelog: one line for users. The resume section: where both plans of 2026-11-23 stand.
-
-- [x] **Step 6: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`**
-
-- [x] **Step 7: Commit**
-
-```bash
-git add plugins/memory docs
-git commit -m "docs(memory): the grouped block measured against the flat one, and where it stands"
-```
-
----
-
-## Results
-
-**No figure is reported: the trial stopped at its first scored run (2026-11-23).** Runner: `plugins/memory/evals/rules_layout/run_trial.py`.
-
-| Item | Outcome |
-| --- | --- |
-| Dry run | Two blocks with the same 16 lessons; the grouped one has seven headings; the three trace rules are in both and not first; isolation assertions pass |
-| Canary | Passed: the random token came back and the reply said it knew of no instruction about `validate.py`; the session reported only built-in plugins and no MCP server (cost about 0.05 USD) |
-| Run F1 | Permission denial: the model chained the edit, the `NOTES.md` line, `./check.sh` and the commit in one Bash call with redirects and `&&`, which the listed tools (`Bash(./check.sh)`, `Bash(git *)`, `Bash(python3 greet.py)`) do not allow; it redid the work with separate calls. By the protocol the run is void and nothing is scored |
-| Runs F2 to G3 | Not run |
-| Cost | Canary and F1 together about 0.12 USD, under the 1.00 cap |
-| Real folders | Checksums of the global memories folder, this repository's `.memory/` and the plugin's state folder equal before and after (no change in any) |
-| Left behind | Three folders under the Claude projects directory (canary and F1 of this run, and the canary of a first attempt whose canary check was too strict), removed |
-
-Why it stopped: the stop rule of the protocol (a permission denial in a scored run). The tool list is part of the protocol, so it was not widened. The denial says the setup, not the layout, needs a decision before a rerun: allow compound commands inside the throwaway project (for example `Bash(*)`), which departs from the measure of 2026-11-22, or keep the list and expect denials whenever the model chains commands.
-
-Outcome for the layout: **not measured.** The default stays `flat`; changing it is the owner's decision.
+What it would take: either a list that lets a chain pass (a stricter match is not available, so `Bash(*)` inside the throwaway project, which the coordinator ruled out), or a prompt that asks for one command per call, which changes the task. Both are the owner's call.
