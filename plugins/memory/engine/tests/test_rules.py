@@ -402,7 +402,7 @@ def test_flat_is_unchanged():
     choice = _ranked(("a", "testing"), ("b", None))
     today = [rules.HEADER, *map(rules.line, choice.loaded)]
     assert rules.block(choice) == today and rules.block(choice, "flat") == today
-    assert rules.block(choice, "nonsense") == today and rules.LAYOUTS == ("flat", "grouped")
+    assert rules.block(choice, "nonsense") == today and rules.LAYOUTS == ("flat", "grouped", "digest")
 
 
 def test_no_heading_when_nothing_loads():

@@ -16,6 +16,7 @@ HEADER = ("memory: lessons learned in earlier sessions. Apply them with judgment
           "not to, and mention a skipped one only when it matters to the user.")
 RULES_LIMIT = 3200
 INDEX_LIMIT = 1600
+HEADINGS_LIMIT = 800  # characters of topic headings printed; a heading is at most digest.HEADING_LIMIT
 TOPICS_NAMED = 4
 PROJECT_FIRST = 3
 OVER, PENDING, INDEX = "over the limit", "awaits triage", "index only"
@@ -86,23 +87,65 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
     return out
 
 
-LAYOUTS = ("flat", "grouped")
+LAYOUTS = ("flat", "grouped", "digest")
+
+
+def _by_topic(choice: Choice) -> dict[str, list[Memory]]:
+    groups: dict[str, list[Memory]] = {}
+    for m in choice.loaded:
+        groups.setdefault(m.topic or "other", []).append(m)
+    if "other" in groups:
+        groups["other"] = groups.pop("other")
+    return groups
 
 
 def grouped(choice: Choice) -> list[str]:
     """The loaded lessons under a `<topic>:` line each, topics in the order of their first lesson; no topic: `other:`, last."""
-    groups: dict[str, list[str]] = {}
-    for m in choice.loaded:
-        groups.setdefault(m.topic or "other", []).append(line(m))
-    if "other" in groups:
-        groups["other"] = groups.pop("other")
-    return [x for topic, lines in groups.items() for x in (f"{topic}:", *lines)]
+    return [x for topic, ms in _by_topic(choice).items() for x in (f"{topic}:", *map(line, ms))]
 
 
-def block(choice: Choice, layout: str = "flat") -> list[str]:
+def _digested(choice: Choice, digest: dict, topics: dict) -> list[str]:
+    """`grouped` with the digest's heading after a topic and its line for a global lesson, wherever they are fresh and fit."""
+    import digest as store  # digest imports this module
+    out: list[str] = []
+    used_heads = 0
+    heads_open = True
+    groups = _by_topic(choice)
+    pending = [len(line(m)) + 1 for ms in groups.values() for m in ms]  # short forms still to print, in printed order
+    used, lines_open = 0, True
+    for topic, ms in groups.items():
+        lessons = topics.get(topic)
+        head = store.heading(digest, topic, lessons) if lessons else None
+        if head is not None and heads_open and used_heads + len(head) <= HEADINGS_LIMIT:
+            used_heads += len(head)
+            out.append(f"{topic}: {head}")
+        else:
+            heads_open = heads_open and head is None  # a fresh heading that did not fit closes the rest
+            head = None
+            out.append(f"{topic}:")
+        for m in ms:
+            short = pending.pop(0)
+            text = store.line(digest, topic, m, lessons) if head is not None and m.scope == "global" else None
+            printed = line(m)
+            if text is not None and lines_open:
+                digested = f"- {text} {standing_words(m)}"
+                if used + len(digested) + 1 + sum(pending) <= RULES_LIMIT:
+                    printed, short = digested, len(digested) + 1
+                else:
+                    lines_open = False
+            used += short
+            out.append(printed)
+    return out
+
+
+def block(choice: Choice, layout: str = "flat", *, digest: dict | None = None, topics: dict | None = None) -> list[str]:
     if not choice.loaded:
         return []
-    return [HEADER, *(grouped(choice) if layout == "grouped" else map(line, choice.loaded))]
+    if layout == "digest":
+        body = _digested(choice, digest, topics or {}) if digest and digest.get("topics") else grouped(choice)
+    else:
+        body = grouped(choice) if layout == "grouped" else list(map(line, choice.loaded))
+    return [HEADER, *body]
 
 
 def topic_counts(choice: Choice) -> list[tuple[str, int]]:
@@ -136,3 +179,27 @@ def more_line(choice: Choice) -> str | None:
             break
         named = named[:-1]
     return text if named else f"{total} more {noun}: mem rules --more"
+
+
+def index_lines(choice: Choice, *, digest: dict | None = None, topics: dict | None = None) -> list[str]:
+    """The lines after the block for the lessons that did not fit: a line per topic when a fresh heading names one, else `more_line`."""
+    left = not_fitted(choice)
+    if left and digest and topics:
+        import digest as store  # digest imports this module
+        counts = dict(topic_counts(Choice(left=left)))
+        if (other := sum(1 for m, _ in left if not m.topic)):
+            counts["other"] = other
+        heads = {t: store.heading(digest, t, topics[t]) for t in counts if t in topics}
+        if any(h is not None for h in heads.values()):
+            entries = [f"- {t} ({n}): {heads[t]}" if heads.get(t) else f"- {t} ({n})"
+                       for t, n in sorted(counts.items(), key=lambda t: (-t[1], t[0]))]
+            names = sorted(counts.items(), key=lambda t: (-t[1], t[0]))
+            top = "More lessons, by topic (mem rules --more <topic>):"
+            for kept in range(len(entries), -1, -1):
+                rest = names[kept:]
+                tail = [f"- and {sum(n for _, n in rest)} more in {len(rest)} topics"] if rest else []
+                lines = [top, *entries[:kept], *tail]
+                if len("\n".join(lines)) <= INDEX_LIMIT:
+                    return lines
+    more = more_line(choice)
+    return [more] if more else []

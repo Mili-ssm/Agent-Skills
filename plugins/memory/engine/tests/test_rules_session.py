@@ -299,7 +299,7 @@ def test_plugin_json_has_the_layout_option():
     assert option["type"] == "string" and option["default"] == "flat"
 
 
-@pytest.mark.parametrize("value, grouped", [("grouped", True), ("flat", False), (None, False), ("nonsense", False)])
+@pytest.mark.parametrize("value, grouped", [("grouped", True), ("digest", True), ("flat", False), (None, False), ("nonsense", False)])
 def test_the_hook_passes_the_layout(tmp_path, value, grouped):
     home, store, proj = tmp_path / "home", tmp_path / "store", tmp_path / "work" / "proj"
     for d in (home, store, proj):
@@ -323,7 +323,7 @@ def test_the_hook_passes_the_layout(tmp_path, value, grouped):
     assert ("other:\n- Global rule for the hook." in r.stdout) is grouped
 
 
-@pytest.mark.parametrize("layout, exported", [("grouped", True), ("flat", False), (None, False)])
+@pytest.mark.parametrize("layout, exported", [("grouped", True), ("flat", False), (None, False), ("nonsense", False)])
 def test_session_env_exports_the_layout(tmp_path, layout, exported):
     envfile = tmp_path / "env"
     envfile.write_text("")

@@ -61,7 +61,7 @@
       "type": "string",
       "title": "Loaded rules layout",
       "default": "flat",
-      "description": "How the loaded rules are printed at session start: flat (one list, the default) or grouped (the same lessons under a heading per topic). Any other value means flat."
+      "description": "How the loaded rules are printed at session start: flat (one list, the default), grouped (the same lessons under a heading per topic) or digest (grouped, with a heading and a shorter line per lesson where the digest has a fresh one). Any other value means flat."
     },
     "auto_capture_budget": {
       "type": "number",

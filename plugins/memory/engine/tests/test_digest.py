@@ -313,3 +313,236 @@ def test_decide_does_not_mutate_its_inputs():
     st0 = copy.deepcopy(st)
     digest.decide(ws, prop, verdicts, d, st)
     assert (ws, prop, verdicts, d) == before and st == st0
+
+
+# --- printing the digest and the index (Task 3) ---
+
+import os
+import subprocess
+from pathlib import Path
+
+import pytest
+
+import mem
+import rules
+from test_rules_session import FIT, PLUGIN, pad
+
+
+def _full(lessons, topic="a", heading="when doing x", texts=None):
+    h = digest.heading_print(lessons)
+    return {"topics": {topic: {"heading": heading, "of": h, "lines": {
+        m.handle: {"text": (texts or {}).get(m.handle, f"text {m.handle}"), "of": digest.line_print(m), "under": h}
+        for m in lessons}}}}
+
+
+def _two():
+    return [_lesson("a1"), _lesson("a2")]
+
+
+def test_a_fresh_digest_prints_heading_and_lines():
+    ls = _two()
+    choice = rules.Choice(loaded=ls)
+    want = [rules.HEADER, "a: when doing x", *(f"- text {m.handle} (held in 2 projects)" for m in ls)]
+    assert rules.block(choice, "digest", digest=_full(ls), topics={"a": ls}) == want
+
+
+def test_a_changed_lesson_prints_its_short_form_and_the_rest_keep_their_lines():
+    ls = _two()
+    d = _full(ls)
+    ls[1] = dataclasses.replace(ls[1], short="New rule.")  # the heading is fresh only for the claims, which did not change
+    got = rules.block(rules.Choice(loaded=ls), "digest", digest=d, topics={"a": ls})
+    assert got[1:] == ["a: when doing x", "- text a1 (held in 2 projects)", rules.line(ls[1])]
+
+
+def test_a_changed_topic_prints_the_bare_topic():
+    ls = _two()
+    d = _full(ls)
+    more = [*ls, _lesson("a3")]
+    got = rules.block(rules.Choice(loaded=more), "digest", digest=d, topics={"a": more})
+    assert got[1:] == ["a:", *map(rules.line, more)]
+
+
+def test_no_digest_equals_grouped():
+    ls = _two()
+    choice = rules.Choice(loaded=ls)
+    grouped = rules.block(choice, "grouped")
+    assert rules.block(choice, "digest") == grouped
+    assert rules.block(choice, "digest", digest={"topics": {}}, topics={"a": ls}) == grouped
+
+
+def test_a_project_lesson_prints_its_short_form_under_the_heading():
+    ls = _two()
+    proj = dataclasses.replace(_lesson("p1"), scope="project")
+    choice = rules.Choice(loaded=[ls[0], proj, ls[1]])
+    got = rules.block(choice, "digest", digest=_full(ls), topics={"a": ls})
+    assert got[1:] == ["a: when doing x", "- text a1 (held in 2 projects)", rules.line(proj), "- text a2 (held in 2 projects)"]
+
+
+def test_index_names_the_headings_of_topics_left_out():
+    a, b = _two(), [_lesson("b1", topic="b")]
+    left = rules.Choice(left=[(m, rules.OVER) for m in [*a, *b]])
+    assert rules.index_lines(left, digest=_full(a), topics={"a": a}) == [
+        "More lessons, by topic (mem rules --more <topic>):", "- a (2): when doing x", "- b (1)"]
+    assert rules.index_lines(left) == [rules.more_line(left)]
+    assert rules.index_lines(left, digest={"topics": {}}, topics={"a": a}) == [rules.more_line(left)]
+    assert rules.index_lines(rules.Choice(), digest=_full(a), topics={"a": a}) == []
+
+
+def _forty():
+    out = {}
+    for i in range(40):
+        ls = [_lesson(f"t{i:02}x", topic=f"topic{i:02}"), _lesson(f"t{i:02}y", topic=f"topic{i:02}")]
+        out[f"topic{i:02}"] = ls
+    return out
+
+
+def _digest_of(groups, heading="h" * 80):
+    return {"topics": {t: _full(ls, t, heading)["topics"][t] for t, ls in groups.items()}}
+
+
+def test_index_stays_within_its_limit():
+    groups = _forty()
+    left = rules.Choice(left=[(m, rules.OVER) for ls in groups.values() for m in ls])
+    got = rules.index_lines(left, digest=_digest_of(groups), topics=groups)
+    assert len("\n".join(got)) <= rules.INDEX_LIMIT and got[-1].startswith("- and ") and got[-1].endswith(" topics")
+    named = sum(2 for x in got[1:-1])
+    assert named + int(got[-1].split()[2]) == 80
+
+
+def test_digest_lines_stay_within_the_limit_of_lesson_lines():
+    ls = [dataclasses.replace(_lesson(f"l{i:02}"), short=pad("Rule", 60)) for i in range(40)]
+    choice = rules.Choice(loaded=ls[:30])  # the slack left under the limit lets about ten lines grow by 60 characters
+    texts = {m.handle: pad("Digest", 120) for m in ls}
+    got = rules.block(choice, "digest", digest=_full(ls, texts=texts), topics={"a": ls})
+    printed = got[2:]
+    assert sum(len(x) + 1 for x in printed) <= rules.RULES_LIMIT
+    digested = [x.startswith("- Digest") for x in printed]
+    assert digested[0] and not digested[-1] and digested == sorted(digested, reverse=True)
+    assert printed[-1] == rules.line(choice.loaded[-1])
+
+
+def test_headings_stay_within_their_limit():
+    groups = {f"topic{i:02}": [_lesson(f"t{i:02}x", topic=f"topic{i:02}"), _lesson(f"t{i:02}y", topic=f"topic{i:02}")]
+              for i in range(30)}
+    choice = rules.Choice(loaded=[m for ls in groups.values() for m in ls])
+    got = rules.block(choice, "digest", digest=_digest_of(groups), topics=groups)
+    heads = [x for x in got if x.endswith("h" * 80)]
+    assert sum(80 for _ in heads) == 800 and len(heads) == rules.HEADINGS_LIMIT // 80
+    assert [x for x in got if x.endswith(":")] == [f"topic{i:02}:" for i in range(10, 30)]
+
+
+# the commands
+
+K = "0123456789ab"
+
+
+def _store(tmp_path, monkeypatch, n=2, topic="a"):
+    folder = tmp_path / "gmem"
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    subprocess.run(["git", "-C", str(proj), "init", "-q"], check=True)
+    monkeypatch.setenv("MEM_MEMORIES", str(folder))
+    monkeypatch.setenv("MEM_PROJECT", str(proj))
+    monkeypatch.setenv("MEM_DATA", str(tmp_path / "data"))
+    monkeypatch.delenv("MEM_RULES_LAYOUT", raising=False)
+    for i in range(n):
+        assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", f"Lesson {i}.", "--origin", "transcript",
+                         "--reach", "general", "--short", f"Rule {i}.", "--topic", topic, "--weight", "light",
+                         "--source", f"session a project {K}", "--source", f"session b project {'ba9876543210'}"]) == 0
+    for m in records.load_memories(folder, "global"):
+        if m.triage == "pending":
+            assert mem.main(["triage", "accept", m.handle]) == 0
+        assert mem.main(["confirm", f"m:{m.handle}", "--global", "--by-owner"]) == 0
+    return folder, proj, tmp_path / "data"
+
+
+def _write_digest(folder, data):
+    ls = records.load_memories(folder, "global")
+    digest.write(data, _full(ls, heading="when doing x"))
+
+
+def _run(capsys, *argv):
+    capsys.readouterr()
+    assert mem.main(list(argv)) == 0
+    return capsys.readouterr().out
+
+
+def test_rules_command_and_session_start_take_the_digest_layout(tmp_path, monkeypatch, capsys):
+    folder, _, data = _store(tmp_path, monkeypatch)
+    before = _run(capsys, "session-index")
+    _write_digest(folder, data)
+    assert "a: when doing x\n- text " in _run(capsys, "rules", "--layout", "digest")
+    assert _run(capsys, "session-index") == before  # unset: no heading anywhere, and nothing is left out
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "digest")
+    assert "a: when doing x\n- text " in _run(capsys, "session-index")
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
+    assert "a:\n- Rule" in _run(capsys, "session-index")
+
+
+def test_a_broken_digest_file_leaves_the_grouped_block(tmp_path, monkeypatch, capsys):
+    folder, _, data = _store(tmp_path, monkeypatch)
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
+    grouped = _run(capsys, "session-index")
+    data.mkdir(parents=True, exist_ok=True)
+    (data / digest.FILE).write_text("{")
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "digest")
+    assert _run(capsys, "session-index") == grouped
+    monkeypatch.setattr(digest, "topics_of", lambda *a: 1 / 0)
+    assert _run(capsys, "session-index") == grouped
+
+
+def test_the_hooks_pass_the_digest_value(tmp_path):
+    home, store, proj, data = tmp_path / "home", tmp_path / "store", tmp_path / "work" / "proj", tmp_path / "data"
+    for d in (home, store, proj):
+        d.mkdir(parents=True)
+    (store / "mem-store.yaml").write_text("format: 1\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(proj), "init", "-q"], check=True)
+    env = {"HOME": str(home), "PATH": os.environ["PATH"], "MEM_STORE": str(store), "MEM_DATA": str(data)}
+    for i in range(2):
+        r = subprocess.run([str(PLUGIN / "bin" / "mem"), "remember", "--global", "--kind", "lesson", "--claim", f"Hook lesson {i}.",
+                            "--origin", "transcript", "--reach", "general", "--short", f"Hook rule {i}.", "--topic", "a",
+                            "--source", f"session a project {K}", "--source", "session b project ba9876543210"],
+                           cwd=proj, env=env, capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    lessons = records.load_memories(store / "memories", "global")
+    for m in lessons:
+        subprocess.run([str(PLUGIN / "bin" / "mem"), "confirm", f"m:{m.handle}", "--global", "--by-owner"],
+                       cwd=proj, env=env, capture_output=True, text=True, check=True)
+    digest.write(data, _full(lessons, heading="when doing x"))
+    run = lambda layout: subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")],
+                                        input=json.dumps({"cwd": str(proj), "source": "startup"}),
+                                        env={**env, "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT": layout}, capture_output=True, text=True)
+    assert "a: when doing x\n- text " in run("digest").stdout
+    assert "a:\n- Hook rule" in run("grouped").stdout
+    envfile = tmp_path / "envfile"
+    envfile.write_text("")
+    done = subprocess.run([str(PLUGIN / "hooks" / "session-env.sh")],
+                          env={**env, "CLAUDE_ENV_FILE": str(envfile), "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT": "digest",
+                               "XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(tmp_path / "d")},
+                          capture_output=True, text=True)
+    assert done.returncode == 0
+    assert "export MEM_RULES_LAYOUT=digest" in envfile.read_text().splitlines()
+
+
+def test_session_start_text_stays_printable(tmp_path, monkeypatch, capsys):
+    """As many lessons as load (the longest short forms) and many more left out, a full digest and a full index."""
+    folder, proj, data = _store(tmp_path, monkeypatch, n=0)
+    n = 0
+    for t in range(75):
+        for _ in range(2):
+            n += 1
+            assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", f"Claim {n}.", "--origin", "transcript",
+                             "--reach", "general", "--short", pad(f"Rule {n}", 103), "--topic", f"topic{t:02}",
+                             "--source", f"session a project {K}", "--source", "session b project ba9876543210"]) == 0
+    for m in records.load_memories(folder, "global"):
+        if m.triage == "pending":
+            assert mem.main(["triage", "accept", m.handle]) == 0
+        assert mem.main(["confirm", f"m:{m.handle}", "--global", "--by-owner"]) == 0
+    groups = digest.topics_of(records.load_memories(folder, "global"), TODAY)
+    full = {"topics": {t: _full(ls, t, "h" * 80, {m.handle: pad("Digest", 120) for m in ls})["topics"][t]
+                       for t, ls in groups.items()}}
+    digest.write(data, full)
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "digest")
+    text = _run(capsys, "session-index")
+    assert "mem rules --more" in text and "- and " in text and "h" * 80 in text
+    assert len(text) < 9500
