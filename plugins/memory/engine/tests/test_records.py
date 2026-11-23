@@ -398,6 +398,7 @@ def test_safe_load_matches_python_safe_loader(text):
     assert records.safe_load(text) == yaml.load(text, Loader=yaml.SafeLoader)
 
 
+@pytest.mark.skipif(not hasattr(yaml, "CSafeLoader"), reason="libyaml absent: safe_load falls back to the Python loader")
 def test_safe_load_accepts_tab_after_colon_unlike_python_loader():
     assert records.safe_load("a:\tb") == {"a": "b"}
     with pytest.raises(yaml.YAMLError):
