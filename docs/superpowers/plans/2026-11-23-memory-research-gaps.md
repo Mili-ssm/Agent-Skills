@@ -76,11 +76,11 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
 **Interfaces:**
 - Produces: `session-end.sh` returns within the hook budget. One detached wrapper (`setsid nohup`, as `mem-auto` is started today) runs, in this order: `mem history commit --hook` (timeout 30 s), then `mem-auto` and `mem-settle` when their options are on, so the commit keeps happening before the automatic runs take their lock (today `history commit --hook` returns 0 without committing when a run lock is held, `mem.py` near the `run_lock_held` call). The wrapper writes a `started` record to the hook log before the commit and a `done` record with its duration after, so a killed run is visible. `bin/mem` runs through `uv`, so the `yaml` pitfall of `mem-capture` does not apply.
 
-- [ ] **Step 1: Write the failing test** `test_session_end_returns_before_commit_finishes`: with a stub `mem` whose `history commit` sleeps 3 s, the hook exits in under 1 s and the stub's marker file appears within 5 s; `test_session_end_commits_before_auto_runs` (stub records call order: commit before auto). List the existing session-end tests (`engine/tests/test_plugin_shell.py`, near the session-end hook test) and change their synchronous `git log` assertions to poll for up to 5 s. Do not loosen what they assert.
-- [ ] **Step 2: Run it; expect FAIL** (the hook waits for the commit).
-- [ ] **Step 3: Implement** the wrapper in `session-end.sh` (the order above, `timeout 30` on the commit, the two hook-log records).
-- [ ] **Step 4: Verify**: the tests pass; then by hand, run the hook with the real `mem` against a scratch store copy and confirm a commit appears and the hook log has `started` and `done`.
-- [ ] **Step 5: Commit** `fix(memory): run the session-end history commit detached from the hook`.
+- [x] **Step 1: Write the failing test** `test_session_end_returns_before_commit_finishes`: with a stub `mem` whose `history commit` sleeps 3 s, the hook exits in under 1 s and the stub's marker file appears within 5 s; `test_session_end_commits_before_auto_runs` (stub records call order: commit before auto). List the existing session-end tests (`engine/tests/test_plugin_shell.py`, near the session-end hook test) and change their synchronous `git log` assertions to poll for up to 5 s. Do not loosen what they assert.
+- [x] **Step 2: Run it; expect FAIL** (the hook waits for the commit).
+- [x] **Step 3: Implement** the wrapper in `session-end.sh` (the order above, `timeout 30` on the commit, the two hook-log records).
+- [x] **Step 4: Verify**: the tests pass; then by hand, run the hook with the real `mem` against a scratch store copy and confirm a commit appears and the hook log has `started` and `done`.
+- [x] **Step 5: Commit** `fix(memory): run the session-end history commit detached from the hook`.
 
 ### Task 3: Hold failing notes back from history commits (G1)
 
