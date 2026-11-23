@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-24
+
 ### Added
 
 - The option value `rules_layout: digest` (and `mem rules --layout digest`) prints the loaded lessons under a heading per topic that says when it applies, with a line for each global lesson written for that heading. Off by default; where a text is missing or stale the short form or the bare topic prints, so nothing breaks. Nothing to migrate.

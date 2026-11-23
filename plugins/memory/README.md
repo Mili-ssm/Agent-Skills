@@ -174,7 +174,7 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 
 ### The digest per topic
 
-Built on the branch `feat/memory-topic-digest`; not merged or released, off by default. Rules and the reasons are in [the design](../../docs/superpowers/specs/2026-11-24-memory-topic-digest-design.md) (C86 to C97).
+Released in 0.9.0 (2026-11-24); off by default (`rules_layout` unset is `flat`). Rules and the reasons are in [the design](../../docs/superpowers/specs/2026-11-24-memory-topic-digest-design.md) (C86 to C97).
 
 | Item | What it is |
 |---|---|
@@ -184,7 +184,7 @@ Built on the branch `feat/memory-topic-digest`; not merged or released, off by d
 | Limits | No limit of number; 3200 characters of rule lines and 1600 of index line |
 | Step | `mem-corroborate digest [--dry-run] [--sheet FILE]` (also `--claude`, `--budget`): one session writes the headings and lines, code checks them as it checks a short form, a second session checks each line against its claim, then `rules-digest.json` is written in the data folder. It writes no lesson record, so there is nothing to undo. `--dry-run` runs both sessions and writes no file; `--sheet FILE` (outside any repository: it holds lesson text) writes a table of each line and its outcome |
 | Automatic run | After the fill and the rewording, when `rules_layout` is `digest`, `auto_capture` is on and `loaded_rules` is not off |
-| Gate | Automatic half passed on 2026-11-23, on a copy of a real store: 4 topics, 4 of 4 headings and 8 or 9 of 9 lines accepted (89% and 100% on two runs), none refused by code, 0.01 USD a run; the block was 2501 characters grouped and 2696 digest ([results](../../docs/superpowers/plans/2026-11-24-memory-topic-digest.md#results)). **Open:** the owner's reading of the sheet; `grouped` stays the default until then |
+| Gate | Automatic half passed on 2026-11-23, on a copy of a real store: 4 topics, 4 of 4 headings and 8 or 9 of 9 lines accepted (89% and 100% on two runs), none refused by code, 0.01 USD a run; the block was 2501 characters grouped and 2696 digest ([results](../../docs/superpowers/plans/2026-11-24-memory-topic-digest.md#results)). The owner read the sheet on 2026-11-24, called no line stronger than its claim, and turned `rules_layout: digest` on in their own configuration; the default stays `flat`. Noted in that reading: one line named an example its claim does not, and one heading joined two unrelated situations of a topic |
 
 **Reading what loaded unread:** `mem rules --unread` lists the short forms a model wrote, with their claims; `mem rules --read <h>...` or `--read all` marks them read (the owner's act); `mem curate` prints `short forms nobody read: <N> (mem rules --unread)`. Change one with `mem memory edit <h> --short TEXT` (the mark stays), turn it off with `--no-load`, or switch every rule off with the option `loaded_rules`.
 
