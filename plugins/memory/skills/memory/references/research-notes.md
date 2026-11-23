@@ -81,8 +81,8 @@ Expect errors in your own notes. A fresh-context fact-check against the local co
 - an absence stated as a fact ("the paper does not discuss X") instead of "I did not find X";
 - inference left unlabelled.
 
-For anything beyond one note, follow the research-wave procedure (the `memory-research-wave` skill): parallel writers, then a fresh-context fact-check against the local copies, then review, in that order.
+For anything beyond one note, follow the research-wave procedure ([`memory-research-wave` skill](../../memory-research-wave/SKILL.md)): parallel writers, then a fresh-context fact-check against the local copies, then review, in that order.
 
 ## Record what the work teaches about researching
 
-When a task teaches something about how to research (a route that works or fails, an error class, a better order of steps), record it as a `knowledge` note on the topic `research-practice`. When it is experience from one wave, record it instead as a global lesson: `mem remember --global --kind lesson --topic research`. Before a research task, list the past lessons with `mem find --topic research-practice` and `mem rules --more research`; when a lesson changes the procedure, update the `memory-research-wave` skill.
+When a task teaches something about how to research (a route that works or fails, an error class, a better order of steps), record it as a `knowledge` note on the topic `research-practice`. When it is experience from one wave, record it instead as a global lesson: `mem remember --global --kind lesson --topic research`. Before a research task, list the past lessons with `mem find --topic research-practice` and `mem rules --more research`; when a lesson changes the procedure, update the [`memory-research-wave` skill](../../memory-research-wave/SKILL.md).
