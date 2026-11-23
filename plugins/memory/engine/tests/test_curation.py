@@ -270,7 +270,7 @@ def test_curate_prints_the_four_blocks(project, capsys):
         "      differ in: never",
         "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)",
         f"  m:exp  valid until {days_ago(3)}  Cache warmup takes long",
-        "seen 3 times or more: general enough for a note in the store? (mem promote <h>)",
+        "seen 3 times or more: general enough for a global lesson? (mem promote <h>)",
         "  m:often  observed 4  Zebra crossing lights flicker",
         "not confirmed in 90 days (decide: mem confirm <h> or mem forget <h>)",
         f"  m:stale  {days_ago(120)}  Quartz clocks drift slowly",
@@ -311,10 +311,17 @@ def test_curate_lists_state_pairs_as_newer_state(project, capsys):
     assert not any(ln.startswith("same or opposite") for ln in out)
 
 
-def test_curate_seen_often_says_note_in_the_store(project, capsys):
+def test_curate_seen_often_is_a_global_lesson_candidate(project, capsys):
     put(project, "often", "Zebra crossing lights flicker", observed=3)
     out = run(capsys, "curate", "--project")[1]
-    assert "seen 3 times or more: general enough for a note in the store? (mem promote <h>)" in out.splitlines()
+    assert "seen 3 times or more: general enough for a global lesson? (mem promote <h>)" in out.splitlines()
+
+
+def test_seen_often_skips_global_memories(gfolder, capsys):
+    put(gfolder, "gl", "Zebra crossing lights flicker", observed=5)
+    found = mem._decisions(records.load_memories(gfolder, "global"), TODAY)
+    assert found.seen == [] and not any(k.startswith("seen:") for k in found.keys())
+    assert "seen 3 times or more" not in run(capsys, "curate", "--global")[1]
 
 
 def test_differ_in_wording_only(project, capsys):
@@ -902,7 +909,7 @@ def test_count_names_its_parts(project, gfolder, capsys):
     _pair(project, created=days_ago(0))
     put(project, "e1", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
     put(project, "e2", "Seat belts fastened early", extra=f"valid_until: '{days_ago(3)}'\n")
-    put(gfolder, "s", "Gizmo habits repeat often", observed=4)
+    put(project, "s", "Gizmo habits repeat often", observed=4)
     assert _first(capsys).endswith("Curation due: 4 items (1 same or opposite, 2 expired, 1 seen often) "
                                    "(run mem curate after the current task).")
 
@@ -1108,6 +1115,19 @@ def test_write_marks_does_not_drop_keys_it_could_not_read(tmp_path, monkeypatch)
     path.write_text("not json", encoding="utf-8")  # malformed stays lenient
     mem._write_marks(env, {covered: ["y"]})
     assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"y"})}
+    path.write_bytes(b"\xff\xfe\x00bad")  # not UTF-8: malformed too, not unreadable
+    assert mem.read_marks(env) == {}
+    mem._write_marks(env, {covered: ["z"]})
+    assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"z"})}
+
+
+def test_marks_file_not_utf8_keeps_the_session_index(project, gfolder, tmp_path, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    (tmp_path / "mem-data").mkdir(exist_ok=True)
+    (tmp_path / "mem-data" / "curated-items.json").write_bytes(b"\xff\xfe\x00bad")
+    first = run(capsys, "session-index")[1].splitlines()[0]
+    assert first.startswith("memory: the mem command") and "Curation due: 1 item (1 expired)" in first
+    assert run(capsys, "curate", "--done")[0] == 0
 
 
 def _state_pair(folder, scope):

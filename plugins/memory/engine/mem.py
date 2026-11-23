@@ -4561,7 +4561,7 @@ def read_marks(env: Mapping[str, str]) -> dict[str, frozenset[str]]:
     path = _marks_file(env)
     try:
         return _parse_marks(path.read_text(encoding="utf-8")) if path is not None else {}
-    except OSError:
+    except (OSError, ValueError):  # ValueError: not UTF-8
         return {}
 
 
@@ -4571,7 +4571,11 @@ def _write_marks(env: Mapping[str, str], covered: Mapping[Path, Collection[str]]
     if path is None:
         raise OSError("no data folder: set MEM_DATA or HOME")
     # a missing or malformed file starts empty; one that exists but cannot be read raises, so no key is dropped
-    known = {k: sorted(v) for k, v in _parse_marks(path.read_text(encoding="utf-8")).items()} if path.exists() else {}
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+    except UnicodeDecodeError:  # malformed, not unreadable
+        text = ""
+    known = {k: sorted(v) for k, v in _parse_marks(text).items()}
     known.update({str(f.resolve()): sorted(keys) for f, keys in covered.items()})
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".tmp")
@@ -4662,7 +4666,7 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
     unconfirmed = _unconfirmed_handles(kept)
     expired = [m for m in kept if m.status == "active" and m.valid_until is not None and m.valid_until < today
                and m.handle not in unconfirmed]
-    seen = [m for m in live if m.observed >= _FREQUENT and not m.promote]
+    seen = [m for m in live if m.scope == "project" and m.observed >= _FREQUENT and not m.promote]  # a global one cannot be promoted
     cutoff = today - datetime.timedelta(days=_STALE_DAYS)
     stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
              and max(m.created, m.last_observed or m.created) <= cutoff]
@@ -5047,7 +5051,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
         out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
     frequent = [m for d in found for m in d.seen]
     if frequent:
-        out.append(f"seen {_FREQUENT} times or more: general enough for a note in the store? (mem promote <h>)")
+        out.append(f"seen {_FREQUENT} times or more: general enough for a global lesson? (mem promote <h>)")
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
     stale = [m for d in found for m in d.stale]
     if stale:

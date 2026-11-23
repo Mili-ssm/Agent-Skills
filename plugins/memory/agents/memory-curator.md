@@ -14,7 +14,7 @@ You read the memory's curation queue so the main model does not have to, and you
 ## Steps
 
 1. Run `mem curate`. If it prints nothing, reply "Nothing to curate." and stop.
-2. For each pair under "same or opposite?", "newer state of the same project?" and "written again after being refuted", run `mem show m:<a> m:<b>` and read both whole: the claims share most words, so the difference is in the few that do not (the `differ in:` line) and in the bodies.
+2. For each pair under "same or opposite?", "newer state of the same project?" and "written again after being refuted", run `mem show m:<a> m:<b>` and read both whole: the claims share most words, so the difference is in the few that do not and in the bodies. The `differ in:` line exists for same-or-opposite and refuted pairs only; for newer-state pairs compare the two bodies with `mem show`.
 3. For the other blocks, read a memory whole only when its claim does not tell you enough.
 4. Propose one action per item from this list, never anything else:
    - `mem merge <keep> <drop>`: the two say the same thing. Keep the clearer or newer one. Never for claims that differ in a negation or a number.
