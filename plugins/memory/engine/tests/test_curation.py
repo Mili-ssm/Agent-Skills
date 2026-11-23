@@ -1,4 +1,5 @@
 import datetime
+import os
 import subprocess
 
 import pytest
@@ -265,7 +266,8 @@ def test_curate_prints_the_four_blocks(project, capsys):
     assert out.splitlines() == [
         "same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)",
         f"  m:k1  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls",
-        "    m:k2  differ in: never",
+        f"    m:k2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
+        "      differ in: never",
         "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)",
         f"  m:exp  valid until {days_ago(3)}  Cache warmup takes long",
         "seen 3 times or more: general enough for a note in the store? (mem promote <h>)",
@@ -284,11 +286,18 @@ def test_curate_groups_pairs_by_memory(project, capsys):
     put(project, "p3", "Retries need the idempotency keys on payment calls")
     out = run(capsys, "curate", "--project")[1].splitlines()
     head = out.index("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
-    block = [ln for ln in out[head + 1:] if ln.startswith("  m:") or ln.startswith("    m:")]
+    block = [ln for ln in out[head + 1:] if ln.startswith("  m:") or ln.startswith("    ")]
     assert block[0].startswith("  m:hub  [lesson,") and out.count(block[0]) == 1
-    assert [ln.split()[0] for ln in block if not ln.startswith("    ")] == ["m:hub", "m:p1", "m:p2"]
-    assert sum(ln.startswith("    ") for ln in block) == 6  # six pairs, each once
-    assert block[1:4] == ["    m:p1  differ in: always", "    m:p2  differ in: never", "    m:p3  differ in: wording only"]
+    assert [ln.split()[0] for ln in block if ln.startswith("  m:")] == ["m:hub", "m:p1", "m:p2"]
+    assert sum(ln.startswith("      differ in:") for ln in block) == 6  # six pairs, each once
+    assert sum(ln.startswith("    m:") for ln in block) == 6
+    assert block[1:7] == [
+        f"    m:p1  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls always",
+        "      differ in: always",
+        f"    m:p2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
+        "      differ in: never",
+        f"    m:p3  [lesson, {days_ago(1)}]  Retries need the idempotency keys on payment calls",
+        "      differ in: wording only"]
 
 
 def test_curate_lists_state_pairs_as_newer_state(project, capsys):
@@ -297,7 +306,8 @@ def test_curate_lists_state_pairs_as_newer_state(project, capsys):
     out = run(capsys, "curate", "--project")[1].splitlines()
     assert ("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)"
             in out)
-    assert "  m:s-old  ->  m:s-new" in out
+    i = out.index(f"  m:s-old  [state, {days_ago(9)}]  Migration window is open for the billing service")
+    assert out[i + 1] == f"    -> m:s-new  [state, {days_ago(2)}]  Migration window is open for the billing service now"
     assert not any(ln.startswith("same or opposite") for ln in out)
 
 
@@ -310,7 +320,7 @@ def test_curate_seen_often_says_note_in_the_store(project, capsys):
 def test_differ_in_wording_only(project, capsys):
     put(project, "a", "Retries need idempotency keys on payment calls")
     put(project, "b", "Retries need the idempotency keys on payment calls")
-    assert "    m:b  differ in: wording only" in run(capsys, "curate", "--project")[1].splitlines()
+    assert "      differ in: wording only" in run(capsys, "curate", "--project")[1].splitlines()
 
 
 def _load(folder):
@@ -332,6 +342,73 @@ def test_decisions_keys(project):
     assert keys == {"refuted:again|dead": "refuted again", "pair:k1|k2": "same or opposite",
                     "state:s-old|s-new": "newer state", "expired:exp": "expired", "seen:often": "seen often",
                     "stale:stale": "not confirmed in 90 days"}
+
+
+def _pair_keys(d):
+    return {k for k in d.keys() if k.startswith(("pair:", "state:", "refuted:"))}
+
+
+def _age(path, days):
+    t = (datetime.datetime.now() - datetime.timedelta(days=days)).timestamp()
+    os.utime(path, (t, t))
+
+
+SINCE = TODAY - datetime.timedelta(days=10)
+
+
+def test_decisions_since_on_an_unchanged_store_finds_no_pairs(project):
+    for h, c in (("k1", "Retries need idempotency keys on payment calls"),
+                 ("k2", "Retries never need idempotency keys on payment calls")):
+        _age(put(project, h, c, created=days_ago(30)), 30)
+    d = mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(100))
+    assert _pair_keys(d) == set() and d.pairs_checked
+
+
+def test_decisions_since_finds_a_memory_whose_file_changed(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    _age(put(project, "k2", "Retries never need idempotency keys on payment calls", created=days_ago(30)), 0)
+    assert _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
+
+
+def test_decisions_since_counts_a_memory_without_created_as_changed(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    path = put(project, "k2", "Retries never need idempotency keys on payment calls")
+    path.write_text(path.read_text().replace(f"created: '{days_ago(1)}'\n", ""))
+    _age(path, 30)
+    assert _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
+
+
+def test_changed_since_orders_newest_change_first(project):
+    for h, n in (("a", 5), ("b", 2), ("c", 8)):
+        _age(put(project, h, f"Claim number {h}", created=days_ago(n)), n)
+    _age(put(project, "z", "Claim number z", created=days_ago(30)), 30)
+    assert mem._changed_since(_load(project), SINCE) == ["b", "a", "c"]
+
+
+def test_decisions_since_spends_the_budget_on_the_newest_change_first(project):
+    for h, c, n in (("n1", "Retries need idempotency keys on payment calls", 1),
+                    ("n2", "Retries never need idempotency keys on payment calls", 1),
+                    ("o1", "Quartz clocks drift slowly in cold rooms", 5),
+                    ("o2", "Quartz clocks never drift slowly in cold rooms", 5)):
+        _age(put(project, h, c, created=days_ago(n)), n)
+    found = _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(3)))
+    assert "pair:n1|n2" in found and "pair:o1|o2" not in found
+
+
+def test_decisions_since_with_no_budget_left_checks_nothing(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    put(project, "k2", "Retries never need idempotency keys on payment calls")
+    d = mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(0))
+    assert _pair_keys(d) == set() and not d.pairs_checked
+
+
+def test_decisions_since_finds_a_subset_of_the_keys_without_it(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    _age(put(project, "k2", "Retries never need idempotency keys on payment calls", created=days_ago(30)), 30)
+    put(project, "m1", "Quartz clocks drift slowly in cold rooms")
+    put(project, "m2", "Quartz clocks never drift slowly in cold rooms")
+    with_since = set(mem._decisions(_load(project), TODAY, since=SINCE).keys())
+    assert "pair:m1|m2" in with_since and with_since <= set(mem._decisions(_load(project), TODAY).keys())
 
 
 def test_decisions_drops_superseded(project):

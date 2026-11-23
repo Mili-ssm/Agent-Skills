@@ -4573,6 +4573,11 @@ class Decisions:
         return found
 
 
+def _unconfirmed_handles(memories: Sequence[records.Memory]) -> set[str]:
+    """Handles of the unconfirmed memories: they have their own category, so the other blocks skip them."""
+    return {m.handle for m in memories if records.standing(m) == "unconfirmed"}
+
+
 def _changed_since(live: Sequence[records.Memory], since: datetime.date) -> list[str]:
     """Handles of the memories changed on or after `since`, newest change first: created then, or its file written
     then (local time), or no `created`, or the file cannot be read."""
@@ -4607,7 +4612,7 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
             state.append((old, new))
         else:
             same.append((a, b))
-    unconfirmed = {m.handle for m in kept if records.standing(m) == "unconfirmed"}  # their own category
+    unconfirmed = _unconfirmed_handles(kept)
     expired = [m for m in kept if m.status == "active" and m.valid_until is not None and m.valid_until < today
                and m.handle not in unconfirmed]
     seen = [m for m in live if m.observed >= _FREQUENT and not m.promote]
@@ -4619,7 +4624,7 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
 
 def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> list[str]:
     """C102: the memory in the most remaining pairs first (ties by handle) with its line, then one indented line per
-    partner with its `differ in`; each pair once."""
+    partner (its tag and claim, two spaces deeper) with its `differ in` below; each pair once."""
     left = list(pairs)
     out: list[str] = []
     while left:
@@ -4638,9 +4643,10 @@ def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> li
             else:
                 rest.append((a, b))
                 continue
-            lines.append((other.handle, f"    m:{other.handle}  {_differ_in(head.claim, other.claim)}"))
+            lines.append((other.handle, f"  {_tagged(other)}", f"      {_differ_in(head.claim, other.claim)}"))
         out.append(_tagged(head))
-        out += [line for _, line in sorted(lines)]
+        for _, line, differ in sorted(lines):
+            out += [line, differ]
         left = rest
     return out
 
@@ -4964,7 +4970,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
     live = [m for m in every if records.is_live(m, today)]
     out: list[str] = []
     found = [_decisions(loaded, today) for _, _, loaded in scopes]
-    unconfirmed = {m.handle for m in every if records.standing(m) == "unconfirmed"}  # their own category below
+    unconfirmed = _unconfirmed_handles(every)  # their own category below
     again = [pair for d in found for pair in d.refuted]
     if again:
         out.append("written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
@@ -4978,7 +4984,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
     state = [pair for d in found for pair in d.state]
     if state:
         out.append("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)")
-        out += [f"  m:{old.handle}  ->  m:{new.handle}" for old, new in state]
+        for old, new in state:
+            out += [_tagged(old), f"    -> {_tagged(new).lstrip()}"]
     expired = [m for d in found for m in d.expired]
     if expired:
         out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
