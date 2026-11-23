@@ -394,6 +394,7 @@ def test_document_needs_a_source_and_has_no_default_expiry(tmp_path):
     "outer:\n  inner:\n    leaf: [1, 2]\n  other: {x: y}",
     "title: caf\u00e9 \u00f1 \u65e5\u672c\u8a9e \U0001f600",
 ])
+@pytest.mark.skipif(not hasattr(yaml, "CSafeLoader"), reason="libyaml absent: both sides would be the Python loader")
 def test_safe_load_matches_python_safe_loader(text):
     assert records.safe_load(text) == yaml.load(text, Loader=yaml.SafeLoader)
 
