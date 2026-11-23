@@ -130,7 +130,10 @@ def _staged_paths(store: Path) -> list[str]:
 
 
 def _rename_sources(store: Path, held: list[str]) -> list[str]:
-    """The old paths of the staged renames whose new path is held: resetting only the new side would commit the deletion."""
+    """The old paths of the staged renames whose new path is held: resetting only the new side would commit the deletion.
+
+    Only renames git detects by similarity are paired; a rename whose text changed almost entirely stages as an
+    unrelated deletion and addition, so the deletion is committed (the old text stays in earlier commits)."""
     fields = _git(store, "diff", "--cached", "-M", "--name-status", "-z").split("\0")
     sources, i = [], 0
     while i < len(fields) and fields[i]:
@@ -173,6 +176,11 @@ def _commit(store: Path, message: str | Callable[[int], str],
                 pass
         raise (exc if isinstance(exc, GitError) else GitError(f"lock: {exc}")) from None
     try:
+        if validate is not None:
+            try:
+                _write_held(store, [])  # cleared first, so a failure below cannot leave last run's list
+            except GitError as exc:
+                warn(str(exc))
         _drop_stale_index_lock(store)
         _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
         if validate is not None:
