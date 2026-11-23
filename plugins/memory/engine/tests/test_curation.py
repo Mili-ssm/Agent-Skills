@@ -831,42 +831,197 @@ def test_handles_work_with_or_without_the_prefix(project, capsys):
 
 # amendment D: when a pass is due
 
-def mems(tmp_path, specs):
-    return [records.Memory("project", tmp_path / f"{i}.md", str(i), "lesson", "c", created, 1, "active", None, vu, [], "", None)
-            for i, (created, vu) in enumerate(specs)]
-
-
 def d(n):
     return TODAY - datetime.timedelta(days=n)
 
 
-def test_curation_due_rule(tmp_path):
-    due = records.curation_due
-    assert due(mems(tmp_path, [(d(1), None)] * 10), d(2), TODAY) == 10
-    assert due(mems(tmp_path, [(d(1), None)] * 9), d(2), TODAY) == 0
-    assert due(mems(tmp_path, [(d(1), None)] * 2), d(14), TODAY) == 2
-    assert due(mems(tmp_path, [(d(1), None)] * 2), d(13), TODAY) == 0
-    assert due(mems(tmp_path, [(d(20), None), (d(1), None)]), None, TODAY) == 2
-    assert due(mems(tmp_path, [(d(3), None)]), None, TODAY) == 0
-    assert due([], d(30), TODAY) == 0
-    # created on the day of the last pass is not new
-    assert due(mems(tmp_path, [(d(14), None)]), d(14), TODAY) == 0
-    # a live memory past valid_until counts and makes a pass due
-    assert due(mems(tmp_path, [(d(30), d(1)), (d(30), None)]), d(1), TODAY) == 1
-    # one that expired before the last pass was dealt with by it; one that expired after still counts
-    assert due(mems(tmp_path, [(d(30), d(5))]), d(2), TODAY) == 0
-    assert due(mems(tmp_path, [(d(30), d(1))]), d(2), TODAY) == 1
+def _first(capsys):
+    return run(capsys, "session-index")[1].splitlines()[0]
 
 
-def test_index_line_says_curation_is_due(project, gfolder, tmp_path, capsys):
+def _pair(folder, a="p1", b="p2", **kw):
+    put(folder, a, "Retries need idempotency keys on payment calls", **kw)
+    put(folder, b, "Retries never need idempotency keys on payment calls", **kw)
+
+
+def test_remember_prints_no_curation_count(project, gfolder, capsys):
+    for i in range(12):
+        code, _, err = run(capsys, "remember", "--kind", "lesson", "--claim", f"Distinct lesson {i} about topic{i}.")
+        assert code == 0 and "curation" not in err
+
+
+def test_new_memories_alone_do_not_make_curation_due(project, gfolder, capsys):
     run(capsys, "curate", "--done")
-    for i in range(3):
-        put(project, f"m{i}", f"Unrelated thing number {'x' * i}", created=days_ago(0))
+    for i in range(15):
+        put(project, f"m{i}", f"Unrelated topic{i} words{i} only{i} here{i}", created=days_ago(0))
     assert "Curation due" not in run(capsys, "session-index")[1]
+
+
+def test_done_clears_the_count_and_a_new_pair_counts_one(project, gfolder, capsys):
+    put(project, "o1", "Retries need idempotency keys on payment calls")
+    put(project, "o2", "Pottery glaze firing temperature chart")
+    run(capsys, "curate", "--done")
+    put(project, "n1", "Retries never need idempotency keys on payment calls", created=days_ago(0))
+    assert _first(capsys).endswith("Curation due: 1 item (1 same or opposite) (run mem curate after the current task).")
+    run(capsys, "curate", "--done")
+    assert "Curation due" not in run(capsys, "session-index")[1]
+    put(project, "n2", "Pottery glaze firing temperature chart today", created=days_ago(0))  # pairs with o2 only
+    assert "Curation due: 1 item (1 same or opposite)" in _first(capsys)
+
+
+def test_done_on_a_mixed_store_leaves_no_line(project, gfolder, capsys):
+    put(project, "act", "Retries need idempotency keys on payment calls")
+    put(project, "old", "Retries never need idempotency keys on payment calls", extra="superseded_by: act\n")
+    put(project, "unc", "Cache invalidation needs explicit versions", extra="origin: transcript\nweight: medium\n"
+        "sources:\n- session a\n")
     put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
-    first = run(capsys, "session-index")[1].splitlines()[0]
-    assert first.endswith("Curation due: 1 item (run mem curate after the current task).")
-    assert "This project: 3 memories. Curation due" in first
+    put(project, "s1", "Deploy freeze runs until the migration ends", kind="state", created=days_ago(5))
+    put(project, "s2", "Deploy freeze runs until the migration is done", kind="state", created=days_ago(1))
+    put(project, "r1", "Queues drain slowly under heavy load tonight")
+    put(project, "gone", "Queues drain slowly under heavy load tonight", status="refuted")
+    put(project, "q", "Quarantined lesson about gizmos", extra="quarantine: true\n")
+    put(gfolder, "g", "General lesson about widgets", observed=4)
+    assert "Curation due" in run(capsys, "session-index")[1]
+    run(capsys, "curate", "--done")
+    assert "Curation due" not in run(capsys, "session-index")[1]
+
+
+def test_done_prints_recorded_items(project, gfolder, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    _pair(gfolder, "g1", "g2")
+    put(gfolder, "g3", "Pottery glaze firing chart")
+    code, out, _ = run(capsys, "curate", "--done")
+    assert code == 0 and out == "recorded 1 item (global)\nrecorded 1 item (project)\n"
+
+
+def test_count_names_its_parts(project, gfolder, capsys):
+    run(capsys, "curate", "--done")
+    _pair(project, created=days_ago(0))
+    put(project, "e1", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(project, "e2", "Seat belts fastened early", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(gfolder, "s", "Gizmo habits repeat often", observed=4)
+    assert _first(capsys).endswith("Curation due: 4 items (1 same or opposite, 2 expired, 1 seen often) "
+                                   "(run mem curate after the current task).")
+
+
+def _set_pass(folder, days):
+    mem._write_passes(os.environ, [folder], TODAY - datetime.timedelta(days=days))
+
+
+def test_old_pairs_are_not_searched_after_a_pass_without_marks(project, gfolder, capsys):
+    for h, c in (("k1", "Retries need idempotency keys on payment calls"),
+                 ("k2", "Retries never need idempotency keys on payment calls")):
+        _age(put(project, h, c, created=days_ago(30)), 30)
+    _set_pass(project, 10)
+    assert "Curation due" not in run(capsys, "session-index")[1]
+
+
+def test_edited_old_memory_pair_is_counted(project, gfolder, capsys):
+    paths = [put(project, h, c, created=days_ago(30)) for h, c in (
+        ("k1", "Retries need idempotency keys on payment calls"),
+        ("k2", "Retries never need idempotency keys on payment calls"))]
+    for p in paths:
+        _age(p, 30)
+    _set_pass(project, 10)
+    os.utime(paths[1], None)
+    assert "Curation due: 1 item (1 same or opposite)" in _first(capsys)
+
+
+@pytest.mark.parametrize("raw", ["[]", '"x"', "{bad", '{"a": "k"}', '{"a": [1]}', '{"a": {"b": 1}}'])
+def test_marks_file_malformed_reads_as_none(tmp_path, raw):
+    data = tmp_path / "mem-data"
+    data.mkdir(exist_ok=True)
+    (data / "curated-items.json").write_text(raw)
+    assert mem.read_marks(os.environ) == {}
+
+
+def test_done_global_keeps_project_marks(project, gfolder, tmp_path, capsys):
+    import json
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(gfolder, "gexp", "Seat belts fastened early", extra=f"valid_until: '{days_ago(3)}'\n")
+    run(capsys, "curate", "--done")
+    path = tmp_path / "mem-data" / "curated-items.json"
+    before = json.loads(path.read_text())
+    put(gfolder, "gexp2", "Other seat habits matter", extra=f"valid_until: '{days_ago(3)}'\n")
+    run(capsys, "curate", "--global", "--done")
+    after = json.loads(path.read_text())
+    assert after[str(project.resolve())] == before[str(project.resolve())] == ["expired:exp"]
+    assert after[str(gfolder.resolve())] == ["expired:gexp", "expired:gexp2"]
+
+
+def test_curated_json_keeps_its_format(project, gfolder, tmp_path, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    run(capsys, "curate", "--project", "--done")
+    assert passes(tmp_path) == {str(project.resolve()): TODAY.isoformat()}
+
+
+def _session(project, gfolder):
+    return mem.session_index(None, project, gfolder, TODAY, passes=mem.read_passes(os.environ),
+                             marks=mem.read_marks(os.environ))
+
+
+def test_budget_shared_across_folders_never_exceeded(project, gfolder, monkeypatch):
+    for i in range(6):
+        put(project, f"p{i}", f"Project topic{i} alpha{i} beta{i} gamma{i} delta{i}")
+        put(gfolder, f"g{i}", f"Global topic{i} alpha{i} beta{i} gamma{i} delta{i}")
+    made = []
+    real = records.Budget
+
+    def wrapped(left):
+        made.append(real(left))
+        return made[-1]
+    monkeypatch.setattr(records, "Budget", wrapped)
+    monkeypatch.setattr(mem, "PAIR_WORK", 20)
+    _session(project, gfolder)
+    assert len(made) == 1 and made[0].left >= 0 and made[0].left < 20
+
+
+def test_past_the_budget_found_items_say_at_least_and_none_say_nothing(project, gfolder, monkeypatch):
+    _pair(project, created=days_ago(5))
+    _age(project / "p1.md", 5)
+    _age(project / "p2.md", 5)
+    for i in range(10):  # newer, so they are compared first and use the budget
+        put(project, f"u{i}", f"Unrelated topic{i} words{i} only{i} here{i}", created=days_ago(0))
+    _set_pass(project, 10)
+    monkeypatch.setattr(mem, "PAIR_WORK", 3)
+    assert "Curation due" not in _session(project, gfolder)
+    monkeypatch.setattr(mem, "PAIR_WORK", 150_000)
+    assert "Curation due: 1 item" in _session(project, gfolder)
+    put(project, "e1", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    monkeypatch.setattr(mem, "PAIR_WORK", 3)
+    assert "Curation due: at least 1 item (1 expired)" in _session(project, gfolder)
+
+
+def test_count_failure_keeps_the_rules(project, gfolder, monkeypatch):
+    put(project, "r1", "Always run the linter before committing", extra="reach: general\n")
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    clean = _session(project, gfolder)
+    assert "Curation due" in clean
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(mem, "_decisions", boom)
+    text = _session(project, gfolder)
+    assert "Curation due" not in text and "This project: 1 memories." in text
+    assert text.splitlines()[1:] == clean.splitlines()[1:]
+
+
+def test_session_index_near_the_budget_is_fast(project, gfolder):
+    import time
+    words = [f"w{i}" for i in range(2000)]
+    project.mkdir(parents=True, exist_ok=True)
+    for i in range(2000):
+        claim = " ".join(words[(i * 7 + j) % 2000] for j in range(60))
+        changed = i < 70  # created and written after the pass; the rest were there at the pass
+        _age(put(project, f"m{i}", claim, created=days_ago(0 if changed else 30)), 0 if changed else 30)
+    _set_pass(project, 10)
+    loaded = records.load_memories(project, "project")
+    budget = records.Budget(mem.PAIR_WORK)
+    assert mem._decisions(loaded, TODAY, since=TODAY - datetime.timedelta(days=10), budget=budget).pairs_checked
+    start = time.perf_counter()
+    _session(project, gfolder)
+    took = time.perf_counter() - start
+    assert took < 2  # half the hook's 4 s; measured 0.95 to 1.04 s here, 0.80 s alone (0.48 s without the count)
 
 
 # fix round 1: decisions that stay decided

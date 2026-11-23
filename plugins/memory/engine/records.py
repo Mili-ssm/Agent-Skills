@@ -1092,25 +1092,6 @@ def restore(memory: Logged, entry: dict) -> None:
         f.write(json.dumps(marker, ensure_ascii=False) + "\n")
 
 
-def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, today: datetime.date) -> int:
-    """Items for a pass: live memories created after the last pass (counted only at 10, or at 1 once the pass is 14
-    days old; with no pass yet, once the oldest live memory is) plus active memories past their valid_until (not those
-    already past it on the day of the last pass: that pass dealt with them)."""
-    memories = [m for m in memories if standing(m) != "unconfirmed"]  # their own category in the queue
-    live = [m for m in memories if is_live(m, today)]
-    new = [m for m in live if last_pass is None or (m.created is not None and m.created > last_pass)]
-    if last_pass is not None:
-        age = (today - last_pass).days
-    else:
-        dated = [m.created for m in live if m.created is not None]
-        age = (today - min(dated)).days if dated else 0
-    counted = len(new) if len(new) >= 10 or (new and age >= 14) else 0
-    expired = sum(1 for m in memories if m.error is None and m.status == "active"
-                  and m.valid_until is not None and m.valid_until < today
-                  and (last_pass is None or m.valid_until >= last_pass))
-    return counted + expired
-
-
 def ensure_excluded(project: Path) -> bool:
     """Add `.memory/` to the repository's .git/info/exclude; raises OSError when the line should be written and cannot."""
     if (project / PROJECT_DIR).exists():

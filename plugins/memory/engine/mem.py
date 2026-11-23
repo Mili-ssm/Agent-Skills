@@ -31,7 +31,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Sequence
+from typing import Any, Callable, Collection, Iterable, Iterator, Mapping, NamedTuple, Sequence
 
 import yaml
 
@@ -3090,10 +3090,11 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
                   *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
-                  stats: dict[str, int] | None = None) -> str:
+                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
+    `marks` holds the decision keys each pass recorded (C100); the count is the keys of `_decisions` not in them.
     `notice` is one more line after the rules (the failure of the automatic curation run).
     The lessons that load as rules follow the notice; `stats`, when given, receives their numbers (rules, rules_left,
     rules_chars). `limit` and `_INDEX_LIMIT` apply to the text without them."""
@@ -3103,22 +3104,34 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     except OSError:
         has_store = has_memories = False
     head = [_INDEX_HEAD]
-    due = 0
+    due: dict[str, int] = {}
+    complete = True
+    budget = records.Budget(PAIR_WORK)  # one for both folders, the project's first (C101)
     loaded_global: list[records.Memory] = []
 
-    def due_in(folder: Path, loaded: list[records.Memory]) -> int:
-        return records.curation_due(loaded, (passes or {}).get(str(folder.resolve())), today)
+    def due_in(folder: Path, loaded: list[records.Memory]) -> None:
+        nonlocal complete
+        try:
+            key = str(folder.resolve())
+            found = _decisions(loaded, today, since=(passes or {}).get(key), budget=budget)
+            known = (marks or {}).get(key, frozenset())
+            for k, label in found.keys().items():
+                if k not in known:
+                    due[label] = due.get(label, 0) + 1
+            complete = complete and found.pairs_checked
+        except Exception:
+            pass  # this folder stays out of the count; the rest of the index prints
     if has_store:
         head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
         loaded_global = records.load_memories(memories, "global")
         live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
-        if passes is not None:
-            due += due_in(memories, loaded_global)
     loaded_project = records.load_memories(project, "project")
     if passes is not None and project is not None:
-        due += due_in(project, loaded_project)
+        due_in(project, loaded_project)
+    if passes is not None and has_memories:
+        due_in(memories, loaded_global)
     mine = [m for m in loaded_project if records.is_live(m, today)]
     if mine:
         mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
@@ -3126,8 +3139,11 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         mine.sort(key=lambda m: m.observed, reverse=True)
         mine.sort(key=lambda m: m.kind != "state")  # the project's current situation first
         head.append(f"This project: {len(mine)} memories.")
-    if due:
-        head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
+    total = sum(due.values())
+    if total:
+        parts = ", ".join(f"{due[label]} {label}" for label in _DECISION_LABELS.values() if label in due)
+        head.append(f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
+                    f"({parts}) (run mem curate after the current task).")
     if has_memories:
         waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
         if waiting:
@@ -3269,7 +3285,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice, stats=stats)
+                             notice=notice, stats=stats, marks=read_marks(os.environ))
     except Exception:
         text = _INDEX_RULES
         stats.clear()
@@ -3610,11 +3626,6 @@ def cmd_remember(args: argparse.Namespace) -> int:
         for r in related:
             print(f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
                   file=sys.stderr)
-    due = records.curation_due(records.load_memories(folder, scope),
-                               read_passes(os.environ).get(str(folder.resolve())), today)
-    if due > 0:
-        print(f"mem: {due} new memories since the last curation pass: after the current task, "
-              "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
     if scope == "global" and getattr(args, "origin", None) != "pipeline" and not records.quarantined(m):
         settle_state.maybe_start(folder, store, os.environ, time.time(), today)
@@ -4532,6 +4543,35 @@ def _write_passes(env: Mapping[str, str], covered: Sequence[Path], today: dateti
     os.replace(tmp, path)
 
 
+def _marks_file(env: Mapping[str, str]) -> Path | None:
+    folder = data_dir(env)
+    return folder / "curated-items.json" if folder is not None else None
+
+
+def read_marks(env: Mapping[str, str]) -> dict[str, frozenset[str]]:
+    """Decision keys recorded by the last pass per memory folder (resolved path); anything unreadable reads as none."""
+    path = _marks_file(env)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8")) if path is not None else {}
+        return {k: frozenset(v) for k, v in raw.items()
+                if isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v)}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+def _write_marks(env: Mapping[str, str], covered: Mapping[Path, Collection[str]]) -> None:
+    """Replace the keys of the covered folders only; `curated.json` is not touched (C100)."""
+    path = _marks_file(env)
+    if path is None:
+        raise OSError("no data folder: set MEM_DATA or HOME")
+    known = {k: sorted(v) for k, v in read_marks(env).items()}
+    known.update({str(f.resolve()): sorted(keys) for f, keys in covered.items()})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _tagged(m: records.Memory, extra: str = "") -> str:
     created = m.created.isoformat() if m.created else "undated"
     return f"  m:{m.handle}  [{m.kind}, {created}{extra}]  {_flat(m.claim)}"
@@ -4945,6 +4985,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if args.done:
         store = _optional_store(args)
         covered = []
+        keys: dict[Path, set[str]] = {}
+        labels: dict[Path, str] = {}
         for scope, folder, _ in scopes:
             if folder is None or not folder.is_dir():
                 continue
@@ -4952,12 +4994,18 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 print(_READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
                 return 2
             covered.append(folder)
+            keys[folder] = set(_decisions(records.load_memories(folder, scope), today).keys())
+            labels[folder] = scope
         if covered:
             try:
                 _write_passes(os.environ, covered, today)
+                _write_marks(os.environ, keys)
             except OSError as exc:
                 print(f"mem: {exc}", file=sys.stderr)
                 return 2
+            for folder in sorted(covered, key=lambda f: labels[f] != "global"):
+                n = len(keys[folder])
+                print(f"recorded {n} {'item' if n == 1 else 'items'} ({labels[folder]})")
         if store is not None and store_git.is_repo(store):
             _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
             # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
