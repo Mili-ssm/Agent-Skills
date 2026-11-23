@@ -483,11 +483,18 @@ def _count(entry: Mapping, version: datetime.date) -> int:
     return count
 
 
+def reword_open(m: records.Memory, last: datetime.date) -> bool:
+    """False when the version dated `last` (the present one) is the pass's own rewording or the one the owner kept.
+    Versions are one per day: an owner's version of the same day as `reworded` reads as the pass's own."""
+    return m.reworded != last and not (m.reviewed is not None and m.reviewed >= last)
+
+
 def reword_candidates(projects: Sequence[Path], gfolder: Path | None, today: datetime.date, state: Mapping,
                       *, every: bool = False) -> list[tuple[str, records.Memory]]:
     """(id, memory) of the lessons the automatic rewording may take: loading (or left out only for the size limit
-    of the block) in some project's view, got worse, not strong, never reworded, not kept by the owner, not given
-    up on for the present version and not spent. Most failed on the present version first; at most `REWORD_CAP`.
+    of the block) in some project's view, got worse, whatever its weight, and not: the pass's own rewording
+    (`reworded` is the present version's date), the version the owner kept (`reviewed` on or after it), given up
+    on, or spent for the present version (`spent` is a fact about the version its entry names). Most failed on the present version first; at most `REWORD_CAP`.
     With `every`, the lessons that did not get worse are taken too, and there is no cap."""
     recs = fill_records(projects, gfolder)
     glob = [m for _, p, m in recs if p is None]
@@ -503,9 +510,11 @@ def reword_candidates(projects: Sequence[Path], gfolder: Path | None, today: dat
     for key, (i, m) in found.items():
         versions = records.version_list(m)
         entry = _entry(state, key)
-        if (not versions or (not every and not records.got_worse(m)) or m.weight == "strong"
-                or m.reworded is not None or m.reviewed is not None or m.reword_failed == versions[-1][0]
-                or entry.get("spent") is True or _count(entry, versions[-1][0]) >= REWORD_ATTEMPTS):
+        if not versions or (not every and not records.got_worse(m)) or not reword_open(m, versions[-1][0]):
+            continue
+        last = versions[-1][0]
+        if (m.reword_failed == last or (entry.get("spent") is True and entry.get("version") == last.isoformat())
+                or _count(entry, last) >= REWORD_ATTEMPTS):
             continue
         out.append((i, m))
     out.sort(key=lambda x: (-records.tallies(x[1])[-1].failed, x[0]))
@@ -625,7 +634,8 @@ def _key_of(m: records.Memory) -> str:
 def reword_state_after(state: Mapping, items: Sequence[tuple[str, records.Memory]], outcome: Mapping[str, str],
                        today: datetime.date) -> tuple[dict, list[str]]:
     """The state once the step has run, and the ids to give up on (a `reword_failed` mark): `written` spends the
-    lesson; a refusal or a missing proposal counts an attempt against its present version (a count for another
+    version it was written from (the present one of `items`, so an undo leaves the lesson skipped and a newer
+    version of the owner's takes it once more); a refusal or a missing proposal counts an attempt against its present version (a count for another
     version starts again); `changed` and `failed_edit` change nothing. `state` is not mutated."""
     lessons = {k: dict(v) for k, v in (state.get("lessons") or {}).items() if isinstance(v, Mapping)}
     new = {**{k: v for k, v in state.items() if k != "lessons"}, "lessons": lessons}

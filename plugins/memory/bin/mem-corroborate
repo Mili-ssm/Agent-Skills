@@ -1365,8 +1365,8 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
                 continue
             seen = now.get(i)
             # keeping a wording (`reviewed`) or a rewording made meanwhile must not be overwritten
-            if (seen is None or (seen.claim, seen.short) != (m.claim, m.short) or seen.reviewed is not None
-                    or seen.reworded is not None or seen.weight == "strong" or seen.status != "active"):
+            if (seen is None or (seen.claim, seen.short) != (m.claim, m.short) or seen.status != "active"
+                    or not corroborate.reword_open(seen, records.version_list(seen)[-1][0])):
                 outcome[i] = "changed"
                 continue
             applier = applier or _reword_applier(cdir, gfolder)
