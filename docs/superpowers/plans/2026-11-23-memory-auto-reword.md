@@ -70,7 +70,7 @@
   - `mem memory edit <h> --reword-failed`: writes `reword_failed` with the date of the lesson's last version and changes nothing else; a usage error (exit 2) when the lesson has no version or any other change option is given with it. It is journaled like any edit, and does not start a settle run (read how `cmd_memory` decides to start one and keep this option out of it).
   - `mem curate`, category "balance got worse after loading": when `reword_note(m)` is not empty, the row's state word (`loaded` / `left out by the cap` / `rules off`) is followed by `; <reword_note>`. A lesson with neither key prints its row exactly as in 0.7.0.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Reuse the helpers of `plugins/memory/engine/tests/test_case_log.py` (`transcript`, `reload`, and how its tests build a lesson that got worse and run `mem.main([...])`): import them, do not copy them.
 
@@ -84,15 +84,15 @@ Reuse the helpers of `plugins/memory/engine/tests/test_case_log.py` (`transcript
 | `test_curate_row_says_what_was_tried` | the three notes on the row of a lesson that got worse; a lesson with neither key has the row of 0.7.0 (compare with the row built before the keys are written) |
 | `test_restore_undoes_reworded` | `mem restore` after `--reworded`: the earlier short form, no `reworded` |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
 Run: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_reword.py -q`
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_reword.py` and `test_case_log.py`, then the whole suite**
+- [x] **Step 4: Run `test_reword.py` and `test_case_log.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine/records.py plugins/memory/engine/mem.py plugins/memory/engine/tests/test_reword.py
