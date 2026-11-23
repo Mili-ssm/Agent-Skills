@@ -4,6 +4,17 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- Each lesson now keeps a log of dated cases (`worked`, `failed` or `seen`, taken from what the capture saw) and the versions of its short form, each with its tally; `mem show` prints them. A lesson that got worse after it loaded is marked in `mem rules` and `mem rules --more`, listed by `mem curate` under "balance got worse after loading", and counted in the session start text ("Got worse: N loaded lesson needs a decision"). It keeps loading until you decide: reword it or go back to an earlier text (`mem memory edit <h> --short`), drop it (`mem forget <h>`), or keep the wording with the new `mem triage accept <h>` (`--project-scope` for a project lesson), which stores a `reviewed` date. `mem confirm` and `mem remember` take `--outcome` and `--seen-on`; the corroboration pass carries cases to the general lesson.
+- Records written before, and older plugin versions reading a store written by this one, keep working: there is nothing to migrate.
+
+### Changed
+
+- `mem confirm --source` on a session the lesson already counts, given with `--outcome`, now adds that case, prints `m:<handle>\tcase <outcome> added` and exits 0; without `--outcome` it still changes nothing and exits 3. `--outcome` or `--seen-on` without `--source`, and a `--seen-on` later than today, are usage errors.
+- The log line of the corroboration pass has one more key, `cases`: the case entries it carried to general lessons.
+- Up to 16 lessons (was 6) and 2400 characters of rule lines (was 900) now load at session start, so more established lessons reach the agent without asking by topic; nothing has to be done.
+
 ## [0.6.0] - 2026-11-22
 
 ### Added

@@ -358,7 +358,8 @@ class Applier:
 
     def __init__(self, journal: Journal, lessons: dict, gfolder: Path | None, cwd: Path, log):
         self.journal, self.lessons, self.gfolder, self.cwd, self.log = journal, lessons, gfolder, cwd, log
-        self.counts = {"written": 0, "sightings": 0, "links": 0, "merges": 0, "refused": 0, "failed_actions": 0}
+        self.counts = {"written": 0, "sightings": 0, "links": 0, "merges": 0, "refused": 0, "failed_actions": 0,
+                       "cases": 0}
         self.refused_ids: set[str] = set()
         self.current = None
 
@@ -377,6 +378,34 @@ class Applier:
 
     def handle(self, lesson_id: str) -> str:
         return f"m:{self.lessons[lesson_id].memory.handle}"
+
+    def add_cases(self, target: str, entries: list[str], cases: list[str]) -> bool:
+        """One `mem confirm` per case of the action, for the session's entry; exit 3 (the case is already there) is
+        fine, exit 0 counts a case written. False when a call failed."""
+        by_session = {records.session_key(e): e for e in reversed(entries)}
+        for raw in cases:
+            c = records.case(raw)
+            entry = by_session.get(c.session) if c else None
+            if c is None or entry is None:
+                continue
+            done = self.mem(["confirm", target, "--global", f"--source={entry}", f"--outcome={c.outcome}",
+                             f"--seen-on={c.on.isoformat()}"])
+            if done is None or done.returncode not in (0, 3):
+                return False
+            self.counts["cases"] += done.returncode == 0
+        return True
+
+    def sight(self, target: str, entry: str, cases: list[str]):
+        """The sighting of `entry`: its first case rides on the first call, so no `seen` entry is logged for it. The
+        result of that call, and whether the cases after it went well (None when the call itself did not work)."""
+        parsed = [c for c in map(records.case, cases) if c]
+        extra = [f"--outcome={parsed[0].outcome}", f"--seen-on={parsed[0].on.isoformat()}"] if parsed else []
+        done = self.mem(["confirm", target, "--global", f"--source={entry}", *extra])
+        if done is None or done.returncode not in (0, 3):
+            return done, None
+        if parsed and done.returncode == 0:
+            self.counts["cases"] += 1
+        return done, self.add_cases(target, [entry], cases[1:] if parsed else cases)
 
     def path(self, lesson_id: str) -> Path:
         return self.lessons[lesson_id].memory.path
@@ -405,10 +434,15 @@ class Applier:
                 body = "Written by the corroboration pass; its sightings are the sessions and projects in `sources`.\n"
                 before = self.journal.watch_folder(self.gfolder) if self.gfolder else {}
                 done = self.mem(args, stdin=body)
+                first = done.stdout.strip().splitlines()[0].split("\t") if done and done.stdout.strip() else []
+                cases_ok = True
+                if done is not None and done.returncode in (0, 3) and first and first[0].startswith("m:"):
+                    cases_ok = self.add_cases(first[0], a.entries, a.cases)
                 self.journal.commit("write_global", before, self.gfolder)
-                if done is None:
+                if not cases_ok and done is not None and done.returncode == 0 and first and first[0].startswith("m:"):
+                    self.counts["written"] += 1   # the record exists, though a case call failed
+                if done is None or not cases_ok:
                     return self.fail()
-                first = done.stdout.strip().splitlines()[0].split("\t") if done.stdout.strip() else []
                 if done.returncode == 0 and first and first[0].startswith("m:"):
                     written = first[0]
                     self.counts["written"] += 1
@@ -425,11 +459,21 @@ class Applier:
                     return self.refuse()
                 path = self.gfolder / f"{target[2:]}.md"
                 before = self.journal.watch([path])
-                done = self.mem(["confirm", target, "--global", f"--source={a.entry}"])
+                done, cases_ok = self.sight(target, a.entry, a.cases)
                 self.journal.commit("sighting", before)
                 if done is not None and done.returncode == 0:
                     self.counts["sightings"] += 1
-                elif done is None or done.returncode != 3:
+                if cases_ok is False:
+                    return self.fail()
+                if done is None or done.returncode not in (0, 3):
+                    return self.fail()
+            elif a.kind == "cases":
+                if not a.target or not self.gfolder:
+                    return self.refuse()
+                before = self.journal.watch([self.gfolder / f"{a.target}.md"])
+                cases_ok = self.add_cases(f"m:{a.target}", [a.entry], a.cases)
+                self.journal.commit("cases", before)
+                if not cases_ok:
                     return self.fail()
             elif a.kind == "link":
                 target = a.target and f"m:{a.target}" or written
@@ -496,7 +540,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
     cdir = corroborate_dir(data)
     line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "lessons": 0,
                   "groups": 0, "proposed": 0, "verified": 0, "dropped": 0, "written": 0, "sightings": 0, "links": 0,
-                  "merges": 0, "refused": 0, "failed_actions": 0, "skipped": None, "cost": 0.0, "failed": None, "ms": 0}
+                  "merges": 0, "refused": 0, "failed_actions": 0, "cases": 0, "skipped": None, "cost": 0.0, "failed": None, "ms": 0}
     lock = None
     logged: list[bool] = []
     run: Path | None = None
@@ -631,7 +675,7 @@ def execute(claude: str | None, budget: float, groups_file: str | None = None, d
                 applier.fail()
             if applier.counts["failed_actions"] > failed_before:
                 failed_ids.update(g.ids)
-        for key in ("written", "sightings", "links", "merges", "refused", "failed_actions"):
+        for key in ("written", "sightings", "links", "merges", "refused", "failed_actions", "cases"):
             line[key] = applier.counts[key]
         # marks are the fingerprints the lessons have now, after this run's own writes (a merge changes the kept record)
         after = {stable_key(x): corroborate.lesson_fingerprint(x) for x in collect()}

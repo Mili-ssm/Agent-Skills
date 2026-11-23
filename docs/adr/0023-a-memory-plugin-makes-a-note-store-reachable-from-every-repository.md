@@ -162,3 +162,7 @@ The new brief for a short form, measured the same day on a private copy of the 1
 The capture brief gained the signal `owner_request_paid_off` (C58). Tried the same day on the last part of the session in which the owner asked for a final review of prompts and processes before the release, two runs with the small model, nothing written: both runs kept a lesson with that signal that says to consider such a review without being asked; one of the two overstated what the review found ("six high-severity issues" where it found nine items, one of them high). Cost 0.014 to 0.015 USD a run. Unmeasured: whether the signal fires on requests that showed nothing. Kill criterion: more than one in five lessons with this signal, read at curation, rests on a request that showed nothing: tighten the brief or drop the signal.
 
 Released as memory 0.5.0 on 2026-11-22.
+
+## Review 2026-11-23
+
+The limits of the lessons loaded at session start rose from 6 rules and 900 characters to 16 rules and 2400 characters of rule lines (C73, the owner, 2026-11-22): 16 lessons met every condition and 6 loaded. The change ships unmeasured; the tallies of C67 are the measure. Kill criterion: lower the limits again if, a month after the release that carries C73, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often.

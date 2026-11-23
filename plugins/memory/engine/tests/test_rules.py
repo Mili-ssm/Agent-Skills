@@ -95,13 +95,14 @@ def test_order_inside_a_group():
 
 def test_project_lessons_come_first_and_take_at_most_three():
     base = _base()
+    n = rules.RULES_MAX
     proj = [dataclasses.replace(base, scope="project", handle=f"p{i}", sources=_sources("s1", "s2", keys=(K1, K1)))
             for i in range(5)]
-    glob = [dataclasses.replace(base, scope="global", handle=f"g{i}", weight="strong", owner_confirmed=TODAY)
-            for i in range(5)]
+    glob = [dataclasses.replace(base, scope="global", handle=f"g{i:02}", weight="strong", owner_confirmed=TODAY)
+            for i in range(n)]
     choice = rules.choose(proj, glob, TODAY)
-    assert [m.handle for m in choice.loaded] == ["p0", "p1", "p2", "g0", "g1", "g2"]
-    assert {m.handle for m, why in choice.left} == {"p3", "p4", "g3", "g4"}
+    assert [m.handle for m in choice.loaded][:3 + n - 3] == ["p0", "p1", "p2", *(f"g{i:02}" for i in range(n - 3))]
+    assert {m.handle for m, why in choice.left} == {"p3", "p4", *(f"g{i:02}" for i in range(n - 3, n))}
 
 
 def test_lines_carry_the_standing_written_by_code():
@@ -118,15 +119,26 @@ def test_lines_carry_the_standing_written_by_code():
     assert rules.line(one_session).endswith("(held in 1 session)")
 
 
-def test_never_more_than_six_lines_or_900_characters():
+def test_never_more_than_the_limit_of_lines_or_characters():
     base = _base()
-    many = [dataclasses.replace(base, handle=f"g{i}", short=f"{i}" + "x" * 119, owner_confirmed=TODAY) for i in range(10)]
+    many = [dataclasses.replace(base, handle=f"g{i}", short=f"{i:02}" + "x" * 118, owner_confirmed=TODAY) for i in range(rules.RULES_MAX + 4)]
     choice = rules.choose([], many, TODAY)
-    assert len(choice.loaded) <= 6
-    assert sum(len(rules.line(m)) + 1 for m in choice.loaded) <= 900
-    assert len(choice.loaded) + len(choice.left) == 10
+    assert len(choice.loaded) <= rules.RULES_MAX
+    assert sum(len(rules.line(m)) + 1 for m in choice.loaded) <= rules.RULES_LIMIT
+    assert len(choice.loaded) + len(choice.left) == rules.RULES_MAX + 4
     assert all(why == "over the limit" for _, why in choice.left)
-    assert len(choice.loaded) == 6 and len(choice.left) == 4  # the count binds first: no line can pass 147 characters
+    assert len(choice.loaded) == rules.RULES_MAX and len(choice.left) == 4  # the count binds first: no line can pass 147 characters
+
+
+def test_sixteen_rules_load_and_the_seventeenth_is_left_out():
+    base = _base()
+    many = [dataclasses.replace(base, handle=f"g{i:02}", short=f"Rule {i:02} " + "x" * 60, owner_confirmed=TODAY)
+            for i in range(17)]
+    choice = rules.choose([], many, TODAY)
+    assert (rules.RULES_MAX, rules.RULES_LIMIT) == (16, 2400)
+    assert sum(len(rules.line(m)) + 1 for m in choice.loaded) <= rules.RULES_LIMIT
+    assert [m.handle for m in choice.loaded] == [f"g{i:02}" for i in range(16)]
+    assert [(m.handle, why) for m, why in choice.left] == [("g16", "over the limit")]
 
 
 def test_pending_triage_is_counted_not_loaded():
@@ -163,7 +175,8 @@ def test_quarantine_and_turned_off_lessons_are_nowhere(project, gfolder, capsys)
     g = load(gfolder, "global")
     assert mem.main(["memory", "edit", f"m:{g['Turned off lesson.'].handle}", "--global", "--no-load"]) == 0
     base = _base()
-    shown = [dataclasses.replace(base, handle=f"s{i}", short="x" * 120, owner_confirmed=TODAY) for i in range(7)]
+    shown = [dataclasses.replace(base, handle=f"s{i}", short="x" * 120, owner_confirmed=TODAY)
+             for i in range(rules.RULES_MAX + 1)]
     g = load(gfolder, "global")
     choice = rules.choose([], [*g.values(), *shown], TODAY)
     assert len(choice.left) == 1 and choice.unready == 0
@@ -225,9 +238,9 @@ def test_nothing_qualifies_gives_an_empty_block_and_no_line():
 
 
 def test_more_with_a_topic_prints_only_that_group(project, gfolder, capsys):
-    topics = [None] * 6 + ["testing", "testing", "shell"]
+    topics = [None] * rules.RULES_MAX + ["testing", "testing", "shell"]
     for i, topic in enumerate(topics):
-        write(f"Lesson number {i}.", short=f"Rule {i}.", topic=topic)
+        write(f"Lesson number {i:02}.", short=f"Rule {i}.", topic=topic)
     capsys.readouterr()
     assert mem.main(["rules", "--more", "testing"]) == 0
     out = capsys.readouterr().out.splitlines()
@@ -249,14 +262,14 @@ def test_mem_rules_and_more(project, gfolder, capsys):
     assert mem.main(["rules"]) == 0
     assert capsys.readouterr().out == ("No rules loaded.\n1 established lesson has no short form yet: "
                                        "the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).\n")
-    # nine more that fit only six, each with a topic
-    for i in range(8):
+    # more than fit, each with a topic
+    for i in range(rules.RULES_MAX + 2):
         write(f"Lesson {i} about things in general.", short=f"Rule {i} " + "y" * 100, topic="testing" if i % 2 else None)
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == rules.HEADER and len(out) == 1 + 6 + 1 and out[-1].startswith("2 more lessons")
-    assert all(x.endswith("(held in 2 projects)") for x in out[1:7])
+    assert out[0] == rules.HEADER and len(out) == 1 + rules.RULES_MAX + 1 and out[-1].startswith("2 more lessons")
+    assert all(x.endswith("(held in 2 projects)") for x in out[1:1 + rules.RULES_MAX])
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert len(out) == 2 + 1 + 1

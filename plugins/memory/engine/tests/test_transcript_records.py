@@ -1,6 +1,7 @@
 """Memories captured from a transcript: reach, weight and standing (distinct sessions, never `observed`)."""
 import datetime
 import subprocess
+from dataclasses import replace
 
 import pytest
 
@@ -51,7 +52,7 @@ def test_a_light_one_is_established_at_once(project):
 def test_a_second_session_establishes_it_and_the_same_session_does_not(project):
     m = reload(make(project))
     same, added = records.add_sighting(m, "session a", days(5))
-    assert not added and same == m
+    assert not added and replace(same, log=[]) == m  # only its case is new
     m2, added = records.add_sighting(m, "session b", days(10), note="seen again")
     assert added and records.sessions(m2) == ["session a", "session b"]
     assert records.standing(m2) == "established" and m2.valid_until is None
@@ -213,7 +214,7 @@ def test_session_spelling_counts_once(project):
     assert records.session_key("  Session   A ") == "session a"
     assert records.session_key("session ") is None and records.session_key("https://x") is None
     same, added = records.add_sighting(m, "session  a", days(5))
-    assert not added and same == m
+    assert not added and replace(same, log=[]) == m  # only its case is new
     same, added = records.add_sighting(m, "Session A", days(5))
     assert not added
     m2, added = records.add_sighting(m, "Session   B", days(5))
