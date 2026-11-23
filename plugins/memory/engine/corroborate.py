@@ -6,18 +6,23 @@ from __future__ import annotations
 import datetime
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Sequence
 
+import capture
 import records
 import rules
+import shortcheck
 
 MAX_LESSONS = 150
 MAX_GROUPS = 30
 FILL_CAP = 30  # lessons one `fill` session is asked about
 FILL_ATTEMPTS = 2  # automatic fills that may fail to give a lesson a short form before it is left alone
 FILL_FAILURES = 3
+REWORD_CAP = 5  # lessons one automatic rewording session is asked about
+REWORD_ATTEMPTS = 2  # refused proposals for one version before the step gives up on it
 LAPSED_DAYS = 60  # an unconfirmed lesson stays readable this long after its valid_until
 
 
@@ -456,3 +461,121 @@ def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict],
             problem = fill_problem(short, topic)
             kept[ident] = {"short": short[:300], "topic": topic, **({"problem": problem} if problem else {})}
     return kept, reasons
+
+
+# --- automatic rewording of a loaded lesson that got worse ---
+
+def reword_key(project: Path | None, handle: str) -> str:
+    """The key of a lesson in the rewording's state: the fill's, one per lesson."""
+    return fill_key(project, handle)
+
+
+def _entry(state: Mapping, key: str) -> Mapping:
+    lessons = state.get("lessons") if isinstance(state, Mapping) else None
+    entry = lessons.get(key) if isinstance(lessons, Mapping) else None
+    return entry if isinstance(entry, Mapping) else {}
+
+
+def _count(entry: Mapping, version: datetime.date) -> int:
+    count = entry.get("count")
+    if entry.get("version") != version.isoformat() or not isinstance(count, int) or isinstance(count, bool):
+        return 0
+    return count
+
+
+def reword_candidates(projects: Sequence[Path], gfolder: Path | None, today: datetime.date, state: Mapping,
+                      *, every: bool = False) -> list[tuple[str, records.Memory]]:
+    """(id, memory) of the lessons the automatic rewording may take: loading (or left out only for the size limit
+    of the block) in some project's view, got worse, not strong, never reworded, not kept by the owner, not given
+    up on for the present version and not spent. Most failed on the present version first; at most `REWORD_CAP`.
+    With `every`, the lessons that did not get worse are taken too, and there is no cap."""
+    recs = fill_records(projects, gfolder)
+    glob = [m for _, p, m in recs if p is None]
+    found: dict[str, tuple[str, records.Memory]] = {}
+    for project in projects or [None]:
+        mine = [m for _, p, m in recs if p is not None and p == project]
+        choice = rules.choose(mine, glob, today)
+        taken = {id(m) for m in choice.loaded} | {id(m) for m, why in choice.left if why == rules.OVER}
+        for i, p, m in recs:
+            if id(m) in taken and (p is None or p == project):
+                found.setdefault(reword_key(p, m.handle), (i, m))
+    out = []
+    for key, (i, m) in found.items():
+        versions = records.version_list(m)
+        entry = _entry(state, key)
+        if (not versions or (not every and not records.got_worse(m)) or m.weight == "strong"
+                or m.reworded is not None or m.reviewed is not None or m.reword_failed == versions[-1][0]
+                or entry.get("spent") is True or _count(entry, versions[-1][0]) >= REWORD_ATTEMPTS):
+            continue
+        out.append((i, m))
+    out.sort(key=lambda x: (-records.tallies(x[1])[-1].failed, x[0]))
+    return out if every else out[:REWORD_CAP]
+
+
+_SEEN_AGAIN = re.compile(r"Seen again \(([^)]*)\)")
+
+
+def _failure_signals(body: str) -> list[str]:
+    seen: list[str] = []
+    for text in (body or "").splitlines():
+        found = _SEEN_AGAIN.search(text)
+        if found and capture.outcome(found.group(1)) == "failed" and found.group(1) not in seen:
+            seen.append(found.group(1))
+    return seen
+
+
+def reword_blocks(items: Sequence[tuple[str, records.Memory]]) -> str:
+    """What the writing session reads: one block per lesson (id, claim, context, each version with its tally, the
+    failure signals recorded in the body; never an evidence quote), blank line between."""
+    blocks = []
+    for ident, m in items:
+        block = [f"id: {ident}", f"claim: {_line(m.claim)}"]
+        if _line(m.context):
+            block.append(f"context: {_line(m.context)}")
+        found = records.tallies(m)
+        for t in found:
+            mark = " (present)" if t is found[-1] else ""
+            block.append(f"version {t.number} (worked {t.worked}, failed {t.failed}): {_line(t.text)}{mark}")
+        signals = _failure_signals(m.body)
+        block.append(f"failed after it loaded: {', '.join(signals) if signals else 'not recorded'}")
+        blocks.append("\n".join(block))
+    return "\n\n".join(blocks) + ("\n" if blocks else "")
+
+
+def same_text(a: str, b: str) -> bool:
+    def norm(x: str) -> str:
+        return " ".join(x.lower().split()).strip(" .!;:")
+    return norm(a) == norm(b)
+
+
+def reword_problem(short: str, memory: records.Memory) -> str | None:
+    """Why a proposed short form cannot be applied, or None."""
+    if not short.strip():
+        return "short is empty"
+    if short != short.strip():
+        return "short has spaces at its ends"
+    if len(short.splitlines()) != 1:
+        return "short must be one line"
+    if not records.valid_short(short):
+        return f"short has {len(short)} characters, at most {records.SHORT_LIMIT}"
+    if any(same_text(short, text) for _, text in records.version_list(memory)):
+        return "same as an earlier wording"
+    return None
+
+
+def validate_reword(payload: object, items: Sequence[tuple[str, records.Memory]]) -> dict[str, dict]:
+    """The writer's answer {"items": [{"id", "short"}]} as {id: {"short", "problem"}} for the ids asked; an id the
+    answer lacks is absent; the first item of an id wins. ValueError when the answer is not an object with a list."""
+    listed = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(listed, list):
+        raise ValueError("the answer is not an object with a list `items`")
+    memories = dict(items)
+    out: dict[str, dict] = {}
+    for item in listed:
+        ident = item.get("id") if isinstance(item, dict) else None
+        if not isinstance(ident, str) or ident not in memories or ident in out:
+            continue
+        short = item.get("short")
+        short = short if isinstance(short, str) else ""
+        out[ident] = {"short": short[:300], "problem": reword_problem(short, memories[ident])}
+    return out
