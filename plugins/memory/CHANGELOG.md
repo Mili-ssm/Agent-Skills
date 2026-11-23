@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- The option `rules_layout` (`flat` by default, or `grouped`) and `mem rules --layout` print the lessons loaded at session start under a heading per topic; the same lessons load, only the text changes. Nothing has to be done: the default is the old layout. The grouped layout is not measured yet.
+
 ## [0.7.0] - 2026-11-23
 
 ### Added

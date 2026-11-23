@@ -98,30 +98,30 @@ git commit -m "feat(memory): the loaded lessons can be printed under their topic
 
 **Stop and record nothing when:** the canary fails; any scored run has a permission denial; the flat condition follows any of the three rules in fewer than 3 of 3 runs (the setup then differs from the measure of 2026-11-22: report it); the checksum of the real folders changes; or the cost passes 0.60 USD after four runs.
 
-- [ ] **Step 1: Write the runner**
+- [x] **Step 1: Write the runner**
 
 `run_trial.py --runs 3 --max-cost-usd 1.00 --out <folder>` builds the project and the store, runs both conditions, and writes one JSON line per run (condition, the three scores, cost, the path of the saved trace) and a summary table. `--dry-run` builds everything and prints the two rules blocks without calling a model.
 
-- [ ] **Step 2: Check it without a model**
+- [x] **Step 2: Check it without a model**
 
 Run: `python3 plugins/memory/evals/rules_layout/run_trial.py --dry-run --out <tmp>`
 Expected: two blocks with the same 16 lessons, the second with seven headings; the three rules that leave a trace are in both and not first; the isolation assertions pass.
 
-- [ ] **Step 3: Run the trial**
+- [x] **Step 3: Run the trial**
 
 Run it once with a real `claude`. The traces stay in the temporary folder; headless trials leave folders under the user's Claude projects directory that belong to the temporary project: remove those afterwards and say how many were removed.
 
-- [ ] **Step 4: Record the figures**
+- [x] **Step 4: Record the figures**
 
 In `## Results`: the table of the six runs, the mean cost per condition, per rule, and the outcome worded as the protocol says. The default stays `flat` either way: the change of default is the owner's.
 
-- [ ] **Step 5: Write the documents**
+- [x] **Step 5: Write the documents**
 
 README: the option and the two layouts, with the result of the measure and its limits (one task, one model, three runs). Changelog: one line for users. The resume section: where both plans of 2026-11-23 stand.
 
-- [ ] **Step 6: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`**
+- [x] **Step 6: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`**
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add plugins/memory docs
@@ -132,4 +132,18 @@ git commit -m "docs(memory): the grouped block measured against the flat one, an
 
 ## Results
 
-Filled by Task 2.
+**No figure is reported: the trial stopped at its first scored run (2026-11-23).** Runner: `plugins/memory/evals/rules_layout/run_trial.py`.
+
+| Item | Outcome |
+| --- | --- |
+| Dry run | Two blocks with the same 16 lessons; the grouped one has seven headings; the three trace rules are in both and not first; isolation assertions pass |
+| Canary | Passed: the random token came back and the reply said it knew of no instruction about `validate.py`; the session reported only built-in plugins and no MCP server (cost about 0.05 USD) |
+| Run F1 | Permission denial: the model chained the edit, the `NOTES.md` line, `./check.sh` and the commit in one Bash call with redirects and `&&`, which the listed tools (`Bash(./check.sh)`, `Bash(git *)`, `Bash(python3 greet.py)`) do not allow; it redid the work with separate calls. By the protocol the run is void and nothing is scored |
+| Runs F2 to G3 | Not run |
+| Cost | Canary and F1 together about 0.12 USD, under the 1.00 cap |
+| Real folders | Checksums of the global memories folder, this repository's `.memory/` and the plugin's state folder equal before and after (no change in any) |
+| Left behind | Three folders under the Claude projects directory (canary and F1 of this run, and the canary of a first attempt whose canary check was too strict), removed |
+
+Why it stopped: the stop rule of the protocol (a permission denial in a scored run). The tool list is part of the protocol, so it was not widened. The denial says the setup, not the layout, needs a decision before a rerun: allow compound commands inside the throwaway project (for example `Bash(*)`), which departs from the measure of 2026-11-22, or keep the list and expect denials whenever the model chains commands.
+
+Outcome for the layout: **not measured.** The default stays `flat`; changing it is the owner's decision.
