@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-23
+
 ### Added
 
 - Each lesson now keeps a log of dated cases (`worked`, `failed` or `seen`, taken from what the capture saw) and the versions of its short form, each with its tally; `mem show` prints them. A lesson that got worse after it loaded is marked in `mem rules` and `mem rules --more`, listed by `mem curate` under "balance got worse after loading", and counted in the session start text ("Got worse: N loaded lesson needs a decision"). It keeps loading until you decide: reword it or go back to an earlier text (`mem memory edit <h> --short`), drop it (`mem forget <h>`), or keep the wording with the new `mem triage accept <h>` (`--project-scope` for a project lesson), which stores a `reviewed` date. `mem confirm` and `mem remember` take `--outcome` and `--seen-on`; the corroboration pass carries cases to the general lesson.
