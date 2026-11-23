@@ -14,7 +14,7 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Collection, Iterable, Mapping, NamedTuple, Protocol, Sequence
+from typing import Callable, Collection, Iterable, Iterator, Mapping, NamedTuple, Protocol, Sequence
 
 import yaml
 
@@ -868,43 +868,119 @@ def add_sighting(memory: Memory, session: str, today: datetime.date, note: str |
     return update(memory, today, **changes), True
 
 
-def pairs(memories: Sequence[Memory], today: datetime.date, *,
-          tokenize: Callable[[str], list[str]]) -> list[tuple[Memory, Memory, float]]:
+@dataclass
+class Budget:
+    """Claim comparisons a caller lets pair searches spend, shared by passing one object to several searches.
+
+    `left` counts down by one per comparison. `exhausted` turns True when a search needed a comparison and `left`
+    was 0: `left == 0` alone does not say it, because a budget spent to the last comparison compared everything."""
+    left: int
+    exhausted: bool = False
+
+    def spend(self) -> bool:
+        if self.left <= 0:
+            self.exhausted = True
+            return False
+        self.left -= 1
+        return True
+
+
+def _terms(tokens: Iterable[str]) -> frozenset[str]:
+    """The distinct terms `containment` counts: no all-digit token, no stop word."""
+    return frozenset(t for t in tokens if not t.isdigit()) - STOPWORDS
+
+
+def _containment_of_terms(terms: frozenset[str], other_tokens: Collection[str]) -> float:
+    """`containment` over precomputed terms."""
+    if len(terms) < MIN_TERMS:
+        return 0.0
+    return len(terms & other_tokens) / len(terms)
+
+
+def _among_order(live: Sequence[Memory], index: Mapping[str, int], among: Sequence[str]) -> Iterator[tuple[int, int]]:
+    """Index pairs with at least one `among` memory, each pair once, in the order of `among`."""
+    seen: set[str] = set()
+    for h in among:
+        i = index.get(h)
+        if i is None or h in seen:
+            continue
+        seen.add(h)
+        for j in range(len(live)):
+            if j != i and live[j].handle not in seen:
+                yield min(i, j), max(i, j)
+
+
+def pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callable[[str], list[str]],
+          among: Sequence[str] | None = None,
+          budget: Budget | None = None) -> list[tuple[Memory, Memory, float]]:
     """Pairs of live memories whose claims contain each other with at least STRONG, in either direction.
 
-    A claim and its negation score as high as a near-copy: a pair means "same or opposite", never "duplicate"."""
+    A claim and its negation score as high as a near-copy: a pair means "same or opposite", never "duplicate".
+
+    With `among` (handles, in the order to search) only pairs with at least one of them are compared, each pair
+    once, searching `among` in its order. With `budget` each comparison spends 1 and the search stops when it is
+    spent, returning what it found; the caller reads `budget.exhausted` (a comparison was needed with none left)."""
     live = sorted((m for m in memories if is_live(m, today)), key=lambda m: m.handle)
-    tokens = [tokenize(m.claim) for m in live]
+    index = {m.handle: i for i, m in enumerate(live)}
+    tokens = [set(tokenize(m.claim)) for m in live]
+    terms = [_terms(t) for t in tokens]
+    if among is None:
+        order = ((i, j) for i in range(len(live)) for j in range(i + 1, len(live)))
+    else:
+        order = _among_order(live, index, among)
     found = []
-    for i, a in enumerate(live):
-        for j in range(i + 1, len(live)):
-            score = max(containment(tokens[i], set(tokens[j])), containment(tokens[j], set(tokens[i])))
-            if score >= STRONG and live[j].handle not in a.distinct_from and a.handle not in live[j].distinct_from:
-                found.append((a, live[j], score))
+    for i, j in order:
+        a, b = live[i], live[j]
+        if b.handle in a.distinct_from or a.handle in b.distinct_from:
+            continue
+        if budget is not None and not budget.spend():
+            break
+        score = max(_containment_of_terms(terms[i], tokens[j]), _containment_of_terms(terms[j], tokens[i]))
+        if score >= STRONG:
+            found.append((a, b, score))
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
     return found
 
 
-def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *,
-                  tokenize: Callable[[str], list[str]]) -> list[tuple[Memory, Memory, float]]:
+def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callable[[str], list[str]],
+                  among: Sequence[str] | None = None,
+                  budget: Budget | None = None) -> list[tuple[Memory, Memory, float]]:
     """(live, refuted, score): a live memory whose claim and a refuted one's contain each other with at least STRONG,
     unless the two are recorded as distinct or the live one is not strictly newer than the refutation
-    (its `refuted` date, else the refuted memory's `created`)."""
+    (its `refuted` date, else the refuted memory's `created`).
+
+    `among` and `budget` work as in `pairs`; `among` restricts the live memories, in its order."""
     live = sorted((m for m in memories if is_live(m, today)), key=lambda m: m.handle)
+    if among is not None:
+        by_handle = {m.handle: m for m in live}
+        live = [by_handle[h] for h in dict.fromkeys(among) if h in by_handle]
     dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
+    dead_seen: dict[str, tuple[set[str], frozenset[str]]] = {}  # tokenized when first compared
     found = []
+    spent = False
     for a in live:
-        ta = tokenize(a.claim)
+        ta = terms_a = None
         for r in dead:
             if r.handle in a.distinct_from or a.handle in r.distinct_from:
                 continue
             since = r.refuted or r.created
             if a.created is None or (since is not None and a.created <= since):
                 continue  # not written after the refutation
-            tr = tokenize(r.claim)
-            score = max(containment(ta, set(tr)), containment(tr, set(ta)))
+            if budget is not None and not budget.spend():
+                spent = True
+                break
+            if ta is None:
+                ta = set(tokenize(a.claim))
+                terms_a = _terms(ta)
+            if r.handle not in dead_seen:
+                tr = set(tokenize(r.claim))
+                dead_seen[r.handle] = (tr, _terms(tr))
+            tr, terms_r = dead_seen[r.handle]
+            score = max(_containment_of_terms(terms_a, tr), _containment_of_terms(terms_r, ta))
             if score >= STRONG:
                 found.append((a, r, score))
+        if spent:
+            break
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
     return found
 
@@ -918,8 +994,9 @@ def _claim_words(claim: str) -> set[str]:
 
 
 def differing_words(a: str, b: str) -> list[str]:
-    """The words that occur in only one of the two claims, digits and negations included, sorted."""
-    return sorted(_claim_words(a) ^ _claim_words(b))
+    """The words that occur in only one of the two claims, sorted; stop words are left out except negations,
+    digits stay. Empty when nothing is left."""
+    return sorted(w for w in _claim_words(a) ^ _claim_words(b) if w in _NEGATIONS or w not in STOPWORDS)
 
 
 # Pairs of words that make two claims opposites; either member of a pair may be the one in each claim.
@@ -1013,25 +1090,6 @@ def restore(memory: Logged, entry: dict) -> None:
               "handle": memory.handle, "undone": entry["line"]}
     with (memory.path.parent / CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
         f.write(json.dumps(marker, ensure_ascii=False) + "\n")
-
-
-def curation_due(memories: Sequence[Memory], last_pass: datetime.date | None, today: datetime.date) -> int:
-    """Items for a pass: live memories created after the last pass (counted only at 10, or at 1 once the pass is 14
-    days old; with no pass yet, once the oldest live memory is) plus active memories past their valid_until (not those
-    already past it on the day of the last pass: that pass dealt with them)."""
-    memories = [m for m in memories if standing(m) != "unconfirmed"]  # their own category in the queue
-    live = [m for m in memories if is_live(m, today)]
-    new = [m for m in live if last_pass is None or (m.created is not None and m.created > last_pass)]
-    if last_pass is not None:
-        age = (today - last_pass).days
-    else:
-        dated = [m.created for m in live if m.created is not None]
-        age = (today - min(dated)).days if dated else 0
-    counted = len(new) if len(new) >= 10 or (new and age >= 14) else 0
-    expired = sum(1 for m in memories if m.error is None and m.status == "active"
-                  and m.valid_until is not None and m.valid_until < today
-                  and (last_pass is None or m.valid_until >= last_pass))
-    return counted + expired
 
 
 def ensure_excluded(project: Path) -> bool:
@@ -1234,10 +1292,7 @@ def containment(claim_tokens: Iterable[str], text_tokens: Collection[str]) -> fl
 
     Measured from the claim's side: a brief has hundreds of words and a claim about ten. A token of only digits
     (a year, a count) is not a term: it matches unrelated briefs."""
-    terms = {t for t in claim_tokens if not t.isdigit()} - STOPWORDS
-    if len(terms) < MIN_TERMS:
-        return 0.0
-    return len(terms & set(text_tokens)) / len(terms)
+    return _containment_of_terms(_terms(claim_tokens), set(text_tokens))
 
 
 class Related(NamedTuple):

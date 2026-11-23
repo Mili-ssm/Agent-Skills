@@ -167,6 +167,13 @@ Released as memory 0.5.0 on 2026-11-22.
 
 The limits of the lessons loaded at session start rose from 6 rules and 900 characters to 16 rules and 2400 characters of rule lines (C73, the owner, 2026-11-22): 16 lessons met every condition and 6 loaded. The change ships unmeasured; the tallies of C67 are the measure. Kill criterion: lower the limits again if, a month after the release that carries C73, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often.
 
-## Review 2026-11-24
+The limits of C73 (16 rules, 2400 characters) are replaced by C96 of the [topic digest design](../superpowers/specs/2026-11-23-memory-topic-digest-design.md): no limit on the number of lessons, 3200 characters of lesson lines and 1600 characters for the index of those left out. The change ships unmeasured. Kill criterion: lower the limits again if, a month after the release that carries C96, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often.
 
-The limits of C73 (16 rules, 2400 characters) are replaced by C96 of the [topic digest design](../superpowers/specs/2026-11-24-memory-topic-digest-design.md): no limit on the number of lessons, 3200 characters of lesson lines and 1600 characters for the index of those left out. The change ships unmeasured. Kill criterion: Lower the limits again if, a month after the release that carries C96, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often.
+The `Curation due` count changed meaning (C98 to C107 of the [curation due design](../superpowers/specs/2026-11-23-memory-curation-due-design.md)): it counts decision items the last `mem curate --done` did not list, not new memories. The texts of the `memory-curation` skill and the `memory-curator` agent changed with it (newer-state category as a proposed `supersede` row, never applied by `--safe`; `--done` prints what it recorded; the seen-often question). They ship unmeasured: no eval suite covers them. Kill criteria, any one of which reopens the design:
+
+| Signal | Where it shows |
+|---|---|
+| A curator pass supersedes a state memory still in use | The curation log and `mem restore` use after a pass |
+| A `Curation due` line stays after `mem curate --done` on an unchanged store | The session start text of the next session |
+| `at least N` in the line in three sessions in a row on the owner's store | The session start text; the pair search budget (C101) is too small |
+| A session-index duration over 2 seconds in the hooks log | The hooks log; the start-time pair search costs too much |

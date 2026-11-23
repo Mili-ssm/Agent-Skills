@@ -72,8 +72,8 @@ def run(capsys, *argv):
 
 
 def test_with_no_short_form_anywhere_the_text_is_byte_for_byte_what_it_was(project, gfolder, capsys):
-    write("First lesson without a short form.")
-    write("Second lesson without a short form.")
+    write("Retries need idempotency keys on payment calls.")
+    write("Pottery glaze firing needs a slow cooling ramp.")
     out = run(capsys)
     expected = [LINE1 + " Global memories: 2."] + mem._INDEX_RULES.split("\n")[1:]
     assert out == "\n".join(expected) + "\n"

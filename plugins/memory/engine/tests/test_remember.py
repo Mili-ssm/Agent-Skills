@@ -460,15 +460,10 @@ def test_a_secret_in_a_reason_is_refused(repo, capsys):
     assert "API key" not in (repo / ".memory" / "retries-need-idempotency-keys.md").read_text()
 
 
-def test_no_reminder_below_the_threshold_and_one_at_it(repo, capsys):
-    for i in range(9):
+def test_no_reminder_of_new_memories_at_any_count(repo, capsys):
+    for i in range(12):
         assert remember(claim=f"Distinct lesson number {i} about topic{i}.") == 0
-        assert "curation pass" not in capsys.readouterr().err
-    assert remember(claim="Distinct lesson number 9 about topic9.") == 0
-    out = capsys.readouterr()
-    assert out.err.endswith("mem: 10 new memories since the last curation pass: after the current task, "
-                            "hand a pass to the memory-curator subagent.\n")
-    assert out.out.startswith("m:")
+        assert "new memories since the last curation pass" not in capsys.readouterr().err
 
 
 def test_no_reminder_after_a_curation_pass(repo, capsys):

@@ -170,14 +170,14 @@ def test_curate_lists_unconfirmed_transcript_memories(project, capsys):
     assert "indexes" not in out and "mutexes" not in out
     assert "expired" not in out and "not confirmed in 90 days" not in out
     assert lapsed.handle not in section  # lapsed: not live, so not waiting either
-    before = records.load_memories(project, "project")
+    size = len(records.load_memories(project, "project"))
+    before = mem._decisions(records.load_memories(project, "project"), today).keys()
     for n in range(10):
-        records.write_memory(project, "project", kind="lesson", claim=f"Extra lesson number {n} here.", body="",
+        records.write_memory(project, "project", kind="lesson", claim=f"Distinct extra{n} lesson about topic{n} words{n}.", body="",
                              today=today, origin="transcript", weight="strong", sources=["session a"])
     after = records.load_memories(project, "project")
-    last = today - datetime.timedelta(days=20)
-    assert len(after) == len(before) + 10
-    assert records.curation_due(after, last, today) == records.curation_due(before, last, today)
+    assert len(after) == size + 10
+    assert mem._decisions(after, today).keys() == before  # unconfirmed memories from a transcript are not counted
 
 
 # Fix round 1: nothing but a new session establishes a record or extends its life.

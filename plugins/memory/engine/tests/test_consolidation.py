@@ -265,6 +265,13 @@ def test_distinct_notes_leave_the_pair_queue(run, make, hub_root):
     assert run("curate", "--notes")[1].startswith(PAIR_HEAD)
 
 
+def test_note_pairs_differing_only_by_stopwords_say_wording_only(run, make, hub_root):
+    make("note-a", "Quartz widgets shrink under heavy load")
+    make("note-b", "Quartz widgets shrink under the heavy load")
+    out = run("curate", "--notes")[1]
+    assert out.endswith("  differ in: wording only\n") and "note-a" in out and "note-b" in out
+
+
 def test_pairs_skip_superseded_notes_and_other_topics(run, make, tmp_path, hub_root):
     make("note-a", "Quartz widgets shrink under heavy load", "llm")
     make("note-b", "Quartz widgets shrink under heavy load too", "biology")

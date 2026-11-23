@@ -4,7 +4,20 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-24
+## [0.10.0] - 2026-11-23
+
+### Changed
+
+- The session start line `Curation due: N items (<parts>) (run mem curate after the current task).` now counts the decision items the last `mem curate --done` did not list: written again after being refuted, same or opposite, newer state, expired, seen often, not confirmed in 90 days. New memories alone no longer count, and no line appears at 0. `at least N` means the count is incomplete: the start-time pair search used up its budget, or one folder's count failed. Nothing has to be done, but until the first `mem curate --done` after the update the first sessions count every expired, seen-often (project) and not-confirmed item and the pairs with a memory changed since the last pass, including items that waited before; running `mem curate` and `mem curate --done` once clears them. The background curation (`auto_curation`) does not record a pass, so the line stays until someone runs `mem curate --done`.
+- `mem curate --done` records the keys of the items the queue held in `curated-items.json` in the data folder (`curated.json` keeps its format) and prints `recorded K items (<scope>)`.
+- `mem remember` no longer prints "N new memories since the last curation pass"; its list of related memories names the pairs a new memory makes.
+- `mem curate` groups the same-or-opposite pairs by memory (the memory in most pairs first, then each partner with its claim and a `differ in` line). `differ in` leaves out stopwords except negations, keeps digits and says `wording only` when nothing is left, in the notes queue too. The seen-often block lists project memories only and asks `general enough for a global lesson?` (`mem promote <h>` drafts a `mem remember --global --kind lesson`; a global memory cannot be promoted).
+
+### Added
+
+- `mem curate` lists pairs of live state memories of one project as `newer state of the same project?` (the older memory, then `-> ` the newer): settle with `mem supersede <old> <new>` or `mem distinct <a> <b>`. The `memory-curator` agent proposes it as a `supersede` row and never applies it with `mem curate apply --safe`.
+
+## [0.9.0] - 2026-11-23
 
 ### Added
 

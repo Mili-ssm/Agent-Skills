@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 standard library and PyYAML, pytest. Engine in `plugins/memory/engine/`, commands in `plugins/memory/bin/`, hooks in `plugins/memory/hooks/`.
 
-**Spec:** [the design](../specs/2026-11-24-memory-topic-digest-design.md), rows C86 to C97. Read it before any task.
+**Spec:** [the design](../specs/2026-11-23-memory-topic-digest-design.md), rows C86 to C97. Read it before any task.
 
 ## Global Constraints
 
@@ -61,7 +61,7 @@
 **Files:**
 - Modify: `plugins/memory/engine/rules.py` (`RULES_MAX`, `RULES_LIMIT`, `MORE_LIMIT`, `choose`, `more_line`)
 - Modify: every test under `plugins/memory/engine/tests/` that states the old limits or builds a case from the limit of number (search for `RULES_MAX`, `RULES_LIMIT`, `MORE_LIMIT`; at least `test_rules.py`, `test_rules_session.py`, `test_reword.py`, `test_case_log.py`): a case that needed "one lesson more than the limit" is rebuilt from the limit of characters
-- Modify: `docs/adr/0023-a-memory-plugin-makes-a-note-store-reachable-from-every-repository.md` (a new section at its end, `## Review 2026-11-24`; never edit an existing section or the Status line), `plugins/memory/CHANGELOG.md` (one line under `## [Unreleased]`, `### Changed`), `plugins/memory/README.md` where it states the limits
+- Modify: `docs/adr/0023-a-memory-plugin-makes-a-note-store-reachable-from-every-repository.md` (a new section at its end, `## Review 2026-11-23`; never edit an existing section or the Status line), `plugins/memory/CHANGELOG.md` (one line under `## [Unreleased]`, `### Changed`), `plugins/memory/README.md` where it states the limits
 
 **Interfaces:**
 - Produces: `RULES_LIMIT = 3200` (characters of lesson lines); `INDEX_LIMIT = 1600` (characters of the index; `MORE_LIMIT` is removed and every use of it reads `INDEX_LIMIT`); `RULES_MAX` is removed and `choose` no longer counts lessons. Everything else of `choose` (the order, `PROJECT_FIRST`, "nothing ranked lower jumps ahead of a rule that did not fit") is unchanged. `more_line` keeps its present text and logic within the new limit (it can now name more topics; `TOPICS_NAMED` stays).
@@ -76,7 +76,7 @@ Thirty lessons that are ready to load, with short forms of about 100 characters:
 
 - [x] **Step 4: Write the documents**
 
-ADR 0023, `## Review 2026-11-24`, two or three sentences: the limits of C73 are replaced by C96 of the topic digest design (no limit of number; 3200 characters of lessons and 1600 of index); unmeasured; kill criterion: "Lower the limits again if, a month after the release that carries C96, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often." Changelog: what a user sees (more lessons load; nothing to do). No line numbers.
+ADR 0023, `## Review 2026-11-23`, two or three sentences: the limits of C73 are replaced by C96 of the topic digest design (no limit of number; 3200 characters of lessons and 1600 of index); unmeasured; kill criterion: "Lower the limits again if, a month after the release that carries C96, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often." Changelog: what a user sees (more lessons load; nothing to do). No line numbers.
 
 - [x] **Step 5: Run the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
 
@@ -351,7 +351,7 @@ As Task 6 of [the rewording plan](2026-11-23-memory-auto-reword.md) did: `HOME` 
 
 - [x] **Step 2: Run the step once without applying**
 
-Run: `plugins/memory/bin/mem-corroborate digest --dry-run --sheet <sheet>` with a real `claude` and a budget per session of 0.40 USD. `<sheet>` is `digest-gate-2026-11-24.md` in the folder that holds the owner's real store folder, outside every repository.
+Run: `plugins/memory/bin/mem-corroborate digest --dry-run --sheet <sheet>` with a real `claude` and a budget per session of 0.40 USD. `<sheet>` is `digest-gate-2026-11-23.md` in the folder that holds the owner's real store folder, outside every repository.
 
 - [x] **Step 3: Run it once applying, on the copy, and measure the block**
 
@@ -403,5 +403,5 @@ Task 7, 2026-11-23: the automatic half of the gate (C95), on a private copy of t
 | Copy's memory files after each run | Byte-identical (the step writes no record). Run A left no `rules-digest.json` and no `digest-attempts.json`; run B wrote both |
 | Owner's real memory folders, `.memory` of the repository and the plugin's state folder, before and after | Identical checksums (1234 files) |
 
-Observed: the two runs were separate model calls and wrote different lines for the same lessons (run A's all begin in lower case, as a line that reads on from its heading does; none of run B's does), so the sheet the owner reads is run A's, not the file that run B wrote. **The owner's reading (2026-11-24):** the owner read run A's sheet and called none of its nine lines stronger than its claim, so C95 passed. Noted in the reading: one line names an example its claim does not, and one heading joins two unrelated situations because two lessons share a topic without sharing a situation; the owner chose to leave both as they are for now. The owner turned `rules_layout: digest` on in their own configuration; the option's default stays `flat`.
+Observed: the two runs were separate model calls and wrote different lines for the same lessons (run A's all begin in lower case, as a line that reads on from its heading does; none of run B's does), so the sheet the owner reads is run A's, not the file that run B wrote. **The owner's reading (2026-11-23):** the owner read run A's sheet and called none of its nine lines stronger than its claim, so C95 passed. Noted in the reading: one line names an example its claim does not, and one heading joins two unrelated situations because two lessons share a topic without sharing a situation; the owner chose to leave both as they are for now. The owner turned `rules_layout: digest` on in their own configuration; the option's default stays `flat`.
 
