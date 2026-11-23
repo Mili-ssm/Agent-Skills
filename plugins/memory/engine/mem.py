@@ -3910,8 +3910,50 @@ def cmd_supersede(args: argparse.Namespace) -> int:
     return _two(args, args.old, args.new, "supersede", apply)
 
 
+def _reword_failed(args: argparse.Namespace) -> int:
+    """`mem memory edit <h> --reword-failed`: note the version the automatic rewording gave up on; nothing else changes."""
+    others = (args.claim, args.context, args.body_file, args.short, args.topic)
+    if (any(o is not None for o in others) or args.no_load or args.load or args.index_only or args.reworded
+            or args.user_read):
+        print("mem: --reword-failed stands alone: it changes no other part of the lesson.", file=sys.stderr)
+        return 2
+    found = _memory_of(args, [args.handle])
+    if found is None:
+        return 2
+    m = found[0]
+    versions = records.version_list(m)
+    if not versions:
+        print(f"mem: m:{m.handle} has no short form version to give up on.", file=sys.stderr)
+        return 2
+    log = m.path.parent / records.CURATION_LOG
+    log_before = log.read_bytes() if log.exists() else None
+    original = m.path.read_bytes()
+    updating = False
+    try:
+        records.log_before(m, "edit")
+        updating = True
+        records.update(m, datetime.date.today(), reword_failed=versions[-1][0])
+    except (OSError, ValueError, yaml.YAMLError) as exc:  # any failure leaves the memory and its log as they were
+        if updating and m.path.read_bytes() != original:
+            _swap_file(m.path, original)
+        if log_before is None:
+            log.unlink(missing_ok=True)
+        else:
+            log.write_bytes(log_before)
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    print(f"m:{m.handle}\tedited reword failed")
+    log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    return 0
+
+
 def cmd_memory(args: argparse.Namespace) -> int:
     """`mem memory edit`: the claim, context or body of a memory, through the guard, with undo."""
+    if args.reword_failed:
+        return _reword_failed(args)
+    if args.reworded and (args.short is None or args.user_read):
+        print("mem: --reworded goes with --short and without --user-read: it marks a model's rewording.", file=sys.stderr)
+        return 2
     if (args.claim is None and args.context is None and args.body_file is None and args.short is None
             and args.topic is None and not args.no_load and not args.load and not args.index_only):
         build_parser().error("memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load")
@@ -3966,6 +4008,8 @@ def cmd_memory(args: argparse.Namespace) -> int:
         if args.short is not None:
             changes["short"] = args.short or None
             changes["short_by"] = "model" if args.short and not args.user_read else None
+            if args.reworded:
+                changes["reworded"] = datetime.date.today()
             what.append("short")
         elif claim is not None and claim != m.claim and (m.short or m.short_by):
             changes["short"] = None  # a short form never outlives the claim it was drawn from
@@ -4842,7 +4886,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
                    "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)")
         for m, loaded in worse:
             state = "rules off" if _rules_off() else "loaded" if loaded else "left out by the cap"
-            out.append(f"  m:{m.handle}  {state}  {_flat(m.claim)}")
+            note = records.reword_note(m)
+            out.append(f"  m:{m.handle}  {state}{'; ' + note if note else ''}  {_flat(m.claim)}")
             found = records.tallies(m)[-2:]
             ends = [t.since for t in found[1:]] + [today]
             out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends)]
@@ -6850,6 +6895,10 @@ def build_parser() -> argparse.ArgumentParser:
     memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
     memory_edit.add_argument("--short", metavar="TEXT", help="the one-line rule loaded at session start; an empty text removes it")
     memory_edit.add_argument("--user-read", action="store_true", help=_USER_READ)
+    memory_edit.add_argument("--reworded", action="store_true",
+                             help="with --short: the automatic step wrote this text; marks the lesson as reworded")
+    memory_edit.add_argument("--reword-failed", action="store_true",
+                             help="alone: note that the automatic rewording gave up on the last version")
     memory_edit.add_argument("--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it")
     load_switch = memory_edit.add_mutually_exclusive_group()
     load_switch.add_argument("--no-load", action="store_true", help="never load this lesson as a rule")
