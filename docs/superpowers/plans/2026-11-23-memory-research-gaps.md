@@ -113,11 +113,11 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
   - `History: {n} changed {"note" if n == 1 else "notes"} held back from the last commit: run mem check.`
   - `Re-read due: {n} {"note is" if n == 1 else "notes are"} past {"its" if n == 1 else "their"} review date: mem review.`
 
-- [ ] **Step 1: Write failing tests**: `test_index_reports_held_back`, `test_index_reports_due_rereads` (a `kind: web` literature note on an `llm` topic with `added` 200 days before `today`), `test_index_silent_when_nothing_due`, `test_index_without_git_has_no_history_line`.
-- [ ] **Step 2: Run them; expect FAIL.**
-- [ ] **Step 3: Implement** `check.due_counts(root, today) -> tuple[int, int]` (retests, rereads; in `check.py`) in one pass that shares one `discover_notes` and one `load_topics` with the existing `due_retests`/`due_rereads` logic (separate scans cost about 143 ms; one pass about 70 ms, measured in-process 2026-11-23), cached per day in the plugin's state folder; the index line counts both.
-- [ ] **Step 4: Run the suite; time `mem session-index` 20 times before and after on the real store (read-only command): report p50/p95; p95 must stay under 0.5 s, else move the count into the curation pass and report.** Confirm the character-budget test's fixture produces both new lines; if not, add one that does.
-- [ ] **Step 5: Commit** `feat(memory): session index reports held-back notes and notes due for re-reading`.
+- [x] **Step 1: Write failing tests**: `test_index_reports_held_back`, `test_index_reports_due_rereads` (a `kind: web` literature note on an `llm` topic with `added` 200 days before `today`), `test_index_silent_when_nothing_due`, `test_index_without_git_has_no_history_line`.
+- [x] **Step 2: Run them; expect FAIL.**
+- [x] **Step 3: Implement** `check.due_counts(root, today) -> tuple[int, int]` (retests, rereads; in `check.py`) in one pass that shares one `discover_notes` and one `load_topics` with the existing `due_retests`/`due_rereads` logic (separate scans cost about 143 ms; one pass about 70 ms, measured in-process 2026-11-23), cached per day in the plugin's state folder; the index line counts both.
+- [x] **Step 4: Run the suite; time `mem session-index` 20 times before and after on the real store (read-only command): report p50/p95; p95 must stay under 0.5 s, else move the count into the curation pass and report.** Confirm the character-budget test's fixture produces both new lines; if not, add one that does.
+- [x] **Step 5: Commit** `feat(memory): session index reports held-back notes and notes due for re-reading`.
 
 ### Task 5: CHANGELOG and docs for Tasks 2 to 4
 
