@@ -251,7 +251,7 @@ git commit -m "feat(memory): the pass can reword a lesson that got worse, checke
 - Consumes: `reword_auto` of Task 4.
 - Produces: in `cmd_auto`, after the fill and under the same condition on the loaded rules, when `CLAUDE_PLUGIN_OPTION_AUTO_REWORD` is `"true"`: `reword_auto(args.claude, budget)` and one log line `{"t", "reword": result, "ms"}`, in a `try` of its own as the fill has. With any other value nothing runs and no line is written. If `cmd_auto` receives its options through a hook script rather than straight from the environment, pass this one the same way.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -260,13 +260,13 @@ git commit -m "feat(memory): the pass can reword a lesson that got worse, checke
 | `test_a_failure_in_reword_does_not_fail_auto` | with `reword_auto` patched to raise: exit code 0, the `fill` line is there |
 | `test_plugin_json_has_the_option_off` | the key exists with default false |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run the test files, then the whole suite, then `python3 scripts/validate.py` and `claude plugin validate .`**
+- [x] **Step 4: Run the test files, then the whole suite, then `python3 scripts/validate.py` and `claude plugin validate .`**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/.claude-plugin/plugin.json plugins/memory/bin/mem-corroborate plugins/memory/engine/tests/test_mem_corroborate.py
