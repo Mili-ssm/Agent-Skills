@@ -179,7 +179,7 @@ def test_blocks_text():
     ls[0] = dataclasses.replace(ls[0], short="Reworded rule.", context="Some\ncontext.")
     (w,) = digest.work(_topics(*ls), d, _state())
     assert digest.blocks([w]) == (
-        "topic: a\nheading: Heading\nheading: keep\n\n"
+        "topic: a\nheading (keep): Heading\n\n"
         "id: g:a1\ndo: write\nclaim: Claim a1.\ncontext: Some context.\nshort: Reworded rule.\n\n"
         "id: g:a2\ndo: keep\nclaim: Claim a2.\nshort: Rule a2.\nline: text a2")
     (w2,) = digest.work(_topics(*ls[:1]), {"topics": {}}, _state())

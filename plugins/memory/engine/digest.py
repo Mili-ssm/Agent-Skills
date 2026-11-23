@@ -165,12 +165,12 @@ def _one_line(text) -> str:
 
 
 def blocks(works: Sequence[Work]) -> str:
-    """What the writer reads. A kept heading prints its text and `heading: keep`; a lesson prints only when it is
+    """What the writer reads. A kept heading prints `heading (keep): <text>`, one to write `heading: write`; a lesson prints only when it is
     written or kept; the header of a topic is a block of its own."""
     topics = []
     for w in works:
         parts = [f"topic: {_one_line(w.topic)}"]
-        parts += [f"heading: {_one_line(w.heading)}", "heading: keep"] if w.heading_state == "keep" else ["heading: write"]
+        parts.append(f"heading (keep): {_one_line(w.heading)}" if w.heading_state == "keep" else "heading: write")
         items = ["\n".join(parts)]
         for m in w.lessons:
             if m in w.write or m.handle in w.keep:
