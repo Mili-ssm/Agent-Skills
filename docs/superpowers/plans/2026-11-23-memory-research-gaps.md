@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 (stdlib plus `pyyaml`), POSIX shell hooks, Claude Code plugin skills, `claude plugin eval`.
 
-**Spec:** [docs/studies/2026-11-23-note-repository-parity.md](../../studies/2026-11-23-note-repository-parity.md) (rows G1 to G4 and the owner rulings), with the research procedure and rules it ports from the note repository's agent contract and playbook, quoted into Task 5 and 6 briefs.
+**Spec:** [docs/studies/2026-11-23-note-repository-parity.md](../../studies/2026-11-23-note-repository-parity.md) (rows G1 to G4 and the owner rulings), with the research procedure and rules it ports from the note repository's agent contract and playbook, quoted into the Task 6 and 7 briefs.
 
 ## Global Constraints
 
@@ -22,17 +22,17 @@
 
 ## Review Focus
 
-1. A note held back once and fixed later is committed on the next run and leaves `.git/mem-held-back`. → Task 2, `test_fixed_note_is_committed_next_time`.
-2. Deleted or renamed notes are never held back (a deleted file cannot fail `check`). → Task 2, `test_deleted_note_is_not_held_back`.
-3. `check()` raising (unreadable `topics.yaml`, a crash) never stops the backup: the commit goes ahead unvalidated and the reason is reported. → Task 2, `test_validator_error_commits_everything`.
-4. A store that is not a git repository, or has no `.git/mem-held-back`, prints no history line and raises nothing. → Task 3, `test_index_without_git_has_no_history_line`.
-5. The detached `SessionEnd` commit must not die with the hook, and must not run with a Python that lacks `yaml` (known pitfall of `mem-capture`). → Task 1, manual check in Step 4.
+1. A note held back once and fixed later is committed on the next run and leaves `.git/mem-held-back`. → Task 3, `test_fixed_note_is_committed_next_time`.
+2. Deleted or renamed notes are never held back (a deleted file cannot fail `check`). → Task 3, `test_deleted_note_is_not_held_back`.
+3. `check()` raising (unreadable `topics.yaml`, a crash) never stops the backup: the commit goes ahead unvalidated and the reason is reported. → Task 3, `test_validator_error_commits_everything`.
+4. A store that is not a git repository, or has no `.git/mem-held-back`, prints no history line and raises nothing. → Task 4, `test_index_without_git_has_no_history_line`.
+5. The detached `SessionEnd` commit must not die with the hook, and must not run with a Python that lacks `yaml` (known pitfall of `mem-capture`). → Task 2, manual check in Step 4.
 
 ---
 
 ### Task 0: Trustworthy tests and a faster start (owner order, 2026-11-23)
 
-Before G1 to G4: the suite reads the developer's environment, and the SessionStart hook is already over budget (p95 539 ms against 500), which Task 3 would worsen. Source: [structure assessment](../../studies/2026-11-23-memory-plugin-structure.md) step 0, [Rust study](../../studies/2026-11-23-memory-rust-port.md) § Python-side fixes.
+Before G1 to G4: the suite reads the developer's environment, and the SessionStart hook is already over budget (p95 539 ms against 500), which Task 4 would worsen. Source: [structure assessment](../../studies/2026-11-23-memory-plugin-structure.md) step 0, [Rust study](../../studies/2026-11-23-memory-rust-port.md) § Python-side fixes.
 
 **Files:**
 - Modify: `plugins/memory/engine/tests/conftest.py`
@@ -49,7 +49,25 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 - [ ] **Step 5: Measure** 20 runs after 2 warm-ups, before and after, on a scratch copy (set `MEM_DATA` to scratch so the real logs stay clean): the SessionStart hook script, `session-index --hook`, `search`. Expect the hook p95 under 400 ms; report p50/p95/sd.
 - [ ] **Step 6: Commit** `perf(memory): C YAML loader everywhere and a launcher that caches mem.pyc`, plus a CHANGELOG line.
 
-### Task 1: Detach the `SessionEnd` history commit
+### Task 1: Move notes and check out of `mem.py` (owner, 2026-11-23)
+
+The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a split as part of the work. `mem.py` is 7,146 lines and Tasks 3 and 4 would add to it, so this task first moves two seams out, behavior unchanged ([structure assessment](../../studies/2026-11-23-memory-plugin-structure.md), step 3).
+
+**Files:**
+- Create: `plugins/memory/engine/notes.py` (frontmatter parsing, the YAML loader, `Note`, topics: the block near `mem.py:131-323`)
+- Create: `plugins/memory/engine/check.py` (the check rules and `check()`, plus `due_retests`/`due_rereads`: the block near `mem.py:502-1392`)
+- Modify: `plugins/memory/engine/mem.py` (re-exports both modules' public names so `mem.X` keeps working); `research_checks.py` and `research_pipeline.py` import `split_frontmatter`/`FrontmatterError` from `notes` instead of `mem`
+- Test: a new `plugins/memory/engine/tests/test_import_graph.py`; existing tests whose `monkeypatch.setattr(mem, …)` targets moved code get the new module as target
+
+**Interfaces:**
+- Produces: `notes` imports no other engine module except leaf helpers; `check` imports `notes` and never `mem`; `mem` imports both. Tasks 3 and 4 add their new logic to `check.py`, not `mem.py`.
+
+- [ ] **Step 1:** Write `test_import_graph.py`: `notes` and `check` import without importing `mem` (`'mem' not in sys.modules` after a fresh import in a subprocess). Run: FAIL (modules do not exist).
+- [ ] **Step 2:** Move the code (cut and paste, no rewrites), add the re-exports, fix the two research modules' imports and the moved patch targets. Never loosen an assertion; if more than 5 tests need anything other than a new patch target, stop and report.
+- [ ] **Step 3:** Whole suite green; outputs byte-identical on a scratch copy of the real store for `check`, `search`, `review`, `session-index`; `wc -l` of `mem.py` reported (expect about 6,000).
+- [ ] **Step 4: Commit** `refactor(memory): move notes and check out of mem.py`.
+
+### Task 2: Detach the `SessionEnd` history commit
 
 **Files:**
 - Modify: `plugins/memory/hooks/session-end.sh`
@@ -64,7 +82,7 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 - [ ] **Step 4: Verify**: the tests pass; then by hand, run the hook with the real `mem` against a scratch store copy and confirm a commit appears and the hook log has `started` and `done`.
 - [ ] **Step 5: Commit** `fix(memory): run the session-end history commit detached from the hook`.
 
-### Task 2: Hold failing notes back from history commits (G1)
+### Task 3: Hold failing notes back from history commits (G1)
 
 **Files:**
 - Modify: `plugins/memory/engine/store_git.py` (`_commit`, `commit_if_changed`)
@@ -74,8 +92,8 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 **Interfaces:**
 - Produces: `store_git.commit_if_changed(store, message, *, report=..., warn: Callable[[str], None] = ..., validate: Callable[[list[str]], list[str]] | None = None) -> str | None`. Order inside the commit lock: `add -A` (with the oversized excludes) → changed paths from `git diff --cached --name-only -z --diff-filter=d` (staged, untracked files included, deletions excluded, NUL-separated so quoted paths match) → `validate(paths)` → `git reset -q -- <held paths>` → also hold, and reset, any path whose working tree differs from the index after the check (a writer changed it during the check; writers do not take the commit lock) → write `.git/mem-held-back` (one path per line; removed when empty) **before** the "nothing staged" early return → commit. A validator exception calls `warn` (not `report`: `report` means git failed and makes `mem history commit` exit 1) and commits everything. The gate checks the working tree, not the committed snapshot: a committed note may link to a held-back one (accepted gap, stated in the CHANGELOG).
 - Produces: `store_git.held_back(store: Path) -> list[str]` (empty when the file or `.git` is missing).
-- Produces: `mem._invalid_changed(store: Path) -> Callable[[list[str]], list[str]]`: runs `check(store)` once and returns the given paths that have a `Problem`.
-- `_commit_points` passes `validate=_invalid_changed(store)` and a `warn` that prints and logs without counting as a failure; `mem history commit` prints `held back: <path>` per path on stderr.
+- Produces: `check.invalid_changed(store: Path) -> Callable[[list[str]], list[str]]` (in `check.py`, from Task 1): runs `check(store)` once and returns the given paths that have a `Problem`.
+- `_commit_points` passes `validate=check.invalid_changed(store)` and a `warn` that prints and logs without counting as a failure; `mem history commit` prints `held back: <path>` per path on stderr.
 
 - [ ] **Step 1: Write failing tests**: `test_invalid_note_is_held_back` (a note with a missing required heading is not in the commit; a valid note changed at the same time is; `held_back()` lists the invalid one); `test_invalid_note_in_new_folder_is_held_back` (untracked topic folder); `test_fixed_note_is_committed_next_time`; `test_deleted_note_is_not_held_back`; `test_validator_error_commits_everything` (validator raises → everything committed, `warn` called once, `report` not called, `mem history commit` exits 0); `test_note_changed_during_check_is_held_back`; `test_no_validator_keeps_old_behavior`; `test_held_back_file_written_when_nothing_else_staged`; `test_valid_note_linking_held_back_note_is_committed` (documents the accepted gap). Existing tests that write invalid notes on purpose (`engine/tests/test_store_git.py`, the hook test in `test_plugin_shell.py`) get valid notes where they test committing, never looser assertions; if more than 2 tests would need their assertions loosened, stop and report.
 - [ ] **Step 2: Run them; expect FAIL.**
@@ -83,7 +101,7 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 - [ ] **Step 4: Run the new tests and the whole suite; expect PASS.** Time `mem history commit` on a scratch copy of the real store with one changed note: record the figure in the task report.
 - [ ] **Step 5: Commit** `feat(memory): hold notes that fail mem check back from history commits`.
 
-### Task 3: Session-index lines for held-back and due notes (G1, G4)
+### Task 4: Session-index lines for held-back and due notes (G1, G4)
 
 **Files:**
 - Modify: `plugins/memory/engine/mem.py` (`session_index`, near the `Curation due` line)
@@ -97,19 +115,19 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 
 - [ ] **Step 1: Write failing tests**: `test_index_reports_held_back`, `test_index_reports_due_rereads` (a `kind: web` literature note on an `llm` topic with `added` 200 days before `today`), `test_index_silent_when_nothing_due`, `test_index_without_git_has_no_history_line`.
 - [ ] **Step 2: Run them; expect FAIL.**
-- [ ] **Step 3: Implement** `due_counts(root, today) -> tuple[int, int]` (retests, rereads) in one pass that shares one `discover_notes` and one `load_topics` with the existing `due_retests`/`due_rereads` logic (separate scans cost about 143 ms; one pass about 70 ms, measured in-process 2026-11-23), cached per day in the plugin's state folder; the index line counts both.
+- [ ] **Step 3: Implement** `check.due_counts(root, today) -> tuple[int, int]` (retests, rereads; in `check.py`) in one pass that shares one `discover_notes` and one `load_topics` with the existing `due_retests`/`due_rereads` logic (separate scans cost about 143 ms; one pass about 70 ms, measured in-process 2026-11-23), cached per day in the plugin's state folder; the index line counts both.
 - [ ] **Step 4: Run the suite; time `mem session-index` 20 times before and after on the real store (read-only command): report p50/p95; p95 must stay under 0.5 s, else move the count into the curation pass and report.** Confirm the character-budget test's fixture produces both new lines; if not, add one that does.
 - [ ] **Step 5: Commit** `feat(memory): session index reports held-back notes and notes due for re-reading`.
 
-### Task 4: CHANGELOG and docs for Tasks 1 to 3
+### Task 5: CHANGELOG and docs for Tasks 2 to 4
 
-**Files:** `plugins/memory/CHANGELOG.md` (`## [Unreleased]`), `plugins/memory/README.md` (behavior of history commits and the index, if described there), `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table row "Unreleased work"; the open item on the `SessionEnd` budget marked solved by Task 1).
+**Files:** `plugins/memory/CHANGELOG.md` (`## [Unreleased]`), `plugins/memory/README.md` (behavior of history commits and the index, if described there), `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table row "Unreleased work"; the open item on the `SessionEnd` budget marked solved by Task 2).
 
 - [ ] **Step 1:** Write the entries, for users: what changes, what to do when the index says notes are held back.
 - [ ] **Step 2:** `python3 scripts/validate.py` and `claude plugin validate .` pass.
 - [ ] **Step 3: Commit** `docs(memory): changelog and plan for the commit gate and re-read reminder`.
 
-### Task 5: Note-writing rules reference (G3)
+### Task 6: Note-writing rules reference (G3)
 
 **Files:**
 - Create: `plugins/memory/skills/memory/references/research-notes.md`
@@ -121,9 +139,9 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 - [ ] **Step 1:** Write the reference (dense, tables, under 150 lines; `outline.py` headings that name their content).
 - [ ] **Step 2:** Add the pointers. `python3 scripts/validate.py` passes.
 - [ ] **Step 3: Commit** `docs(memory): rules for writing research notes`.
-- [ ] **Step 4: Owner review** of `research-notes.md` (the owner wanted to evaluate these rules, 2026-11-23); `grep` it for home paths and private names first. Task 6 may be drafted meanwhile; the branch does not merge before this review.
+- [ ] **Step 4: Owner review** of `research-notes.md` (the owner wanted to evaluate these rules, 2026-11-23); `grep` it for home paths and private names first. Task 7 may be drafted meanwhile; the branch does not merge before this review.
 
-### Task 6: `memory-research-wave` skill (G2)
+### Task 7: `memory-research-wave` skill (G2)
 
 **Files:**
 - Create: `plugins/memory/skills/memory-research-wave/SKILL.md`
@@ -142,5 +160,5 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 
 - Hook-log `session-end` records over 3,000 ms, or `started` without `done` → raise the timeout or move the check out of the lock.
 - Sessions without a commit while the hook log shows the run lock skipped it → restore the order.
-- `session-index` p95 over 0.5 s after Task 3 → stop and ask the owner (the ruling puts the line in the index; moving it to the curation pass changes that ruling).
-- More than 2 existing tests need looser assertions → stop and re-plan Task 2.
+- `session-index` p95 over 0.5 s after Task 4 → stop and ask the owner (the ruling puts the line in the index; moving it to the curation pass changes that ruling).
+- More than 2 existing tests need looser assertions → stop and re-plan Task 3.
