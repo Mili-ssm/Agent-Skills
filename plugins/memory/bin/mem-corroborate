@@ -1479,7 +1479,7 @@ def digest_auto(claude: str | None, budget: float, *, apply: bool = True, sheet:
     `apply` false it writes neither file (the sessions still run, and cost). Never raises: a failure is a counted result
     with `stopped` set."""
     result = {"topics": 0, "headings_written": 0, "lines_written": 0, "refused_code": 0, "refused_check": 0, "missing": 0,
-              "cost": 0.0, "stopped": None}
+              "unjudged": 0, "cost": 0.0, "stopped": None}
     try:
         cdir = corroborate_dir(data_dir())
         lock = au.take_run_lock(cdir)
@@ -1504,9 +1504,16 @@ def _digest_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     lessons = [m for m in records.load_memories(records.global_memories_root(os.environ), "global") if m.error is None]
     stored = dg.read(data)
     state = _digest_state(cdir)
-    works = dg.work(dg.topics_of(lessons, datetime.date.today()), stored, state)
+    topics = dg.topics_of(lessons, datetime.date.today())
+    works = dg.work(topics, stored, state)
     result["topics"] = len(works)
     if not works:
+        if apply:   # nothing to ask, but what no longer applies still goes
+            pruned_digest, pruned_state = dg.pruned(stored, state, topics)
+            if pruned_digest != stored:
+                dg.write(data, pruned_digest)
+            if pruned_state != state:
+                au.write_json(cdir / DIGEST_ATTEMPTS_NAME, pruned_state)
         return finish()
     keys = sorted([*(dg._heading_key(w.topic, w.lessons) for w in works if w.heading_state == "write"),
                    *(dg._line_key(m, w.lessons) for w in works for m in w.write)])
@@ -1526,7 +1533,10 @@ def _digest_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     def failed_session(why: str) -> dict:
         failures["count"] += 1
         failures["fingerprint"] = fingerprint
-        save_state(state)
+        try:
+            save_state(state)
+        except Exception:   # noqa: BLE001   (the state file may be what cannot be written: the result still says so)
+            pass
         return finish(stopped=why)
 
     scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-digest-"))
@@ -1556,26 +1566,54 @@ def _digest_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
         shutil.rmtree(scratch, ignore_errors=True)
 
     new_digest, new_state, counts = dg.decide(works, proposed, verdicts, stored, state)
+    new_digest, new_state = dg.pruned(new_digest, new_state, topics)
     new_state["failures"] = {"count": 0, "fingerprint": None}
     if apply:
-        dg.write(data, new_digest)
-        save_state(new_state)
+        try:
+            dg.write(data, new_digest)
+            save_state(new_state)
+        except Exception:   # noqa: BLE001
+            return failed_session("the digest or its state could not be written")
     result.update(counts)
     if not apply:   # as the rewording: a dry run reports nothing as written
         result["headings_written"] = result["lines_written"] = 0
     if sheet is not None:
         try:   # the run is done: a sheet that cannot be written must not turn it into a failed step
-            by_topic = {w.topic: w for w in works}
             rows = []
-            for ident, m, head, text in pairs:
-                topic = next(w.topic for w in works if m in w.lessons)
-                line = new_digest["topics"].get(topic, {}).get("lines", {}).get(m.handle)
-                if line is not None and line["text"] == text:
-                    outcome = "written" if m in by_topic[topic].write else "kept"
-                    outcome = f"would be {outcome}" if not apply and outcome == "written" else outcome
-                else:
-                    outcome = "refused_check"
-                rows.append((topic, head, ident, m.claim, m.short, text, outcome, reasons.get(ident)))
+            for w in works:
+                p = proposed.get(w.topic, {})
+                paired = {m.handle: (ident, head, text) for ident, m, head, text in dg.pairs([w], proposed)}
+                stored_topic = new_digest["topics"].get(w.topic, {})
+                head_text = p.get("heading") if w.heading_state == "write" else w.heading
+                if w.heading_state == "write" and isinstance(head_text, str):
+                    problem = dg.heading_problem(head_text)
+                    if problem is not None:
+                        outcome, why = "refused_code", problem
+                    elif stored_topic.get("heading") == head_text:
+                        outcome, why = ("would be written" if not apply else "written"), None
+                    elif not any(isinstance(verdicts.get(ident), dict) for ident, _h, _t in paired.values()):
+                        outcome, why = "unjudged", None
+                    else:
+                        outcome, why = "refused_check", None
+                    rows.append((w.topic, head_text, "", "", "", "", outcome, why))
+                for m in w.lessons:
+                    ident, head, text = paired.get(m.handle) or (f"g:{m.handle}", head_text, (p.get("lines") or {}).get(m.handle))
+                    if m.handle in paired:
+                        line = stored_topic.get("lines", {}).get(m.handle)
+                        if line is not None and line["text"] == text:
+                            outcome = "written" if m in w.write else "kept"
+                            outcome = f"would be {outcome}" if not apply and outcome == "written" else outcome
+                        elif not isinstance(verdicts.get(ident), dict):
+                            outcome = "unjudged"
+                        else:
+                            outcome = "refused_check"
+                        why = reasons.get(ident)
+                    elif m in w.write and isinstance(text, str):
+                        problem = dg.line_problem(text, m) if (head_text is not None and dg.heading_problem(head_text) is None) else None
+                        outcome, why = ("refused_code", problem) if problem else ("unjudged", "its heading was refused")
+                    else:
+                        continue
+                    rows.append((w.topic, head, ident, m.claim, m.short, text, outcome, why))
             _digest_sheet(sheet, rows)
         except Exception:   # noqa: BLE001
             return finish(stopped=result["stopped"] or "the sheet could not be written")

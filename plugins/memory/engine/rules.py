@@ -105,27 +105,31 @@ def grouped(choice: Choice) -> list[str]:
 
 
 def _digested(choice: Choice, digest: dict, topics: dict) -> list[str]:
-    """`grouped` with the digest's heading after a topic and its line for a global lesson, wherever they are fresh and fit."""
+    """`grouped` with the digest's heading after a topic and its line for a global lesson, wherever they are fresh and fit.
+    Under a printed heading the lessons with a digest line come first: a short form stands alone, a line leans on the heading."""
     import digest as store  # digest imports this module
-    out: list[str] = []
     used_heads = 0
     heads_open = True
-    groups = _by_topic(choice)
-    pending = [len(line(m)) + 1 for ms in groups.values() for m in ms]  # short forms still to print, in printed order
-    used, lines_open = 0, True
-    for topic, ms in groups.items():
+    plan: list[tuple[str, str | None, list[tuple[Memory, str | None]]]] = []  # topic, heading, (lesson, its fresh line)
+    for topic, ms in _by_topic(choice).items():
         lessons = topics.get(topic)
         head = store.heading(digest, topic, lessons) if lessons else None
         if head is not None and heads_open and used_heads + len(head) <= HEADINGS_LIMIT:
             used_heads += len(head)
-            out.append(f"{topic}: {head}")
+            items = [(m, store.line(digest, topic, m, lessons) if m.scope == "global" else None) for m in ms]
+            items = [*(x for x in items if x[1] is not None), *(x for x in items if x[1] is None)]
         else:
             heads_open = heads_open and head is None  # a fresh heading that did not fit closes the rest
             head = None
-            out.append(f"{topic}:")
-        for m in ms:
+            items = [(m, None) for m in ms]
+        plan.append((topic, head, items))
+    pending = [len(line(m)) + 1 for _, _, items in plan for m, _ in items]  # short forms still to print, in printed order
+    out: list[str] = []
+    used, lines_open = 0, True
+    for topic, head, items in plan:
+        out.append(f"{topic}: {head}" if head is not None else f"{topic}:")
+        for m, text in items:
             short = pending.pop(0)
-            text = store.line(digest, topic, m, lessons) if head is not None and m.scope == "global" else None
             printed = line(m)
             if text is not None and lines_open:
                 digested = f"- {text} {standing_words(m)}"
@@ -191,13 +195,12 @@ def index_lines(choice: Choice, *, digest: dict | None = None, topics: dict | No
             counts["other"] = other
         heads = {t: store.heading(digest, t, topics[t]) for t in counts if t in topics}
         if any(h is not None for h in heads.values()):
-            entries = [f"- {t} ({n}): {heads[t]}" if heads.get(t) else f"- {t} ({n})"
-                       for t, n in sorted(counts.items(), key=lambda t: (-t[1], t[0]))]
             names = sorted(counts.items(), key=lambda t: (-t[1], t[0]))
+            entries = [f"- {t} ({n}): {heads[t]}" if heads.get(t) else f"- {t} ({n})" for t, n in names]
             top = "More lessons, by topic (mem rules --more <topic>):"
             for kept in range(len(entries), -1, -1):
                 rest = names[kept:]
-                tail = [f"- and {sum(n for _, n in rest)} more in {len(rest)} topics"] if rest else []
+                tail = [f"- and {sum(n for _, n in rest)} more in {len(rest)} topic{'' if len(rest) == 1 else 's'}"] if rest else []
                 lines = [top, *entries[:kept], *tail]
                 if len("\n".join(lines)) <= INDEX_LIMIT:
                     return lines

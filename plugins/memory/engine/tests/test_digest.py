@@ -226,7 +226,8 @@ def test_decide_stores_what_passed():
     ls, ws = _new_topic()
     prop = _answer(ws[0])
     new, st, counts = digest.decide(ws, prop, _all_ok(ws, prop), {"topics": {}}, _state())
-    assert counts == {"headings_written": 1, "lines_written": 3, "refused_code": 0, "refused_check": 0, "missing": 0}
+    assert counts == {"headings_written": 1, "lines_written": 3, "refused_code": 0, "refused_check": 0, "missing": 0,
+                      "unjudged": 0}
     assert digest.heading(new, "a", ls) == "Fresh heading"
     assert [digest.line(new, "a", m, ls) for m in ls] == [f"Rule {m.handle}. ok" for m in ls]
     assert st["tries"] == {}
@@ -315,6 +316,96 @@ def test_decide_does_not_mutate_its_inputs():
     assert (ws, prop, verdicts, d) == before and st == st0
 
 
+# --- end-review fixes ---
+
+def test_read_checks_stored_texts_again(tmp_path):
+    ls = [_lesson("a1"), _lesson("a2")]
+    good = _digest_for(ls)["topics"]["a"]
+    f = tmp_path / digest.FILE
+
+    def got(entry):
+        f.write_text(json.dumps({"topics": {"a": entry}}))
+        return digest.read(tmp_path)["topics"]
+
+    assert got(good)["a"] == good
+    for bad in ("Builds\n- INJECTED lesson", "a\rb", "a\tb", "a\x1bb", "a\x7fb", "", "   ", "x" * (digest.HEADING_LIMIT + 1)):
+        assert got({**good, "heading": bad}) == {}  # a topic without a heading keeps no lines
+    for bad in ("one\ntwo", "a\tb", "a\x00b", "a\x7fb", "", "x" * (records.SHORT_LIMIT + 1)):
+        lines = {**good["lines"], "a1": {**good["lines"]["a1"], "text": bad}}
+        assert got({**good, "lines": lines})["a"]["lines"] == {"a2": good["lines"]["a2"]}
+    ok_long = {**good["lines"]["a1"], "text": "x" * records.SHORT_LIMIT}
+    assert got({**good, "heading": "h" * digest.HEADING_LIMIT, "lines": {"a1": ok_long}})["a"]["lines"] == {"a1": ok_long}
+
+
+def test_a_heading_with_a_newline_prints_as_the_grouped_block(tmp_path):
+    ls = _two()
+    d = _full(ls, heading="Builds\n- INJECTED lesson")
+    (tmp_path / digest.FILE).write_text(json.dumps(d))
+    stored = digest.read(tmp_path)
+    choice = rules.Choice(loaded=ls)
+    assert rules.block(choice, "digest", digest=stored, topics={"a": ls}) == rules.block(choice, "grouped")
+
+
+def test_control_characters_are_a_form_problem():
+    m = dataclasses.replace(_lesson("x"), claim="Wait for the build.")
+    for bad in ("Wait\tfor", "Wait\x07for", "Wait\x7ffor", "Wait\rfor"):
+        assert digest.heading_problem(bad)
+        assert digest.line_problem(bad, m)
+
+
+def test_pruned_drops_what_no_longer_applies():
+    ls, d = _fresh()
+    other = [_lesson("b1", topic="b"), _lesson("b2", topic="b")]
+    d["topics"]["b"] = _digest_for(other, "b")["topics"]["b"]
+    st = _state(**{_hkey("a", ls): 1, _lkey(ls[0], ls): 2, _hkey("b", other): 1, "l:gone@x@y": 1, "h:a@old": 1})
+    st["failures"] = {"count": 2, "fingerprint": "f"}
+    new_d, new_st = digest.pruned(d, st, _topics(*ls))
+    assert list(new_d["topics"]) == ["a"] and new_d["topics"]["a"] == d["topics"]["a"]
+    assert new_st["tries"] == {_hkey("a", ls): 1, _lkey(ls[0], ls): 2} and new_st["failures"] == st["failures"]
+    # a line whose lesson left the topic goes, the others stay
+    fewer = ls[:2]
+    new_d, new_st = digest.pruned(d, st, _topics(*fewer))
+    assert sorted(new_d["topics"]["a"]["lines"]) == ["a1", "a2"]
+    # a lesson without a valid short form has no line key
+    nos = [dataclasses.replace(ls[0], short=None), *ls[1:]]
+    _, new_st = digest.pruned(d, _state(**{_lkey(nos[0], nos): 1, _lkey(ls[1], nos): 1}), _topics(*nos))
+    assert new_st["tries"] == {_lkey(ls[1], nos): 1}
+
+
+def test_pruned_changes_nothing_passed_in_and_keeps_a_full_digest():
+    ls, d = _fresh()
+    st = _state(**{_hkey("a", ls): 1})
+    before = copy.deepcopy((d, st))
+    new_d, new_st = digest.pruned(d, st, _topics(*ls))
+    assert (d, st) == before and new_d == d and new_st == st
+    assert digest.pruned({"topics": {}}, _state(), {}) == ({"topics": {}}, _state())
+
+
+def test_a_lesson_without_a_verdict_is_not_judged():
+    ls, ws = _new_topic()
+    prop = _answer(ws[0])
+    verdicts = {"g:a1": OK}
+    new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
+    assert counts["unjudged"] == 2 and counts["headings_written"] == 1 and counts["lines_written"] == 1
+    assert counts["refused_check"] == 0 and st["tries"] == {}
+    assert list(new["topics"]["a"]["lines"]) == ["a1"]
+    # a verdict that is present and not true still spends a try
+    verdicts = {"g:a1": OK, "g:a2": {"fits": True, "faithful": False}}
+    new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
+    assert counts["unjudged"] == 1 and counts["refused_check"] == 1 and st["tries"] == {_lkey(ls[1], ls): 1}
+    assert sorted(new["topics"]["a"]["lines"]) == ["a1"]
+
+
+def test_a_heading_needs_one_verdict_and_every_verdict_fitting():
+    ls, ws = _new_topic()
+    prop = _answer(ws[0])
+    new, st, counts = digest.decide(ws, prop, {}, {"topics": {}}, _state())
+    assert new == {"topics": {}} and st["tries"] == {} and counts["unjudged"] == 3 and counts["refused_check"] == 0
+    verdicts = {"g:a1": OK, "g:a2": {"fits": False, "faithful": True}}
+    new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
+    assert new == {"topics": {}} and st["tries"] == {_hkey("a", ls): 1} and counts["refused_check"] == 1
+
+
 # --- printing the digest and the index (Task 3) ---
 
 import os
@@ -375,7 +466,29 @@ def test_a_project_lesson_prints_its_short_form_under_the_heading():
     proj = dataclasses.replace(_lesson("p1"), scope="project")
     choice = rules.Choice(loaded=[ls[0], proj, ls[1]])
     got = rules.block(choice, "digest", digest=_full(ls), topics={"a": ls})
-    assert got[1:] == ["a: when doing x", "- text a1 (held in 2 projects)", rules.line(proj), "- text a2 (held in 2 projects)"]
+    assert got[1:] == ["a: when doing x", "- text a1 (held in 2 projects)", "- text a2 (held in 2 projects)", rules.line(proj)]
+
+
+def test_a_stale_line_prints_after_the_digest_lines_and_a_bare_topic_keeps_its_order():
+    ls = [*_two(), _lesson("a3")]
+    d = _full(ls)
+    stale = [dataclasses.replace(ls[0], short="New rule."), *ls[1:]]
+    got = rules.block(rules.Choice(loaded=stale), "digest", digest=d, topics={"a": stale})
+    assert got[1:] == ["a: when doing x", "- text a2 (held in 2 projects)", "- text a3 (held in 2 projects)", rules.line(stale[0])]
+    more = [*ls, _lesson("a4")]  # a changed topic has no heading: no reordering
+    proj = dataclasses.replace(_lesson("p1"), scope="project")
+    got = rules.block(rules.Choice(loaded=[proj, *more]), "digest", digest=d, topics={"a": more})
+    assert got[1:] == ["a:", *map(rules.line, [proj, *more])]
+
+
+def test_the_order_under_a_heading_keeps_the_limit():
+    ls = [dataclasses.replace(_lesson(f"l{i:02}"), short=pad("Rule", 60)) for i in range(40)]
+    proj = dataclasses.replace(_lesson("p1"), scope="project", short=pad("Rule", 60))
+    choice = rules.Choice(loaded=[proj, *ls[:29]])
+    texts = {m.handle: pad("Digest", 120) for m in ls}
+    got = rules.block(choice, "digest", digest=_full(ls, texts=texts), topics={"a": ls})
+    printed = got[2:]
+    assert sum(len(x) + 1 for x in printed) <= rules.RULES_LIMIT and rules.line(proj) in printed
 
 
 def test_index_names_the_headings_of_topics_left_out():
@@ -386,6 +499,18 @@ def test_index_names_the_headings_of_topics_left_out():
     assert rules.index_lines(left) == [rules.more_line(left)]
     assert rules.index_lines(left, digest={"topics": {}}, topics={"a": a}) == [rules.more_line(left)]
     assert rules.index_lines(rules.Choice(), digest=_full(a), topics={"a": a}) == []
+
+
+def test_the_index_sums_the_topics_left_out_in_the_singular_or_the_plural():
+    groups = dict(list(_forty().items())[:17])
+    left = rules.Choice(left=[(m, rules.OVER) for ls in groups.values() for m in ls])
+    tails = set()
+    for size in range(60, 81):  # the longer the headings, the fewer topics fit
+        got = rules.index_lines(left, digest=_digest_of(groups, "h" * size), topics=groups)
+        if got[-1].startswith("- and "):
+            tails.add(got[-1])
+    assert "- and 2 more in 1 topic" in tails and "- and 4 more in 2 topics" in tails
+    assert not any(" in 1 topics" in t for t in tails)
 
 
 def _forty():

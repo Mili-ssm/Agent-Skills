@@ -2441,7 +2441,7 @@ def asked(w, which):
 
 
 DG_NOTHING = {"topics": 0, "headings_written": 0, "lines_written": 0, "refused_code": 0, "refused_check": 0, "missing": 0,
-              "cost": 0.0, "stopped": None}
+              "unjudged": 0, "cost": 0.0, "stopped": None}
 
 
 def test_digest_writes_a_topic_the_engine_reads_as_fresh(w, monkeypatch):
@@ -2534,7 +2534,7 @@ def test_digest_dry_run_writes_the_sheet_and_nothing_else(w, monkeypatch):
     assert json.loads(done.stdout)["topics"] == 1 and calls(w) == 2
     assert snapshot(w) == before and not (w.data / digest.FILE).exists() and not (w.cdir / "digest-attempts.json").exists()
     rows = [x for x in sheet.read_text().splitlines() if x.startswith("| ") and "---" not in x][1:]
-    assert len(rows) == 3 and sum("the checker's reason" in x for x in rows) == 3
+    assert len(rows) == 4 and sum("the checker's reason" in x for x in rows) == 3   # the heading has a row of its own
     assert any(DG_HEADING in x and DG_LINES[0] in x for x in rows) and sum("refused_check" in x for x in rows) == 1
     repo = w.tmp / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -2560,3 +2560,105 @@ def test_an_unwritable_sheet_does_not_fail_an_applied_digest_run(w, monkeypatch)
     result = do_digest(w, sheet=w.tmp / "no-such-folder" / "sheet.md")
     assert result["headings_written"] == 1 and "sheet" in result["stopped"] and result["stopped"] != "the step failed"
     assert engine_digest()["topics"][DG_TOPIC]["heading"] == DG_HEADING
+
+
+def sheet_rows(path):
+    return [[c.strip() for c in x.strip("|").split(" | ")] for x in path.read_text().splitlines()
+            if x.startswith("| ") and "---" not in x][1:]
+
+
+def test_the_sheet_has_a_row_for_a_heading_the_code_refused(w, monkeypatch):
+    digest_world(w)
+    digest_answers(w, monkeypatch, heading="h" * 81)
+    sheet = w.tmp / "sheet.md"
+    result = do_digest(w, sheet=sheet)
+    assert result["refused_code"] == 1 and result["headings_written"] == 0 and calls(w) == 1   # nothing for the checker
+    rows = sheet_rows(sheet)
+    assert len(rows) == 4
+    head, *lines = rows
+    assert head[0] == DG_TOPIC and head[1] == "h" * 81 and head[2] == "" and head[5] == "" and head[6] == "refused_code"
+    assert "80" in head[7]
+    assert all(r[2].startswith("g:") and r[6] == "unjudged" for r in lines)
+
+
+def test_the_sheet_has_a_row_for_a_line_the_code_refused(w, monkeypatch):
+    digest_world(w)
+    bad = {DG_LESSONS[0][0]: "x" * 121, DG_LESSONS[1][0]: DG_LINES[1], DG_LESSONS[2][0]: DG_LINES[2]}
+    digest_answers(w, monkeypatch, lines=bad)
+    sheet = w.tmp / "sheet.md"
+    result = do_digest(w, sheet=sheet)
+    assert result["refused_code"] == 1 and result["lines_written"] == 2
+    rows = sheet_rows(sheet)
+    assert sorted(r[6] for r in rows) == ["refused_code", "written", "written", "written"]
+    refused = next(r for r in rows if r[6] == "refused_code")
+    assert refused[1] == DG_HEADING and refused[5] == "x" * 121 and "120" in refused[7]
+
+
+def test_a_lesson_the_checker_left_out_is_not_judged_and_spends_no_try(w, monkeypatch):
+    digest_world(w)
+    by = {m.claim: m for m in digest_lessons(w)}
+    only = by[DG_LESSONS[0][0]]
+    verdict = json.dumps({"verdicts": [{"id": f"g:{only.handle}", "reason": "ok", "fits": True, "faithful": True}]})
+    digest_answers(w, monkeypatch, checker=verdict)
+    result = do_digest(w)
+    assert result == {**DG_NOTHING, "topics": 1, "headings_written": 1, "lines_written": 1, "unjudged": 2, "cost": 0.06}
+    assert digest_state(w)["tries"] == {}
+    assert list(engine_digest()["topics"][DG_TOPIC]["lines"]) == [only.handle]
+    # the two left out are asked again, as nothing was spent
+    digest_answers(w, monkeypatch, heading=None)
+    assert do_digest(w)["lines_written"] == 2
+
+
+def test_a_run_with_nothing_to_write_still_prunes_and_starts_no_session(w, monkeypatch):
+    digest_world(w)
+    digest_answers(w, monkeypatch)
+    assert do_digest(w)["lines_written"] == 3
+    data = mem.data_dir(os.environ)
+    stored = engine_digest()
+    stored["topics"]["vanished"] = {"heading": "when gone", "of": "x", "lines": {"h1": {"text": "t", "of": "o", "under": "x"}}}
+    digest.write(data, stored)
+    state = digest_state(w)
+    state["tries"]["h:vanished@x"] = 1
+    state["tries"]["l:old@x@y"] = 2
+    (w.cdir / "digest-attempts.json").write_text(json.dumps(state))
+    before = calls(w)
+    assert do_digest(w) == DG_NOTHING and calls(w) == before
+    assert list(engine_digest()["topics"]) == [DG_TOPIC] and digest_state(w)["tries"] == {}
+    # a dry run prunes nothing
+    stored["topics"]["vanished"] = {"heading": "when gone", "of": "x", "lines": {}}
+    digest.write(data, stored)
+    do_digest(w, apply=False)
+    assert "vanished" in engine_digest()["topics"]
+
+
+def test_a_run_that_writes_also_prunes(w, monkeypatch):
+    digest_world(w)
+    data = mem.data_dir(os.environ)
+    digest.write(data, {"topics": {"vanished": {"heading": "when gone", "of": "x", "lines": {}}}})
+    digest_answers(w, monkeypatch)
+    assert do_digest(w)["headings_written"] == 1
+    assert list(engine_digest()["topics"]) == [DG_TOPIC]
+
+
+def test_a_digest_that_cannot_be_written_is_a_counted_failed_run(w, monkeypatch):
+    digest_world(w)
+    digest_answers(w, monkeypatch)
+    (w.data / digest.FILE).mkdir()   # the path is taken by a directory: the write fails
+    for n in (1, 2, 3):
+        before = calls(w)
+        result = do_digest(w)
+        assert calls(w) == before + 2 and result["stopped"] and "written" in result["stopped"] and result["headings_written"] == 0
+        assert digest_state(w)["failures"]["count"] == n and digest_state(w)["tries"] == {}
+    before = calls(w)
+    waiting = do_digest(w)
+    assert calls(w) == before and "waiting" in waiting["stopped"]
+
+
+def test_a_state_that_cannot_be_written_still_gives_a_result(w, monkeypatch):
+    digest_world(w)
+    digest_answers(w, monkeypatch)
+    w.cdir.mkdir(parents=True, exist_ok=True)
+    w.cdir.mkdir(parents=True, exist_ok=True)
+    (w.cdir / "digest-attempts.json").mkdir()
+    result = do_digest(w)
+    assert result["stopped"] and result["stopped"] != "the step failed"

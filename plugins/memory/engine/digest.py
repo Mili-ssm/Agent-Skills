@@ -49,6 +49,15 @@ def _strings(d, *keys) -> bool:
     return isinstance(d, dict) and all(isinstance(d.get(k), str) for k in keys)
 
 
+def _control(text: str) -> bool:
+    return any(ord(c) < 32 or ord(c) == 127 for c in text)
+
+
+def _printable(text: str, limit: int) -> bool:
+    """A non-empty single line with no control character, within `limit`: what a stored text must still be when read."""
+    return bool(text.strip()) and len(text.splitlines()) == 1 and not _control(text) and len(text) <= limit
+
+
 def read(data: Path | None) -> dict:
     """The file's content; anything missing or wrong reads as empty, entry by entry, and never raises."""
     out: dict = {"topics": {}}
@@ -58,10 +67,11 @@ def read(data: Path | None) -> dict:
         if not isinstance(topics, dict):
             return out
         for topic, entry in topics.items():
-            if not isinstance(topic, str) or not _strings(entry, "heading", "of") or not isinstance(entry.get("lines"), dict):
-                continue
+            if not isinstance(topic, str) or not _strings(entry, "heading", "of") or not isinstance(entry.get("lines"), dict) \
+                    or not _printable(entry["heading"], HEADING_LIMIT):
+                continue  # a heading that is not a plain line takes its topic's lines with it
             lines = {h: dict(v) for h, v in entry["lines"].items()
-                     if isinstance(h, str) and _strings(v, "text", "of", "under")}
+                     if isinstance(h, str) and _strings(v, "text", "of", "under") and _printable(v["text"], records.SHORT_LIMIT)}
             out["topics"][topic] = {"heading": entry["heading"], "of": entry["of"], "lines": lines}
     except Exception:
         pass
@@ -125,6 +135,26 @@ def _line_key(m: records.Memory, lessons: Sequence[records.Memory]) -> str:
 
 def _tries(state: Mapping, key: str) -> int:
     return state.get("tries", {}).get(key, 0)
+
+
+def pruned(digest: dict, state: Mapping, topics: Mapping[str, list]) -> tuple[dict, dict]:
+    """The digest and the state without what no longer applies: topics that are not in `topics`, lines of lessons that
+    left their topic, and tries of texts that can no longer be asked for. Nothing passed in is changed."""
+    new = copy.deepcopy(digest)
+    st = copy.deepcopy(dict(state))
+    keys: set[str] = set()
+    for topic, lessons in topics.items():
+        keys.add(_heading_key(topic, lessons))
+        keys.update(_line_key(m, lessons) for m in lessons if records.valid_short(m.short))
+    for topic in list(new.get("topics", {})):
+        if topic not in topics:
+            del new["topics"][topic]
+        else:
+            present = {m.handle for m in topics[topic]}
+            new["topics"][topic]["lines"] = {h: v for h, v in new["topics"][topic]["lines"].items() if h in present}
+    if "tries" in st:
+        st["tries"] = {k: n for k, n in st["tries"].items() if k in keys}
+    return new, st
 
 
 def work(topics: Mapping[str, list], digest: dict, state: Mapping) -> list[Work]:
@@ -214,6 +244,8 @@ def _form_problem(text: str, limit: int) -> str | None:
         return "empty"
     if len(text.splitlines()) != 1:
         return "more than one line"
+    if _control(text):
+        return "a control character"
     if text != text.strip():
         return "spaces at its ends"
     if len(text) > limit:
@@ -269,7 +301,8 @@ def decide(works: Sequence[Work], proposed: Mapping[str, Mapping], verdicts: Map
     st = copy.deepcopy(dict(state))
     tries = st.setdefault("tries", {})
     st.setdefault("failures", {"count": 0, "fingerprint": ""})
-    counts = {"headings_written": 0, "lines_written": 0, "refused_code": 0, "refused_check": 0, "missing": 0}
+    counts = {"headings_written": 0, "lines_written": 0, "refused_code": 0, "refused_check": 0, "missing": 0,
+              "unjudged": 0}
 
     def refuse(key: str, why: str) -> None:
         tries[key] = tries.get(key, 0) + 1
@@ -279,6 +312,8 @@ def decide(works: Sequence[Work], proposed: Mapping[str, Mapping], verdicts: Map
         p = proposed.get(w.topic, {})
         topic_pairs = _work_pairs(w, p)
         got = {ident: (text) for ident, _, _, text in topic_pairs}
+        judged = {ident for ident in got if isinstance(verdicts.get(ident), Mapping)}
+        counts["unjudged"] += len(got) - len(judged)  # an answer that leaves a lesson out is no judgment of it
         lines = p.get("lines", {})
         of = heading_print(w.lessons)
         if w.heading_state == "write":
@@ -289,7 +324,9 @@ def decide(works: Sequence[Work], proposed: Mapping[str, Mapping], verdicts: Map
             if heading_problem(text) is not None or not topic_pairs:
                 refuse(_heading_key(w.topic, w.lessons), "refused_code")
                 continue
-            if not all(_ok(verdicts, ident, "fits") for ident in got):
+            if not judged:
+                continue
+            if not all(_ok(verdicts, ident, "fits") for ident in judged):
                 refuse(_heading_key(w.topic, w.lessons), "refused_check")
                 continue
             entry = {"heading": text, "of": of, "lines": {}}
@@ -308,6 +345,8 @@ def decide(works: Sequence[Work], proposed: Mapping[str, Mapping], verdicts: Map
                 refuse(key, "missing")
             elif line_problem(text, m) is not None:
                 refuse(key, "refused_code")
+            elif f"g:{m.handle}" not in judged:
+                pass
             elif not _ok(verdicts, f"g:{m.handle}", "fits", "faithful"):
                 refuse(key, "refused_check")
             else:
