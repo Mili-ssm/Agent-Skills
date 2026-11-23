@@ -210,7 +210,7 @@ One item per lesson. Write nothing else and use no other tool.
 """
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Drive the step as the fill's tests in `test_mem_corroborate.py` drive `fill` (the fake `claude`, its environment variables, a temporary store).
 
@@ -225,13 +225,13 @@ Drive the step as the fill's tests in `test_mem_corroborate.py` drive `fill` (th
 | `test_reword_respects_the_lock` | with the run lock held, `stopped` names the lock and nothing is asked |
 | `test_the_fill_is_unchanged_by_the_new_modes_of_the_fake` | the existing fill tests of the file pass untouched (name them in the report; do not edit them) |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_mem_corroborate.py`, `test_reword.py`, `test_fill_auto.py`, then the whole suite**
+- [x] **Step 4: Run `test_mem_corroborate.py`, `test_reword.py`, `test_fill_auto.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/bin/mem-corroborate plugins/memory/engine/tests/test_mem_corroborate.py
