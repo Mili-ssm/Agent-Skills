@@ -454,19 +454,19 @@ The owner raised the starting limits of C48: 16 of the lessons that met every co
 **Interfaces:**
 - Produces: `RULES_MAX = 16`, `RULES_LIMIT = 2400`. `MORE_LIMIT`, `PROJECT_FIRST` and the 1500 characters of the rest of the session start text are unchanged.
 
-- [ ] **Step 1: Change the tests that state the limits to 16 rules and 2400 characters, and add `test_sixteen_rules_load_and_the_seventeenth_is_left_out` in `test_rules.py`**
+- [x] **Step 1: Change the tests that state the limits to 16 rules and 2400 characters, and add `test_sixteen_rules_load_and_the_seventeenth_is_left_out` in `test_rules.py`**
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Change the two constants**
+- [x] **Step 3: Change the two constants**
 
-- [ ] **Step 4: Write the row and the criterion**
+- [x] **Step 4: Write the row and the criterion**
 
 Row C73: "The limits of C48 are raised to 16 loaded rules and 2400 characters of rule lines (the owner, 2026-11-22); the other limits of C48 stay." Reason: "16 lessons met every condition and 6 loaded; the lessons left out are reached only when an agent asks by topic. Unmeasured: the tallies of C67 are the measure." Kill criterion for the ADR: "Lower the limits again if, a month after the release that carries C73, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often."
 
-- [ ] **Step 5: Run the whole suite and `python3 scripts/validate.py`**
+- [x] **Step 5: Run the whole suite and `python3 scripts/validate.py`**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add plugins/memory docs
