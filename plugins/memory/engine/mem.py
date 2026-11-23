@@ -61,7 +61,7 @@ from index import (  # noqa: F401  (moved out of mem.py; re-exported so mem.X ke
 )
 from check import (  # noqa: F401  (moved out of mem.py; re-exported so mem.X keeps working)
     _authors, _BACKTICKS, BASELINE_HEADING, _blank, check, _CODE_SPAN, _CONCRETE_ID, _DATE, _date,
-    _DISPUTE_KEYS, _disputed, due_requirements, due_rereads, due_retests, _enum, EXPERIMENT_DIRS, _FENCE,
+    _DISPUTE_KEYS, _disputed, store_due_lines, due_requirements, due_rereads, due_retests, _enum, EXPERIMENT_DIRS, _FENCE,
     _handle_list, _handle_value, _has_committable_file, _heading_problems, _IMPERATIVES, _in_fence,
     _INSTRUCTION_FIX, instruction_word, _INTENT_ID, _is_index_readme, _iso_date, LEVELS, _LINK, _LOCAL_DIRS,
     _LONG_NAME_FIX, _markdown_files, MAX_FILE_BYTES, MAX_KNOWLEDGE_NAME, MODEL_SPECIFIC_ROOT, _MONTH, _month,
@@ -1920,6 +1920,8 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
+    if has_store:
+        lines += store_due_lines(store, today, data_dir(os.environ))
     extra: list[str] = []
     if rules_off:
         if stats is not None:
@@ -2009,7 +2011,8 @@ def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
 
 
 def cmd_session_index(args: argparse.Namespace) -> int:
-    """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook."""
+    """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook,
+    and the day's due-note count (check.DUE_CACHE_NAME)."""
     started = time.monotonic()
     data = _hook_input() if args.hook else {}
     stats: dict[str, int] = {}

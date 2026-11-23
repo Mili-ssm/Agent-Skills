@@ -1,6 +1,7 @@
 import datetime
 import io
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -157,7 +158,9 @@ def test_command_writes_nothing(hub_root, proj, monkeypatch, tmp_path):
     write(proj, "a", "A.")
     before = sorted(p for p in tmp_path.rglob("*"))
     assert mem.main(["session-index", "--list", "8"]) == 0
-    assert sorted(p for p in tmp_path.rglob("*")) == before
+    after = sorted(p for p in tmp_path.rglob("*"))
+    cache = Path(os.environ["MEM_DATA"])  # the one write: the day's due count (check.DUE_CACHE_NAME)
+    assert [p for p in after if p not in before] in ([], [cache], [cache, cache / "due-counts.json"])
 
 
 def test_state_memories_come_first(proj):

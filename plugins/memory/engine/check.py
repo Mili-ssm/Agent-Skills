@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import collections
 import datetime
+import json
 import os
 import re
 import urllib.parse
 from pathlib import Path
 from typing import Any, Callable, Iterator, NamedTuple
 
+import store_git
 import syntheses
 from index import INDEX_FOLDERS, INDEX_START, _with_index, index_targets
 from notes import (FrontmatterError, Note, _handle, _is_hidden, _parent, _read_text, ancestors, descendants,
@@ -722,19 +724,14 @@ RETEST_DAYS = 365
 REREAD_DAYS = 182
 
 
-def due_retests(root: Path, today: datetime.date) -> list[str]:
-    """Lines for knowledge notes on llm topics not updated within RETEST_DAYS, sorted by path."""
-    try:
-        topics = load_topics(root)
-    except FrontmatterError:  # `check` reports an unusable topics.yaml
-        return []
+def _retest_lines(notes: list[Note], topics: dict, today: datetime.date) -> list[str]:
     if MODEL_SPECIFIC_ROOT not in topics:
         return []
     scope = descendants(topics, MODEL_SPECIFIC_ROOT)
     # Only notes homed in llm's domain: a math note tagged llm-evaluation states statistics, not model behaviour.
     home = f"knowledge/{root_of(topics, MODEL_SPECIFIC_ROOT)}/"
     lines = []
-    for note in discover_notes(root):
+    for note in notes:
         if (note.type != "knowledge" or note.error is not None or not isinstance(note.meta, dict)
                 or not note.rel.startswith(home)):
             continue
@@ -749,18 +746,13 @@ def due_retests(root: Path, today: datetime.date) -> list[str]:
     return lines
 
 
-def due_rereads(root: Path, today: datetime.date) -> list[str]:
-    """Lines for llm web literature notes whose `added` is over REREAD_DAYS old, sorted by path."""
-    try:
-        topics = load_topics(root)
-    except FrontmatterError:  # `check` reports an unusable topics.yaml
-        return []
+def _reread_lines(notes: list[Note], topics: dict, today: datetime.date) -> list[str]:
     if MODEL_SPECIFIC_ROOT not in topics:
         return []
     scope = descendants(topics, MODEL_SPECIFIC_ROOT)
     home = f"literature/{root_of(topics, MODEL_SPECIFIC_ROOT)}/"
     lines = []
-    for note in discover_notes(root):
+    for note in notes:
         if (note.type != "literature" or note.error is not None or not isinstance(note.meta, dict)
                 or not note.rel.startswith(home) or note.meta.get("kind") != "web"):
             continue
@@ -771,6 +763,86 @@ def due_rereads(root: Path, today: datetime.date) -> list[str]:
             continue
         if (today - added).days > REREAD_DAYS:
             lines.append(f"{note.rel}:1: re-read: added {added}; vendor documentation changes (spec 5.3)")
+    return lines
+
+
+def due_retests(root: Path, today: datetime.date) -> list[str]:
+    """Lines for knowledge notes on llm topics not updated within RETEST_DAYS, sorted by path."""
+    try:
+        topics = load_topics(root)
+    except FrontmatterError:  # `check` reports an unusable topics.yaml
+        return []
+    return _retest_lines(discover_notes(root), topics, today) if MODEL_SPECIFIC_ROOT in topics else []
+
+
+def due_rereads(root: Path, today: datetime.date) -> list[str]:
+    """Lines for llm web literature notes whose `added` is over REREAD_DAYS old, sorted by path."""
+    try:
+        topics = load_topics(root)
+    except FrontmatterError:  # `check` reports an unusable topics.yaml
+        return []
+    return _reread_lines(discover_notes(root), topics, today) if MODEL_SPECIFIC_ROOT in topics else []
+
+
+DUE_CACHE_NAME = "due-counts.json"
+
+
+def due_counts(root: Path, today: datetime.date, cache_dir: Path | None = None) -> tuple[int, int]:
+    """(notes to re-test, notes to re-read) from one scan; kept per store and day in `cache_dir` when given.
+
+    A note edited later the same day shows in the count from the next day: the line only tells the agent to look."""
+    cache = cache_dir / DUE_CACHE_NAME if cache_dir is not None else None
+    key = str(root.resolve())
+    known: dict = {}
+    if cache is not None:
+        try:
+            raw = json.loads(cache.read_text(encoding="utf-8"))
+            known = raw if isinstance(raw, dict) else {}
+            hit = known.get(key)
+            if (isinstance(hit, dict) and hit.get("date") == today.isoformat()
+                    and isinstance(hit.get("retests"), int) and isinstance(hit.get("rereads"), int)):
+                return hit["retests"], hit["rereads"]
+        except (OSError, ValueError):
+            known = {}
+    try:
+        topics = load_topics(root)
+    except FrontmatterError:
+        return 0, 0
+    if MODEL_SPECIFIC_ROOT not in topics:
+        counts = (0, 0)
+    else:
+        notes = discover_notes(root)
+        counts = (len(_retest_lines(notes, topics, today)), len(_reread_lines(notes, topics, today)))
+    if cache is not None:
+        known[key] = {"date": today.isoformat(), "retests": counts[0], "rereads": counts[1]}
+        try:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            tmp = cache.with_name(cache.name + ".tmp")
+            tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            os.replace(tmp, cache)
+        except OSError:
+            pass
+    return counts
+
+
+def store_due_lines(store: Path, today: datetime.date, cache_dir: Path | None) -> list[str]:
+    """Lines for notes held back from the last history commit and for notes past their review date; none at zero."""
+    lines = []
+    try:
+        held = len(store_git.held_back(store))
+        if held:
+            lines.append(f"History: {held} changed {'note' if held == 1 else 'notes'} held back from the last "
+                         "commit: run mem check.")
+    except Exception:
+        pass
+    try:
+        retests, rereads = due_counts(store, today, cache_dir)
+        n = retests + rereads
+        if n:
+            lines.append(f"Re-read due: {n} {'note is' if n == 1 else 'notes are'} past "
+                         f"{'its' if n == 1 else 'their'} review date: mem review.")
+    except Exception:
+        pass
     return lines
 
 
