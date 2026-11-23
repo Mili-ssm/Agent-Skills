@@ -904,3 +904,13 @@ def check(root: Path) -> list[Problem]:
     for rule in RULES:
         problems += rule(root, notes, topics)
     return sorted(set(problems))
+
+
+def invalid_changed(store: Path) -> Callable[[list[str]], list[str]]:
+    """A validator for `store_git.commit_if_changed`: runs `check` once, on the working tree, and returns the given
+    paths that have a problem. The working tree is checked, not the committed snapshot: a committed note may link to a
+    held-back one."""
+    def validate(paths: list[str]) -> list[str]:
+        bad = {p.path for p in check(store)}
+        return [p for p in paths if p in bad]
+    return validate

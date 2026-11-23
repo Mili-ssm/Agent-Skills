@@ -101,7 +101,55 @@ def _drop_stale_index_lock(store: Path) -> None:
         pass
 
 
-def _commit(store: Path, message: str | Callable[[int], str]) -> str | None:
+HELD_NAME = "mem-held-back"
+
+
+def held_back(store: Path) -> list[str]:
+    """The paths the last commit held back because they fail `mem check`; empty when none or no repository."""
+    try:
+        text = (Path(store) / ".git" / HELD_NAME).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return []
+    return [ln for ln in text.splitlines() if ln]
+
+
+def _write_held(store: Path, held: list[str]) -> None:
+    path = store / ".git" / HELD_NAME
+    try:
+        if held:
+            path.write_text("".join(f"{p}\n" for p in held), encoding="utf-8")
+        else:
+            path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise GitError(f"held-back list: {exc}") from exc
+
+
+def _staged_paths(store: Path) -> list[str]:
+    out = _git(store, "diff", "--cached", "--name-only", "-z", "--diff-filter=d")
+    return [p for p in out.split("\0") if p]
+
+
+def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Callable[[str], None]) -> list[str]:
+    """Unstage the changed files that fail `validate`, and any that a writer changed while it ran."""
+    paths = _staged_paths(store)
+    if not paths:
+        return []
+    try:
+        bad = list(validate(paths))
+    except Exception as exc:  # a broken validator must not stop history: commit everything and say so
+        warn(f"check failed, nothing held back: {exc}")
+        return []
+    # writers do not take the commit lock: a file that differs from the index now changed after it was staged
+    changed = _git(store, "diff", "--name-only", "-z", "--", *paths).split("\0")
+    held = sorted(set(bad) | {p for p in changed if p})
+    if held:
+        _git(store, "reset", "-q", "--", *held)
+    return held
+
+
+def _commit(store: Path, message: str | Callable[[int], str],
+            validate: Callable[[list[str]], list[str]] | None = None,
+            warn: Callable[[str], None] = lambda reason: None) -> str | None:
     try:
         fd = _lock(store)
     except OSError as exc:
@@ -109,6 +157,8 @@ def _commit(store: Path, message: str | Callable[[int], str]) -> str | None:
     try:
         _drop_stale_index_lock(store)
         _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
+        if validate is not None:
+            _write_held(store, _hold_back(store, validate, warn))
         staged = subprocess.run(["git", "-C", str(store), *_GIT_FLAGS, "diff", "--cached", "--quiet"],
                                 capture_output=True, text=True, check=False, timeout=TIMEOUT, env=_env())
         if staged.returncode == 0:
@@ -129,12 +179,16 @@ def _print_reason(reason: str) -> None:
     print(f"mem: history: {reason}", file=sys.stderr)
 
 
-def commit_if_changed(store: Path, message: str | Callable[[int], str], *, report: Callable[[str], None] = _print_reason) -> str | None:
+def commit_if_changed(store: Path, message: str | Callable[[int], str], *, report: Callable[[str], None] = _print_reason,
+                      warn: Callable[[str], None] = _print_reason,
+                      validate: Callable[[list[str]], list[str]] | None = None) -> str | None:
     """Stage everything and commit; the short commit id, or None when nothing changed or git failed (reported).
 
-    `message` may be a function of the number of files the commit holds."""
+    `message` may be a function of the number of files the commit holds. `validate` gets the changed paths (deletions
+    excluded) and returns those to hold back: they stay in the working tree, listed by `held_back`. When it raises,
+    everything is committed and `warn` says so (it is not a git failure)."""
     try:
-        return _commit(Path(store), message)
+        return _commit(Path(store), message, validate, warn)
     except GitError as exc:
         report(str(exc))
         return None

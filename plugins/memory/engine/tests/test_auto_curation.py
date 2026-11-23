@@ -271,8 +271,7 @@ def test_session_end_commit_skips_while_a_run_holds_the_lock(world):
     init = subprocess.run([str(PLUGIN / "bin" / "mem"), "history", "init"], env={**env, "MEM_STORE": str(world.store)},
                           capture_output=True, text=True)
     assert init.returncode == 0, init.stderr
-    (world.store / "knowledge" / "x.md").parent.mkdir(exist_ok=True)
-    (world.store / "knowledge" / "x.md").write_text("x\n")
+    (world.store / "scratch-x.txt").write_text("x\n")  # a valid change: an invalid note would be held back
     held = auto_state.take_run_lock(world.state)
     try:
         hook(world, CLAUDE_PLUGIN_OPTION_AUTO_CURATION="false", GIT_CONFIG_GLOBAL=os.devnull,

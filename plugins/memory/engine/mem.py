@@ -71,7 +71,7 @@ from check import (  # noqa: F401  (moved out of mem.py; re-exported so mem.X ke
     rule_index_fresh, rule_links, rule_names, rule_placeholders, rule_requirements, rule_schema,
     rule_supersession, rule_syntheses, rule_topics_file, rule_topics_used, RULES, SCHEMAS, _SCHEME,
     _split_cells, _starts_with_author, _string, _strip_code, _target_spans, _TOPIC_ID, _topic_line, _topics,
-    _UNTRACKED_DIRS, _url, Validator, _visible, _year,
+    _UNTRACKED_DIRS, _url, Validator, _visible, _year, invalid_changed,
 )
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
@@ -3975,7 +3975,14 @@ def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: b
             print(f"mem: history: {reason}", file=sys.stderr)
         log_usage(store, {"cmd": "history", "error": reason})
 
-    return store_git.commit_if_changed(store, message, report=report), bool(failed)
+    def warn(reason: str) -> None:  # not a git failure: it must not make `mem history commit` exit 1
+        if not quiet:
+            print(f"mem: history: {reason}", file=sys.stderr)
+        log_usage(store, {"cmd": "history", "warning": reason})
+
+    commit = store_git.commit_if_changed(store, message, report=report, warn=warn,
+                                         validate=invalid_changed(store))
+    return commit, bool(failed)
 
 
 def cmd_history(args: argparse.Namespace) -> int:
@@ -4030,6 +4037,8 @@ def cmd_history(args: argparse.Namespace) -> int:
                        "ms": int((time.monotonic() - started) * 1000), "committed": commit is not None, "failed": failed})
             return 0
         print(commit or "nothing to commit")
+        for path in store_git.held_back(store):
+            print(f"held back: {path}", file=sys.stderr)
         return 1 if failed else 0
     try:
         print("\n".join(store_git.log(store, args.n)))

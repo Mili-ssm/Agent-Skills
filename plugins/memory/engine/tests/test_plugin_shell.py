@@ -322,7 +322,7 @@ def test_session_end_hook_commits_the_store(hub_root, tmp_path):
     subprocess.run(["python3", "-c", f"import sys; sys.path.insert(0, {sys_path!r}); import store_git, pathlib; "
                     f"store_git.init(pathlib.Path({str(hub_root)!r}))"], check=True,
                    env={**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "HOME": str(tmp_path)})
-    (hub_root / "knowledge" / "new.md").write_text("new\n", encoding="utf-8")
+    (hub_root / "scratch-new.txt").write_text("new\n", encoding="utf-8")  # valid: an invalid note is held back
     r = _session_end(tmp_path, hub_root)
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
     deadline = time.monotonic() + 5   # the commit runs detached from the hook
