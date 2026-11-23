@@ -151,7 +151,7 @@ git commit -m "feat(memory): the digest file of the loaded lessons and what is f
 - Produces, in `mem.py`: `mem rules --layout digest` and the session start text read the digest file and the global lessons and pass them to `block` and `index_lines`; `MEM_RULES_LAYOUT=digest` selects it as `grouped` is selected today; both hooks pass the value `digest` as they pass `grouped`. The index with headings is printed in every layout when fresh headings exist. Reading the digest sits inside the `try` that already protects the rules block; on any failure the block is the `grouped` one.
 
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Build lessons as `test_rules.py` builds lessons that load (import its helpers).
 
@@ -172,13 +172,13 @@ Build lessons as `test_rules.py` builds lessons that load (import its helpers).
 | `test_headings_stay_within_their_limit` | thirty topics with headings of 80 characters: the characters of the headings printed total at most `HEADINGS_LIMIT`, the later topics print bare |
 | `test_layouts` | `rules.LAYOUTS == ("flat", "grouped", "digest")` (replace the test that asserts two) |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_digest.py`, `test_rules.py`, `test_rules_session.py`, `test_session_index.py`, `test_case_log.py`, then the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
+- [x] **Step 4: Run `test_digest.py`, `test_rules.py`, `test_rules_session.py`, `test_session_index.py`, `test_case_log.py`, then the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine/rules.py plugins/memory/engine/mem.py plugins/memory/hooks/session-index.sh plugins/memory/hooks/session-env.sh plugins/memory/.claude-plugin/plugin.json plugins/memory/engine/tests/test_digest.py plugins/memory/engine/tests/test_rules.py plugins/memory/engine/tests/test_rules_session.py
@@ -277,7 +277,7 @@ One entry per block. Write nothing else and use no other tool.
 """
 ```
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Drive the step as the rewording's tests in `test_mem_corroborate.py` drive `reword`.
 
@@ -290,13 +290,13 @@ Drive the step as the rewording's tests in `test_mem_corroborate.py` drive `rewo
 | `test_dry_run_writes_the_sheet_and_nothing_else` | the digest file and the state are absent or unchanged, the sheet has one row per lesson judged; `--sheet` inside a git repository is refused before any session |
 | `test_digest_respects_the_lock` | `stopped` names the lock, nothing asked |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_mem_corroborate.py`, `test_digest.py`, `test_reword.py`, `test_fill_auto.py`, then the whole suite**
+- [x] **Step 4: Run `test_mem_corroborate.py`, `test_digest.py`, `test_reword.py`, `test_fill_auto.py`, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/bin/mem-corroborate plugins/memory/engine/tests/test_mem_corroborate.py
@@ -316,7 +316,7 @@ git commit -m "feat(memory): the pass can write a digest per topic, checked as a
 - Produces:
   - In `cmd_auto`, after the rewording and under the same condition on the loaded rules, when `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` is `"digest"`: `digest_auto(args.claude, budget)` and one log line `{"t", "digest": result, "ms"}`, in a `try` of its own. With any other value nothing runs and no line is written.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -324,13 +324,13 @@ git commit -m "feat(memory): the pass can write a digest per topic, checked as a
 | `test_a_failure_in_digest_does_not_fail_auto` | `digest_auto` patched to raise: exit 0, the other lines are there |
 | `test_auto_without_the_layout_is_as_before` | with the option unset, the log lines and the store after `auto` equal those of a run before this task (the existing test of the rewording's option shows how to compare) |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run `test_mem_corroborate.py`, then the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
+- [x] **Step 4: Run `test_mem_corroborate.py`, then the whole suite, `python3 scripts/validate.py` and `claude plugin validate .`**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/bin/mem-corroborate plugins/memory/engine/tests/test_mem_corroborate.py
