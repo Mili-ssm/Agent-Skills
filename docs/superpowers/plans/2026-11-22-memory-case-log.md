@@ -406,34 +406,34 @@ git commit -m "feat(memory): mem triage accept keeps the wording of a lesson tha
 - Modify: `docs/superpowers/plans/2026-11-17-memory-plugin.md` (the Capture row and the "Next" paragraph of "Current state and where to resume")
 - Modify: this file (`## Results`)
 
-- [ ] **Step 1: Make a disposable copy and isolate the environment**
+- [x] **Step 1: Make a disposable copy and isolate the environment**
 
 Copy the owner's global memories folder and this project's memory folder to a temporary folder. Run every command of this task with the variables that point `mem` at the copies (`MEM_STORE`, `MEM_MEMORIES`, `MEM_PROJECT`, `MEM_DATA`: read `plugins/memory/engine/tests/conftest.py` for their meaning) and with `MEM_SETTLE_AUTO` unset, so that no background pass starts. Record a checksum of every file under the real folders before and after the task: they must be equal.
 
-- [ ] **Step 2: An older plugin reads what this one writes**
+- [x] **Step 2: An older plugin reads what this one writes**
 
 On the copy, write cases and versions with this branch's `mem` (`mem confirm --outcome`, `mem memory edit --short`). Then load every memory of the copy twice, once with this branch's `records.py` and once with `git show main:plugins/memory/engine/records.py` saved to a temporary folder, and compare `standing`, `sessions` and `projects` of each.
 Expected: no difference for any memory.
 
-- [ ] **Step 3: Run the scenario**
+- [x] **Step 3: Run the scenario**
 
 On the copy: pick one global lesson that loads. Edit its file so that its version is dated 10 days ago, and add with `mem confirm --source --outcome failed --seen-on` two cases on two days after it. Record the output of `mem show`, `mem rules`, `mem curate --global` and `mem session-index`; compare the bytes of the files before and after these four read-only commands. Run `mem triage accept`; record `mem curate --global`. Then `mem memory edit --short` with a new wording; record `mem show`.
 Expected: marked at the first case, listed at the second and still in the block; `accept` removes it from the category; the new short form shows one more version with an empty tally.
 
-- [ ] **Step 4: Write the outputs into `## Results`**
+- [x] **Step 4: Write the outputs into `## Results`**
 
 Numbers and command lines only: replace every handle, claim and path of the owner's store with a placeholder. Add how many lessons of the copy have a case of each outcome.
 
-- [ ] **Step 5: Write the documents**
+- [x] **Step 5: Write the documents**
 
 One home per fact: the skill says what to do with a listed lesson, the README says the feature exists, the changelog says what changes for a user, and each links to the design for the rules. No line numbers.
 
-- [ ] **Step 6: Run the project's checks**
+- [x] **Step 6: Run the project's checks**
 
 Run: `python3 scripts/validate.py`, `claude plugin validate .` (if the `claude` command is missing, report it as not run) and `python3 scripts/port.py --check`.
 Expected: `0 errors`; the ports unchanged (the memory plugin has no port).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add plugins/memory docs
@@ -477,4 +477,50 @@ git commit -m "feat(memory): up to 16 lessons and 2400 characters load at sessio
 
 ## Results
 
-Filled by Task 8.
+Run on 2026-11-23 on a disposable copy (`<copy>`) of the global memories folder and of this project's memory folder, with the engine of commit `8f1d8c5` (the engine files are unchanged up to the later documentation commits; `git rev-parse --short HEAD` printed `aa5d9b2` at the end). Every command ran as `env -u MEM_SETTLE_AUTO -u MEM_CLAUDE -u MEM_SETTLE_CLAUDE -u MEM_SETTLE_MINUTES MEM_STORE=<copy>/store MEM_MEMORIES=<copy>/store/memories MEM_PROJECT=<copy>/proj MEM_DATA=<copy>/data XDG_CONFIG_HOME=<copy>/cfg XDG_DATA_HOME=<copy>/share HOME=<copy>/home plugins/memory/bin/mem ...`; `mem stats` reported the store under `<copy>`; no background pass started.
+
+### (A) An older plugin reads what this branch writes
+
+Written with this branch's `mem`: `mem confirm <handle> --global --source "session <id> project <key>" --outcome <failed|worked|seen> --seen-on <date>` (3 cases, 3 lessons of origin transcript) and `mem memory edit <handle> --global --short "<short form>" --user-read` (3 edits). Then every memory of the copy was loaded with the `records.py` of this branch and with the one of the commit where the branch left `dev` (`61177f6`, `git show 61177f6:plugins/memory/engine/records.py`). The `records.py` of `main` has no `standing`, `sessions` or `projects` yet, so it cannot be the older side of this comparison.
+
+| Scope | Memories compared | With `log` / `versions` | Load errors (old / new) | Differences in `standing`, `sessions`, `projects`, `sources` |
+|---|---|---|---|---|
+| global | 219 | 2 / 2 | 0 / 0 | 0 |
+| project | 191 | 0 / 0 | 0 / 0 | 0 |
+| total | 410 | | 0 / 0 | 0 |
+
+### (B) The scenario on one global lesson that loads
+
+Setup: its file got `versions: ["<today minus 10 days> <short form>"]`; two cases `failed` on `<today minus 5 days>` and `<today minus 3 days>` from two new sessions in two projects.
+
+| Step | Command | Result |
+|---|---|---|
+| 1 | `mem show <handle>`, `mem rules` | no mark yet: `version 1 since <date> (10 days): worked 0, failed 0: <short form>`; the rule is in the block |
+| 2 | `mem confirm <handle> --global --source "session <id> project <key>" --outcome failed --seen-on <date 1>` | `observed 2` |
+| 3 | `mem show <handle>`; `mem rules` | `version 1 since <date> (10 days): worked 0, failed 1: <short form>`; `mem rules` still prints the rule and adds under `Failed after it loaded:` the line `<handle>  version 1: worked 0, failed 1` |
+| 4 | `mem confirm ... --outcome failed --seen-on <date 2>` | `observed 3` |
+| 5 | `mem show <handle>`; `mem rules` | tally `worked 0, failed 2`; the rule is still in the block, mark `version 1: worked 0, failed 2` |
+| 6 | `mem curate --global` | new category `balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, drop it with mem forget <h>, or keep the wording with mem triage accept <h>)` lists `<handle>  loaded  <claim>` and under it `version 1 since <date> (10 days): worked 0, failed 2: <short form>` |
+| 7 | `mem session-index` | the first line ends with `Got worse: 1 loaded lesson needs a decision (mem curate).`; the rules block is unchanged in form |
+| 8 | sha256 of every file of the copy before and after steps 5 to 7 | identical |
+| 9 | `mem triage accept <handle>` | `<handle>  kept as worded`; the file gets `reviewed: '<today>'` |
+| 10 | `mem curate --global` | the category is gone; the lesson is still in `mem rules` (rule line and mark) |
+| 11 | `mem memory edit <handle> --global --short "<new short form>" --user-read` then `mem show <handle>` | `short:` is the new text; two version lines: `version 1 since <date> (10 days): worked 0, failed 2: <old short form>` and `version 2 since <today> (0 days): worked 0, failed 0: <new short form>` |
+
+All the expectations held. One detail: the mark of `mem rules` appears at the first `failed` case (step 3), the line in `mem curate` and the sentence of `mem session-index` only at the second (step 6 and 7), as the rule of C68 asks.
+
+### (C) The copy after the scenario
+
+| Count over the 132 lessons of the copy (410 memories) | Lessons |
+|---|---|
+| with at least one `worked` case | 1 |
+| with at least one `failed` case | 2 |
+| with at least one `seen` case | 1 |
+| with at least one version in `versions` | 3 |
+| listed as "balance got worse after loading" (`mem curate`, any scope) | 0 (1 before `triage accept`) |
+
+The copy held no case or version before this run, so these counts are the ones the run wrote, not a sample of the real store.
+
+### The real folders
+
+sha256 of every file under the real global memories folder (222 files) and under this project's memory folder (192 files), taken before the first command and after the last one: identical, no difference.
