@@ -345,29 +345,29 @@ git commit -m "feat(memory): the automatic run writes the digest when rules_layo
 - Modify: `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md` (under `## [Unreleased]`), `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (the `## Phases` table), `docs/superpowers/plans/2026-11-17-memory-plugin.md` ("Current state and where to resume")
 - Modify: this file (`## Results`)
 
-- [ ] **Step 1: Copy the store and isolate it, not the login**
+- [x] **Step 1: Copy the store and isolate it, not the login**
 
 As Task 6 of [the rewording plan](2026-11-23-memory-auto-reword.md) did: `HOME` stays; a copy of the owner's store folder under `mktemp -d`; `MEM_STORE`, `MEM_MEMORIES`, `MEM_DATA`, `MEM_PROJECT` and `XDG_STATE_HOME` pointing into it, `MEM_SETTLE_AUTO` unset; the resolved folders checked before any model call; checksums of the owner's real memory folders and of the plugin's real state folder before and after.
 
-- [ ] **Step 2: Run the step once without applying**
+- [x] **Step 2: Run the step once without applying**
 
 Run: `plugins/memory/bin/mem-corroborate digest --dry-run --sheet <sheet>` with a real `claude` and a budget per session of 0.40 USD. `<sheet>` is `digest-gate-2026-11-24.md` in the folder that holds the owner's real store folder, outside every repository.
 
-- [ ] **Step 3: Run it once applying, on the copy, and measure the block**
+- [x] **Step 3: Run it once applying, on the copy, and measure the block**
 
 Run the step without `--dry-run` on the copy, then `mem rules --layout grouped` and `mem rules --layout digest` there: record the characters of each block and the number of lessons under a fresh heading. Nothing of the owner's real folders is involved.
 
-- [ ] **Step 4: Record the figures**
+- [x] **Step 4: Record the figures**
 
 In `## Results`: topics asked, headings written and refused, lines asked, refused by code, refused by the checking session, accepted, their share of the lines that passed the code check, the cost of each run, the characters of the two blocks, and whether the automatic half of C95 passed (at least 80% of the lines that passed the code check accepted; every heading with at least two lessons accepted). No text of a lesson, heading or line.
 
-- [ ] **Step 5: Write the documents**
+- [x] **Step 5: Write the documents**
 
 README: the third value of `rules_layout` and what it prints, the step and its subcommand, the new limits, the gate's figures and that the owner's reading is open. Changelog: lines for users. The resume section: where this plan stands. One home per fact; no line numbers.
 
-- [ ] **Step 6: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`, and the whole suite**
+- [x] **Step 6: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`, and the whole suite**
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add plugins/memory/README.md plugins/memory/CHANGELOG.md docs/superpowers
@@ -378,4 +378,30 @@ git commit -m "docs(memory): the digest per topic, its gate's first half and whe
 
 ## Results
 
-Filled by Task 7.
+Task 7, 2026-11-23: the automatic half of the gate (C95), on a private copy of the owner's store (189 global lessons, 186 live), the real `claude`, a budget of 0.40 USD a session, the plugin's own `bin/mem-corroborate`. The owner's reading of the sheet is open. No text of a lesson, heading or line is recorded here.
+
+| Figure | Run A (`--dry-run --sheet`) | Run B (applying) |
+|---|---|---|
+| Topics asked | 4 | 4 |
+| Headings written / refused | 4 / 0 (the dry run reports 0 written; the sheet shows one heading for each topic) | 4 / 0 |
+| Lines asked | 9 | 9 |
+| Refused by code | 0 | 0 |
+| Refused by the checking session | 0 | 1 |
+| Accepted | 9 | 8 |
+| Share of the lines that passed the code check | 100% | 89% (8 of 9) |
+| Cost | 0.009182 USD | 0.010204 USD |
+| Accepted lines longer than their short form | 2 | 1 |
+| Accepted lines that begin with a lower-case word | 9 | 0 |
+
+| Check | Result |
+|---|---|
+| Topics with at least two lessons | 4 of 4; every heading accepted in both runs |
+| **Automatic half of C95** | **Passed** on both runs (at least 80% of the lines accepted; every heading accepted). The stop rules did not fire |
+| Block, `mem rules --layout grouped` | 2501 characters, 28 lines |
+| Block, `mem rules --layout digest` (run B's file) | 2696 characters, 28 lines; 4 topic headings carry a situation |
+| Lessons whose line differs between the two | 8 of 16; mean 138 characters in `grouped`, 131 in `digest` (both counted with the `- ` prefix) |
+| Copy's memory files after each run | Byte-identical (the step writes no record). Run A left no `rules-digest.json` and no `digest-attempts.json`; run B wrote both |
+| Owner's real memory folders, `.memory` of the repository and the plugin's state folder, before and after | Identical checksums (1234 files) |
+
+Observed: the two runs were separate model calls and wrote different lines for the same lessons (run A's all begin in lower case, as a line that reads on from its heading does; none of run B's does), so the sheet the owner reads is run A's, not the file that run B wrote. Open: the owner's reading of run A's sheet (is any line stronger or wider than its claim); only then does the owner turn `rules_layout: digest` on.
+
