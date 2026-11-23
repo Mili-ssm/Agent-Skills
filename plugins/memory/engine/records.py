@@ -18,6 +18,8 @@ from typing import Callable, Collection, Iterable, Iterator, Mapping, NamedTuple
 
 import yaml
 
+from notes import safe_load  # noqa: F401  (the one place that picks libyaml's C parser; dates stay dates, unlike HubLoader)
+
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
 ORIGINS = ("web", "pipeline", "transcript")
 REACHES = ("project", "general")
@@ -255,7 +257,7 @@ def _split(text: str) -> tuple[dict, str]:
     m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
     if not m:
         raise ValueError("no YAML frontmatter")
-    meta = yaml.safe_load(m.group(1))
+    meta = safe_load(m.group(1))
     if not isinstance(meta, dict):
         raise ValueError("frontmatter is not a mapping")
     return meta, text[m.end():]

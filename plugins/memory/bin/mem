@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs the engine with uv; the engine file carries its own dependency header.
+# Runs the engine with uv; run.py carries the dependency header and imports mem so that mem.pyc is cached.
 src="${BASH_SOURCE[0]}"
 while [ -L "$src" ]; do
   d="$(cd -P "$(dirname "$src")" && pwd)"
@@ -11,4 +11,4 @@ if ! command -v uv >/dev/null 2>&1; then
   echo "mem: uv is not installed (https://docs.astral.sh/uv/)" >&2
   exit 127
 fi
-exec uv run --quiet --script "$here/../engine/mem.py" "$@"
+exec uv run --quiet --script "$here/../engine/run.py" "$@"

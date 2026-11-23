@@ -1,6 +1,6 @@
 # Memory capture from a session transcript: design
 
-Status: the owner agreed to this design on 2026-11-21 and ruled C11 to C18 on 2026-11-22 while marking the trial, which passed its gate (step L3 of [the learning loop study](../../studies/2026-11-21-memory-learning-loop.md); stage 9 and decision D20 of [the memory plugin design](2026-11-17-memory-plugin-design.md)). Phase A is planned in [the trial plan](../plans/2026-11-21-memory-capture-trial.md); phase B is built only if the trial passes.
+Status: the owner agreed to this design on 2026-11-21 and ruled C11 to C18 on 2026-11-22 while marking the trial, which passed its gate (step L3 of the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published); stage 9 and decision D20 of [the memory plugin design](2026-11-17-memory-plugin-design.md)). Phase A is planned in [the trial plan](../plans/2026-11-21-memory-capture-trial.md); phase B is built only if the trial passes.
 
 C28 to C38 (stage B3) were written on 2026-11-22 from the owner's choices of that day (C28, C32, C38) and approved by the owner on that day; the rows say which parts were the author's proposal. C39 was added the same day from research the owner asked for, and is the author's ruling on the method.
 

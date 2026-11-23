@@ -12,3 +12,6 @@ plugins/*/tsconfig.json
 
 # Worktrees Claude Code creates for isolated subagents
 .claude/worktrees/
+
+# Owner-only working data (personal usage studies, metrics); never published
+/.local/

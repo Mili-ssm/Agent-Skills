@@ -131,7 +131,7 @@ def load_one(path: Path) -> Synthesis:
         m = _FRONTMATTER.match(text)
         if not m:
             raise ValueError("no YAML frontmatter")
-        meta = yaml.safe_load(m.group(1))
+        meta = records.safe_load(m.group(1))
         if not isinstance(meta, dict):
             raise ValueError("frontmatter is not a mapping")
         title = meta.get("title")
@@ -971,7 +971,7 @@ def with_topics(path: Path, topics: Sequence[str], today: datetime.date) -> tupl
     rendered = yaml.safe_dump(list(topics), allow_unicode=True, default_flow_style=True, width=10**6).split("\n")[0]
     lines[start:end] = [f"topics: {rendered}"]
     new = _bump("---\n" + "\n".join(lines) + "\n---\n" + old[m.end():], today)
-    if (meta := yaml.safe_load(_FRONTMATTER.match(new).group(1))).get("topics") != list(topics):
+    if (meta := records.safe_load(_FRONTMATTER.match(new).group(1))).get("topics") != list(topics):
         raise ValueError(f"cannot rewrite the topics of {path.name}: edit its frontmatter by hand ({meta.get('topics')!r})")
     return old, new
 

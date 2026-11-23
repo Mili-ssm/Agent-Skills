@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3 standard library (the engine under `plugins/memory/engine/`), bash hook scripts, pytest through `uv`.
 
-**Spec:** [the learning loop study](../../studies/2026-11-21-memory-learning-loop.md), proposals L1 and L2, and ADR 0023 `## Review 2026-11-21` (kill criteria). L3 to L5 are not in this plan.
+**Spec:** the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published), proposals L1 and L2, and ADR 0023 `## Review 2026-11-21` (kill criteria). L3 to L5 are not in this plan.
 
 ## Global Constraints
 
@@ -188,7 +188,7 @@ Dropped by the spike (Results, Task 1): `mem compact-log` prints the mismatch li
 ### Task 5: Metrics in the usage script, and the docs
 
 **Files:**
-- Modify: `docs/studies/scripts/memory_usage.py`, `plugins/memory/README.md` (the hooks it registers), `plugins/memory/CHANGELOG.md`, `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table: `PostCompact` registered; stage 9 points to the study), `docs/studies/2026-11-21-memory-learning-loop.md` (L1 and L2 status `done`, a link to this plan)
+- Modify: `docs/studies/scripts/memory_usage.py`, `plugins/memory/README.md` (the hooks it registers), `plugins/memory/CHANGELOG.md`, `docs/superpowers/plans/2026-11-17-memory-plugin.md` (state table: `PostCompact` registered; stage 9 points to the study), the local, unpublished study `.local/studies/2026-11-21-memory-learning-loop.md` (L1 and L2 status `done`, a link to this plan)
 
 **Interfaces:**
 - Consumes: the `post-compact` and `session-index` lines of the hook log; the usage log's `search` lines (`results`) and `show` lines (`paths`).

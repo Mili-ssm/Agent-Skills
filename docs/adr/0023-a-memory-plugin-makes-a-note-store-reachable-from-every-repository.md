@@ -69,7 +69,7 @@ Measured, with one or two runs per case on a Sonnet-class model, which the owner
 
 ## Review 2026-11-21
 
-The owner accepted the order of [the learning loop study](../studies/2026-11-21-memory-learning-loop.md): L1 outcome metrics and a `PostCompact` log line, L2 a handoff block written by the agent and checked by a hook, L3 capture anchored in evidence (stage 9, after a spike), L4 graduation of repeated lessons; L5, hooks during a run, is deferred. The owner's goal behind it: the agent learns locally after each session and compaction, with the least context.
+The owner accepted the order of the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published): L1 outcome metrics and a `PostCompact` log line, L2 a handoff block written by the agent and checked by a hook, L3 capture anchored in evidence (stage 9, after a spike), L4 graduation of repeated lessons; L5, hooks during a run, is deferred. The owner's goal behind it: the agent learns locally after each session and compaction, with the least context.
 
 - A deterministic "active plan and next open task" injection after a compaction was declined by the owner: it can name the wrong plan or read progress that was not ticked. L2 replaces it.
 - The study's usage read (2026-11-17 to 2026-11-20, four days) is a preview, not the kill read of stage 4, which stays due around 2026-12-01.
@@ -163,7 +163,7 @@ The capture brief gained the signal `owner_request_paid_off` (C58). Tried the sa
 
 Released as memory 0.5.0 on 2026-11-22.
 
-## Review 2026-11-23
+## Review 2026-11-23: rule limits
 
 The limits of the lessons loaded at session start rose from 6 rules and 900 characters to 16 rules and 2400 characters of rule lines (C73, the owner, 2026-11-22): 16 lessons met every condition and 6 loaded. The change ships unmeasured; the tallies of C67 are the measure. Kill criterion: lower the limits again if, a month after the release that carries C73, the lessons that load only because of it show more `failed` than `worked` cases in their tallies, or the owner reports that loaded lessons are ignored more often.
 
@@ -177,3 +177,20 @@ The `Curation due` count changed meaning (C98 to C107 of the [curation due desig
 | A `Curation due` line stays after `mem curate --done` on an unchanged store | The session start text of the next session |
 | `at least N` in the line in three sessions in a row on the owner's store | The session start text; the pair search budget (C101) is too small |
 | A session-index duration over 2 seconds in the hooks log | The hooks log; the start-time pair search costs too much |
+
+## Review 2026-11-23: Rust decision
+
+Rust decision (stage 8): no port now (owner, 2026-11-23). Measured through `bin/mem` (20 runs, store of 1,132 notes): SessionStart hook p50 442 ms, p95 539 ms against its 0.5 s budget; `search` 432 to 441 ms p50; `check` 1,006 ms; start-up floor 157 ms. The time goes to Python start-up (`mem.py` recompiled on every run, 70 ms) and to `yaml.safe_load`, the pure-Python loader, at four sites (about 0.6 s of a profiled search); two Python fixes measured on a copy bring the hook to 273 ms and search to 277 ms with byte-identical output. The record model changed in 24 commits since 2026-11-17. The trigger above (a hook over budget after an on-disk index) has not fired; the fixes ship first. Detail, port sizing and a parity procedure: [docs/studies/2026-11-23-memory-rust-port.md](../studies/2026-11-23-memory-rust-port.md).
+
+## Review 2026-11-23: research-wave skill
+
+The new `memory-research-wave` skill (gap G2 of [docs/studies/2026-11-23-note-repository-parity.md](../studies/2026-11-23-note-repository-parity.md)), measured per the eval protocol (`claude plugin eval plugins/memory --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5`). The trigger cases of the two sibling skills a research request could also reach, and a new one-source case that must not load the wave skill, are the negative check.
+
+| Case | Runs | Fired | Cost (USD) |
+|---|---|---|---|
+| `memory-research-wave` (new) | 2 | 2/2 | 0.25 |
+| `memory-synthesis` | 2 | 2/2 | 0.11 |
+| `memory` | 2 | 2/2 | 0.10 |
+| `memory-research-wave-neg-one-source` (new; passes when the wave skill does not load for a one-paper request) | 2 | 0/2 loaded: pass | 0.19 |
+
+Kill criterion: revert the skill's description if a later run of either sibling case drops below its record above, or the new case fires on a request for one note or one fact.

@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 import records
 
@@ -381,3 +382,25 @@ def test_document_needs_a_source_and_has_no_default_expiry(tmp_path):
     assert m.valid_until is None and "valid_until" not in m.path.read_text()
     [loaded] = records.load_memories(tmp_path, "project")
     assert loaded.kind == "document" and loaded.sources == ["docs/spec.pdf"]
+
+
+@pytest.mark.parametrize("text", [
+    "name: plain\ncount: 3\nratio: 1.5",
+    "date: 2026-11-17\nwhen: 2026-11-17 10:20:30",
+    "a: on\nb: off\nc: yes\nd: no\ne: true",
+    "k: 1\nk: 2",
+    "",
+    "- a\n- b\n- 3",
+    "outer:\n  inner:\n    leaf: [1, 2]\n  other: {x: y}",
+    "title: caf\u00e9 \u00f1 \u65e5\u672c\u8a9e \U0001f600",
+])
+@pytest.mark.skipif(not hasattr(yaml, "CSafeLoader"), reason="libyaml absent: both sides would be the Python loader")
+def test_safe_load_matches_python_safe_loader(text):
+    assert records.safe_load(text) == yaml.load(text, Loader=yaml.SafeLoader)
+
+
+@pytest.mark.skipif(not hasattr(yaml, "CSafeLoader"), reason="libyaml absent: safe_load falls back to the Python loader")
+def test_safe_load_accepts_tab_after_colon_unlike_python_loader():
+    assert records.safe_load("a:\tb") == {"a": "b"}
+    with pytest.raises(yaml.YAMLError):
+        yaml.load("a:\tb", Loader=yaml.SafeLoader)
