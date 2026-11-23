@@ -77,6 +77,88 @@ def test_pairs_lists_near_copy_and_negation_not_unrelated_nor_dead(tmp_path):
     assert [s for *_, s in got] == sorted((s for *_, s in got), reverse=True)
 
 
+def _mem(tmp_path, h, claim, status="active", created=TODAY, refuted=None):
+    return records.Memory("project", tmp_path / f"{h}.md", h, "lesson", claim, created, 1, status, None, None, [], "",
+                          None, refuted=refuted)
+
+
+def _old_pairs(memories, today, *, tokenize):
+    """A copy of the implementation before the search took `among` and `budget`."""
+    live = sorted((m for m in memories if records.is_live(m, today)), key=lambda m: m.handle)
+    tokens = [tokenize(m.claim) for m in live]
+    found = []
+    for i, a in enumerate(live):
+        for j in range(i + 1, len(live)):
+            score = max(records.containment(tokens[i], set(tokens[j])), records.containment(tokens[j], set(tokens[i])))
+            if score >= records.STRONG and live[j].handle not in a.distinct_from and a.handle not in live[j].distinct_from:
+                found.append((a, live[j], score))
+    found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    return found
+
+
+def test_pairs_unchanged_without_new_arguments(tmp_path):
+    base = "Retries need idempotency keys on every payment call"
+    claims = []
+    for n in range(6):
+        claims += [f"{base} version{n}", f"{base} never version{n}", f"Glaze number{n} firing chart for kiln{n} pottery"]
+    claims += [f"Unrelated topic{n} words alpha{n} beta{n} gamma{n}" for n in range(12)]
+    ms = [_mem(tmp_path, f"m{n:02d}", c) for n, c in enumerate(claims)]
+    ms[1] = records.replace(ms[1], distinct_from=["m00"])
+    got = records.pairs(ms, TODAY, tokenize=mem.tokenize)
+    assert got and got == _old_pairs(ms, TODAY, tokenize=mem.tokenize)
+
+
+def _abc(tmp_path):
+    ms = [_mem(tmp_path, "a", "Retries need idempotency keys on every payment call"),
+          _mem(tmp_path, "b", "Retries need idempotency keys on every payment call always today"),
+          _mem(tmp_path, "c", "Retries need idempotency keys on every payment call always today now")]
+    ms += [_mem(tmp_path, f"x{n}", f"Unrelated topic{n} words alpha{n} beta{n}") for n in range(7)]
+    return ms
+
+
+def test_pairs_among_compares_only_pairs_with_a_listed_memory(tmp_path):
+    ms = _abc(tmp_path)
+    allp = {(a.handle, b.handle) for a, b, _ in records.pairs(ms, TODAY, tokenize=mem.tokenize)}
+    assert {("a", "b"), ("b", "c"), ("a", "c")} <= allp
+    got = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["c"])
+    assert {(a.handle, b.handle) for a, b, _ in got} == {("a", "c"), ("b", "c")}
+    both = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["b", "c"])
+    assert sorted((a.handle, b.handle) for a, b, _ in both) == [("a", "b"), ("a", "c"), ("b", "c")]
+
+
+def test_pairs_budget_stops_and_reports(tmp_path):
+    ms = _abc(tmp_path)
+    budget = records.Budget(1)
+    got = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=budget)
+    assert budget.left == 0 and budget.exhausted and len(got) <= 1
+    roomy = records.Budget(10_000)
+    records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=roomy)
+    assert roomy.left == 10_000 - 17 and not roomy.exhausted  # 9 partners of a, 8 more of x0
+    exact = records.Budget(17)
+    records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=exact)
+    assert exact.left == 0 and not exact.exhausted  # used up with nothing left to compare
+
+
+def test_refuted_pairs_among_and_budget(tmp_path):
+    ms = [_mem(tmp_path, "r", "Retries need idempotency keys on every payment call", status="refuted",
+               created=TODAY - datetime.timedelta(days=5), refuted=TODAY - datetime.timedelta(days=3)),
+          _mem(tmp_path, "a", "Retries need idempotency keys on every payment call again"),
+          _mem(tmp_path, "b", "Retries need idempotency keys on every payment call once more")]
+    assert [(a.handle, r.handle) for a, r, _ in records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)] == \
+        [("a", "r"), ("b", "r")]
+    only = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize, among=["b"])
+    assert [(a.handle, r.handle) for a, r, _ in only] == [("b", "r")]
+    budget = records.Budget(1)
+    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "b"], budget=budget)
+    assert len(got) == 1 and budget.left == 0 and budget.exhausted
+
+
+def test_differing_words_drops_stopwords_and_keeps_negations():
+    assert records.differing_words("the cache is warm", "cache is not warm") == ["not"]
+    assert records.differing_words("retry 3 times", "retry 5 times") == ["3", "5"]
+    assert records.differing_words("the cache is warm", "a cache is warm") == []
+
+
 # memories
 
 def test_memories_order_kind_dead_and_scope(project, gfolder, capsys):
