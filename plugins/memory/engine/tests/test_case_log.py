@@ -501,7 +501,7 @@ def test_rules_names_a_lesson_that_failed_and_the_block_is_unchanged(project, gf
 
 
 def test_rules_more_has_the_column(project, gfolder, capsys):
-    for i in range(10):
+    for i in range(rules.RULES_MAX + 4):
         global_lesson(f"Lesson number {i}.", versions=[(10, "First text.")],
                       log=[(5, "failed" if i % 2 else "worked")])
     rows = [x.split("\t") for x in shown(capsys, "rules", "--more").splitlines() if x.startswith("m:")]

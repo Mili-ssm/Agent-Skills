@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Up to 16 lessons (was 6) and 2400 characters of rule lines (was 900) now load at session start, so more established lessons reach the agent without asking by topic; nothing has to be done.
+
 ## [0.6.0] - 2026-11-22
 
 ### Added
