@@ -42,12 +42,12 @@ Before G1 to G4: the suite reads the developer's environment, and the SessionSta
 **Interfaces:**
 - Produces: the test suite gives the same result inside a Claude Code session with the plugin's options set as under `env -i`; every YAML frontmatter parse in the engine uses the loader `mem.py` already builds on `CSafeLoader` (falls back to `SafeLoader` when libyaml is missing) with unchanged semantics; `bin/mem` imports `mem` so its `.pyc` is cached, and still works when the plugin folder is read-only.
 
-- [ ] **Step 1:** `conftest.py` clears every `MEM_*` and `CLAUDE_PLUGIN_OPTION_*` variable (an autouse fixture). Run `MEM_RULES_LAYOUT=digest uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_rules.py plugins/memory/engine/tests/test_rules_session.py -q`: expect 0 failed (6 failed before: 3 in each file); then run the whole suite once more under `env -i HOME=$HOME PATH=$PATH` and expect the same result as with the session's variables.
-- [ ] **Step 2: Commit** `test(memory): isolate the engine tests from the session environment`.
-- [ ] **Step 3:** Swap the four `yaml.safe_load` calls for the shared loader. Check: whole suite green; outputs byte-identical before and after for `search` (3 queries), `check`, `find --topic llm`, `memories`, `stats`, `session-index` on a scratch copy of the real store.
-- [ ] **Step 4:** Add `run.py` and point `bin/mem` at it. Check: suite green; `bin/mem --help` works with the plugin folder made read-only (`chmod -R a-w` on a copy).
-- [ ] **Step 5: Measure** 20 runs after 2 warm-ups, before and after, on a scratch copy (set `MEM_DATA` to scratch so the real logs stay clean): the SessionStart hook script, `session-index --hook`, `search`. Expect the hook p95 under 400 ms; report p50/p95/sd.
-- [ ] **Step 6: Commit** `perf(memory): C YAML loader everywhere and a launcher that caches mem.pyc`, plus a CHANGELOG line.
+- [x] **Step 1:** `conftest.py` clears every `MEM_*` and `CLAUDE_PLUGIN_OPTION_*` variable (an autouse fixture). Run `MEM_RULES_LAYOUT=digest uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_rules.py plugins/memory/engine/tests/test_rules_session.py -q`: expect 0 failed (6 failed before: 3 in each file); then run the whole suite once more under `env -i HOME=$HOME PATH=$PATH` and expect the same result as with the session's variables.
+- [x] **Step 2: Commit** `test(memory): isolate the engine tests from the session environment`.
+- [x] **Step 3:** Swap the four `yaml.safe_load` calls for the shared loader. Check: whole suite green; outputs byte-identical before and after for `search` (3 queries), `check`, `find --topic llm`, `memories`, `stats`, `session-index` on a scratch copy of the real store.
+- [x] **Step 4:** Add `run.py` and point `bin/mem` at it. Check: suite green; `bin/mem --help` works with the plugin folder made read-only (`chmod -R a-w` on a copy).
+- [x] **Step 5: Measure** 20 runs after 2 warm-ups, before and after, on a scratch copy (set `MEM_DATA` to scratch so the real logs stay clean): the SessionStart hook script, `session-index --hook`, `search`. Expect the hook p95 under 400 ms; report p50/p95/sd.
+- [x] **Step 6: Commit** `perf(memory): C YAML loader everywhere and a launcher that caches mem.pyc`, plus a CHANGELOG line.
 
 ### Task 1: Move notes and check out of `mem.py` (owner, 2026-11-23)
 
