@@ -1863,7 +1863,7 @@ def mem_curate(w):
 
 
 NOTHING = {"asked": 0, "written": 0, "refused_code": 0, "refused_check": 0, "same_text": 0, "no_proposal": 0,
-           "gave_up": 0, "cost": 0.0, "stopped": None}
+           "gave_up": 0, "changed": 0, "cost": 0.0, "stopped": None}
 
 
 def test_reword_applies_an_accepted_wording(w, monkeypatch):
@@ -2020,3 +2020,88 @@ def test_a_missing_claude_binary_is_a_stop_not_an_exception(w, monkeypatch):
     result = corr_module().reword_auto("/nonexistent/claude", 0.25)
     assert result["stopped"] and result["written"] == 0
     assert by_claim(w, NARROW).short == OLD_WORDING
+
+
+def test_reword_skips_a_lesson_edited_meanwhile(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    by_hand = "A short form the owner wrote while the sessions ran, which the step must not overwrite."
+    real = mod._ask
+
+    def ask_then_edit(*args, **kw):
+        got = real(*args, **kw)
+        if args[2] == "check":   # the owner edits between the model sessions and the apply
+            records.update(by_claim(w, NARROW), TODAY, short=by_hand)
+        return got
+
+    monkeypatch.setattr(mod, "_ask", ask_then_edit)
+    result = reword(w, mod)
+    assert result["changed"] == 1 and result["written"] == 0 and result["no_proposal"] == 1
+    m = by_claim(w, NARROW)
+    assert m.short == by_hand and m.reworded is None
+    assert reword_state(w)["lessons"] == {} and not reword_runs(w)
+
+
+# ---- the option auto_reword: the step in the automatic run ---------------------------------------------------------
+
+REWORD_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_REWORD"
+
+
+def test_auto_runs_reword_only_with_the_option(w, monkeypatch):
+    worse_one(w)
+    model(w, [])
+    reword_answers(w, monkeypatch)
+    for env in ({}, {REWORD_OPTION: "false"}, {REWORD_OPTION: "1"}, {REWORD_OPTION: "TRUE"}):
+        done = run(w, cmd="auto", env={OPTION: "true", **env})
+        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+        assert not any("reword" in x for x in log_lines(w)) and by_claim(w, NARROW).short == OLD_WORDING
+        assert not (w.cdir / "reword-attempts.json").exists()
+    off = [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in log_lines(w)]
+    done = run(w, cmd="auto", env={OPTION: "true", REWORD_OPTION: "true"})
+    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    lines = log_lines(w)
+    (reworded,) = [x for x in lines if "reword" in x]
+    assert lines[-1] is reworded and "fill" in lines[-2] and reworded["reword"]["written"] == 1
+    assert isinstance(reworded["ms"], int) and reworded["t"]
+    assert by_claim(w, NARROW).short == NEW_WORDING
+    assert [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in lines[:len(off)]] == off
+
+
+def test_auto_skips_reword_when_loaded_rules_are_off(w, monkeypatch):
+    worse_one(w)
+    model(w, [])
+    reword_answers(w, monkeypatch)
+    for env in ({"MEM_LOADED_RULES": "off"}, {"CLAUDE_PLUGIN_OPTION_LOADED_RULES": "false"}):
+        done = run(w, cmd="auto", env={OPTION: "true", REWORD_OPTION: "true", **env})
+        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+        assert not any("reword" in x for x in log_lines(w)) and by_claim(w, NARROW).short == OLD_WORDING
+
+
+def test_auto_does_not_reword_without_auto_capture(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    done = run(w, cmd="auto", env={REWORD_OPTION: "true"})
+    assert done.returncode == 0 and log_lines(w) == [] and by_claim(w, NARROW).short == OLD_WORDING
+
+
+def test_a_failure_in_reword_does_not_fail_auto(w, monkeypatch):
+    worse_one(w)
+    model(w, [])
+    mod = corr_module()
+
+    def boom(*_args, **_kw):
+        raise RuntimeError("the step broke")
+
+    monkeypatch.setattr(mod, "reword_auto", boom)
+    monkeypatch.setenv(OPTION, "true")
+    monkeypatch.setenv(REWORD_OPTION, "true")
+    monkeypatch.setattr(sys, "argv", ["mem-corroborate", "auto", "--claude", str(w.fake)])
+    assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
+    lines = log_lines(w)
+    assert any("fill" in x for x in lines) and not any("reword" in x for x in lines)
+
+
+def test_plugin_json_has_the_option_off():
+    config = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
+    assert config["auto_reword"]["type"] == "boolean" and config["auto_reword"].get("default") is False

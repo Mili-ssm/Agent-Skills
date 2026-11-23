@@ -1236,7 +1236,7 @@ def reword_auto(claude: str | None, budget: float, *, every: bool = False, apply
     failed session that charges no lesson. With `apply` false it writes no record and saves no state (the sessions
     still run, and cost). Never raises: a failure is a counted result with `stopped` set."""
     result = {"asked": 0, "written": 0, "refused_code": 0, "refused_check": 0, "same_text": 0, "no_proposal": 0,
-              "gave_up": 0, "cost": 0.0, "stopped": None}
+              "gave_up": 0, "changed": 0, "cost": 0.0, "stopped": None}
     try:
         cdir = corroborate_dir(data_dir())
         lock = au.take_run_lock(cdir)
@@ -1326,8 +1326,14 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     if apply:
         run = None
         applier = None
+        now = {i: m for i, _p, m in corroborate.fill_records(projects, gfolder)}   # the owner may have edited meanwhile
         for i, m in candidates:
             if outcome[i] != "written":
+                continue
+            seen = now.get(i)
+            if seen is None or (seen.claim, seen.short) != (m.claim, m.short):
+                outcome[i] = "no_proposal"
+                result["changed"] += 1
                 continue
             if applier is None:
                 run = _reword_run_folder(cdir)
@@ -1404,6 +1410,14 @@ def cmd_auto(args) -> int:
             stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
             result = fill_auto(args.claude, budget)
             append_log(corroborate_dir(data_dir()), {"t": stamp, "fill": result, "ms": int((time.time() - began) * 1000)})
+            if os.environ.get("CLAUDE_PLUGIN_OPTION_AUTO_REWORD") == "true":   # option auto_reword, off by default
+                try:
+                    began = time.time()
+                    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+                    result = reword_auto(args.claude, budget)
+                    append_log(corroborate_dir(data_dir()), {"t": stamp, "reword": result, "ms": int((time.time() - began) * 1000)})
+                except BaseException:   # noqa: BLE001
+                    pass
     except BaseException:   # noqa: BLE001
         pass
     return 0
