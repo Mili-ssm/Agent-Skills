@@ -53,6 +53,8 @@ fi
 case "${CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH:-}" in
   memory|contrast|deep) export_var MEM_RESEARCH_DEPTH "$CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH" ;;
 esac
+# The loaded rules layout, so `mem rules` typed in a session prints what the session start printed.
+[ "${CLAUDE_PLUGIN_OPTION_RULES_LAYOUT:-}" = "grouped" ] && export_var MEM_RULES_LAYOUT grouped
 # Background settling (option auto_settle, exactly "true"): the variables below are what lets the write path of this
 # session's shell commands start a settling run; no variable, no trigger (a trial or a test never has them).
 if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ]; then

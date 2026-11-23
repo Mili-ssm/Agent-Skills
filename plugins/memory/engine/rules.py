@@ -87,8 +87,23 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
     return out
 
 
-def block(choice: Choice) -> list[str]:
-    return [HEADER, *map(line, choice.loaded)] if choice.loaded else []
+LAYOUTS = ("flat", "grouped")
+
+
+def grouped(choice: Choice) -> list[str]:
+    """The loaded lessons under a `<topic>:` line each, topics in the order of their first lesson; no topic: `other:`, last."""
+    groups: dict[str, list[str]] = {}
+    for m in choice.loaded:
+        groups.setdefault(m.topic or "other", []).append(line(m))
+    if "other" in groups:
+        groups["other"] = groups.pop("other")
+    return [x for topic, lines in groups.items() for x in (f"{topic}:", *lines)]
+
+
+def block(choice: Choice, layout: str = "flat") -> list[str]:
+    if not choice.loaded:
+        return []
+    return [HEADER, *(grouped(choice) if layout == "grouped" else map(line, choice.loaded))]
 
 
 def topic_counts(choice: Choice) -> list[tuple[str, int]]:
