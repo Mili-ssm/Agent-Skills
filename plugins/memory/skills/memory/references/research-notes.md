@@ -8,11 +8,11 @@ Global notes name no client, company, internal system or data. State the lesson 
 
 | | Example |
 |---|---|
-| Bad | "The billing worker at Initech charged customers twice after a timeout." |
+| Bad | "The billing worker at <a client> charged customers twice after a timeout." |
 | Good (claim) | "Retries without idempotency keys duplicate side effects." |
 | Good (evidence) | "Experience (anonymized): a job retried after a timeout and charged twice; adding a key stopped it." |
 
-Never copy a logged query or a work-repository detail into a note: it can carry the names this rule forbids.
+Never copy a logged query or a work-repository detail into a note, an evaluation set or a commit: it can carry the names this rule forbids.
 
 ## Which type
 
@@ -22,7 +22,7 @@ Never copy a logged query or a work-repository detail into a note: it can carry 
 | A reusable conclusion, pattern or lesson from any origin, named as the claim | `knowledge` |
 | An ongoing question with its own material (reading, code, results, write-up) | `research` |
 
-Never commit source files: link the URL. A copy you read may stay local (see Commands).
+Never commit source files: link the URL. A copy you read may stay local (see the commands below).
 
 ## Sources: ranks and what each supports
 
@@ -56,15 +56,15 @@ Prefix your own reasoning with `Inference:` in a knowledge note's `## Evidence`;
 
 ## Declarative names and claims
 
-A knowledge filename and its `claim` state a fact, not an instruction. `mem check` rejects names that start with an imperative word. One `## Evidence` bullet links one source (path relative to the note) and says what it shows.
+A knowledge filename and its `claim` state a fact, not an instruction. `mem check` rejects names that start with an imperative word or that follow `so` or `then` with one. One `## Evidence` bullet links one source (path relative to the note) and says what it shows.
 
 | Kind | Filename (not) | Evidence bullet |
 |---|---|---|
 | Finding | `bm25-is-a-strong-zero-shot-baseline-for-text-retrieval.md` (`use-bm25-first.md`) | `- [BEIR](../../literature/computing/2021-thakur-beir.md): zero-shot on 18 datasets, the dense retrievers tested averaged below BM25.` |
 | How-to | `progress-files-and-git-history-let-a-fresh-agent-session-resume-work.md` (`keep-a-progress-file.md`) | `- [Long-running harnesses](../../literature/computing/2025-young-long-running-harnesses.md): a progress file plus git history let a fresh session resume.` |
-| Lesson from work | `retries-without-idempotency-keys-duplicate-side-effects.md` | `- Experience (anonymized): a job retried after a timeout and charged twice; adding a key stopped it.` |
+| Lesson from another project | `retries-without-idempotency-keys-duplicate-side-effects.md` | `- Experience (anonymized): a job retried after a timeout and charged twice; adding a key stopped it.` |
 
-## Commands
+## Commands for writing and checking a note
 
 | Step | Command | Notes |
 |---|---|---|
@@ -81,4 +81,8 @@ Expect errors in your own notes. A fresh-context fact-check against the local co
 - an absence stated as a fact ("the paper does not discuss X") instead of "I did not find X";
 - inference left unlabelled.
 
-For more than a few notes, write in parallel, then fact-check with a fresh context against the local copies, then review.
+For anything beyond one note, follow the research-wave procedure (the `memory-research-wave` skill): parallel writers, then a fresh-context fact-check against the local copies, then review, in that order.
+
+## Record what the work teaches about researching
+
+When a task teaches something about how to research (a route that works or fails, an error class, a better order of steps), record it as a `knowledge` note on the topic `research-practice`. When it is experience from one wave, record it instead as a global lesson: `mem remember --global --kind lesson --topic research`.
