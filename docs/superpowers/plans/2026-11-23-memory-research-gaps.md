@@ -136,9 +136,9 @@ The owner's rule (2026-11-23): a code file at 1,000+ lines is reviewed for a spl
 
 **Content (from the note repository's agent contract, to be restated, not linked; the controller quotes the source text into the brief):** source ranks 1 to 5 and what each may support; the knowledge confidence rubric (`high` only when a rank 1–2 source states it directly, uncontested and established; a single study stays `medium`; `origin: experience` without a rank 1–2 source stays `medium`; `low` for contested or weak evidence); a note only from a source fetched and read, its `url` the exact page; full text, never a summary; local copy via `mem fetch-sources <store-relative path>`; `Inference:` / "(inference)" labels; filenames and claims as declarative facts; conservative `level`; `mem new … --body-file`, `mem check <paths>`, `mem note edit --shrink` for reworded sentences; no business specifics in global notes.
 
-- [ ] **Step 1:** Write the reference (dense, tables, under 150 lines; `outline.py` headings that name their content).
-- [ ] **Step 2:** Add the pointers. `python3 scripts/validate.py` passes.
-- [ ] **Step 3: Commit** `docs(memory): rules for writing research notes`.
+- [x] **Step 1:** Write the reference (dense, tables, under 150 lines; `outline.py` headings that name their content).
+- [x] **Step 2:** Add the pointers. `python3 scripts/validate.py` passes.
+- [x] **Step 3: Commit** `docs(memory): rules for writing research notes`.
 - [ ] **Step 4: Owner review** of `research-notes.md` (the owner wanted to evaluate these rules, 2026-11-23); `grep` it for home paths and private names first. Task 7 may be drafted meanwhile; the branch does not merge before this review.
 
 ### Task 7: `memory-research-wave` skill (G2)
