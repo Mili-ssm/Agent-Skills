@@ -8,6 +8,7 @@ import pytest
 import capture
 import mem
 import records
+import rules
 
 MEM = Path(__file__).resolve().parents[2] / "bin" / "mem"
 
@@ -517,4 +518,115 @@ def test_session_start_block_is_unchanged(project, gfolder, capsys):
     records.update(m, datetime.date.today(), log=[records.case_entry(ago(2), "session q", "failed"),
                                                  records.case_entry(ago(1), "session r", "failed")])
     after = shown(capsys, "session-index")
-    assert before == after and "First text." in after and "Failed after" not in after
+    sentence = " Got worse: 1 loaded lesson needs a decision (mem curate)."  # the one line C68 adds to the first line
+    assert before == after.replace(sentence, "") and sentence in after
+    assert "First text." in after and "Failed after" not in after
+
+
+# --- the owner's queue (C68) ---
+
+CATEGORY = "balance got worse after loading"
+FAILS = [(5, "failed"), (4, "failed")]
+
+
+def worse_lesson(claim, log=FAILS, versions=((10, "First text."),)):
+    return global_lesson(claim, versions=list(versions), log=list(log))
+
+
+def curated(capsys, *argv):
+    return shown(capsys, "curate", *argv)
+
+
+def queue(out):
+    """The lines of the category: its heading and what follows until the next heading (an unindented line)."""
+    lines = out.splitlines()
+    start = next((i for i, x in enumerate(lines) if x.startswith(CATEGORY)), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start + 1, len(lines)) if not lines[i].startswith(" ")), len(lines))
+    return lines[start:end]
+
+
+def test_curate_lists_a_lesson_that_got_worse(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.", log=[(5, "failed")])
+    assert queue(curated(capsys, "--global")) is None
+    records.update(m, datetime.date.today(), log=[records.case_entry(ago(5), "session q", "failed"),
+                                                 records.case_entry(ago(4), "session r", "failed")])
+    out = queue(curated(capsys, "--global"))
+    assert out[0] == (f"{CATEGORY} (decide: reword it or go back with mem memory edit <h> --short, drop it with "
+                      "mem forget <h>, or keep the wording with mem triage accept <h>)")
+    assert out[1] == f"  m:{m.handle}  loaded  Failing lesson."
+    assert out[2:] == [f"    version 1 since {ago(10)} (10 days): worked 0, failed 2: First text."]
+    assert reload(m).triage is None and "triage:" not in m.path.read_text()
+    assert "First text." in shown(capsys, "rules")
+
+
+def test_curate_shows_the_version_before(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.", versions=[(20, "First text."), (10, "Second text.")],
+                     log=[(15, "worked"), (5, "failed"), (4, "failed")])
+    out = queue(curated(capsys, "--global"))
+    assert out[2:] == [f"    version 1 since {ago(20)} (10 days): worked 1, failed 0: First text.",
+                       f"    version 2 since {ago(10)} (10 days): worked 0, failed 2: Second text."]
+
+
+def test_curate_lists_a_project_lesson(project, gfolder, capsys):
+    write("Project failing lesson.", short="First text.", scope="project")
+    [m] = records.load_memories(project / ".memory", "project")
+    records.update(m, datetime.date.today(), versions=[records.version_entry(ago(10), "First text.")],
+                   log=[records.case_entry(ago(5), "session q", "failed"), records.case_entry(ago(4), "session r", "failed")])
+    out = queue(curated(capsys))
+    assert out[1] == f"  m:{m.handle}  loaded  Project failing lesson."
+    assert queue(curated(capsys, "--global")) is None
+
+
+def test_a_lesson_that_does_not_load_is_not_listed(project, gfolder, capsys):
+    today = datetime.date.today()
+    # written first: `write` accepts every lesson that awaits triage
+    no, index, pending, held = (worse_lesson(c) for c in ("Lesson that never loads.", "Lesson that is index only.",
+                                                         "Lesson that awaits triage.", "Lesson in quarantine."))
+    records.update(no, today, load="no")
+    records.update(index, today, load="index")
+    records.update(pending, today, owner_confirmed=None, triage="pending")  # the owner's word would end the triage
+    records.update(held, today, sources=[held.sources[0]], owner_confirmed=None)
+    now = {m.handle: m for m in records.load_memories(gfolder, "global")}
+    assert all(records.got_worse(now[m.handle]) for m in (no, index, pending, held))
+    assert queue(curated(capsys, "--global")) is None
+    assert records.quarantined(now[held.handle]) and now[pending.handle].triage == "pending"
+
+
+def test_a_lesson_left_out_by_the_cap_is_listed_as_such(project, gfolder, capsys):
+    for i in range(rules.RULES_MAX):
+        write(f"Strong lesson number {i}.", short=f"Strong rule {i}.", weight="strong")
+    m = worse_lesson("Failing lesson.")
+    out = queue(curated(capsys, "--global"))
+    assert out[1] == f"  m:{m.handle}  left out by the cap  Failing lesson."
+    assert "Failing lesson" not in shown(capsys, "rules").split("Failed after")[0]
+
+
+def test_session_start_counts_what_got_worse(project, gfolder, capsys):
+    a = worse_lesson("First failing lesson.", log=[(5, "failed")])
+    assert "Got worse" not in shown(capsys, "session-index")
+    records.update(a, datetime.date.today(), log=[records.case_entry(ago(5), "session q", "failed"),
+                                                 records.case_entry(ago(4), "session r", "failed")])
+    assert "Got worse: 1 loaded lesson needs a decision (mem curate)." in shown(capsys, "session-index")
+    worse_lesson("Second failing lesson.")
+    out = shown(capsys, "session-index")
+    assert "Got worse: 2 loaded lessons need a decision (mem curate)." in out
+    assert len(out) <= mem._INDEX_LIMIT
+
+
+def test_a_fault_in_the_count_leaves_the_rules_block(project, gfolder, capsys, monkeypatch):
+    worse_lesson("Failing lesson.")
+    plain = shown(capsys, "session-index").replace(
+        " Got worse: 1 loaded lesson needs a decision (mem curate).", "")
+    assert "Got worse" not in plain and "First text." in plain
+    monkeypatch.setattr(records, "got_worse", lambda m: 1 / 0)
+    assert shown(capsys, "session-index") == plain
+
+
+def test_a_new_short_form_clears_the_listing(project, gfolder, capsys):
+    m = worse_lesson("Failing lesson.")
+    assert queue(curated(capsys, "--global")) is not None
+    shown(capsys, "memory", "edit", m.handle, "--global", "--short", "Better text.")
+    assert queue(curated(capsys, "--global")) is None
+    assert len([x for x in shown(capsys, "show", f"m:{m.handle}").splitlines() if x.startswith("version ")]) == 2

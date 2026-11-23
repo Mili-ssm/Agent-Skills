@@ -3133,6 +3133,13 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         if waiting:
             head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
                         "(mem curate --global).")
+    try:
+        worse = sum(1 for _, loaded in _got_worse(loaded_project, loaded_global, today) if loaded)
+        if worse:
+            head.append(f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
+                        "(mem curate).")
+    except Exception:
+        pass
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
@@ -3167,6 +3174,15 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
                 return "\n".join(lines + extra + rows[:shown] + tail)
             shown -= 1
     return "\n".join(lines + extra)
+
+
+def _got_worse(project: Sequence[records.Memory], global_: Sequence[records.Memory],
+               today: datetime.date) -> list[tuple[records.Memory, bool]]:
+    """The lessons whose present version got worse (records.got_worse) and that the rules block loads or leaves out
+    over the cap; the flag says "loaded". `choose` gets both scopes so that the cap is the one of session start."""
+    choice = rules.choose(project, global_, today)
+    found = [(m, True) for m in choice.loaded] + [(m, False) for m, why in choice.left if why == rules.OVER]
+    return [(m, loaded) for m, loaded in found if records.got_worse(m)]
 
 
 def _hook_input() -> dict[str, Any]:
@@ -4783,6 +4799,18 @@ def cmd_curate(args: argparse.Namespace) -> int:
                        f"{_flat(m.claim)}")
             if m.triage_reason:
                 out.append(f"    held: {m.triage_reason}")
+    asked = {scope for scope, _, _ in scopes}
+    both = {scope: records.load_memories(folder, scope) for scope, folder in _memory_folders(args)}  # quiet: _loaded warned
+    worse = [(m, loaded) for m, loaded in _got_worse(both.get("project", []), both.get("global", []), today)
+             if m.scope in asked]
+    if worse:
+        out.append("balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
+                   "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)")
+        for m, loaded in worse:
+            out.append(f"  m:{m.handle}  {'loaded' if loaded else 'left out by the cap'}  {_flat(m.claim)}")
+            found = records.tallies(m)[-2:]
+            ends = [t.since for t in found[1:]] + [today]
+            out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends)]
     held = sum(1 for m in every if m.status == "active" and records.quarantined(m))  # a lapsed one is still stored
     if held:
         out.append(f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
