@@ -4,7 +4,18 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
-## [0.9.0] - 2026-11-24
+### Changed
+
+- The session start line `Curation due: N items (<parts>) (run mem curate after the current task).` now counts the decision items the last `mem curate --done` did not list: written again after being refuted, same or opposite, newer state, expired, seen often, not confirmed in 90 days. New memories alone no longer count, and no line appears at 0. `at least N` means the start-time pair search used up its budget. Nothing has to be done; the first session after the update may show one count for items that were already waiting.
+- `mem curate --done` records the keys of the items the queue held in `curated-items.json` in the data folder (`curated.json` keeps its format) and prints `recorded K items (<scope>)`.
+- `mem remember` no longer prints "N new memories since the last curation pass"; its list of related memories names the pairs a new memory makes.
+- `mem curate` groups the same-or-opposite pairs by memory (the memory in most pairs first, then each partner with its claim and a `differ in` line). `differ in` leaves out stopwords except negations, keeps digits and says `wording only` when nothing is left, in the notes queue too. The seen-often block asks `general enough for a note in the store?`.
+
+### Added
+
+- `mem curate` lists pairs of live state memories of one project as `newer state of the same project?` (the older memory, then `-> ` the newer): settle with `mem supersede <old> <new>` or `mem distinct <a> <b>`. The `memory-curator` agent proposes it as a `supersede` row and never applies it with `mem curate apply --safe`.
+
+## [0.9.0] - 2026-11-23
 
 ### Added
 

@@ -14,10 +14,11 @@ You read the memory's curation queue so the main model does not have to, and you
 ## Steps
 
 1. Run `mem curate`. If it prints nothing, reply "Nothing to curate." and stop.
-2. For each pair under "same or opposite?" and "written again after being refuted", run `mem show m:<a> m:<b>` and read both whole: the claims share most words, so the difference is in the few that do not (the `differ in:` line) and in the bodies.
+2. For each pair under "same or opposite?", "newer state of the same project?" and "written again after being refuted", run `mem show m:<a> m:<b>` and read both whole: the claims share most words, so the difference is in the few that do not (the `differ in:` line) and in the bodies.
 3. For the other blocks, read a memory whole only when its claim does not tell you enough.
 4. Propose one action per item from this list, never anything else:
    - `mem merge <keep> <drop>`: the two say the same thing. Keep the clearer or newer one. Never for claims that differ in a negation or a number.
+   - `mem supersede <old> <new>`: under "newer state of the same project?", after reading both whole, when the newer one replaces the older; a proposed row only, never sent to `mem curate apply --safe`. If both still hold, `mem distinct <a> <b>`.
    - `mem refute <h> --because "<why>"`: one of two opposites is wrong and the memories or the project show which.
    - `mem distinct <a> <b>`: they are different things (two versions, two systems).
    - `mem forget <h>`: expired and no longer true. `mem confirm <h> --until <date>`: expired but it still holds.
