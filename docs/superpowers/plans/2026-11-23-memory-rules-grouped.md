@@ -46,7 +46,7 @@
   - `session_index` uses `MEM_RULES_LAYOUT` in the same way. `hooks/session-index.sh` sets `MEM_RULES_LAYOUT` from `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` when that is `grouped`, beside the line that sets `MEM_LOADED_RULES`.
   - The count of characters kept in the session start statistics (`rules_chars`) is that of the lines printed, headings included.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 | Test | Asserts |
 |---|---|
@@ -61,13 +61,13 @@
 | `test_the_hook_passes_the_layout` | `hooks/session-index.sh` run as the existing hook test for the loaded-rules switch runs it (`test_rules_session.py`), with `CLAUDE_PLUGIN_OPTION_RULES_LAYOUT` set to `grouped`, `flat`, unset and `nonsense`: headings only for `grouped` |
 | `test_a_lesson_whose_topic_is_other_shares_the_last_heading` | if `records.valid_topic` accepts the topic `other`, such a lesson and one without a topic sit under one `other:` heading; if it refuses it, the test asserts that refusal instead |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
-- [ ] **Step 4: Run the two test files, then the whole suite, then `python3 scripts/validate.py` and `claude plugin validate .`**
+- [x] **Step 4: Run the two test files, then the whole suite, then `python3 scripts/validate.py` and `claude plugin validate .`**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory
