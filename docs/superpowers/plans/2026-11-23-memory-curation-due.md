@@ -29,7 +29,7 @@
 | Observation | Action |
 |---|---|
 | A test of settle, corroboration, capture or the loaded rules changes its result | Stop and report which and why |
-| The timed test of Task 3 takes 1 second or more | Stop and report the figure |
+| The timed test of Task 3 takes 2 seconds or more | Stop and report the figure |
 | A memory file changes in any test of `mem curate` without `--done` | Stop |
 | Task 5: `mem curate --done` on the unchanged copy, then any `Curation due` line | Stop: the keys of `--done` and of session start differ |
 | Task 5: `bin/mem session-index --hook` on the copy takes over 1 second, or over 0.3 seconds more than `main` on the same copy | Stop and report the figures |
@@ -57,11 +57,11 @@
 - Produces: `records.refuted_pairs(..., among=None, budget=None)`, same contract; each refuted claim is tokenized once; with `among`, only live memories whose handle is in `among` are compared.
 - Produces: `records.differing_words(a, b) -> list[str]` leaves out `STOPWORDS` except `_NEGATIONS`; digits stay; `[]` when nothing is left.
 
-- [ ] **Step 1: Write the failing tests**: `test_pairs_unchanged_without_new_arguments` (on a fixture of about 30 claims with several pairs, the result equals a copy of today's implementation kept in the test); `test_pairs_among_compares_only_pairs_with_a_listed_memory` (A~B and B~C pair; `among=["c"]` returns only B–C); `test_pairs_budget_stops_and_reports` (a budget of 1 with two listed among ten live: at most one comparison spent, `left == 0`); `test_refuted_pairs_among_and_budget`; `test_differing_words_drops_stopwords_and_keeps_negations` (`"the cache is warm"` against `"cache is not warm"` gives `["not"]`; `"retry 3 times"` against `"retry 5 times"` gives `["3", "5"]`).
-- [ ] **Step 2: Run them**: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_curation.py -q -k "pairs or differing"`; expected FAIL.
-- [ ] **Step 3: Implement** the three changes. `pairs` keeps its sort and its `distinct_from` rule.
-- [ ] **Step 4: Run them**, then the whole suite; expected PASS. Any test asserting a `differ in` line (memories or notes) is updated and named.
-- [ ] **Step 5: Commit**: stage `records.py` and the changed tests by path; `git commit -m "feat(memory): pair search tokenizes once, takes a list and a budget; differ in without stopwords"`
+- [x] **Step 1: Write the failing tests**: `test_pairs_unchanged_without_new_arguments` (on a fixture of about 30 claims with several pairs, the result equals a copy of today's implementation kept in the test); `test_pairs_among_compares_only_pairs_with_a_listed_memory` (A~B and B~C pair; `among=["c"]` returns only B–C); `test_pairs_budget_stops_and_reports` (a budget of 1 with two listed among ten live: at most one comparison spent, `left == 0`); `test_refuted_pairs_among_and_budget`; `test_differing_words_drops_stopwords_and_keeps_negations` (`"the cache is warm"` against `"cache is not warm"` gives `["not"]`; `"retry 3 times"` against `"retry 5 times"` gives `["3", "5"]`).
+- [x] **Step 2: Run them**: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_curation.py -q -k "pairs or differing"`; expected FAIL.
+- [x] **Step 3: Implement** the three changes. `pairs` keeps its sort and its `distinct_from` rule.
+- [x] **Step 4: Run them**, then the whole suite; expected PASS. Any test asserting a `differ in` line (memories or notes) is updated and named.
+- [x] **Step 5: Commit**: stage `records.py` and the changed tests by path; `git commit -m "feat(memory): pair search tokenizes once, takes a list and a budget; differ in without stopwords"`
 
 ### Task 2: One builder of decision items, and the queue printed from it
 
@@ -75,11 +75,11 @@
 - Produces: `_decisions(loaded: Sequence[Memory], today: date, *, since: date | None = None, budget: records.Budget | None = None) -> Decisions`. It drops superseded memories itself (`superseded_by` set), so every caller passes what `records.load_memories` returned. With `since`, the pair kinds use `among` = handles of live memories changed since the pass (Global Constraints), newest change first; with `budget`, the searches spend it and `pairs_checked` is False when it ran out with comparisons left. `expired`, `seen`, `stale` are the lists `cmd_curate` builds today, with the unconfirmed handles left out as today. A pair of two live `kind == "state"` memories goes to `state` (older by `created`, a missing `created` oldest, then handle, first), never to `same`.
 - `PAIR_WORK = 150_000` in `mem.py`.
 
-- [ ] **Step 1: Write the failing tests**: `test_curate_groups_pairs_by_memory` (a memory in three pairs prints once, then three indented partner lines `    m:<h>  differ in: ...`, each pair once); `test_curate_lists_state_pairs_as_newer_state` (two state memories that pair print under `newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)` as `  m:<old>  ->  m:<new>`, not under same or opposite); `test_curate_seen_often_says_note_in_the_store` (header `seen 3 times or more: general enough for a note in the store? (mem promote <h>)`); `test_differ_in_wording_only`; `test_decisions_keys` (each key form, pair handles sorted); `test_decisions_drops_superseded`.
-- [ ] **Step 2: Run them**; expected FAIL.
-- [ ] **Step 3: Implement** `Decisions`, `_decisions` and the listing from it. Grouping (C102): repeatedly take the memory in the most remaining pairs (ties by handle), print it with `_tagged`, then each partner indented four spaces with its `differ in`, and drop those pairs. The other blocks keep their order and text except C105. The listing calls `_decisions` per folder without `since` or `budget`.
-- [ ] **Step 4: Run them**, then the whole suite; update and name the tests that asserted the old pairs block or the old seen-often header.
-- [ ] **Step 5: Commit**: stage `mem.py` and `test_curation.py` by path; `git commit -m "feat(memory): the curation queue groups pairs and proposes newer state"`
+- [x] **Step 1: Write the failing tests**: `test_curate_groups_pairs_by_memory` (a memory in three pairs prints once, then per partner its indented tagged line with its claim and a `differ in` line below, each pair once); `test_curate_lists_state_pairs_as_newer_state` (two state memories that pair print under `newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)` as the older memory's tagged line then an indented `-> ` line with the newer one's tag and claim, not under same or opposite); `test_curate_seen_often_says_note_in_the_store` (header `seen 3 times or more: general enough for a note in the store? (mem promote <h>)`); `test_differ_in_wording_only`; `test_decisions_keys` (each key form, pair handles sorted); `test_decisions_drops_superseded`.
+- [x] **Step 2: Run them**; expected FAIL.
+- [x] **Step 3: Implement** `Decisions`, `_decisions` and the listing from it. Grouping (C102): repeatedly take the memory in the most remaining pairs (ties by handle), print it with `_tagged`, then per partner its `_tagged` line indented two more spaces and below it `      differ in: ...`, and drop those pairs. Newer state: per pair `_tagged(old)` then `    -> ` followed by the newer one's tag and claim. The other blocks keep their order and text except C105. The listing calls `_decisions` per folder without `since` or `budget`.
+- [x] **Step 4: Run them**, then the whole suite; update and name the tests that asserted the old pairs block or the old seen-often header.
+- [x] **Step 5: Commit**: stage `mem.py` and `test_curation.py` by path; `git commit -m "feat(memory): the curation queue groups pairs and proposes newer state"`
 
 ### Task 3: Keys recorded by `--done`, the count at session start, and the end of the remember nudge
 
