@@ -198,7 +198,7 @@ git commit -m "feat(memory): what an automatic rewording decides from the writer
   - `REWORD_BRIEF`: the text below, verbatim.
   - `reword_auto(claude, budget, *, every: bool = False, apply: bool = True, sheet: Path | None = None, limit: int = 30) -> dict`: one run of the step, never raising. Result keys: `asked`, `written`, `refused_code`, `refused_check`, `same_text`, `no_proposal`, `gave_up`, `cost`, `stopped` (None, or a short reason as the fill gives). Order: take the lock; load the state (`reword-attempts.json` beside the fill's file: `{"lessons": {...}, "failures": {"count": int, "fingerprint": str}}`); candidates (`every` passes through; `limit` caps them when `every`); stop with `stopped` when the same candidates failed three runs in a row (the fingerprint of the fill, over the candidates' keys and present version dates); one writing session; `validate_reword`; `reword_survivors`; one checking session over the survivors, none when there is no survivor; `reword_outcome`; apply each `written` one with `mem memory edit m:<handle> [--global] --short=<text> --reworded`, a refused edit turning its outcome into `refused_code`; `reword_state_after` and save; for each id to give up on, `mem memory edit ... --reword-failed`, counted in `gave_up`. A session that fails or whose answer cannot be parsed changes no lesson state, adds one to `failures`, and sets `stopped`.
   - The run is journaled so that `mem-corroborate undo` undoes it as it undoes a fill run: write the same kind of run marker the fill writes, so that the undo does not take the run for a corroboration run.
-  - `apply=False` writes nothing to a record, saves no state and spends nothing. `sheet`, when given, receives a Markdown table, one row per candidate: id, claim, present short form, proposed short form, outcome, and the checker's reason when it gave one.
+  - `apply=False` writes nothing to a record, saves no state and spends no attempt; both sessions still run, since the sheet needs their answers. `sheet`, when given, receives a Markdown table, one row per candidate: id, claim, present short form, proposed short form, outcome, and the checker's reason when it gave one.
   - The subcommand `mem-corroborate reword [--every] [--limit N] [--dry-run] [--sheet PATH]`, built as `fill` is (same `--claude` and budget arguments), printing its result as JSON.
 
 ```text
@@ -287,7 +287,7 @@ A real `claude` cannot run with `HOME` pointed elsewhere (it loses its login), s
 
 - [ ] **Step 2: Run the step on every loading lesson, without applying**
 
-Run: `plugins/memory/bin/mem-corroborate reword --every --limit 30 --dry-run --sheet <repository>/.superpowers/reword-gate-2026-11-23.md` with a real `claude` and a budget whose total is at most 1.00 USD (read how the budget argument bounds one session and choose it so that two sessions stay under the total). `.superpowers/` is git-ignored: the sheet is the owner's to read and never enters a commit.
+Run: `plugins/memory/bin/mem-corroborate reword --every --limit 30 --dry-run --sheet <sheet>` with a real `claude` and a budget whose total is at most 1.00 USD (read how the budget argument bounds one session and choose it so that two sessions stay under the total). `<sheet>` is `reword-gate-2026-11-23.md` in the folder that holds the owner's real store folder (beside the store, not inside it): outside every repository, as the command requires, and outside the folders whose checksums are compared. A dry run calls both sessions and costs what a real run costs.
 
 - [ ] **Step 3: Record the figures**
 
