@@ -2744,6 +2744,13 @@ def _memory_line(m: records.Memory, today: datetime.date) -> str:
             f"{', ' + dead if dead else ''}]\t{claim}")
 
 
+def _tally_line(tally: records.Tally, until: datetime.date) -> str:
+    """The `mem show` line of one version; `until` is the date of the next version, or today for the last."""
+    days = (until - tally.since).days
+    return (f"version {tally.number} since {tally.since.isoformat()} ({days} day{'' if days == 1 else 's'}): "
+            f"worked {tally.worked}, failed {tally.failed}: {tally.text}")
+
+
 def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
     facts = f"kind: {m.kind} \u00b7 observed {m.observed} \u00b7 status {m.status} \u00b7 created {m.created.isoformat() if m.created else 'undated'}"
     if m.valid_until:
@@ -2755,6 +2762,9 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
         out.append(f"sources: {', '.join(m.sources)}")
     if m.short:
         out.append(f"short: {m.short}")
+    found = records.tallies(m)
+    ends = [t.since for t in found[1:]] + [datetime.date.today()]
+    out += [_tally_line(t, end) for t, end in zip(found, ends)]
     if m.short_by:
         out.append(f"short_by: {m.short_by}")
     if m.triage_reason:
@@ -3123,16 +3133,30 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         if waiting:
             head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
                         "(mem curate --global).")
+    rules_off = _rules_off()
+    choice: rules.Choice | None = None
+    if not rules_off:
+        try:
+            choice = rules.choose(loaded_project, loaded_global, today)
+        except Exception:
+            choice = None
+    if choice is not None:  # nothing loads when the rules are off, so nothing "got worse after loading"
+        try:
+            worse = sum(1 for _, loaded in _got_worse(loaded_project, loaded_global, today, choice) if loaded)
+            if worse:
+                head.append(f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
+                            "(mem curate).")
+        except Exception:
+            pass
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
     if notice:
         lines.append(notice)
     extra: list[str] = []
-    if _rules_off():
+    if rules_off:
         if stats is not None:
             stats.update(rules=0, rules_left=0, rules_chars=0)
-    else:
+    elif choice is not None:
         try:
-            choice = rules.choose(loaded_project, loaded_global, today)
             extra = rules.block(choice)
             more = rules.more_line(choice)
             if more:
@@ -3157,6 +3181,15 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
                 return "\n".join(lines + extra + rows[:shown] + tail)
             shown -= 1
     return "\n".join(lines + extra)
+
+
+def _got_worse(project: Sequence[records.Memory], global_: Sequence[records.Memory],
+               today: datetime.date, choice: "rules.Choice | None" = None) -> list[tuple[records.Memory, bool]]:
+    """The lessons whose present version got worse (records.got_worse) and that the rules block loads or leaves out
+    over the cap; the flag says "loaded". `choose` gets both scopes so that the cap is the one of session start."""
+    choice = choice if choice is not None else rules.choose(project, global_, today)
+    found = [(m, True) for m in choice.loaded] + [(m, False) for m, why in choice.left if why == rules.OVER]
+    return [(m, loaded) for m, loaded in found if records.got_worse(m)]
 
 
 def _hook_input() -> dict[str, Any]:
@@ -3400,16 +3433,24 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
     target = next((m for m in same if m.origin == "transcript"), None)
     if target is None or getattr(args, "origin", None) != "transcript" or not keys:
         return False
-    added = False
+    added = cased = False
     for key in keys:
         if records.counted(target, key):
             print(f"mem: {key} is already counted for m:{target.handle}.", file=sys.stderr)
+            explicit = getattr(args, "outcome", None)
+            sid = records.session_key(key)
+            if explicit and sid and not records.has_case(target, sid, explicit):
+                records.log_before(target, "confirm")
+                target, _ = records.add_case(target, key, getattr(args, "seen_on", None) or today, explicit, today)
+                cased = True
+                print(f"mem: case {explicit} added to m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
-        target, _ = records.add_sighting(target, key, today)
+        target, _ = records.add_sighting(target, key, today, outcome=getattr(args, "outcome", None) or "seen",
+                                         on=getattr(args, "seen_on", None))
         added = True
         print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
-    print(f"m:{target.handle}\t{'sighting' if added else 'already counted'}")
+    print(f"m:{target.handle}\t{'sighting' if added else 'case' if cased else 'already counted'}")
     return True
 
 
@@ -3481,6 +3522,12 @@ def cmd_remember(args: argparse.Namespace) -> int:
         if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
             print(_READ_ONLY_PROJECT, file=sys.stderr)
             return 2
+    if not args.source and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
+        print("mem: --outcome and --seen-on need --source.", file=sys.stderr)
+        return 2
+    if getattr(args, "seen_on", None) is not None and args.seen_on > today:
+        print("mem: --seen-on cannot be later than today.", file=sys.stderr)
+        return 2
     scope = "global" if args.is_global else "project"
     if args.kind in ("finding", "document") and not args.source:
         print(f"mem: a {args.kind} needs at least one --source.", file=sys.stderr)
@@ -3541,7 +3588,8 @@ def cmd_remember(args: argparse.Namespace) -> int:
                                  origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
                                  weight=getattr(args, "weight", None), short=args.short or None,
                                  topic=args.topic or None,
-                                 short_by="model" if args.short and not getattr(args, "user_read", False) else None)
+                                 short_by="model" if args.short and not getattr(args, "user_read", False) else None,
+                                 outcome=getattr(args, "outcome", None), on=getattr(args, "seen_on", None))
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3663,6 +3711,10 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         source = getattr(args, "source", None)
         if source is None and getattr(args, "note", None):
             raise ValueError("--note needs --source")
+        if source is None and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
+            raise ValueError("--outcome and --seen-on need --source")
+        if getattr(args, "seen_on", None) is not None and args.seen_on > today:
+            raise ValueError("--seen-on cannot be later than today")
         from_transcript = found[0].origin == "transcript"
         key = records.session_key(source) if source is not None else None
         if getattr(args, "by_owner", False):
@@ -3693,8 +3745,19 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         seen = {records.session_key(s) or s.strip() for s in found[0].sources}
         already = records.counted(found[0], source) if from_transcript and source is not None else (
             source is not None and (key or source.strip()) in seen)
+        outcome = getattr(args, "outcome", None) or "seen"   # `seen` is the default, resolved here so that
+        seen_on = getattr(args, "seen_on", None)          # a counted session gets a case only on request
         if already:
             repeated.append(True)
+            if (from_transcript and key and getattr(args, "outcome", None)
+                    and not records.has_case(found[0], key, outcome)):
+                records.log_before(found[0], "confirm")
+                found[0], _ = records.add_case(found[0], source, seen_on or today, outcome, today)
+                repeated.pop()   # a case was written: the call changed something
+                if until is None:
+                    return [f"m:{found[0].handle}\tcase {outcome} added"]
+                records.update(found[0], today, valid_until=until)
+                return [f"m:{found[0].handle}\tcase {outcome} added; valid until {until.isoformat()}"]
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
             records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set
@@ -3702,7 +3765,7 @@ def cmd_confirm(args: argparse.Namespace) -> int:
             return [f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"]
         records.log_before(found[0], "confirm")
         if source is not None and from_transcript:
-            updated, _ = records.add_sighting(found[0], source, today, args.note)
+            updated, _ = records.add_sighting(found[0], source, today, args.note, outcome=outcome, on=seen_on)
         else:
             updated = records.observe(found[0], today)
             if source is not None:
@@ -3786,8 +3849,9 @@ def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
 
 
 def cmd_triage(args: argparse.Namespace) -> int:
-    """Accept or reject a general lesson that left quarantine; both act on the global scope."""
-    args.is_global = True
+    """Accept or reject a general lesson that left quarantine, on the global scope; accept also keeps the wording
+    of a lesson that got worse, and with --project-scope that lesson may be a project one."""
+    args.is_global = not getattr(args, "project_scope", False)
     because = None
     if args.triage_command == "hold":
         because = " ".join((args.because or "").split())
@@ -3798,6 +3862,8 @@ def cmd_triage(args: argparse.Namespace) -> int:
 
     def apply(found, today):
         m = found[0]
+        if getattr(args, "project_scope", False) and m.scope != "project":  # the lookup falls back to the global scope
+            raise ValueError(f"no memory named m:{m.handle}")
         if args.triage_command == "hold":
             if m.status != "active":
                 raise ValueError(f"m:{m.handle} is {m.status}: only an active lesson can be held")
@@ -3808,6 +3874,10 @@ def cmd_triage(args: argparse.Namespace) -> int:
             return [f"m:{m.handle}\theld"]
         if m.status != "active":
             raise ValueError(f"m:{m.handle} is {m.status}: only an active general lesson awaits triage")
+        if args.triage_command == "accept" and m.triage != "pending" and records.got_worse(m):
+            records.log_before(m, "triage")
+            records.update(m, today, reviewed=today)
+            return [f"m:{m.handle}\tkept as worded"]
         if m.triage != "pending":
             if records.quarantined(m):
                 raise ValueError(f"m:{m.handle} is still in quarantine: it leaves quarantine when seen in a second "
@@ -3959,6 +4029,12 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
             standing_changes = records.standing_changes(keep, after, today)
             if records.standing(after) == "established" or len(records.sessions(after)) > len(records.sessions(keep)):
                 changes.update(standing_changes)  # enough evidence now, or a new session renews the 30 days
+    log = records.merged_log(keep, drop)
+    if log != keep.log:
+        changes["log"] = log
+    versions = records.merged_versions(keep, drop, today)
+    if versions and versions != keep.versions:
+        changes["versions"] = versions
     updated = records.update(keep, today, **changes)
     return [f"m:{updated.handle}\tobserved {updated.observed}, merged m:{drop.handle}"]
 
@@ -4333,7 +4409,7 @@ def cmd_rules(args: argparse.Namespace) -> int:
             for m, why in (x for x in shown if x[0].topic == group):
                 claim = _flat(m.claim)
                 claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
-                print(f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}")
+                print(f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}\t{records.mark_words(m) or '-'}")
         if shown:
             print("mem show m:<handle> prints a whole lesson.")
         else:
@@ -4348,6 +4424,12 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print(more)
     if not lines and choice.unready:
         print(unready)
+    failed = [(m, words) for m in [*choice.loaded, *(m for m, why in choice.left if why == rules.OVER)]
+              if (words := records.mark_words(m))]
+    if failed:
+        print("Failed after it loaded:")
+        for m, words in failed:
+            print(f"m:{m.handle}\t{words}")
     return 0
 
 
@@ -4678,6 +4760,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if args.is_project or args.is_global:
         folders = [f for f in folders if (f[0] == "global") == args.is_global]
     scopes = _loaded(folders)
+    raw = {scope: loaded for scope, _, loaded in scopes}
     if args.done:
         store = _optional_store(args)
         covered = []
@@ -4743,6 +4826,21 @@ def cmd_curate(args: argparse.Namespace) -> int:
                        f"{_flat(m.claim)}")
             if m.triage_reason:
                 out.append(f"    held: {m.triage_reason}")
+    asked = {scope for scope, _, _ in scopes}
+    for scope, folder in _memory_folders(args):  # the scope not asked for still counts toward the cap; loaded quietly
+        if scope not in raw:
+            raw[scope] = records.load_memories(folder, scope)
+    worse = [(m, loaded) for m, loaded in _got_worse(raw.get("project", []), raw.get("global", []), today)
+             if m.scope in asked and m.superseded_by is None]
+    if worse:
+        out.append("balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
+                   "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)")
+        for m, loaded in worse:
+            state = "rules off" if _rules_off() else "loaded" if loaded else "left out by the cap"
+            out.append(f"  m:{m.handle}  {state}  {_flat(m.claim)}")
+            found = records.tallies(m)[-2:]
+            ends = [t.since for t in found[1:]] + [today]
+            out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends)]
     held = sum(1 for m in every if m.status == "active" and records.quarantined(m))  # a lapsed one is still stored
     if held:
         out.append(f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
@@ -6517,6 +6615,10 @@ def build_parser() -> argparse.ArgumentParser:
     remember_parser.add_argument("--reach", choices=records.REACHES, help="how far the lesson reaches")
     remember_parser.add_argument("--weight", choices=records.WEIGHTS,
                                  help="how much it weighs: light needs 1 session to be established, medium 2, strong 3")
+    remember_parser.add_argument("--outcome", choices=records.OUTCOMES,
+                                 help="what the session showed about the lesson; recorded as a case of its log")
+    remember_parser.add_argument("--seen-on", type=_today, default=None, metavar="YYYY-MM-DD",
+                                 help="the day of the session, when it is not today")
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
     remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
@@ -6552,6 +6654,10 @@ def build_parser() -> argparse.ArgumentParser:
         confirm_parser.add_argument("--source", metavar="'session ID'",
                                     help="another session shows it: add it as a source (exit 3 when already one)")
         confirm_parser.add_argument("--note", metavar="TEXT", help="with --source: a line added to the body")
+        confirm_parser.add_argument("--outcome", choices=records.OUTCOMES,
+                                    help="with --source: what that session showed about the lesson (default seen)")
+        confirm_parser.add_argument("--seen-on", type=_today, default=None, metavar="YYYY-MM-DD",
+                                    help="with --source: the day of that session (default today)")
         confirm_parser.add_argument("--by-owner", action="store_true",
                                     help="the owner vouches for a transcript lesson: it is established (exit 3 when already)")
         confirm_parser.set_defaults(func=cmd_confirm)
@@ -6572,6 +6678,9 @@ def build_parser() -> argparse.ArgumentParser:
                                   "its project records are marked so they are not promoted again")):
         triage_verb = triage_sub.add_parser(verb, help=text, description=f"{verb.capitalize()}: {text}.")
         triage_verb.add_argument("handle", metavar="m:HANDLE")
+        if verb == "accept":
+            triage_verb.add_argument("--project-scope", dest="project_scope", action="store_true",
+                                     help="keep the wording of a project lesson that got worse")
     triage_parser.set_defaults(func=cmd_triage)
     memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
     merge_parser = memory_command("merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop")

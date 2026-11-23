@@ -1715,3 +1715,83 @@ def test_an_unusable_writer_answer_twice_sends_nothing_to_triage(w, monkeypatch)
     for _ in range(2):
         assert auto(w)["to_triage"] == 0
     assert [m.triage for m in globals_(w) if m.handle == g.handle] == [None] and attempts(w)["lessons"] == {}
+
+
+def _records_only(w):
+    # the settle state is a side file that a global write creates and an undo leaves
+    return {k: v for k, v in snapshot(w).items() if Path(k).name != ".settle-state.json"}
+
+
+def _with_log(w, project, claim, session, log):
+    m = lesson(w, project, claim, (session,))
+    return records.update(m, TODAY, log=log)
+
+
+def test_the_pass_applies_cases_to_the_global_record(w):
+    # a write_global with two sessions, then a sighting for a third on the record it made
+    _with_log(w, w.pa, BRIEF, "s1", ["2026-11-20 session s1 failed"])
+    _with_log(w, w.pb, BRIEF2, "s2", ["2026-11-21 session s2 worked"])
+    a, b = ident(w, "Brief the subagent"), ident(w, "Give a subagent")
+    model(w, [group(a, b)])
+    before = _records_only(w)
+    assert run(w).returncode == 0
+    (g,) = globals_(w)
+    assert sorted(records.sessions(g)) == ["session s1", "session s2"]
+    assert sorted(g.log) == ["2026-11-20 session s1 failed", "2026-11-21 session s2 worked"]
+    assert log_lines(w)[-1]["written"] == 1 and log_lines(w)[-1]["sightings"] == 0
+    stamp = Path(status(w)["log"]).name
+    assert run(w, stamp, cmd="undo", claude=False).returncode == 0
+    assert _records_only(w) == before
+    # a sighting: a global record exists and the project member of s2 brings its session with its case
+    glob(w, BRIEF, ("s1",), project=w.pa)
+    (gm,) = [m for m in globals_(w)]
+    model(w, [group(f"g:{gm.handle}", ident(w, "Give a subagent"))])
+    before = _records_only(w)
+    assert run(w).returncode == 0
+    (g,) = globals_(w)
+    assert records.sessions(g).count("session s2") == 1 and g.log == ["2026-11-21 session s2 worked"]
+    assert log_lines(w)[-1]["sightings"] == 1 and log_lines(w)[-1]["cases"] == 1
+    assert run(w, Path(status(w)["log"]).name, cmd="undo", claude=False).returncode == 0
+    assert _records_only(w) == before
+
+
+def _two_cases(w):
+    return _with_log(w, w.pb, BRIEF2, "s2", ["2026-11-19 session s2 failed", "2026-11-21 session s2 worked"])
+
+
+def test_the_pass_repairs_a_half_applied_sighting(w):
+    # the global record counts s2 already but has none of the member's cases
+    _two_cases(w)
+    gm = glob(w, BRIEF, ("s1", "s2"), project=w.pa)
+    model(w, [group(f"g:{gm.handle}", ident(w, "Give a subagent"))])
+    before = _records_only(w)
+    assert run(w).returncode == 0
+    (g,) = globals_(w)
+    assert sorted(g.log) == ["2026-11-19 session s2 failed", "2026-11-21 session s2 worked"]
+    line = log_lines(w)[-1]
+    assert (line["sightings"], line["cases"]) == (0, 2)
+    assert run(w, Path(status(w)["log"]).name, cmd="undo", claude=False).returncode == 0
+    assert _records_only(w) == before
+
+
+def test_a_failed_case_call_still_counts_the_sighting(w):
+    _two_cases(w)
+    gm = glob(w, BRIEF, ("s1",), project=w.pa)
+    model(w, [group(f"g:{gm.handle}", ident(w, "Give a subagent"))])
+    n = w.tmp / "confirms"
+    broken = fake_plugin(w, f'if [ "$1" = confirm ]; then echo x >> {n}; '
+                            f'if [ "$(wc -l < {n})" = 2 ]; then echo boom >&2; exit 2; fi; fi')
+    assert run(w, corr=broken).returncode == 0
+    line = log_lines(w)[-1]
+    assert (line["sightings"], line["failed_actions"]) == (1, 1)
+
+
+def test_a_failed_case_call_after_a_global_write_still_counts_the_write(w):
+    _with_log(w, w.pa, BRIEF, "s1", ["2026-11-20 session s1 failed"])
+    _with_log(w, w.pb, BRIEF2, "s2", ["2026-11-21 session s2 worked"])
+    model(w, [group(ident(w, "Brief the subagent"), ident(w, "Give a subagent"))])
+    broken = fake_plugin(w, 'if [ "$1" = confirm ]; then echo boom >&2; exit 2; fi')
+    assert run(w, corr=broken).returncode == 0
+    line = log_lines(w)[-1]
+    assert len(globals_(w)) == 1   # the record exists
+    assert (line["written"], line["failed_actions"]) == (1, 1)

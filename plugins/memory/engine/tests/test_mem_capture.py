@@ -809,3 +809,51 @@ def test_run_window_early_refusal_carries_the_printed_text(world, capsys):
                                    False, quiet=True)
     assert code == 2 and refused["reason"] == "--project is not a folder: missing"
     assert capsys.readouterr().err == f"mem-capture: {refused['reason']}\n"
+
+
+def test_capture_passes_signal_and_transcript_day(world):
+    import datetime
+    old = (datetime.datetime.now() - datetime.timedelta(days=3)).timestamp()
+    os.utime(world.transcript, (old, old))
+    day = datetime.date.fromtimestamp(old)
+    known = other_session(world, "Always run the linter before the tests.")
+    cands = [{**GOOD, "signal": "rework", "claim": "Always run the linter before the tests.", "same_as": known},
+             {**GOOD, "signal": "effective_practice", "claim": "Pin the tool version in the lockfile."}]
+    done = go(world, cands)
+    assert done.returncode == 0, done.stderr
+    assert [x["outcome"] for x in written(world)] == ["sighting", "remembered"]
+    import records
+    by_claim = {m.claim: m for m in records.load_memories(records.project_dir(world.project), "project")}
+    assert by_claim["Always run the linter before the tests."].log == [f"{day.isoformat()} session abc failed"]
+    assert by_claim["Pin the tool version in the lockfile."].log == [f"{day.isoformat()} session abc worked"]
+
+
+@pytest.mark.parametrize("by_handle", [False, True])
+def test_capture_reports_a_new_case_of_a_counted_session(world, by_handle):
+    import records
+    rework = {**GOOD, "signal": "rework"}
+    assert go(world, [rework]).returncode == 0
+    [first] = written(world)
+    assert first["outcome"] == "remembered"
+    again = {**GOOD, "signal": "effective_practice", "same_as": first["handle"] if by_handle else None}
+    done = go(world, [again], transcript_path=world.transcript)
+    assert done.returncode == 0, done.stderr
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("sighting", None)]
+    assert "written 0 new, 1 sightings, 0 skipped" in done.stdout
+    [m] = records.load_memories(world.project / ".memory", "project")
+    assert len(m.sources) == 1 and [c.outcome for c in records.cases(m)] == ["failed", "worked"]
+    last = go(world, [again], transcript_path=world.transcript)
+    assert [(x["outcome"], x["reason"]) for x in written(world)] == [("skipped", "this session already counted")]
+
+
+def test_capture_records_a_case_on_a_general_lesson(world):
+    import datetime
+    import records
+    g = global_lesson()
+    os.utime(world.transcript, (0, datetime.datetime(2026, 11, 20, 12).timestamp()))
+    done = go(world, [{**GOOD, "signal": "effective_practice", "same_as": f"g:{g.handle}"}],
+              env={"MEM_COUNT_TEMP_PROJECTS": "1"})
+    assert done.returncode == 0, done.stderr
+    [got] = records.load_memories(records.global_memories_root(os.environ), "global")
+    assert records.cases(got)[-1].outcome == "worked"
+    assert got.log == ["2026-11-20 session abc worked"] and "session abc" in " ".join(got.sources)

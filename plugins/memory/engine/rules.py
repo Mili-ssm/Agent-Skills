@@ -14,8 +14,8 @@ from records import Memory
 
 HEADER = ("memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "
           "not to, and mention a skipped one only when it matters to the user.")
-RULES_MAX = 6
-RULES_LIMIT = 900
+RULES_MAX = 16
+RULES_LIMIT = 2400
 MORE_LIMIT = 200
 TOPICS_NAMED = 4
 PROJECT_FIRST = 3

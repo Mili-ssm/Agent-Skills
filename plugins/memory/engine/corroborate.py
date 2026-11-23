@@ -218,8 +218,11 @@ class Action:
     merge_global: `keep`, `drop` (lesson ids of two global records).
     write_global: `claim`, `context`, `record_kind`, `weight`, `entries` (sighting entries, each session once with
         the key of the first project that holds it), `members` (ids of the kept project records that stand for it,
-        after merges).
-    sighting: `target` (a global handle; None when the target is this group's write_global), `entry`.
+        after merges), `cases` (raw `log` entries of the member records for these sessions).
+    sighting: `target` (a global handle; None when the target is this group's write_global), `entry`, `cases` (raw
+        `log` entries of the member records for its session).
+    cases: `target` (a global handle that already counts the session), `entry`, `cases` (only the raw `log` entries of
+        the members that the target lacks).
     link: `member` (lesson id), `project`, `target` (as for sighting)."""
     kind: str
     keep: str | None = None
@@ -234,16 +237,25 @@ class Action:
     target: str | None = None
     entry: str | None = None
     member: str | None = None
+    cases: list[str] = field(default_factory=list)
 
 
 def _oldest(lessons: Sequence[Lesson]) -> Lesson:
     return min(lessons, key=lambda x: (x.memory.created or datetime.date.max, x.memory.handle))
 
 
+def _cases_of(lessons: Sequence[Lesson], sessions: set[str]) -> list[str]:
+    """The raw `log` entries of `lessons` whose case is for one of `sessions`, each once, by date (stable): of two
+    records' entries for one session and outcome, the earlier is applied first."""
+    found = ((e, records.case(e)) for y in lessons for e in y.memory.log)
+    wanted = {e: c for e, c in found if c and c.session in sessions}
+    return sorted(wanted, key=lambda e: wanted[e].on)
+
+
 def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
     """The steps for one group, in order: merges inside a project, a merge of global members, then for the
     members of reach `general` left: a write_global unless a global record is the target, one sighting per entry
-    the target lacks, one link per project member. A merged record stands for the ones dropped into it: its
+    the target lacks (a `cases` action for an entry it counts but lacks cases of), one link per project member. A merged record stands for the ones dropped into it: its
     sessions are their union, and it is general when any of them is. Members of reach `project` from different
     projects produce no action. Only a global member of the group is a target: a global record that merely shares
     a session with a member may state another lesson of that session, so a pass that stopped half way may write a
@@ -286,13 +298,21 @@ def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
         weights = [y.memory.weight or "medium" for x in general for y in stands[x.id]]
         out.append(Action("write_global", claim=group.claim, context=group.context or None,
                           record_kind=origin.memory.kind, weight=max(weights, key=records.WEIGHTS.index),
-                          entries=entries, members=[x.id for x in general]))
+                          entries=entries, members=[x.id for x in general],
+                          cases=_cases_of([y for x in general for y in stands[x.id]], set(first))))
         handle = None
     else:
         handle = target.handle
+        held = [y for x in general for y in stands[x.id]]
         for e in entries:
+            key = records.session_key(e)
+            carried = _cases_of(held, {key})
             if not records.counted(target, e):
-                out.append(Action("sighting", target=handle, entry=e))
+                out.append(Action("sighting", target=handle, entry=e, cases=carried))
+                continue
+            missing = [r for r in carried if not records.has_case(target, key, records.case(r).outcome)]
+            if missing:
+                out.append(Action("cases", target=handle, entry=e, cases=missing))
     for x in general:
         out.append(Action("link", member=x.id, project=x.project, target=handle))
     return out
