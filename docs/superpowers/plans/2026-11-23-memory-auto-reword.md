@@ -281,25 +281,25 @@ git commit -m "feat(memory): the option auto_reword, off by default, adds the re
 - Modify: `plugins/memory/README.md`, `plugins/memory/CHANGELOG.md` (under `## [Unreleased]`), `plugins/memory/skills/memory-curation/SKILL.md` (the row of the category: the three notes a row may carry and what each asks of the reader; no link that leaves the plugin folder), `docs/superpowers/specs/2026-11-21-memory-capture-design.md` (one row reserving C74 to C85 with a link to the design, after row C73; the Phases table), `docs/superpowers/plans/2026-11-17-memory-plugin.md` ("Current state and where to resume")
 - Modify: this file (`## Results`)
 
-- [ ] **Step 1: Copy the global lessons and isolate the store, not the login**
+- [x] **Step 1: Copy the global lessons and isolate the store, not the login**
 
 A real `claude` cannot run with `HOME` pointed elsewhere (it loses its login), so `HOME` stays. Copy the owner's store folder to a directory made with `mktemp -d` and point `MEM_STORE`, `MEM_MEMORIES`, `MEM_DATA` and `XDG_STATE_HOME` into it, with `MEM_SETTLE_AUTO` unset; `MEM_DATA` starts empty, so no project is registered and the gate reads the global lessons only. Before anything is run, print the folders the commands resolve and check that each is under the temporary directory. Take a checksum list of the owner's real memory folders and of the plugin's real state folder (its capture and corroboration logs) before and after: they must be equal.
 
-- [ ] **Step 2: Run the step on every loading lesson, without applying**
+- [x] **Step 2: Run the step on every loading lesson, without applying**
 
 Run: `plugins/memory/bin/mem-corroborate reword --every --limit 30 --dry-run --sheet <sheet>` with a real `claude` and a budget whose total is at most 1.00 USD (read how the budget argument bounds one session and choose it so that two sessions stay under the total). `<sheet>` is `reword-gate-2026-11-23.md` in the folder that holds the owner's real store folder (beside the store, not inside it): outside every repository, as the command requires, and outside the folders whose checksums are compared. A dry run calls both sessions and costs what a real run costs.
 
-- [ ] **Step 3: Record the figures**
+- [x] **Step 3: Record the figures**
 
 In `## Results`: the lessons asked, proposals, code refusals, same-text refusals, checker acceptances and their share of the proposals that passed the code checks, the cost, and whether the automatic half of C80 passed (at least 80% accepted, none equal to an earlier text). One revision of `REWORD_BRIEF` is allowed after a miss, scored on a second run; record both.
 
-- [ ] **Step 4: Write the documents**
+- [x] **Step 4: Write the documents**
 
 One home per fact; the feature is described as implemented and off by default, with the gate's owner half open. No claim, short form or handle of the owner's store in any of them.
 
-- [ ] **Step 5: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`, and the whole suite**
+- [x] **Step 5: Run `python3 scripts/validate.py`, `claude plugin validate .`, `python3 scripts/port.py --check`, and the whole suite**
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add plugins/memory/README.md plugins/memory/CHANGELOG.md plugins/memory/skills/memory-curation/SKILL.md docs/superpowers
@@ -310,4 +310,26 @@ git commit -m "docs(memory): the automatic rewording, its gate's first half and 
 
 ## Results
 
-Filled by Task 6.
+**Automatic half of the gate (C80), run on 2026-11-23.** One run of `mem-corroborate reword --every --limit 30 --dry-run` with a real small model on a copy of the owner's store (global lessons only; budget 0.40 USD per session; the sheet stayed beside the real store, outside every repository). The copy's records and the real store's folders were byte-identical before and after.
+
+| Figure | Value |
+| --- | --- |
+| Lessons asked | 15 |
+| Proposals returned | 15 |
+| Refused by code (`refused_code`) | 1 |
+| Equal to an earlier text (`same_text`) | 0 |
+| Sent to the checking session (survivors) | 14 |
+| Accepted by the checking session | 14 (100% of the survivors) |
+| Cost, both sessions | 0.0122 USD |
+| Automatic half of C80 (at least 80% accepted, none equal to an earlier text) | **Passed** |
+
+Two readings the figures alone do not give, counted from the sheet:
+
+| Observation | Value |
+| --- | --- |
+| Proposals that start with the situation (a clause before the action) | 15 of 15 |
+| Mean length of the proposals against the present short forms | 110.2 against 108.9 characters |
+
+**Not shown:** the 15 lessons were taken as if they had got worse (`--every`), so no real failed case fed the brief; the checking session accepting says the wording keeps the claim's hedge as it reads it, not that the owner finds it better. The run was made once, so there is no variance. `REWORD_BRIEF` was not revised.
+
+**Open:** the owner's reading of the sheet (C80's second condition: none stronger than its claim), which decides whether `auto_reword` is turned on. `auto_reword` stays off by default.
