@@ -3157,7 +3157,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             stats.update(rules=0, rules_left=0, rules_chars=0)
     elif choice is not None:
         try:
-            extra = rules.block(choice)
+            extra = rules.block(choice, _rules_layout())
             more = rules.more_line(choice)
             if more:
                 extra.append(more)
@@ -4345,6 +4345,11 @@ def cmd_memories(args: argparse.Namespace) -> int:
 RULES_OFF_NOTICE = "Loaded rules are switched off (plugin option loaded_rules): nothing below loads at session start."
 
 
+def _rules_layout(arg: str | None = None) -> str:
+    """`--layout` wins, then MEM_RULES_LAYOUT (set by the hooks from the option rules_layout); only `grouped` switches."""
+    return arg or ("grouped" if os.environ.get("MEM_RULES_LAYOUT") == "grouped" else "flat")
+
+
 def _rules_off() -> bool:
     return os.environ.get("MEM_LOADED_RULES") == "off"
 
@@ -4417,7 +4422,7 @@ def cmd_rules(args: argparse.Namespace) -> int:
         if choice.unready:
             print(unready)
         return 0
-    lines = rules.block(choice)
+    lines = rules.block(choice, _rules_layout(args.layout))
     print("\n".join(lines) if lines else "No rules loaded.")
     more = rules.more_line(choice)
     if more:  # also alone: index-only lessons are reachable when no rule loads
@@ -6713,6 +6718,8 @@ def build_parser() -> argparse.ArgumentParser:
     rules_parser = sub.add_parser("rules", help="print the rules that load at session start; --more lists the rest")
     rules_parser.add_argument("--more", nargs="?", const=True, default=None, metavar="TOPIC",
                               help="the lessons left out, grouped by topic; with TOPIC only that group (other: no topic)")
+    rules_parser.add_argument("--layout", choices=rules.LAYOUTS,
+                              help="print the lessons flat or under a heading per topic (default: MEM_RULES_LAYOUT, else flat)")
     rules_parser.add_argument("--unread", action="store_true",
                               help="list the short forms a model wrote that nobody read, with their claims")
     rules_parser.add_argument("--read", nargs="+", metavar="HANDLE",

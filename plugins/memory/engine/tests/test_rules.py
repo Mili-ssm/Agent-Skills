@@ -373,3 +373,61 @@ def test_a_released_medium_lesson_loads_once_it_has_a_short_form(gfolder):
     assert m.triage is None and m.released is not None
     choice = rules.choose([], [m], datetime.date.today())
     assert [x.handle for x in choice.loaded] == [m.handle]
+
+
+def _ranked(*specs):
+    """Loadable lessons in the given order: (handle, topic)."""
+    base = _base()
+    return rules.Choice(loaded=[dataclasses.replace(base, handle=h, short=f"Rule {h}.", topic=t) for h, t in specs])
+
+
+def test_grouped_puts_lessons_under_their_topic_in_rank_order():
+    choice = _ranked(("a", "testing"), ("b", "shell"), ("c", "testing"), ("d", None), ("e", "shell"))
+    m = {x.handle: rules.line(x) for x in choice.loaded}
+    assert rules.grouped(choice) == ["testing:", m["a"], m["c"], "shell:", m["b"], m["e"], "other:", m["d"]]
+
+
+def test_grouped_and_flat_print_the_same_lessons():
+    choice = _ranked(("a", "testing"), ("b", "shell"), ("c", "testing"), ("d", None), ("e", "shell"))
+    only = lambda lines: sorted(x for x in lines if x.startswith("- "))
+    assert only(rules.block(choice, "grouped")) == only(rules.block(choice, "flat"))
+    assert rules.block(choice, "grouped")[0] == rules.HEADER
+
+
+def test_flat_is_unchanged():
+    choice = _ranked(("a", "testing"), ("b", None))
+    today = [rules.HEADER, *map(rules.line, choice.loaded)]
+    assert rules.block(choice) == today and rules.block(choice, "flat") == today
+    assert rules.block(choice, "nonsense") == today and rules.LAYOUTS == ("flat", "grouped")
+
+
+def test_no_heading_when_nothing_loads():
+    assert rules.block(rules.Choice(), "grouped") == []
+
+
+def test_a_lesson_whose_topic_is_other_shares_the_last_heading():
+    assert not records.valid_topic("other")  # the topic `other` is refused, so no lesson can carry it
+    choice = _ranked(("a", None), ("b", "shell"))
+    assert rules.grouped(choice).count("other:") == 1
+
+
+def test_rules_command_takes_the_layout(project, gfolder, capsys, monkeypatch):
+    write("Testing lesson.", short="Testing rule.", topic="testing")
+    write("Plain lesson.", short="Plain rule.")
+    monkeypatch.delenv("MEM_RULES_LAYOUT", raising=False)
+
+    def out(*argv):
+        capsys.readouterr()
+        assert mem.main(["rules", *argv]) == 0
+        return capsys.readouterr().out
+
+    flat = out()
+    assert "testing:" not in flat and "other:" not in flat
+    grouped = out("--layout", "grouped")
+    assert "testing:\n- Testing rule." in grouped and "other:\n- Plain rule." in grouped
+    with pytest.raises(SystemExit) as e:
+        mem.main(["rules", "--layout", "wrong"])
+    assert e.value.code == 2
+    monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
+    assert out() == grouped
+    assert out("--layout", "flat") == flat
