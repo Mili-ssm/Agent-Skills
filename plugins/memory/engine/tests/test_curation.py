@@ -1,4 +1,5 @@
 import datetime
+import os
 import subprocess
 
 import pytest
@@ -77,6 +78,159 @@ def test_pairs_lists_near_copy_and_negation_not_unrelated_nor_dead(tmp_path):
     assert [s for *_, s in got] == sorted((s for *_, s in got), reverse=True)
 
 
+def _mem(tmp_path, h, claim, status="active", created=TODAY, refuted=None):
+    return records.Memory("project", tmp_path / f"{h}.md", h, "lesson", claim, created, 1, status, None, None, [], "",
+                          None, refuted=refuted)
+
+
+def _old_pairs(memories, today, *, tokenize):
+    """A copy of the implementation before the search took `among` and `budget`."""
+    live = sorted((m for m in memories if records.is_live(m, today)), key=lambda m: m.handle)
+    tokens = [tokenize(m.claim) for m in live]
+    found = []
+    for i, a in enumerate(live):
+        for j in range(i + 1, len(live)):
+            score = max(records.containment(tokens[i], set(tokens[j])), records.containment(tokens[j], set(tokens[i])))
+            if score >= records.STRONG and live[j].handle not in a.distinct_from and a.handle not in live[j].distinct_from:
+                found.append((a, live[j], score))
+    found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    return found
+
+
+def test_pairs_unchanged_without_new_arguments(tmp_path):
+    base = "Retries need idempotency keys on every payment call"
+    claims = []
+    for n in range(6):
+        claims += [f"{base} version{n}", f"{base} never version{n}", f"Glaze number{n} firing chart for kiln{n} pottery"]
+    claims += [f"Unrelated topic{n} words alpha{n} beta{n} gamma{n}" for n in range(12)]
+    ms = [_mem(tmp_path, f"m{n:02d}", c) for n, c in enumerate(claims)]
+    ms[1] = records.replace(ms[1], distinct_from=["m00"])
+    got = records.pairs(ms, TODAY, tokenize=mem.tokenize)
+    assert got and got == _old_pairs(ms, TODAY, tokenize=mem.tokenize)
+
+
+def _abc(tmp_path):
+    ms = [_mem(tmp_path, "a", "Retries need idempotency keys on every payment call"),
+          _mem(tmp_path, "b", "Retries need idempotency keys on every payment call always today"),
+          _mem(tmp_path, "c", "Retries need idempotency keys on every payment call always today now")]
+    ms += [_mem(tmp_path, f"x{n}", f"Unrelated topic{n} words alpha{n} beta{n}") for n in range(7)]
+    return ms
+
+
+def test_pairs_among_compares_only_pairs_with_a_listed_memory(tmp_path):
+    ms = _abc(tmp_path)
+    allp = {(a.handle, b.handle) for a, b, _ in records.pairs(ms, TODAY, tokenize=mem.tokenize)}
+    assert {("a", "b"), ("b", "c"), ("a", "c")} <= allp
+    got = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["c"])
+    assert {(a.handle, b.handle) for a, b, _ in got} == {("a", "c"), ("b", "c")}
+    both = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["b", "c"])
+    assert sorted((a.handle, b.handle) for a, b, _ in both) == [("a", "b"), ("a", "c"), ("b", "c")]
+
+
+def test_pairs_budget_stops_and_reports(tmp_path):
+    ms = _abc(tmp_path)
+    budget = records.Budget(1)
+    got = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=budget)
+    assert budget.left == 0 and budget.exhausted and len(got) <= 1
+    roomy = records.Budget(10_000)
+    records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=roomy)
+    assert roomy.left == 10_000 - 17 and not roomy.exhausted  # 9 partners of a, 8 more of x0
+    exact = records.Budget(17)
+    records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=exact)
+    assert exact.left == 0 and not exact.exhausted  # used up with nothing left to compare
+
+
+def test_refuted_pairs_among_and_budget(tmp_path):
+    ms = [_mem(tmp_path, "r", "Retries need idempotency keys on every payment call", status="refuted",
+               created=TODAY - datetime.timedelta(days=5), refuted=TODAY - datetime.timedelta(days=3)),
+          _mem(tmp_path, "a", "Retries need idempotency keys on every payment call again"),
+          _mem(tmp_path, "b", "Retries need idempotency keys on every payment call once more")]
+    assert [(a.handle, r.handle) for a, r, _ in records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)] == \
+        [("a", "r"), ("b", "r")]
+    only = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize, among=["b"])
+    assert [(a.handle, r.handle) for a, r, _ in only] == [("b", "r")]
+    budget = records.Budget(1)
+    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "b"], budget=budget)
+    assert len(got) == 1 and budget.left == 0 and budget.exhausted
+
+
+def _old_refuted_pairs(memories, today, *, tokenize):
+    """A copy of the implementation before the search took `among` and `budget`."""
+    live = sorted((m for m in memories if records.is_live(m, today)), key=lambda m: m.handle)
+    dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
+    found = []
+    for a in live:
+        ta = tokenize(a.claim)
+        for r in dead:
+            if r.handle in a.distinct_from or a.handle in r.distinct_from:
+                continue
+            since = r.refuted or r.created
+            if a.created is None or (since is not None and a.created <= since):
+                continue
+            tr = tokenize(r.claim)
+            score = max(records.containment(ta, set(tr)), records.containment(tr, set(ta)))
+            if score >= records.STRONG:
+                found.append((a, r, score))
+    found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    return found
+
+
+def _refuted_fixture(tmp_path):
+    base = "Retries need idempotency keys on every payment call"
+    old = TODAY - datetime.timedelta(days=9)
+    ms = []
+    for n in range(4):
+        ms.append(_mem(tmp_path, f"r{n}", f"{base} version{n}", status="refuted", created=old,
+                       refuted=TODAY - datetime.timedelta(days=3 + n)))
+        ms.append(_mem(tmp_path, f"a{n}", f"{base} never version{n}", created=TODAY - datetime.timedelta(days=n)))
+    ms.append(_mem(tmp_path, "older", f"{base} version1", created=old - datetime.timedelta(days=1)))
+    ms.append(_mem(tmp_path, "same", f"{base} version2 again", created=old))
+    ms += [_mem(tmp_path, f"x{n}", f"Unrelated topic{n} words alpha{n} beta{n}") for n in range(5)]
+    ms[1] = records.replace(ms[1], distinct_from=["r0"])
+    return ms
+
+
+def test_refuted_pairs_unchanged_without_new_arguments(tmp_path):
+    ms = _refuted_fixture(tmp_path)
+    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+    assert len(got) > 2 and got == _old_refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+
+
+def _counting(calls):
+    def tokenize(text):
+        calls.append(text)
+        return mem.tokenize(text)
+    return tokenize
+
+
+def test_pairs_tokenizes_once_per_live_memory(tmp_path):
+    ms = _abc(tmp_path) + [_mem(tmp_path, "gone", "Pottery glaze chart", status="forgotten")]
+    calls = []
+    records.pairs(ms, TODAY, tokenize=_counting(calls))
+    assert len(calls) == 10
+
+
+def test_refuted_pairs_tokenizes_each_claim_at_most_once(tmp_path):
+    ms = _refuted_fixture(tmp_path)
+    live = [m for m in ms if records.is_live(m, TODAY)]
+    dead = [m for m in ms if m.status == "refuted"]
+    calls = []
+    records.refuted_pairs(ms, TODAY, tokenize=_counting(calls))
+    assert len(calls) <= len(live) + len(dead)
+    calls.clear()
+    records.refuted_pairs(ms, TODAY, tokenize=_counting(calls), among=["a3"])
+    assert len(calls) <= 1 + len(dead)
+    calls.clear()
+    records.refuted_pairs(ms, TODAY, tokenize=_counting(calls), among=["x0"], budget=records.Budget(1))
+    assert len(calls) <= 2
+
+
+def test_differing_words_drops_stopwords_and_keeps_negations():
+    assert records.differing_words("the cache is warm", "cache is not warm") == ["not"]
+    assert records.differing_words("retry 3 times", "retry 5 times") == ["3", "5"]
+    assert records.differing_words("the cache is warm", "a cache is warm") == []
+
+
 # memories
 
 def test_memories_order_kind_dead_and_scope(project, gfolder, capsys):
@@ -112,17 +266,164 @@ def test_curate_prints_the_four_blocks(project, capsys):
     assert out.splitlines() == [
         "same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)",
         f"  m:k1  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls",
-        f"  m:k2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
-        "  differ in: never",
+        f"    m:k2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
+        "      differ in: never",
         "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)",
         f"  m:exp  valid until {days_ago(3)}  Cache warmup takes long",
-        "seen 3 times or more: general enough for a note? (mem promote <h>)",
+        "seen 3 times or more: general enough for a global lesson? (mem promote <h>)",
         "  m:often  observed 4  Zebra crossing lights flicker",
         "not confirmed in 90 days (decide: mem confirm <h> or mem forget <h>)",
         f"  m:stale  {days_ago(120)}  Quartz clocks drift slowly",
         "-- project syntheses: none yet --",
         "6 active memories and no project synthesis: organize them (see the memory-curation skill).",
     ]
+
+
+def test_curate_groups_pairs_by_memory(project, capsys):
+    put(project, "hub", "Retries need idempotency keys on payment calls")
+    put(project, "p1", "Retries need idempotency keys on payment calls always")
+    put(project, "p2", "Retries never need idempotency keys on payment calls")
+    put(project, "p3", "Retries need the idempotency keys on payment calls")
+    out = run(capsys, "curate", "--project")[1].splitlines()
+    head = out.index("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
+    block = [ln for ln in out[head + 1:] if ln.startswith("  m:") or ln.startswith("    ")]
+    assert block[0].startswith("  m:hub  [lesson,") and out.count(block[0]) == 1
+    assert [ln.split()[0] for ln in block if ln.startswith("  m:")] == ["m:hub", "m:p1", "m:p2"]
+    assert sum(ln.startswith("      differ in:") for ln in block) == 6  # six pairs, each once
+    assert sum(ln.startswith("    m:") for ln in block) == 6
+    assert block[1:7] == [
+        f"    m:p1  [lesson, {days_ago(1)}]  Retries need idempotency keys on payment calls always",
+        "      differ in: always",
+        f"    m:p2  [lesson, {days_ago(1)}]  Retries never need idempotency keys on payment calls",
+        "      differ in: never",
+        f"    m:p3  [lesson, {days_ago(1)}]  Retries need the idempotency keys on payment calls",
+        "      differ in: wording only"]
+
+
+def test_curate_lists_state_pairs_as_newer_state(project, capsys):
+    put(project, "s-old", "Migration window is open for the billing service", kind="state", created=days_ago(9))
+    put(project, "s-new", "Migration window is open for the billing service now", kind="state", created=days_ago(2))
+    out = run(capsys, "curate", "--project")[1].splitlines()
+    assert ("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)"
+            in out)
+    i = out.index(f"  m:s-old  [state, {days_ago(9)}]  Migration window is open for the billing service")
+    assert out[i + 1] == f"    -> m:s-new  [state, {days_ago(2)}]  Migration window is open for the billing service now"
+    assert not any(ln.startswith("same or opposite") for ln in out)
+
+
+def test_curate_seen_often_is_a_global_lesson_candidate(project, capsys):
+    put(project, "often", "Zebra crossing lights flicker", observed=3)
+    out = run(capsys, "curate", "--project")[1]
+    assert "seen 3 times or more: general enough for a global lesson? (mem promote <h>)" in out.splitlines()
+
+
+def test_seen_often_skips_global_memories(gfolder, capsys):
+    put(gfolder, "gl", "Zebra crossing lights flicker", observed=5)
+    found = mem._decisions(records.load_memories(gfolder, "global"), TODAY)
+    assert found.seen == [] and not any(k.startswith("seen:") for k in found.keys())
+    assert "seen 3 times or more" not in run(capsys, "curate", "--global")[1]
+
+
+def test_differ_in_wording_only(project, capsys):
+    put(project, "a", "Retries need idempotency keys on payment calls")
+    put(project, "b", "Retries need the idempotency keys on payment calls")
+    assert "      differ in: wording only" in run(capsys, "curate", "--project")[1].splitlines()
+
+
+def _load(folder):
+    return records.load_memories(folder, "project")
+
+
+def test_decisions_keys(project):
+    put(project, "k2", "Retries never need idempotency keys on payment calls")
+    put(project, "k1", "Retries need idempotency keys on payment calls")
+    put(project, "s-old", "Migration window is open for the billing service", kind="state", created=days_ago(9))
+    put(project, "s-new", "Migration window is open for the billing service now", kind="state", created=days_ago(2))
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(project, "often", "Zebra crossing lights flicker", observed=4)
+    put(project, "stale", "Quartz clocks drift slowly", created=days_ago(120))
+    put(project, "dead", "Pottery glaze firing chart", status="refuted", created=days_ago(20),
+        extra=f"refuted: '{days_ago(10)}'\n")
+    put(project, "again", "Pottery glaze firing chart", created=days_ago(2))
+    keys = mem._decisions(_load(project), TODAY).keys()
+    assert keys == {"refuted:again|dead": "refuted again", "pair:k1|k2": "same or opposite",
+                    "state:s-old|s-new": "newer state", "expired:exp": "expired", "seen:often": "seen often",
+                    "stale:stale": "not confirmed in 90 days"}
+
+
+def _pair_keys(d):
+    return {k for k in d.keys() if k.startswith(("pair:", "state:", "refuted:"))}
+
+
+def _age(path, days):
+    t = (datetime.datetime.now() - datetime.timedelta(days=days)).timestamp()
+    os.utime(path, (t, t))
+
+
+SINCE = TODAY - datetime.timedelta(days=10)
+
+
+def test_decisions_since_on_an_unchanged_store_finds_no_pairs(project):
+    for h, c in (("k1", "Retries need idempotency keys on payment calls"),
+                 ("k2", "Retries never need idempotency keys on payment calls")):
+        _age(put(project, h, c, created=days_ago(30)), 30)
+    d = mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(100))
+    assert _pair_keys(d) == set() and d.pairs_checked
+
+
+def test_decisions_since_finds_a_memory_whose_file_changed(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    _age(put(project, "k2", "Retries never need idempotency keys on payment calls", created=days_ago(30)), 0)
+    assert _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
+
+
+def test_decisions_since_counts_a_memory_without_created_as_changed(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    path = put(project, "k2", "Retries never need idempotency keys on payment calls")
+    path.write_text(path.read_text().replace(f"created: '{days_ago(1)}'\n", ""))
+    _age(path, 30)
+    assert _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
+
+
+def test_changed_since_orders_newest_change_first(project):
+    for h, n in (("a", 5), ("b", 2), ("c", 8)):
+        _age(put(project, h, f"Claim number {h}", created=days_ago(n)), n)
+    _age(put(project, "z", "Claim number z", created=days_ago(30)), 30)
+    assert mem._changed_since(_load(project), SINCE) == ["b", "a", "c"]
+
+
+def test_decisions_since_spends_the_budget_on_the_newest_change_first(project):
+    for h, c, n in (("n1", "Retries need idempotency keys on payment calls", 1),
+                    ("n2", "Retries never need idempotency keys on payment calls", 1),
+                    ("o1", "Quartz clocks drift slowly in cold rooms", 5),
+                    ("o2", "Quartz clocks never drift slowly in cold rooms", 5)):
+        _age(put(project, h, c, created=days_ago(n)), n)
+    found = _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(3)))
+    assert "pair:n1|n2" in found and "pair:o1|o2" not in found
+
+
+def test_decisions_since_with_no_budget_left_checks_nothing(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    put(project, "k2", "Retries never need idempotency keys on payment calls")
+    d = mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(0))
+    assert _pair_keys(d) == set() and not d.pairs_checked
+
+
+def test_decisions_since_finds_a_subset_of_the_keys_without_it(project):
+    _age(put(project, "k1", "Retries need idempotency keys on payment calls", created=days_ago(30)), 30)
+    _age(put(project, "k2", "Retries never need idempotency keys on payment calls", created=days_ago(30)), 30)
+    put(project, "m1", "Quartz clocks drift slowly in cold rooms")
+    put(project, "m2", "Quartz clocks never drift slowly in cold rooms")
+    with_since = set(mem._decisions(_load(project), TODAY, since=SINCE).keys())
+    assert "pair:m1|m2" in with_since and with_since <= set(mem._decisions(_load(project), TODAY).keys())
+
+
+def test_decisions_drops_superseded(project):
+    put(project, "a", "Retries need idempotency keys on payment calls")
+    put(project, "b", "Retries never need idempotency keys on payment calls", extra="superseded_by: a\n")
+    put(project, "c", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\nsuperseded_by: a\n")
+    d = mem._decisions(_load(project), TODAY)
+    assert d.keys() == {} and d.pairs_checked
 
 
 def test_curate_empty_prints_nothing_even_without_store_or_git(tmp_path, monkeypatch, capsys):
@@ -537,42 +838,200 @@ def test_handles_work_with_or_without_the_prefix(project, capsys):
 
 # amendment D: when a pass is due
 
-def mems(tmp_path, specs):
-    return [records.Memory("project", tmp_path / f"{i}.md", str(i), "lesson", "c", created, 1, "active", None, vu, [], "", None)
-            for i, (created, vu) in enumerate(specs)]
-
-
 def d(n):
     return TODAY - datetime.timedelta(days=n)
 
 
-def test_curation_due_rule(tmp_path):
-    due = records.curation_due
-    assert due(mems(tmp_path, [(d(1), None)] * 10), d(2), TODAY) == 10
-    assert due(mems(tmp_path, [(d(1), None)] * 9), d(2), TODAY) == 0
-    assert due(mems(tmp_path, [(d(1), None)] * 2), d(14), TODAY) == 2
-    assert due(mems(tmp_path, [(d(1), None)] * 2), d(13), TODAY) == 0
-    assert due(mems(tmp_path, [(d(20), None), (d(1), None)]), None, TODAY) == 2
-    assert due(mems(tmp_path, [(d(3), None)]), None, TODAY) == 0
-    assert due([], d(30), TODAY) == 0
-    # created on the day of the last pass is not new
-    assert due(mems(tmp_path, [(d(14), None)]), d(14), TODAY) == 0
-    # a live memory past valid_until counts and makes a pass due
-    assert due(mems(tmp_path, [(d(30), d(1)), (d(30), None)]), d(1), TODAY) == 1
-    # one that expired before the last pass was dealt with by it; one that expired after still counts
-    assert due(mems(tmp_path, [(d(30), d(5))]), d(2), TODAY) == 0
-    assert due(mems(tmp_path, [(d(30), d(1))]), d(2), TODAY) == 1
+def _first(capsys):
+    return run(capsys, "session-index")[1].splitlines()[0]
 
 
-def test_index_line_says_curation_is_due(project, gfolder, tmp_path, capsys):
+def _pair(folder, a="p1", b="p2", **kw):
+    put(folder, a, "Retries need idempotency keys on payment calls", **kw)
+    put(folder, b, "Retries never need idempotency keys on payment calls", **kw)
+
+
+def test_remember_prints_no_curation_count(project, gfolder, capsys):
+    for i in range(12):
+        code, _, err = run(capsys, "remember", "--kind", "lesson", "--claim", f"Distinct lesson {i} about topic{i}.")
+        assert code == 0 and "curation" not in err
+
+
+def test_new_memories_alone_do_not_make_curation_due(project, gfolder, capsys):
     run(capsys, "curate", "--done")
-    for i in range(3):
-        put(project, f"m{i}", f"Unrelated thing number {'x' * i}", created=days_ago(0))
+    for i in range(15):
+        put(project, f"m{i}", f"Unrelated topic{i} words{i} only{i} here{i}", created=days_ago(0))
     assert "Curation due" not in run(capsys, "session-index")[1]
+
+
+def test_done_clears_the_count_and_a_new_pair_counts_one(project, gfolder, capsys):
+    put(project, "o1", "Retries need idempotency keys on payment calls")
+    put(project, "o2", "Pottery glaze firing temperature chart")
+    run(capsys, "curate", "--done")
+    put(project, "n1", "Retries never need idempotency keys on payment calls", created=days_ago(0))
+    assert _first(capsys).endswith("Curation due: 1 item (1 same or opposite) (run mem curate after the current task).")
+    run(capsys, "curate", "--done")
+    assert "Curation due" not in run(capsys, "session-index")[1]
+    put(project, "n2", "Pottery glaze firing temperature chart today", created=days_ago(0))  # pairs with o2 only
+    assert "Curation due: 1 item (1 same or opposite)" in _first(capsys)
+
+
+def test_done_on_a_mixed_store_leaves_no_line(project, gfolder, capsys):
+    put(project, "act", "Retries need idempotency keys on payment calls")
+    put(project, "old", "Retries never need idempotency keys on payment calls", extra="superseded_by: act\n")
+    put(project, "unc", "Cache invalidation needs explicit versions", extra="origin: transcript\nweight: medium\n"
+        "sources:\n- session a\n")
     put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
-    first = run(capsys, "session-index")[1].splitlines()[0]
-    assert first.endswith("Curation due: 1 item (run mem curate after the current task).")
-    assert "This project: 3 memories. Curation due" in first
+    put(project, "s1", "Deploy freeze runs until the migration ends", kind="state", created=days_ago(5))
+    put(project, "s2", "Deploy freeze runs until the migration is done", kind="state", created=days_ago(1))
+    put(project, "r1", "Queues drain slowly under heavy load tonight")
+    put(project, "gone", "Queues drain slowly under heavy load tonight", status="refuted")
+    put(project, "q", "Quarantined lesson about gizmos", extra="quarantine: true\n")
+    put(gfolder, "g", "General lesson about widgets", observed=4)
+    put(gfolder, "gq", "General lesson about widgets and gadgets", observed=1,
+        extra="origin: transcript\nweight: medium\nsources:\n- session b\n")
+    assert records.quarantined(records.load_memories(gfolder, "global")[1])
+    assert "Curation due" in run(capsys, "session-index")[1]
+    run(capsys, "curate", "--done")
+    assert "Curation due" not in run(capsys, "session-index")[1]
+
+
+def test_done_prints_recorded_items(project, gfolder, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    _pair(gfolder, "g1", "g2")
+    put(gfolder, "g3", "Pottery glaze firing chart")
+    code, out, _ = run(capsys, "curate", "--done")
+    assert code == 0 and out == "recorded 1 item (global)\nrecorded 1 item (project)\n"
+
+
+def test_count_names_its_parts(project, gfolder, capsys):
+    run(capsys, "curate", "--done")
+    _pair(project, created=days_ago(0))
+    put(project, "e1", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(project, "e2", "Seat belts fastened early", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(project, "s", "Gizmo habits repeat often", observed=4)
+    assert _first(capsys).endswith("Curation due: 4 items (1 same or opposite, 2 expired, 1 seen often) "
+                                   "(run mem curate after the current task).")
+
+
+def _set_pass(folder, days):
+    mem._write_passes(os.environ, [folder], TODAY - datetime.timedelta(days=days))
+
+
+def test_old_pairs_are_not_searched_after_a_pass_without_marks(project, gfolder, capsys):
+    for h, c in (("k1", "Retries need idempotency keys on payment calls"),
+                 ("k2", "Retries never need idempotency keys on payment calls")):
+        _age(put(project, h, c, created=days_ago(30)), 30)
+    _set_pass(project, 10)
+    assert "Curation due" not in run(capsys, "session-index")[1]
+
+
+def test_edited_old_memory_pair_is_counted(project, gfolder, capsys):
+    paths = [put(project, h, c, created=days_ago(30)) for h, c in (
+        ("k1", "Retries need idempotency keys on payment calls"),
+        ("k2", "Retries never need idempotency keys on payment calls"))]
+    for p in paths:
+        _age(p, 30)
+    _set_pass(project, 10)
+    os.utime(paths[1], None)
+    assert "Curation due: 1 item (1 same or opposite)" in _first(capsys)
+
+
+@pytest.mark.parametrize("raw", ["[]", '"x"', "{bad", '{"a": "k"}', '{"a": [1]}', '{"a": {"b": 1}}'])
+def test_marks_file_malformed_reads_as_none(tmp_path, raw):
+    data = tmp_path / "mem-data"
+    data.mkdir(exist_ok=True)
+    (data / "curated-items.json").write_text(raw)
+    assert mem.read_marks(os.environ) == {}
+
+
+def test_done_global_keeps_project_marks(project, gfolder, tmp_path, capsys):
+    import json
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(gfolder, "gexp", "Seat belts fastened early", extra=f"valid_until: '{days_ago(3)}'\n")
+    run(capsys, "curate", "--done")
+    path = tmp_path / "mem-data" / "curated-items.json"
+    before = json.loads(path.read_text())
+    put(gfolder, "gexp2", "Other seat habits matter", extra=f"valid_until: '{days_ago(3)}'\n")
+    run(capsys, "curate", "--global", "--done")
+    after = json.loads(path.read_text())
+    assert after[str(project.resolve())] == before[str(project.resolve())] == ["expired:exp"]
+    assert after[str(gfolder.resolve())] == ["expired:gexp", "expired:gexp2"]
+
+
+def test_curated_json_keeps_its_format(project, gfolder, tmp_path, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    run(capsys, "curate", "--project", "--done")
+    assert passes(tmp_path) == {str(project.resolve()): TODAY.isoformat()}
+
+
+def _session(project, gfolder):
+    return mem.session_index(None, project, gfolder, TODAY, passes=mem.read_passes(os.environ),
+                             marks=mem.read_marks(os.environ))
+
+
+def test_budget_shared_across_folders_never_exceeded(project, gfolder, monkeypatch):
+    for i in range(6):
+        put(project, f"p{i}", f"Project topic{i} alpha{i} beta{i} gamma{i} delta{i}")
+        put(gfolder, f"g{i}", f"Global topic{i} alpha{i} beta{i} gamma{i} delta{i}")
+    made = []
+    real = records.Budget
+
+    def wrapped(left):
+        made.append(real(left))
+        return made[-1]
+    monkeypatch.setattr(records, "Budget", wrapped)
+    monkeypatch.setattr(mem, "PAIR_WORK", 20)
+    _session(project, gfolder)
+    assert len(made) == 1 and made[0].left >= 0 and made[0].left < 20
+
+
+def test_past_the_budget_found_items_say_at_least_and_none_say_nothing(project, gfolder, monkeypatch):
+    _pair(project, created=days_ago(5))
+    _age(project / "p1.md", 5)
+    _age(project / "p2.md", 5)
+    for i in range(10):  # newer, so they are compared first and use the budget
+        put(project, f"u{i}", f"Unrelated topic{i} words{i} only{i} here{i}", created=days_ago(0))
+    _set_pass(project, 10)
+    monkeypatch.setattr(mem, "PAIR_WORK", 3)
+    assert "Curation due" not in _session(project, gfolder)
+    monkeypatch.setattr(mem, "PAIR_WORK", 150_000)
+    assert "Curation due: 1 item" in _session(project, gfolder)
+    put(project, "e1", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    monkeypatch.setattr(mem, "PAIR_WORK", 3)
+    assert "Curation due: at least 1 item (1 expired)" in _session(project, gfolder)
+
+
+def test_count_failure_keeps_the_rules(project, gfolder, monkeypatch):
+    put(project, "r1", "Always run the linter before committing", extra="reach: general\n")
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    clean = _session(project, gfolder)
+    assert "Curation due" in clean
+
+    def boom(*a, **k):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(mem, "_decisions", boom)
+    text = _session(project, gfolder)
+    assert "Curation due" not in text and "This project: 1 memories." in text
+    assert text.splitlines()[1:] == clean.splitlines()[1:]
+
+
+def test_session_index_near_the_budget_is_fast(project, gfolder):
+    import time
+    words = [f"w{i}" for i in range(2000)]
+    project.mkdir(parents=True, exist_ok=True)
+    for i in range(2000):
+        claim = " ".join(words[(i * 7 + j) % 2000] for j in range(60))
+        changed = i < 70  # created and written after the pass; the rest were there at the pass
+        _age(put(project, f"m{i}", claim, created=days_ago(0 if changed else 30)), 0 if changed else 30)
+    _set_pass(project, 10)
+    loaded = records.load_memories(project, "project")
+    budget = records.Budget(mem.PAIR_WORK)
+    assert mem._decisions(loaded, TODAY, since=TODAY - datetime.timedelta(days=10), budget=budget).pairs_checked
+    start = time.perf_counter()
+    _session(project, gfolder)
+    took = time.perf_counter() - start
+    assert took < 2  # half the hook's 4 s; measured 0.95 to 1.04 s here, 0.80 s alone (0.48 s without the count)
 
 
 # fix round 1: decisions that stay decided
@@ -604,3 +1063,81 @@ def test_promote_done_records_and_removes_from_the_frequent_block(project, capsy
     assert run(capsys, "restore", "m:often")[0] == 0 and p.read_bytes() == before
     out = run(capsys, "promote", "m:often")[1]
     assert out.splitlines()[-1].endswith("before you run it; then run: mem promote --done <h>")
+
+
+# fix round 1 of Task 3
+
+def test_a_folder_whose_count_failed_says_at_least(project, gfolder, monkeypatch):
+    put(project, "r1", "Always run the linter before committing", extra="reach: general\n")
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    put(gfolder, "g", "General lesson about widgets", observed=4)
+    real = mem._decisions
+
+    def flaky(loaded, today, **kw):
+        if loaded and loaded[0].scope == "global":
+            raise RuntimeError("boom")
+        return real(loaded, today, **kw)
+    monkeypatch.setattr(mem, "_decisions", flaky)
+    text = _session(project, gfolder)
+    assert "Curation due: at least 1 item (1 expired)" in text and "This project: 1 memories." in text
+
+
+def test_done_that_fails_writing_marks_keeps_the_old_pass_date(project, gfolder, monkeypatch, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    _set_pass(project, 10)
+    old = mem.read_passes(os.environ)
+
+    def boom(*a, **k):
+        raise OSError("disk full")
+    monkeypatch.setattr(mem, "_write_marks", boom)
+    assert run(capsys, "curate", "--done")[0] == 2
+    assert mem.read_passes(os.environ) == old
+
+
+def test_write_marks_does_not_drop_keys_it_could_not_read(tmp_path, monkeypatch):
+    env = {"MEM_DATA": str(tmp_path / "data")}
+    other, covered = tmp_path / "a", tmp_path / "b"
+    other.mkdir()
+    covered.mkdir()
+    mem._write_marks(env, {other: ["x"]})
+    path = mem._marks_file(env)
+    real = type(path).read_text
+
+    def failing(self, *a, **k):
+        if self == path:
+            raise OSError("denied")
+        return real(self, *a, **k)
+    monkeypatch.setattr(type(path), "read_text", failing)
+    with pytest.raises(OSError):
+        mem._write_marks(env, {covered: ["y"]})
+    monkeypatch.undo()
+    assert mem.read_marks(env) == {str(other.resolve()): frozenset({"x"})}
+    path.write_text("not json", encoding="utf-8")  # malformed stays lenient
+    mem._write_marks(env, {covered: ["y"]})
+    assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"y"})}
+    path.write_bytes(b"\xff\xfe\x00bad")  # not UTF-8: malformed too, not unreadable
+    assert mem.read_marks(env) == {}
+    mem._write_marks(env, {covered: ["z"]})
+    assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"z"})}
+
+
+def test_marks_file_not_utf8_keeps_the_session_index(project, gfolder, tmp_path, capsys):
+    put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
+    (tmp_path / "mem-data").mkdir(exist_ok=True)
+    (tmp_path / "mem-data" / "curated-items.json").write_bytes(b"\xff\xfe\x00bad")
+    first = run(capsys, "session-index")[1].splitlines()[0]
+    assert first.startswith("memory: the mem command") and "Curation due: 1 item (1 expired)" in first
+    assert run(capsys, "curate", "--done")[0] == 0
+
+
+def _state_pair(folder, scope):
+    put(folder, "s-old", "Migration window is open for the billing service", kind="state", created=days_ago(9))
+    put(folder, "s-new", "Migration window is open for the billing service now", kind="state", created=days_ago(2))
+    return mem._decisions(records.load_memories(folder, scope), TODAY)
+
+
+def test_newer_state_is_a_project_matter(project, gfolder):
+    found = _state_pair(project, "project")
+    assert len(found.state) == 1 and found.same == []
+    found = _state_pair(gfolder, "global")
+    assert found.state == [] and len(found.same) == 1

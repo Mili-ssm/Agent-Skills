@@ -31,7 +31,7 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator, Mapping, NamedTuple, Sequence
+from typing import Any, Callable, Collection, Iterable, Iterator, Mapping, NamedTuple, Sequence
 
 import yaml
 
@@ -3090,10 +3090,11 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
                   *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
-                  stats: dict[str, int] | None = None) -> str:
+                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
+    `marks` holds the decision keys each pass recorded (C100); the count is the keys of `_decisions` not in them.
     `notice` is one more line after the rules (the failure of the automatic curation run).
     The lessons that load as rules follow the notice; `stats`, when given, receives their numbers (rules, rules_left,
     rules_chars). `limit` and `_INDEX_LIMIT` apply to the text without them."""
@@ -3103,22 +3104,34 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     except OSError:
         has_store = has_memories = False
     head = [_INDEX_HEAD]
-    due = 0
+    due: dict[str, int] = {}
+    complete = True
+    budget = records.Budget(PAIR_WORK)  # one for both folders, the project's first (C101)
     loaded_global: list[records.Memory] = []
 
-    def due_in(folder: Path, loaded: list[records.Memory]) -> int:
-        return records.curation_due(loaded, (passes or {}).get(str(folder.resolve())), today)
+    def due_in(folder: Path, loaded: list[records.Memory]) -> None:
+        nonlocal complete
+        try:
+            key = str(folder.resolve())
+            found = _decisions(loaded, today, since=(passes or {}).get(key), budget=budget)
+            known = (marks or {}).get(key, frozenset())
+            for k, label in found.keys().items():
+                if k not in known:
+                    due[label] = due.get(label, 0) + 1
+            complete = complete and found.pairs_checked
+        except Exception:
+            complete = False  # this folder stays out of the count, so the line says "at least"; the rest prints
     if has_store:
         head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
         loaded_global = records.load_memories(memories, "global")
         live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
-        if passes is not None:
-            due += due_in(memories, loaded_global)
     loaded_project = records.load_memories(project, "project")
     if passes is not None and project is not None:
-        due += due_in(project, loaded_project)
+        due_in(project, loaded_project)
+    if passes is not None and has_memories:
+        due_in(memories, loaded_global)
     mine = [m for m in loaded_project if records.is_live(m, today)]
     if mine:
         mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
@@ -3126,8 +3139,11 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         mine.sort(key=lambda m: m.observed, reverse=True)
         mine.sort(key=lambda m: m.kind != "state")  # the project's current situation first
         head.append(f"This project: {len(mine)} memories.")
-    if due:
-        head.append(f"Curation due: {due} {'item' if due == 1 else 'items'} (run mem curate after the current task).")
+    total = sum(due.values())
+    if total:
+        parts = ", ".join(f"{due[label]} {label}" for label in _DECISION_LABELS.values() if label in due)
+        head.append(f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
+                    f"({parts}) (run mem curate after the current task).")
     if has_memories:
         waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
         if waiting:
@@ -3269,7 +3285,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice, stats=stats)
+                             notice=notice, stats=stats, marks=read_marks(os.environ))
     except Exception:
         text = _INDEX_RULES
         stats.clear()
@@ -3610,11 +3626,6 @@ def cmd_remember(args: argparse.Namespace) -> int:
         for r in related:
             print(f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
                   file=sys.stderr)
-    due = records.curation_due(records.load_memories(folder, scope),
-                               read_passes(os.environ).get(str(folder.resolve())), today)
-    if due > 0:
-        print(f"mem: {due} new memories since the last curation pass: after the current task, "
-              "hand a pass to the memory-curator subagent.", file=sys.stderr)
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
     if scope == "global" and getattr(args, "origin", None) != "pipeline" and not records.quarantined(m):
         settle_state.maybe_start(folder, store, os.environ, time.time(), today)
@@ -4532,9 +4543,163 @@ def _write_passes(env: Mapping[str, str], covered: Sequence[Path], today: dateti
     os.replace(tmp, path)
 
 
+def _marks_file(env: Mapping[str, str]) -> Path | None:
+    folder = data_dir(env)
+    return folder / "curated-items.json" if folder is not None else None
+
+
+def _parse_marks(text: str) -> dict[str, frozenset[str]]:
+    try:
+        return {k: frozenset(v) for k, v in json.loads(text).items()
+                if isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v)}
+    except (ValueError, AttributeError, TypeError):
+        return {}
+
+
+def read_marks(env: Mapping[str, str]) -> dict[str, frozenset[str]]:
+    """Decision keys recorded by the last pass per memory folder (resolved path); anything unreadable reads as none."""
+    path = _marks_file(env)
+    try:
+        return _parse_marks(path.read_text(encoding="utf-8")) if path is not None else {}
+    except (OSError, ValueError):  # ValueError: not UTF-8
+        return {}
+
+
+def _write_marks(env: Mapping[str, str], covered: Mapping[Path, Collection[str]]) -> None:
+    """Replace the keys of the covered folders only; `curated.json` is not touched (C100)."""
+    path = _marks_file(env)
+    if path is None:
+        raise OSError("no data folder: set MEM_DATA or HOME")
+    # a missing or malformed file starts empty; one that exists but cannot be read raises, so no key is dropped
+    try:
+        text = path.read_text(encoding="utf-8") if path.exists() else ""
+    except UnicodeDecodeError:  # malformed, not unreadable
+        text = ""
+    known = {k: sorted(v) for k, v in _parse_marks(text).items()}
+    known.update({str(f.resolve()): sorted(keys) for f, keys in covered.items()})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def _tagged(m: records.Memory, extra: str = "") -> str:
     created = m.created.isoformat() if m.created else "undated"
     return f"  m:{m.handle}  [{m.kind}, {created}{extra}]  {_flat(m.claim)}"
+
+
+def _differ_in(a: str, b: str) -> str:
+    words = records.differing_words(a, b)
+    return f"differ in: {', '.join(words)}" if words else "differ in: wording only"
+
+
+PAIR_WORK = 150_000  # claim comparisons the session start line may spend on pair searches, both folders together
+_DECISION_LABELS = {"refuted": "refuted again", "pair": "same or opposite", "state": "newer state",
+                    "expired": "expired", "seen": "seen often", "stale": f"not confirmed in {_STALE_DAYS} days"}
+
+
+@dataclass(frozen=True)
+class Decisions:
+    """The decision items of one folder's curation queue (C98): `mem curate` prints them, the count counts them."""
+    refuted: list[tuple[records.Memory, records.Memory]]  # (live, refuted)
+    same: list[tuple[records.Memory, records.Memory]]
+    state: list[tuple[records.Memory, records.Memory]]  # (old, new)
+    expired: list[records.Memory]
+    seen: list[records.Memory]
+    stale: list[records.Memory]
+    pairs_checked: bool
+
+    def keys(self) -> dict[str, str]:
+        """Each item's key (C100) with the label of its part."""
+        found: dict[str, str] = {}
+        for a, r in self.refuted:
+            found[f"refuted:{a.handle}|{r.handle}"] = _DECISION_LABELS["refuted"]
+        for a, b in self.same:
+            found[f"pair:{'|'.join(sorted((a.handle, b.handle)))}"] = _DECISION_LABELS["pair"]
+        for old, new in self.state:
+            found[f"state:{old.handle}|{new.handle}"] = _DECISION_LABELS["state"]
+        for name, items in (("expired", self.expired), ("seen", self.seen), ("stale", self.stale)):
+            for m in items:
+                found[f"{name}:{m.handle}"] = _DECISION_LABELS[name]
+        return found
+
+
+def _unconfirmed_handles(memories: Sequence[records.Memory]) -> set[str]:
+    """Handles of the unconfirmed memories: they have their own category, so the other blocks skip them."""
+    return {m.handle for m in memories if records.standing(m) == "unconfirmed"}
+
+
+def _changed_since(live: Sequence[records.Memory], since: datetime.date) -> list[str]:
+    """Handles of the memories changed on or after `since`, newest change first: created then, or its file written
+    then (local time), or no `created`, or the file cannot be read."""
+    found = []
+    for m in live:
+        try:
+            written: datetime.date | None = datetime.date.fromtimestamp(m.path.stat().st_mtime)
+        except OSError:
+            written = None
+        if m.created is not None and written is not None and m.created < since and written < since:
+            continue
+        found.append((max(m.created, written) if m.created is not None and written is not None else datetime.date.max,
+                      m.handle))
+    found.sort(key=lambda t: (-t[0].toordinal(), t[1]))
+    return [h for _, h in found]
+
+
+def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since: datetime.date | None = None,
+               budget: records.Budget | None = None) -> Decisions:
+    """The decision items of one folder from what `records.load_memories` returned: superseded memories and
+    unreadable files are left out. With `since` the pair kinds compare only pairs with a memory changed since then;
+    `budget` is spent by those comparisons."""
+    kept = [m for m in loaded if m.error is None and m.superseded_by is None]
+    live = [m for m in kept if records.is_live(m, today)]
+    among = _changed_since(live, since) if since is not None else None
+    again = [(a, r) for a, r, _ in records.refuted_pairs(kept, today, tokenize=tokenize, among=among, budget=budget)]
+    same: list[tuple[records.Memory, records.Memory]] = []
+    state: list[tuple[records.Memory, records.Memory]] = []
+    for a, b, _ in records.pairs(kept, today, tokenize=tokenize, among=among, budget=budget):
+        if a.kind == "state" and b.kind == "state" and a.scope == b.scope == "project":  # C103: a project matter
+            old, new = sorted((a, b), key=lambda m: (m.created or datetime.date.min, m.handle))
+            state.append((old, new))
+        else:
+            same.append((a, b))
+    unconfirmed = _unconfirmed_handles(kept)
+    expired = [m for m in kept if m.status == "active" and m.valid_until is not None and m.valid_until < today
+               and m.handle not in unconfirmed]
+    seen = [m for m in live if m.scope == "project" and m.observed >= _FREQUENT and not m.promote]  # a global one cannot be promoted
+    cutoff = today - datetime.timedelta(days=_STALE_DAYS)
+    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
+             and max(m.created, m.last_observed or m.created) <= cutoff]
+    return Decisions(again, same, state, expired, seen, stale, budget is None or not budget.exhausted)
+
+
+def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> list[str]:
+    """C102: the memory in the most remaining pairs first (ties by handle) with its line, then one indented line per
+    partner (its tag and claim, two spaces deeper) with its `differ in` below; each pair once."""
+    left = list(pairs)
+    out: list[str] = []
+    while left:
+        count: collections.Counter = collections.Counter()
+        for a, b in left:
+            count.update([(a.scope, a.handle), (b.scope, b.handle)])
+        top = min(count, key=lambda k: (-count[k], k[1], k[0]))
+        rest = []
+        head = None
+        lines = []
+        for a, b in left:
+            if (a.scope, a.handle) == top:
+                head, other = a, b
+            elif (b.scope, b.handle) == top:
+                head, other = b, a
+            else:
+                rest.append((a, b))
+                continue
+            lines.append((other.handle, f"  {_tagged(other)}", f"      {_differ_in(head.claim, other.claim)}"))
+        out.append(_tagged(head))
+        for _, line, differ in sorted(lines):
+            out += [line, differ]
+        left = rest
+    return out
 
 
 TOPIC_CROWD = 8
@@ -4618,7 +4783,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
                    "mem distinct <a> <b>, or leave)")
         for a, b in same:
             out += [_note_line(a), _note_line(b),
-                    f"  differ in: {', '.join(records.differing_words(str(a.meta.get('claim', '')), str(b.meta.get('claim', ''))))}"]
+                    f"  {_differ_in(str(a.meta.get('claim', '')), str(b.meta.get('claim', '')))}"]
     covered = {t for x in synths for t in x.topics}
     counts: collections.Counter = collections.Counter()
     loose: collections.Counter = collections.Counter()  # knowledge notes that are part of no synthesis
@@ -4831,6 +4996,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if args.done:
         store = _optional_store(args)
         covered = []
+        keys: dict[Path, set[str]] = {}
+        labels: dict[Path, str] = {}
         for scope, folder, _ in scopes:
             if folder is None or not folder.is_dir():
                 continue
@@ -4838,12 +5005,18 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 print(_READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
                 return 2
             covered.append(folder)
+            keys[folder] = set(_decisions(records.load_memories(folder, scope), today).keys())
+            labels[folder] = scope
         if covered:
             try:
+                _write_marks(os.environ, keys)  # first: a failed write leaves the pass date where it was
                 _write_passes(os.environ, covered, today)
             except OSError as exc:
                 print(f"mem: {exc}", file=sys.stderr)
                 return 2
+            for folder in sorted(covered, key=lambda f: labels[f] != "global"):
+                n = len(keys[folder])
+                print(f"recorded {n} {'item' if n == 1 else 'items'} ({labels[folder]})")
         if store is not None and store_git.is_repo(store):
             _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
             # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
@@ -4854,32 +5027,33 @@ def cmd_curate(args: argparse.Namespace) -> int:
     scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
     live = [m for m in every if records.is_live(m, today)]
-    cutoff = today - datetime.timedelta(days=_STALE_DAYS)
     out: list[str] = []
-    again = [pair for _, _, loaded in scopes for pair in records.refuted_pairs(loaded, today, tokenize=tokenize)]
+    found = [_decisions(loaded, today) for _, _, loaded in scopes]
+    unconfirmed = _unconfirmed_handles(every)  # their own category below
+    again = [pair for d in found for pair in d.refuted]
     if again:
         out.append("written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
                    "different claim)")
-        for a, r, _ in again:
+        for a, r in again:
             out += [_tagged(a), _tagged(r, ", refuted")]
-    same = [pair for _, _, loaded in scopes for pair in records.pairs(loaded, today, tokenize=tokenize)]
-    same.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
+    same = [pair for d in found for pair in d.same]
     if same:
         out.append("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
-        for a, b, _ in same:
-            out += [_tagged(a), _tagged(b), f"  differ in: {', '.join(records.differing_words(a.claim, b.claim))}"]
-    unconfirmed = {m.handle for m in every if records.standing(m) == "unconfirmed"}  # their own category below
-    expired = [m for m in every if m.status == "active" and m.valid_until is not None and m.valid_until < today
-               and m.handle not in unconfirmed]
+        out += _grouped_pairs(same)
+    state = [pair for d in found for pair in d.state]
+    if state:
+        out.append("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)")
+        for old, new in state:
+            out += [_tagged(old), f"    -> {_tagged(new).lstrip()}"]
+    expired = [m for d in found for m in d.expired]
     if expired:
         out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
         out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
-    frequent = [m for m in live if m.observed >= _FREQUENT and not m.promote]
+    frequent = [m for d in found for m in d.seen]
     if frequent:
-        out.append(f"seen {_FREQUENT} times or more: general enough for a note? (mem promote <h>)")
+        out.append(f"seen {_FREQUENT} times or more: general enough for a global lesson? (mem promote <h>)")
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
-    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
-             and max(m.created, m.last_observed or m.created) <= cutoff]
+    stale = [m for d in found for m in d.stale]
     if stale:
         out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]

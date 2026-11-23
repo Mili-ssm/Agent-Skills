@@ -1,10 +1,10 @@
 # A digest per topic for the loaded lessons: design
 
-Status: approved by the owner on 2026-11-24, with the limits of C96 and C97 added by them the same day · [plan](../plans/2026-11-24-memory-topic-digest.md) · Builds C85 of [the rewording and grouping design](2026-11-23-memory-reword-and-grouping-design.md) on the grouped block (C81 to C83). The table of [the capture design](2026-11-21-memory-capture-design.md) reserves the numbers C86 to C97.
+Status: approved by the owner on 2026-11-23, with the limits of C96 and C97 added by them the same day · [plan](../plans/2026-11-23-memory-topic-digest.md) · Builds C85 of [the rewording and grouping design](2026-11-23-memory-reword-and-grouping-design.md) on the grouped block (C81 to C83). The table of [the capture design](2026-11-21-memory-capture-design.md) reserves the numbers C86 to C97.
 
 ## Goal
 
-The lessons loaded at session start say more in the same space. Under each topic a model writes one line that names the situation the topic's lessons share, and for each lesson a line that no longer repeats that situation and spends its characters on what may be worth doing and why (the owner, 2026-11-22 and 2026-11-24: more detail and less repetition in the same space; each lesson keeps a line of its own).
+The lessons loaded at session start say more in the same space. Under each topic a model writes one line that names the situation the topic's lessons share, and for each lesson a line that no longer repeats that situation and spends its characters on what may be worth doing and why (the owner, 2026-11-22 and 2026-11-23: more detail and less repetition in the same space; each lesson keeps a line of its own).
 
 ## State before this change
 
@@ -19,7 +19,7 @@ The lessons loaded at session start say more in the same space. Under each topic
 
 ## Decisions
 
-Rows marked *owner* are the owner's rulings of 2026-11-24; the others are the author's proposals.
+Rows marked *owner* are the owner's rulings of 2026-11-23; the others are the author's proposals.
 
 | # | Decision | Reason |
 |---|---|---|
@@ -33,10 +33,10 @@ Rows marked *owner* are the owner's rulings of 2026-11-24; the others are the au
 | C93 | A third value of the option `rules_layout`: `digest`. At session start it prints the grouped block with, for each topic and each lesson whose digest is present and not stale, the digest's heading and line in place of the bare topic name and the short form. The choice of lessons is that of `rules.choose`, made on the short forms within the limit of C96; headings are outside the limit as in C82. `mem rules --layout digest` prints the same | The choice must not depend on the layout (C82). Stale or missing parts fall back without a model |
 | C94 | The background pass writes the digest in a step of its own after the fill and the rewording, only when `rules_layout` is `digest`, `auto_capture` is on and the loaded rules are on. `mem-corroborate digest [--dry-run] [--sheet PATH]` runs it by hand | *Owner*: off by default. One option decides both what is written and what is printed |
 | C95 | The gate before the owner turns it on: on a copy of the owner's store the step runs once with `--dry-run --sheet`. It passes when the checking session accepts at least 80% of the lines that pass the code check, every heading with at least two lessons is accepted, and the owner, reading the sheet of claim, short form, heading and line, calls no line stronger or wider than its claim. The block's length with the digest is recorded against the grouped block's | *Owner*: a sheet to read before turning it on. The measure with a real task is not repeated here: it needs what the owner chose not to grant for the grouped block (C84) |
-| C96 | The limits of C48 and C73 change: no limit on the number of loaded lessons; 4800 characters in all, of which 3200 for the lines of the lessons, filled in the order of `rules.choose`, and 1600 for the index of C97. They hold in every layout. Unmeasured, with a kill criterion in ADR 0023 | *Owner*, 2026-11-24: twice the characters, no limit of number, two thirds for the main lessons and one third for a general summary of the rest. About 1200 tokens against the 6000 of an instruction file; the tallies of C67 are the measure |
+| C96 | The limits of C48 and C73 change: no limit on the number of loaded lessons; 4800 characters in all, of which 3200 for the lines of the lessons, filled in the order of `rules.choose`, and 1600 for the index of C97. They hold in every layout. Unmeasured, with a kill criterion in ADR 0023 | *Owner*, 2026-11-23: twice the characters, no limit of number, two thirds for the main lessons and one third for a general summary of the rest. About 1200 tokens against the 6000 of an instruction file; the tallies of C67 are the measure |
 | C97 | The index of the lessons that did not fit, or that load by topic only: when the digest holds a fresh heading for at least one of their topics, one line per topic, the most lessons first, `- <topic> (<n>): <heading>`, or `- <topic> (<n>)` for a topic without one, under the line `More lessons, by topic (mem rules --more <topic>):`, within 1600 characters, the topics that do not fit summed in a last line. With no heading at all it is the single line of today | *Owner*: a general summary with what each topic is about, so that an agent has a reason to ask for a topic; a count alone was rarely followed. The headings of C86 are that summary, so no model is called for it |
 
-## Rulings made while building (2026-11-24)
+## Rulings made while building (2026-11-23)
 
 Made by the agent that ran the plan, from the pre-mortem and the end reviews; each narrows a row above. The code follows this table where it says more than the row.
 
@@ -48,7 +48,7 @@ Made by the agent that ran the plan, from the pre-mortem and the end reviews; ea
 | C90 | Under a printed heading the lessons that have a digest line come first, then those printed with their short form (project lessons, and lessons whose line is stale or missing) | A digest line leans on the heading right above it; a short form stands alone |
 | C91 | A stored text is checked again for its form each time the file is read: a text with a line break or a control character, or longer than its limit, is dropped, a heading taking its topic's lines with it. A lesson the checking session's answer leaves out is not judged: it spends no try and is not stored | A text of the file is printed into every session; an answer that omits a lesson is no judgment of it |
 | C92 | One run asks lines for about 30 lessons, topics kept whole. The step removes from its file the topics that no longer hold two ready lessons, the lines of lessons that left a topic, and the tries of texts that no longer exist. A failure to write the file after the sessions is a failed run for the wait | Neither the file nor the state may grow without bound, and a run that cannot save must not be paid for again at every compaction |
-| C95 | The automatic half was run on 2026-11-24 on a copy of the owner's global lessons, once without applying (the sheet) and once applying, and passed both times ([results](../plans/2026-11-24-memory-topic-digest.md#results)). Only 9 lessons shared a topic with another, the two runs wrote different lines, and writer and checker are the same small model | A small sample: the owner's reading decides. The owner read the sheet on 2026-11-24, called no line stronger than its claim, and turned the layout on in their own configuration; the default stays `flat` |
+| C95 | The automatic half was run on 2026-11-23 on a copy of the owner's global lessons, once without applying (the sheet) and once applying, and passed both times ([results](../plans/2026-11-23-memory-topic-digest.md#results)). Only 9 lessons shared a topic with another, the two runs wrote different lines, and writer and checker are the same small model | A small sample: the owner's reading decides. The owner read the sheet on 2026-11-23, called no line stronger than its claim, and turned the layout on in their own configuration; the default stays `flat` |
 
 ## Not in this change
 
