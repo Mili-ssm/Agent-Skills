@@ -1,6 +1,6 @@
 {
   "name": "memory",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Notes and memories reachable from every repository and subagent: a `mem` command that searches and reads a configured store.",
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
@@ -61,7 +61,7 @@
       "type": "string",
       "title": "Loaded rules layout",
       "default": "flat",
-      "description": "How the loaded rules are printed at session start: flat (one list, the default) or grouped (the same lessons under a heading per topic). Any other value means flat."
+      "description": "How the loaded rules are printed at session start: flat (one list, the default), grouped (the same lessons under a heading per topic) or digest (grouped, with a heading and a shorter line per lesson where the digest has a fresh one). Any other value means flat."
     },
     "auto_capture_budget": {
       "type": "number",
