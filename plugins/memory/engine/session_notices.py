@@ -39,8 +39,12 @@ def _store(cache: Path, key: str, today: str, counts: tuple[int, int]) -> None:
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=cache.parent, prefix=cache.name + ".",
                                      suffix=".tmp", delete=False) as handle:
         tmp = handle.name
-        handle.write(json.dumps(known, indent=2, sort_keys=True) + "\n")
-    os.replace(tmp, cache)
+    try:
+        Path(tmp).write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(tmp, cache)
+    except OSError:
+        Path(tmp).unlink(missing_ok=True)  # a failed write leaves no temp file behind
+        raise
 
 
 def cached_due_counts(root: Path, today: datetime.date, cache_dir: Path | None = None) -> tuple[int, int]:
@@ -66,13 +70,17 @@ def store_due_lines(store: Path, today: datetime.date, cache_dir: Path | None) -
 
     Never raises: a failing count leaves its line out so the session start goes on."""
     lines = []
-    held = len(store_git.held_back(store))
+    # Broad on purpose: one unreadable note or file must cost only its line, never the whole session index.
+    try:
+        held = len(store_git.held_back(store))
+    except Exception:
+        held = 0
     if held:
         lines.append(f"History: {held} changed {'note' if held == 1 else 'notes'} held back from the last "
                      "commit: run mem check.")
     try:
         retests, rereads = cached_due_counts(store, today, cache_dir)
-    except (OSError, ValueError):
+    except Exception:
         return lines
     n = retests + rereads
     if n:

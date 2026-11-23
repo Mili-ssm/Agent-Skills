@@ -73,7 +73,8 @@ def test_due_counts_are_cached_per_day_and_store(hub_root, tmp_path):
     assert session_notices.cached_due_counts(hub_root, TODAY, cache) == (0, 1)
     web_note(hub_root, "2026-older-page.md", TODAY - datetime.timedelta(days=300))
     assert session_notices.cached_due_counts(hub_root, TODAY, cache) == (0, 1)  # same day: the stored count
-    assert session_notices.cached_due_counts(hub_root, TODAY + datetime.timedelta(days=1), cache) == (0, 2)  # the date changed
+    tomorrow = TODAY + datetime.timedelta(days=1)
+    assert session_notices.cached_due_counts(hub_root, tomorrow, cache) == (0, 2)  # the date changed
     assert session_notices.cached_due_counts(hub_root, TODAY + datetime.timedelta(days=1), None) == (0, 2)
 
 
