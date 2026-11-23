@@ -33,7 +33,8 @@ with open(os.environ["FAKE_CALLS"], "a") as f:
                         "path": os.environ.get("PATH", "")}) + "\\n")
 brief = sys.argv[sys.argv.index("-p") + 1]
 out = re.search(r"Write (\\S+) as JSON", brief).group(1)
-src = os.environ.get("FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_FILL" if out.endswith("fill.json") else "FAKE_GROUPS")
+src = os.environ.get("FAKE_REWORD_CHECK" if out.endswith("reword-check.json") else "FAKE_REWORD" if out.endswith("reword.json")
+                     else "FAKE_VERDICTS" if out.endswith("verdicts.json") else "FAKE_FILL" if out.endswith("fill.json") else "FAKE_GROUPS")
 if mode == "exit1":
     sys.exit(1)
 if src and os.path.exists(src):
@@ -1795,3 +1796,227 @@ def test_a_failed_case_call_after_a_global_write_still_counts_the_write(w):
     line = log_lines(w)[-1]
     assert len(globals_(w)) == 1   # the record exists
     assert (line["written"], line["failed_actions"]) == (1, 1)
+
+
+# ---- reword_auto: the pass rewords a loaded lesson whose present wording got worse ----------------------------------
+
+OLD_WORDING = "Running the narrowest covering test before the whole suite may save time."
+NEW_WORDING = "Before the whole suite, running the narrowest test that covers a change may save time."
+SECOND_CLAIM = "Keep a failing command's output in a file, as it may help when it is long."
+
+
+def ago(n):
+    return TODAY - datetime.timedelta(days=n)
+
+
+def worse_one(w, claim=NARROW, scope="project", failed=(5, 4), worked=()):
+    """A loaded lesson whose only wording (10 days old) failed twice since: the step's candidate."""
+    if scope == "global":   # as `fill_world` makes it: seen in two projects, released from triage
+        m = records.write_memory(w.gmem, "global", kind="lesson", claim=claim, body="b\n", today=TODAY, origin="transcript",
+                                 reach="general", weight="light",
+                                 sources=[f"session s5 project {records.project_key(w.pa)}",
+                                          f"session s6 project {records.project_key(w.pb)}"])
+        m = records.update(m, TODAY, triage=None)
+    else:
+        m = lesson(w, w.pa, claim, ("s7", "s8"))
+    log = [records.case_entry(ago(n), f"session z{n}", "failed") for n in failed]
+    log += [records.case_entry(ago(n), f"session y{n}", "worked") for n in worked]
+    return records.update(m, TODAY, short=OLD_WORDING, short_by="model",
+                          versions=[records.version_entry(ago(10), OLD_WORDING)], log=log)
+
+
+def reword_answers(w, mp, shorts=None, writer="ok", checker=True):
+    """The fake's two answers of the step. shorts: claim -> proposed short (default NEW_WORDING for every candidate);
+    writer/checker as in `answers`, with no `topic` anywhere."""
+    mp.delenv("FAKE_REWORD", raising=False)
+    mp.delenv("FAKE_REWORD_CHECK", raising=False)
+    found = candidate_ids(w)
+    if writer == "ok":
+        items = [{"id": i, "short": (shorts or {}).get(c, NEW_WORDING)} for c, ids in found.items() for i in ids]
+        writer = json.dumps({"items": items})
+    if writer != "none":
+        (w.tmp / "reword-answer.json").write_text(writer)
+        mp.setenv("FAKE_REWORD", str(w.tmp / "reword-answer.json"))
+    if checker in (True, False):
+        every = [i for ids in found.values() for i in ids]
+        checker = json.dumps({"verdicts": [{"id": i, "reason": "the checker's reason", "faithful": checker} for i in every]})
+    if checker != "none":
+        (w.tmp / "reword-check-answer.json").write_text(checker)
+        mp.setenv("FAKE_REWORD_CHECK", str(w.tmp / "reword-check-answer.json"))
+
+
+def reword(w, mod=None, **kw):
+    return (mod or corr_module()).reword_auto(str(w.fake), 0.25, **kw)
+
+
+def reword_state(w):
+    return json.loads((w.cdir / "reword-attempts.json").read_text())
+
+
+def reword_runs(w):
+    return sorted(p for p in (w.cdir / "runs").iterdir() if p.name.endswith("-reword")) if (w.cdir / "runs").exists() else []
+
+
+def mem_curate(w):
+    env = {**os.environ, "MEM_PROJECT": str(w.pa)}
+    return subprocess.run([str(MEM), "curate"], env=env, capture_output=True, text=True, cwd=w.pa, timeout=120).stdout
+
+
+NOTHING = {"asked": 0, "written": 0, "refused_code": 0, "refused_check": 0, "same_text": 0, "no_proposal": 0,
+           "gave_up": 0, "cost": 0.0, "stopped": None}
+
+
+def test_reword_applies_an_accepted_wording(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    assert reword(w) == {**NOTHING, "asked": 1, "written": 1, "cost": 0.06}
+    assert calls(w) == 2
+    m = by_claim(w, NARROW)
+    assert (m.short, m.reworded, m.short_by) == (NEW_WORDING, TODAY, "model")
+    assert [t for _, t in records.version_list(m)] == [OLD_WORDING, NEW_WORDING]
+    assert not records.got_worse(m)
+
+
+def test_reword_applies_to_a_global_lesson(w, monkeypatch):
+    worse_one(w, claim=GCLAIM, scope="global")
+    reword_answers(w, monkeypatch, shorts={GCLAIM: "Reading the whole failing test output before changing code may help."})
+    got = reword(w)
+    assert got["written"] == 1, got
+    (g,) = globals_(w)
+    assert g.reworded == TODAY and g.short.startswith("Reading the whole")
+
+
+def test_two_refusals_give_up_and_mark_the_lesson(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch, checker=False)
+    first = reword(w)
+    assert (first["refused_check"], first["gave_up"], first["written"]) == (1, 0, 0)
+    assert by_claim(w, NARROW).reword_failed is None
+    second = reword(w)
+    assert (second["refused_check"], second["gave_up"]) == (1, 1)
+    m = by_claim(w, NARROW)
+    assert m.reword_failed == ago(10) and m.short == OLD_WORDING and m.reworded is None
+    before = calls(w)
+    assert reword(w) == NOTHING and calls(w) == before
+
+
+def test_a_refusal_by_code_and_a_repeat_are_counted_and_the_checker_is_not_paid(w, monkeypatch):
+    worse_one(w)
+    worse_one(w, claim=SECOND_CLAIM)
+    reword_answers(w, monkeypatch, shorts={NARROW: "Run the narrowest covering test before the whole suite.",   # the hedge is gone
+                                           SECOND_CLAIM: OLD_WORDING})   # an earlier wording
+    result = reword(w)
+    assert (result["refused_code"], result["same_text"], result["written"]) == (1, 1, 0)
+    assert calls(w) == 1
+
+
+def test_an_unusable_answer_changes_no_lesson_and_three_in_a_row_wait(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch, writer="this is not json")
+    for n in (1, 2, 3):
+        result = reword(w)
+        assert result["stopped"] and result["written"] == 0
+        assert reword_state(w) == {"lessons": {}, "failures": {"count": n, "fingerprint": reword_state(w)["failures"]["fingerprint"]}}
+    assert by_claim(w, NARROW).short == OLD_WORDING
+    before = calls(w)
+    waiting = reword(w)
+    assert calls(w) == before and "waiting" in waiting["stopped"]
+    worse_one(w, claim=SECOND_CLAIM)   # the candidates changed
+    assert reword(w)["stopped"] != waiting["stopped"] and calls(w) == before + 1
+
+
+def test_a_checker_that_gives_no_usable_answer_is_a_failed_session(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch, checker="none")
+    result = reword(w)
+    assert result["stopped"] and result["written"] == 0
+    assert reword_state(w)["lessons"] == {} and reword_state(w)["failures"]["count"] == 1
+    assert by_claim(w, NARROW).short == OLD_WORDING
+
+
+def test_undo_does_not_bring_a_second_rewording(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    auto_state.private_dir(w.cdir)
+    seen_file = w.cdir / "seen.json"
+    seen_file.write_text(json.dumps({"fingerprint": "kept", "refused": {}}))
+    assert reword(w)["written"] == 1
+    (run_dir,) = reword_runs(w)
+    assert (run_dir / "fill").exists() and (run_dir / "journal.jsonl").exists()
+    assert run(w, run_dir.name, cmd="undo", claude=False).returncode == 0
+    m = by_claim(w, NARROW)
+    assert (m.short, m.reworded) == (OLD_WORDING, None) and m.short_by == "model"
+    assert json.loads(seen_file.read_text())["fingerprint"] == "kept"   # not taken for a corroboration run
+    before = calls(w)
+    assert reword(w) == NOTHING and calls(w) == before
+    assert m.handle in mem_curate(w)
+
+
+def test_a_reworded_version_that_got_worse_stays_with_the_owner(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    assert reword(w)["written"] == 1
+    m = by_claim(w, NARROW)
+    records.update(m, TODAY, log=[*m.log, records.case_entry(TODAY + datetime.timedelta(days=1), "session q", "failed"),
+                                  records.case_entry(TODAY + datetime.timedelta(days=2), "session r", "failed")])
+    assert records.got_worse(by_claim(w, NARROW))
+    before = calls(w)
+    assert reword(w) == NOTHING and calls(w) == before
+    shown = mem_curate(w)
+    assert m.handle in shown and "got worse too" in shown
+
+
+def test_dry_run_writes_the_sheet_and_nothing_else(w, monkeypatch):
+    worse_one(w)
+    worse_one(w, claim=SECOND_CLAIM)
+    worse_one(w, claim=GCLAIM, failed=())   # loaded, never failed: only `--every` takes it
+    reword_answers(w, monkeypatch, shorts={SECOND_CLAIM: "Keeping a long failing command's output in a file may help."},
+                   checker=True)
+    before = snapshot(w)
+    sheet = w.tmp / "sheet.md"
+    done = run(w, "--every", "--dry-run", "--sheet", str(sheet), cmd="reword")
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout)["asked"] == 3
+    assert snapshot(w) == before and not (w.cdir / "reword-attempts.json").exists() and not reword_runs(w)
+    rows = [x for x in sheet.read_text().splitlines() if x.startswith("| ") and "---" not in x][1:]
+    assert len(rows) == 3 and sum("the checker's reason" in x for x in rows) >= 1
+    assert any(NEW_WORDING in x for x in rows) and any(NARROW in x for x in rows)
+
+
+def test_without_a_sheet_nothing_is_written_beside_the_records(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    before = snapshot(w)
+    result = reword(w, apply=False)
+    assert result["asked"] == 1 and result["written"] == 0 and snapshot(w) == before
+    assert not (w.cdir / "reword-attempts.json").exists()
+
+
+def test_every_and_limit_pass_through(w, monkeypatch):
+    for claim in (NARROW, SECOND_CLAIM, GCLAIM):
+        worse_one(w, claim=claim)
+    worse_one(w, claim="Read the build log from the top before guessing at a cause, as it may help.", failed=())
+    reword_answers(w, monkeypatch, checker=False)
+    assert reword(w, every=True, limit=2, apply=False)["asked"] == 2
+    assert reword(w, every=True, apply=False)["asked"] == 4
+    assert reword(w, apply=False)["asked"] == 3
+
+
+def test_reword_respects_the_lock(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    lock = auto_state.take_run_lock(w.cdir)
+    try:
+        result = reword(w)
+    finally:
+        os.close(lock)
+    assert "run is going" in result["stopped"] and result["written"] == 0 and calls(w) == 0
+    assert not (w.cdir / "reword-attempts.json").exists() and by_claim(w, NARROW).short == OLD_WORDING
+
+
+def test_a_missing_claude_binary_is_a_stop_not_an_exception(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    result = corr_module().reword_auto("/nonexistent/claude", 0.25)
+    assert result["stopped"] and result["written"] == 0
+    assert by_claim(w, NARROW).short == OLD_WORDING
