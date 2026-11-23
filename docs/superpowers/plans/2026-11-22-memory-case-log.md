@@ -328,7 +328,7 @@ git commit -m "feat(memory): mem show and mem rules print the tally of each vers
   - `mem curate`: a category with the heading `balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, drop it with mem forget <h>, or keep the wording with mem triage accept <h>)`. Per lesson, the row `  m:<handle>  <loaded | left out by the cap>  <claim, flattened>`, then one indented line per tally of the present version and the one before, in the form of Task 5's `mem show` line. The command lists the lessons of the scopes it was asked for; the helper is still called with both.
   - Session start text: after the `Triage:` sentence, `Got worse: N loaded lesson needs a decision (mem curate).`, with `lessons need` above 1; absent at 0. It is computed in a `try` of its own: on any exception the sentence is absent and everything else is as before.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Drive the commands as `test_curation.py` and `test_session_index.py` do. Date the versions and cases in the past, relative to `datetime.date.today()` (a version 10 days ago, cases after it).
 
@@ -342,15 +342,15 @@ Drive the commands as `test_curation.py` and `test_session_index.py` do. Date th
 | `test_a_fault_in_the_count_leaves_the_rules_block` | with `records.got_worse` patched to raise, `mem session-index` prints the same text as for a store without cases |
 | `test_a_new_short_form_clears_the_listing` | `mem memory edit <h> --short "..."` on a listed lesson: gone from the category, `mem show` has one more version line |
 
-- [ ] **Step 2: Run them and see them fail**
+- [x] **Step 2: Run them and see them fail**
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 If the session start text passes its limit of 1500 characters in a test, stop and report it instead of cutting another sentence.
 
-- [ ] **Step 4: Run the tests of this file, then the whole suite**
+- [x] **Step 4: Run the tests of this file, then the whole suite**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add plugins/memory/engine
