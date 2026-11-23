@@ -1,9 +1,11 @@
 import datetime
+import json
 from pathlib import Path
 
 import check
 import mem
 import records
+import session_notices
 
 TODAY = datetime.date(2026, 11, 23)
 HELD = "History: 1 changed note held back from the last commit: run mem check."
@@ -68,11 +70,11 @@ def test_index_with_both_lines_stays_in_the_budget(hub_root, tmp_path):
 def test_due_counts_are_cached_per_day_and_store(hub_root, tmp_path):
     cache = tmp_path / "state"
     web_note(hub_root, "2026-old-page.md", TODAY - datetime.timedelta(days=200))
-    assert check.due_counts(hub_root, TODAY, cache) == (0, 1)
+    assert session_notices.cached_due_counts(hub_root, TODAY, cache) == (0, 1)
     web_note(hub_root, "2026-older-page.md", TODAY - datetime.timedelta(days=300))
-    assert check.due_counts(hub_root, TODAY, cache) == (0, 1)  # same day: the stored count
-    assert check.due_counts(hub_root, TODAY + datetime.timedelta(days=1), cache) == (0, 2)  # the date changed
-    assert check.due_counts(hub_root, TODAY + datetime.timedelta(days=1), None) == (0, 2)
+    assert session_notices.cached_due_counts(hub_root, TODAY, cache) == (0, 1)  # same day: the stored count
+    assert session_notices.cached_due_counts(hub_root, TODAY + datetime.timedelta(days=1), cache) == (0, 2)  # the date changed
+    assert session_notices.cached_due_counts(hub_root, TODAY + datetime.timedelta(days=1), None) == (0, 2)
 
 
 def test_due_counts_agree_with_the_line_lists(hub_root):
@@ -84,6 +86,20 @@ def test_due_counts_agree_with_the_line_lists(hub_root):
 def test_a_broken_cache_is_recomputed(hub_root, tmp_path):
     cache = tmp_path / "state"
     cache.mkdir()
-    (cache / check.DUE_CACHE_NAME).write_text("not json", encoding="utf-8")
+    (cache / session_notices.DUE_CACHE_NAME).write_text("not json", encoding="utf-8")
     web_note(hub_root, "2026-old-page.md", TODAY - datetime.timedelta(days=200))
-    assert check.due_counts(hub_root, TODAY, cache) == (0, 1)
+    assert session_notices.cached_due_counts(hub_root, TODAY, cache) == (0, 1)
+
+
+def test_cache_misses_for_another_store_and_keeps_only_today(hub_root, tmp_path):
+    cache = tmp_path / "state"
+    other = tmp_path / "other"
+    other.mkdir()
+    web_note(hub_root, "2026-old-page.md", TODAY - datetime.timedelta(days=200))
+    assert session_notices.cached_due_counts(hub_root, TODAY, cache) == (0, 1)
+    assert session_notices.cached_due_counts(other, TODAY, cache) == (0, 0)  # not the first store's count
+    tomorrow = TODAY + datetime.timedelta(days=1)
+    session_notices.cached_due_counts(other, tomorrow, cache)
+    stored = json.loads((cache / session_notices.DUE_CACHE_NAME).read_text(encoding="utf-8"))
+    assert list(stored) == [str(other.resolve())]
+    assert [p.name for p in cache.iterdir()] == [session_notices.DUE_CACHE_NAME]  # no temp files left
