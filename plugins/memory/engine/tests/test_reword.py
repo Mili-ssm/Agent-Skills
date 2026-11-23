@@ -130,7 +130,6 @@ def test_candidates_are_loading_lessons_that_got_worse(project, gfolder):
     worse("Takes.")
     worse("Index only.", load="index")
     worse("Never loads.", load="no")
-    worse("Strong one.", weight="strong")
     worse("Kept by the owner.", reviewed=ago(1))
     global_lesson("Did not get worse.", versions=[(10, "First text.")], log=[(5, "worked"), (4, "failed")])
     # last: the helpers accept a lesson awaiting triage
@@ -140,13 +139,50 @@ def test_candidates_are_loading_lessons_that_got_worse(project, gfolder):
     assert candidates() == ["Takes."]
 
 
-def test_a_reworded_lesson_is_never_taken_again(project, gfolder):
-    m = worse("Reworded.", reworded=ago(30))
+def test_a_strong_lesson_is_a_candidate(project, gfolder):
+    worse("Strong one.", weight="strong")
+    assert candidates() == ["Strong one."]
+
+
+def owner_version(m, days_ago, **changes):
+    """The lesson with a version of the owner's at `days_ago`, after its first one, that failed twice since."""
+    return records.update(reload(m), TODAY, versions=[records.version_entry(ago(10), "First text."),
+                                                      records.version_entry(ago(days_ago), "By hand.")],
+                          log=[records.case_entry(ago(days_ago - 1), "session a", "failed"),
+                               records.case_entry(ago(days_ago - 2), "session b", "failed")], **changes)
+
+
+def test_the_pass_does_not_reword_its_own_rewording(project, gfolder):
+    worse("Own.", reworded=ago(10))   # `reworded` is the date of the present version
     assert candidates() == []
-    records.update(reload(m), TODAY, versions=[records.version_entry(ago(10), "First text."),
-                                               records.version_entry(ago(3), "By hand.")],
-                   log=[records.case_entry(ago(2), "session a", "failed"), records.case_entry(ago(1), "session b", "failed")])
-    assert records.got_worse(reload(m)) and candidates() == []
+
+
+def test_a_wording_the_owner_wrote_after_a_rewording_gets_one_attempt(project, gfolder):
+    m = worse("Reworded.", reworded=ago(10))
+    m = owner_version(m, 5)   # the owner wrote a newer version, which got worse
+    assert candidates() == ["Reworded."]
+    state, _ = corroborate.reword_state_after(NONE_YET, [("g:a", m)], {"g:a": "written"}, TODAY)
+    assert entry_of(state, m) == {"version": ago(5).isoformat(), "count": 0, "spent": True}
+    # the pass wrote its version today and marked it
+    m = records.update(reload(m), TODAY, reworded=TODAY, versions=[*reload(m).versions, records.version_entry(TODAY, "New.")])
+    assert candidates(state) == [] and candidates() == []
+
+
+def test_a_kept_wording_is_not_reworded_but_a_later_one_is(project, gfolder):
+    m = worse("Kept.", reviewed=ago(10))   # kept on the day of its version
+    assert candidates() == []
+    records.update(reload(m), TODAY, reviewed=ago(7))
+    assert candidates() == []
+    m = owner_version(m, 5)   # a newer version after the keep, which got worse
+    assert candidates() == ["Kept."]
+
+
+def test_spent_is_per_version(project, gfolder):
+    m = worse("Spent.")
+    key = corroborate.reword_key(None, m.handle)
+    here = {"lessons": {key: {"version": ago(10).isoformat(), "count": 0, "spent": True}}, "failures": {}}
+    earlier = {"lessons": {key: {"version": ago(40).isoformat(), "count": 0, "spent": True}}, "failures": {}}
+    assert candidates(here) == [] and candidates(earlier) == ["Spent."]
 
 
 def test_a_given_up_version_and_a_spent_lesson_are_skipped(project, gfolder):
@@ -173,8 +209,7 @@ def test_cap_and_order(project, gfolder):
 
 def test_every_takes_lessons_that_did_not_get_worse(project, gfolder):
     global_lesson("Did not get worse.", versions=[(10, "First text.")], log=[(5, "worked")])
-    worse("Strong one.", weight="strong")
-    worse("Reworded.", reworded=ago(30))
+    worse("Reworded.", reworded=ago(10))
     assert candidates() == []
     assert candidates(every=True) == ["Did not get worse."]
 

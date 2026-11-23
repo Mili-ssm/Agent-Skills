@@ -332,4 +332,4 @@ Two readings the figures alone do not give, counted from the sheet:
 
 **Not shown:** the 15 lessons were taken as if they had got worse (`--every`), so no real failed case fed the brief; the checking session accepting says the wording keeps the claim's hedge as it reads it, not that the owner finds it better. The run was made once, so there is no variance. `REWORD_BRIEF` was not revised.
 
-**Open:** the owner's reading of the sheet (C80's second condition: none stronger than its claim), which decides whether `auto_reword` is turned on. `auto_reword` stays off by default.
+**The owner's reading (2026-11-23):** the owner read the 15 rows and called none of the 14 that would be written stronger than its claim, so C80 passed. One of the 14 names a situation its claim does not (the checking session accepted it): such a proposal narrows a lesson without making it firmer, and shows in `mem rules --unread` like every rewording. The owner turned `auto_reword` on in their own configuration; the option's default stays off.

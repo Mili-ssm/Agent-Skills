@@ -1944,7 +1944,7 @@ def test_a_checker_that_gives_no_usable_answer_is_a_failed_session(w, monkeypatc
     assert by_claim(w, NARROW).short == OLD_WORDING
 
 
-def test_undo_does_not_bring_a_second_rewording(w, monkeypatch):
+def test_undo_still_does_not_bring_a_second_rewording(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
     auto_state.private_dir(w.cdir)
@@ -1956,6 +1956,8 @@ def test_undo_does_not_bring_a_second_rewording(w, monkeypatch):
     assert run(w, run_dir.name, cmd="undo", claude=False).returncode == 0
     m = by_claim(w, NARROW)
     assert (m.short, m.reworded) == (OLD_WORDING, None) and m.short_by == "model"
+    assert reword_state(w)["lessons"][next(iter(reword_state(w)["lessons"]))] == {
+        "version": ago(10).isoformat(), "count": 0, "spent": True}   # spent for the version it was written from
     assert json.loads(seen_file.read_text())["fingerprint"] == "kept"   # not taken for a corroboration run
     before = calls(w)
     assert reword(w) == NOTHING and calls(w) == before
@@ -2058,7 +2060,7 @@ def edit_between(w, mod, mp, **changes):
     mp.setattr(mod, "_ask", ask_then_edit)
 
 
-@pytest.mark.parametrize("changes", [{"reviewed": TODAY}, {"reworded": TODAY}, {"weight": "strong"},
+@pytest.mark.parametrize("changes", [{"reviewed": TODAY}, {"reworded": ago(10)},
                                      {"status": "superseded", "superseded_by": "other"}])
 def test_reword_skips_a_lesson_the_owner_kept_meanwhile(w, monkeypatch, changes):
     worse_one(w)
@@ -2069,6 +2071,23 @@ def test_reword_skips_a_lesson_the_owner_kept_meanwhile(w, monkeypatch, changes)
     assert (result["changed"], result["written"], result["no_proposal"], result["failed_edits"]) == (1, 0, 0, 0)
     assert reword_state(w)["lessons"] == {} and not reword_runs(w)
     assert [m for m in project_lessons(w) if m.claim == NARROW][0].short == OLD_WORDING
+
+
+def test_a_strong_lesson_that_got_worse_is_reworded(w, monkeypatch):
+    worse_one(w)
+    m = by_claim(w, NARROW)
+    records.update(m, TODAY, weight="strong", owner_confirmed=TODAY)
+    reword_answers(w, monkeypatch)
+    assert reword(w)["written"] == 1 and by_claim(w, NARROW).short == NEW_WORDING
+
+
+def test_a_lesson_that_became_strong_meanwhile_is_still_applied(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    mod = corr_module()
+    edit_between(w, mod, monkeypatch, weight="strong")
+    result = reword(w, mod)
+    assert (result["written"], result["changed"]) == (1, 0) and by_claim(w, NARROW).short == NEW_WORDING
 
 
 def project_lessons(w):

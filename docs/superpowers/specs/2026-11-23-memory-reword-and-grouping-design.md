@@ -1,6 +1,6 @@
 # Automatic rewording and a grouped rules block: design
 
-Status: written on 2026-11-23 while the owner was away, under their word of that day to continue with the second plan (C72) and the grouping without assistance; not yet read by the owner. Both parts ship switched off, so the owner decides by turning them on. Open questions are at the end. Extends [the case log design](2026-11-22-memory-case-log-design.md) (C64 to C72) and C46 to C48 of [the capture design](2026-11-21-memory-capture-design.md), whose table reserves the numbers C74 to C85.
+Status: written on 2026-11-23 while the owner was away, under their word of that day to continue with the second plan (C72) and the grouping without assistance; the owner answered its open questions the same day (their rulings are in "Rulings made while building"). Both parts ship switched off by default. Extends [the case log design](2026-11-22-memory-case-log-design.md) (C64 to C72) and C46 to C48 of [the capture design](2026-11-21-memory-capture-design.md), whose table reserves the numbers C74 to C85.
 
 Plans: [automatic rewording](../plans/2026-11-23-memory-auto-reword.md), [grouped block](../plans/2026-11-23-memory-rules-grouped.md).
 
@@ -73,6 +73,17 @@ Made by the agent that ran the plans, from pre-mortems and review findings, whil
 | C80 | The gate's run is `mem-corroborate reword --every --dry-run --sheet <path>`: `--every` is refused without `--dry-run`, a dry run starts both sessions and costs what a real run costs, and the sheet is refused inside a repository. The automatic half was run once on a copy of the owner's global lessons on 2026-11-23 and passed ([results](../plans/2026-11-23-memory-auto-reword.md#results)); it covered no project lesson, no lesson with real failed cases, and one run gives no variance | The sheet holds the owner's lessons and this repository is public |
 | C84 | The measure was tried twice on 2026-11-23 and gave no figure ([results](../plans/2026-11-23-memory-rules-grouped.md#results)): the model does the task in one chained shell command, which a bounded list of allowed tools refuses, and the agent did not grant a headless session unrestricted shell access in the owner's absence. The flags of the measure of 2026-11-22 were never recorded, so the tool list is this plan's own. The grouped block ships as an unmeasured option and `flat` stays the default | Granting that access is the owner's decision |
 
+### The owner's rulings of 2026-11-23, after reading the gate's sheet
+
+These replace the defaults taken in the owner's absence, and the rows C74 and C77 where they say otherwise.
+
+| Ruling | Was | Reason |
+|---|---|---|
+| A `strong` lesson that got worse gets the automatic attempt like any other | It went straight to the owner (C74) | The owner's choice: the attempt is checked, shown as unread and can be undone |
+| One automatic rewording for each wording the owner wrote or read, not one per lesson: the pass never rewords its own rewording, and a wording the owner writes afterwards gets one attempt again when it gets worse. A wording the owner kept (`mem triage accept`) is not reworded; a later one is | One per lesson, for good (C74, C77) | The owner's choice. The mark `reworded` holds the date of the pass's last rewording and is compared with the date of the present version; the step's state is spent for the version a wording was written from, so an undo still brings no second rewording |
+| `auto_reword` is turned on in the owner's configuration; the default stays off | Off | The owner read the sheet and called no proposal stronger than its claim (C80) |
+| The grouped block stays an unmeasured option (C84); the digest per topic (C85) is the next plan | Open questions 3, 4 and 6 | The owner's choice |
+
 Known limit of Part 1: the rewording brief asks to start with the situation in which the lesson applies, and the checking session refuses a short form that is wider than its claim; a claim that names no situation may therefore be refused twice and go to the owner. The gate used the same small model as writer and checker, so their agreement may be correlated.
 
 ## Checks
@@ -86,6 +97,8 @@ Known limit of Part 1: the rewording brief asks to start with the situation in w
 | `grouped` and `flat` print the same lessons; the flat block is byte-identical to 0.7.0 | C81, C82 |
 
 ## Open questions for the owner
+
+Answered on 2026-11-23: see "The owner's rulings of 2026-11-23" above. The table is kept as the record of the defaults taken meanwhile.
 
 | # | Question | Default taken |
 |---|---|---|
