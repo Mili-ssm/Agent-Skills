@@ -9,7 +9,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Mapping, Sequence
+from typing import Collection, Mapping, Sequence
 
 import capture
 import records
@@ -579,3 +579,68 @@ def validate_reword(payload: object, items: Sequence[tuple[str, records.Memory]]
         short = short if isinstance(short, str) else ""
         out[ident] = {"short": short[:300], "problem": reword_problem(short, memories[ident])}
     return out
+
+
+def reword_survivors(proposed: Mapping[str, dict], items: Sequence[tuple[str, records.Memory]]
+                     ) -> tuple[list[tuple[str, records.Memory, str]], dict[str, str]]:
+    """The proposals fit to go to the checking session, as (id, memory, short), and a refusal word for each other
+    proposal: `same_text` (an earlier wording), `refused_code` (any other problem, or `shortcheck`). An id the writer
+    did not answer is in neither."""
+    kept: list[tuple[str, records.Memory, str]] = []
+    refused: dict[str, str] = {}
+    for ident, m in items:
+        got = proposed.get(ident)
+        if got is None:
+            continue
+        if got.get("problem") == "same as an earlier wording":
+            refused[ident] = "same_text"
+        elif got.get("problem") or shortcheck.problems(m.claim, got["short"]):
+            refused[ident] = "refused_code"
+        else:
+            kept.append((ident, m, got["short"]))
+    return kept, refused
+
+
+def reword_outcome(items: Sequence[tuple[str, records.Memory]], proposed: Mapping[str, dict],
+                   accepted: Collection[str]) -> dict[str, str]:
+    """One word per candidate: written, same_text, refused_code, refused_check or no_proposal."""
+    kept, refused = reword_survivors(proposed, items)
+    survivors = {ident for ident, _, _ in kept}
+    out = {}
+    for ident, _ in items:
+        if ident in refused:
+            out[ident] = refused[ident]
+        elif ident in survivors:
+            out[ident] = "written" if ident in accepted else "refused_check"
+        else:
+            out[ident] = "no_proposal"
+    return out
+
+
+def _key_of(m: records.Memory) -> str:
+    return reword_key(None if m.scope == "global" else m.path.parent.parent, m.handle)
+
+
+def reword_state_after(state: Mapping, items: Sequence[tuple[str, records.Memory]], outcome: Mapping[str, str],
+                       today: datetime.date) -> tuple[dict, list[str]]:
+    """The state once the step has run, and the ids to give up on (a `reword_failed` mark): `written` spends the
+    lesson; a refusal counts against its present version (a count for another version starts again); no proposal
+    changes nothing. `state` is not mutated."""
+    lessons = {k: dict(v) for k, v in (state.get("lessons") or {}).items() if isinstance(v, Mapping)}
+    new = {**{k: v for k, v in state.items() if k != "lessons"}, "lessons": lessons}
+    giveup: list[str] = []
+    for ident, m in items:
+        word = outcome.get(ident, "no_proposal")
+        versions = records.version_list(m)
+        if word == "no_proposal" or not versions:
+            continue
+        key, on = _key_of(m), versions[-1][0]
+        entry = lessons.get(key, {})
+        if word == "written":
+            lessons[key] = {"version": on.isoformat(), "count": _count(entry, on), "spent": True}
+            continue
+        count = _count(entry, on) + 1
+        lessons[key] = {"version": on.isoformat(), "count": count, "spent": entry.get("spent") is True}
+        if count >= REWORD_ATTEMPTS:
+            giveup.append(ident)
+    return new, giveup

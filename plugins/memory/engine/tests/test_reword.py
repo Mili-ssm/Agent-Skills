@@ -215,3 +215,80 @@ def test_validate_reword(project, gfolder):
     import pytest
     with pytest.raises(ValueError):
         corroborate.validate_reword({"items": "no"}, items)
+
+
+# --- Task 3: what the step decides from the two answers ---
+
+def proposals(items, *shorts):
+    return corroborate.validate_reword({"items": [{"id": i, "short": s} for (i, _), s in zip(items, shorts)]}, items)
+
+
+
+
+def three():
+    a, b, c = worse("Lesson a."), worse("Lesson b."), global_lesson("Maybe lesson c.", versions=[(10, "Maybe first.")],
+                                                                      log=FAILS)
+    return [("g:a", a), ("g:b", b), ("g:c", c)]
+
+
+def test_survivors_and_refusals(project, gfolder):
+    items = three()
+    got = proposals(items, "A new wording.", "first text", "Always a new wording.")
+    kept, refused = corroborate.reword_survivors(got, items)
+    assert kept == [("g:a", items[0][1], "A new wording.")]
+    assert refused == {"g:b": "same_text", "g:c": "refused_code"}
+
+
+def test_outcome_words(project, gfolder):
+    items = three() + [("g:d", worse("Lesson d.")), ("g:e", worse("Lesson e."))]
+    got = proposals(items[:4], "A new wording.", "first text", "Always a new wording.", "Another wording.")
+    out = corroborate.reword_outcome(items, got, {"g:a"})
+    assert out == {"g:a": "written", "g:b": "same_text", "g:c": "refused_code", "g:d": "refused_check",
+                   "g:e": "no_proposal"}
+
+
+def entry_of(state, m, project=None):
+    return state["lessons"][corroborate.reword_key(project, m.handle)]
+
+
+def test_a_written_lesson_is_spent(project, gfolder):
+    m = worse("Lesson a.")
+    state, giveup = corroborate.reword_state_after(NONE_YET, [("g:a", m)], {"g:a": "written"}, TODAY)
+    assert entry_of(state, m) == {"version": ago(10).isoformat(), "count": 0, "spent": True} and giveup == []
+    assert candidates(state) == []  # the record carries no `reworded`, as after an undo
+    assert candidates(NONE_YET) == ["Lesson a."]
+
+
+def test_two_refusals_for_one_version_give_up(project, gfolder):
+    m = worse("Lesson a.")
+    items = [("g:a", m)]
+    once, giveup = corroborate.reword_state_after(NONE_YET, items, {"g:a": "refused_check"}, TODAY)
+    assert entry_of(once, m)["count"] == 1 and entry_of(once, m)["spent"] is False and giveup == []
+    assert NONE_YET == {"lessons": {}, "failures": {}}
+    twice, giveup = corroborate.reword_state_after(once, items, {"g:a": "same_text"}, TODAY)
+    assert entry_of(twice, m)["count"] == 2 and giveup == ["g:a"] and entry_of(once, m)["count"] == 1
+
+
+def test_a_refusal_for_a_new_version_starts_again(project, gfolder):
+    m = worse("Lesson a.")
+    key = corroborate.reword_key(None, m.handle)
+    old = {"lessons": {key: {"version": ago(40).isoformat(), "count": 1, "spent": False}}, "failures": {"x": 1}}
+    state, giveup = corroborate.reword_state_after(old, [("g:a", m)], {"g:a": "refused_code"}, TODAY)
+    assert state["lessons"][key] == {"version": ago(10).isoformat(), "count": 1, "spent": False}
+    assert state["failures"] == {"x": 1} and giveup == []
+
+
+def test_a_project_lesson_has_the_key_of_its_project(project):
+    import records as r
+    m = r.write_memory(r.project_dir(project), "project", kind="lesson", claim="Project lesson.", body="", today=TODAY,
+                       origin="transcript", sources=[r.sighting_entry("session s1", "k")])
+    m = r.update(m, TODAY, short="First text.")
+    state, _ = corroborate.reword_state_after(NONE_YET, [("p1:" + m.handle, m)], {"p1:" + m.handle: "written"}, TODAY)
+    assert list(state["lessons"]) == [corroborate.reword_key(project, m.handle)]
+
+
+def test_no_proposal_spends_nothing(project, gfolder):
+    m = worse("Lesson a.")
+    before = {"lessons": {"k": {"version": "2026-01-01", "count": 1, "spent": False}}, "failures": {}}
+    state, giveup = corroborate.reword_state_after(before, [("g:a", m)], {"g:a": "no_proposal"}, TODAY)
+    assert state == before and giveup == []
