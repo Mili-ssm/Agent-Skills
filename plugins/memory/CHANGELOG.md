@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-23
+
 ### Added
 
 - New skill `memory-research-wave`: a procedure for a research wave (several sources or several agents) into the store: leads, parallel writers that work from full page text, a fresh-context fact-check per area, one fixer, a review of the whole and a lesson with the wave's figures. Nothing to migrate.
