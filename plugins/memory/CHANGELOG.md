@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-23
+
 ### Changed
 
 - The session start line `Curation due: N items (<parts>) (run mem curate after the current task).` now counts the decision items the last `mem curate --done` did not list: written again after being refuted, same or opposite, newer state, expired, seen often, not confirmed in 90 days. New memories alone no longer count, and no line appears at 0. `at least N` means the count is incomplete: the start-time pair search used up its budget, or one folder's count failed. Nothing has to be done, but until the first `mem curate --done` after the update the first sessions count every expired, seen-often (project) and not-confirmed item and the pairs with a memory changed since the last pass, including items that waited before; running `mem curate` and `mem curate --done` once clears them. The background curation (`auto_curation`) does not record a pass, so the line stays until someone runs `mem curate --done`.
