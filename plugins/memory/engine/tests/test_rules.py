@@ -463,7 +463,7 @@ def test_more_names_lessons_the_fill_never_attempts_and_counts_only_the_unready(
     capsys.readouterr()
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out
-    assert "1 established lesson has no short form yet: the automatic fill will not write them" in out
+    assert "1 established lesson has no short form yet: the automatic fill will not write it, so it needs curation" in out
     assert "background pass writes them" not in out
 
 

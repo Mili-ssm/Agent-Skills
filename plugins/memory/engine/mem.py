@@ -3231,7 +3231,8 @@ def cmd_rules(args: argparse.Namespace) -> int:
     if _rules_off():
         unready += "."
     elif stuck == choice.unready:
-        unready += ": the automatic fill will not write them, so they need curation (mem curate)."
+        unready += (": the automatic fill will not write "
+                    f"{'it, so it needs' if stuck == 1 else 'them, so they need'} curation (mem curate).")
     elif stuck:
         unready += (f": {stuck} need{'s' if stuck == 1 else ''} curation (mem curate), the background pass writes the "
                     "other when auto_capture is on (mem-corroborate status shows the last one).")
