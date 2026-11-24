@@ -3235,7 +3235,7 @@ def cmd_rules(args: argparse.Namespace) -> int:
                     f"{'it, so it needs' if stuck == 1 else 'them, so they need'} curation (mem curate).")
     elif stuck:
         unready += (f": {stuck} need{'s' if stuck == 1 else ''} curation (mem curate), the background pass writes the "
-                    "other when auto_capture is on (mem-corroborate status shows the last one).")
+                    f"{'other' if choice.unready - stuck == 1 else 'others'} when auto_capture is on (mem-corroborate status shows the last one).")
     else:
         unready += ": the background pass writes them when auto_capture is on (mem-corroborate status shows the last one)."
     if args.more is not None:
