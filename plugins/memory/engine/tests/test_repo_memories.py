@@ -122,3 +122,11 @@ def test_fill_job_never_picks_a_tracked_lesson(repo):
     assert before and corroborate.fill_candidates([repo], None, TODAY) == []
     assert corroborate.fill_records([repo], None) == []
     assert corroborate.reword_candidates([repo], None, TODAY, {}, every=True) == []
+
+
+def test_reword_job_never_picks_a_tracked_lesson(repo):
+    import corroborate
+    lesson(sessions=2, confirmed=False)
+    before = corroborate.reword_candidates([repo], None, TODAY, {}, every=True)
+    commit(repo)
+    assert before and corroborate.reword_candidates([repo], None, TODAY, {}, every=True) == []
