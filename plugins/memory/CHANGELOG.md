@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-24
+
 ### Security
 
 - Writes into memory folders no longer follow symlinks (a cloned repository could plant one to overwrite a file elsewhere): files are replaced through unpredictable temporary names, logs are appended without following links, and a symlinked project `.memory` folder or entry is ignored. Global memory folders may still be links (synced folders). Nothing to migrate.
@@ -12,7 +14,6 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 - Corroboration (global lessons, sightings, the short-form and topic fill, rewording) leaves out memories a repository commits: they still load at session start, but are never lifted into global memories and never written to by the background job.
 - `mem fetch-sources` refuses a host that resolves to a non-public address (loopback, private, link-local, metadata), at the first URL and at every redirect, through the same address-checked transport as `mem-research`. The connection is pinned to the checked address, so it ignores `HTTPS_PROXY`; a network that needs a proxy cannot fetch sources. A download now has a 120 s total limit and 10 redirects at most, and its errors read like `HTTP 404`.
 - Background curation and synthesis sessions (`mem-auto`, `mem-synthesize`) run in a sandbox: they read only the store, the global memories folder, their work folder and the plugin's own skill files (other registered projects' memories are off: `--project` and `--all-projects` are refused), run only the `mem` subcommands their briefs use, and cannot reach the network (`mem import`, `mem fetch-sources`, `mem new --url` and body files outside those folders are refused there), so text injected into a note cannot make them read local files or send data out. Nothing to migrate.
-
 
 ## [0.11.0] - 2026-11-23
 
