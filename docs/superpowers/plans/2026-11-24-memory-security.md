@@ -150,11 +150,11 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
   - `run_session(..., read_roots: Sequence[Path] = ())`: `Read(/{root}/**)`, `Grep(/{root}/**)`, `Glob(/{root}/**)` for each root (no bare `Read`, `Grep`, `Glob`); `Bash(mem *)` replaced by an allow-list of `Bash(mem <sub>*)` entries, one per subcommand the curator and synthesizer briefs use (derive the list from `plugins/memory/agents/memory-curator.md`, `plugins/memory/agents/memory-synthesizer.md` and the prompts `synth_pipeline` builds; record it as a module constant with a comment naming those sources); env gains `MEM_SANDBOX=1` and `MEM_SANDBOX_ROOTS`.
   - `mem-auto` and `mem-synthesize` pass the store, the global memories root (when outside the store) and the work folder.
 
-- [ ] **Step 1: Failing tests:** `test_run_session_scopes_reads_and_sets_the_sandbox` (capture command and env: no bare `"Read"`, `f"Read(/{store}/**)"` present, no `Bash(mem *)`, `env["MEM_SANDBOX"] == "1"`); `test_sandbox_refuses_network_import_urls_and_outside_body_files`.
-- [ ] **Step 2: Run** — expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_synth_session.py test_auto_curation.py test_synth_pipeline_refs.py test_fetch_sources.py test_import.py test_new_body.py` — expected: PASS.
-- [ ] **Step 5: CHANGELOG line** and **commit** `fix(memory): background curation and synthesis sessions run in a sandbox`.
+- [x] **Step 1: Failing tests:** `test_run_session_scopes_reads_and_sets_the_sandbox` (capture command and env: no bare `"Read"`, `f"Read(/{store}/**)"` present, no `Bash(mem *)`, `env["MEM_SANDBOX"] == "1"`); `test_sandbox_refuses_network_import_urls_and_outside_body_files`.
+- [x] **Step 2: Run** — expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** `test_synth_session.py test_auto_curation.py test_synth_pipeline_refs.py test_fetch_sources.py test_import.py test_new_body.py` — expected: PASS.
+- [x] **Step 5: CHANGELOG line** and **commit** `fix(memory): background curation and synthesis sessions run in a sandbox`.
 
 ### Task 6: Close
 
