@@ -95,15 +95,15 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
   - `session_index(..., tracked: frozenset[str] | None = frozenset())`: applies `mark_repository` right after `load_memories(project)`; `cmd_session_index` computes `tracked` so `session_index` itself runs no git. `cmd_rules` does the same.
 - Behavior: repository memories still load, list and qualify as rules through their sightings; only the owner confirmation written in the file stops counting, and the reader sees where they came from.
 
-- [ ] **Step 1: Failing tests** in `test_repo_memories.py` (a temporary git repository as `MEM_PROJECT`, memories committed with `git add -f`):
+- [x] **Step 1: Failing tests** in `test_repo_memories.py` (a temporary git repository as `MEM_PROJECT`, memories committed with `git add -f`):
   - `test_tracked_lesson_with_forged_owner_confirmation_is_not_vouched`: tracked lesson with `origin: transcript`, `owner_confirmed`, a valid `short`, no sightings → `mem session-index` output contains neither `the user vouched for it` nor the short (not established without that field).
   - `test_tracked_established_lesson_loads_marked_from_repository`: the same lesson with two session sightings → its short is loaded and its line ends with `(from repository)`.
   - `test_untracked_owner_confirmed_lesson_keeps_its_mark`.
   - `test_submodule_memory_folder_counts_as_tracked`.
-- [ ] **Step 2: Run** `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_repo_memories.py -q` — expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_repo_memories.py test_session_index.py test_session_index_due.py test_rules_session.py test_rules.py test_records.py test_project_synthesis_curation.py` — expected: PASS (`test_session_index_runs_no_git` unchanged).
-- [ ] **Step 5: README + CHANGELOG** (Security: memories committed to a repository never show as owner-vouched and are marked "from repository") and **commit** `fix(memory): repository memories carry no owner trust`.
+- [x] **Step 2: Run** `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_repo_memories.py -q` — expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** `test_repo_memories.py test_session_index.py test_session_index_due.py test_rules_session.py test_rules.py test_records.py test_project_synthesis_curation.py` — expected: PASS (`test_session_index_runs_no_git` unchanged).
+- [x] **Step 5: README + CHANGELOG** (Security: memories committed to a repository never show as owner-vouched and are marked "from repository") and **commit** `fix(memory): repository memories carry no owner trust`.
 
 ### Task 3b: Corroboration does not lift repository memories into global ones
 
@@ -113,7 +113,7 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
 
 **Interfaces:**
 - Consumes: `records.tracked_memories` (3a).
-- Behavior: each registered project's tracked memories are left out where corroboration loads project memories; a project whose set is `None` contributes none. Capture is unchanged: it may still see them, and after 3a they carry no owner trust.
+- Behavior: each registered project's tracked memories are left out where corroboration loads project memories; a project whose set is `None` contributes none. This includes the fill job (`fill_records`, and the candidate order that puts `owner_confirmed` lessons first): it must never pick a tracked memory or write `short`/`topic` into a tracked file. Capture is unchanged: it may still see them, and after 3a they carry no owner trust.
 
 - [ ] **Step 1: Failing test:** `test_corroboration_ignores_repository_lessons` (a dry run lists no `p<n>:` id of a tracked memory, and a tracked lesson grouped with a global one yields no `write_global` or sighting).
 - [ ] **Step 2: Run** — expected: FAIL.
