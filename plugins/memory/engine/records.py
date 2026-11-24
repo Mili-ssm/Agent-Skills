@@ -73,6 +73,7 @@ class Memory:
     short: str | None = None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
     short_by: str | None = None  # "model": the short form was written by a model and the owner has not read it
     topic: str | None = None  # one or two lowercase words that group rules
+    from_repository: bool = False  # a repository commits the file: its owner_confirmed is not the reader's (mark_repository)
     load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
     log: list[str] = field(default_factory=list)  # valid case entries "<date> session <id> <outcome>", in file order
     versions: list[str] = field(default_factory=list)  # valid entries "<date> <short form>", sorted by date
@@ -613,6 +614,32 @@ def projects(memory: Memory) -> list[str]:
         if found and found[1]:
             first.setdefault(found[0], found[1])
     return list(dict.fromkeys(first.values()))
+
+
+def tracked_memories(project: Path) -> frozenset[str] | None:
+    """Handles of the `.memory/*.md` files git tracks in `project`; None when `.memory` is itself a submodule or a
+    repository (every handle counts as tracked); empty when git is missing, fails or times out."""
+    folder = project / PROJECT_DIR
+    if (folder / ".git").exists():
+        return None
+    try:
+        run = subprocess.run(["git", "-C", str(project), "ls-files", "-z", "--recurse-submodules", "--", f"{PROJECT_DIR}/"],
+                             capture_output=True, timeout=2, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if run.returncode != 0:
+        return frozenset()
+    names = [Path(n.decode("utf-8", "replace")) for n in run.stdout.split(b"\0") if n]
+    if any(n.as_posix() == PROJECT_DIR for n in names):  # a gitlink lists as the folder itself
+        return None
+    return frozenset(n.stem for n in names if n.suffix == ".md" and n.parent.as_posix() == PROJECT_DIR)
+
+
+def mark_repository(memories: Sequence[Memory], tracked: frozenset[str] | None) -> list[Memory]:
+    """Copies of the tracked memories with `from_repository` set and the owner confirmation in the file dropped: a
+    repository's author is not the reader. Sightings still count. `tracked` None marks them all."""
+    return [replace(m, from_repository=True, owner_confirmed=None) if tracked is None or m.handle in tracked else m
+            for m in memories]
 
 
 def standing(memory: Memory) -> str | None:

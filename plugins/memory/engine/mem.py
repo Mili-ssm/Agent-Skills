@@ -1844,7 +1844,8 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
                   *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
-                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None) -> str:
+                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None,
+                  tracked: frozenset[str] | None = frozenset()) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
@@ -1881,7 +1882,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         loaded_global = records.load_memories(memories, "global")
         live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
-    loaded_project = records.load_memories(project, "project")
+    loaded_project = records.mark_repository(records.load_memories(project, "project"), tracked)
     if passes is not None and project is not None:
         due_in(project, loaded_project)
     if passes is not None and has_memories:
@@ -2042,7 +2043,8 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice, stats=stats, marks=read_marks(os.environ))
+                             notice=notice, stats=stats, marks=read_marks(os.environ),
+                             tracked=records.tracked_memories(project) if project else frozenset())
     except Exception:
         text = _INDEX_RULES
         stats.clear()
@@ -3221,6 +3223,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
     if args.unread or args.read:
         return _rules_unread(args, today)
     (_, _, project), (_, _, global_) = _loaded(_memory_folders(args))
+    try:
+        root = records.project_root(Path.cwd(), os.environ)
+    except OSError:
+        root = None
+    project = records.mark_repository(project, records.tracked_memories(root) if root else frozenset())
     choice = rules.choose(project, global_, today)
     if _rules_off():
         print(RULES_OFF_NOTICE)
