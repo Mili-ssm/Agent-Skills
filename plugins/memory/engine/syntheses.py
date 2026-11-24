@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import datetime
 import hashlib
-import os
 import posixpath
 import re
 import unicodedata
@@ -21,6 +20,7 @@ from typing import Callable, Mapping, Sequence
 import yaml
 
 import records
+import safe_io
 
 SYNTHESES_DIR = "syntheses"
 SUMMARY = "summary"
@@ -84,9 +84,7 @@ def _read(path: Path) -> str:
 
 
 def _write(path: Path, text: str) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(text.encode("utf-8"))
-    os.replace(tmp, path)
+    safe_io.replace_file(path, text.encode("utf-8"))
 
 
 def _scan(text: str) -> tuple[list[str], list[tuple[int, str]]]:
@@ -617,11 +615,11 @@ def snapshot(path: Path):
     log_before = log.read_bytes() if log.exists() else None
 
     def undo() -> None:
-        path.write_bytes(before)
+        safe_io.replace_file(path, before)
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
     return undo
 
 

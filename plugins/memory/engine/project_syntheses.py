@@ -19,6 +19,7 @@ from typing import Mapping, NamedTuple, Sequence
 import yaml
 
 import records
+import safe_io
 import syntheses
 
 NAMES: tuple[str, ...] = ("organization", "plans", "pending", "conventions")
@@ -122,7 +123,7 @@ def load_each(memory_dir: Path) -> tuple[dict[str, list[Part]], list[tuple[str, 
     broken: list[tuple[str, str]] = []
     for name in NAMES:
         path = folder(memory_dir) / f"{name}.md"
-        if path.is_file():
+        if path.is_file() and not path.is_symlink():
             try:
                 found[name] = _parse(path)
             except ProjectSynthesisError as exc:
@@ -186,6 +187,7 @@ def write_part(memory_dir: Path, worktree: Path, name: str, heading: str, body: 
                paths: Sequence[str], today: datetime.date) -> str:
     """Create the file or add a part to it; a heading whose handle exists replaces that part in place."""
     path = _file(memory_dir, name)
+    safe_io.refuse_symlink_chain(memory_dir, path)
     heading = " ".join(heading.split())
     if heading.startswith("#"):
         raise ProjectSynthesisError("the heading must not start with `#`: the tool writes the `## `")

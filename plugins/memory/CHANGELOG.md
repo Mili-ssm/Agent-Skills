@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Security
+
+- Writes into memory folders no longer follow symlinks (a cloned repository could plant one to overwrite a file elsewhere): files are replaced through unpredictable temporary names, logs are appended without following links, and a symlinked project `.memory` folder or entry is ignored. Global memory folders may still be links (synced folders). Nothing to migrate.
+
 ## [0.11.0] - 2026-11-23
 
 ### Added
