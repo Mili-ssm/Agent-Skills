@@ -115,11 +115,11 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
 - Consumes: `records.tracked_memories` (3a).
 - Behavior: each registered project's tracked memories are left out where corroboration loads project memories; a project whose set is `None` contributes none. This includes the fill job (`fill_records`, and the candidate order that puts `owner_confirmed` lessons first): it must never pick a tracked memory or write `short`/`topic` into a tracked file. Capture is unchanged: it may still see them, and after 3a they carry no owner trust.
 
-- [ ] **Step 1: Failing test:** `test_corroboration_ignores_repository_lessons` (a dry run lists no `p<n>:` id of a tracked memory, and a tracked lesson grouped with a global one yields no `write_global` or sighting).
-- [ ] **Step 2: Run** — expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_repo_memories.py test_corroborate.py test_mem_corroborate.py` — expected: PASS.
-- [ ] **Step 5: CHANGELOG line** and **commit** `fix(memory): corroboration skips repository memories`.
+- [x] **Step 1: Failing test:** `test_corroboration_ignores_repository_lessons` (a dry run lists no `p<n>:` id of a tracked memory, and a tracked lesson grouped with a global one yields no `write_global` or sighting).
+- [x] **Step 2: Run** — expected: FAIL.
+- [x] **Step 3: Implement.**
+- [x] **Step 4: Run** `test_repo_memories.py test_corroborate.py test_mem_corroborate.py` — expected: PASS.
+- [x] **Step 5: CHANGELOG line** and **commit** `fix(memory): corroboration skips repository memories`.
 
 ### Task 4: Address-checked downloads in `mem fetch-sources`
 
