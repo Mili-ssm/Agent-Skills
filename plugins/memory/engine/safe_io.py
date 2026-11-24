@@ -81,3 +81,38 @@ def refuse_symlink_chain(root: Path, path: Path) -> None:
         current = current / part
         if current.is_symlink():
             raise UnsafePath(f"{current} is a symlink")
+
+
+# Sandbox of the background sessions (`mem-auto`, `mem-synthesize`): their text may come from injected notes, so a
+# session started with MEM_SANDBOX=1 reaches no network and reads body files only under MEM_SANDBOX_ROOTS and its
+# working folder.
+SANDBOX = "MEM_SANDBOX"
+SANDBOX_ROOTS = "MEM_SANDBOX_ROOTS"
+_SANDBOX_COMMANDS = ("import", "fetch-sources")
+
+
+def sandbox_active(env: "os._Environ[str] | dict[str, str] | None" = None) -> bool:
+    return (os.environ if env is None else env).get(SANDBOX) == "1"
+
+
+def body_file_allowed(source: str) -> bool:
+    """`-` (standard input) and any file under MEM_SANDBOX_ROOTS or the working directory; symlinks resolved."""
+    if source == "-":
+        return True
+    roots = [Path.cwd(), *(Path(r) for r in os.environ.get(SANDBOX_ROOTS, "").split(os.pathsep) if r)]
+    target = Path(os.path.realpath(source))
+    return any(target.is_relative_to(os.path.realpath(r)) for r in roots)
+
+
+def sandbox_refusal(command: str, args: dict) -> str | None:
+    """Why a `mem` call is refused in a sandboxed session, else None. `args` holds the parsed options."""
+    if not sandbox_active():
+        return None
+    if command in _SANDBOX_COMMANDS:
+        return f"{command} is off in this session"
+    if command == "new" and args.get("url"):
+        return "--url is off in this session"
+    for key, value in args.items():
+        if key.endswith("body_file") and isinstance(value, str) and not body_file_allowed(value):
+            return f"--{key.replace('_', '-')} is outside the folders this session may read: {value}"
+    return None

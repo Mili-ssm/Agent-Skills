@@ -5896,6 +5896,9 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "read":
         args.command = "show"
+    if refusal := safe_io.sandbox_refusal(args.command, vars(args)):
+        print(f"mem: {refusal}", file=sys.stderr)
+        return 2
     if args.command in ("init", "terms", "history"):  # history finds its own store: `history init` may name one
         return args.func(args)
     if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used

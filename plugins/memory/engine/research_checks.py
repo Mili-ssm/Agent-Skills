@@ -24,6 +24,7 @@ from typing import Any, Callable, Iterable, Literal, Mapping, NamedTuple, Sequen
 
 import mem
 import records
+import safe_io
 
 STANCES = ("supports", "contradicts")
 SOURCE_KINDS = ("official", "paper", "other")
@@ -136,6 +137,9 @@ def parse_web_reply(text: str) -> list[Any] | None:
 
 class FetchError(Exception):
     """A page that could not be used."""
+
+
+SANDBOX = safe_io.SANDBOX   # MEM_SANDBOX=1: a background session; see safe_io.sandbox_refusal
 
 
 class FetchRefused(FetchError):
@@ -334,6 +338,8 @@ def fetch_raw(url: str, limit_for: Callable[[str], int], *, over: Literal["trunc
     call. `limit_for(content type)` gives the byte limit (it may raise to refuse the type); past it, "truncate" cuts the
     body and "fail" raises FetchFailed. `allow_hosts` names hosts that skip the address check, for the URL given only
     (a local test page): every redirect target is checked as any other. The pinned connection ignores HTTPS_PROXY."""
+    if safe_io.sandbox_active():
+        raise FetchRefused("network access is off in this session")
     allowed = {h.lower() for h in allow_hosts}
     end = time.monotonic() + (TOTAL_DEADLINE if deadline is None else deadline)
     sent = {"Accept": "text/html,text/plain,application/pdf", "User-Agent": "mem-research", **(headers or {})}
