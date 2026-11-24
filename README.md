@@ -1,6 +1,6 @@
 # agent-skills
 
-Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its own (ADR 0011):
+Marketplace `mili-ssm` with four plugins, each installed on its own (ADR 0011): `agent-skills`, `memory` and two opt-in mods.
 
 | Plugin | What | Docs |
 |---|---|---|
@@ -9,7 +9,7 @@ Marketplace `mili-ssm` with one plugin and opt-in mods, each installed on its ow
 | `tool-fold` (mod) | Folds tool, skill and agent calls into one line each; running agents get a live card; Claude's own card per request: time, calls, skills, agents, context, session, Haiku activity and conclusion (ADR 0016) | [README](plugins/tool-fold/README.md) |
 | `memory` | Notes and memories reachable from every repository and subagent: the `mem` command, a short start text, curation and syntheses (ADR 0023) | [README](plugins/memory/README.md) |
 
-`tool-fold` makes offloading to Haiku/Sonnet and its cost visible (ADR 0010); `plan-progress` tracks Superpowers plans; `tool-fold` also keeps tool output out of the way until asked for.
+`tool-fold` makes offloading to Haiku/Sonnet and its cost visible (ADR 0010) and keeps tool output out of the way until asked for; `plan-progress` tracks Superpowers plans.
 
 ## agent-skills
 
@@ -429,7 +429,7 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 
 - Maintainer notes for agents (commands, generated files, ADR rules): [`CLAUDE.md`](CLAUDE.md) · Requirements: [`docs/requirements.md`](docs/requirements.md) · Decisions: [`docs/adr/`](docs/adr/) · Mods per surface (Desktop, VS Code, terminal): [`docs/mods-surfaces.md`](docs/mods-surfaces.md)
 - Layout: one marketplace, each plugin in `plugins/<name>/`; the root keeps `docs/`, `scripts/`, the files you copy into user scope (`user-agents/`, `user-config/`) and the generated ports (`ports/`, ADR 0015).
-- ADRs are cited by number; 0008 supersedes 0005.
+- ADRs are cited by number; current status of each: `grep -n '^Status' docs/adr/*.md`.
 
 ## Develop
 
@@ -438,7 +438,7 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 | Branch | Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases. An install that follows `dev` (`Mili-ssm/Agent-Skills#dev`; cloud: `AGENT_SKILLS_REF=dev`) still updates only when a version changes; to try unreleased work use `claude --plugin-dir plugins/<name>` |
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
 | Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |
-| Measure a description or prompt change before merging | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --case '<glob>'`; which cases and when to rerun: [`CLAUDE.md` § Eval protocol](CLAUDE.md#eval-protocol-adr-0007-review-2026-10-30) |
+| Measure a description or prompt change before merging | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<glob>'`; which cases and when to rerun: [`CLAUDE.md` § Eval protocol](CLAUDE.md#eval-protocol-adr-0007-review-2026-10-30) |
 | Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
 | Type-check a mod | `claude --plugin-dir plugins/<mod>` once (lays its types and tsconfig, git-ignored), then `tsc -p plugins/<mod>` |
 

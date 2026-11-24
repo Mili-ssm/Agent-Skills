@@ -12,6 +12,8 @@ import json
 import os
 from pathlib import Path
 
+import safe_io
+
 STALE_RUNNING_SECONDS = 3600   # a `running` status older than this is a run that was killed
 LOCK_NAME = "run.lock"
 STATUS_NAME = "status.json"
@@ -76,11 +78,7 @@ def read_json(path: Path) -> dict:
 
 
 def write_json(path: Path, data: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(data, f)
-    os.replace(tmp, path)
+    safe_io.replace_file(path, json.dumps(data).encode("utf-8"), mode=0o600)
 
 
 def failure(status: dict, now: float) -> dict | None:

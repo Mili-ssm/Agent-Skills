@@ -125,7 +125,7 @@ def run_steps(state: State, claude: str, run_budget: float, root: Path, log, acc
     work = root / "curator-work"
     work.mkdir(mode=0o700)
     done = sp.run_session(claude, "haiku", "apply", work, settings, env, root / "01-curator.jsonl", timeout=900,
-                          agent=AGENT, max_budget=run_budget)
+                          agent=AGENT, max_budget=run_budget, read_roots=sp.session_roots(store, env, work))
     acct["cost"] += done["cost"]
     log(f"curator: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
         f"answer={' '.join(done['answer'].split())[:300]}")

@@ -20,10 +20,11 @@ import time
 import unicodedata
 import urllib.parse
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping, NamedTuple, Sequence
+from typing import Any, Callable, Iterable, Literal, Mapping, NamedTuple, Sequence
 
 import mem
 import records
+import safe_io
 
 STANCES = ("supports", "contradicts")
 SOURCE_KINDS = ("official", "paper", "other")
@@ -136,6 +137,9 @@ def parse_web_reply(text: str) -> list[Any] | None:
 
 class FetchError(Exception):
     """A page that could not be used."""
+
+
+SANDBOX = safe_io.SANDBOX   # MEM_SANDBOX=1: a background session; see safe_io.sandbox_refusal
 
 
 class FetchRefused(FetchError):
@@ -325,14 +329,21 @@ def _read(resp: http.client.HTTPResponse, limit: int, deadline: float) -> bytes:
     return b"".join(chunks)
 
 
-def fetch_text(url: str, allow_hosts: Iterable[str] = (), deadline: float | None = None) -> str:
-    """The visible text of a page. Only http(s); a non-public address is refused at every hop (3 redirects at most);
-    10 s per socket operation and `deadline` seconds (TOTAL_DEADLINE) for the whole call; 2 MB read at most (8 MB for a
-    PDF, which `pdftotext` reads when installed; else it is not checked). `allow_hosts` names hosts that skip the
-    address check, for the URL given only (a local test page): every redirect target is checked as any other."""
+def fetch_raw(url: str, limit_for: Callable[[str], int], *, over: Literal["truncate", "fail"] = "truncate",
+              headers: Mapping[str, str] | None = None, deadline: float | None = None,
+              max_redirects: int = MAX_REDIRECTS, allow_hosts: Iterable[str] = (),
+              timeout: float = TIMEOUT) -> tuple[bytes, str]:
+    """(body, Content-Type lowercased, parameters kept) of a page. Only http(s); a non-public address is refused at
+    every hop (`max_redirects` at most); `timeout` seconds per socket operation (TIMEOUT) and `deadline` seconds (TOTAL_DEADLINE) for the whole
+    call. `limit_for(content type)` gives the byte limit (it may raise to refuse the type); past it, "truncate" cuts the
+    body and "fail" raises FetchFailed. `allow_hosts` names hosts that skip the address check, for the URL given only
+    (a local test page): every redirect target is checked as any other. The pinned connection ignores HTTPS_PROXY."""
+    if safe_io.sandbox_active():
+        raise FetchRefused("network access is off in this session")
     allowed = {h.lower() for h in allow_hosts}
     end = time.monotonic() + (TOTAL_DEADLINE if deadline is None else deadline)
-    for hop in range(MAX_REDIRECTS + 1):
+    sent = {"Accept": "text/html,text/plain,application/pdf", "User-Agent": "mem-research", **(headers or {})}
+    for hop in range(max_redirects + 1):
         parts = urllib.parse.urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.hostname:
             raise FetchRefused("only http and https URLs are fetched")
@@ -346,7 +357,7 @@ def fetch_text(url: str, allow_hosts: Iterable[str] = (), deadline: float | None
         remaining = end - time.monotonic()
         if remaining <= 0:
             raise FetchFailed("total time limit passed")
-        conn = _connection(parts, address, port, min(TIMEOUT, remaining))
+        conn = _connection(parts, address, port, min(timeout, remaining))
         # A server that drips bytes keeps every single read within its timeout: cut the socket at the deadline.
         cut = threading.Event()
         cutter = threading.Timer(remaining, _cut, (conn, cut))
@@ -354,27 +365,26 @@ def fetch_text(url: str, allow_hosts: Iterable[str] = (), deadline: float | None
         cutter.start()
         try:
             path = urllib.parse.urlunsplit(("", "", parts.path or "/", parts.query, ""))
-            conn.request("GET", path, headers={"Host": parts.netloc.rsplit("@", 1)[-1], "Accept": "text/html,text/plain,application/pdf",
-                                               "User-Agent": "mem-research", "Accept-Encoding": "identity"})
+            conn.request("GET", path, headers={**sent, "Host": parts.netloc.rsplit("@", 1)[-1], "Accept-Encoding": "identity"})
             resp = conn.getresponse()
             if resp.status in (301, 302, 303, 307, 308):
                 target = resp.getheader("Location")
                 if not target:
                     raise FetchFailed(f"redirect without a location ({resp.status})")
-                if hop == MAX_REDIRECTS:
+                if hop == max_redirects:
                     raise FetchRefused("too many redirects")
                 url = urllib.parse.urljoin(url, target)
                 continue
             if resp.status != 200:
                 raise FetchFailed(f"HTTP {resp.status}")
-            header = resp.getheader("Content-Type") or ""
-            ctype = header.split(";")[0].strip().lower()
-            pdf = ctype == "application/pdf" and shutil.which("pdftotext") is not None
-            if not (pdf or _is_text_type(ctype)):
-                raise NotChecked(f"not checked: {ctype or 'unknown type'}")
-            raw = _read(resp, MAX_PDF_BYTES if pdf else MAX_BYTES, end)
+            header = (resp.getheader("Content-Type") or "").lower()
+            limit = limit_for(header.split(";")[0].strip())
+            raw = _read(resp, limit + (over == "fail"), end)
             if cut.is_set():
                 raise FetchFailed("total time limit passed")
+            if len(raw) > limit:
+                raise FetchFailed(f"response larger than {limit // (1024 * 1024)} MB")
+            return raw, header
         except (OSError, http.client.HTTPException) as exc:
             if cut.is_set():
                 raise FetchFailed("total time limit passed") from exc
@@ -382,19 +392,35 @@ def fetch_text(url: str, allow_hosts: Iterable[str] = (), deadline: float | None
         finally:
             cutter.cancel()
             conn.close()
-        if pdf:
-            return _pdf_text(raw)
-        charset = "utf-8"
-        for piece in header.split(";")[1:]:
-            key, _, value = piece.partition("=")
-            if key.strip().lower() == "charset" and value.strip():
-                charset = value.strip().strip("\"'")
-        try:
-            text = raw.decode(charset, errors="replace")
-        except LookupError:
-            text = raw.decode("utf-8", errors="replace")
-        return html_text(text) if ctype in ("text/html", "application/xhtml+xml") else text
     raise FetchRefused("too many redirects")  # unreachable
+
+
+def fetch_text(url: str, allow_hosts: Iterable[str] = (), deadline: float | None = None) -> str:
+    """The visible text of a page, through `fetch_raw`: 3 redirects at most; 2 MB read at most (8 MB for a PDF, which
+    `pdftotext` reads when installed; else it is not checked); any other non-text type is not checked."""
+    pdf = False
+
+    def limit_for(ctype: str) -> int:
+        nonlocal pdf
+        pdf = ctype == "application/pdf" and shutil.which("pdftotext") is not None
+        if not (pdf or _is_text_type(ctype)):
+            raise NotChecked(f"not checked: {ctype or 'unknown type'}")
+        return MAX_PDF_BYTES if pdf else MAX_BYTES
+
+    raw, header = fetch_raw(url, limit_for, allow_hosts=allow_hosts, deadline=deadline)
+    if pdf:
+        return _pdf_text(raw)
+    ctype = header.split(";")[0].strip()
+    charset = "utf-8"
+    for piece in header.split(";")[1:]:
+        key, _, value = piece.partition("=")
+        if key.strip() == "charset" and value.strip():
+            charset = value.strip().strip("\"'")
+    try:
+        text = raw.decode(charset, errors="replace")
+    except LookupError:
+        text = raw.decode("utf-8", errors="replace")
+    return html_text(text) if ctype in ("text/html", "application/xhtml+xml") else text
 
 
 # ---- step 4: quotes ----

@@ -7,10 +7,12 @@ own `claude -p` session. Standard library only."""
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import time
 from pathlib import Path
+from typing import Sequence
 
 PLUGIN = Path(__file__).resolve().parents[1]
 MEM = PLUGIN / "bin" / "mem"
@@ -107,15 +109,38 @@ def parse(stdout: str) -> dict:
     return out
 
 
+# The `mem` subcommands the background sessions may run, one `Bash(mem <sub>*)` rule each. Sources: the curator
+# (agents/memory-curator.md: `curate` with `apply --safe`, `show`, `memories`, `search`), the writer
+# (agents/memory-synthesizer.md: `find`, `show`, `synthesis list|new|add|append|edit`, `check`), and the checker and
+# fixer briefs (synth_briefs/*.md: `search`, `show`, `synthesis edit`, `check`). No `import`, `fetch-sources`, `new`,
+# `remember` or `history`: no brief names them, and `attach` and `refs` run from code (`mem()`), not in a session.
+MEM_ALLOWED = ("curate", "show", "memories", "search", "find", "check",
+               "synthesis list", "synthesis new", "synthesis add", "synthesis append", "synthesis edit")
+
+
+def session_roots(store: Path, env: dict, work: Path) -> list[Path]:
+    """The folders a background session may read: the store, the global memories folder when it lies outside the
+    store, and the work folder."""
+    import records   # lazy: it needs PyYAML, which the rest of this module does not
+    memories = records.global_memories_root(env)
+    roots = [store.resolve(), work.resolve()]
+    if memories is not None and not records.inside(memories.resolve(), store.resolve()):
+        roots.insert(1, memories.resolve())
+    return roots
+
+
 def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path, env: dict, log: Path,
                 timeout: int = 1500, effort: str | None = None, agent: str | None = None,
-                max_budget: float | None = None) -> dict:
+                max_budget: float | None = None, read_roots: Sequence[Path] = ()) -> dict:
     cmd = [claude, "-p", prompt, "--model", model, "--plugin-dir", str(PLUGIN), "--settings", str(settings),
            "--setting-sources", "project",
            # Headless --allowedTools also limits what a session may run: exactly what a step needs. Body files go
            # in the work folder (`//` is an absolute path in a permission rule; a new file needs the Edit rule too); the
            # web stays out.
-           "--allowedTools", "Bash(mem *)", "Read", "Grep", "Glob",
+           # Reads only under `read_roots` and the skill folder (`//` again: an absolute path), so injected note text
+           # cannot make a session read other local files; `mem` runs only the subcommands of MEM_ALLOWED.
+           "--allowedTools", *(f"Bash(mem {sub}*)" for sub in MEM_ALLOWED),
+           *(f"{tool}(/{root}/**)" for root in (*read_roots, SKILL.parent) for tool in ("Read", "Grep", "Glob")),
            f"Write(/{work}/**)", f"Edit(/{work}/**)",
            "--disallowedTools", "WebSearch", "WebFetch",
            "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
@@ -125,6 +150,7 @@ def run_session(claude: str, model: str, prompt: str, work: Path, settings: Path
         cmd += ["--max-budget-usd", f"{max_budget:.4f}"]   # the session stops itself past this spend (--print only)
     if agent:
         cmd += ["--agent", agent]   # the agent's body is the session's system prompt
+    env = {**env, "MEM_SANDBOX": "1", "MEM_SANDBOX_ROOTS": os.pathsep.join(str(r) for r in read_roots)}
     start = time.monotonic()
     try:
         done = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
@@ -279,14 +305,15 @@ NO_COST = "a session ended without a cost report"
 
 
 def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, settings: Path, topic: str,
-              sessions: list[dict], lean: bool = True, left=None, briefs: Path = BRIEFS) -> dict:
+              sessions: list[dict], lean: bool = True, left=None, briefs: Path = BRIEFS,
+              read_roots: Sequence[Path] = ()) -> dict:
     """Check, fix, and (lean) scoped check and delete-only step for the synthesis `s:<topic>` already in `store`.
 
     Each session's summary is appended to `sessions`; session streams go to `base/NN-<role>.jsonl`. Returns
     `arm_count` (first check, None when its report is unreadable), `why` (empty when every step worked), `fixes`,
     `deleted`, `scope_violations`, `reverted` (the violations put back), `refs` (per check that reported `REF:` lines:
     `check`, `reported` lines, proposal `lines` sent, `applied` and `refused` as `mem synthesis refs` printed them,
-    `error` when the command failed). `briefs` is the folder the brief files are read from. `lean=False` is the trial's arm S: one Sonnet fixer, no second check.
+    `error` when the command failed). `briefs` is the folder the brief files are read from; `read_roots` the folders the sessions may read (see `run_session`). `lean=False` is the trial's arm S: one Sonnet fixer, no second check.
     `left` (a function: USD still allowed) caps every step: none starts when nothing is left, each session gets
     `--max-budget-usd` of what is left, and a session without a result event (killed at its timeout: its spend is
     unknown) ends the loop with `why` = NO_COST."""
@@ -299,7 +326,7 @@ def lean_loop(claude: str, env: dict, base: Path, store: Path, work: Path, setti
         if remaining is not None and remaining <= 0:
             raise Stop("budget spent")
         s = run_session(claude, model, text, work, settings, env, base / f"{len(sessions) + 1:02d}-{role}.jsonl",
-                        effort=level, max_budget=remaining)
+                        effort=level, max_budget=remaining, read_roots=read_roots)
         s.update(role=role, model=model, costs=cost_by_family(s["model_usage"]))
         sessions.append(summary(s))
         if left and not s["has_result"]:

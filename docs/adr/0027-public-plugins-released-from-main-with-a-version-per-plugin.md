@@ -1,6 +1,6 @@
 # 0027 Public plugins, released from main with a version per plugin
 
-Status: accepted · Date: 2026-11-19 · Supersedes 0006 · Amends 0008
+Status: accepted · Date: 2026-11-19 · Supersedes 0006 · Amends 0008, 0011
 
 ## Context
 

@@ -1,6 +1,6 @@
 # Proactive dispatch wording + README install and recommended prompt
 
-Status: proposed · Date: 2026-11-04
+Status: implemented (plan 2026-11-04-dispatch-and-readme, #107) · Date: 2026-11-04
 
 ## Intent
 1. Raise the chance that the main model dispatches `skeptical-reviewer` on its own (measured 0/3 with a Sonnet main, policy only). Owner: refine prompts, no hooks; in real use `implementer` already fires constantly because the owner's main model rarely writes code.

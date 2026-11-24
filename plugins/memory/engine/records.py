@@ -18,6 +18,7 @@ from typing import Callable, Collection, Iterable, Iterator, Mapping, NamedTuple
 
 import yaml
 
+import safe_io
 from notes import safe_load  # noqa: F401  (the one place that picks libyaml's C parser; dates stay dates, unlike HubLoader)
 
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
@@ -72,6 +73,7 @@ class Memory:
     short: str | None = None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
     short_by: str | None = None  # "model": the short form was written by a model and the owner has not read it
     topic: str | None = None  # one or two lowercase words that group rules
+    from_repository: bool = False  # a repository commits the file: its owner_confirmed is not the reader's (mark_repository)
     load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
     log: list[str] = field(default_factory=list)  # valid case entries "<date> session <id> <outcome>", in file order
     versions: list[str] = field(default_factory=list)  # valid entries "<date> <short form>", sorted by date
@@ -364,7 +366,10 @@ def load_memories(folder: Path | None, scope: str) -> list[Memory]:
     try:
         if folder is None or not folder.is_dir():
             return []
-        return [_parse(p, scope) for p in sorted(folder.glob("*.md"), key=lambda p: p.stem) if p.is_file()]
+        if scope == "project" and folder.is_symlink():  # a cloned repository's planted link; global folders may be synced links
+            return []
+        return [_parse(p, scope) for p in sorted(folder.glob("*.md"), key=lambda p: p.stem)
+                if p.is_file() and not (scope == "project" and p.is_symlink())]
     except OSError:
         return []
 
@@ -466,6 +471,8 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
         valid_until = today + datetime.timedelta(days=90)
     elif kind == "state" and valid_until is None:
         valid_until = today + datetime.timedelta(days=30)
+    if scope == "project":
+        safe_io.refuse_symlink_chain(folder, folder)
     folder.mkdir(parents=True, exist_ok=True)
     log = [case_entry(on or today, key, outcome) for key in dict.fromkeys(filter(None, map(session_key, sources)))] \
         if outcome else []
@@ -518,9 +525,7 @@ def update(memory: Memory, today: datetime.date, **changes) -> Memory:
         else:
             meta[key] = value.isoformat() if isinstance(value, datetime.date) else value
     head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
-    tmp = memory.path.with_name(f".{memory.path.name}.tmp")
-    tmp.write_text(f"---\n{head}---\n{body}", encoding="utf-8")
-    os.replace(tmp, memory.path)
+    safe_io.replace_file(memory.path, f"---\n{head}---\n{body}".encode("utf-8"))
     return _parse(memory.path, memory.scope)
 
 
@@ -609,6 +614,32 @@ def projects(memory: Memory) -> list[str]:
         if found and found[1]:
             first.setdefault(found[0], found[1])
     return list(dict.fromkeys(first.values()))
+
+
+def tracked_memories(project: Path) -> frozenset[str] | None:
+    """Handles of the `.memory/*.md` files git tracks in `project`; None when `.memory` holds its own `.git` or is
+    listed as a gitlink (every handle counts as tracked); empty when git is missing, fails or times out."""
+    folder = project / PROJECT_DIR
+    try:
+        if (folder / ".git").exists():
+            return None
+        run = subprocess.run(["git", "-C", str(project), "ls-files", "-z", "--recurse-submodules", "--", f"{PROJECT_DIR}/"],
+                             capture_output=True, timeout=2, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return frozenset()
+    if run.returncode != 0:
+        return frozenset()
+    names = [Path(n.decode("utf-8", "replace")) for n in run.stdout.split(b"\0") if n]
+    if any(n.as_posix() == PROJECT_DIR for n in names):  # a gitlink lists as the folder itself
+        return None
+    return frozenset(n.stem for n in names if n.suffix == ".md" and n.parent.as_posix() == PROJECT_DIR)
+
+
+def mark_repository(memories: Sequence[Memory], tracked: frozenset[str] | None) -> list[Memory]:
+    """Copies of the tracked memories with `from_repository` set and the owner confirmation in the file dropped: a
+    repository's author is not the reader. Sightings still count. `tracked` None marks them all."""
+    return [replace(m, from_repository=True, owner_confirmed=None) if tracked is None or m.handle in tracked else m
+            for m in memories]
 
 
 def standing(memory: Memory) -> str | None:
@@ -1043,8 +1074,7 @@ def log_before(memory: Logged, action: str) -> None:
     """Append the file's whole current text to the `.curation-log` beside it, before an action changes the file."""
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
              "handle": memory.handle, "before": memory.path.read_bytes().decode("utf-8")}
-    with (memory.path.parent / CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(memory.path.parent / CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def _log_lines(memory: Logged) -> list[str] | None:
@@ -1085,13 +1115,10 @@ def last_log_entry(memory: Logged) -> dict | None:
 
 def restore(memory: Logged, entry: dict) -> None:
     """Put back the text a log entry holds, byte for byte, through a temporary file, then log that it was used."""
-    tmp = memory.path.with_name(f".{memory.path.name}.tmp")
-    tmp.write_bytes(entry["before"].encode("utf-8"))
-    os.replace(tmp, memory.path)
+    safe_io.replace_file(memory.path, entry["before"].encode("utf-8"))
     marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": "restore",
               "handle": memory.handle, "undone": entry["line"]}
-    with (memory.path.parent / CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+    safe_io.append_text(memory.path.parent / CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
 
 
 def ensure_excluded(project: Path) -> bool:

@@ -2,7 +2,7 @@
 
 > Renamed 2026-11-03 from `untrusted-reviewer` to `skeptical-reviewer` (see ADR 0017).
 
-Status: proposed · Date: 2026-11-03
+Status: implemented (agent `skeptical-reviewer`, ADR 0017) · Date: 2026-11-03
 
 ## Intent
 The complement of `pre-mortem`: pre-mortem stress-tests plans before work (Opus); `skeptical-reviewer` reviews each reviewable action during the work (cheapest model), so the main model and its workers correct themselves step by step before delivering. Its report is untrusted by design: the main model triages every finding, verifies it itself or re-asks, and re-runs the reviewer after a fix.
