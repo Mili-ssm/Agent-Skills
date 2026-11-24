@@ -1,6 +1,6 @@
 # Plan cards: whole-run percent, 50/80/95% checks and a separate replan call (tool-fold)
 
-Status: proposed · Date: 2026-11-06 · Builds on [2026-11-02-plan-step-tracking-design.md](2026-11-02-plan-step-tracking-design.md)
+Status: implemented as amended by the plan-v3 spec (plan 2026-11-06-plan-replan, #108) · Date: 2026-11-06 · Builds on [2026-11-02-plan-step-tracking-design.md](2026-11-02-plan-step-tracking-design.md)
 
 ## Intent
 The owner, after using planned agent cards for days (screenshot 2026-11-06: `4/6 Probar vista por defe… 98% · ~2 min`):

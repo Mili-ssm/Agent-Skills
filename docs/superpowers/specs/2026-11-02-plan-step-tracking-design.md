@@ -1,6 +1,6 @@
 # Plan step tracking: current step + remaining minutes (tool-fold)
 
-Status: proposed · Date: 2026-11-02
+Status: implemented (plan 2026-11-02-plan-step-tracking, #106) · Date: 2026-11-02
 
 ## Intent
 Long agent cards with a step plan (`plugins/tool-fold/hooks/plan.tsx`) stay at `0/N` and jump at the end. A replay showed checks fire every 40–80 s and answers apply; the cause is the evidence and the prompt: `<progreso>` lists bare calls (`✓ Read f5.md`), and the prompt says "con duda, repite" and "el tiempo no prueba nada", so a conservative Haiku answers 0. The owner wants Haiku to answer two things: which step the agent is on, and how long each unfinished step takes.
