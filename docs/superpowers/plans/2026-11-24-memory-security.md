@@ -71,15 +71,15 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
 **Interfaces:**
 - Consumes: `safe_io.replace_file`, `safe_io.append_text`, `safe_io.refuse_symlink_chain` (Task 1).
 
-- [ ] **Step 1: Failing tests:**
+- [x] **Step 1: Failing tests:**
   - `test_note_restore_does_not_follow_a_planted_temp_symlink` (through `mem restore` on a note).
   - `test_import_skips_symlinks_at_any_depth`: a source with `literature/x/a.md` → a secret file and `literature/y` → a folder outside; after `mem import`, the secret text is in no store file and the output names each skipped path.
   - `test_state_files_stay_private`: `auto_state.write_json` gives 0o600.
   - `test_no_predictable_temp_names_remain`: scans only `engine/*.py` and `bin/*` (never `tests/`) for `with_name(f".{` and `+ ".tmp"`; no match.
-- [ ] **Step 2: Run** them — expected: FAIL.
-- [ ] **Step 3: Implement**: route the listed writes through `safe_io`; `cmd_import` checks each path with `refuse_symlink_chain(source_root, path)`, skips and reports it.
-- [ ] **Step 4: Run** the new tests, then `test_import.py test_store_git.py test_auto_curation.py test_note_edit.py test_curate_apply.py test_capture_state.py test_capture_auto.py test_memory_edit.py` — expected: PASS.
-- [ ] **Step 5: CHANGELOG line** (`mem import` skips symlinks) and **commit** `fix(memory): route every store write through safe_io; import skips symlinks`.
+- [x] **Step 2: Run** them — expected: FAIL.
+- [x] **Step 3: Implement**: route the listed writes through `safe_io`; `cmd_import` checks each path with `refuse_symlink_chain(source_root, path)`, skips and reports it.
+- [x] **Step 4: Run** the new tests, then `test_import.py test_store_git.py test_auto_curation.py test_note_edit.py test_curate_apply.py test_capture_state.py test_capture_auto.py test_memory_edit.py` — expected: PASS.
+- [x] **Step 5: CHANGELOG line** (`mem import` skips symlinks) and **commit** `fix(memory): route every store write through safe_io; import skips symlinks`.
 
 ### Task 3a: Repository memories carry no owner trust
 
