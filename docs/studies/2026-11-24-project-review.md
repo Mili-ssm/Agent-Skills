@@ -8,7 +8,7 @@ What should improve across the whole repository (all plugins, scripts, docs and 
 
 The repository is healthy at plugin level: no imports cross plugins, every check is green (on 2026-11-24: memory 2,214 passed / 5 skipped in 294 s, tool-fold 154, plan-progress 9, `validate.py` and `port.py --check` OK). The debt sits in four places:
 
-1. **Security of the memory engine** (S1–S7): one high, three medium, three low. Details are kept out of git until fixed (`.local/studies/2026-11-24-security-review.md`).
+1. **Security of the memory engine** (S1–S7): one high, three medium, three low. S1–S4 and S6 are fixed in [PR #182](https://github.com/Mili-ssm/Agent-Skills/pull/182) (plan `docs/superpowers/plans/2026-11-24-memory-security.md` there); S5 and S7 stay open (§ Security, still open).
 2. **The memory refactor plan has not started**: none of its tasks is done, and `bin/` copies a background-job lifecycle the study did not count.
 3. **The commit gate is untested and unenforced**: `validate.py` and `port.py` have no tests, and nothing runs them automatically.
 4. **Docs and prompts drift**: the memory state table already contradicts the release, and three homes (descriptions, `routing.md`, `offload-policy.md`) restate the same triggers.
@@ -91,11 +91,19 @@ No stale paths, flags or tool names; every SKILL.md is at most 81 lines and ever
 | B8 | `skills/prompt-engineering/references/prompt-rules.md`, `models.md` | Model facts dated 2026-10 may be one generation old | low (unverified) | re-check with `web-research`, then re-date |
 | B9–B12 | references; agents | ADR citations dead for installed users; vocabulary slips ("finding" in `pre-mortem`, `ux-reviewer` given a mode it lacks); shared lines copied ×4 to ×17 because of `omitClaudeMd`, with wording drift and no validator check; six-part brief in 3 places | low | inline notes; a drift check in `validate.py` for the shared lines |
 
+## Security, still open
+
+| ID | Area | Finding | Sev | Action |
+|---|---|---|---|---|
+| S5 | memory auto-capture | Text seen in two sessions (tool output, web pages) can become a loaded project rule; only frequency gates it | low | never auto-load capture-born rules without owner triage, or filter rules that order commands, fetches or setting changes |
+| S7 | `scripts/cloud-setup.sh` | Falls back to the first `user-agents/Explore.md` under `~/.claude/plugins`, which may belong to another marketplace | low | fail instead, or restrict the search to the `mili-ssm` clone |
+| — | memory, noted in the fix review | `--owner-approved` on note writes is enforced only by prompt text; a single symlinked memory file becomes a regular file on rewrite; folders inside the note store may be links (owner's choice) | low | decide when the area is next touched |
+
 ## Recommended sequence
 
 | Step | Content | Why first |
 |---|---|---|
-| 1 | Security S1, S2, S4, then S3 (local study) | one high finding in a public plugin |
+| 1 | Security S1–S4 and S6: done in PR #182 | one high finding in a public plugin |
 | 2 | Quick fixes: D1–D5, D8, P1 (measured), A7, A9, unused `summarize` | small, independent, and D1 misleads every agent that resumes memory work |
 | 3 | Gate: Q1 tests, then Q3 if the owner wants it | protects every later refactor |
 | 4 | Memory refactor plan tasks 1–2 extended with A3 (`config.py`, `headless.py`, `jobs.py`) | fixes A2's missing flag on the way |
