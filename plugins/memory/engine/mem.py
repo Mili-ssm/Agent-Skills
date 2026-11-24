@@ -5893,6 +5893,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _dispatch(argv)
+    except safe_io.UnsafePath as exc:  # a symlink where a command refuses one
+        print(f"mem: refused: {exc}", file=sys.stderr)
+        return 2
+
+
+def _dispatch(argv: list[str] | None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "read":
         args.command = "show"

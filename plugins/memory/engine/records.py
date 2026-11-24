@@ -617,8 +617,8 @@ def projects(memory: Memory) -> list[str]:
 
 
 def tracked_memories(project: Path) -> frozenset[str] | None:
-    """Handles of the `.memory/*.md` files git tracks in `project`; None when `.memory` is itself a submodule or a
-    repository (every handle counts as tracked); empty when git is missing, fails or times out."""
+    """Handles of the `.memory/*.md` files git tracks in `project`; None when `.memory` holds its own `.git` or is
+    listed as a gitlink (every handle counts as tracked); empty when git is missing, fails or times out."""
     folder = project / PROJECT_DIR
     try:
         if (folder / ".git").exists():

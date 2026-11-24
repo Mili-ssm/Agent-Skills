@@ -75,3 +75,22 @@ def test_sandbox_checks_every_file_option(tmp_path, monkeypatch, key):
     from safe_io import sandbox_refusal
     assert sandbox_refusal("synthesis", {key: str(outside / "secret.txt")})
     assert sandbox_refusal("synthesis", {key: str(inside / "ok.md")}) is None
+
+
+@pytest.mark.parametrize("key,value", [("all_projects", True), ("project", "other"), ("project", ["other"])])
+def test_sandbox_refuses_other_projects(monkeypatch, key, value):
+    from safe_io import sandbox_refusal
+    monkeypatch.setenv("MEM_SANDBOX", "1")
+    assert "off in this session" in sandbox_refusal("search", {key: value})
+    assert sandbox_refusal("search", {key: [] if key == "project" else False}) is None
+    assert sandbox_refusal("curate", {"project": None, "is_project": True}) is None
+    monkeypatch.delenv("MEM_SANDBOX")
+    assert sandbox_refusal("search", {key: value}) is None
+
+
+def test_sandbox_refuses_all_projects_on_the_command_line(monkeypatch, capsys):
+    monkeypatch.setenv("MEM_SANDBOX", "1")
+    assert mem.main(["search", "x", "--all-projects"]) == 2
+    assert "--all-projects is off in this session" in capsys.readouterr().err
+    assert mem.main(["memories", "--project", "other"]) == 2
+    assert "--project is off in this session" in capsys.readouterr().err

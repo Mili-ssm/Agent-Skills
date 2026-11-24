@@ -260,3 +260,20 @@ def test_no_predictable_temp_names_remain():
     bad = [f"{f.name}: {needle}" for f in files for needle in ('with_name(f".{', '+ ".tmp"')
            if needle in f.read_text(encoding="utf-8")]
     assert bad == []
+
+
+def test_unsafe_path_from_a_command_is_a_refusal_not_a_traceback(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "proj"
+    (root / "src").mkdir(parents=True)
+    (root / ".memory").mkdir()
+    target = tmp_path / "target"
+    target.mkdir()
+    (root / ".memory" / "syntheses").symlink_to(target)
+    monkeypatch.setenv("MEM_PROJECT", str(root))
+    monkeypatch.chdir(root)
+    body = tmp_path / "body.txt"
+    body.write_text("Text.")
+    code = mem.main(["project-synthesis", "add", "organization", "Heading", "--paths", "src/", "--body-file", str(body)])
+    err = capsys.readouterr().err
+    assert code == 2 and err.startswith("mem: refused: ") and "symlink" in err and "Traceback" not in err
+    assert list(target.iterdir()) == []

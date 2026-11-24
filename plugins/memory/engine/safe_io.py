@@ -85,7 +85,7 @@ def refuse_symlink_chain(root: Path, path: Path) -> None:
 
 # Sandbox of the background sessions (`mem-auto`, `mem-synthesize`): their text may come from injected notes, so a
 # session started with MEM_SANDBOX=1 reaches no network and reads body files only under MEM_SANDBOX_ROOTS and its
-# working folder.
+# working folder, and no other registered project's memories.
 SANDBOX = "MEM_SANDBOX"
 SANDBOX_ROOTS = "MEM_SANDBOX_ROOTS"
 _SANDBOX_COMMANDS = ("import", "fetch-sources")
@@ -112,6 +112,10 @@ def sandbox_refusal(command: str, args: dict) -> str | None:
         return f"{command} is off in this session"
     if command == "new" and args.get("url"):
         return "--url is off in this session"
+    if args.get("all_projects"):  # other registered projects' memories are not in the session's read scope
+        return "--all-projects is off in this session"
+    if args.get("project"):  # a name (or names) of a registered project; curate's --project is the flag `is_project`
+        return "--project is off in this session"
     for key, value in args.items():
         # every option that names a file to read: --body-file, --note-body-file, --summary-file, curate --from, refs --file
         if (key == "file" or key.endswith("_file")) and isinstance(value, str) and not body_file_allowed(value):
