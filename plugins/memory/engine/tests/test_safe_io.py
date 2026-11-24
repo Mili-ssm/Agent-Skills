@@ -1,11 +1,14 @@
 import datetime
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
 import project_syntheses as ps
 import records
+import auto_state
+import mem
 import safe_io
 
 TODAY = datetime.date(2026, 11, 24)
@@ -138,3 +141,35 @@ def test_confirm_part_refuses_a_symlinked_syntheses_folder(tmp_path):
     with pytest.raises(safe_io.UnsafePath):
         ps.confirm_part(mem, tmp_path, "organization", handle, TODAY)
     assert (ps.folder(real) / "organization.md").read_text() == before
+
+
+def test_note_restore_does_not_follow_a_planted_temp_symlink(hub_root, tmp_path, capsys):
+    rel = "knowledge/computing/attention-replaces-recurrence.md"
+    handle = "attention-replaces-recurrence"
+    note = hub_root / rel
+    assert mem.main(["--root", str(hub_root), "note", "edit", handle, "--claim",
+                     "Self-attention can replace recurrence for sequence modelling"]) == 0
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    (note.parent / f".{note.name}.tmp").symlink_to(victim)
+    capsys.readouterr()
+    assert mem.main(["--root", str(hub_root), "restore", handle]) == 0
+    assert victim.read_text() == "precious"
+
+
+def test_state_files_stay_private(tmp_path):
+    path = tmp_path / "state.json"
+    auto_state.write_json(path, {"a": 1})
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    auto_state.write_json(path, {"a": 2})
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert auto_state.read_json(path) == {"a": 2}
+
+
+def test_no_predictable_temp_names_remain():
+    root = Path(__file__).resolve().parents[2]
+    files = [*root.joinpath("engine").glob("*.py"), *(p for p in root.joinpath("bin").iterdir() if p.is_file())]
+    assert files
+    bad = [f"{f.name}: {needle}" for f in files for needle in ('with_name(f".{', '+ ".tmp"')
+           if needle in f.read_text(encoding="utf-8")]
+    assert bad == []

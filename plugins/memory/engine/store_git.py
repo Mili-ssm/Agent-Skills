@@ -17,6 +17,8 @@ import time
 from pathlib import Path
 from typing import Callable
 
+import safe_io
+
 # Same values as mem.py (_LOCAL_DIRS, MAX_FILE_BYTES); mem.py cannot be imported from here (it imports this module, and `engine/run.py` runs it)
 # and a test keeps both copies equal.
 LOCAL_DIRS = frozenset({"__pycache__", ".venv", "target", "node_modules", ".pytest_cache", ".sources",
@@ -288,10 +290,8 @@ def trim_logs(store: Path, now: datetime.datetime | None = None) -> int:
                 lines[number] = ""
                 changed += 1
         if changed:
-            tmp = path.with_name(".curation-log.tmp")
             try:
-                tmp.write_text("\n".join(lines), encoding="utf-8", newline="")
-                os.replace(tmp, path)
+                safe_io.replace_file(path, "\n".join(lines).encode("utf-8"))
             except OSError:
                 continue
             removed += changed

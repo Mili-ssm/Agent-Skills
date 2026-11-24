@@ -40,6 +40,7 @@ import corroborate
 import handoff
 import project_syntheses
 import records
+import safe_io
 import shortcheck
 import rules
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
@@ -899,13 +900,14 @@ def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: 
     `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
     group = group or uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        for path, before in originals.items():
-            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
-                     "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
-            if moved and path in moved:
-                entry["from"] = moved[path].relative_to(root).as_posix()
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    out = []
+    for path, before in originals.items():
+        entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                 "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
+        if moved and path in moved:
+            entry["from"] = moved[path].relative_to(root).as_posix()
+        out.append(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, "".join(out))
 
 
 def _resolve_notes(root: Path, args: Sequence[str]) -> list[Path]:
@@ -2712,7 +2714,7 @@ def _reword_failed(args: argparse.Namespace) -> int:
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"m:{m.handle}\tedited reword failed")
@@ -2815,7 +2817,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
             if log_before is None:
                 log.unlink(missing_ok=True)
             else:
-                log.write_bytes(log_before)
+                safe_io.replace_file(log, log_before)
             raise
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
@@ -3006,17 +3008,14 @@ def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) 
     try:
         for number, e in members:
             target = root / e.get("from", e["handle"])
-            tmp = target.with_name(f".{target.name}.tmp")
-            tmp.write_bytes(e["before"].encode("utf-8"))
-            os.replace(tmp, target)
+            safe_io.replace_file(target, e["before"].encode("utf-8"))
             if "from" in e:
                 (root / e["handle"]).unlink()
                 sources, was = root / SOURCES_DIR / Path(e["handle"]).stem, root / SOURCES_DIR / Path(e["from"]).stem
                 if sources.is_dir() and not was.exists():
                     sources.rename(was)
             marker = {"t": stamp, "action": "restore", "handle": e["handle"], "undone": number}
-            with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-                f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+            safe_io.append_text(root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
         if rebuild:
             apply_index(root)
     except (OSError, FrontmatterError) as exc:
@@ -3038,13 +3037,10 @@ def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
     if entry.get("group"):
         return _restore_group(root, rel, entry)
     try:
-        tmp = note.with_name(f".{note.name}.tmp")
-        tmp.write_bytes(entry["before"].encode("utf-8"))
-        os.replace(tmp, note)
+        safe_io.replace_file(note, entry["before"].encode("utf-8"))
         marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                   "action": "restore", "handle": rel, "undone": entry["line"]}
-        with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-            f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+        safe_io.append_text(root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
     except OSError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3294,9 +3290,7 @@ def _write_passes(env: Mapping[str, str], covered: Sequence[Path], today: dateti
     known = {k: v.isoformat() for k, v in read_passes(env).items()}
     known.update({str(f.resolve()): today.isoformat() for f in covered})
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    safe_io.replace_file(path, (json.dumps(known, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def _marks_file(env: Mapping[str, str]) -> Path | None:
@@ -3334,9 +3328,7 @@ def _write_marks(env: Mapping[str, str], covered: Mapping[Path, Collection[str]]
     known = {k: sorted(v) for k, v in _parse_marks(text).items()}
     known.update({str(f.resolve()): sorted(keys) for f, keys in covered.items()})
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    safe_io.replace_file(path, (json.dumps(known, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def _tagged(m: records.Memory, extra: str = "") -> str:
@@ -4235,8 +4227,7 @@ def _log_note(root: Path, path: Path, rel: str, action: str) -> None:
     """The note's current text, appended to the store's `.curation-log` before a curation action changes it."""
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
              "handle": rel, "before": path.read_bytes().decode("utf-8")}
-    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def _note_target(rel: str) -> str:
@@ -4297,11 +4288,10 @@ def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], ac
     """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes."""
     group = uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        for path, (old, new) in changes.items():
-            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
-                     "before": old.decode("utf-8"), "after": _sha(new)}
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, "".join(
+        json.dumps({"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                    "before": old.decode("utf-8"), "after": _sha(new)}, ensure_ascii=False) + "\n"
+        for path, (old, new) in changes.items()))
 
 
 def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]) -> None:
@@ -4323,7 +4313,7 @@ def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
         raise
 
 
@@ -4833,9 +4823,7 @@ def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section
 
 
 def _swap_file(path: Path, data: bytes) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    safe_io.replace_file(path, data)
 
 
 def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: str, new: str) -> None:
@@ -4866,7 +4854,7 @@ def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: 
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
         raise
     _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
 
@@ -4996,16 +4984,33 @@ _IMPORT_FOLDERS = ("literature", "knowledge", "research")
 _IMPORT_DOCUMENTS = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
 
 
-def _import_files(src: Path, with_sources: bool, research_data: bool = False) -> list[str]:
-    """Source-relative paths to import, sorted. The source is only listed and read, never written."""
+def _import_files(src: Path, with_sources: bool, research_data: bool = False,
+                  skipped: list[str] | None = None) -> list[str]:
+    """Source-relative paths to import, sorted. The source is only listed and read, never written.
+    A symlink, or anything under one, is never listed: its source-relative path goes to `skipped`."""
+    skipped = skipped if skipped is not None else []
+
+    def refused(path: Path) -> bool:
+        try:
+            safe_io.refuse_symlink_chain(src, path)
+        except safe_io.UnsafePath:
+            skipped.append(path.relative_to(src).as_posix())
+            return True
+        return False
+
     found: list[str] = []
     roots = [*_IMPORT_FOLDERS, *([".sources"] if with_sources else [])]
     for top in roots:
         base = src / top
+        if base.is_symlink():
+            refused(base)
+            continue
         for here, dirs, names in os.walk(base):
             dirs[:] = sorted(d for d in dirs if d == d.lstrip(".") or top == ".sources")
-            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            dirs[:] = [d for d in dirs if d != "__pycache__" and not refused(Path(here) / d)]
             for name in names:
+                if refused(Path(here) / name):
+                    continue
                 rel = (Path(here) / name).relative_to(src)
                 if top != ".sources" and name.startswith("."):
                     continue
@@ -5054,7 +5059,7 @@ def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
 def _union_topics(src: Path, dest: Path) -> tuple[list[str], list[str], str]:
     """(ids added, ids kept as they were, text to append to the destination's topics.yaml)."""
     path = src / "topics.yaml"
-    if not path.is_file():
+    if path.is_symlink() or not path.is_file():
         return [], [], ""
     try:
         theirs = load_yaml(_read_text(path))
@@ -5088,7 +5093,10 @@ def cmd_import(args: argparse.Namespace) -> int:
     except FrontmatterError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    files = _import_files(src, args.with_sources, args.research_data)
+    skipped: list[str] = []
+    if (src / "topics.yaml").is_symlink():
+        skipped.append("topics.yaml")
+    files = _import_files(src, args.with_sources, args.research_data, skipped)
     kinds = collections.Counter(k for k in map(_note_kind, files) if k)
     todo: list[str] = []
     same, conflicts = 0, []
@@ -5119,11 +5127,11 @@ def cmd_import(args: argparse.Namespace) -> int:
                     pass  # not text: the log keeps text only
             target.parent.mkdir(parents=True, exist_ok=True)
             with (src / rel).open("rb") as f:
-                target.write_bytes(f.read())
+                safe_io.replace_file(target, f.read())
         if topic_text:
             current = (root / "topics.yaml").read_text(encoding="utf-8")
-            (root / "topics.yaml").write_text(current + ("" if current.endswith("\n") or not current else "\n") + topic_text,
-                                              encoding="utf-8")
+            safe_io.replace_file(root / "topics.yaml", (current + ("" if current.endswith("\n") or not current else "\n")
+                                                        + topic_text).encode("utf-8"))
         if originals:
             _log_group(root, originals, "import")
         apply_index(root)
@@ -5148,7 +5156,7 @@ def cmd_import(args: argparse.Namespace) -> int:
     print(f"topics: {len(added)} added, {len(kept)} kept as they were")
     print(f"check: {len(problems)} problems")
     print(f"flagged: {len(flagged)} files")
-    for header, items in (("conflicts:", conflicts), ("topics kept:", kept),
+    for header, items in (("skipped symlinks:", sorted(skipped)), ("conflicts:", conflicts), ("topics kept:", kept),
                           ("check problems (first 20):", [str(p) for p in problems[:20]]), ("flagged:", flagged)):
         if items:
             print(header)
