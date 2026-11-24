@@ -1859,7 +1859,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         try:
             key = str(folder.resolve())
             found = _decisions(loaded, today, since=(passes or {}).get(key), budget=budget,
-                               attempts=_fill_attempts(os.environ), root=root)
+                               attempts=_fill_attempts(os.environ), root=root, tracked=tracked)
             known = (marks or {}).get(key, frozenset())
             for k, label in found.keys().items():
                 if k not in known:
@@ -3225,14 +3225,13 @@ def cmd_rules(args: argparse.Namespace) -> int:
     unready = f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form yet"
     # the pass skips the fill while the loaded rules are off (`cmd_auto` of mem-corroborate)
     attempts = _fill_attempts(os.environ)
-    stuck = 0 if _rules_off() or not choice.unready else sum(
-        1 for m in [*project, *global_] if m.load != "index" and corroborate.fill_stuck(
-            m, root if m.scope == "project" else None, attempts, today)
-        and (root is not None or m.scope != "project"))
+    stuck = 0 if _rules_off() else sum(
+        1 for m in choice.unready_lessons if (root is not None or m.scope != "project")
+        and corroborate.fill_wont_write(m, root if m.scope == "project" else None, attempts, today))
     if _rules_off():
         unready += "."
     elif stuck == choice.unready:
-        unready += ": the automatic fill gave up, so they need curation (mem curate)."
+        unready += ": the automatic fill will not write them, so they need curation (mem curate)."
     elif stuck:
         unready += (f": {stuck} need{'s' if stuck == 1 else ''} curation (mem curate), the background pass writes the "
                     "other when auto_capture is on (mem-corroborate status shows the last one).")
@@ -3365,7 +3364,7 @@ class Decisions:
     expired: list[records.Memory]
     seen: list[records.Memory]
     stale: list[records.Memory]
-    nofill: list[records.Memory]  # established lessons the automatic short-form fill gave up on
+    nofill: list[records.Memory]  # established lessons the automatic short-form fill will not write (`fill_wont_write`)
     pairs_checked: bool
 
     def keys(self) -> dict[str, str]:
@@ -3416,11 +3415,11 @@ def _fill_attempts(env: Mapping[str, str]) -> dict:
 
 def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since: datetime.date | None = None,
                budget: records.Budget | None = None, attempts: Mapping | None = None,
-               root: Path | None = None) -> Decisions:
+               root: Path | None = None, tracked: frozenset[str] | None = frozenset()) -> Decisions:
     """The decision items of one folder from what `records.load_memories` returned: superseded memories and
     unreadable files are left out. With `since` the pair kinds compare only pairs with a memory changed since then;
     `budget` is spent by those comparisons. `attempts` (`_fill_attempts`) turns on the "no short form" kind; `root` is
-    the project root of a project folder, None for the global one."""
+    the project root of a project folder, None for the global one, and `tracked` its `records.tracked_memories`."""
     kept = [m for m in loaded if m.error is None and m.superseded_by is None]
     live = [m for m in kept if records.is_live(m, today)]
     among = _changed_since(live, since) if since is not None else None
@@ -3440,7 +3439,8 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
     cutoff = today - datetime.timedelta(days=_STALE_DAYS)
     stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
              and max(m.created, m.last_observed or m.created) <= cutoff]
-    nofill = [m for m in kept if attempts and corroborate.fill_stuck(m, root, attempts, today)]
+    nofill = [m for m in (records.mark_repository(kept, tracked) if root else kept)
+              if attempts is not None and corroborate.fill_wont_write(m, root, attempts, today)]
     return Decisions(again, same, state, expired, seen, stale, nofill, budget is None or not budget.exhausted)
 
 
@@ -3777,8 +3777,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 print(_READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
                 return 2
             covered.append(folder)
-            keys[folder] = set(_decisions(records.load_memories(folder, scope), today, attempts=attempts,
-                                          root=folder.parent if scope == "project" else None).keys())
+            root = folder.parent if scope == "project" else None
+            keys[folder] = set(_decisions(records.load_memories(folder, scope), today, attempts=attempts, root=root,
+                                          tracked=records.tracked_memories(root) if root else frozenset()).keys())
             labels[folder] = scope
         if covered:
             try:
@@ -3801,8 +3802,10 @@ def cmd_curate(args: argparse.Namespace) -> int:
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
     live = [m for m in every if records.is_live(m, today)]
     out: list[str] = []
-    found = [_decisions(loaded, today, attempts=attempts, root=folder.parent if scope == "project" and folder else None)
-             for scope, folder, loaded in scopes]
+    roots = [folder.parent if scope == "project" and folder else None for scope, folder, _ in scopes]
+    found = [_decisions(loaded, today, attempts=attempts, root=root,
+                        tracked=records.tracked_memories(root) if root else frozenset())
+             for root, (_, _, loaded) in zip(roots, scopes)]
     nofill = [m for d in found for m in d.nofill]  # `found` is reused below
     unconfirmed = _unconfirmed_handles(every)  # their own category below
     again = [pair for d in found for pair in d.refuted]
@@ -3873,9 +3876,10 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if unread:
         out.append(f"short forms nobody read: {len(unread)} (mem rules --unread)")
     if nofill:
-        out.append("established, but the automatic fill gave up on its short form (write one of at most "
+        out.append("established, but the automatic fill will not write its short form (it gave up, or never "
+                   f"tries a repository-tracked or strong unconfirmed project lesson); write one of at most "
                    f"{records.SHORT_LIMIT} characters and pick a topic: mem memory edit m:<h> --short '<text>' "
-                   "[--user-read] --topic <t>, with --global for a global lesson)")
+                   "--topic <t>, with --global for a global lesson; add --user-read only when the owner wrote or read the text)")
         out += [f"  m:{m.handle}  {_flat(m.claim)}" for m in nofill]
     if not args.is_global:
         out += _curate_project_syntheses(scopes, today)

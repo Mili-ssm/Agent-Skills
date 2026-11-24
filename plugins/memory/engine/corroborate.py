@@ -373,12 +373,18 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
     return found[:cap]
 
 
-def fill_stuck(m: records.Memory, project: Path | None, attempts: dict, today: datetime.date) -> bool:
-    """True when the automatic fill gave up on this lesson: it could load as a rule (`rules.eligible`, not awaiting
-    triage, loads in full) and has no valid short form, after `FILL_ATTEMPTS` failed fills on its present claim.
-    `project` is the project root, None for a global lesson. Only the owner can unstick it (`mem memory edit --short`)."""
-    return (rules.eligible(m, today) and m.triage != "pending" and m.load != "index" and not records.valid_short(m.short)
-            and attempt_count(attempts.get(fill_key(project, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS)
+def fill_wont_write(m: records.Memory, project: Path | None, attempts: dict, today: datetime.date) -> bool:
+    """True when the automatic fill will not write a short form for this lesson, so only the owner can
+    (`mem memory edit --short`). The lesson could load as a rule (`rules.eligible`, not awaiting triage, loads in
+    full) and has no valid short form, and: the fill gave up after `FILL_ATTEMPTS` failed fills on its present claim,
+    or it is a project lesson the fill never attempts (repository-tracked, see `project_memories`; strong and not
+    confirmed by the owner, see `fill_candidates`). `m` is marked by `records.mark_repository`; `project` is the
+    project root, None for a global lesson."""
+    if not (rules.eligible(m, today) and m.triage != "pending" and m.load != "index" and not records.valid_short(m.short)):
+        return False
+    if attempt_count(attempts.get(fill_key(project, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS:
+        return True
+    return project is not None and (m.from_repository or (m.weight == "strong" and m.owner_confirmed is None))
 
 
 def attempt_count(entry: object, digest: str) -> int:

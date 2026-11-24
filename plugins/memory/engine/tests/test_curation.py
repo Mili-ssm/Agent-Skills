@@ -1162,10 +1162,24 @@ def _stuck(folder, handle="nf", count=2, *, claim="Cache keys need explicit vers
 def test_stuck_short_form_is_listed_with_its_fix(project, gfolder, capsys):
     _stuck(project)
     out = run(capsys, "curate", "--project")[1]
-    assert "gave up on its short form" in out and "mem memory edit" in out and "--short" in out
+    assert "will not write its short form" in out and "mem memory edit" in out and "--short" in out
     assert "  m:nf  Cache keys need explicit versions" in out.splitlines()
     assert mem._decisions(_load(project), TODAY, attempts=mem._fill_attempts(os.environ),
                           root=project.parent).keys() == {"nofill:nf": "no short form"}
+
+
+SOURCES = "sources:\n" + "".join(f"- session s{i}\n" for i in range(1, 5))
+
+
+def test_lessons_the_fill_never_attempts_are_listed_without_attempts(project, gfolder, capsys):
+    # a strong project lesson the owner never confirmed, and a repository-tracked one: no fill state at all
+    put(project, "sg", "Strong claim nobody confirmed", extra="origin: transcript\nweight: strong\n" + SOURCES)
+    path = put(project, "tr", "Tracked lesson from the repository", extra="origin: transcript\n" + SOURCES)
+    git(project.parent, "add", "-f", str(path))
+    out = run(capsys, "curate", "--project")[1]
+    assert "  m:sg  Strong claim nobody confirmed" in out.splitlines()
+    assert "  m:tr  Tracked lesson from the repository" in out.splitlines()
+    assert "will not write its short form" in out and "--user-read only when the owner" in out
 
 
 def test_a_lesson_not_yet_stuck_is_not_listed(project, gfolder, capsys):

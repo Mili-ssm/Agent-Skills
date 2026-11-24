@@ -452,3 +452,36 @@ def test_more_says_stuck_lessons_need_curation(project, gfolder, capsys):
     out = capsys.readouterr().out
     assert "2 established lessons have no short form yet: 1 needs curation (mem curate)" in out
     assert "the background pass writes the other" in out
+
+
+def test_more_names_lessons_the_fill_never_attempts_and_counts_only_the_unready(project, gfolder, capsys):
+    # a strong project lesson nobody confirmed is never filled: it needs curation, not the background pass
+    write("Strong project lesson.", scope="project", weight="strong", sessions=("a", "b"))
+    path = next(iter(load(records.project_dir(project), "project").values())).path
+    path.write_text(path.read_text().replace("- session b project ba9876543210\n", "- session b project ba9876543210\n"
+                                              "- session c project aaaaaaaaaaaa\n- session d project 0123456789ab\n"))
+    capsys.readouterr()
+    assert mem.main(["rules", "--more"]) == 0
+    out = capsys.readouterr().out
+    assert "1 established lesson has no short form yet: the automatic fill will not write them" in out
+    assert "background pass writes them" not in out
+
+
+def test_stuck_count_ignores_a_project_twin_of_a_ready_global_lesson(project, gfolder, capsys):
+    import json
+    import corroborate
+    write("Same lesson, global.", short="Global rule.", topic="testing")
+    g = load(gfolder, "global")["Same lesson, global."]
+    write("Same lesson, project.", scope="project")  # twin that the fill gave up on, hidden by the ready global one
+    path = next(iter(load(records.project_dir(project), "project").values())).path
+    path.write_text(path.read_text().replace("status: active\n", f"status: active\ngeneral: m:{g.handle}\n"))
+    twin = next(iter(load(records.project_dir(project), "project").values()))
+    write("Still waiting for the background pass.")
+    state = Path(os.environ["MEM_DATA"]) / "corroborate" / "fill-attempts.json"
+    state.parent.mkdir(parents=True)
+    key = corroborate.fill_key(project, twin.handle)
+    state.write_text(json.dumps({"lessons": {key: {"digest": corroborate.claim_digest(twin), "count": 2}}}))
+    capsys.readouterr()
+    assert mem.main(["rules", "--more"]) == 0
+    out = capsys.readouterr().out
+    assert "1 established lesson has no short form yet: the background pass writes them" in out
