@@ -107,7 +107,7 @@ No stale paths, flags or tool names; every SKILL.md is at most 81 lines and ever
 
 Ruled 2026-11-24:
 
-1. Security: fix now, before other work, S1–S4 plus S6 (plan on branch `fix/memory-security`); S2 by per-project approval (`mem trust`), accepting that a later `git pull` into an approved project can bring new memories that load.
+1. Security: fix now, before other work, S1–S4 plus S6 (plan on branch `fix/memory-security`); S2 by the light design: committing `.memory/` is a legitimate feature, so repository memories keep loading, but the owner confirmation written in their files no longer counts, they are marked "from repository", and corroboration never lifts them into global memories.
 2. Gate: Q1 tests plus an opt-in local `pre-push` hook (Q3); no CI.
 3. Refactor plan: extended with A2, A3, A4, A5 and A7 ([plan](../superpowers/plans/2026-11-23-memory-refactor.md)).
 
