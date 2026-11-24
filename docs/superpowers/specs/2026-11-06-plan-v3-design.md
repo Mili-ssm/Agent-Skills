@@ -1,6 +1,6 @@
 # Plan cards v3: Haiku judges "done?", code owns time, steps remembered (tool-fold)
 
-Status: proposed · Date: 2026-11-06 · Amends [2026-11-06-plan-replan-design.md](2026-11-06-plan-replan-design.md) and [2026-11-02-plan-step-tracking-design.md](2026-11-02-plan-step-tracking-design.md)
+Status: implemented (plan 2026-11-06-plan-v3, #110) · Date: 2026-11-06 · Amends [2026-11-06-plan-replan-design.md](2026-11-06-plan-replan-design.md) and [2026-11-02-plan-step-tracking-design.md](2026-11-02-plan-step-tracking-design.md)
 
 ## Intent
 Owner's `/agents-debug` of an implementer run (2026-11-06): `factor=0.50` (the floor), then a loop of `plan step 4 ignored (done=3/5)` + `plan overdue ok done=3→3/5` every ~30 s, no replan line, card stuck at `94% · ~1 min` for minutes. Reading:

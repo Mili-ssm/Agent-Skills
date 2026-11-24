@@ -2,11 +2,11 @@
 
 Owner, 2026-11-17: the global memory should work as an internal mechanism of the model, close to a black box: it researches and contrasts facts on the web to the extent the owner sets, keeps sibling notes in step, splits a synthesis that outgrows its topic (the specific part to a child, the generic part kept in the parent), and does this automatically. Project memory stays explicit.
 
-**Status (2026-11-19):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built and measured on the branch `feat/memory-inline-refs`: references are added after writing, and the confirming run passed (see "Stage 2 confirming run" under "Results"). Task 6 is done on the real store (2026-11-19: the link fixed, the plugin updated, 3572 references added), and the reference audit **failed** (Haiku: 15 and 10 wrong in 100, repeating itself on only 6; Sonnet on the 19 flagged pairs: 3 wrong, limit 2). The owner lifted the block with a condition on what a reference means (see "Stage 3"); stage 3 can start. Stages 3 to 5 are not started.
+**Status (2026-11-19):** stages W and 1 are built, measured and merged into `main` (PR 128, PR 129). Stage 2 is built, measured and merged (PR 136, branch `feat/memory-inline-refs`): references are added after writing, and the confirming run passed (see "Stage 2 confirming run" under "Results"). Task 6 is done on the real store (2026-11-19: the link fixed, the plugin updated, 3572 references added), and the reference audit **failed** (Haiku: 15 and 10 wrong in 100, repeating itself on only 6; Sonnet on the 19 flagged pairs: 3 wrong, limit 2). The owner lifted the block with a condition on what a reference means (see "Stage 3"); stage 3 can start. Stages 3 to 5 are not started.
 
 ## Where to resume: stages 2 to 5
 
-Start with stage 2: stages 3 and 4 need its inline references, and stage 5 only wires what the others measured. One branch per stage; a merge into `main` needs the owner's word each time.
+Stage 2 is merged (PR 136, 2026-11-24 check); start with stage 3. Stages 3 and 4 need stage 2's inline references, and stage 5 only wires what the others measured. One branch per stage; a merge into `main` needs the owner's word each time.
 
 ### State on 2026-11-18
 
