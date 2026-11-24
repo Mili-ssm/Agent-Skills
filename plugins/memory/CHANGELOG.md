@@ -9,6 +9,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 - Writes into memory folders no longer follow symlinks (a cloned repository could plant one to overwrite a file elsewhere): files are replaced through unpredictable temporary names, logs are appended without following links, and a symlinked project `.memory` folder or entry is ignored. Global memory folders may still be links (synced folders). Nothing to migrate.
 - Memories committed to a repository (tracked `.memory/*.md`) never show as owner-vouched: the owner confirmation written in their file no longer counts, and they are marked "(from repository)". They still load and qualify as rules through their session sightings.
 - Every other write into memory folders and the note store (note creation, rename, index READMEs, curation and settle logs, restore, import, state files, `mem-corroborate undo`, log trim, `.gitignore`) no longer writes through a symlinked file or a predictable temporary name (a folder inside the note store may still be a link, as the owner may set one up); `mem import` skips symlinks in the source (files, folders, `topics.yaml`) and in the destination, and lists each skipped path.
+- Corroboration (global lessons, sightings, the short-form and topic fill, rewording) leaves out memories a repository commits: they still load at session start, but are never lifted into global memories and never written to by the background job.
+
 
 ## [0.11.0] - 2026-11-23
 

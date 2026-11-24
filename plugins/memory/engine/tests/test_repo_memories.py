@@ -102,3 +102,23 @@ def test_uninitialized_submodule_gitlink_counts_as_tracked(repo, tmp_path):
     subprocess.run(["git", "clone", "-q", str(repo), str(clone)], check=True, capture_output=True)
     assert not (clone / ".memory" / ".git").exists()  # not checked out: only the gitlink
     assert records.tracked_memories(clone) is None
+
+
+def test_corroboration_ignores_repository_lessons(repo, tmp_path):
+    import corroborate
+    lesson(sessions=2, confirmed=False)
+    assert [x.id for x in corroborate.collect([repo], None, TODAY)] == ["p1:payment-retries-need-idempotency-keys"]
+    commit(repo)
+    assert corroborate.collect([repo], None, TODAY) == []
+
+
+def test_fill_job_never_picks_a_tracked_lesson(repo):
+    import corroborate
+    mem.main(["remember", "--kind", "lesson", "--claim", "Payment retries need idempotency keys.", "--origin",
+              "transcript", "--weight", "light", "--reach", "project", "--source", f"session a project {K1}",
+              "--source", f"session b project {K2}"])
+    before = corroborate.fill_candidates([repo], None, TODAY)
+    commit(repo)
+    assert before and corroborate.fill_candidates([repo], None, TODAY) == []
+    assert corroborate.fill_records([repo], None) == []
+    assert corroborate.reword_candidates([repo], None, TODAY, {}, every=True) == []
