@@ -1025,7 +1025,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
 # --- fetch-sources -------------------------------------------------------------
 
 SOURCES_DIR = ".sources"
-FETCH_TIMEOUT = 30
+FETCH_DEADLINE = 120  # seconds for one download, all redirects together
 FETCH_PAUSE = 1.0
 FETCH_MAX_BYTES = 50 * 1024 * 1024  # larger sources stay online only (C-14)
 _USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -1034,26 +1034,15 @@ _CONTENT_EXT = {"application/pdf": "pdf", "text/html": "html", "application/xhtm
 _SUFFIX_EXT = {".pdf": "pdf", ".html": "html", ".htm": "html", ".txt": "txt"}
 
 
-class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow redirects only to http(s); urllib's default also follows ftp."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102 (stdlib signature)
-        if urllib.parse.urlparse(newurl).scheme not in ("http", "https"):
-            raise ValueError(f"redirected to a non-http URL: {newurl}")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def _download(url: str) -> tuple[bytes, str]:
-    """(body, Content-Type) of a URL, redirects followed. The only network access of the hub tools."""
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    opener = urllib.request.build_opener(_HttpOnlyRedirects)
-    with opener.open(request, timeout=FETCH_TIMEOUT) as response:
-        if urllib.parse.urlparse(response.geturl()).scheme not in ("http", "https"):
-            raise ValueError(f"redirected to a non-http URL: {response.geturl()}")
-        data = response.read(FETCH_MAX_BYTES + 1)
-        if len(data) > FETCH_MAX_BYTES:
-            raise ValueError(f"response larger than {FETCH_MAX_BYTES // (1024 * 1024)} MB")
-        return data, response.headers.get("Content-Type", "")
+    """(body, Content-Type) of a URL, redirects followed. Goes through the address-checked transport of
+    `research_checks`: a host that resolves to a non-public address, at any hop, is refused."""
+    import research_checks  # late: research_checks imports mem
+    try:
+        return research_checks.fetch_raw(url, lambda _: FETCH_MAX_BYTES, over="fail", headers={"User-Agent": _USER_AGENT},
+                                         deadline=FETCH_DEADLINE, max_redirects=10)
+    except research_checks.FetchError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _source_extension(url: str, content_type: str) -> str:

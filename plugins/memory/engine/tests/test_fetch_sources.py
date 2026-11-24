@@ -121,28 +121,78 @@ def test_force_replaces_copies_of_another_type(hub_root, calls, capsys):
     assert sorted(p.name for p in folder.iterdir()) == ["source.pdf"]
 
 
-def test_download_refuses_oversized_and_non_http_redirects(monkeypatch):
-    class Response:
-        def __init__(self, url, size):
-            self.url, self.size, self.headers = url, size, {"Content-Type": "text/html"}
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
-        def geturl(self): return self.url
-        def read(self, n): return b"x" * min(n, self.size)
-    opener = type("Opener", (), {})
-    monkeypatch.setattr(mem.urllib.request, "build_opener", lambda *h: opener)
-    opener.open = staticmethod(lambda req, timeout: Response("https://x.org/a", mem.FETCH_MAX_BYTES + 10))
+class FakeConnection:
+    """Stands in for `research_checks._connection`: answers each request from `replies` (status, headers, body)."""
+    def __init__(self, replies, seen):
+        self.replies, self.seen, self.sock = replies, seen, None
+
+    def request(self, method, path, headers=None):
+        self.seen.append((path, headers))
+
+    def getresponse(self):
+        status, headers, body = self.replies.pop(0)
+        return FakeResponse(status, headers, body)
+
+    def close(self):
+        pass
+
+
+class FakeResponse:
+    def __init__(self, status, headers, body):
+        self.status, self.headers, self.body = status, headers, body
+
+    def getheader(self, name):
+        return self.headers.get(name)
+
+    def read1(self, n):
+        chunk, self.body = self.body[:n], self.body[n:]
+        return chunk
+
+
+@pytest.fixture
+def wire(monkeypatch):
+    """Every name resolves to a public address; connections come from `replies`. Returns (replies, requests seen)."""
+    import research_checks
+    replies, seen = [], []
+    monkeypatch.setattr(research_checks.socket, "getaddrinfo",
+                        lambda host, port, **k: [(2, 1, 6, "", ("127.0.0.1" if host == "127.0.0.1" else "93.184.216.34", port))])
+    monkeypatch.setattr(research_checks, "_connection", lambda *a, **k: FakeConnection(replies, seen))
+    return replies, seen
+
+
+def test_download_refuses_a_private_address(monkeypatch):
+    import research_checks
+    monkeypatch.setattr(research_checks.socket, "getaddrinfo", lambda host, port, **k: [(2, 1, 6, "", ("169.254.169.254", port))])
+    with pytest.raises(ValueError, match="non-public"):
+        mem._download("http://metadata.example/latest")
+
+
+def test_download_refuses_a_redirect_to_localhost(wire):
+    replies, _ = wire
+    replies.append((302, {"Location": "http://127.0.0.1/admin"}, b""))
+    with pytest.raises(ValueError, match="non-public"):
+        mem._download("https://x.org/a")
+
+
+def test_download_keeps_its_user_agent_and_ten_redirects(wire):
+    replies, seen = wire
+    replies.extend([(302, {"Location": "/n"}, b"")] * 10 + [(200, {"Content-Type": "Text/HTML"}, b"ok")])
+    assert mem._download("https://x.org/a") == (b"ok", "text/html")
+    assert len(seen) == 11 and all(h["User-Agent"] == mem._USER_AGENT for _, h in seen)
+    replies.extend([(302, {"Location": "/n"}, b"")] * 11)
+    with pytest.raises(ValueError, match="too many redirects"):
+        mem._download("https://x.org/a")
+
+
+def test_download_refuses_oversized_and_non_http_redirects(wire, monkeypatch):
+    replies, _ = wire
+    monkeypatch.setattr(mem, "FETCH_MAX_BYTES", 100)
+    replies.append((200, {"Content-Type": "text/html"}, b"x" * 101))
     with pytest.raises(ValueError, match="larger than"):
         mem._download("https://x.org/a")
-    opener.open = staticmethod(lambda req, timeout: Response("ftp://x.org/a", 1))
-    with pytest.raises(ValueError, match="non-http"):
+    replies.append((302, {"Location": "ftp://x.org/a"}, b""))
+    with pytest.raises(ValueError, match="only http"):
         mem._download("https://x.org/a")
-
-
-def test_redirect_handler_refuses_non_http_targets():
-    handler = mem._HttpOnlyRedirects()
-    with pytest.raises(ValueError, match="non-http"):
-        handler.redirect_request(None, None, 302, "Found", {}, "ftp://x.org/a")
 
 
 def test_html_to_text_drops_chrome_decodes_and_collapses():
