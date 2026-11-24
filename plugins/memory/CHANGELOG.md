@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- `mem curate` now lists an established lesson the automatic short-form fill gave up on after two failed tries ("no short form", with the `mem memory edit m:<h> --short '<text>' --topic <t>` that fixes it), and the session-start "Curation due" count includes it until a `mem curate --done` pass. `mem rules --more` says those lessons need curation instead of promising the background pass will write them. Nothing to migrate.
+
 ## [0.12.0] - 2026-11-24
 
 ### Security

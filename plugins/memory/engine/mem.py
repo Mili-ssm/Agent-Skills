@@ -1854,11 +1854,12 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     budget = records.Budget(PAIR_WORK)  # one for both folders, the project's first (C101)
     loaded_global: list[records.Memory] = []
 
-    def due_in(folder: Path, loaded: list[records.Memory]) -> None:
+    def due_in(folder: Path, loaded: list[records.Memory], root: Path | None) -> None:
         nonlocal complete
         try:
             key = str(folder.resolve())
-            found = _decisions(loaded, today, since=(passes or {}).get(key), budget=budget)
+            found = _decisions(loaded, today, since=(passes or {}).get(key), budget=budget,
+                               attempts=_fill_attempts(os.environ), root=root)
             known = (marks or {}).get(key, frozenset())
             for k, label in found.keys().items():
                 if k not in known:
@@ -1874,9 +1875,9 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"Global memories: {live}.")
     loaded_project = records.mark_repository(records.load_memories(project, "project"), tracked)
     if passes is not None and project is not None:
-        due_in(project, loaded_project)
+        due_in(project, loaded_project, project.parent)
     if passes is not None and has_memories:
-        due_in(memories, loaded_global)
+        due_in(memories, loaded_global, None)
     mine = [m for m in loaded_project if records.is_live(m, today)]
     if mine:
         mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
@@ -3223,8 +3224,20 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print(RULES_OFF_NOTICE)
     unready = f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form yet"
     # the pass skips the fill while the loaded rules are off (`cmd_auto` of mem-corroborate)
-    unready += ("." if _rules_off() else
-                ": the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).")
+    attempts = _fill_attempts(os.environ)
+    stuck = 0 if _rules_off() or not choice.unready else sum(
+        1 for m in [*project, *global_] if m.load != "index" and corroborate.fill_stuck(
+            m, root if m.scope == "project" else None, attempts, today)
+        and (root is not None or m.scope != "project"))
+    if _rules_off():
+        unready += "."
+    elif stuck == choice.unready:
+        unready += ": the automatic fill gave up, so they need curation (mem curate)."
+    elif stuck:
+        unready += (f": {stuck} need{'s' if stuck == 1 else ''} curation (mem curate), the background pass writes the "
+                    "other when auto_capture is on (mem-corroborate status shows the last one).")
+    else:
+        unready += ": the background pass writes them when auto_capture is on (mem-corroborate status shows the last one)."
     if args.more is not None:
         topic = None if args.more is True else args.more
         shown = [(m, why) for m, why in choice.left
@@ -3339,7 +3352,8 @@ def _differ_in(a: str, b: str) -> str:
 
 PAIR_WORK = 150_000  # claim comparisons the session start line may spend on pair searches, both folders together
 _DECISION_LABELS = {"refuted": "refuted again", "pair": "same or opposite", "state": "newer state",
-                    "expired": "expired", "seen": "seen often", "stale": f"not confirmed in {_STALE_DAYS} days"}
+                    "expired": "expired", "seen": "seen often", "stale": f"not confirmed in {_STALE_DAYS} days",
+                    "nofill": "no short form"}
 
 
 @dataclass(frozen=True)
@@ -3351,6 +3365,7 @@ class Decisions:
     expired: list[records.Memory]
     seen: list[records.Memory]
     stale: list[records.Memory]
+    nofill: list[records.Memory]  # established lessons the automatic short-form fill gave up on
     pairs_checked: bool
 
     def keys(self) -> dict[str, str]:
@@ -3362,7 +3377,8 @@ class Decisions:
             found[f"pair:{'|'.join(sorted((a.handle, b.handle)))}"] = _DECISION_LABELS["pair"]
         for old, new in self.state:
             found[f"state:{old.handle}|{new.handle}"] = _DECISION_LABELS["state"]
-        for name, items in (("expired", self.expired), ("seen", self.seen), ("stale", self.stale)):
+        for name, items in (("expired", self.expired), ("seen", self.seen), ("stale", self.stale),
+                             ("nofill", self.nofill)):
             for m in items:
                 found[f"{name}:{m.handle}"] = _DECISION_LABELS[name]
         return found
@@ -3390,11 +3406,21 @@ def _changed_since(live: Sequence[records.Memory], since: datetime.date) -> list
     return [h for _, h in found]
 
 
+def _fill_attempts(env: Mapping[str, str]) -> dict:
+    """The automatic short-form fill's attempts (`fill_key` -> entry), read defensively: a missing, unreadable or
+    malformed state reads as no attempts, so curation never fails on it."""
+    data = data_dir(env)
+    lessons = auto_state.read_json(data / "corroborate" / "fill-attempts.json").get("lessons") if data else None
+    return lessons if isinstance(lessons, dict) else {}
+
+
 def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since: datetime.date | None = None,
-               budget: records.Budget | None = None) -> Decisions:
+               budget: records.Budget | None = None, attempts: Mapping | None = None,
+               root: Path | None = None) -> Decisions:
     """The decision items of one folder from what `records.load_memories` returned: superseded memories and
     unreadable files are left out. With `since` the pair kinds compare only pairs with a memory changed since then;
-    `budget` is spent by those comparisons."""
+    `budget` is spent by those comparisons. `attempts` (`_fill_attempts`) turns on the "no short form" kind; `root` is
+    the project root of a project folder, None for the global one."""
     kept = [m for m in loaded if m.error is None and m.superseded_by is None]
     live = [m for m in kept if records.is_live(m, today)]
     among = _changed_since(live, since) if since is not None else None
@@ -3414,7 +3440,8 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
     cutoff = today - datetime.timedelta(days=_STALE_DAYS)
     stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
              and max(m.created, m.last_observed or m.created) <= cutoff]
-    return Decisions(again, same, state, expired, seen, stale, budget is None or not budget.exhausted)
+    nofill = [m for m in kept if attempts and corroborate.fill_stuck(m, root, attempts, today)]
+    return Decisions(again, same, state, expired, seen, stale, nofill, budget is None or not budget.exhausted)
 
 
 def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> list[str]:
@@ -3737,6 +3764,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
         folders = [f for f in folders if (f[0] == "global") == args.is_global]
     scopes = _loaded(folders)
     raw = {scope: loaded for scope, _, loaded in scopes}
+    attempts = _fill_attempts(os.environ)
     if args.done:
         store = _optional_store(args)
         covered = []
@@ -3749,7 +3777,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 print(_READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
                 return 2
             covered.append(folder)
-            keys[folder] = set(_decisions(records.load_memories(folder, scope), today).keys())
+            keys[folder] = set(_decisions(records.load_memories(folder, scope), today, attempts=attempts,
+                                          root=folder.parent if scope == "project" else None).keys())
             labels[folder] = scope
         if covered:
             try:
@@ -3772,7 +3801,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
     live = [m for m in every if records.is_live(m, today)]
     out: list[str] = []
-    found = [_decisions(loaded, today) for _, _, loaded in scopes]
+    found = [_decisions(loaded, today, attempts=attempts, root=folder.parent if scope == "project" and folder else None)
+             for scope, folder, loaded in scopes]
+    nofill = [m for d in found for m in d.nofill]  # `found` is reused below
     unconfirmed = _unconfirmed_handles(every)  # their own category below
     again = [pair for d in found for pair in d.refuted]
     if again:
@@ -3841,6 +3872,11 @@ def cmd_curate(args: argparse.Namespace) -> int:
     unread = [m for m in live if m.short_by == "model" and m.short]
     if unread:
         out.append(f"short forms nobody read: {len(unread)} (mem rules --unread)")
+    if nofill:
+        out.append("established, but the automatic fill gave up on its short form (write one of at most "
+                   f"{records.SHORT_LIMIT} characters and pick a topic: mem memory edit m:<h> --short '<text>' "
+                   "[--user-read] --topic <t>, with --global for a global lesson)")
+        out += [f"  m:{m.handle}  {_flat(m.claim)}" for m in nofill]
     if not args.is_global:
         out += _curate_project_syntheses(scopes, today)
     if out:

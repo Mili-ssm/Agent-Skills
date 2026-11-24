@@ -1,6 +1,7 @@
 import dataclasses
 import datetime
 import os
+from pathlib import Path
 import subprocess
 
 import pytest
@@ -435,3 +436,19 @@ def test_rules_command_takes_the_layout(project, gfolder, capsys, monkeypatch):
     monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
     assert out() == grouped
     assert out("--layout", "flat") == flat
+
+
+def test_more_says_stuck_lessons_need_curation(project, gfolder, capsys):
+    import json
+    import corroborate
+    write("Needs a short form.")
+    write("Also needs one.")
+    m = next(iter(load(gfolder, "global").values()))
+    state = Path(os.environ["MEM_DATA"]) / "corroborate" / "fill-attempts.json"
+    state.parent.mkdir(parents=True)
+    state.write_text(json.dumps({"lessons": {f"g:{m.handle}": {"digest": corroborate.claim_digest(m), "count": 2}}}))
+    capsys.readouterr()
+    assert mem.main(["rules", "--more"]) == 0
+    out = capsys.readouterr().out
+    assert "2 established lessons have no short form yet: 1 needs curation (mem curate)" in out
+    assert "the background pass writes the other" in out

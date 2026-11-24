@@ -373,6 +373,14 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
     return found[:cap]
 
 
+def fill_stuck(m: records.Memory, project: Path | None, attempts: dict, today: datetime.date) -> bool:
+    """True when the automatic fill gave up on this lesson: it could load as a rule (`rules.eligible`, not awaiting
+    triage, loads in full) and has no valid short form, after `FILL_ATTEMPTS` failed fills on its present claim.
+    `project` is the project root, None for a global lesson. Only the owner can unstick it (`mem memory edit --short`)."""
+    return (rules.eligible(m, today) and m.triage != "pending" and m.load != "index" and not records.valid_short(m.short)
+            and attempt_count(attempts.get(fill_key(project, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS)
+
+
 def attempt_count(entry: object, digest: str) -> int:
     """Attempts stored for a lesson on this claim digest; anything malformed (a bool included) reads as zero."""
     if not isinstance(entry, dict) or entry.get("digest") != digest:

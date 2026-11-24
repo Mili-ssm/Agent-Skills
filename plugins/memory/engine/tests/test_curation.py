@@ -1,6 +1,7 @@
 import datetime
 import os
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -1141,3 +1142,56 @@ def test_newer_state_is_a_project_matter(project, gfolder):
     assert len(found.state) == 1 and found.same == []
     found = _state_pair(gfolder, "global")
     assert found.state == [] and len(found.same) == 1
+
+
+# lessons whose automatic short-form fill gave up
+
+def _stuck(folder, handle="nf", count=2, *, claim="Cache keys need explicit versions", extra="", digest=None):
+    """An established project lesson without a short form, and the fill state that says it was tried `count` times."""
+    import corroborate
+    import json
+    path = put(folder, handle, claim, extra=f"origin: transcript\nowner_confirmed: '{days_ago(3)}'\n{extra}")
+    m = mem_of(path)
+    key = f"{records.project_key(folder.parent)}:{handle}"
+    state = Path(os.environ["MEM_DATA"]) / "corroborate" / "fill-attempts.json"
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text(json.dumps({"lessons": {key: {"digest": digest or corroborate.claim_digest(m), "count": count}}}))
+    return state
+
+
+def test_stuck_short_form_is_listed_with_its_fix(project, gfolder, capsys):
+    _stuck(project)
+    out = run(capsys, "curate", "--project")[1]
+    assert "gave up on its short form" in out and "mem memory edit" in out and "--short" in out
+    assert "  m:nf  Cache keys need explicit versions" in out.splitlines()
+    assert mem._decisions(_load(project), TODAY, attempts=mem._fill_attempts(os.environ),
+                          root=project.parent).keys() == {"nofill:nf": "no short form"}
+
+
+def test_a_lesson_not_yet_stuck_is_not_listed(project, gfolder, capsys):
+    _stuck(project, count=1)
+    assert "no short form" not in run(capsys, "curate", "--project")[1]
+    _stuck(project, digest="0" * 64)  # the claim changed since the attempts
+    assert "no short form" not in run(capsys, "curate", "--project")[1]
+
+
+def test_a_lesson_with_a_valid_short_form_is_not_listed(project, gfolder, capsys):
+    _stuck(project, extra="short: Version your cache keys explicitly when they matter.\n")
+    assert "no short form" not in run(capsys, "curate", "--project")[1]
+
+
+def test_unreadable_fill_state_never_fails_curate(project, gfolder, capsys):
+    state = _stuck(project)
+    for text in ("{not json", '{"lessons": []}', '{"lessons": {"x": 3}}'):
+        state.write_text(text)
+        code, out, _ = run(capsys, "curate", "--project")
+        assert code == 0 and "no short form" not in out
+    state.unlink()
+    assert run(capsys, "curate", "--project")[0] == 0
+
+
+def test_stuck_short_form_counts_as_due_until_a_pass_marks_it(project, gfolder, capsys):
+    _stuck(project)
+    assert "Curation due: 1 item (1 no short form)" in _first(capsys)
+    run(capsys, "curate", "--done")
+    assert "Curation due" not in run(capsys, "session-index")[1]
