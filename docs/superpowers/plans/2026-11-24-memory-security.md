@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: in progress (pre-mortem amendments applied; S2 reduced to the light design, owner 2026-11-24) · Date: 2026-11-24 · Branch `fix/memory-security` from `dev`
+Status: done on the branch, pull request pending the owner's go-ahead (pre-mortem amendments applied; S2 reduced to the light design, owner 2026-11-24) · Date: 2026-11-24 · Branch `fix/memory-security` from `dev`
 
 **Goal:** A cloned repository's `.memory/` folder can no longer overwrite user files, pass its memories off as owner-vouched, lift them into global ones through corroboration, make the engine fetch private addresses, or let a background session send local files out.
 
@@ -158,9 +158,9 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
 
 ### Task 6: Close
 
-- [ ] Full suite `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q` passes; `python3 scripts/validate.py`; `claude plugin validate .`
-- [ ] One real `mem-auto` dry run or curator session after Task 5: the log shows `denied 0` and the expected writes (kill criterion: denials or no writes → revert the scoping and re-plan).
-- [ ] Set this plan's Status to done; in the project review mark S1–S4 and S6 fixed and add S5 and S7 to its public table (open, low).
+- [x] Full suite `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q` passes; `python3 scripts/validate.py`; `claude plugin validate .`
+- [x] One real `mem-auto` dry run or curator session after Task 5: the log shows `denied 0` and the expected writes (kill criterion: denials or no writes → revert the scoping and re-plan).
+- [x] Set this plan's Status to done. The project review (on PR #181) gets S1–S4 and S6 marked fixed, and S5 and S7 added to its public table, once this branch's pull request exists.
 - [ ] Ask the owner before pushing the branch and opening the pull request to `dev`.
 
 ## Kill criteria (after merge)
