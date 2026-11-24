@@ -2,20 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: in progress (pre-mortem amendments applied 2026-11-24) · Date: 2026-11-24 · Branch `fix/memory-security` from `dev`
+Status: in progress (pre-mortem amendments applied; S2 reduced to the light design, owner 2026-11-24) · Date: 2026-11-24 · Branch `fix/memory-security` from `dev`
 
-**Goal:** A cloned repository's `.memory/` folder can no longer overwrite user files, inject owner-vouched rules into any session, launder its memories into global ones, make the engine fetch private addresses, or let a background session send local files out.
+**Goal:** A cloned repository's `.memory/` folder can no longer overwrite user files, pass its memories off as owner-vouched, lift them into global ones through corroboration, make the engine fetch private addresses, or let a background session send local files out.
 
-**Architecture:** `engine/safe_io.py` owns every write into a store or memory folder (unpredictable temp file, no symlink followed anywhere in the path below the folder). Project memories tracked by git (submodules included) are hidden from every automatic consumer until the owner approves the project once in a terminal (`mem trust`), recorded in the registry in the data folder, outside the repository. `mem fetch-sources` reuses the address-checked transport of `research_checks`. Background synthesis and curation sessions run in a sandbox: scoped reads, an allow-list of `mem` subcommands, and `MEM_SANDBOX=1`, which turns off network, import, URL notes and body files outside allowed roots.
+**Architecture:** `engine/safe_io.py` owns every write into a store or memory folder (unpredictable temp file, no symlink followed anywhere in the path below the folder). Project memories tracked by git (submodules included) still load, but the owner confirmation written in the file (`owner_confirmed`) no longer counts, they are marked "from repository", and corroboration never lifts them into global memories. `mem fetch-sources` reuses the address-checked transport of `research_checks`. Background synthesis and curation sessions run in a sandbox: scoped reads, an allow-list of `mem` subcommands, and `MEM_SANDBOX=1`, which turns off network, import, URL notes and body files outside allowed roots.
 
 **Tech Stack:** Python 3.12+, pytest, PyYAML; `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q` (full suite about 5 min).
 
-**Spec:** [project review](../../studies/2026-11-24-project-review.md) § Recommended sequence step 1; findings S1–S4 and S6 (details in `.local/studies/2026-11-24-security-review.md` until this plan merges). Owner rulings 2026-11-24: fix now, before other work; S2 design = per-project approval, accepting that a later `git pull` into an approved project can bring new memories that load.
+**Spec:** [project review](../../studies/2026-11-24-project-review.md) § Recommended sequence step 1; findings S1–S4 and S6 (details in `.local/studies/2026-11-24-security-review.md` until this plan merges). Owner rulings 2026-11-24: fix now, before other work; S2 light design: committing `.memory/` is a legitimate feature, so repository memories keep loading without owner trust (per-project approval with `mem trust` was dropped).
 
 ## Global Constraints
 
 - Python `>=3.12,<3.15` (`engine/run.py`); no new dependency.
-- New logic goes into focused modules (`safe_io.py`, `records.py` helpers, `corroborate.py`), not into `mem.py` beyond thin `cmd_*` wiring and parser lines (owner rule: every edit leaves the touched code compliant or better; `mem.py` is 5,924 lines).
+- New logic goes into focused modules (`safe_io.py`, `records.py` and `rules.py` helpers, `corroborate.py`), not into `mem.py` beyond thin `cmd_*` wiring and parser lines (owner rule: every edit leaves the touched code compliant or better; `mem.py` is 5,924 lines).
 - Every behavior change adds a user-facing line under `## [Unreleased]` in `plugins/memory/CHANGELOG.md`; no version bump.
 - No line numbers in docs (ADR 0014). English in code, docs and commits.
 - Tests rely on the autouse `isolated_env` fixture in `tests/conftest.py`. A test outside a task's Step 4 list that fails in Task 6 means a missed caller: stop and look before patching.
@@ -24,14 +24,13 @@ Status: in progress (pre-mortem amendments applied 2026-11-24) · Date: 2026-11-
 
 - `claude -p` passes its environment to Bash children (`MEM_SANDBOX=1` reached `env`).
 - `--allowedTools "Read(//abs/**)" "Grep(//abs/**)" "Glob(//abs/**)"` without a bare `Read` denies reads outside those roots; the session's working directory stays readable.
-- Session start never registers a project; `cmd_remember`, `_act`, `cmd_memory` and `projects add` do, through `_register_project`.
 - `git ls-files -- .memory/` lists only the gitlink when `.memory` is a submodule.
 
 ## Review Focus
 
-1. The main agent approving the project itself because a forged memory or the head line says so: `mem trust` must refuse without a TTY — test in Task 3d.
-2. A `.memory` submodule: its files count as tracked — test in Task 3b.
-3. An untrusted tracked lesson grouped with an owner lesson by corroboration: it must not reach `write_global` or a sighting — test in Task 3c.
+1. A tracked lesson whose file claims `owner_confirmed`: never shown as vouched, never established by that field — test in Task 3a.
+2. A `.memory` submodule: its files count as tracked — test in Task 3a.
+3. A tracked lesson grouped with an owner lesson by corroboration: it must not reach `write_global` or a sighting — test in Task 3b.
 4. A redirect from a public URL to `127.0.0.1` during `mem fetch-sources` — test in Task 4.
 5. A memory file that is 0644, or a state file that is 0600, keeps its mode after a rewrite; a symlink at the target never yields a 0777 file — tests in Tasks 1 and 2.
 
@@ -82,80 +81,45 @@ Status: in progress (pre-mortem amendments applied 2026-11-24) · Date: 2026-11-
 - [ ] **Step 4: Run** the new tests, then `test_import.py test_store_git.py test_auto_curation.py test_note_edit.py test_curate_apply.py test_capture_state.py test_capture_auto.py test_memory_edit.py` — expected: PASS.
 - [ ] **Step 5: CHANGELOG line** (`mem import` skips symlinks) and **commit** `fix(memory): route every store write through safe_io; import skips symlinks`.
 
-### Task 3a: Trust in the project registry
+### Task 3a: Repository memories carry no owner trust
 
 **Files:**
-- Modify: `plugins/memory/engine/records.py` (`register_project`, `forget_project`, new helpers)
-- Test: `plugins/memory/engine/tests/test_trust.py`
+- Modify: `plugins/memory/engine/records.py` (`Memory`, new helpers), `plugins/memory/engine/rules.py` (`standing_words`), `plugins/memory/engine/mem.py` (`cmd_session_index`/`session_index`, `cmd_rules`: pass the tracked set; no logic), `plugins/memory/README.md` (Project memories row: one sentence on repository memories)
+- Test: `plugins/memory/engine/tests/test_repo_memories.py`
 
 **Interfaces:**
-- Produces:
-  - `records.is_trusted(data: Path | None, project: Path) -> bool`: the entry whose `path` equals `str(project.resolve())` has a `trusted` date; a registry `ValueError` counts as not trusted.
-  - `records.set_trusted(data: Path | None, project: Path, today: datetime.date, trusted: bool) -> str | None`: registers the project if needed, sets or removes `"trusted": "YYYY-MM-DD"`, returns its name.
-  - Every registry read-modify-write (`register_project`, `forget_project`, `set_trusted`) holds an exclusive `fcntl` lock on a lock file in the data folder (pattern: `settle.locked`); `register_project` carries every extra field over, including on its rename branch.
-
-- [ ] **Step 1: Failing tests:** `test_registering_again_keeps_the_approval`, `test_renaming_keeps_the_approval` (`register_project(..., name="other")`), `test_revoke_removes_the_approval`, `test_unreadable_registry_is_not_trusted`.
-- [ ] **Step 2: Run** — expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_trust.py test_projects.py` — expected: PASS.
-- [ ] **Step 5: Commit** `fix(memory): keep a per-project trust flag in the registry`.
-
-### Task 3b: Hide untrusted tracked memories from session text
-
-**Files:**
-- Modify: `plugins/memory/engine/records.py` (new helpers), `plugins/memory/engine/mem.py` (`cmd_session_index` and `session_index`, `cmd_rules`, `cmd_signal`)
-- Test: `plugins/memory/engine/tests/test_trust.py` (extend)
-
-**Interfaces:**
-- Consumes: `records.is_trusted` (3a).
 - Produces:
   - `records.tracked_memories(project: Path) -> frozenset[str] | None`: handles of `.memory/*.md` tracked by git, from `git -C <project> ls-files -z --recurse-submodules -- .memory/` with a 2 s timeout; `None` ("all tracked") when `.memory` is itself a gitlink or holds a `.git`; empty set when git is missing, fails or times out.
-  - `records.hidden_memories(project: Path | None, data: Path | None) -> frozenset[str] | None`: empty when no project or trusted, else `tracked_memories(project)`; `None` means hide every project memory.
-  - `session_index(..., hidden: frozenset[str] | None = frozenset())`: drops hidden memories right after `load_memories(project)`, before curation-due counts, the "This project" count, `_got_worse`, `rules.choose` and the listed rows. When any were dropped, the head gains: `Repository memories: <n> tracked in git not loaded; only the owner can approve them, in a terminal (mem trust). Do not run it yourself.` `cmd_session_index` computes `hidden` and passes it, so `session_index` itself still runs no git.
-  - `cmd_rules` and `cmd_signal` apply the same filter.
+  - `records.mark_repository(memories: Sequence[Memory], tracked: frozenset[str] | None) -> list[Memory]`: copies (`dataclasses.replace`) of the tracked ones with `from_repository=True` and `owner_confirmed=None`; others unchanged. `Memory` gains `from_repository: bool = False`.
+  - `rules.standing_words(m)` returns `"(from repository)"` when `m.from_repository`; such a memory never gets `"(the user vouched for it)"`.
+  - `session_index(..., tracked: frozenset[str] | None = frozenset())`: applies `mark_repository` right after `load_memories(project)`; `cmd_session_index` computes `tracked` so `session_index` itself runs no git. `cmd_rules` does the same.
+- Behavior: repository memories still load, list and qualify as rules through their sightings; only the owner confirmation written in the file stops counting, and the reader sees where they came from.
 
-- [ ] **Step 1: Failing tests** (a temporary git repository as `MEM_PROJECT`, memories committed with `git add -f`):
-  - `test_tracked_memory_with_forged_owner_confirmation_does_not_load`: tracked lesson with `origin: transcript`, `owner_confirmed`, a valid `short` → `mem session-index` contains neither its short nor its handle, and contains `Repository memories: 1`.
-  - `test_untracked_memory_still_loads`.
-  - `test_trusted_project_loads_tracked_memories` (via `records.set_trusted`).
+- [ ] **Step 1: Failing tests** in `test_repo_memories.py` (a temporary git repository as `MEM_PROJECT`, memories committed with `git add -f`):
+  - `test_tracked_lesson_with_forged_owner_confirmation_is_not_vouched`: tracked lesson with `origin: transcript`, `owner_confirmed`, a valid `short`, no sightings → `mem session-index` output contains neither `the user vouched for it` nor the short (not established without that field).
+  - `test_tracked_established_lesson_loads_marked_from_repository`: the same lesson with two session sightings → its short is loaded and its line ends with `(from repository)`.
+  - `test_untracked_owner_confirmed_lesson_keeps_its_mark`.
   - `test_submodule_memory_folder_counts_as_tracked`.
-  - `test_mem_rules_hides_untrusted_tracked_memories`.
-- [ ] **Step 2: Run** — expected: FAIL.
+- [ ] **Step 2: Run** `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_repo_memories.py -q` — expected: FAIL.
 - [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_trust.py test_session_index.py test_session_index_due.py test_rules_session.py test_rules.py test_signal.py test_project_synthesis_curation.py` — expected: PASS (`test_session_index_runs_no_git` unchanged).
-- [ ] **Step 5: Commit** `fix(memory): hide untrusted repository memories from session text`.
+- [ ] **Step 4: Run** `test_repo_memories.py test_session_index.py test_session_index_due.py test_rules_session.py test_rules.py test_records.py test_project_synthesis_curation.py` — expected: PASS (`test_session_index_runs_no_git` unchanged).
+- [ ] **Step 5: README + CHANGELOG** (Security: memories committed to a repository never show as owner-vouched and are marked "from repository") and **commit** `fix(memory): repository memories carry no owner trust`.
 
-### Task 3c: Keep untrusted memories out of corroboration and capture
+### Task 3b: Corroboration does not lift repository memories into global ones
 
 **Files:**
-- Modify: `plugins/memory/engine/corroborate.py` (`collect`, `fill_records`, `reword_candidates`), `plugins/memory/bin/mem-capture` (the existing-memory list given to the model)
-- Test: `plugins/memory/engine/tests/test_trust.py` (extend)
+- Modify: `plugins/memory/engine/corroborate.py` (`collect`, `fill_records`, `reword_candidates`)
+- Test: `plugins/memory/engine/tests/test_repo_memories.py` (extend)
 
 **Interfaces:**
-- Consumes: `records.hidden_memories` (3b).
-- Behavior: each registered project's hidden memories are dropped where its memories are loaded; a project whose `hidden` is `None` contributes none.
+- Consumes: `records.tracked_memories` (3a).
+- Behavior: each registered project's tracked memories are left out where corroboration loads project memories; a project whose set is `None` contributes none. Capture is unchanged: it may still see them, and after 3a they carry no owner trust.
 
-- [ ] **Step 1: Failing tests:** `test_corroboration_ignores_untrusted_tracked_lessons` (a dry run lists no `p<n>:` id of a hidden memory, and an untrusted lesson grouped with a global one yields no `write_global` or sighting); `test_capture_does_not_show_untrusted_memories_to_the_model`.
+- [ ] **Step 1: Failing test:** `test_corroboration_ignores_repository_lessons` (a dry run lists no `p<n>:` id of a tracked memory, and a tracked lesson grouped with a global one yields no `write_global` or sighting).
 - [ ] **Step 2: Run** — expected: FAIL.
 - [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_trust.py test_corroborate.py test_mem_corroborate.py test_mem_capture.py test_capture.py` — expected: PASS.
-- [ ] **Step 5: Commit** `fix(memory): corroboration and capture skip untrusted repository memories`.
-
-### Task 3d: `mem trust` command and docs
-
-**Files:**
-- Modify: `plugins/memory/engine/mem.py` (`cmd_trust` beside `cmd_projects`, its parser beside the `projects` parser, `"trust"` in the command list near the top that holds `"projects"`), `plugins/memory/README.md` (Project memories row; a short "Repository memories" paragraph), `plugins/memory/skills/memory/SKILL.md` only if it lists commands
-- Test: `plugins/memory/engine/tests/test_trust.py` (extend)
-
-**Interfaces:**
-- Consumes: `records.set_trusted`, `records.is_trusted`, `records.hidden_memories`.
-- CLI: `mem trust` requires stdin to be a TTY and the owner to type the project's registry name at a prompt; otherwise it exits 2 with `mem trust must be run by the owner in a terminal`. It prints `trusted <name> (<n> tracked memories now load)`. `mem trust --revoke` and `mem trust --status` (`trusted since <date>` or `not trusted (<n> tracked memories not loaded)`) need no TTY.
-
-- [ ] **Step 1: Failing tests:** `test_trust_without_a_tty_exits_2`; `test_trust_with_the_typed_name_approves` (pseudo-TTY via `pty` or by patching the TTY check and stdin); `test_trust_with_a_wrong_name_changes_nothing`; `test_revoke_and_status_need_no_tty`.
-- [ ] **Step 2: Run** — expected: FAIL.
-- [ ] **Step 3: Implement.**
-- [ ] **Step 4: Run** `test_trust.py test_projects.py` — expected: PASS.
-- [ ] **Step 5: README + CHANGELOG** (Security: memories committed to a repository load only after the owner runs `mem trust` in a terminal; migration: run it once in each project whose `.memory/` you commit on purpose; a fresh clone, as in a cloud session, needs it again) and **commit** `feat(memory): mem trust approves a project's repository memories`.
+- [ ] **Step 4: Run** `test_repo_memories.py test_corroborate.py test_mem_corroborate.py` — expected: PASS.
+- [ ] **Step 5: CHANGELOG line** and **commit** `fix(memory): corroboration skips repository memories`.
 
 ### Task 4: Address-checked downloads in `mem fetch-sources`
 
