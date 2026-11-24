@@ -113,6 +113,7 @@ def sandbox_refusal(command: str, args: dict) -> str | None:
     if command == "new" and args.get("url"):
         return "--url is off in this session"
     for key, value in args.items():
-        if key.endswith("body_file") and isinstance(value, str) and not body_file_allowed(value):
+        # every option that names a file to read: --body-file, --note-body-file, --summary-file, curate --from, refs --file
+        if (key == "file" or key.endswith("_file")) and isinstance(value, str) and not body_file_allowed(value):
             return f"--{key.replace('_', '-')} is outside the folders this session may read: {value}"
     return None

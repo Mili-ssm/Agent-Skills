@@ -61,3 +61,17 @@ def test_sandbox_refuses_network_import_urls_and_outside_body_files(hub_root, tm
     monkeypatch.delenv("MEM_SANDBOX")
     with pytest.raises(research_checks.FetchError):   # without the sandbox the call goes on (refused later: no host)
         research_checks.fetch_raw("ftp://example.com/", lambda _: 10)
+
+
+@pytest.mark.parametrize("key", ["body_file", "note_body_file", "summary_file", "from_file", "file"])
+def test_sandbox_checks_every_file_option(tmp_path, monkeypatch, key):
+    inside, outside = tmp_path / "in", tmp_path / "out"
+    inside.mkdir()
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret")
+    monkeypatch.setenv("MEM_SANDBOX", "1")
+    monkeypatch.setenv("MEM_SANDBOX_ROOTS", str(inside))
+    monkeypatch.chdir(inside)
+    from safe_io import sandbox_refusal
+    assert sandbox_refusal("synthesis", {key: str(outside / "secret.txt")})
+    assert sandbox_refusal("synthesis", {key: str(inside / "ok.md")}) is None
