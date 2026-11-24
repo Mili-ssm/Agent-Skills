@@ -232,6 +232,7 @@ def write_part(memory_dir: Path, worktree: Path, name: str, heading: str, body: 
 def confirm_part(memory_dir: Path, worktree: Path, name: str, handle: str, today: datetime.date) -> None:
     """Give a part a new stamp (today, the current commit) and leave its text as it was."""
     path = _file(memory_dir, name)
+    safe_io.refuse_symlink_chain(memory_dir, path)
     if not path.is_file():
         raise ProjectSynthesisError(f"there is no project synthesis {name!r}")
     part = next((p for p in _parse(path) if p.handle == handle), None)

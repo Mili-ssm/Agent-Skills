@@ -123,3 +123,18 @@ def test_replace_file_closes_the_fd_when_fdopen_fails(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         safe_io.replace_file(tmp_path / "a.md", b"x")
     assert closed and list(tmp_path.iterdir()) == []
+
+
+def test_confirm_part_refuses_a_symlinked_syntheses_folder(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "src.txt").write_text("x")
+    ps.write_part(real, tmp_path, "organization", "Heading", "Text.", ["src.txt"], TODAY)
+    handle = ps.load_each(real)[0]["organization"][0].handle
+    before = (ps.folder(real) / "organization.md").read_text()
+    mem = tmp_path / ".memory"
+    mem.mkdir()
+    (mem / "syntheses").symlink_to(ps.folder(real))
+    with pytest.raises(safe_io.UnsafePath):
+        ps.confirm_part(mem, tmp_path, "organization", handle, TODAY)
+    assert (ps.folder(real) / "organization.md").read_text() == before

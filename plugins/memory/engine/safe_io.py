@@ -36,7 +36,10 @@ def replace_file(path: Path, data: bytes, mode: int | None = None) -> None:
         try:
             f = os.fdopen(fd, "wb")
         except BaseException:
-            os.close(fd)
+            try:
+                os.close(fd)
+            except OSError:  # fdopen may already have closed it; keep the original error
+                pass
             raise
         with f:
             f.write(data)
