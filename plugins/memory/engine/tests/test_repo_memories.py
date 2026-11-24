@@ -87,3 +87,18 @@ def test_submodule_memory_folder_counts_as_tracked(repo, tmp_path, capsys):
     out = index(capsys)
     (line,) = [x for x in out.splitlines() if SHORT in x]
     assert line.endswith("(from repository)")
+
+
+def test_uninitialized_submodule_gitlink_counts_as_tracked(repo, tmp_path):
+    other = tmp_path / "other"
+    other.mkdir()
+    git(other, "init", "-q")
+    (other / "README").write_text("x")
+    git(other, "add", "README")
+    git(other, "commit", "-q", "-m", "x")
+    git(repo, "-c", "protocol.file.allow=always", "submodule", "add", "-q", str(other), ".memory")
+    git(repo, "commit", "-q", "-m", "submodule")
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(repo), str(clone)], check=True, capture_output=True)
+    assert not (clone / ".memory" / ".git").exists()  # not checked out: only the gitlink
+    assert records.tracked_memories(clone) is None

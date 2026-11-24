@@ -620,9 +620,9 @@ def tracked_memories(project: Path) -> frozenset[str] | None:
     """Handles of the `.memory/*.md` files git tracks in `project`; None when `.memory` is itself a submodule or a
     repository (every handle counts as tracked); empty when git is missing, fails or times out."""
     folder = project / PROJECT_DIR
-    if (folder / ".git").exists():
-        return None
     try:
+        if (folder / ".git").exists():
+            return None
         run = subprocess.run(["git", "-C", str(project), "ls-files", "-z", "--recurse-submodules", "--", f"{PROJECT_DIR}/"],
                              capture_output=True, timeout=2, check=False)
     except (OSError, subprocess.SubprocessError):
