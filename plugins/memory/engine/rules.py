@@ -28,6 +28,7 @@ class Choice:
     loaded: list[Memory] = field(default_factory=list)
     left: list[tuple[Memory, str]] = field(default_factory=list)
     unready: int = 0  # lessons that would qualify but have no valid `short`
+    unready_lessons: list[Memory] = field(default_factory=list)  # the same lessons, `unready` counts them
 
 
 def eligible(m: Memory, today: datetime.date) -> bool:
@@ -72,6 +73,7 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
             out.left.append((m, INDEX))
         elif not records.valid_short(m.short):
             out.unready += 1
+            out.unready_lessons.append(m)
         else:
             ready.append(m)
     ordered = sorted((m for m in ready if m.scope == "project"), key=_rank)
