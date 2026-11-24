@@ -97,7 +97,7 @@ No stale paths, flags or tool names; every SKILL.md is at most 81 lines and ever
 |---|---|---|---|---|
 | S5 | memory auto-capture | Text seen in two sessions (tool output, web pages) can become a loaded project rule; only frequency gates it | low | never auto-load capture-born rules without owner triage, or filter rules that order commands, fetches or setting changes |
 | S7 | `scripts/cloud-setup.sh` | Falls back to the first `user-agents/Explore.md` under `~/.claude/plugins`, which may belong to another marketplace | low | fail instead, or restrict the search to the `mili-ssm` clone |
-| — | memory, noted in the fix review | `--owner-approved` on note writes is enforced only by prompt text; a single symlinked memory file becomes a regular file on rewrite; folders inside the note store may be links (owner's choice) | low | decide when the area is next touched |
+| — | memory, noted in the fix review | Two low hardening notes on note writes and single linked memory files | low | decide when the area is next touched |
 
 ## Recommended sequence
 
