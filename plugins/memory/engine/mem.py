@@ -714,8 +714,7 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
         raise NewNoteError(f"{target.relative_to(root).as_posix()} already exists")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(_dump_frontmatter(ordered) + (template_body if body is None else body),
-                      encoding="utf-8")
+    safe_io.replace_file(target, (_dump_frontmatter(ordered) + (template_body if body is None else body)).encode("utf-8"))
     try:
         apply_index(root)
     except FrontmatterError as exc:
@@ -857,7 +856,7 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
     originals = {(new if p == old else p): p.read_bytes() for p in (*edits, old)}
     listings = _index_files(root)
     for path, text in edits.items():
-        path.write_text(text, encoding="utf-8")
+        safe_io.replace_file(path, text.encode("utf-8"))
     old.rename(new)
     if sources.is_dir():
         sources.rename(new_sources)
@@ -1001,7 +1000,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     listings = _index_files(root)
     changed = {p.relative_to(root).as_posix() for p in edits}
     for path, text in edits.items():
-        path.write_bytes(text.encode("utf-8"))
+        safe_io.replace_file(path, text.encode("utf-8"))
     problems: list[Problem] = []
     try:
         apply_index(root)
@@ -1012,7 +1011,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
         problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
     if problems:
         for path, data in originals.items():
-            path.write_bytes(data)
+            safe_io.replace_file(path, data)
         try:
             apply_index(root)
         except (FrontmatterError, OSError):
@@ -1142,7 +1141,7 @@ def _write_text_copy(folder: Path) -> str | None:
     if (page := largest("*.html", "*.htm")) is not None:
         text = html_to_text(page.read_bytes())
         if len(text.split()) >= MIN_TEXT_WORDS:
-            (folder / "source.txt").write_text(text, encoding="utf-8")
+            safe_io.replace_file(folder / "source.txt", text.encode("utf-8"))
             return None
         reason = f"page has under {MIN_TEXT_WORDS} words of text"
     if (pdf := largest("*.pdf")) is None:
@@ -1225,7 +1224,7 @@ def fetch_sources(root: Path, paths: list[str] | None = None, *,
                 raise ValueError("the folder already holds a .txt")
             for old in folder.glob("source.*"):  # --force: drop copies of another type or a stale text
                 old.unlink()
-            (folder / f"source.{ext}").write_bytes(data)
+            safe_io.replace_file(folder / f"source.{ext}", data)
         except (OSError, ValueError, http.client.HTTPException) as exc:
             lines.append(f"failed {note.rel}: {exc}")
             counts["failed"] += 1
@@ -2894,7 +2893,7 @@ def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
             originals[path], edits[path] = path.read_bytes(), _set_field(text, "distinct_from",
                                                                         sorted({*known, names[other]}))
         for path, text in edits.items():
-            path.write_bytes(text.encode("utf-8"))
+            safe_io.replace_file(path, text.encode("utf-8"))
         _log_group(root, originals, "distinct")
     except (OSError, ValueError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
@@ -4071,7 +4070,7 @@ def _init_store(folder: Path) -> int:
         for name, text in ((records.STORE_MARKER, "format: 1\n"),
                            ("topics.yaml", "notes: {description: General notes}\n")):
             if not (folder / name).exists():
-                (folder / name).write_text(text, encoding="utf-8")
+                safe_io.replace_file(folder / name, text.encode("utf-8"))
     except OSError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -4261,7 +4260,7 @@ def _attach(args: argparse.Namespace) -> int:
         syn, sec = _section_ref(root, args.target)
         text = _read_text(found)
         _log_note(root, found, rel, "attach")
-        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
+        safe_io.replace_file(found, _set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
     except (ValueError, OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -4554,7 +4553,7 @@ def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str
                           part_of=f"{handle}#{section_handle}", part_of_hash=syntheses.fingerprint(cleaned))
         rel = target.relative_to(root).as_posix()
         if (stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))) != syntheses.fingerprint(cleaned):
-            target.write_text(_set_field(_read_text(target), "part_of_hash", stamp), encoding="utf-8")
+            safe_io.replace_file(target, _set_field(_read_text(target), "part_of_hash", stamp).encode("utf-8"))
         if found := [p for p in check(root) if p.path == rel]:
             raise NewNoteError(f"the note has {len(found)} problems, so nothing was written: "
                                + "; ".join(str(p) for p in found))
@@ -4700,7 +4699,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         if "part_of_hash" in fields:
             stamp = syntheses.note_fingerprint(sec.text, _note_target(path.relative_to(args.root).as_posix()))
             if stamp != fields["part_of_hash"]:
-                path.write_text(_set_field(_read_text(path), "part_of_hash", stamp), encoding="utf-8")
+                safe_io.replace_file(path, _set_field(_read_text(path), "part_of_hash", stamp).encode("utf-8"))
     except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
@@ -4836,8 +4835,7 @@ def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: 
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
              "action": "note-edit", "handle": rel, "group": group, "before": text,
              "after": _sha(new.encode("utf-8"))}
-    with log.open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(log, json.dumps(entry, ensure_ascii=False) + "\n")
     swapped = False
     try:
         if found.read_bytes() != original:
@@ -5102,6 +5100,11 @@ def cmd_import(args: argparse.Namespace) -> int:
     same, conflicts = 0, []
     for rel in files:
         target = dest / rel
+        try:
+            safe_io.refuse_symlink_chain(dest, target)
+        except safe_io.UnsafePath:
+            skipped.append(rel)
+            continue
         data = (src / rel).read_bytes()
         if target.is_file():
             if target.read_bytes() == data:

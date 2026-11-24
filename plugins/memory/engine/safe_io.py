@@ -56,7 +56,15 @@ def replace_file(path: Path, data: bytes, mode: int | None = None) -> None:
 def append_text(path: Path, text: str) -> None:
     """Append `text` to `path`, creating it; a symlink at `path` raises OSError."""
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o644)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+    try:
+        f = os.fdopen(fd, "w", encoding="utf-8", newline="")
+    except BaseException:
+        try:
+            os.close(fd)
+        except OSError:  # fdopen may already have closed it; keep the original error
+            pass
+        raise
+    with f:
         f.write(text)
 
 

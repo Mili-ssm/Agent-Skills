@@ -10,6 +10,7 @@ import records
 import auto_state
 import mem
 import safe_io
+import settle
 
 TODAY = datetime.date(2026, 11, 24)
 
@@ -164,6 +165,92 @@ def test_state_files_stay_private(tmp_path):
     auto_state.write_json(path, {"a": 2})
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert auto_state.read_json(path) == {"a": 2}
+
+
+def test_write_json_does_not_follow_a_planted_old_temp_name(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    path = tmp_path / "state.json"
+    (tmp_path / "state.json.tmp").symlink_to(victim)
+    auto_state.write_json(path, {"a": 1})
+    assert victim.read_text() == "precious"
+    assert auto_state.read_json(path) == {"a": 1}
+
+
+def test_note_edit_log_append_refuses_a_symlinked_curation_log(hub_root, tmp_path, capsys):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    (hub_root / records.CURATION_LOG).symlink_to(victim)
+    mem.main(["--root", str(hub_root), "note", "edit", "attention-replaces-recurrence", "--claim",
+              "Self-attention can replace recurrence for sequence modelling"])
+    capsys.readouterr()
+    assert victim.read_text() == "precious"
+
+
+def test_index_update_replaces_a_symlinked_readme_not_its_target(hub_root, tmp_path):
+    readme = hub_root / "knowledge/computing/README.md"
+    victim = tmp_path / "victim.md"
+    victim.write_text(readme.read_text().replace("| medium | intermediate | llm |", "| low | intermediate | llm |"))
+    before = victim.read_text()
+    readme.unlink()
+    readme.symlink_to(victim)
+    mem.apply_index(hub_root)
+    assert victim.read_text() == before
+    assert not readme.is_symlink()
+
+
+def test_new_note_does_not_write_through_a_dangling_link(hub_root, tmp_path, capsys):
+    victim = tmp_path / "victim.md"
+    folder = hub_root / "knowledge/biology"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "body-note.md").symlink_to(victim)
+    mem.main(["--root", str(hub_root), "new", "knowledge", "--slug", "body-note", "--claim", "A claim about bodies.",
+              "--topics", "biology", "--confidence", "low", "--level", "beginner", "--origin", "research"])
+    capsys.readouterr()
+    assert not victim.exists()
+
+
+def test_import_refuses_a_symlinked_destination_folder(tmp_path, capsys):
+    src, dest, outside = tmp_path / "src", tmp_path / "store", tmp_path / "outside"
+    assert mem.main(["init", str(dest)]) == 0
+    (src / "literature/x").mkdir(parents=True)
+    (src / "literature/x/a.md").write_text("note\n")
+    outside.mkdir()
+    (dest / "literature/x").symlink_to(outside, target_is_directory=True)
+    capsys.readouterr()
+    mem.main(["--root", str(dest), "import", str(src)])
+    out = capsys.readouterr().out
+    assert list(outside.iterdir()) == []
+    assert "literature/x/a.md" in out
+
+
+def test_settle_log_append_refuses_a_symlinked_log(tmp_path):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("precious")
+    (tmp_path / settle.LOG_NAME).symlink_to(victim)
+    with pytest.raises(OSError):
+        settle._append_log(tmp_path, {"undo": 1})
+    assert victim.read_text() == "precious"
+
+
+def test_append_text_closes_the_fd_when_fdopen_fails(tmp_path, monkeypatch):
+    opened = []
+    real_open = os.open
+
+    def spy(*a, **k):
+        fd = real_open(*a, **k)
+        opened.append(fd)
+        return fd
+
+    def boom(*a, **k):
+        raise RuntimeError("fdopen failed")
+
+    monkeypatch.setattr(os, "open", spy)
+    monkeypatch.setattr(os, "fdopen", boom)
+    with pytest.raises(RuntimeError):
+        safe_io.append_text(tmp_path / "log", "x")
+    with pytest.raises(OSError):
+        os.fstat(opened[0])
 
 
 def test_no_predictable_temp_names_remain():

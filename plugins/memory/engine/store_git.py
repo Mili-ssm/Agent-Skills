@@ -234,8 +234,7 @@ def _ignore_lines(store: Path, lines: list[str]) -> None:
     missing = [ln for ln in lines if ln not in have]
     if missing or not ignore.exists():
         prefix = "\n" if have and not ignore.read_text(encoding="utf-8").endswith("\n") else ""
-        with ignore.open("a", encoding="utf-8") as fh:
-            fh.write(prefix + "".join(ln + "\n" for ln in missing))
+        safe_io.append_text(ignore, prefix + "".join(ln + "\n" for ln in missing))
 
 
 def ensure_ignored(store: Path) -> None:
