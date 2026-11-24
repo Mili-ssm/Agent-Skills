@@ -132,11 +132,11 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
 - `mem._download(url) -> tuple[bytes, str]` keeps its signature: `fetch_raw(url, lambda _: FETCH_MAX_BYTES, over="fail", headers={"User-Agent": _USER_AGENT}, deadline=120, max_redirects=10)`; `FetchError` becomes `ValueError` with the messages its callers print today.
 - Known limit: the pinned connection ignores `HTTPS_PROXY` (as `research_checks` already does); note it in the CHANGELOG line.
 
-- [ ] **Step 1: Failing tests:** `test_download_refuses_a_private_address` (patch `research_checks.socket.getaddrinfo` → `169.254.169.254`; `ValueError` mentioning "non-public"); `test_download_refuses_a_redirect_to_localhost` (first host public, patched `_connection` answers `302` to `http://127.0.0.1/`); `test_download_keeps_its_user_agent_and_ten_redirects`.
-- [ ] **Step 2: Run** — expected: FAIL.
-- [ ] **Step 3: Implement**; fix `_download`'s docstring (it is no longer "the only network access").
-- [ ] **Step 4: Run** `test_fetch_sources.py test_research_checks.py test_research_run.py` — expected: PASS.
-- [ ] **Step 5: CHANGELOG line** and **commit** `fix(memory): fetch-sources refuses non-public addresses`.
+- [x] **Step 1: Failing tests:** `test_download_refuses_a_private_address` (patch `research_checks.socket.getaddrinfo` → `169.254.169.254`; `ValueError` mentioning "non-public"); `test_download_refuses_a_redirect_to_localhost` (first host public, patched `_connection` answers `302` to `http://127.0.0.1/`); `test_download_keeps_its_user_agent_and_ten_redirects`.
+- [x] **Step 2: Run** — expected: FAIL.
+- [x] **Step 3: Implement**; fix `_download`'s docstring (it is no longer "the only network access").
+- [x] **Step 4: Run** `test_fetch_sources.py test_research_checks.py test_research_run.py` — expected: PASS.
+- [x] **Step 5: CHANGELOG line** and **commit** `fix(memory): fetch-sources refuses non-public addresses`.
 
 ### Task 5: Sandbox for background synthesis and curation sessions
 
