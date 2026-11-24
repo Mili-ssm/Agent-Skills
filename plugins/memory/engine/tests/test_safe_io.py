@@ -33,7 +33,9 @@ def test_replace_file_replaces_a_symlinked_target_not_its_target(tmp_path):
     safe_io.replace_file(target, b"new")
     assert victim.read_text() == "precious"
     assert not target.is_symlink() and target.read_bytes() == b"new"
-    assert stat.S_IMODE(target.stat().st_mode) != 0o777
+    mask = os.umask(0)
+    os.umask(mask)
+    assert stat.S_IMODE(target.stat().st_mode) == 0o666 & ~mask
 
 
 def test_replace_file_keeps_the_mode(tmp_path):
@@ -83,7 +85,7 @@ def test_synthesis_write_refuses_a_symlinked_syntheses_folder(tmp_path):
     target.mkdir()
     (mem / "syntheses").symlink_to(target)
     with pytest.raises(safe_io.UnsafePath):
-        ps.write_part(mem, tmp_path, "organization", "Heading", "Text.", [], TODAY)
+        ps.write_part(mem, tmp_path, "organization", "Heading", "Text.", ["target"], TODAY)
     assert list(target.iterdir()) == []
 
 
@@ -94,3 +96,30 @@ def test_load_each_skips_symlinked_files(tmp_path):
     (tmp_path / "outside.md").write_text("garbage")
     (folder / "organization.md").symlink_to(tmp_path / "outside.md")
     assert ps.load_each(mem) == ({}, [])
+
+
+def test_load_each_ignores_a_symlinked_syntheses_folder(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    (tmp_path / "src.txt").write_text("x")
+    ps.write_part(real, tmp_path, "organization", "Heading", "Text.", ["src.txt"], TODAY)
+    assert ps.load_each(real)[0]
+    mem = tmp_path / ".memory"
+    mem.mkdir()
+    (mem / "syntheses").symlink_to(ps.folder(real))
+    assert ps.load_each(mem) == ({}, [])
+
+
+def test_refuse_symlink_chain_outside_root_raises_unsafe_path(tmp_path):
+    with pytest.raises(safe_io.UnsafePath):
+        safe_io.refuse_symlink_chain(tmp_path / "a", tmp_path / "b" / "c")
+
+
+def test_replace_file_closes_the_fd_when_fdopen_fails(tmp_path, monkeypatch):
+    closed = []
+    real_close = os.close
+    monkeypatch.setattr(os, "close", lambda fd: (closed.append(fd), real_close(fd))[1])
+    monkeypatch.setattr(os, "fdopen", lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    with pytest.raises(OSError):
+        safe_io.replace_file(tmp_path / "a.md", b"x")
+    assert closed and list(tmp_path.iterdir()) == []

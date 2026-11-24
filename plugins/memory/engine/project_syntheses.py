@@ -121,6 +121,8 @@ def load_each(memory_dir: Path) -> tuple[dict[str, list[Part]], list[tuple[str, 
     [(path under memory_dir, error message)] of the ones that do not). No git."""
     found: dict[str, list[Part]] = {}
     broken: list[tuple[str, str]] = []
+    if folder(memory_dir).is_symlink():
+        return found, broken
     for name in NAMES:
         path = folder(memory_dir) / f"{name}.md"
         if path.is_file() and not path.is_symlink():

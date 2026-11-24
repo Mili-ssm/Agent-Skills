@@ -33,7 +33,12 @@ def replace_file(path: Path, data: bytes, mode: int | None = None) -> None:
             mode = 0o666 & ~_umask()
     fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        with os.fdopen(fd, "wb") as f:
+        try:
+            f = os.fdopen(fd, "wb")
+        except BaseException:
+            os.close(fd)
+            raise
+        with f:
             f.write(data)
         os.chmod(name, mode)
         os.replace(name, path)
@@ -57,7 +62,11 @@ def refuse_symlink_chain(root: Path, path: Path) -> None:
     if root.is_symlink():
         raise UnsafePath(f"{root} is a symlink")
     current = root
-    for part in path.relative_to(root).parts:
+    try:
+        parts = path.relative_to(root).parts
+    except ValueError:
+        raise UnsafePath(f"{path} is not under {root}") from None
+    for part in parts:
         current = current / part
         if current.is_symlink():
             raise UnsafePath(f"{current} is a symlink")
