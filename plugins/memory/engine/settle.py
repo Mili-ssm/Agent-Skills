@@ -21,6 +21,7 @@ from typing import Callable, NamedTuple, Sequence
 
 import auto_state
 import records
+import safe_io
 import store_git
 
 STATE_NAME = ".settle-state.json"
@@ -214,8 +215,7 @@ def read_log(folder: Path) -> list[dict]:
 
 
 def _append_log(folder: Path, entry: dict) -> None:
-    with (folder / LOG_NAME).open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(folder / LOG_NAME, json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def settlings(folder: Path) -> list[dict]:

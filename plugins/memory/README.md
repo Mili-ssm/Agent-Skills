@@ -28,7 +28,7 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 | Store (notes) | Nothing to set: the default store is created on first use (`mem init`). Or the plugin option `store`, `MEM_STORE`, `--root` | A store is read-only unless it holds a `mem-store.yaml` marker; the default one has it. An existing folder of notes without the marker is never made writable by this tool. To sync, make the store a git repository and push it to a remote of your choice |
 | Global memories | Plugin option `memories`, or `MEM_MEMORIES`; else `memories/` in a writable store | May not be inside a read-only store. Nothing specific to a project belongs here. `mem terms add <term>` lists a hard term (a write that contains it is refused); `mem terms add <term> --soft` lists a soft one (the agent must ask the owner); `mem terms list` and `remove` manage them |
 | Other projects | A local registry, filled as memories are written (`mem projects list`) | Never read by default. `mem search "<q>" --project <name>` or `--all-projects` includes them, each under its own header; the registry holds names and paths, stays on this machine and is not synced |
-| Project memories | The main worktree's `.memory/` | Kept out of git through `.git/info/exclude`, added once when the folder is created; remove that line to commit the folder |
+| Project memories | The main worktree's `.memory/` | Kept out of git through `.git/info/exclude`, added once when the folder is created; remove that line to commit the folder. Memories a repository commits still load, but the owner confirmation in their file does not count and they are marked "from repository" |
 
 ## Compaction hooks
 
@@ -124,7 +124,7 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 
 ### Corroboration, quarantine and triage (with `auto_capture`; measured once, on a copy)
 
-**What it does:** after an automatic capture that wrote something, `bin/mem-corroborate` runs in the background. It shows a small model the lessons of every registered project and the global ones as lines with opaque ids, and applies only what two sessions agree on:
+**What it does:** after an automatic capture that wrote something, `bin/mem-corroborate` runs in the background. It shows a small model the lessons of every registered project and the global ones (memories a repository tracks in git are left out) as lines with opaque ids, and applies only what two sessions agree on:
 
 | Step | Who | What |
 | --- | --- | --- |
@@ -143,7 +143,7 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 | Cost | Two model sessions per pass, each within `auto_capture_budget`; no pass when no lesson changed; after two passes that fail on the same lessons it stops until one changes |
 | Undo | `mem-corroborate undo <stamp>` restores every file a pass changed; `<stamp>` is a folder name under `<data folder>/corroborate/runs/`. It refuses, changing nothing, when one of those files was edited since |
 | Lapse | An unconfirmed lesson gets an end date 30 days after its last sighting; a new sighting within 60 days after that date revives it. A lapsed lesson stays stored and in quarantine; `mem memories --global --quarantine` still lists it |
-| What is sent to the model | The claim and context of every lesson of origin `transcript`, from every registered project and the global folder; no transcript text and no project name beyond what a lesson's own text says |
+| What is sent to the model | The claim and context of every lesson of origin `transcript`, from every registered project and the global folder, except memories a repository tracks in git; no transcript text and no project name beyond what a lesson's own text says |
 
 **Where to look:** `<data folder>/corroborate/` holds `status.json`, `log.jsonl` (counts only), `seen.json` and `runs/` (private: it holds lesson text). `mem-corroborate run --dry-run --out FILE` runs both model sessions (up to `--budget` each, default 0.25 USD), writes what a pass would do to FILE and changes no record. After a failed pass the session start text carries one line, `memory: the last corroboration pass failed (<reason>)`, until `mem-corroborate ack`; `mem-corroborate status` shows the last run.
 

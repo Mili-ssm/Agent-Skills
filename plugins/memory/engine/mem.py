@@ -40,6 +40,7 @@ import corroborate
 import handoff
 import project_syntheses
 import records
+import safe_io
 import shortcheck
 import rules
 from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
@@ -713,8 +714,7 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
         raise NewNoteError(f"{target.relative_to(root).as_posix()} already exists")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(_dump_frontmatter(ordered) + (template_body if body is None else body),
-                      encoding="utf-8")
+    safe_io.replace_file(target, (_dump_frontmatter(ordered) + (template_body if body is None else body)).encode("utf-8"))
     try:
         apply_index(root)
     except FrontmatterError as exc:
@@ -856,7 +856,7 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
     originals = {(new if p == old else p): p.read_bytes() for p in (*edits, old)}
     listings = _index_files(root)
     for path, text in edits.items():
-        path.write_text(text, encoding="utf-8")
+        safe_io.replace_file(path, text.encode("utf-8"))
     old.rename(new)
     if sources.is_dir():
         sources.rename(new_sources)
@@ -899,13 +899,14 @@ def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: 
     `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
     group = group or uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        for path, before in originals.items():
-            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
-                     "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
-            if moved and path in moved:
-                entry["from"] = moved[path].relative_to(root).as_posix()
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    out = []
+    for path, before in originals.items():
+        entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                 "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
+        if moved and path in moved:
+            entry["from"] = moved[path].relative_to(root).as_posix()
+        out.append(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, "".join(out))
 
 
 def _resolve_notes(root: Path, args: Sequence[str]) -> list[Path]:
@@ -999,7 +1000,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     listings = _index_files(root)
     changed = {p.relative_to(root).as_posix() for p in edits}
     for path, text in edits.items():
-        path.write_bytes(text.encode("utf-8"))
+        safe_io.replace_file(path, text.encode("utf-8"))
     problems: list[Problem] = []
     try:
         apply_index(root)
@@ -1010,7 +1011,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
         problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
     if problems:
         for path, data in originals.items():
-            path.write_bytes(data)
+            safe_io.replace_file(path, data)
         try:
             apply_index(root)
         except (FrontmatterError, OSError):
@@ -1024,7 +1025,8 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
 # --- fetch-sources -------------------------------------------------------------
 
 SOURCES_DIR = ".sources"
-FETCH_TIMEOUT = 30
+FETCH_TIMEOUT = 30  # seconds per socket operation: slow source servers answer late
+FETCH_DEADLINE = 120  # seconds for one download, all redirects together
 FETCH_PAUSE = 1.0
 FETCH_MAX_BYTES = 50 * 1024 * 1024  # larger sources stay online only (C-14)
 _USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
@@ -1033,26 +1035,15 @@ _CONTENT_EXT = {"application/pdf": "pdf", "text/html": "html", "application/xhtm
 _SUFFIX_EXT = {".pdf": "pdf", ".html": "html", ".htm": "html", ".txt": "txt"}
 
 
-class _HttpOnlyRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow redirects only to http(s); urllib's default also follows ftp."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: D102 (stdlib signature)
-        if urllib.parse.urlparse(newurl).scheme not in ("http", "https"):
-            raise ValueError(f"redirected to a non-http URL: {newurl}")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def _download(url: str) -> tuple[bytes, str]:
-    """(body, Content-Type) of a URL, redirects followed. The only network access of the hub tools."""
-    request = urllib.request.Request(url, headers={"User-Agent": _USER_AGENT})
-    opener = urllib.request.build_opener(_HttpOnlyRedirects)
-    with opener.open(request, timeout=FETCH_TIMEOUT) as response:
-        if urllib.parse.urlparse(response.geturl()).scheme not in ("http", "https"):
-            raise ValueError(f"redirected to a non-http URL: {response.geturl()}")
-        data = response.read(FETCH_MAX_BYTES + 1)
-        if len(data) > FETCH_MAX_BYTES:
-            raise ValueError(f"response larger than {FETCH_MAX_BYTES // (1024 * 1024)} MB")
-        return data, response.headers.get("Content-Type", "")
+    """(body, Content-Type) of a URL, redirects followed. Goes through the address-checked transport of
+    `research_checks`: a host that resolves to a non-public address, at any hop, is refused."""
+    import research_checks  # late: research_checks imports mem
+    try:
+        return research_checks.fetch_raw(url, lambda _: FETCH_MAX_BYTES, over="fail", headers={"User-Agent": _USER_AGENT, "Accept": "*/*"},
+                                         deadline=FETCH_DEADLINE, max_redirects=10, timeout=FETCH_TIMEOUT)
+    except research_checks.FetchError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _source_extension(url: str, content_type: str) -> str:
@@ -1140,7 +1131,7 @@ def _write_text_copy(folder: Path) -> str | None:
     if (page := largest("*.html", "*.htm")) is not None:
         text = html_to_text(page.read_bytes())
         if len(text.split()) >= MIN_TEXT_WORDS:
-            (folder / "source.txt").write_text(text, encoding="utf-8")
+            safe_io.replace_file(folder / "source.txt", text.encode("utf-8"))
             return None
         reason = f"page has under {MIN_TEXT_WORDS} words of text"
     if (pdf := largest("*.pdf")) is None:
@@ -1223,7 +1214,7 @@ def fetch_sources(root: Path, paths: list[str] | None = None, *,
                 raise ValueError("the folder already holds a .txt")
             for old in folder.glob("source.*"):  # --force: drop copies of another type or a stale text
                 old.unlink()
-            (folder / f"source.{ext}").write_bytes(data)
+            safe_io.replace_file(folder / f"source.{ext}", data)
         except (OSError, ValueError, http.client.HTTPException) as exc:
             lines.append(f"failed {note.rel}: {exc}")
             counts["failed"] += 1
@@ -1843,7 +1834,8 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
 
 def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
                   *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
-                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None) -> str:
+                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None,
+                  tracked: frozenset[str] | None = frozenset()) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
@@ -1880,7 +1872,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         loaded_global = records.load_memories(memories, "global")
         live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
-    loaded_project = records.load_memories(project, "project")
+    loaded_project = records.mark_repository(records.load_memories(project, "project"), tracked)
     if passes is not None and project is not None:
         due_in(project, loaded_project)
     if passes is not None and has_memories:
@@ -2041,7 +2033,8 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         notice = "\n".join(notices) or None
         text = session_index(store, records.project_dir(project) if project else None, memories,
                              datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice, stats=stats, marks=read_marks(os.environ))
+                             notice=notice, stats=stats, marks=read_marks(os.environ),
+                             tracked=records.tracked_memories(project) if project else frozenset())
     except Exception:
         text = _INDEX_RULES
         stats.clear()
@@ -2712,7 +2705,7 @@ def _reword_failed(args: argparse.Namespace) -> int:
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"m:{m.handle}\tedited reword failed")
@@ -2815,7 +2808,7 @@ def cmd_memory(args: argparse.Namespace) -> int:
             if log_before is None:
                 log.unlink(missing_ok=True)
             else:
-                log.write_bytes(log_before)
+                safe_io.replace_file(log, log_before)
             raise
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
@@ -2892,7 +2885,7 @@ def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
             originals[path], edits[path] = path.read_bytes(), _set_field(text, "distinct_from",
                                                                         sorted({*known, names[other]}))
         for path, text in edits.items():
-            path.write_bytes(text.encode("utf-8"))
+            safe_io.replace_file(path, text.encode("utf-8"))
         _log_group(root, originals, "distinct")
     except (OSError, ValueError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
@@ -3006,17 +2999,14 @@ def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) 
     try:
         for number, e in members:
             target = root / e.get("from", e["handle"])
-            tmp = target.with_name(f".{target.name}.tmp")
-            tmp.write_bytes(e["before"].encode("utf-8"))
-            os.replace(tmp, target)
+            safe_io.replace_file(target, e["before"].encode("utf-8"))
             if "from" in e:
                 (root / e["handle"]).unlink()
                 sources, was = root / SOURCES_DIR / Path(e["handle"]).stem, root / SOURCES_DIR / Path(e["from"]).stem
                 if sources.is_dir() and not was.exists():
                     sources.rename(was)
             marker = {"t": stamp, "action": "restore", "handle": e["handle"], "undone": number}
-            with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-                f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+            safe_io.append_text(root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
         if rebuild:
             apply_index(root)
     except (OSError, FrontmatterError) as exc:
@@ -3038,13 +3028,10 @@ def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
     if entry.get("group"):
         return _restore_group(root, rel, entry)
     try:
-        tmp = note.with_name(f".{note.name}.tmp")
-        tmp.write_bytes(entry["before"].encode("utf-8"))
-        os.replace(tmp, note)
+        safe_io.replace_file(note, entry["before"].encode("utf-8"))
         marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                   "action": "restore", "handle": rel, "undone": entry["line"]}
-        with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-            f.write(json.dumps(marker, ensure_ascii=False) + "\n")
+        safe_io.append_text(root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
     except OSError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -3226,6 +3213,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
     if args.unread or args.read:
         return _rules_unread(args, today)
     (_, _, project), (_, _, global_) = _loaded(_memory_folders(args))
+    try:
+        root = records.project_root(Path.cwd(), os.environ)
+    except OSError:
+        root = None
+    project = records.mark_repository(project, records.tracked_memories(root) if root else frozenset())
     choice = rules.choose(project, global_, today)
     if _rules_off():
         print(RULES_OFF_NOTICE)
@@ -3294,9 +3286,7 @@ def _write_passes(env: Mapping[str, str], covered: Sequence[Path], today: dateti
     known = {k: v.isoformat() for k, v in read_passes(env).items()}
     known.update({str(f.resolve()): today.isoformat() for f in covered})
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    safe_io.replace_file(path, (json.dumps(known, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def _marks_file(env: Mapping[str, str]) -> Path | None:
@@ -3334,9 +3324,7 @@ def _write_marks(env: Mapping[str, str], covered: Mapping[Path, Collection[str]]
     known = {k: sorted(v) for k, v in _parse_marks(text).items()}
     known.update({str(f.resolve()): sorted(keys) for f, keys in covered.items()})
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(known, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    safe_io.replace_file(path, (json.dumps(known, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def _tagged(m: records.Memory, extra: str = "") -> str:
@@ -4079,7 +4067,7 @@ def _init_store(folder: Path) -> int:
         for name, text in ((records.STORE_MARKER, "format: 1\n"),
                            ("topics.yaml", "notes: {description: General notes}\n")):
             if not (folder / name).exists():
-                (folder / name).write_text(text, encoding="utf-8")
+                safe_io.replace_file(folder / name, text.encode("utf-8"))
     except OSError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -4235,8 +4223,7 @@ def _log_note(root: Path, path: Path, rel: str, action: str) -> None:
     """The note's current text, appended to the store's `.curation-log` before a curation action changes it."""
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
              "handle": rel, "before": path.read_bytes().decode("utf-8")}
-    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n")
 
 
 def _note_target(rel: str) -> str:
@@ -4270,7 +4257,7 @@ def _attach(args: argparse.Namespace) -> int:
         syn, sec = _section_ref(root, args.target)
         text = _read_text(found)
         _log_note(root, found, rel, "attach")
-        found.write_bytes(_set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
+        safe_io.replace_file(found, _set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
     except (ValueError, OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -4297,11 +4284,10 @@ def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], ac
     """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes."""
     group = uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    with (root / records.CURATION_LOG).open("a", encoding="utf-8", newline="") as f:
-        for path, (old, new) in changes.items():
-            entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
-                     "before": old.decode("utf-8"), "after": _sha(new)}
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, "".join(
+        json.dumps({"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
+                    "before": old.decode("utf-8"), "after": _sha(new)}, ensure_ascii=False) + "\n"
+        for path, (old, new) in changes.items()))
 
 
 def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]) -> None:
@@ -4323,7 +4309,7 @@ def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
         raise
 
 
@@ -4564,7 +4550,7 @@ def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str
                           part_of=f"{handle}#{section_handle}", part_of_hash=syntheses.fingerprint(cleaned))
         rel = target.relative_to(root).as_posix()
         if (stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))) != syntheses.fingerprint(cleaned):
-            target.write_text(_set_field(_read_text(target), "part_of_hash", stamp), encoding="utf-8")
+            safe_io.replace_file(target, _set_field(_read_text(target), "part_of_hash", stamp).encode("utf-8"))
         if found := [p for p in check(root) if p.path == rel]:
             raise NewNoteError(f"the note has {len(found)} problems, so nothing was written: "
                                + "; ".join(str(p) for p in found))
@@ -4710,7 +4696,7 @@ def cmd_new(args: argparse.Namespace) -> int:
         if "part_of_hash" in fields:
             stamp = syntheses.note_fingerprint(sec.text, _note_target(path.relative_to(args.root).as_posix()))
             if stamp != fields["part_of_hash"]:
-                path.write_text(_set_field(_read_text(path), "part_of_hash", stamp), encoding="utf-8")
+                safe_io.replace_file(path, _set_field(_read_text(path), "part_of_hash", stamp).encode("utf-8"))
     except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
@@ -4833,9 +4819,7 @@ def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section
 
 
 def _swap_file(path: Path, data: bytes) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
-    os.replace(tmp, path)
+    safe_io.replace_file(path, data)
 
 
 def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: str, new: str) -> None:
@@ -4848,8 +4832,7 @@ def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: 
     entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
              "action": "note-edit", "handle": rel, "group": group, "before": text,
              "after": _sha(new.encode("utf-8"))}
-    with log.open("a", encoding="utf-8", newline="") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(log, json.dumps(entry, ensure_ascii=False) + "\n")
     swapped = False
     try:
         if found.read_bytes() != original:
@@ -4866,7 +4849,7 @@ def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: 
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
-            log.write_bytes(log_before)
+            safe_io.replace_file(log, log_before)
         raise
     _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
 
@@ -4996,16 +4979,33 @@ _IMPORT_FOLDERS = ("literature", "knowledge", "research")
 _IMPORT_DOCUMENTS = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
 
 
-def _import_files(src: Path, with_sources: bool, research_data: bool = False) -> list[str]:
-    """Source-relative paths to import, sorted. The source is only listed and read, never written."""
+def _import_files(src: Path, with_sources: bool, research_data: bool = False,
+                  skipped: list[str] | None = None) -> list[str]:
+    """Source-relative paths to import, sorted. The source is only listed and read, never written.
+    A symlink, or anything under one, is never listed: its source-relative path goes to `skipped`."""
+    skipped = skipped if skipped is not None else []
+
+    def refused(path: Path) -> bool:
+        try:
+            safe_io.refuse_symlink_chain(src, path)
+        except safe_io.UnsafePath:
+            skipped.append(path.relative_to(src).as_posix())
+            return True
+        return False
+
     found: list[str] = []
     roots = [*_IMPORT_FOLDERS, *([".sources"] if with_sources else [])]
     for top in roots:
         base = src / top
+        if base.is_symlink():
+            refused(base)
+            continue
         for here, dirs, names in os.walk(base):
             dirs[:] = sorted(d for d in dirs if d == d.lstrip(".") or top == ".sources")
-            dirs[:] = [d for d in dirs if d != "__pycache__"]
+            dirs[:] = [d for d in dirs if d != "__pycache__" and not refused(Path(here) / d)]
             for name in names:
+                if refused(Path(here) / name):
+                    continue
                 rel = (Path(here) / name).relative_to(src)
                 if top != ".sources" and name.startswith("."):
                     continue
@@ -5054,7 +5054,7 @@ def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
 def _union_topics(src: Path, dest: Path) -> tuple[list[str], list[str], str]:
     """(ids added, ids kept as they were, text to append to the destination's topics.yaml)."""
     path = src / "topics.yaml"
-    if not path.is_file():
+    if path.is_symlink() or not path.is_file():
         return [], [], ""
     try:
         theirs = load_yaml(_read_text(path))
@@ -5088,12 +5088,20 @@ def cmd_import(args: argparse.Namespace) -> int:
     except FrontmatterError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    files = _import_files(src, args.with_sources, args.research_data)
+    skipped: list[str] = []
+    if (src / "topics.yaml").is_symlink():
+        skipped.append("topics.yaml")
+    files = _import_files(src, args.with_sources, args.research_data, skipped)
     kinds = collections.Counter(k for k in map(_note_kind, files) if k)
     todo: list[str] = []
     same, conflicts = 0, []
     for rel in files:
         target = dest / rel
+        try:
+            safe_io.refuse_symlink_chain(dest, target)
+        except safe_io.UnsafePath:
+            skipped.append(rel)
+            continue
         data = (src / rel).read_bytes()
         if target.is_file():
             if target.read_bytes() == data:
@@ -5119,11 +5127,11 @@ def cmd_import(args: argparse.Namespace) -> int:
                     pass  # not text: the log keeps text only
             target.parent.mkdir(parents=True, exist_ok=True)
             with (src / rel).open("rb") as f:
-                target.write_bytes(f.read())
+                safe_io.replace_file(target, f.read())
         if topic_text:
             current = (root / "topics.yaml").read_text(encoding="utf-8")
-            (root / "topics.yaml").write_text(current + ("" if current.endswith("\n") or not current else "\n") + topic_text,
-                                              encoding="utf-8")
+            safe_io.replace_file(root / "topics.yaml", (current + ("" if current.endswith("\n") or not current else "\n")
+                                                        + topic_text).encode("utf-8"))
         if originals:
             _log_group(root, originals, "import")
         apply_index(root)
@@ -5148,7 +5156,7 @@ def cmd_import(args: argparse.Namespace) -> int:
     print(f"topics: {len(added)} added, {len(kept)} kept as they were")
     print(f"check: {len(problems)} problems")
     print(f"flagged: {len(flagged)} files")
-    for header, items in (("conflicts:", conflicts), ("topics kept:", kept),
+    for header, items in (("skipped symlinks:", sorted(skipped)), ("conflicts:", conflicts), ("topics kept:", kept),
                           ("check problems (first 20):", [str(p) for p in problems[:20]]), ("flagged:", flagged)):
         if items:
             print(header)
@@ -5885,9 +5893,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    try:
+        return _dispatch(argv)
+    except safe_io.UnsafePath as exc:  # a symlink where a command refuses one
+        print(f"mem: refused: {exc}", file=sys.stderr)
+        return 2
+
+
+def _dispatch(argv: list[str] | None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "read":
         args.command = "show"
+    if refusal := safe_io.sandbox_refusal(args.command, vars(args)):
+        print(f"mem: {refusal}", file=sys.stderr)
+        return 2
     if args.command in ("init", "terms", "history"):  # history finds its own store: `history init` may name one
         return args.func(args)
     if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used

@@ -143,7 +143,8 @@ def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, setti
             row["status"] = "failed: budget spent"
             return row
         w = sp.run_session(claude, "haiku", prompt, work, settings, env, base / "01-writer.jsonl", effort="high",
-                           agent=AGENT, max_budget=left() if budget_left else None)
+                           agent=AGENT, max_budget=left() if budget_left else None,
+                           read_roots=sp.session_roots(store, env, work))
         w.update(role="writer", model="haiku", costs=sp.cost_by_family(w["model_usage"]))
         sessions.append(sp.summary(w))
         answer = w["answer"].strip()
@@ -158,7 +159,7 @@ def run_topic(claude: str, env: dict, root: Path, store: Path, topic: str, setti
         if row["status"] != "ok":
             return row
         done = sp.lean_loop(claude, env, base, store, work, settings, topic, sessions,
-                            left=left if budget_left else None)
+                            left=left if budget_left else None, read_roots=sp.session_roots(store, env, work))
         log(f"{topic}: loop {json.dumps({k: v for k, v in done.items() if k != 'arm_count'})}")
         if done["why"]:
             row["status"] = f"failed: {done['why']}"

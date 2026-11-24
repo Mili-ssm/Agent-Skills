@@ -1,10 +1,11 @@
-"""The generated index READMEs: rendering and `apply_index`. Imports only notes."""
+"""The generated index READMEs: rendering and `apply_index`. Imports only notes and safe_io."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, NamedTuple
 
+import safe_io
 from notes import (FrontmatterError, Note, _read_text, discover_notes, leaf_topics, load_topics, root_of,
                    root_topics)
 
@@ -178,5 +179,5 @@ def apply_index(root: Path) -> list[str]:
             pending.append((path, new))
     for path, new in pending:  # write only after every README was accepted
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(new, encoding="utf-8")
+        safe_io.replace_file(path, new.encode("utf-8"))
     return [path.relative_to(root).as_posix() for path, _ in pending]

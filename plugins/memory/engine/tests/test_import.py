@@ -226,3 +226,18 @@ def test_an_investigations_figures_are_copied_with_its_documents(source, dest, c
     (source / "research" / "2026-11-llm-eval-methods" / "Plot.PNG").write_bytes(b"\x89PNG")
     assert run(dest, source, capsys)[0] == 0
     assert (dest / "research/2026-11-llm-eval-methods/Plot.PNG").read_bytes() == b"\x89PNG"
+
+
+def test_import_skips_symlinks_at_any_depth(source, dest, tmp_path, capsys):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "b.md").write_text("TOPSECRET folder\n", encoding="utf-8")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET file\n", encoding="utf-8")
+    (source / "literature" / "x").mkdir(parents=True, exist_ok=True)
+    (source / "literature" / "x" / "a.md").symlink_to(secret)
+    (source / "literature" / "y").symlink_to(outside, target_is_directory=True)
+    code, out, _ = run(dest, source, capsys)
+    assert code == 0
+    assert "literature/x/a.md" in out and "literature/y" in out
+    assert not any("TOPSECRET" in p.read_text(errors="ignore") for p in dest.rglob("*") if p.is_file() and not p.is_symlink())

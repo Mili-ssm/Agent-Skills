@@ -39,6 +39,15 @@ def counted_projects(registry: Mapping[str, Mapping[str, str]]) -> list[Path]:
     return sorted(found)
 
 
+def project_memories(project: Path) -> list[records.Memory]:
+    """The project's memories that its repository does not commit: corroboration never lifts a tracked memory into
+    a global one, adds a sighting from it or writes into its file."""
+    tracked = records.tracked_memories(project)
+    if tracked is None:
+        return []
+    return [m for m in records.load_memories(records.project_dir(project), "project") if m.handle not in tracked]
+
+
 @dataclass(frozen=True)
 class Lesson:
     id: str  # "g:<handle>" or "p<n>:<handle>": no project name reaches the model
@@ -67,7 +76,7 @@ def collect(projects: Sequence[Path], global_folder: Path | None, today: datetim
     `promote: no` or already linked to a global record is left out. Newest first, cut at MAX_LESSONS."""
     out: list[Lesson] = []
     for n, project in enumerate(projects, start=1):
-        for m in records.load_memories(records.project_dir(project), "project"):
+        for m in project_memories(project):
             if _readable(m, today) and m.promote != "no" and not m.general:
                 out.append(Lesson(f"p{n}:{m.handle}", "project", project, m))
     for m in records.load_memories(global_folder, "global"):
@@ -328,7 +337,7 @@ def fill_records(projects: Sequence[Path], global_folder: Path | None) -> list[t
     the n-th project and `g:<handle>` for a global record."""
     out: list[tuple[str, Path | None, records.Memory]] = []
     for n, project in enumerate(projects, start=1):
-        out += [(f"p{n}:{m.handle}", project, m) for m in records.load_memories(records.project_dir(project), "project")
+        out += [(f"p{n}:{m.handle}", project, m) for m in project_memories(project)
                 if m.error is None]
     out += [(f"g:{m.handle}", None, m) for m in records.load_memories(global_folder, "global") if m.error is None]
     return out

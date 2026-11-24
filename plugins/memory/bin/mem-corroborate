@@ -45,6 +45,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au  # noqa: E402
+import safe_io  # noqa: E402
 import capture_state as cs  # noqa: E402
 
 try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
@@ -350,9 +351,7 @@ def undo_run(run: Path) -> tuple[bool, str]:
             if saved is None:
                 path.unlink(missing_ok=True)
             else:
-                tmp = path.with_name(f".{path.name}.undo")
-                write_private_bytes(tmp, saved)
-                os.replace(tmp, path)
+                safe_io.replace_file(path, saved, mode=0o600)
         except OSError as exc:
             return False, f"cannot restore {path}: {exc.strerror or type(exc).__name__}; run undo again to finish"
     write_private(run / "undone", "")
