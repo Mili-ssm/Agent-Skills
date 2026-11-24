@@ -327,9 +327,10 @@ def _read(resp: http.client.HTTPResponse, limit: int, deadline: float) -> bytes:
 
 def fetch_raw(url: str, limit_for: Callable[[str], int], *, over: Literal["truncate", "fail"] = "truncate",
               headers: Mapping[str, str] | None = None, deadline: float | None = None,
-              max_redirects: int = MAX_REDIRECTS, allow_hosts: Iterable[str] = ()) -> tuple[bytes, str]:
+              max_redirects: int = MAX_REDIRECTS, allow_hosts: Iterable[str] = (),
+              timeout: float = TIMEOUT) -> tuple[bytes, str]:
     """(body, Content-Type lowercased, parameters kept) of a page. Only http(s); a non-public address is refused at
-    every hop (`max_redirects` at most); 10 s per socket operation and `deadline` seconds (TOTAL_DEADLINE) for the whole
+    every hop (`max_redirects` at most); `timeout` seconds per socket operation (TIMEOUT) and `deadline` seconds (TOTAL_DEADLINE) for the whole
     call. `limit_for(content type)` gives the byte limit (it may raise to refuse the type); past it, "truncate" cuts the
     body and "fail" raises FetchFailed. `allow_hosts` names hosts that skip the address check, for the URL given only
     (a local test page): every redirect target is checked as any other. The pinned connection ignores HTTPS_PROXY."""
@@ -350,7 +351,7 @@ def fetch_raw(url: str, limit_for: Callable[[str], int], *, over: Literal["trunc
         remaining = end - time.monotonic()
         if remaining <= 0:
             raise FetchFailed("total time limit passed")
-        conn = _connection(parts, address, port, min(TIMEOUT, remaining))
+        conn = _connection(parts, address, port, min(timeout, remaining))
         # A server that drips bytes keeps every single read within its timeout: cut the socket at the deadline.
         cut = threading.Event()
         cutter = threading.Timer(remaining, _cut, (conn, cut))

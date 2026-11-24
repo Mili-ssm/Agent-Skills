@@ -1025,6 +1025,7 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
 # --- fetch-sources -------------------------------------------------------------
 
 SOURCES_DIR = ".sources"
+FETCH_TIMEOUT = 30  # seconds per socket operation: slow source servers answer late
 FETCH_DEADLINE = 120  # seconds for one download, all redirects together
 FETCH_PAUSE = 1.0
 FETCH_MAX_BYTES = 50 * 1024 * 1024  # larger sources stay online only (C-14)
@@ -1039,8 +1040,8 @@ def _download(url: str) -> tuple[bytes, str]:
     `research_checks`: a host that resolves to a non-public address, at any hop, is refused."""
     import research_checks  # late: research_checks imports mem
     try:
-        return research_checks.fetch_raw(url, lambda _: FETCH_MAX_BYTES, over="fail", headers={"User-Agent": _USER_AGENT},
-                                         deadline=FETCH_DEADLINE, max_redirects=10)
+        return research_checks.fetch_raw(url, lambda _: FETCH_MAX_BYTES, over="fail", headers={"User-Agent": _USER_AGENT, "Accept": "*/*"},
+                                         deadline=FETCH_DEADLINE, max_redirects=10, timeout=FETCH_TIMEOUT)
     except research_checks.FetchError as exc:
         raise ValueError(str(exc)) from exc
 

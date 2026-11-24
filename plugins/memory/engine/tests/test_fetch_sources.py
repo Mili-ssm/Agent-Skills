@@ -155,14 +155,14 @@ def wire(monkeypatch):
     import research_checks
     replies, seen = [], []
     monkeypatch.setattr(research_checks.socket, "getaddrinfo",
-                        lambda host, port, **k: [(2, 1, 6, "", ("127.0.0.1" if host == "127.0.0.1" else "93.184.216.34", port))])
+                        lambda host, port, *a, **k: [(2, 1, 6, "", ("127.0.0.1" if host == "127.0.0.1" else "93.184.216.34", port))])
     monkeypatch.setattr(research_checks, "_connection", lambda *a, **k: FakeConnection(replies, seen))
     return replies, seen
 
 
 def test_download_refuses_a_private_address(monkeypatch):
     import research_checks
-    monkeypatch.setattr(research_checks.socket, "getaddrinfo", lambda host, port, **k: [(2, 1, 6, "", ("169.254.169.254", port))])
+    monkeypatch.setattr(research_checks.socket, "getaddrinfo", lambda host, port, *a, **k: [(2, 1, 6, "", ("169.254.169.254", port))])
     with pytest.raises(ValueError, match="non-public"):
         mem._download("http://metadata.example/latest")
 
@@ -346,3 +346,11 @@ def test_text_only_reports_a_write_error(hub_root, calls, capsys, monkeypatch):
     make_folder(hub_root, "2017-vaswani-attention", source_html=PAGE)
     code, out = run(hub_root, capsys, "--text-only")
     assert code == 0 and out[0] == f"no text {A}: disk full"
+
+
+def test_download_keeps_its_socket_timeout_and_accepts_any_type(monkeypatch):
+    import research_checks
+    seen = {}
+    monkeypatch.setattr(research_checks, "fetch_raw", lambda url, limit_for, **kw: seen.update(kw) or (b"x", "text/plain"))
+    assert mem._download("https://x.org/a") == (b"x", "text/plain")
+    assert seen["timeout"] == 30 and seen["headers"]["Accept"] == "*/*"
