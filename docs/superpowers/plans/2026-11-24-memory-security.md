@@ -49,7 +49,7 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
   - `safe_io.append_text(path: Path, text: str) -> None`: `os.open(path, O_WRONLY|O_APPEND|O_CREAT|O_NOFOLLOW, 0o644)`; a symlink raises `OSError`.
   - `safe_io.UnsafePath(OSError)`; `safe_io.refuse_symlink_chain(root: Path, path: Path) -> None` raises it when `root` or any component of `path` below `root` is a symlink.
 
-- [ ] **Step 1: Write the failing tests** in `test_safe_io.py`:
+- [x] **Step 1: Write the failing tests** in `test_safe_io.py`:
   - `test_update_does_not_follow_a_planted_temp_symlink`: plant `.{name}.tmp` → victim file; `records.update` on that memory; victim unchanged, memory updated.
   - `test_replace_file_replaces_a_symlinked_target_not_its_target`: `<h>.md` → victim; `replace_file`; victim unchanged, `<h>.md` a regular file whose mode is not 0o777.
   - `test_replace_file_keeps_the_mode`: 0o644 file stays 0o644; `mode=0o600` gives 0o600.
@@ -57,10 +57,10 @@ Status: in progress (pre-mortem amendments applied; S2 reduced to the light desi
   - `test_project_memories_skip_symlinked_files`: `load_memories(folder, "project")` returns the regular memory only.
   - `test_a_symlinked_project_folder_loads_nothing_and_refuses_writes`: `.memory` → another folder with a valid memory; `load_memories(..., "project")` is `[]`; `write_memory(..., scope="project")` raises `safe_io.UnsafePath`.
   - `test_synthesis_write_refuses_a_symlinked_syntheses_folder`: `.memory/syntheses` → another folder; `project_syntheses.write_part` raises `UnsafePath`, nothing written in the target; `load_each` skips symlinked files.
-- [ ] **Step 2: Run** `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_safe_io.py -q` — expected: failures (module missing).
-- [ ] **Step 3: Implement** `safe_io.py`; route `records.update`, `records.restore`, `syntheses._write` through `replace_file`; every `.curation-log` append in `records.py` and `syntheses.py` through `append_text`; project-scope `load_memories` returns `[]` for a symlinked folder and skips symlinked entries (global scope unchanged: a user may link a synced folder); `write_memory` and `project_syntheses.write_part` call `refuse_symlink_chain` from the project folder.
-- [ ] **Step 4: Run** the new file, then `test_records.py test_syntheses.py test_settle.py test_curation.py test_project_syntheses.py test_project_synthesis_commands.py` — expected: PASS.
-- [ ] **Step 5: CHANGELOG line** (Security: writes into memory folders no longer follow symlinks; a symlinked project `.memory` is ignored) and **commit** `fix(memory): never follow symlinks when writing memory files`.
+- [x] **Step 2: Run** `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests/test_safe_io.py -q` — expected: failures (module missing).
+- [x] **Step 3: Implement** `safe_io.py`; route `records.update`, `records.restore`, `syntheses._write` through `replace_file`; every `.curation-log` append in `records.py` and `syntheses.py` through `append_text`; project-scope `load_memories` returns `[]` for a symlinked folder and skips symlinked entries (global scope unchanged: a user may link a synced folder); `write_memory` and `project_syntheses.write_part` call `refuse_symlink_chain` from the project folder.
+- [x] **Step 4: Run** the new file, then `test_records.py test_syntheses.py test_settle.py test_curation.py test_project_syntheses.py test_project_synthesis_commands.py` — expected: PASS.
+- [x] **Step 5: CHANGELOG line** (Security: writes into memory folders no longer follow symlinks; a symlinked project `.memory` is ignored) and **commit** `fix(memory): never follow symlinks when writing memory files`.
 
 ### Task 2: Same guarantee for the other store writes and imports
 
