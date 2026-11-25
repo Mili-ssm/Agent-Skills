@@ -158,9 +158,9 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 **Interfaces:**
 - Consumes: Task 5.
 
-- [ ] **Step 1:** Fragments for each line repeated identically 3 or more times across `plugins/*/agents/*.md` (find them with `cat plugins/*/agents/*.md | sort | uniq -c | sort -rn`); on 2026-11-25: the English-report line (17), the Bash-leaves-files-unchanged line (6 identical of 11), the delegation line (5), the `fff` tools line (4). The six-part brief becomes a fragment taken verbatim from `user-config/offload-policy.md`, declared `verbatim-in: user-config/offload-policy.md`, with a block only in `prompt-engineering/references/skills-and-agents.md` if its copy there is identical; offload-policy.md itself gets no markers. Only identical copies get markers in this task.
-- [ ] **Step 2:** Run `python3 -m promptkit.fragments` from `scripts/`. Check: `git diff -U0 plugins/` shows only added marker lines; `python3 scripts/port.py` leaves `ports/` unchanged; `python3 scripts/validate.py` OK.
-- [ ] **Step 3:** CHANGELOG line (agent-skills, refactor, no behavior change). Commit `refactor(agent-skills): shared prompt lines rendered from one source`.
+- [x] **Step 1:** Fragments for each line repeated identically 3 or more times across `plugins/*/agents/*.md` (find them with `cat plugins/*/agents/*.md | sort | uniq -c | sort -rn`); on 2026-11-25: the English-report line (17), the Bash-leaves-files-unchanged line (6 identical of 11), the delegation line (5), the `fff` tools line (4). The six-part brief becomes a fragment taken verbatim from `user-config/offload-policy.md`, declared `verbatim-in: user-config/offload-policy.md`, with a block only in `prompt-engineering/references/skills-and-agents.md` if its copy there is identical; offload-policy.md itself gets no markers. Only identical copies get markers in this task.
+- [x] **Step 2:** Run `python3 -m promptkit.fragments` from `scripts/`. Check: `git diff -U0 plugins/` shows only added marker lines; `python3 scripts/port.py` leaves `ports/` unchanged; `python3 scripts/validate.py` OK.
+- [x] **Step 3:** CHANGELOG line (agent-skills, refactor, no behavior change). Commit `refactor(agent-skills): shared prompt lines rendered from one source`.
 
 ### Task 6b: Reworded copies, ADR citations, vocabulary (main session or Opus; judgment)
 
