@@ -117,13 +117,13 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 - Modify: `scripts/validate.py`, `scripts/tests/test_validate.py`; agent or skill bodies under `plugins/memory/` only if they break a general rule (fix the body; never weaken the rule; a fix that needs a description edit stops the task for an owner ruling). Expected on 2026-11-25: no error left after Task 1b's quoted-text rule.
 
 **Interfaces:**
-- `check_skills(errors, plugin: Path) -> set[str]` and `check_agents(errors, skill_names, plugin: Path) -> set[str]` take the plugin folder; `main` runs them for every `plugins/*/` that has `skills/` or `agents/`. General rules: name, description shape and person, line budgets, references, links, model, effort, Read-only config, preloads. Rules that stay on `agent-skills` only: `WORKERS` and `maxTurns` for workers, "Use proactively", offload rows, commands per agent, README catalog, eval graders.
+- `check_skills(errors, plugin: Path) -> set[str]` and `check_agents(errors, skill_names, plugin: Path) -> set[str]` take the plugin folder; `main` runs them for every `plugins/*/` that has `skills/` or `agents/`. General rules: name, description shape and person, line budgets, references, links, model, effort, Read-only config, preloads. Rules that stay on `agent-skills` only: `WORKERS` and `maxTurns` for workers (the "Use proactively" rule is repo-wide: only those workers may say it), offload rows, commands per agent, README catalog, eval graders.
 - The summary line counts all plugins: `OK: <n> skills, <m> agents, 0 errors`.
 
-- [ ] **Step 1:** Tests: a memory-plugin agent with an invalid `model` fails; `test_memory_agent_without_command_passes`; a memory agent saying "Use proactively" passes (the rule is agent-skills scope, ADR 0007/0010).
-- [ ] **Step 2:** Implement; run `python3 scripts/validate.py`. List every new error on the real repository in the report, with the fix applied to each `plugins/memory/` file.
-- [ ] **Step 3:** If a memory file changed: a line under `## [Unreleased]` in `plugins/memory/CHANGELOG.md`.
-- [ ] **Step 4:** Commit `feat(scripts): validate agents and skills of every plugin`.
+- [x] **Step 1:** Tests: a memory-plugin agent with an invalid `model` fails; `test_memory_agent_without_command_passes`; a memory agent saying "Use proactively" fails (repo-wide rule, CLAUDE.md, ADR 0007/0010; corrected after the Task 4 review).
+- [x] **Step 2:** Implement; run `python3 scripts/validate.py`. List every new error on the real repository in the report, with the fix applied to each `plugins/memory/` file.
+- [x] **Step 3:** If a memory file changed: a line under `## [Unreleased]` in `plugins/memory/CHANGELOG.md`.
+- [x] **Step 4:** Commit `feat(scripts): validate agents and skills of every plugin`.
 
 ### Task 5: `promptkit.fragments`: marked blocks from one source
 
