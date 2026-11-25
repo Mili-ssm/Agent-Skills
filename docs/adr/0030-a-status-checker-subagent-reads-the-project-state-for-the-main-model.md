@@ -52,3 +52,5 @@ The owner reported the agent is not dispatched on its own. A `prompt-engineer` a
 Rejected: adding `resume` to the SessionStart matcher. A resumed session already holds the start text from its transcript; the matcher keeps `startup|clear|compact`.
 
 Revisit if: the positive cases fire in fewer than 2 of 2 runs, or the negative case fires: reword the row or the description, one change per run.
+
+The owner waived N6 for this change on 2026-11-25: it merges to `dev` and ships in memory 0.14.0 unmeasured; the trigger cases run on 2026-11-26 and a failure there reverts or rewords it.

@@ -124,8 +124,8 @@ Ruled 2026-11-24:
 Open:
 
 4. ~~`validate.py` over every plugin (A9)?~~ Implemented on the owner's request, 2026-11-25.
-5. D1: remove the version from the state table, or guard it with a check?
-6. Architect's assumed ranking of quality attributes: maintainability by LLMs, then correctness and safety of background `claude -p` jobs, then portability, then install size. Confirm or reorder.
+5. ~~D1: remove the version from the state table, or guard it with a check?~~ The owner chose a `validate.py` check, 2026-11-25.
+6. Architect's assumed ranking of quality attributes: maintainability by LLMs, then correctness and safety of background `claude -p` jobs, then portability, then install size. ~~Confirm or reorder.~~ Recorded as N12 in `docs/requirements.md`, 2026-11-25.
 
 ## Not checked
 
