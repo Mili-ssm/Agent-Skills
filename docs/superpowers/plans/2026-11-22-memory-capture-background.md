@@ -110,7 +110,7 @@ Observed 2026-11-22: in 43 transcripts of the last 12 days no user entry appears
 **Interfaces:**
 - Consumes: `run_window`, `capture_state.*` (Task 2); `capture.extract(..., forward=True)` through `run_window(forward=True)` (Task 1); `records.project_root`, `records.project_dir`; the data folder as `mem-auto` resolves it.
 - Produces: `mem-capture auto --trigger {pre-compact,session-end} [--claude PATH]`, reading the hook JSON (`transcript_path`, `cwd`) from standard input; always exit 0. `mem-capture ack` removes the `failure` key of `status.json`, exit 0.
-- Test-only overrides, read from the environment: `MEM_CAPTURE_LOCK_WAIT` and `MEM_CAPTURE_DELAY` (seconds).
+- Test-only overrides, read from the environment: `MEM_CAPTURE_LOCK_WAIT`, `MEM_CAPTURE_LOCK_POLL` and `MEM_CAPTURE_DELAY` (seconds).
 
 The script's module imports: `capture_state` and `auto_state` (standard library only) are imported first; `capture`, `records` and `synth_pipeline` inside a guard. When that guarded import fails and the command is `auto` with the option on, write `status.json` with `state: failed` and `failure.reason` `cannot load the engine: <exception text, 200 chars>`, exit 0; for `run` the error is printed and the exit code is 1.
 
@@ -120,7 +120,7 @@ Behavior of `auto`, in order:
 3. `cwd` from the input missing or not a folder → return. Project = `records.project_root(cwd, env)` (an inherited `MEM_PROJECT` wins, as everywhere in `mem`); None, or `records.project_dir(project)` not a folder → append the log line with `"skipped": "the project has no memory folder"`, return. No model is called before this check.
 4. Session = the transcript file's stem (C27).
 5. Trigger `pre-compact`: sleep `PRE_COMPACT_DELAY_SECONDS` (override `MEM_CAPTURE_DELAY`).
-6. Take the lock of `capture_dir`, retrying every 5 s up to `LOCK_WAIT_SECONDS` (override `MEM_CAPTURE_LOCK_WAIT`); not obtained → log line with `"skipped": "another capture is running"`, return.
+6. Take the lock of `capture_dir`, retrying every 5 s (override `MEM_CAPTURE_LOCK_POLL`) up to `LOCK_WAIT_SECONDS` (override `MEM_CAPTURE_LOCK_WAIT`); not obtained → log line with `"skipped": "another capture is running"`, return.
 7. Write `status.json` `{"state": "running", "started": now, "log": <run folder>}`, keeping an existing `failure` key. Run folder: `<capture_dir>/runs/<YYYYmmdd-HHMMSS>-<pid>/`, holding `log.txt` and `window-N.json`.
 8. `read_session`; if the transcript has fewer lines than the offset, offset = 0 and attempts = 0. Loop at most `MAX_WINDOWS` times, and not once `MAX_NEW_PER_TRIGGER` new records were written by this trigger: `run_window(since_line=offset, forward=True, write=True, allow_out_in_repo=True, quiet=True, model="haiku", budget = BUDGET_OPTION else 0.25)`, then apply C23:
    - the window failed (exit code not 0, or it has candidates and every `written` row's reason starts with `mem could not run` or `mem failed`): attempts += 1; below `MAX_ATTEMPTS` → `save_session(offset, attempts)`, record the failure in the status, stop; at `MAX_ATTEMPTS` → `save_session(lines[1], 0)`, count the window as `given_up`, record the failure, stop;

@@ -1,3 +1,4 @@
+import fcntl
 import multiprocessing
 import os
 import subprocess
@@ -5,12 +6,18 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
+import auto_state
 import mem
+import pytest
 import store_git
 
 REAL_RUN = subprocess.run
+SHORT_LOCK_WAIT = 0.2
+EXIT_USAGE = 2
+TRIMMED_LINES = 3
+UNDONE_LINE = 4
+HELD_BACK_COUNT = 2
+LAST_COMMITS = 2
 
 
 @pytest.fixture(autouse=True)
@@ -25,12 +32,13 @@ def isolated_git(monkeypatch, tmp_path):
 
 
 def git(cwd, *args):
-    return REAL_RUN(["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True).stdout
+    return REAL_RUN(
+        ["git", "-C", str(cwd), *args], check=True, capture_output=True, text=True
+    ).stdout
 
 
 def commits(store):
-    out = git(store, "log", "--format=%s").splitlines()
-    return out
+    return git(store, "log", "--format=%s").splitlines()
 
 
 @pytest.fixture
@@ -62,12 +70,18 @@ def test_init_writes_identity_ignores_and_commits_everything_present(store):
     assert git(store, "config", "user.email").strip() == "mem@localhost"
     tracked = git(store, "ls-files").splitlines()
     assert "memories/early.md" in tracked and "mem-store.yaml" in tracked
-    assert git(store, "status", "--porcelain") == ""
+    assert not git(store, "status", "--porcelain")
 
 
 def test_the_ignore_rules_keep_local_files_out(repo):
-    for rel in (".curation-log", "syntheses/.curation-log", ".sources/a.pdf", "research/x/data/big.csv",
-                ".note.md.tmp", "node_modules/p.js"):
+    for rel in (
+        ".curation-log",
+        "syntheses/.curation-log",
+        ".sources/a.pdf",
+        "research/x/data/big.csv",
+        ".note.md.tmp",
+        "node_modules/p.js",
+    ):
         path = repo / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("x\n", encoding="utf-8")
@@ -94,7 +108,10 @@ def test_nothing_changed_gives_none(repo):
 
 def test_the_short_id_is_returned(repo):
     (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
-    assert store_git.commit_if_changed(repo, "mem a") == git(repo, "rev-parse", "--short", "HEAD").strip()
+    assert (
+        store_git.commit_if_changed(repo, "mem a")
+        == git(repo, "rev-parse", "--short", "HEAD").strip()
+    )
 
 
 def test_a_stale_index_lock_is_removed_and_a_fresh_one_is_not(repo):
@@ -113,7 +130,6 @@ def test_a_stale_index_lock_is_removed_and_a_fresh_one_is_not(repo):
 
 
 def test_a_held_lock_is_waited_for(repo, monkeypatch):
-    import fcntl
     fd = os.open(repo / ".git" / store_git.LOCK_NAME, os.O_RDWR | os.O_CREAT)
     fcntl.flock(fd, fcntl.LOCK_EX)
     threading.Timer(0.5, lambda: os.close(fd)).start()
@@ -127,14 +143,16 @@ def _commit_in_process(store, name):
 
 
 def test_concurrent_commits_both_land(repo):
-    procs = [multiprocessing.Process(target=_commit_in_process, args=(str(repo), n)) for n in ("a", "b")]
+    procs = [
+        multiprocessing.Process(target=_commit_in_process, args=(str(repo), n)) for n in ("a", "b")
+    ]
     for p in procs:
         p.start()
     for p in procs:
         p.join(30)
     tracked = git(repo, "ls-files")
     assert "knowledge/a.md" in tracked and "knowledge/b.md" in tracked
-    assert git(repo, "status", "--porcelain") == ""
+    assert not git(repo, "status", "--porcelain")
 
 
 def test_constants_match_mem():
@@ -150,9 +168,14 @@ def test_an_oversized_ignored_file_does_not_break_the_commit(repo, monkeypatch):
     assert ".curation-log" not in git(repo, "ls-files")
 
 
-
-@pytest.mark.parametrize("argv", [["remember", "--global", "--kind", "lesson", "--claim", "No git here."],
-                                  ["session-index"], ["signal"]])
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["remember", "--global", "--kind", "lesson", "--claim", "No git here."],
+        ["session-index"],
+        ["signal"],
+    ],
+)
 def test_no_command_runs_git_by_itself(repo, monkeypatch, argv):
     def refuse(cmd, *a, **k):
         if cmd and cmd[0] == "git":
@@ -166,7 +189,9 @@ def test_no_command_runs_git_by_itself(repo, monkeypatch, argv):
 
 
 def test_a_git_failure_is_reported_not_raised(repo, monkeypatch):
-    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")))
+    monkeypatch.setattr(
+        subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git"))
+    )
     (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
     reasons = []
     assert store_git.commit_if_changed(repo, "mem a", report=reasons.append) is None
@@ -232,7 +257,9 @@ import json
 
 def aged(path, numbers, days=40):
     """Rewrite the `t` of the given 0-based lines of a curation log to `days` ago."""
-    old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    old = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=days)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
     lines = path.read_text(encoding="utf-8").split("\n")
     for n in numbers:
         entry = json.loads(lines[n])
@@ -256,11 +283,11 @@ def test_history_init_accepts_a_store_argument(store, tmp_path, monkeypatch, cap
 
 
 def test_history_init_refuses_a_repository_and_a_read_only_folder(repo, tmp_path, capsys):
-    assert mem.main(["history", "init"]) == 2
+    assert mem.main(["history", "init"]) == EXIT_USAGE
     assert "already" in capsys.readouterr().err
     plain = tmp_path / "plain"
     plain.mkdir()
-    assert mem.main(["history", "init", str(plain)]) == 2
+    assert mem.main(["history", "init", str(plain)]) == EXIT_USAGE
     assert "read-only" in capsys.readouterr().err
     assert not (plain / ".git").exists()
 
@@ -272,12 +299,16 @@ def test_history_lists_the_last_commits(repo, capsys):
     capsys.readouterr()
     assert mem.main(["history", "-n", "2"]) == 0
     lines = capsys.readouterr().out.strip().splitlines()
-    assert len(lines) == 2 and lines[0].endswith(" mem c") and lines[1].endswith(" mem b")
+    assert (
+        len(lines) == HELD_BACK_COUNT
+        and lines[0].endswith(" mem c")
+        and lines[1].endswith(" mem b")
+    )
     assert datetime.date.today().isoformat() in lines[0]
 
 
 def test_history_without_a_repository_is_an_error(store, capsys):
-    assert mem.main(["history"]) == 2
+    assert mem.main(["history"]) == EXIT_USAGE
     assert "not a git repository" in capsys.readouterr().err
 
 
@@ -300,11 +331,13 @@ def test_history_commit_without_a_message_names_the_files(repo, capsys):
 
 def test_history_commit_hook_is_silent_and_exit_0_when_git_fails(repo, monkeypatch, capsys):
     (repo / "knowledge" / "a.md").write_text("a\n", encoding="utf-8")
-    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")))
+    monkeypatch.setattr(
+        subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git"))
+    )
     capsys.readouterr()
     assert mem.main(["history", "commit", "--hook"]) == 0
     out = capsys.readouterr()
-    assert out.out == "" and out.err == ""
+    assert not out.out and not out.err
     hooks = (Path(os.environ["MEM_DATA"]) / "hooks" / "log.jsonl").read_text(encoding="utf-8")
     assert '"hook": "session-end"' in hooks and '"failed": true' in hooks
 
@@ -326,7 +359,7 @@ def test_curate_done_commits_with_the_pass_message(repo, capsys):
     (repo / "scratch-b.txt").write_text("b\n", encoding="utf-8")
     assert mem.main(["curate", "--done"]) == 0
     assert commits(repo)[0] == f"curation pass {datetime.date.today().isoformat()}: 2 files"
-    assert git(repo, "status", "--porcelain") == ""
+    assert not git(repo, "status", "--porcelain")
 
 
 def test_curate_done_with_nothing_changed_makes_no_commit(repo):
@@ -354,15 +387,24 @@ def test_curate_done_trims_old_entries_in_every_store_log(repo):
     aged(log, [0, 1])
     for name in ("", "syntheses"):  # the other store logs
         other = repo / name / ".curation-log"
-        other.write_text(json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "s:y", "before": "b"}) + "\n"
-                         + json.dumps({"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                                       "action": "x", "handle": "s:y", "before": "b"}) + "\n", encoding="utf-8")
+        other.write_text(
+            json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "s:y", "before": "b"})
+            + "\n"
+            + json.dumps({
+                "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "action": "x",
+                "handle": "s:y",
+                "before": "b",
+            })
+            + "\n",
+            encoding="utf-8",
+        )
     assert mem.main(["curate", "--done"]) == 0
     lines = log.read_text(encoding="utf-8").split("\n")
-    assert lines[0] == "" and lines[1] == "" and lines[2] != ""  # line numbers stay
+    assert not lines[0] and not lines[1] and lines[2]  # line numbers stay
     for name in ("", "syntheses"):
         lines = (repo / name / ".curation-log").read_text(encoding="utf-8").split("\n")
-        assert lines[0] == "" and json.loads(lines[1])["handle"] == "s:y"
+        assert not lines[0] and json.loads(lines[1])["handle"] == "s:y"
 
 
 def test_trim_leaves_a_project_log_alone(repo, tmp_path, monkeypatch):
@@ -371,8 +413,11 @@ def test_trim_leaves_a_project_log_alone(repo, tmp_path, monkeypatch):
     git(project, "init", "-q")
     monkeypatch.setenv("MEM_PROJECT", str(project))
     log = project / ".memory" / ".curation-log"
-    log.write_text(json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "m:y", "before": "b"}) + "\n",
-                   encoding="utf-8")
+    log.write_text(
+        json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "m:y", "before": "b"})
+        + "\n",
+        encoding="utf-8",
+    )
     before = log.read_text(encoding="utf-8")
     assert mem.main(["curate", "--done"]) == 0
     assert log.read_text(encoding="utf-8") == before
@@ -384,7 +429,9 @@ def test_nothing_is_trimmed_when_the_commit_fails(repo, monkeypatch):
     log = repo / "memories" / ".curation-log"
     aged(log, [0])
     before = log.read_text(encoding="utf-8")
-    monkeypatch.setattr(subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git")))
+    monkeypatch.setattr(
+        subprocess, "run", lambda cmd, *a, **k: (_ for _ in ()).throw(FileNotFoundError("git"))
+    )
     assert mem.main(["curate", "--done"]) == 0
     assert log.read_text(encoding="utf-8") == before
 
@@ -398,26 +445,28 @@ def test_trim_keeps_unreadable_and_undated_lines(repo):
 
 def test_restore_still_works_on_the_entries_left_after_trimming(repo, capsys):
     remember()
-    mem.main(["forget", HANDLE, "--global", "--because", "first"])    # line 0
-    mem.main(["restore", HANDLE, "--global"])                          # line 1, marker undoing 0
-    mem.main(["forget", HANDLE, "--global", "--because", "second"])   # line 2
-    mem.main(["restore", HANDLE, "--global"])                          # line 3, marker undoing 2
-    mem.main(["forget", HANDLE, "--global", "--because", "third"])    # line 4
+    mem.main(["forget", HANDLE, "--global", "--because", "first"])  # line 0
+    mem.main(["restore", HANDLE, "--global"])  # line 1, marker undoing 0
+    mem.main(["forget", HANDLE, "--global", "--because", "second"])  # line 2
+    mem.main(["restore", HANDLE, "--global"])  # line 3, marker undoing 2
+    mem.main(["forget", HANDLE, "--global", "--because", "third"])  # line 4
     log = repo / "memories" / ".curation-log"
     aged(log, [0, 1, 2])
-    assert store_git.trim_logs(repo) == 3
+    assert store_git.trim_logs(repo) == TRIMMED_LINES
     capsys.readouterr()
-    assert mem.main(["restore", HANDLE, "--global"]) == 0               # undoes line 4, not the blanked ones
+    assert mem.main(["restore", HANDLE, "--global"]) == 0  # undoes line 4, not the blanked ones
     memory = next(repo.glob("memories/*.md"))
-    assert "second" not in memory.read_text(encoding="utf-8") and "third" not in memory.read_text(encoding="utf-8")
-    assert json.loads(log.read_text(encoding="utf-8").split("\n")[5])["undone"] == 4
-    assert mem.main(["restore", HANDLE, "--global"]) != 0               # nothing left to undo
+    assert "second" not in memory.read_text(encoding="utf-8") and "third" not in memory.read_text(
+        encoding="utf-8"
+    )
+    assert json.loads(log.read_text(encoding="utf-8").split("\n")[5])["undone"] == UNDONE_LINE
+    assert mem.main(["restore", HANDLE, "--global"]) != 0  # nothing left to undo
 
 
 # ---- the automatic run's lock ----
 
+
 def test_curate_done_skips_trimming_while_a_run_holds_the_lock(repo, tmp_path, monkeypatch):
-    import auto_state
     log = repo / "memories" / ".curation-log"
     remember()
     mem.main(["forget", HANDLE, "--global", "--because", "x"])
@@ -431,7 +480,7 @@ def test_curate_done_skips_trimming_while_a_run_holds_the_lock(repo, tmp_path, m
     finally:
         os.close(fd)
     assert mem.main(["curate", "--done"]) == 0
-    assert log.read_text(encoding="utf-8") != before   # trimmed once the lock is free
+    assert log.read_text(encoding="utf-8") != before  # trimmed once the lock is free
 
 
 def test_trimming_waits_for_nothing_when_the_commit_lock_is_busy(repo):
@@ -480,8 +529,9 @@ def note(store, name, *, valid=True, claim=None):
     """Write a knowledge note (invalid: its last two headings are missing) and refresh the folder index."""
     folder = store / "knowledge" / "notes"
     folder.mkdir(parents=True, exist_ok=True)
-    (folder / f"{name}.md").write_text(NOTE.format(claim=claim or name, tail=FULL_TAIL if valid else ""),
-                                       encoding="utf-8")
+    (folder / f"{name}.md").write_text(
+        NOTE.format(claim=claim or name, tail=FULL_TAIL if valid else ""), encoding="utf-8"
+    )
     assert mem.main(["index"]) == 0
     return f"knowledge/notes/{name}.md"
 
@@ -530,7 +580,9 @@ def test_validator_error_commits_everything(repo, capsys):
     def broken(paths):
         raise RuntimeError("boom")
 
-    assert store_git.commit_if_changed(repo, "m", validate=broken, warn=warned.append, report=reported.append)
+    assert store_git.commit_if_changed(
+        repo, "m", validate=broken, warn=warned.append, report=reported.append
+    )
     assert bad in tracked(repo) and len(warned) == 1 and "boom" in warned[0] and reported == []
 
 
@@ -540,6 +592,7 @@ def test_validator_exception_through_history_commit_exits_0(repo, monkeypatch, c
     def broken(store):
         def validate(paths):
             raise RuntimeError("boom")
+
         return validate
 
     monkeypatch.setattr(mem, "invalid_changed", broken)
@@ -556,7 +609,9 @@ def test_note_changed_during_check_is_held_back(repo):
         return []
 
     store_git.commit_if_changed(repo, "m", validate=validate)
-    assert late not in tracked(repo) and store_git.held_back(repo) == []  # committed next time, not a check failure
+    assert (
+        late not in tracked(repo) and store_git.held_back(repo) == []
+    )  # committed next time, not a check failure
 
 
 def test_no_validator_keeps_old_behavior(repo):
@@ -572,15 +627,17 @@ def test_held_back_file_written_when_nothing_else_staged(repo):
             git(repo, "add", rel)
             git(repo, "commit", "-q", "-m", "rest")
     # only the invalid note and files it drags along remain; hold everything that fails
-    assert store_git.commit_if_changed(repo, "m", validate=lambda paths: list(paths)) is None
+    assert store_git.commit_if_changed(repo, "m", validate=list) is None
     assert store_git.held_back(repo) == [bad]
 
 
 def test_valid_note_linking_held_back_note_is_committed(repo):
     bad = note(repo, "bad", valid=False)
     good = note(repo, "good")
-    (repo / good).write_text((repo / good).read_text(encoding="utf-8").replace("E.", "See [bad](bad.md).", 1),
-                             encoding="utf-8")
+    (repo / good).write_text(
+        (repo / good).read_text(encoding="utf-8").replace("E.", "See [bad](bad.md).", 1),
+        encoding="utf-8",
+    )
     assert mem.main(["index"]) == 0
     assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
     assert good in tracked(repo) and bad not in tracked(repo)
@@ -597,7 +654,9 @@ def test_held_back_rename_keeps_old_note_in_history(repo):
     old = note(repo, "old")
     store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
     git(repo, "mv", old, "knowledge/notes/new.md")
-    (repo / "knowledge/notes/new.md").write_text(NOTE.format(claim="new", tail=""), encoding="utf-8")
+    (repo / "knowledge/notes/new.md").write_text(
+        NOTE.format(claim="new", tail=""), encoding="utf-8"
+    )
     assert mem.main(["index"]) == 0
     store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
     assert old in tracked(repo) and "knowledge/notes/new.md" not in tracked(repo)
@@ -633,18 +692,26 @@ def test_unwritable_held_list_still_commits(repo):
     bad = note(repo, "bad", valid=False)
     (repo / ".git" / "mem-held-back").mkdir()  # a directory: writing the list fails
     warned = []
-    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo), warn=warned.append)
+    assert store_git.commit_if_changed(
+        repo, "m", validate=mem.invalid_changed(repo), warn=warned.append
+    )
     assert good in tracked(repo) and bad not in tracked(repo) and warned
 
 
-def test_a_lock_loser_leaves_the_holders_list_unchanged(repo):
+def test_a_lock_loser_leaves_the_holders_list_unchanged(repo, monkeypatch):
+    monkeypatch.setattr(store_git, "LOCK_WAIT", SHORT_LOCK_WAIT)
     bad = note(repo, "bad", valid=False)
     store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
     before = (repo / ".git" / "mem-held-back").read_text(encoding="utf-8")
     note(repo, "other")
     fd = store_git._lock(repo)
     try:
-        assert store_git.commit_if_changed(repo, "m2", report=lambda r: None, validate=mem.invalid_changed(repo)) is None
+        assert (
+            store_git.commit_if_changed(
+                repo, "m2", report=lambda r: None, validate=mem.invalid_changed(repo)
+            )
+            is None
+        )
     finally:
         os.close(fd)
     assert (repo / ".git" / "mem-held-back").read_text(encoding="utf-8") == before == f"{bad}\n"
@@ -665,7 +732,7 @@ def test_the_list_is_never_empty_or_partial_while_a_commit_runs(repo):
 
     store_git.commit_if_changed(repo, "m2", validate=validate)
     assert seen == [[first], [first]]
-    assert len(store_git.held_back(repo)) == 2
+    assert len(store_git.held_back(repo)) == HELD_BACK_COUNT
     assert not [p for p in (repo / ".git").iterdir() if p.name.startswith("mem-held-back.")]
 
 
@@ -674,6 +741,8 @@ def test_history_commit_prints_no_stale_held_back_after_a_failed_run(repo, capsy
     assert mem.main(["history", "commit"]) == 0
     capsys.readouterr()
     note(repo, "more")
-    monkeypatch.setattr(store_git, "_git", lambda *a, **k: (_ for _ in ()).throw(store_git.GitError("boom")))
+    monkeypatch.setattr(
+        store_git, "_git", lambda *a, **k: (_ for _ in ()).throw(store_git.GitError("boom"))
+    )
     assert mem.main(["history", "commit"]) == 1
     assert "held back:" not in capsys.readouterr().err

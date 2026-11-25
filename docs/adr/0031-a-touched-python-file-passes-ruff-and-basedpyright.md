@@ -8,9 +8,11 @@ The repository holds about 51k lines of Python (the memory engine, `scripts/`, e
 
 ## Decision
 
-- `ruff.toml` and `pyrightconfig.json` at the root configure every Python file except the generated `ports/` and the ignored `target/`. Ruff rules are the owner's usual set (`A`, `ASYNC`, `C4`, `C90` with complexity 6, `D201`/`D202`/`D204`, `I`, `ISC`, `LOG`, `N`, `PERF`, `PIE`, `PL`, `PYI`, `RET`, `RUF`, `TC` strict, `TID`, `UP`) plus `B` and `SIM`; line length 100, preview on. Type checking uses basedpyright in mode `standard`.
-- `python3 scripts/lint_touched.py` is the gate: every `.py` file changed against the merge-base with `origin/dev` (committed, staged, unstaged or untracked) must pass `ruff format --check`, `ruff check` and basedpyright with no finding. Untouched files are not checked. `--fix` formats and applies safe fixes first. The opt-in pre-push hook runs it.
-- Tools run through `uvx` at pinned versions (constants in the script), so the repository needs no `pyproject.toml` or virtual environment.
+Current gate: pre-commit (`.pre-commit-config.yaml`), per the last Review; the second and third bullets describe the first, superseded gate.
+
+- `ruff.toml` and `pyrightconfig.json` at the root configure every Python file except the generated `ports/` and the ignored `target/`. Ruff rules are the owner's usual set (`A`, `ASYNC`, `C4`, `C90` with complexity 6, `D201`/`D202`/`D204`, `I`, `ISC`, `LOG`, `N`, `PERF`, `PIE`, `PL`, `PYI`, `RET`, `RUF`, `TC` strict, `TID`, `UP`) plus `B` and `SIM`; line length 100, preview on; `plugins/memory/bin/*` targets py310 because those scripts run with the system `python3`. Type checking uses basedpyright in mode `standard`.
+- *Superseded:* `python3 scripts/lint_touched.py` is the gate: every `.py` file changed against the merge-base with `origin/dev` (committed, staged, unstaged or untracked) must pass `ruff format --check`, `ruff check` and basedpyright with no finding. Untouched files are not checked. `--fix` formats and applies safe fixes first. The opt-in pre-push hook runs it.
+- *Superseded:* tools run through `uvx` at pinned versions (constants in the script), so the repository needs no `pyproject.toml` or virtual environment.
 
 The owner chose "a touched file is fully clean, every rule" after seeing that touching `mem.py` then means about 400 fixes, including complexity refactors (2026-11-25).
 
@@ -22,15 +24,14 @@ The owner chose "a touched file is fully clean, every rule" after seeing that to
 | Only changed lines must be clean | Same reason; also needs custom diff filtering |
 | Relaxed rules (`C901`, `PLR2004`, `PLR09xx` off) in legacy files | The owner kept the full set |
 | Clean the whole repository now | Hundreds of changes mixed with other work |
-| Pyright | basedpyright is the same engine and config, installs through `uvx` without Node |
+| Pyright | basedpyright is the same engine and config, installs without Node (now a pinned pre-commit `language: python` hook) |
 | Run it in `validate.py` | `validate.py` stays fast and offline; the tools download on first use |
 
 ## Consequences
 
 - The first edit of a large file costs a full cleanup of that file (format, lint, types); plan it into the task that touches it.
 - `ruff format` rewrites a file the first time it is touched, so that diff mixes formatting with the change; a separate formatting commit keeps review readable.
-- The gate is local: no CI runs it (N5); a machine without `uvx` skips it.
-- A clone with neither `origin/dev` nor `dev` cannot compute the touched set: the script exits 2 and the pre-push hook reports it as a failure.
+- The gate is local (N5): a commit made with `--no-verify`, or in a clone without pre-commit installed, skips it until a push from a clone with pre-commit installed, or `pre-commit run --from-ref origin/dev --to-ref HEAD` (the `core.hooksPath` fallback runs no Ruff or basedpyright).
 
 ## Revisit if
 
@@ -39,7 +40,7 @@ The owner chose "a touched file is fully clean, every rule" after seeing that to
 
 ## Review 2026-11-25
 
-The owner asked for the pre-commit framework. `.pre-commit-config.yaml` holds two local hooks that call the repo's own scripts, so tool versions stay pinned only in `scripts/lint_touched.py`: on commit `lint_touched.py --fix` (formats, safe-fixes, then blocks on what remains), on push `scripts/hooks/pre-push`. `pre-commit install` refuses to run while `core.hooksPath` is set; `git config core.hooksPath scripts/hooks` stays the push-only path for a clone without pre-commit.
+The owner asked for the pre-commit framework. `.pre-commit-config.yaml` holds two local hooks that call the repo's own scripts, so tool versions stay pinned only in `scripts/lint_touched.py`: on commit `lint_touched.py --fix` (formats, safe-fixes, then blocks on what remains), on push `scripts/hooks/pre-push`. `pre-commit install` refuses to run while `core.hooksPath` is set; `git config core.hooksPath scripts/hooks` stays the push-only path for a clone without pre-commit. (The two script-calling hooks were superseded by the later Review.)
 
 Also 2026-11-25: "Python file" includes extensionless scripts whose shebang names python (the six `plugins/memory/bin/mem-*` scripts, about 4,000 lines), which the gate first missed.
 

@@ -1,6 +1,6 @@
 # Ruff and basedpyright: a touched Python file must be clean
 
-Status: done (2026-11-25) · Branch: `chore/ruff-pyright` · Decision: ADR 0031
+Status: done (2026-11-25); superseded in part the same day: pre-commit replaced Task 2's script (ADR 0031, last Review) · Branch: `chore/ruff-pyright` · Decision: ADR 0031
 
 ## Owner rulings (2026-11-25)
 
@@ -19,5 +19,3 @@ Measured before the change (copy of HEAD, after format and safe fixes): 2,308 Ru
 - [x] 2 `scripts/lint_touched.py`: list the `.py` files changed against the merge-base with `origin/dev` (committed, staged, unstaged, untracked; not deleted; not `ports/`), run the three checks on them, exit non-zero on any finding, pinned tool versions; `--fix` formats and applies safe fixes; tests in `scripts/tests/`; check: tests pass, a dirty touched file fails, no touched file passes
 - [x] 3 Wire and document: pre-push hook step, `CLAUDE.md` Commands row, README § Develop row, ADR 0031; check: `validate.py`, hook runs the step
 - [x] 4 Review (`skeptical-reviewer`, 2 rounds), PR to `dev`; deferred: no test runs Ruff on a nested `ports/` file or basedpyright on a real warning (both checked by hand 2026-11-25)
-
-Later (2026-11-25): pre-commit replaced `scripts/lint_touched.py` on the owner's proposal; see ADR 0031, last review.

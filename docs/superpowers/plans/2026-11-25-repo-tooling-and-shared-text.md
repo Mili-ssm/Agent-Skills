@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: done on the branch, pending the final review and the pull request · Date: 2026-11-25 · Branch: `feat/repo-tooling`, created from `docs/backlog` after this plan and `docs/backlog.md` are committed there (so both exist on the branch; no merge into `dev` is needed first)
+Status: done, merged (#186, released in agent-skills 1.1.0); its commit gate was extended by pre-commit (ADR 0031) · Date: 2026-11-25 · Branch: `feat/repo-tooling`, created from `docs/backlog` after this plan and `docs/backlog.md` are committed there (so both exist on the branch; no merge into `dev` is needed first)
 
 **Goal:** Test and enforce the commit gate (review Q1, Q2, Q3), apply its rules to every plugin from one rule table (A9, A10), give repeated prompt text one source (B9–B12), and derive the Codex model mapping from a vendor model catalog.
 

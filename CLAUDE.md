@@ -6,7 +6,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 
 | When | Run |
 |---|---|
-| Before every commit (no CI enforces it, N5; the opt-in hook below runs it before a push) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
+| Before every commit (no CI enforces it, N5; the opt-in git hooks, row below, run it before a push) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
 | Before pushing a branch that touches Python | `pre-commit run --from-ref origin/dev --to-ref HEAD`: every touched Python file (`.py`, or an executable python-shebang script) must pass Ruff and basedpyright with no finding (ADR 0031); the commit and push hooks run the same checks |
 | Script tests (`scripts/tests/`) | `uv run --with pytest pytest scripts/tests -q` |
 | Git hooks, once per clone: a commit checks its staged Python files (Ruff fix and format, basedpyright), a push checks the pushed files and runs `scripts/hooks/pre-push` (validate, tests, `claude plugin validate`; skips missing tools) | `uv tool install pre-commit && pre-commit install` (`.pre-commit-config.yaml`; it refuses while `core.hooksPath` is set: `git config --unset core.hooksPath` first); without pre-commit, push checks only: `git config core.hooksPath scripts/hooks` |
@@ -29,7 +29,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 | Model facts (`shared/models.toml`) | the catalog | any edit: `python3 scripts/port.py`, the regenerated `docs/ports.md` models block must show in the diff; change `AGENT_PAIRS` in `scripts/tests/test_models.py` only on purpose; add a CHANGELOG line |
 | Offload table | `user-config/offload-policy.md` (single copy) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
 | Routing, plan loop and review rules | `user-config/routing.md` (single copy, ADR 0021) | `port.py`; no eval embeds it, so the ADR carries a kill criterion (N6) |
-| Memory plugin | `plugins/memory/`; first read "Current state and where to resume" in `docs/superpowers/plans/2026-11-17-memory-plugin.md` | its tests (`uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`); the stage plan's state table; no port (ADR 0023) |
+| Memory plugin | `plugins/memory/`; first read "Current state and where to resume" in `docs/superpowers/plans/2026-11-17-memory-plugin.md` | its tests (`uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto`); the stage plan's state table; no port (ADR 0023) |
 | UI mod | `plugins/<mod>/` and its README | `docs/mods-surfaces.md` for anything a surface did unexpectedly |
 | Requirement | `docs/requirements.md` (keep IDs stable: `validate.py` cites them) | a flipped requirement needs an ADR |
 | Decision | new `docs/adr/NNNN-kebab-title.md` | ADR rules below |
