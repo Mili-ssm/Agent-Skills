@@ -4,6 +4,15 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- `pre-mortem` runs on Opus at `medium` effort instead of `high` (fewer reasoning tokens, same model); the Codex port maps it to `gpt-6.2-sol` low.
+- `implementer`, `check-runner` and `ui-verifier` can use `Monitor` to wait for a command the harness moved to the background, instead of a blocked `sleep`; `implementer` says so in its rules. Claude Code only; the ports are unchanged in behavior.
+- Codex port model mapping is now derived from a model catalog (`shared/models.toml`); no other agent's Codex model or effort changes (the `pre-mortem` line above is the one that does), and the unused `max` cells now follow the effort policy (never `max`, `xhigh` only on the top model).
+- Instruction lines that several agents share (report language, read-only shell use, delegation, search tools) now come from one source, so they stay identical across agents. Nothing to migrate; the Copilot and Codex ports carry the same wording changes and are otherwise unchanged.
+- Read-only agents state the read-only shell rule in one shared wording; `prompt-engineer`, `fact-checker` and `skeptical-reviewer` allow temp dirs only, so builds and test runs stay with `check-runner`; `ux-reviewer` keeps its capture-file rule as its own line.
+- `prompt-engineering` references link the measurements they cite to the public ADRs instead of naming bare ADR numbers; `pre-mortem` calls missing success criteria a risk; `feature-briefing` no longer implies `ux-reviewer` has a `design` mode.
+
 ## [1.0.0] - 2026-11-19
 
 ### Added

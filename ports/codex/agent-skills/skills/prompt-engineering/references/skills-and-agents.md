@@ -26,12 +26,12 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices* (pla
 
 | Item | Rule |
 |---|---|
-| `description` | Delegation trigger: specific, action-oriented "Use to/when …". "Use proactively" raises auto-delegation; here only the cheap workers carry it (ADR 0010). All descriptions together stay small (Claude Code docs warn above ~15,000 tokens) |
+| `description` | Delegation trigger: specific, action-oriented "Use to/when …". "Use proactively" raises auto-delegation; here only the cheap workers carry it ([ADR 0010](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0010-cheap-offload-workers.md)). All descriptions together stay small (Claude Code docs warn above ~15,000 tokens) |
 | Tools | Minimum set; enforce read-only with `disallowedTools: Edit, Write, NotebookEdit`, not prompt text; tell Bash users which commands keep files unchanged |
 | Context | `omitClaudeMd: true` for workers: they see only their prompt and the brief, so restate any rule they need |
 | Output | A condensed report with a format and a length bound; raw tool output stays inside |
 | Delegation scope | Parallel, isolated or independent work; direct tools for simple lookups (models over-delegate) |
-| Offload triggers | Measured here (ADR 0010, 0012): descriptions alone moved delegation little; a short trigger table in the main conversation's CLAUDE.md made it reliable; Opus delegated code only after its row was rewritten with a size threshold, a review step and "even when it looks easy" |
+| Offload triggers | Measured here ([ADR 0010](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0010-cheap-offload-workers.md), [ADR 0012](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0012-ui-verifier-worker.md)): descriptions alone moved delegation little; a short trigger table in the main conversation's CLAUDE.md made it reliable; Opus delegated code only after its row was rewritten with a size threshold, a review step and "even when it looks easy" |
 | Interaction | Subagents cannot ask the user mid-task: interactive work runs in skills; agents return the gap instead |
 | Preload | `skills:` injects full skill content at start; keep preloads few |
 | Paths | `${CLAUDE_PLUGIN_ROOT}` is substituted in a plugin agent's body; Glob runs in the project and did not reach plugin files (observed here) |
@@ -43,13 +43,13 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices* (pla
 
 ## Worker briefs
 
-A worker sees none of the conversation. Measured here (ADR 0013): with the six parts named in the main conversation's policy, the stop rule went from 0/3 to 3/3 briefs and delegation from 2/3 to 3/3.
+A worker sees none of the conversation. Measured here ([ADR 0013](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0013-worker-brief-contract.md)): with the six parts named in the main conversation's policy, the stop rule went from 0/3 to 3/3 briefs and delegation from 2/3 to 3/3.
 
-1. **Goal** and acceptance criteria the worker can check itself.
+1. **Goal** and acceptance criteria it can check itself.
 2. **Scope**: the paths it owns, and what it must not touch.
 3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
 4. **Checks**: the commands that prove the result.
-5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap.
+5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
 6. **Report**: format and max length.
 
 State the what, the limits and the check, not each step. A task whose design is still open is not delegated: settle it first (Cognition, *Don't build multi-agents*: actions carry implicit decisions, and workers that cannot see them make conflicting ones).

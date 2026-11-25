@@ -1,6 +1,6 @@
 # Requirements
 
-Current as of 2026-11-15. Source: owner conversations and `intent-elicitation` interviews (2026-10-27, 2026-11-15). Goals are hard: one changes only by the owner's decision, with a PR and an ADR. A row marked hard restates a goal and changes with it; every other row is a means and is soft: its "Reopen when" column names what would reopen it (ADR 0020).
+Current as of 2026-11-25. Source: owner conversations and `intent-elicitation` interviews (2026-10-27, 2026-11-15). Goals are hard: one changes only by the owner's decision, with a PR and an ADR. A row marked hard restates a goal and changes with it; every other row is a means and is soft: its "Reopen when" column names what would reopen it (ADR 0020).
 
 ## Context
 
@@ -42,16 +42,17 @@ Kind: functional (states a goal) or technical (a chosen means); hard or soft as 
 | ID | Requirement | Serves | Kind | Reopen when |
 |---|---|---|---|---|
 | N1 | `SKILL.md` ≤ 150 lines, agent ≤ 120 lines; detail in `references/` one level deep, `## Contents` above 100 lines. | G1 | technical, soft | A measured case shows a longer file is followed as well |
-| N2 | Descriptions: third person, what it does, then "Use when…" with the user's likely terms, ≤ 1024 chars. | G8 | technical, soft | Trigger evals regress after a model change (ADR 0007) |
+| N2 | Descriptions: third person, what it does, then "Use when…" with the user's likely terms, ≤ 1024 chars; quoted user phrases are not the description speaking (straight or curly double quotes, at most 60 characters, no `.`, `!` or `?` inside; `QUOTED` in `scripts/validate.py`). | G8 | technical, soft | Trigger evals regress after a model change (ADR 0007) |
 | N3 | Ratings use levels with written criteria, never invented percentages. | G5 | technical, soft | Calibrated data exists (ADR 0004) |
 | N4 | Findings carry evidence (`file:line`, command output, screenshot). | G2, G5 | functional, hard | — |
-| N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). | G8 | technical, soft | The plugins have a reasonable number of users (owner, 2026-11-19: CI waits until then; GitHub Actions on standard runners costs no minutes in a public repository) |
+| N5 | `scripts/validate.py` passes before every commit (no CI; owner, 2026-11-24). An opt-in local `pre-push` hook runs it (CLAUDE.md § Commands). | G8 | technical, soft | The plugins have a reasonable number of users (owner, 2026-11-19: CI waits until then; GitHub Actions on standard runners costs no minutes in a public repository) |
 | N6 | Changes to a skill or agent `description` and to `user-config/offload-policy.md` are measured with `claude plugin eval` (trigger and no-trigger cases) against the previous version. Any other prompt change may ship labeled unmeasured, with a kill criterion in its ADR. | G8 | technical, soft | An unmeasured change is reverted for regressing in use |
 | N7 | Agents whose description says "Read-only" block Edit, Write and NotebookEdit via `disallowedTools`, not via prompt text. | G2 | technical, soft | The platform offers a stronger read-only mode |
 | N8 | Every specialist agent and the UX design workflow have an explicit user-only command; workers are forced with `/agent-skills:offload` (ADR 0012); auto-triggering is a bonus. | G8 | technical, soft | A command needs maintenance, or the owner starts typing them (kept unused, owner 2026-11-15, ADR 0022) |
 | N9 | Reading, checks, browser verification and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. | G1 | functional, hard; the model names are technical, soft | Model tiers or prices change |
 | N10 | A worker's brief carries what only the main conversation knows: goal and acceptance, scope and what not to touch, decisions with their reasons, checks, a stop rule, report bounds; tasks with open design are not delegated (ADR 0013). Measured on the `implementer` offload case. | G1, G8 | technical, soft | Subagents can see the conversation or ask the owner |
 | N11 | Navigation of long files costs no model tokens to compute: `outline.py` prints line ranges on demand and nothing stores line numbers; `summarizer` returns answers, outlines or verbatim extracts and `check-runner` runs any long read-only command, so raw text stays out of the main context (ADR 0014). | G1 | technical, soft | The harness provides outlines natively |
+| N12 | Quality attributes rank, in order: maintainability by LLM agents; correctness and safety of background `claude -p` jobs; portability across tools; install size. A trade-off between them follows this order. | G8 | technical, hard (owner confirmed the project review's decision 6, 2026-11-25) | The owner reorders them |
 
 ## Superpowers boundary
 
@@ -74,7 +75,7 @@ No routing row names `executing-plans`, `requesting-code-review` or `dispatching
 ## Out of scope (now)
 
 - Stack skills: `htmx-fastapi-hypermedia`, `htmx-e2e-playwright`, `python-project`, `rust-project`, `pyo3-maturin`.
-- Git hooks and CI (would enforce N5).
+- CI (would enforce N5); a mandatory git hook (the pre-push hook is opt-in).
 
 ## Open questions
 

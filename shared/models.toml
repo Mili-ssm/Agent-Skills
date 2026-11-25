@@ -1,0 +1,74 @@
+# level: capability on a scale shared across vendors (owner judgment; 1 = cheapest tier of the oldest pairing).
+# cost: price per token relative to the vendor's cheapest model; never compared across vendors.
+[policy]
+efforts = ["low", "medium", "high", "xhigh", "max"]
+effort_step = 0.25          # grade = level + effort_step * index(effort)
+never = ["max"]             # never chosen as a target effort
+xhigh_only_on_top = true    # the next model at low beats the previous at xhigh (owner, 2026-11-25)
+
+# alias = the agent frontmatter value; copilot = the Copilot CLI id (port.COPILOT_MODELS).
+[[vendors.claude.models]]
+alias = "haiku"
+level = 1
+cost = 1
+copilot = "claude-haiku-5.5"
+
+[[vendors.claude.models]]
+alias = "sonnet"
+level = 2
+cost = 20
+copilot = "claude-sonnet-5.5"
+
+[[vendors.claude.models]]
+alias = "opus"
+level = 3
+cost = 40
+copilot = "claude-opus-5.5"
+
+[[vendors.claude.models]]
+alias = "fable"
+level = 4.25  # equal to astra: owner 2026-11-19, "Fable maps 1:1 by effort to astra"
+cost = 80
+copilot = "claude-fable-5.2"
+
+# Codex cost = plan credits per token (docs/ports.md § Models); levels are best fits so that every cell
+# an agent uses keeps today's pair. Astra is 4.25, not 4.0: at 4.0 astra low would only tie sol xhigh (3.25 + 0.75).
+[[vendors.codex.models]]
+id = "gpt-6-luna"
+level = 1.25
+cost = 1
+
+[[vendors.codex.models]]
+id = "gpt-6.1-terra"
+level = 2.25
+cost = 10
+
+[[vendors.codex.models]]
+id = "gpt-6.2-sol"
+level = 3.25
+cost = 20
+
+[[vendors.codex.models]]
+id = "gpt-6.2-astra"
+level = 4.25
+cost = 80
+
+[[overrides]]
+from = ["haiku", "medium"]
+to = ["gpt-6-luna", "low"]
+reason = "owner 2026-11-03, ADR 0017; kept as a pin although today's levels derive the same pair"
+
+[[overrides]]
+from = ["sonnet", "low"]
+to = ["gpt-6-luna", "high"]
+reason = "owner's original table (2026-11), the hand table port.py held until 2026-11-25: the owner judged luna high enough for sonnet low, which the level scale ranks lower"
+
+[[overrides]]
+from = ["sonnet", "xhigh"]
+to = ["gpt-6.2-sol", "low"]
+reason = "owner 2026-11-19 cell ruling (terra high -> sol low), docs/ports.md § Models"
+
+[[overrides]]
+from = ["opus", "xhigh"]
+to = ["gpt-6.2-astra", "low"]
+reason = "owner 2026-11-19 cell ruling (sol high -> astra low), docs/ports.md § Models"

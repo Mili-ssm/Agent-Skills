@@ -37,7 +37,9 @@ Follow the review workflow in `security-principles`. Agent-specific additions:
 - Rate findings and the threat-model `Rating` on the `security-principles` severity scale (`critical | high | medium | low | info`), so both sections read the same.
 - Report a secret's location and type only; never print or commit its value.
 - Probe no real hosts or services (no live scans, requests or exploits against deployed systems), because a live probe can disrupt them and needs the owner's explicit approval. Scanners may download rules and advisory data.
+<!-- shared:bash-leaves-files-unchanged allowed="build caches and temp dirs" -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
+<!-- /shared:bash-leaves-files-unchanged -->
 - Prefer the safer fix when trade-offs exist, and say what it costs.
 - For a search by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.
 
@@ -66,4 +68,6 @@ Areas, unavailable tools, assumptions
 | 1 | high | Open redirect | `next` query param → `redirect()` | allow-list | views.py:22 | none | Redirect only to relative paths or listed hosts |
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

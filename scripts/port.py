@@ -22,7 +22,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tomllib
-from validate import FrontmatterError, as_list, is_true, parse_frontmatter
+from promptkit.fragments import FragmentError, strip_markers
+from promptkit.models import CATALOG, Catalog, derive_pairs, load_catalog
+from validate import FrontmatterError, as_list, check_agent_rules, is_true, parse_frontmatter
 
 # Repo root = parent of scripts/, independent of the current working directory.
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +37,11 @@ README_REL = "README.md"
 # README block filled by this script: the recommended prompt (offload policy + routing) per tool.
 PROMPT_BEGIN = "<!-- BEGIN generated: recommended-prompt -->"
 PROMPT_END = "<!-- END generated: recommended-prompt -->"
+# docs/ports.md block filled by this script: the model catalog and the derived Codex pairs.
+PORTS_DOC = ROOT / "docs" / "ports.md"
+PORTS_DOC_REL = "docs/ports.md"
+MODELS_BEGIN = "<!-- BEGIN generated: models -->"
+MODELS_END = "<!-- END generated: models -->"
 PORTS = "ports"
 
 # Catalog name shared with .claude-plugin/marketplace.json; it is part of every install path (checked on load).
@@ -42,44 +49,12 @@ MARKETPLACE = "mili-ssm"
 # The one plugin that is ported; the mods are Claude-only (no mods API elsewhere).
 PLUGIN_NAME = "agent-skills"
 
-# Copilot runs the same Claude models, so model and effort pass through unchanged.
-COPILOT_MODELS = {
-    "haiku": "claude-haiku-5.5",
-    "sonnet": "claude-sonnet-5.5",
-    "opus": "claude-opus-5.5",
-    "fable": "claude-fable-5.2",  # display name only in GitHub docs (2026-11-19); unknown ids fall back to the session model
-}
-# Claude (model, effort) -> Codex (model, effort). Source: owner, 2026-11; Codex models.json slugs.
-# Cost-optimized equivalences; the Codex side is measured in plan credits, not API prices. If one agent needs an exception, add a
-# per-agent override here; none exists yet. A pair missing here is an error in --check.
-CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
-    # Cheapest Codex pair that matches or beats each Claude pair, except Haiku medium below (owner, 2026-11). Codex
-    # credits per token, luna = 1: terra 10, sol 20, astra 80; Claude scale in docs/ports.md § Models.
-    # Haiku medium maps to luna low (owner 2026-11-03, ADR 0017): global change, it also moves researcher to luna
-    # low; ADR 0014 early-stop risk (low effort stopping early) is watched. Owner 2026-11-19: the 6.2 models
-    # replace 6.1 where one exists (no 6.2 terra or luna); the cells that gave terra high now give sol low, the
-    # one that gave sol high gives astra low, and Fable maps 1:1 by effort to astra. No agent used those cells.
-    ("haiku", "low"): ("gpt-6-luna", "low"),
-    ("haiku", "medium"): ("gpt-6-luna", "low"),
-    ("haiku", "high"): ("gpt-6-luna", "medium"),
-    ("haiku", "xhigh"): ("gpt-6-luna", "high"),
-    ("haiku", "max"): ("gpt-6-luna", "xhigh"),
-    ("sonnet", "low"): ("gpt-6-luna", "high"),
-    ("sonnet", "medium"): ("gpt-6.1-terra", "low"),
-    ("sonnet", "high"): ("gpt-6.1-terra", "medium"),
-    ("sonnet", "xhigh"): ("gpt-6.2-sol", "low"),
-    ("sonnet", "max"): ("gpt-6.1-terra", "xhigh"),
-    ("opus", "low"): ("gpt-6.2-sol", "low"),
-    ("opus", "medium"): ("gpt-6.2-sol", "low"),
-    ("opus", "high"): ("gpt-6.2-sol", "medium"),
-    ("opus", "xhigh"): ("gpt-6.2-astra", "low"),
-    ("opus", "max"): ("gpt-6.2-sol", "xhigh"),
-    ("fable", "low"): ("gpt-6.2-astra", "low"),
-    ("fable", "medium"): ("gpt-6.2-astra", "medium"),
-    ("fable", "high"): ("gpt-6.2-astra", "high"),
-    ("fable", "xhigh"): ("gpt-6.2-astra", "xhigh"),
-    ("fable", "max"): ("gpt-6.2-astra", "max"),
-}
+CATALOG_DATA = load_catalog(CATALOG)
+# Copilot runs the same Claude models, so model and effort pass through unchanged; the ids live in the catalog.
+COPILOT_MODELS = {m.key: m.copilot for m in CATALOG_DATA.models("claude") if m.copilot}  # no id → check_agent reports it
+# Claude (model, effort) -> Codex (model, effort), derived from shared/models.toml (levels, costs, effort policy and
+# the Haiku medium pin; ADR 0017). A pair missing here is an error in --check.
+CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = derive_pairs(CATALOG_DATA, "claude", "codex")
 # Text like "(Sonnet)" names a model, not an agent; it is rewritten with the model of the pair most agents use.
 CODEX_LABEL_EFFORT = {"haiku": "medium", "sonnet": "medium", "opus": "high"}
 MODEL_MAP = {"copilot": COPILOT_MODELS}
@@ -108,6 +83,7 @@ TOOL_MAP: dict[str, str | None] = {
     "WebSearch": "web",
     "WebFetch": "web",
     "Skill": None,
+    "Monitor": None,
     "mcp__fff__grep": None,
     "mcp__fff__find_files": None,
     "mcp__fff__multi_grep": None,
@@ -126,8 +102,6 @@ AGENT_FIELDS = {
     "skills",
 }
 COMMAND_FIELDS = {"description", "argument-hint", "disable-model-invocation"}
-# Copilot takes the same effort names as Claude, so the value is copied.
-EFFORTS = {"low", "medium", "high"}
 # Codex rejects unknown keys in a role file, so only these may be emitted (features: shell_tool only).
 CODEX_ROLE_KEYS = {
     "name",
@@ -160,7 +134,7 @@ BASE_DIR_LINE = (
     "resolve its relative links (`references/…`, `scripts/…`) there."
 )
 # Codex has no tool names to allow, so the rule lists what each Claude tool lets the agent do.
-# None: an optional MCP server of the Claude machine (ADR 0024); the Codex tools rule leaves it out.
+# None: a Claude-only tool (an optional MCP server, ADR 0024, or `Monitor`, ADR 0025); the Codex tools rule leaves it out.
 TOOL_CAPABILITY: dict[str, str | None] = {
     "Read": "read files",
     "Grep": "search file contents",
@@ -172,6 +146,7 @@ TOOL_CAPABILITY: dict[str, str | None] = {
     "WebSearch": "web search",
     "WebFetch": "fetch web pages",
     "Skill": "use skills",
+    "Monitor": None,
     "mcp__fff__grep": None,
     "mcp__fff__find_files": None,
     "mcp__fff__multi_grep": None,
@@ -342,12 +317,9 @@ def copilot_tools(fm: dict) -> list[str]:
 def check_agent(doc: Doc, skills: dict[str, Doc], errors: list[str]) -> None:
     """Report agent values the tool mappings do not cover, instead of porting a guess."""
     fm, rel = doc.fm, doc.path.relative_to(ROOT)
+    check_agent_rules(rel, fm, set(skills), errors)
     if fm.get("model") not in MODEL_MAP["copilot"]:
         errors.append(f"{rel}: model {fm.get('model')!r} is not in MODEL_MAP")
-    if fm.get("effort") not in EFFORTS:
-        errors.append(
-            f"{rel}: effort {fm.get('effort')!r} is not one of {sorted(EFFORTS)}"
-        )
     if (fm.get("model"), fm.get("effort")) not in CODEX_PAIRS:
         errors.append(
             f"{rel}: (model, effort) {(fm.get('model'), fm.get('effort'))!r} is not in CODEX_PAIRS"
@@ -357,14 +329,6 @@ def check_agent(doc: Doc, skills: dict[str, Doc], errors: list[str]) -> None:
             errors.append(
                 f"{rel}: tool '{tool}' is not in TOOL_MAP and TOOL_CAPABILITY"
             )
-    for skill in as_list(fm.get("skills")):
-        if skill not in skills:
-            errors.append(f"{rel}: preloads unknown skill '{skill}'")
-    turns = str(fm.get("maxTurns", "1"))
-    if not (turns.isdigit() and int(turns) > 0):
-        errors.append(f"{rel}: maxTurns must be a positive integer")
-    if fm.get("omitClaudeMd") not in (None, "true", "false"):
-        errors.append(f"{rel}: omitClaudeMd must be true or false")
     if not copilot_tools(fm):
         errors.append(f"{rel}: no tool maps to a Copilot tool")
     # Edit and Write share one Copilot alias: a blocked tool whose alias another tool keeps cannot be enforced.
@@ -452,6 +416,7 @@ def transform(
     agent: bool = False,
 ) -> str:
     """All text transforms for one tool; `command` and `agent` add the ones only those files need."""
+    text = strip_markers(text)
     if SKILL_DIR_VAR in text:
         if skill is None:
             raise PortError(
@@ -508,6 +473,14 @@ def source_files(folder: Path) -> list[Path]:
     ]
 
 
+def skill_file_bytes(path: Path) -> bytes:
+    """A skill file as the ports carry it: Markdown loses its shared-block markers, other files stay byte-exact."""
+    data = path.read_bytes()
+    if path.suffix != ".md":
+        return data
+    return strip_markers(data.decode("utf-8")).encode("utf-8")
+
+
 def is_executable(path: Path) -> bool:
     """Whether any execute bit is set."""
     return bool(path.stat().st_mode & 0o111)
@@ -549,7 +522,7 @@ class Generator:
             return transform(
                 text, target, self.agents, skill=skill, command=command, agent=agent
             )
-        except PortError as exc:
+        except (PortError, FragmentError) as exc:
             self.errors.append(f"{where}: {exc}")
             return text
 
@@ -602,7 +575,7 @@ class Generator:
                     )
                     self.put_instruction(dest, text, target)
                 else:
-                    self.put(dest, path.read_bytes(), executable=is_executable(path))
+                    self.put(dest, skill_file_bytes(path), executable=is_executable(path))
 
     def commands(self, target: Target) -> None:
         """Commands become user-only skills: neither tool runs Claude command files."""
@@ -751,6 +724,19 @@ class Generator:
             return
         self.put(README_REL, text)
 
+    def ports_doc(self) -> None:
+        """docs/ports.md with the models block regenerated (the rest is kept as is)."""
+        if not PORTS_DOC.is_file():
+            self.errors.append(f"{PORTS_DOC_REL}: missing")
+            return
+        text = models_block(PORTS_DOC.read_text(encoding="utf-8"), CATALOG_DATA)
+        if text is None:
+            self.errors.append(
+                f"{PORTS_DOC_REL}: needs one {MODELS_BEGIN} line followed by one {MODELS_END} line"
+            )
+            return
+        self.put(PORTS_DOC_REL, text)
+
     def prompts(self) -> list[tuple[str, str]]:
         """(tool label, offload policy + routing table in that tool's names), without banners."""
         claude = (
@@ -792,6 +778,34 @@ def prompt_block(readme: str, prompts: list[tuple[str, str]]) -> str | None:
     )
 
 
+VENDOR_LABELS = {"claude": "Claude", "codex": "Codex"}
+
+
+def models_tables(catalog: Catalog) -> str:
+    """Per vendor model, level and relative cost; then the derived Claude -> Codex pair table."""
+    parts = []
+    for vendor, label in VENDOR_LABELS.items():
+        rows = [f"| {label} model | Level | Relative cost per token |", "|---|---|---|"]
+        rows += [f"| `{m.key}` | {m.level:g} | {m.cost:g} |" for m in catalog.models(vendor)]
+        parts.append("\n".join(rows))
+    pairs = derive_pairs(catalog, "claude", "codex")
+    efforts = catalog.policy.efforts
+    rows = ["| Claude model | " + " | ".join(efforts) + " |", "|---|" + "---|" * len(efforts)]
+    for model in catalog.models("claude"):
+        cells = [" ".join((f"`{pairs[(model.key, e)][0]}`", pairs[(model.key, e)][1])) for e in efforts]
+        rows.append(f"| `{model.key}` | " + " | ".join(cells) + " |")
+    parts.append("\n".join(rows))
+    return "\n\n".join(parts)
+
+
+def models_block(doc: str, catalog: Catalog) -> str | None:
+    """`doc` with the text between the models markers replaced by the catalog tables; None without markers."""
+    begin, end = doc.find(MODELS_BEGIN), doc.find(MODELS_END)
+    if begin == -1 or end < begin or doc.count(MODELS_BEGIN) != 1 or doc.count(MODELS_END) != 1:
+        return None
+    return doc[: begin + len(MODELS_BEGIN)] + "\n\n" + models_tables(catalog) + "\n\n" + doc[end:]
+
+
 def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
     """Every generated file keyed by repo-relative path, plus the problems that stopped a faithful port."""
     gen = Generator(src)
@@ -803,6 +817,7 @@ def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
     gen.catalogs()
     gen.policies()
     gen.readme()
+    gen.ports_doc()
     return gen.files, list(dict.fromkeys(gen.errors))
 
 
@@ -872,6 +887,7 @@ def expected_text(
     agent: bool = False,
 ) -> str:
     """What `text` must become for `target`, as an ordered list of swaps (independent of the generator)."""
+    text = strip_markers(text)
     swaps = [
         (SKILL_DIR_VAR, f"{target.root}/skills/{skill}"),
         (PLUGIN_ROOT_VAR, target.root),
@@ -1103,7 +1119,7 @@ class Verifier:
             check = Check(self.errors, rel)
             if inside != "SKILL.md":
                 check.ok(
-                    (ROOT / rel).read_bytes() == path.read_bytes(),
+                    (ROOT / rel).read_bytes() == skill_file_bytes(path),
                     "differs from the Claude source",
                 )
                 continue

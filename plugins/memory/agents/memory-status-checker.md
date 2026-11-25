@@ -1,6 +1,6 @@
 ---
 name: memory-status-checker
-description: Cheap status worker (Haiku) that reads where a project stands - git, the open-work and plan documents, the project's state memories - and returns a short status card with a source on every line, then answers follow-up questions from what it read. Read-only. Use whenever you need to know where the work stands and your context does not hold it or may be out of date (for example a new session, after a compaction or a long pause, before choosing the next task, or when asked), so the main model reads one card instead of the backlog, plans and memories.
+description: Cheap status worker (Haiku) that reads where a project stands - git, the open-work and plan documents, the project's state memories - and returns a short status card with a date and a source on every line, flagging written state that git contradicts. Read-only. Use when resuming work (a new or resumed session, after a compaction or a long pause), before choosing the next task, or when asked about the state of the work, its docs or git ("where was the work left?", "what's pending?"): dispatch it instead of reading the backlog, plans and memories yourself, because one card costs the main context less.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku

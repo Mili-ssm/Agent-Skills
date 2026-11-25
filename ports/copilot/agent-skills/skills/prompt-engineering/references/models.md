@@ -14,7 +14,7 @@ As of 2026-11 (Claude 5.5 models). Model behavior changes with each release: dat
 
 ## Sonnet (implementation, fixes, reviews)
 
-- Measured here (ADR 0012): a Sonnet main conversation did not delegate to a Sonnet implementer; delegation pays only when the worker is cheaper or the context is protected.
+- Measured here ([ADR 0012](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0012-ui-verifier-worker.md)): a Sonnet main conversation did not delegate to a Sonnet implementer; delegation pays only when the worker is cheaper or the context is protected.
 - Effort (Anthropic): for agentic coding and multistep tool use, `medium` for well-specified tasks and `high` for harder or longer ones; measured on a SWE-bench Pro subset, `medium` scored about 7 points below `high`. At `low` it can skip verifying a change; at `low` and `medium` on long tasks it is more likely to stop and check in before finishing, so a subagent that cannot ask needs "done means …".
 
 ## Opus (main conversation, architecture, pre-mortems)
@@ -24,7 +24,7 @@ As of 2026-11 (Claude 5.5 models). Model behavior changes with each release: dat
 | Proactive: tends to over-engineer and to act where it was asked to suggest | Add a scope guard; use the verb that matches the wanted action |
 | Needs less explanation than Haiku | Cut steps it would take anyway; keep reasons and limits |
 | Effort, measured by Anthropic on the defect-search benchmark: `low` F1 0.49 (below Haiku), `medium` 0.83, `high` 0.85, at about $38, $200 and $236 a run | Never run a judgment agent on Opus `low`; `high` over `medium` buys about 2 points for about 18% more |
-| Measured here (ADR 0012): delegated code 0/3 → 3/3 when its trigger row was rewritten (a ~20-line threshold, a review step, "even when it looks easy"); the phrase alone was not isolated | Name the case where the model's own judgment says "inline" |
+| Measured here ([ADR 0012](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0012-ui-verifier-worker.md)): delegated code 0/3 → 3/3 when its trigger row was rewritten (a ~20-line threshold, a review step, "even when it looks easy"); the phrase alone was not isolated | Name the case where the model's own judgment says "inline" |
 
 ## Every model
 

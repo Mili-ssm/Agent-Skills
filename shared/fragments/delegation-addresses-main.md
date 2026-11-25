@@ -1,0 +1,1 @@
+- Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.

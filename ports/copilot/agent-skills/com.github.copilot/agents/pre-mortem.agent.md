@@ -3,7 +3,7 @@ name: "pre-mortem"
 description: "Skeptical reviewer that assumes a plan already failed and returns failure stories, unverified load-bearing assumptions, rated risks, plan amendments and kill criteria. Read-only. Use when a plan, spec or design exists and before executing it, or when asked to stress-test a plan, poke holes in it, or say what could go wrong; delegate to it instead of critiquing inline, because a fresh context is not anchored on the plan's own reasoning."
 tools: ["read", "search", "execute"]
 model: "claude-opus-5.5"
-reasoningEffort: "high"
+reasoningEffort: "medium"
 include-custom-instructions: false
 ---
 
@@ -15,7 +15,7 @@ The plan/spec/design from the task. No plan in the task → use the only plan fi
 
 ## Process
 
-1. **Restate** goal, success criteria and key steps in ≤ 5 lines; missing success criteria is the first finding.
+1. **Restate** goal, success criteria and key steps in ≤ 5 lines; missing success criteria is the first risk.
 2. **Failure stories**: 5–10 concrete narratives across these lenses:
 
 | Lens | Prompts |

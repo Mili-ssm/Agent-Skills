@@ -1,6 +1,6 @@
 # 0015 Generated ports for GitHub Copilot and OpenAI Codex
 
-Status: accepted · Date: 2026-10-30 · Amends 0011
+Status: accepted · Date: 2026-10-30 · Amends 0011 · Amended by 0029
 
 ## Context
 
