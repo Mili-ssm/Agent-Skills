@@ -78,6 +78,8 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
 | low | — | Refactor: measure `find_claude` in the session-end hook | Not started |
+| low | — | Tests: `test_auto_curation` negative windows (1.5–2 s) are only 1.1–1.5× the measured hook latency under load (1.31 s), so a late start could pass; a synchronous "decided not to start" log record in `mem-auto` would give a real signal ([plan](superpowers/plans/2026-11-25-faster-tests.md)) | Not started |
+| low | — | Split `bin/mem-capture` (1,263 lines after its lint refactor) into engine modules | Not started |
 | low | A11 | Refactor: parked signal code, after the kill read | Not started |
 | high | Stage 4 | Kill read into ADR 0023 `## Review` | Around 2026-12-01 |
 | medium | Q4 | Faster suite (294 s) | Open |
