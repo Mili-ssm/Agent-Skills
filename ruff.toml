@@ -1,5 +1,5 @@
 # Lint and format rules for every Python file in the repo (ADR 0031). pre-commit checks the touched files
-# by pre-commit (.pre-commit-config.yaml). Rules follow the owner's usual set, plus B and SIM.
+# (.pre-commit-config.yaml). Rules follow the owner's usual set, plus B and SIM.
 fix = true
 indent-width = 4
 line-length = 100
