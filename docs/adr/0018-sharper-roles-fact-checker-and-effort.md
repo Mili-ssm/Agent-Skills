@@ -102,3 +102,7 @@ Kill criteria:
 |---|---|---|
 | Description clause | The next usage study, a window of 7 days after this ships (`docs/studies/scripts/`, dispatches classified by description as in the 2026-11-18 study) | General-purpose fact-check dispatches are still more than half of the named ones (they were 45 against 77 in the last 7 days before the change), because the clause would then be read on every routing decision for nothing |
 | Body | One trace of a real batch of at least 5 notes, or a batch of 9 notes with seeded errors | The report exceeds 60 lines, or a seeded or known `contradicted` claim is missing from it |
+
+## Review 2026-11-25
+
+Owner ruling: `pre-mortem` moves from Opus `high` to Opus `medium` (fewer reasoning tokens on the same model, preferred over a smaller model at higher effort; trial G14 of Sonnet `high` not run). Unmeasured; kill criterion: a plan defect that a later task review or the owner finds and that the pre-mortem should have named, twice in a row, or the owner rating two consecutive pre-mortems as missing material risks → back to `high`.

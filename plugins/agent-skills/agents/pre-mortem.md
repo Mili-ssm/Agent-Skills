@@ -4,7 +4,7 @@ description: Skeptical reviewer that assumes a plan already failed and returns f
 tools: Read, Grep, Glob, Bash
 disallowedTools: Edit, Write, NotebookEdit
 model: opus
-effort: high
+effort: medium
 omitClaudeMd: true
 ---
 

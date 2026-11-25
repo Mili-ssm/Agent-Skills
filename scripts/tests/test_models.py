@@ -124,6 +124,7 @@ AGENT_PAIRS = {
     ("haiku", "high"): ("gpt-6-luna", "medium"),
     ("sonnet", "medium"): ("gpt-6.1-terra", "low"),
     ("sonnet", "high"): ("gpt-6.1-terra", "medium"),
+    ("opus", "medium"): ("gpt-6.2-sol", "low"),  # pre-mortem, owner 2026-11-25
     ("opus", "high"): ("gpt-6.2-sol", "medium"),
 }
 

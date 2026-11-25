@@ -6,6 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- `pre-mortem` runs on Opus at `medium` effort instead of `high` (fewer reasoning tokens, same model); the Codex port maps it to `gpt-6.2-sol` low.
 - `implementer`, `check-runner` and `ui-verifier` can use `Monitor` to wait for a command the harness moved to the background, instead of a blocked `sleep`; `implementer` says so in its rules. Claude Code only; the ports are unchanged in behavior.
 - Codex port model mapping is now derived from a model catalog (`shared/models.toml`); no agent's Codex model or effort changes, and the unused `max` cells now follow the effort policy (never `max`, `xhigh` only on the top model).
 - Instruction lines that several agents share (report language, read-only shell use, delegation, search tools) now come from one source, so they stay identical across agents. Nothing to migrate; Copilot and Codex ports are unchanged.
