@@ -15,11 +15,11 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g, 4b, 4d; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 
-Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); D1 is done (owner chose a `validate.py` check, 2026-11-25).
+Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); D1 is done (owner chose a `validate.py` check, 2026-11-25). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12.
 
 ## Next, in order
 
-1. Owner decisions: G12 (ADR 0025 rule 1 is past its revert threshold), G9, review decision 6.
+1. Owner decisions still open: B5, G7, G10, G11, G13–G19, 4d, 3g (see the tables).
 2. Quick fixes: P1 (measured), A7, tool-fold's dead `summarize` export.
 3. Memory refactor tasks 1–2 (A1–A3).
 4. Memory kill read, around 2026-12-01.
@@ -35,14 +35,11 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | low | D9 | Misc. doc fixes (requirements date, R1–R5 ID clash, platform-parity plan status, a broken anchor, orphan docs) | S | Open |
 | low | — | Tooling follow-ups from the `feat/repo-tooling` reviews: marker splice and catalog tables from `port.py` into `promptkit`; `AGENT_EFFORTS` vs the catalog's efforts; one derivation in `port.py`; the hook runs on branch deletes; parked edge cases (two stray quotes hide 'we'; a multi-line fragment split by a block counts as unmarked; the Claude-only Explore line kept outside commands) | M | Deferred (ADR 0029) |
 | low | S7 | `scripts/cloud-setup.sh` may pick another marketplace's `Explore.md` | S | Open |
-| — | — | Review decision 6: ranking of quality attributes | — | Open |
 
 ### Usage and cost (local study)
 
 | Pri | ID | Task | State |
 |---|---|---|---|
-| high | G12 | ADR 0025 rule 1: revert, or give `Monitor` to `implementer` | Proposed |
-| high | G9 | `autoCompactWindow` near 400k in the owner's settings | Proposed |
 | medium | G13 | Trial: `implementer` fix rounds on Haiku | Proposed |
 | medium | G14 | Trial: `pre-mortem` on Sonnet at high effort against Opus | Proposed |
 | medium | G11 | Shorter reports and briefs | Proposed |
