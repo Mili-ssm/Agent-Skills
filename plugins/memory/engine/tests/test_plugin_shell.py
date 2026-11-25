@@ -246,7 +246,8 @@ def test_signal_hook_without_uv_is_silent(tmp_path):
     assert r.returncode == 0 and r.stdout == "" and r.stderr == ""
 
 
-@pytest.mark.parametrize("agent", ["memory:memory-researcher", "memory-recorder", "memory:memory-curator"])
+@pytest.mark.parametrize("agent", ["memory:memory-researcher", "memory-recorder", "memory:memory-curator",
+                                   "memory:memory-synthesizer", "memory:memory-status-checker"])
 def test_subagent_start_is_silent_for_the_plugins_own_agents(agent):
     r = subprocess.run([str(HOOKS / "subagent-start.sh")], input=json.dumps({"agent_type": agent, "agent_id": "a1"}),
                        env={"PATH": os.environ["PATH"]}, capture_output=True, text=True)
