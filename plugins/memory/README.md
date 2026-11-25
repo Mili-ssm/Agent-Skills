@@ -302,7 +302,7 @@ A held-back note is not committed: the other notes are, and it stays in the work
 ## Tests
 
 ```sh
-uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q
+uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto
 ```
 
 Routing trials (nine headless sessions that cost model usage; they check that each kind of thing to remember lands in the right place, and that a client's name never reaches the store):
