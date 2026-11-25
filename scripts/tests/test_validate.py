@@ -528,8 +528,12 @@ def test_memory_agent_without_command_passes(mini_repo):
     assert run_checks(mini_repo) == []
 
 
-def test_memory_agent_says_use_proactively_passes(mini_repo):
+def test_memory_agent_and_skill_say_use_proactively_fail(mini_repo):
+    # the rule is repo-wide (CLAUDE.md, ADR 0007, 0010): only the agent-skills workers may say it
     edit(mini_repo, MEMORY_AGENT_MD, "Use when asked for it.", "Use proactively when asked for it.")
     edit(mini_repo, MEMORY_SKILL_MD, "Use when a note", "Use proactively when a note")
-    assert run_checks(mini_repo) == []
+    assert sorted(run_checks(mini_repo)) == sorted([
+        f"{MEMORY_SKILL_MD}: only offload workers may say 'Use proactively' (ADR 0010)",
+        f"{MEMORY_AGENT_MD}: only offload workers may say 'Use proactively' (ADR 0010)",
+    ])
 

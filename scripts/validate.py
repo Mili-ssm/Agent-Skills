@@ -257,8 +257,7 @@ def check_skills(errors: list[str], plugin: Path) -> set[str]:
             if not NAME_RE.match(skill_dir.name):
                 errors.append(f"{rel}: name must be <= 64 chars of lowercase letters, digits, hyphens")
             check_description(rel, fm.get("description"), errors)
-            if plugin == PLUGIN:  # the proactive-worker rule is agent-skills scope (ADR 0007, 0010)
-                check_proactive(rel, fm.get("description"), False, errors)
+            check_proactive(rel, fm.get("description"), False, errors)  # repo-wide: only workers (ADR 0007, 0010)
         check_line_budget(rel, text, SKILL_MAX_LINES, errors)
         check_reference_depth(skill_dir, errors)
         check_reference_toc(skill_dir, errors)
@@ -331,8 +330,7 @@ def check_agents(errors: list[str], skill_names: set[str], plugin: Path) -> set[
             if not fm.get("tools"):
                 errors.append(f"{rel}: missing 'tools'")
             check_description(rel, fm.get("description"), errors)
-            if own:
-                check_proactive(rel, fm.get("description"), name in WORKERS, errors)
+            check_proactive(rel, fm.get("description"), own and name in WORKERS, errors)  # workers live in agent-skills
             check_agent_rules(rel, fm, skill_names, errors)
             if own:
                 check_max_turns(rel, name, fm, errors)
