@@ -17,7 +17,7 @@ Baseline (2026-11-25, 20 cores): memory engine suite 2,272 passed, 5 skipped in 
   - Kept as is: `test_digest` 4.4 s is CPU work (301 `mem.main` calls), `test_settle_run`/`test_auto_curation` 2 s are negative windows longer than the measured 0.8–1.2 s hook latency
 - [x] 3 Spawn cost (measured by `performance-analyst`, 2026-11-25): tests set `HOME`, so every `bin/mem` launch runs `uv` with an empty cache (0.45 s vs 0.1 s, and needs network)
   - [x] 3a (suite 30–32 s parallel, twice) `UV_CACHE_DIR` shared in the autouse `isolated_env` (conftest.py); check: serial corroborate 93→~54 s, full suite twice
-  - [x] 3b Owner chose two: `CSafeLoader` was already in use (`notes._BaseLoader`), nothing to gain; negative windows re-measured with the warm cache (settle max 0.45 s under load → `NEGATIVE_WINDOW = 1.4`; auto-curation max 1.31 s, kept at 1.5–2 s), both files lint clean
+  - [x] 3b Owner chose two: `CSafeLoader` was already in use (`notes._BaseLoader`), nothing to gain; negative windows re-measured with the warm cache (settle max 0.45 s under load, warm cache; kept at 1.5 s as `NEGATIVE_WINDOW` because a cold cache adds ~0.35 s; auto-curation max 1.31 s, kept at 1.5–2 s), both files lint clean
 - [x] 4 Review, PR to `dev`
 
 ## Result

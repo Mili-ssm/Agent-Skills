@@ -20,8 +20,9 @@ SESSION_ENV = PLUGIN / "hooks" / "session-env.sh"
 SESSION_END = PLUGIN / "hooks" / "session-end.sh"
 # Negative waits: how long to wait before concluding that a trigger did NOT start a detached run. Measured 2026-11-25
 # (20 samples, shared uv cache, serial and under `-n auto` load): write or hook to first fake-claude call 0.33-0.40 s
-# serial, 0.34-0.45 s under load; the window is over 3x the observed max.
-NEGATIVE_WINDOW = 1.4
+# serial, 0.34-0.45 s under load. Kept at the original 1.5 s: a cold uv cache (a fresh clone or machine) adds about
+# 0.35 s per launch plus a fetch, and a shorter window would let a late start pass unnoticed.
+NEGATIVE_WINDOW = 1.5
 RETURN_LIMIT = 5  # seconds a hook or write may take to return: the run must be detached
 SECOND_CALL = 2
 OLD, NEW = (
