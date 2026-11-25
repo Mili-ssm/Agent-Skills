@@ -28,6 +28,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 | UI mod | `plugins/<mod>/` and its README | `docs/mods-surfaces.md` for anything a surface did unexpectedly |
 | Requirement | `docs/requirements.md` (keep IDs stable: `validate.py` cites them) | a flipped requirement needs an ADR |
 | Decision | new `docs/adr/NNNN-kebab-title.md` | ADR rules below |
+| Open work: an item opens, closes or changes | its source (plan, study) first | `docs/backlog.md`; any edit there moves its `Updated` and `Expires` dates (expiry rule at its top) |
 
 ## Rules the code does not show
 
