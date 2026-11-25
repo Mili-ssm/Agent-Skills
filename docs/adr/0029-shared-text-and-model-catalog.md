@@ -1,6 +1,6 @@
 # 0029 Shared prompt text from fragments, Codex mapping from a model catalog, a tested commit gate
 
-Status: accepted · Date: 2026-11-25 · Amends 0015
+Status: accepted · Date: 2026-11-25 · Amends 0015 · Amended by 0031
 
 ## Context
 
@@ -47,3 +47,7 @@ ADR 0028 is reserved for the memory plugin split ([refactor plan](../superpowers
 - A tool adds an install-time hook or variable substitution in agent and skill bodies (install-time templates become possible).
 - An agent needs a body that differs per vendor beyond model and tool names (full templates would pay off).
 - A third vendor is ported, or a vendor publishes a capability benchmark that contradicts the levels.
+
+## Review 2026-11-25
+
+Extended by ADR 0031: pre-commit installs the commit and push hooks; `git config core.hooksPath scripts/hooks` stays the push-only fallback.
