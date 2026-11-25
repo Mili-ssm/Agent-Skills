@@ -1,1 +1,1 @@
-- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
+- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; {{allowed}} are fine), because Edit is blocked but Bash is not.

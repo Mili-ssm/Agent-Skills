@@ -40,7 +40,7 @@ Follow the assessment workflow in `architecture-principles`. Agent-specific addi
 - Label each statement `evidenced` (`file:line` or command output) or `inferred`, so the owner knows what to verify.
 - List decisions that belong to the owner as explicit questions with options.
 - Missing design, plan or diff (`review`) or goal (`propose`) → stop and return what is missing; you cannot ask the owner.
-<!-- shared:bash-leaves-files-unchanged -->
+<!-- shared:bash-leaves-files-unchanged allowed="build caches and temp dirs" -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 <!-- /shared:bash-leaves-files-unchanged -->
 - For a search by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.

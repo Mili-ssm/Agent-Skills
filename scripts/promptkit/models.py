@@ -53,9 +53,15 @@ def grade(model: Model, effort: str, catalog: Catalog) -> float:
     return model.level + catalog.policy.effort_step * catalog.policy.efforts.index(effort)
 
 
+class CatalogRuleError(ValueError):
+    """The catalog parses but breaks a rule (level order, spacing, overrides)."""
+
+
 def load_catalog(path: Path) -> Catalog:
     try:
         return _load_catalog(path)
+    except CatalogRuleError:
+        raise  # a rule the catalog breaks reads as itself, not as "malformed"
     except (KeyError, TypeError, AttributeError, ValueError, tomllib.TOMLDecodeError) as err:  # one readable line, not a bare KeyError
         raise ValueError(f"{path}: malformed catalog ({type(err).__name__}: {err})") from err
 
@@ -75,18 +81,18 @@ def _load_catalog(path: Path) -> Catalog:
     for vendor, models in by_vendor.items():
         for prev, nxt in zip(models, models[1:]):
             if nxt.level <= prev.level:
-                raise ValueError(f"{vendor}: level of {nxt.key} ({nxt.level}) must exceed {prev.key} ({prev.level})")
+                raise CatalogRuleError(f"{vendor}: level of {nxt.key} ({nxt.level}) must exceed {prev.key} ({prev.level})")
             if grade(nxt, "low", catalog) <= grade(prev, "xhigh", catalog):
-                raise ValueError(
+                raise CatalogRuleError(
                     f"{vendor}: {nxt.key} at low ({grade(nxt, 'low', catalog)}) must beat {prev.key} at xhigh "
                     f"({grade(prev, 'xhigh', catalog)})"
                 )
     keys = {m.key for models in by_vendor.values() for m in models}
     for o in overrides:  # a typo would otherwise be ignored, and a forbidden effort accepted
         if o.source[0] not in keys or o.source[1] not in policy.efforts:
-            raise ValueError(f"override from {list(o.source)}: unknown model or effort")
+            raise CatalogRuleError(f"override from {list(o.source)}: unknown model or effort")
         if o.target[0] not in keys or o.target[1] not in policy.efforts or o.target[1] in policy.never:
-            raise ValueError(f"override to {list(o.target)}: unknown model, or an effort the policy never chooses")
+            raise CatalogRuleError(f"override to {list(o.target)}: unknown model, or an effort the policy never chooses")
     return catalog
 
 

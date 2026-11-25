@@ -636,19 +636,21 @@ def check_release_tag(name: str, version: str | None, errors: list[str]) -> None
 
 
 STATE_PLAN = Path("docs/superpowers/plans/2026-11-17-memory-plugin.md")  # relative: tests patch ROOT
-STATE_RELEASED = re.compile(r"^\| Released \| `memory` ([0-9][^ ]*) ", re.MULTILINE)
+STATE_RELEASED = re.compile(r"^\|\s*\**Released\**\s*\|\s*`memory`\s+v?([0-9][0-9A-Za-z.+-]*)", re.MULTILINE)
 
 
 def check_state_table_version(errors: list[str]) -> None:
-    """Review D1: the memory plan's state table, which resuming agents read first, names the released version."""
+    """The memory plan's state table, which agents resuming memory work read first, names the released version."""
     plan = ROOT / STATE_PLAN
     manifest = ROOT / "plugins" / "memory" / ".claude-plugin" / "plugin.json"
     if not plan.is_file() or not manifest.is_file():
         return
+    rel = plan.relative_to(ROOT).as_posix()
     match = STATE_RELEASED.search(plan.read_text(encoding="utf-8"))
     version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
-    if match and match.group(1) != version:
-        rel = plan.relative_to(ROOT).as_posix()
+    if not match:  # a reworded row must not switch the check off
+        errors.append(f"{rel}: no '| Released | `memory` X.Y.Z' row in the state table")
+    elif match.group(1) != version:
         errors.append(f"{rel}: state table says released {match.group(1)}, plugin.json says {version}")
 
 

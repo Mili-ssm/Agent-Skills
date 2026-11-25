@@ -153,3 +153,16 @@ def test_malformed_catalog_is_one_value_error(tmp_path: Path) -> None:
     path.write_text(toml().replace("effort_step = 0.25\n", ""), encoding="utf-8")
     with pytest.raises(ValueError, match="malformed catalog"):
         load_catalog(path)
+
+
+def test_non_numeric_level_is_one_value_error(tmp_path: Path) -> None:
+    path = tmp_path / "models.toml"
+    path.write_text(toml().replace("level = 1.25\n", 'level = "high"\n', 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed catalog"):
+        load_catalog(path)
+
+
+def test_rule_errors_are_not_called_malformed(tmp_path: Path) -> None:
+    with pytest.raises(ValueError) as err:
+        cat(tmp_path, overrides='[[overrides]]\nfrom = ["nope", "low"]\nto = ["b0", "low"]\nreason = "x"\n')
+    assert "malformed" not in str(err.value)

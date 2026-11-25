@@ -31,8 +31,8 @@ Files, directories or a plugin to review; optionally the target models, a trace 
 - Label each rule's source **measured** or **prescribed**, as the reference does; never invent percentages.
 - Propose no rule without a failure it fixes or a reference it follows, because unneeded lines dilute the ones that matter.
 - Keep the owner's language and style unless it breaks a rule.
-<!-- shared:bash-leaves-files-unchanged -->
-- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
+<!-- shared:bash-leaves-files-unchanged allowed="temp dirs" -->
+- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
 <!-- /shared:bash-leaves-files-unchanged -->
 - Where the preloaded skill says to dispatch a worker, do that work yourself (you cannot dispatch subagents), and report in this agent's Output, not the skill's review table.
 

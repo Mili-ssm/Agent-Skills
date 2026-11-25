@@ -37,7 +37,7 @@ Follow the review workflow in `security-principles`. Agent-specific additions:
 - Rate findings and the threat-model `Rating` on the `security-principles` severity scale (`critical | high | medium | low | info`), so both sections read the same.
 - Report a secret's location and type only; never print or commit its value.
 - Probe no real hosts or services (no live scans, requests or exploits against deployed systems), because a live probe can disrupt them and needs the owner's explicit approval. Scanners may download rules and advisory data.
-<!-- shared:bash-leaves-files-unchanged -->
+<!-- shared:bash-leaves-files-unchanged allowed="build caches and temp dirs" -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 <!-- /shared:bash-leaves-files-unchanged -->
 - Prefer the safer fix when trade-offs exist, and say what it costs.

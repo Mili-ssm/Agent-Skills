@@ -560,3 +560,15 @@ def test_memory_state_table_version_must_match_plugin_json(mini_repo):
     plan.write_text("| Released | `memory` 0.2.0 (see plugin.json) |\n", encoding="utf-8")
     validate.check_state_table_version(errors := [])
     assert errors == []
+
+
+def test_memory_state_table_without_released_row_fails(mini_repo):
+    plan = mini_repo / "docs" / "superpowers" / "plans" / "2026-11-17-memory-plugin.md"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    manifest = mini_repo / "plugins" / "memory" / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text('{"name": "memory", "version": "0.2.0"}', encoding="utf-8")
+    plan.write_text("| Shipped | memory 0.2.0 |\n", encoding="utf-8")
+    errors: list[str] = []
+    validate.check_state_table_version(errors)
+    assert errors == ["docs/superpowers/plans/2026-11-17-memory-plugin.md: no '| Released | `memory` X.Y.Z' row in the state table"]
