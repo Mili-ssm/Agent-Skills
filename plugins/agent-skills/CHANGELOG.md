@@ -6,6 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- Codex port model mapping is now derived from a model catalog (`shared/models.toml`); no agent's Codex model or effort changes, and the unused `max` cells now follow the effort policy (never `max`, `xhigh` only on the top model).
 - Instruction lines that several agents share (report language, read-only shell use, delegation, search tools) now come from one source, so they stay identical across agents. Nothing to migrate; Copilot and Codex ports are unchanged.
 - Four read-only agents (`prompt-engineer`, `fact-checker`, `skeptical-reviewer`, `ux-reviewer`) now state the read-only shell rule in the shared wording, which also allows build caches.
 - `prompt-engineering` references link the measurements they cite to the public ADRs instead of naming bare ADR numbers; `pre-mortem` calls missing success criteria a risk; `feature-briefing` no longer implies `ux-reviewer` has a `design` mode.

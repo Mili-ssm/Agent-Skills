@@ -15,7 +15,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 
 ## Generated files: never edit by hand
 
-`ports/**`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json`, `user-config/{offload-policy,routing}.{copilot,codex}.md`, the README block between the `recommended-prompt` markers. Edit the Claude source, then run `scripts/port.py`.
+`ports/**`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json`, `user-config/{offload-policy,routing}.{copilot,codex}.md`, the README block between the `recommended-prompt` markers, the `docs/ports.md` block between the `models` markers. Edit the Claude source, then run `scripts/port.py`.
 
 ## Where a change goes
 

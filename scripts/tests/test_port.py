@@ -198,12 +198,15 @@ def test_check_passes_with_block(tmp_path, monkeypatch, capsys):
     for name in ("plugins/agent-skills", "ports", "user-config", ".claude-plugin", ".github", ".agents"):
         shutil.copytree(port.ROOT / name, tmp_path / name)
     shutil.copy(port.ROOT / "README.md", tmp_path / "README.md")
+    (tmp_path / "docs").mkdir()
+    shutil.copy(port.ROOT / "docs" / "ports.md", tmp_path / "docs" / "ports.md")
     monkeypatch.setattr(port, "ROOT", tmp_path)
     monkeypatch.setattr(port, "PLUGIN", tmp_path / "plugins" / "agent-skills")
     monkeypatch.setattr(port, "CLAUDE_MARKETPLACE", tmp_path / ".claude-plugin" / "marketplace.json")
     monkeypatch.setattr(port, "POLICY", tmp_path / "user-config" / "offload-policy.md")
     monkeypatch.setattr(port, "ROUTING", tmp_path / "user-config" / "routing.md")
     monkeypatch.setattr(port, "README", tmp_path / "README.md")
+    monkeypatch.setattr(port, "PORTS_DOC", tmp_path / "docs" / "ports.md")
 
     reference = port.PLUGIN / "skills" / "prompt-engineering" / "references" / "skills-and-agents.md"
     agent = port.PLUGIN / "agents" / "fixer.md"
@@ -219,3 +222,25 @@ def test_check_passes_with_block(tmp_path, monkeypatch, capsys):
         )
 
     assert port.main(["--check"]) == 0, capsys.readouterr().out
+
+
+def test_models_block_is_regenerated_and_requires_markers():
+    doc = f"intro\n{port.MODELS_BEGIN}\nstale\n{port.MODELS_END}\noutro\n"
+    out = port.models_block(doc, port.CATALOG_DATA)
+    assert out.startswith(f"intro\n{port.MODELS_BEGIN}\n\n") and out.endswith(f"{port.MODELS_END}\noutro\n")
+    assert "stale" not in out
+    assert "| `fable` | `gpt-6.2-astra` low |" in out
+    assert port.models_block("no markers", port.CATALOG_DATA) is None
+
+
+def test_ports_doc_block_is_current():
+    doc = port.PORTS_DOC.read_text(encoding="utf-8")
+    assert port.models_block(doc, port.CATALOG_DATA) == doc, "run python3 scripts/port.py"
+
+
+def test_unused_max_cells_follow_the_effort_policy():
+    assert port.CODEX_PAIRS[("haiku", "max")] == ("gpt-6.1-terra", "low")
+    assert port.CODEX_PAIRS[("sonnet", "max")] == ("gpt-6.2-sol", "low")
+    assert port.CODEX_PAIRS[("opus", "max")] == ("gpt-6.2-astra", "low")
+    assert port.CODEX_PAIRS[("fable", "max")] == ("gpt-6.2-astra", "xhigh")
+    assert port.COPILOT_MODELS["fable"] == "claude-fable-5.2"

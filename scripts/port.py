@@ -4,7 +4,6 @@
   python3 scripts/port.py            write ports/, both catalogs and both policy variants
   python3 scripts/port.py --check    prove the copies are current and equivalent to the Claude sources
   python3 scripts/port.py --report   print what each artifact type maps to and what does not map
-  python3 scripts/port.py --models-diff  print where shared/models.toml derives other Codex pairs than CODEX_PAIRS
 
 The Claude sources (plugins/, .claude-plugin/, user-config/offload-policy.md) are only read, so Claude Code
 behaves exactly as before. No CLAUDE.md or AGENTS.md is generated (Claude Code would load it).
@@ -24,7 +23,7 @@ from pathlib import Path
 
 import tomllib
 from promptkit.fragments import FragmentError, strip_markers
-from promptkit.models import derive_pairs, load_catalog
+from promptkit.models import CATALOG, Catalog, derive_pairs, load_catalog
 from validate import FrontmatterError, as_list, check_agent_rules, is_true, parse_frontmatter
 
 # Repo root = parent of scripts/, independent of the current working directory.
@@ -38,6 +37,11 @@ README_REL = "README.md"
 # README block filled by this script: the recommended prompt (offload policy + routing) per tool.
 PROMPT_BEGIN = "<!-- BEGIN generated: recommended-prompt -->"
 PROMPT_END = "<!-- END generated: recommended-prompt -->"
+# docs/ports.md block filled by this script: the model catalog and the derived Codex pairs.
+PORTS_DOC = ROOT / "docs" / "ports.md"
+PORTS_DOC_REL = "docs/ports.md"
+MODELS_BEGIN = "<!-- BEGIN generated: models -->"
+MODELS_END = "<!-- END generated: models -->"
 PORTS = "ports"
 
 # Catalog name shared with .claude-plugin/marketplace.json; it is part of every install path (checked on load).
@@ -45,44 +49,12 @@ MARKETPLACE = "mili-ssm"
 # The one plugin that is ported; the mods are Claude-only (no mods API elsewhere).
 PLUGIN_NAME = "agent-skills"
 
-# Copilot runs the same Claude models, so model and effort pass through unchanged.
-COPILOT_MODELS = {
-    "haiku": "claude-haiku-5.5",
-    "sonnet": "claude-sonnet-5.5",
-    "opus": "claude-opus-5.5",
-    "fable": "claude-fable-5.2",  # display name only in GitHub docs (2026-11-19); unknown ids fall back to the session model
-}
-# Claude (model, effort) -> Codex (model, effort). Source: owner, 2026-11; Codex models.json slugs.
-# Cost-optimized equivalences; the Codex side is measured in plan credits, not API prices. If one agent needs an exception, add a
-# per-agent override here; none exists yet. A pair missing here is an error in --check.
-CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = {
-    # Cheapest Codex pair that matches or beats each Claude pair, except Haiku medium below (owner, 2026-11). Codex
-    # credits per token, luna = 1: terra 10, sol 20, astra 80; Claude scale in docs/ports.md § Models.
-    # Haiku medium maps to luna low (owner 2026-11-03, ADR 0017): global change, it also moves researcher to luna
-    # low; ADR 0014 early-stop risk (low effort stopping early) is watched. Owner 2026-11-19: the 6.2 models
-    # replace 6.1 where one exists (no 6.2 terra or luna); the cells that gave terra high now give sol low, the
-    # one that gave sol high gives astra low, and Fable maps 1:1 by effort to astra. No agent used those cells.
-    ("haiku", "low"): ("gpt-6-luna", "low"),
-    ("haiku", "medium"): ("gpt-6-luna", "low"),
-    ("haiku", "high"): ("gpt-6-luna", "medium"),
-    ("haiku", "xhigh"): ("gpt-6-luna", "high"),
-    ("haiku", "max"): ("gpt-6-luna", "xhigh"),
-    ("sonnet", "low"): ("gpt-6-luna", "high"),
-    ("sonnet", "medium"): ("gpt-6.1-terra", "low"),
-    ("sonnet", "high"): ("gpt-6.1-terra", "medium"),
-    ("sonnet", "xhigh"): ("gpt-6.2-sol", "low"),
-    ("sonnet", "max"): ("gpt-6.1-terra", "xhigh"),
-    ("opus", "low"): ("gpt-6.2-sol", "low"),
-    ("opus", "medium"): ("gpt-6.2-sol", "low"),
-    ("opus", "high"): ("gpt-6.2-sol", "medium"),
-    ("opus", "xhigh"): ("gpt-6.2-astra", "low"),
-    ("opus", "max"): ("gpt-6.2-sol", "xhigh"),
-    ("fable", "low"): ("gpt-6.2-astra", "low"),
-    ("fable", "medium"): ("gpt-6.2-astra", "medium"),
-    ("fable", "high"): ("gpt-6.2-astra", "high"),
-    ("fable", "xhigh"): ("gpt-6.2-astra", "xhigh"),
-    ("fable", "max"): ("gpt-6.2-astra", "max"),
-}
+CATALOG_DATA = load_catalog(CATALOG)
+# Copilot runs the same Claude models, so model and effort pass through unchanged; the ids live in the catalog.
+COPILOT_MODELS = {m.key: m.copilot for m in CATALOG_DATA.models("claude")}
+# Claude (model, effort) -> Codex (model, effort), derived from shared/models.toml (levels, costs, effort policy and
+# the Haiku medium pin; ADR 0017). A pair missing here is an error in --check.
+CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = derive_pairs(CATALOG_DATA, "claude", "codex")
 # Text like "(Sonnet)" names a model, not an agent; it is rewritten with the model of the pair most agents use.
 CODEX_LABEL_EFFORT = {"haiku": "medium", "sonnet": "medium", "opus": "high"}
 MODEL_MAP = {"copilot": COPILOT_MODELS}
@@ -750,6 +722,19 @@ class Generator:
             return
         self.put(README_REL, text)
 
+    def ports_doc(self) -> None:
+        """docs/ports.md with the models block regenerated (the rest is kept as is)."""
+        if not PORTS_DOC.is_file():
+            self.errors.append(f"{PORTS_DOC_REL}: missing")
+            return
+        text = models_block(PORTS_DOC.read_text(encoding="utf-8"), CATALOG_DATA)
+        if text is None:
+            self.errors.append(
+                f"{PORTS_DOC_REL}: needs one {MODELS_BEGIN} line followed by one {MODELS_END} line"
+            )
+            return
+        self.put(PORTS_DOC_REL, text)
+
     def prompts(self) -> list[tuple[str, str]]:
         """(tool label, offload policy + routing table in that tool's names), without banners."""
         claude = (
@@ -791,6 +776,34 @@ def prompt_block(readme: str, prompts: list[tuple[str, str]]) -> str | None:
     )
 
 
+VENDOR_LABELS = {"claude": "Claude", "codex": "Codex"}
+
+
+def models_tables(catalog: Catalog) -> str:
+    """Per vendor model, level and relative cost; then the derived Claude -> Codex pair table."""
+    parts = []
+    for vendor, label in VENDOR_LABELS.items():
+        rows = [f"| {label} model | Level | Relative cost per token |", "|---|---|---|"]
+        rows += [f"| `{m.key}` | {m.level:g} | {m.cost:g} |" for m in catalog.models(vendor)]
+        parts.append("\n".join(rows))
+    pairs = derive_pairs(catalog, "claude", "codex")
+    efforts = catalog.policy.efforts
+    rows = ["| Claude model | " + " | ".join(efforts) + " |", "|---|" + "---|" * len(efforts)]
+    for model in catalog.models("claude"):
+        cells = [" ".join((f"`{pairs[(model.key, e)][0]}`", pairs[(model.key, e)][1])) for e in efforts]
+        rows.append(f"| `{model.key}` | " + " | ".join(cells) + " |")
+    parts.append("\n".join(rows))
+    return "\n\n".join(parts)
+
+
+def models_block(doc: str, catalog: Catalog) -> str | None:
+    """`doc` with the text between the models markers replaced by the catalog tables; None without markers."""
+    begin, end = doc.find(MODELS_BEGIN), doc.find(MODELS_END)
+    if begin == -1 or end < begin or doc.count(MODELS_BEGIN) != 1 or doc.count(MODELS_END) != 1:
+        return None
+    return doc[: begin + len(MODELS_BEGIN)] + "\n\n" + models_tables(catalog) + "\n\n" + doc[end:]
+
+
 def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
     """Every generated file keyed by repo-relative path, plus the problems that stopped a faithful port."""
     gen = Generator(src)
@@ -802,6 +815,7 @@ def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
     gen.catalogs()
     gen.policies()
     gen.readme()
+    gen.ports_doc()
     return gen.files, list(dict.fromkeys(gen.errors))
 
 
@@ -1350,19 +1364,6 @@ def report(src: Sources) -> str:
     return "\n".join(lines)
 
 
-def models_diff(src: Sources) -> str:
-    """Cells where the pairs derived from shared/models.toml differ from CODEX_PAIRS; `*` marks cells agents use."""
-    derived = derive_pairs(load_catalog(ROOT / "shared" / "models.toml"), "claude", "codex")
-    used = {(fm.get("model"), fm.get("effort")) for fm in (a.fm for a in src.agents.values())}
-    lines = []
-    for cell, today in CODEX_PAIRS.items():
-        new = derived.get(cell)
-        if new != today:
-            mark = " [agent cell]" if cell in used else " [unused]"
-            lines.append(f"{cell[0]}/{cell[1]}: {' '.join(today)} -> {' '.join(new) if new else 'missing'}{mark}")
-    return "\n".join(lines) or "no differences"
-
-
 # --- command line -----------------------------------------------------------------------------
 
 
@@ -1381,11 +1382,6 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print what maps to what and what does not",
     )
-    mode.add_argument(
-        "--models-diff",
-        action="store_true",
-        help="print where the pairs derived from shared/models.toml differ from CODEX_PAIRS",
-    )
     args = parser.parse_args(argv)
 
     src, errors = load_sources()
@@ -1394,9 +1390,6 @@ def main(argv: list[str] | None = None) -> int:
         files, errors = generate(src)
     if not errors and args.report:
         print(report(src))
-        return 0
-    if not errors and args.models_diff:
-        print(models_diff(src))
         return 0
     if not errors and args.check:
         errors = check(src, files)

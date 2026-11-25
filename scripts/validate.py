@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 
 from promptkit import fragments
+from promptkit.models import CATALOG, load_catalog
 
 # Repo root = parent of the scripts/ directory, independent of the current working directory.
 ROOT = Path(__file__).resolve().parent.parent
@@ -59,7 +60,7 @@ QUOTED = re.compile(r'["“][^"“”.!?\n]{1,60}["”]')  # a short quoted user
 # Descriptions are injected into the system prompt, so first/second person breaks discovery.
 # "I" is matched in capitals only and skips "I/O"; the other pronouns match in any case.
 PERSON = re.compile(r"(?-i:\bI\b(?!/))|\b(?:we|you|your|our)\b", re.IGNORECASE)
-AGENT_MODELS = frozenset({"haiku", "sonnet", "opus", "fable", "inherit"})
+AGENT_MODELS = frozenset(m.key for m in load_catalog(CATALOG).models("claude")) | {"inherit"}
 AGENT_EFFORTS = frozenset({"low", "medium", "high"})
 FULL_MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.-]*$")
 REFERENCE_TOC_THRESHOLD = 100
