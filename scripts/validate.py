@@ -34,6 +34,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from promptkit import fragments
+
 # Repo root = parent of the scripts/ directory, independent of the current working directory.
 ROOT = Path(__file__).resolve().parent.parent
 # The agent-skills plugin lives in its own folder so the marketplace can list mods beside it (ADR 0011).
@@ -478,6 +480,11 @@ def check_offload_policy(errors: list[str]) -> None:
             )
 
 
+def check_fragments(errors: list[str]) -> None:
+    """Marked blocks equal their shared/fragments/<id>.md; shared text is not copied outside a block."""
+    errors.extend(fragments.check(ROOT))
+
+
 def check_ports(errors: list[str]) -> None:
     """ADR 0015: the Copilot and Codex ports are current and equivalent to the Claude sources (scripts/port.py --check)."""
     run = subprocess.run(
@@ -686,6 +693,7 @@ def main() -> int:
     check_offload_policy(errors)
     check_readme_catalog(errors)
     check_public_paths(errors)
+    check_fragments(errors)
     check_versions(errors, release)
     check_ports(errors)
     for err in errors:
