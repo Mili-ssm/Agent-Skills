@@ -15,26 +15,21 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g, 4b, 4d; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 
-Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011).
+Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029).
 
 ## Next, in order
 
-1. Owner decisions: G12 (ADR 0025 rule 1 is past its revert threshold), G9, review decisions 4–6.
-2. Quick fixes: D1, P1 (measured), A7, A9, tool-fold's dead `summarize` export.
-3. Commit gate: Q1, then Q3.
-4. Memory refactor tasks 1–2 (A1–A3).
-5. Memory kill read, around 2026-12-01.
+1. Owner decisions: G12 (ADR 0025 rule 1 is past its revert threshold), G9, review decisions 5–6.
+2. Quick fixes: D1, P1 (measured), A7, tool-fold's dead `summarize` export.
+3. Memory refactor tasks 1–2 (A1–A3).
+4. Memory kill read, around 2026-12-01.
+
+Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
 
 ## General (repository)
 
 | Pri | ID | Task | Effort | State |
 |---|---|---|---|---|
-| high | Q1 | Tests for `scripts/validate.py`: one negative case per rule | M | Ruled by the owner; not started |
-| medium | Q3 | Opt-in local `pre-push` hook, no CI | S | Ruled by the owner |
-| medium | A9 | `validate.py` checks only `agent-skills`; extend to every `plugins/*` | S | Owner decision 4 open |
-| medium | Q2 | Table-driven tests for `port.py` transforms | M | Open |
-| low | A10 | One agent-rule table instead of two (`port.py`, `validate.py`) | S | Open |
-| low | B9–B12 | Drift check for the shared agent lines in `validate.py` | S | Open |
 | high | D1 | Applied with the review, then drifted: memory plan § Current state names release 0.11.0 and no unreleased work, while 0.12.0 is out and #185 is unreleased | S | Review decision 5 open: drop the version or guard it |
 | high | D2 | Memory seamless plan: move finished stages to a results section | S | Open |
 | low | D7 | Finished plans still without a `Status` line | S | Partly done |

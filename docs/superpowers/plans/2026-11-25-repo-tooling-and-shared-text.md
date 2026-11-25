@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `feat/repo-tooling`, created from `docs/backlog` after this plan and `docs/backlog.md` are committed there (so both exist on the branch; no merge into `dev` is needed first)
+Status: done on the branch, pending the final review and the pull request · Date: 2026-11-25 · Branch: `feat/repo-tooling`, created from `docs/backlog` after this plan and `docs/backlog.md` are committed there (so both exist on the branch; no merge into `dev` is needed first)
 
 **Goal:** Test and enforce the commit gate (review Q1, Q2, Q3), apply its rules to every plugin from one rule table (A9, A10), give repeated prompt text one source (B9–B12), and derive the Codex model mapping from a vendor model catalog.
 
@@ -231,7 +231,7 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 **Interfaces:**
 - Hook runs, in order: `python3 scripts/validate.py`; `uv run --with pytest pytest scripts/tests -q` if `uv` is on `PATH`; `claude plugin validate .` if `claude` is on `PATH`. A missing tool prints `pre-push: skipped <check> (<tool> not found)`; any failing check exits non-zero. Opt-in: `git config core.hooksPath scripts/hooks`.
 
-- [ ] **Step 1:** Tests (`subprocess` with a fake `PATH`): `test_hook_fails_on_validate_error`, `test_hook_skips_missing_tools`.
-- [ ] **Step 2:** Implement the hook and the docs; ADR 0029 records: marked blocks over templates (why, including the owner's install-time rendering alternative: no tool runs a plugin step at install, a `SessionStart` render applies only from the next session and writes into a cache that updates replace; revisit if a tool adds an install hook or variable substitution in agent and skill bodies), the catalog's level and cost semantics, the effort policy, the quoted-text person rule, Task 6b's measurements and kill criteria, ADR 0015 amended; update ADR 0015's Status line with `Amended by 0029`.
-- [ ] **Step 3:** Run the hook once by hand: `sh scripts/hooks/pre-push`; paste its last lines.
-- [ ] **Step 4:** Commit `feat(scripts): opt-in pre-push hook; docs for promptkit and the model catalog`.
+- [x] **Step 1:** Tests (`subprocess` with a fake `PATH`): `test_hook_fails_on_validate_error`, `test_hook_skips_missing_tools`.
+- [x] **Step 2:** Implement the hook and the docs; ADR 0029 records: marked blocks over templates (why, including the owner's install-time rendering alternative: no tool runs a plugin step at install, a `SessionStart` render applies only from the next session and writes into a cache that updates replace; revisit if a tool adds an install hook or variable substitution in agent and skill bodies), the catalog's level and cost semantics, the effort policy, the quoted-text person rule, Task 6b's measurements and kill criteria, ADR 0015 amended; update ADR 0015's Status line with `Amended by 0029`.
+- [x] **Step 3:** Run the hook once by hand: `sh scripts/hooks/pre-push`; paste its last lines.
+- [x] **Step 4:** Commit `feat(scripts): opt-in pre-push hook; docs for promptkit and the model catalog`.
