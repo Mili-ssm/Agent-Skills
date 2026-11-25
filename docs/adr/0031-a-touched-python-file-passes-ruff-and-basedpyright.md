@@ -1,6 +1,6 @@
 # 0031 A touched Python file passes Ruff and basedpyright
 
-Status: accepted · Date: 2026-11-25 · Amended by its Reviews: pre-commit is the gate (last Review)
+Status: accepted · Date: 2026-11-25
 
 ## Context
 
@@ -31,7 +31,7 @@ The owner chose "a touched file is fully clean, every rule" after seeing that to
 
 - The first edit of a large file costs a full cleanup of that file (format, lint, types); plan it into the task that touches it.
 - `ruff format` rewrites a file the first time it is touched, so that diff mixes formatting with the change; a separate formatting commit keeps review readable.
-- The gate is local (N5): a commit made with `--no-verify`, or in a clone without pre-commit installed, skips it until the push hook or `pre-commit run --from-ref origin/dev --to-ref HEAD`.
+- The gate is local (N5): a commit made with `--no-verify`, or in a clone without pre-commit installed, skips it until a push from a clone with pre-commit installed, or `pre-commit run --from-ref origin/dev --to-ref HEAD` (the `core.hooksPath` fallback runs no Ruff or basedpyright).
 
 ## Revisit if
 
