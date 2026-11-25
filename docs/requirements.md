@@ -42,7 +42,7 @@ Kind: functional (states a goal) or technical (a chosen means); hard or soft as 
 | ID | Requirement | Serves | Kind | Reopen when |
 |---|---|---|---|---|
 | N1 | `SKILL.md` ≤ 150 lines, agent ≤ 120 lines; detail in `references/` one level deep, `## Contents` above 100 lines. | G1 | technical, soft | A measured case shows a longer file is followed as well |
-| N2 | Descriptions: third person, what it does, then "Use when…" with the user's likely terms, ≤ 1024 chars. | G8 | technical, soft | Trigger evals regress after a model change (ADR 0007) |
+| N2 | Descriptions: third person, what it does, then "Use when…" with the user's likely terms, ≤ 1024 chars; quoted user phrases (a short phrase in double quotes) are not the description speaking. | G8 | technical, soft | Trigger evals regress after a model change (ADR 0007) |
 | N3 | Ratings use levels with written criteria, never invented percentages. | G5 | technical, soft | Calibrated data exists (ADR 0004) |
 | N4 | Findings carry evidence (`file:line`, command output, screenshot). | G2, G5 | functional, hard | — |
 | N5 | `scripts/validate.py` passes before every commit (not yet enforced by CI or hook). | G8 | technical, soft | The plugins have a reasonable number of users (owner, 2026-11-19: CI waits until then; GitHub Actions on standard runners costs no minutes in a public repository) |

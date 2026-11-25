@@ -14,6 +14,7 @@ PLUGIN = "plugins/agent-skills"
 SKILL_MD = f"{PLUGIN}/skills/{SKILL}/SKILL.md"
 AGENT_MD = f"{PLUGIN}/agents/{EXTRA_AGENT}.md"
 WORKER_MD = f"{PLUGIN}/agents/fixer.md"
+GRADERS = f"{PLUGIN}/evals"
 
 
 def edit(root: Path, rel: str, old: str, new: str) -> None:
@@ -61,6 +62,54 @@ def test_unquoted_we_fails(mini_repo):
     assert run_checks(mini_repo) == [f"{SKILL_MD}: description must be third person (found 'we')"]
 
 
+def test_quoted_phrase_only_is_stripped(mini_repo):
+    for desc in (
+        '"Explains what we do. Use when asked."',  # whole description quoted
+        'Explains "x. Explains what we do. Use when "a" asked.',  # unbalanced quotes
+        'Explains "' + "we " * 30 + '". Use when asked.',  # phrase over 60 characters
+    ):
+        edit(mini_repo, SKILL_MD, "Explains the demo. Use when a demo is needed.", desc)
+        errors = run_checks(mini_repo)
+        assert f"{SKILL_MD}: description must be third person (found 'we')" in errors, desc
+        edit(mini_repo, SKILL_MD, desc, "Explains the demo. Use when a demo is needed.")
+
+
+def test_curly_quoted_we_passes(mini_repo):
+    edit(mini_repo, SKILL_MD, "Explains the demo.", "Explains “what we do”.")
+    assert run_checks(mini_repo) == []
+
+
+def test_description_over_max_length(mini_repo):
+    edit(mini_repo, SKILL_MD, "Explains the demo.", "Explains the demo" + " a" * 600 + ".")
+    desc = (mini_repo / SKILL_MD).read_text().splitlines()[2].removeprefix("description: ")
+    assert run_checks(mini_repo) == [f"{SKILL_MD}: description {len(desc)} chars > 1024"]
+
+
+def test_description_starts_with_trigger(mini_repo):
+    edit(mini_repo, SKILL_MD, "Explains the demo. Use when", "Use when")
+    assert run_checks(mini_repo) == [f"{SKILL_MD}: description must say what it does before 'Use when…'"]
+
+
+def test_skill_says_use_proactively(mini_repo):
+    edit(mini_repo, SKILL_MD, "Use when a demo", "Use proactively when a demo")
+    assert run_checks(mini_repo) == [f"{SKILL_MD}: only offload workers may say 'Use proactively' (ADR 0010)"]
+
+
+def test_skill_name_format(mini_repo):
+    (mini_repo / PLUGIN / "skills" / SKILL).rename(mini_repo / PLUGIN / "skills" / "Bad_Name")
+    edit(mini_repo, f"{PLUGIN}/skills/Bad_Name/SKILL.md", f"name: {SKILL}", "name: Bad_Name")
+    edit(mini_repo, "README.md", f"| `{SKILL}` |", "| `Bad_Name` |")
+    bad = f"{PLUGIN}/skills/Bad_Name/SKILL.md"
+    silent = f"{GRADERS}/no-trigger/neg-demo/graders/silent.md"
+    fired = f"{GRADERS}/trigger/{SKILL}/graders/fired.md"
+    assert run_checks(mini_repo) == [
+        f"{bad}: name must be <= 64 chars of lowercase letters, digits, hyphens",
+        f"{silent}: pattern names unknown skill '{SKILL}'",  # the graders still name the renamed skill
+        f"{silent}: no-trigger pattern misses skill(s) Bad_Name",
+        f"{fired}: pattern names unknown skill '{SKILL}'",
+    ]
+
+
 def test_skill_over_line_budget(mini_repo):
     edit(mini_repo, SKILL_MD, "Body.\n", "Body.\n" + "line\n" * 150)
     lines = len((mini_repo / SKILL_MD).read_text().splitlines())
@@ -68,7 +117,7 @@ def test_skill_over_line_budget(mini_repo):
 
 
 def test_reference_nested_folder(mini_repo):
-    (mini_repo / PLUGIN / "skills" / SKILL / "references" / "deep").mkdir(parents=True)
+    put(mini_repo, f"{PLUGIN}/skills/{SKILL}/references/deep/inner.md", "Inner.\n")
     assert run_checks(mini_repo) == [f"{PLUGIN}/skills/{SKILL}/references/deep: nested folder in references/ (keep it one level deep)"]
 
 
@@ -120,6 +169,11 @@ def test_agent_full_model_id_passes(mini_repo):
 def test_agent_missing_effort(mini_repo):
     edit(mini_repo, AGENT_MD, "effort: low\n", "")
     assert run_checks(mini_repo) == [f"{AGENT_MD}: missing 'effort'"]
+
+
+def test_agent_name_differs_from_file(mini_repo):
+    edit(mini_repo, AGENT_MD, f"name: {EXTRA_AGENT}", "name: other")
+    assert run_checks(mini_repo) == [f"{AGENT_MD}: frontmatter name must be '{EXTRA_AGENT}'"]
 
 
 def test_worker_without_max_turns(mini_repo):
@@ -183,8 +237,12 @@ def test_agent_over_line_budget(mini_repo):
 
 def test_worker_agent_file_missing(mini_repo):
     (mini_repo / WORKER_MD).unlink()
-    errors = run_checks(mini_repo)
-    assert f"{WORKER_MD}: worker 'fixer' has no agent file" in errors
+    assert run_checks(mini_repo) == [
+        f"{WORKER_MD}: worker 'fixer' has no agent file",
+        f"{PLUGIN}/commands/offload.md: references unknown agent/skill 'fixer'",
+        f"{GRADERS}/no-trigger/neg-demo/graders/silent.md: pattern names unknown agent 'fixer'",
+        "README.md: Agents table has extra row 'fixer' (no such item in the plugin)",
+    ]
 
 
 # --- commands -------------------------------------------------------------------------------------------------
@@ -194,6 +252,24 @@ def test_command_without_arguments(mini_repo):
     cmd = f"{PLUGIN}/commands/{EXTRA_AGENT}.md"
     edit(mini_repo, cmd, " $ARGUMENTS", "")
     assert run_checks(mini_repo) == [f"{cmd}: body must use $ARGUMENTS"]
+
+
+def test_command_without_description(mini_repo):
+    cmd = f"{PLUGIN}/commands/{EXTRA_AGENT}.md"
+    edit(mini_repo, cmd, "description: A command.\n", "")
+    assert run_checks(mini_repo) == [f"{cmd}: missing 'description'"]
+
+
+def test_command_without_argument_hint(mini_repo):
+    cmd = f"{PLUGIN}/commands/{EXTRA_AGENT}.md"
+    edit(mini_repo, cmd, 'argument-hint: "[task]"\n', "")
+    assert run_checks(mini_repo) == [f"{cmd}: missing 'argument-hint'"]
+
+
+def test_command_model_invocable(mini_repo):
+    cmd = f"{PLUGIN}/commands/{EXTRA_AGENT}.md"
+    edit(mini_repo, cmd, "disable-model-invocation: true", "disable-model-invocation: false")
+    assert run_checks(mini_repo) == [f"{cmd}: commands must set disable-model-invocation: true (user-only)"]
 
 
 def test_non_worker_agent_without_command(mini_repo):
@@ -217,12 +293,8 @@ def test_offload_command_misses_worker_row(mini_repo):
 # --- eval graders and offload policy --------------------------------------------------------------------------
 
 
-GRADERS = f"{PLUGIN}/evals"
-
-
 def test_trigger_grader_names_unknown_agent(mini_repo):
     grader = f"{GRADERS}/trigger/{SKILL}/graders/fired.md"
-    edit(mini_repo, grader, f"(agent-skills:)?{SKILL}", "(agent-skills:)?ghost")
     # a trigger grader through subagent_type: same function, agent group
     put(mini_repo, grader, "---\ntype: regex\npattern: 'subagent_type\\W{1,8}(agent-skills:)?ghost\\b'\n---\n")
     assert run_checks(mini_repo) == [f"{grader}: pattern names unknown agent 'ghost'"]
@@ -266,8 +338,10 @@ def test_policy_embed_missing_block(mini_repo):
 
 def test_policy_file_missing(mini_repo):
     (mini_repo / "user-config" / "offload-policy.md").unlink()
-    errors = run_checks(mini_repo)
-    assert "user-config/offload-policy.md: missing (offload with-policy evals embed it)" in errors
+    assert run_checks(mini_repo) == [
+        "user-config/offload-policy.md: missing (offload with-policy evals embed it)",
+        "user-config/offload-policy.md: public path is missing (ADR 0026)",
+    ]
 
 
 # --- README catalog -------------------------------------------------------------------------------------------

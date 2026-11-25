@@ -53,7 +53,7 @@ PROACTIVE = re.compile(r"\buse proactively\b", re.IGNORECASE)
 # Skill/agent name format and description limits from Anthropic's skill-authoring guide.
 NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 DESCRIPTION_MAX = 1024
-QUOTED = re.compile(r'"[^"\n]*"')
+QUOTED = re.compile(r'["“][^"“”.!?\n]{1,60}["”]')  # a short quoted user phrase
 # Descriptions are injected into the system prompt, so first/second person breaks discovery.
 # "I" is matched in capitals only and skips "I/O"; the other pronouns match in any case.
 PERSON = re.compile(r"(?-i:\bI\b(?!/))|\b(?:we|you|your|our)\b", re.IGNORECASE)
