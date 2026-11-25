@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -183,7 +184,26 @@ def test_worker_without_max_turns(mini_repo):
 
 def test_worker_with_zero_max_turns(mini_repo):
     edit(mini_repo, WORKER_MD, "maxTurns: 10", "maxTurns: 0")
-    assert run_checks(mini_repo) == [f"{WORKER_MD}: worker must set 'maxTurns' to a positive integer"]
+    assert run_checks(mini_repo) == [f"{WORKER_MD}: 'maxTurns' must be a positive integer (got '0')"]
+
+
+def test_agent_effort_outside_allowed_set(mini_repo):
+    edit(mini_repo, AGENT_MD, "effort: low", "effort: xhigh")
+    assert run_checks(mini_repo) == [f"{AGENT_MD}: 'effort' must be high | low | medium (got 'xhigh')"]
+
+
+def test_agent_omit_claude_md_not_boolean(mini_repo):
+    edit(mini_repo, AGENT_MD, "effort: low", "effort: low\nomitClaudeMd: maybe")
+    assert run_checks(mini_repo) == [f"{AGENT_MD}: 'omitClaudeMd' must be true or false"]
+
+
+def test_check_ports_does_not_repeat_an_error_already_found(mini_repo, monkeypatch):
+    line = f"{AGENT_MD}: 'effort' must be high | low | medium (got 'xhigh')"
+    fake = subprocess.CompletedProcess([], 1, stdout=f"{line}\nother\n", stderr="")
+    monkeypatch.setattr(validate.subprocess, "run", lambda *a, **k: fake)
+    errors = [line]
+    validate.check_ports(errors)
+    assert errors == [line, "other"]
 
 
 def test_non_worker_says_use_proactively(mini_repo):

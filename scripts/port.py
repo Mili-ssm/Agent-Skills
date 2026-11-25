@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tomllib
-from validate import FrontmatterError, as_list, is_true, parse_frontmatter
+from validate import FrontmatterError, as_list, check_agent_rules, is_true, parse_frontmatter
 
 # Repo root = parent of scripts/, independent of the current working directory.
 ROOT = Path(__file__).resolve().parent.parent
@@ -126,8 +126,6 @@ AGENT_FIELDS = {
     "skills",
 }
 COMMAND_FIELDS = {"description", "argument-hint", "disable-model-invocation"}
-# Copilot takes the same effort names as Claude, so the value is copied.
-EFFORTS = {"low", "medium", "high"}
 # Codex rejects unknown keys in a role file, so only these may be emitted (features: shell_tool only).
 CODEX_ROLE_KEYS = {
     "name",
@@ -342,12 +340,9 @@ def copilot_tools(fm: dict) -> list[str]:
 def check_agent(doc: Doc, skills: dict[str, Doc], errors: list[str]) -> None:
     """Report agent values the tool mappings do not cover, instead of porting a guess."""
     fm, rel = doc.fm, doc.path.relative_to(ROOT)
+    check_agent_rules(rel, fm, set(skills), errors)
     if fm.get("model") not in MODEL_MAP["copilot"]:
         errors.append(f"{rel}: model {fm.get('model')!r} is not in MODEL_MAP")
-    if fm.get("effort") not in EFFORTS:
-        errors.append(
-            f"{rel}: effort {fm.get('effort')!r} is not one of {sorted(EFFORTS)}"
-        )
     if (fm.get("model"), fm.get("effort")) not in CODEX_PAIRS:
         errors.append(
             f"{rel}: (model, effort) {(fm.get('model'), fm.get('effort'))!r} is not in CODEX_PAIRS"
@@ -357,14 +352,6 @@ def check_agent(doc: Doc, skills: dict[str, Doc], errors: list[str]) -> None:
             errors.append(
                 f"{rel}: tool '{tool}' is not in TOOL_MAP and TOOL_CAPABILITY"
             )
-    for skill in as_list(fm.get("skills")):
-        if skill not in skills:
-            errors.append(f"{rel}: preloads unknown skill '{skill}'")
-    turns = str(fm.get("maxTurns", "1"))
-    if not (turns.isdigit() and int(turns) > 0):
-        errors.append(f"{rel}: maxTurns must be a positive integer")
-    if fm.get("omitClaudeMd") not in (None, "true", "false"):
-        errors.append(f"{rel}: omitClaudeMd must be true or false")
     if not copilot_tools(fm):
         errors.append(f"{rel}: no tool maps to a Copilot tool")
     # Edit and Write share one Copilot alias: a blocked tool whose alias another tool keeps cannot be enforced.

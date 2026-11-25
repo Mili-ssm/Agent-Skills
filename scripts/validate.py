@@ -57,7 +57,8 @@ QUOTED = re.compile(r'["“][^"“”.!?\n]{1,60}["”]')  # a short quoted user
 # Descriptions are injected into the system prompt, so first/second person breaks discovery.
 # "I" is matched in capitals only and skips "I/O"; the other pronouns match in any case.
 PERSON = re.compile(r"(?-i:\bI\b(?!/))|\b(?:we|you|your|our)\b", re.IGNORECASE)
-MODEL_ALIASES = {"haiku", "sonnet", "opus", "fable", "inherit"}
+AGENT_MODELS = frozenset({"haiku", "sonnet", "opus", "fable", "inherit"})
+AGENT_EFFORTS = frozenset({"low", "medium", "high"})
 FULL_MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.-]*$")
 REFERENCE_TOC_THRESHOLD = 100
 CONTENTS_WITHIN_LINES = 15  # "near the top"
@@ -259,24 +260,30 @@ def check_skills(errors: list[str]) -> set[str]:
     return names
 
 
-def check_effort(rel: Path, fm: Frontmatter, errors: list[str]) -> None:
-    """ADR 0010: every agent declares its effort."""
-    if not fm.get("effort"):
-        errors.append(f"{rel}: missing 'effort'")
-
-
-def check_model(rel: Path, fm: Frontmatter, errors: list[str]) -> None:
-    """ADR 0010: the model is explicit (cost is a design decision): an alias or a full claude- id."""
+def check_agent_rules(rel: Path, fm: Frontmatter, skill_names: set[str], errors: list[str]) -> None:
+    """ADR 0010: the agent-frontmatter rules shared with scripts/port.py: model, effort, maxTurns, omitClaudeMd, preloads."""
     model = fm.get("model")
-    if not isinstance(model, str) or not (model in MODEL_ALIASES or FULL_MODEL_ID.match(model)):
-        allowed = " | ".join(sorted(MODEL_ALIASES))
+    if not isinstance(model, str) or not (model in AGENT_MODELS or FULL_MODEL_ID.match(model)):
+        allowed = " | ".join(sorted(AGENT_MODELS))
         errors.append(f"{rel}: 'model' must be {allowed} or a full claude- id (got {model!r})")
+    effort = fm.get("effort")
+    if not effort:
+        errors.append(f"{rel}: missing 'effort'")
+    elif effort not in AGENT_EFFORTS:
+        errors.append(f"{rel}: 'effort' must be {' | '.join(sorted(AGENT_EFFORTS))} (got {effort!r})")
+    turns = fm.get("maxTurns")
+    if turns is not None and not (isinstance(turns, str) and turns.isdigit() and int(turns) > 0):
+        errors.append(f"{rel}: 'maxTurns' must be a positive integer (got {turns!r})")
+    if fm.get("omitClaudeMd") not in (None, "true", "false"):
+        errors.append(f"{rel}: 'omitClaudeMd' must be true or false")
+    for skill in as_list(fm.get("skills")):
+        if skill not in skill_names:
+            errors.append(f"{rel}: preloads unknown skill '{skill}'")
 
 
 def check_max_turns(rel: Path, name: str, fm: Frontmatter, errors: list[str]) -> None:
     """ADR 0010: workers cap their turns, so a stuck cheap worker cannot burn tokens unseen."""
-    turns = fm.get("maxTurns")
-    if name in WORKERS and not (isinstance(turns, str) and turns.isdigit() and int(turns) > 0):
+    if name in WORKERS and fm.get("maxTurns") is None:
         errors.append(f"{rel}: worker must set 'maxTurns' to a positive integer")
 
 
@@ -316,13 +323,9 @@ def check_agents(errors: list[str], skill_names: set[str]) -> set[str]:
                 errors.append(f"{rel}: missing 'tools'")
             check_description(rel, fm.get("description"), errors)
             check_proactive(rel, fm.get("description"), name in WORKERS, errors)
-            check_effort(rel, fm, errors)
-            check_model(rel, fm, errors)
+            check_agent_rules(rel, fm, skill_names, errors)
             check_max_turns(rel, name, fm, errors)
             check_read_only(rel, fm, errors)
-            for skill in as_list(fm.get("skills")):
-                if skill not in skill_names:
-                    errors.append(f"{rel}: preloads unknown skill '{skill}'")
         check_line_budget(rel, text, AGENT_MAX_LINES, errors)
     check_workers_exist(names, errors)
     return names
@@ -472,7 +475,7 @@ def check_ports(errors: list[str]) -> None:
     )
     if run.returncode != 0:
         lines = run.stdout.splitlines() or run.stderr.strip().splitlines()[-1:]
-        errors.extend(line for line in lines if line.strip())
+        errors.extend(line for line in lines if line.strip() and line not in errors)
 
 
 def readme_table(text: str, heading: str, first_header: str) -> list[dict[str, str]] | None:
