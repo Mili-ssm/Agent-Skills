@@ -464,6 +464,18 @@ def check_offload_policy(errors: list[str]) -> None:
             )
 
 
+def check_memory_offload(errors: list[str]) -> None:
+    """ADR 0030: the memory plugin's offload table, which the owner pastes into CLAUDE.md, has a row for every agent."""
+    table = ROOT / "plugins" / "memory" / "user-config" / "offload-policy.md"
+    text = table.read_text(encoding="utf-8") if table.is_file() else ""
+    rows = {m for line in text.splitlines() if line.startswith("|") for m in re.findall(r"`memory:([\w-]+)`", line)}
+    agents = {p.stem for p in (ROOT / "plugins" / "memory" / "agents").glob("*.md")}
+    for name in sorted(agents - rows):
+        errors.append(f"{table.relative_to(ROOT)}: no row for `memory:{name}` (ADR 0030)")
+    for name in sorted(rows - agents):
+        errors.append(f"{table.relative_to(ROOT)}: row for `memory:{name}`, which is not an agent (ADR 0030)")
+
+
 def check_ports(errors: list[str]) -> None:
     """ADR 0015: the Copilot and Codex ports are current and equivalent to the Claude sources (scripts/port.py --check)."""
     run = subprocess.run(
@@ -661,6 +673,7 @@ def main() -> int:
     check_commands(errors, skills, agents)
     check_eval_graders(errors, skills, agents)
     check_offload_policy(errors)
+    check_memory_offload(errors)
     check_readme_catalog(errors)
     check_public_paths(errors)
     check_versions(errors, release)
