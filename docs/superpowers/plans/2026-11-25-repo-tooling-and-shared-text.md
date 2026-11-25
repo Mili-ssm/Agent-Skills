@@ -21,6 +21,7 @@ Status: done on the branch, pending the final review and the pull request · Dat
 | Effort: never `max`; `xhigh` at most, preferably avoided: the next model at `low` beats the previous model at `xhigh` | Derivation policy: target effort `max` is never chosen; `xhigh` only on a vendor's top model |
 | Costs compared only within a vendor (memory, 2026-11-19) | `cost` is relative inside each vendor (cheapest = 1); no cross-vendor cost column |
 | Q3: opt-in local `pre-push` hook, no CI (review decision 2, 2026-11-24) | `git config core.hooksPath scripts/hooks` is the opt-in |
+| Main session, Task 7: astra level 4.25 (4.0 broke the spacing rule) and fable 4.25, from the owner's 2026-11-19 ruling "Fable maps 1:1 by effort to astra" | Owner accepted the resulting table at Task 8 |
 | Main session, 2026-11-25, after the pre-mortem: the description person rule ignores text inside double quotes | Quoted user phrases ("what do we know about X") are trigger terms, not the description speaking; owner informed, not asked (routine) |
 
 ## Pre-mortem findings that shaped this plan (2026-11-25, verified)
