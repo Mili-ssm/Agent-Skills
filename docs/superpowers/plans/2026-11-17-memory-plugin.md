@@ -11,7 +11,7 @@ Read this section first; the stage list below is the detail. Release-by-release 
 | Fact | State |
 | --- | --- |
 | Released | `memory` 0.13.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
-| Unreleased work | None since 0.13.0; new work goes under `## [Unreleased]` in [the changelog](../../../plugins/memory/CHANGELOG.md) |
+| Unreleased work | See `## [Unreleased]` in [the changelog](../../../plugins/memory/CHANGELOG.md) |
 | Installed | `memory@mili-ssm` at user scope, following `main`; options in use: unverified (read the owner's settings, not this file) |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 2,214 passed, 5 skipped on `dev` (2026-11-24) |
 | Project syntheses (stage 10) | `engine/project_syntheses.py` ships in the engine (`git log --oneline -- plugins/memory/engine/project_syntheses.py`); stage 10 stays open below: trial showed no effect on staleness |
