@@ -1,6 +1,6 @@
 # Memory capture, stage B4: loaded rules and reminders
 
-**Status (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. What remains of B4 is the loaded rules (C46 to C49); no plan yet.**
+**Status (2026-11-22): designed and ruled on by the owner (decisions C40 to C51 of the spec). Reminders were built on the branch `idea/memory-reminders` and parked there by the owner (C51): not integrated. Loaded rules (C46 to C49) shipped in 0.5.0 ([plan](2026-11-22-memory-loaded-rules.md)); what remains of B4 is the later plans below (C49, C52).**
 
 **Spec:** [the capture design](../specs/2026-11-21-memory-capture-design.md), phase B4; decisions C13, C15, C18, C19, C20, C38. Earlier stage: [B3, plan and results](2026-11-22-memory-capture-corroboration.md). Evidence: the learning loop study (`.local/studies/2026-11-21-memory-learning-loop.md`, local, not published) (E4: context files raised cost with no gain in success) and ADR 0023, "Stage B3".
 
@@ -88,5 +88,5 @@ Limits: three runs a condition, one task, one model; every rule bore on the task
 - [x] Settle Q1 to Q7 with the owner; decisions C40 to C50 in the design
 - [x] Reminders: planned, built and parked on the branch `idea/memory-reminders` (C51)
 - [x] Loaded rules, first release: task plan and pre-mortem
-- [ ] Loaded rules, first release: execution, gate with the owner, release
+- [x] Loaded rules, first release: execution, gate with the owner, release (0.5.0, tag `memory-v0.5.0`; automatic fill 0.6.0, grouped layout 0.8.0)
 - [ ] Later plans: the automatic path (C52), usefulness (C49)
