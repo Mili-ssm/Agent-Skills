@@ -1,0 +1,63 @@
+# Lint and format rules for every Python file in the repo (ADR 0031). pre-commit checks the touched files
+# (.pre-commit-config.yaml). Rules follow the owner's usual set, plus B and SIM.
+fix = true
+indent-width = 4
+line-length = 100
+preview = true
+show-fixes = true
+target-version = "py312"
+extend-exclude = ["./ports", "./target"] # root only: a nested dir of that name is still checked
+
+[format]
+docstring-code-format = true
+
+[lint]
+extend-select = [
+    "A",     # shadowing builtins
+    "ASYNC", # async pitfalls
+    "B",     # likely bugs (bugbear)
+    "C4",    # comprehensions
+    "C90",   # cyclomatic complexity
+    "D201",  # no blank line before a function docstring
+    "D202",  # no blank line after a function docstring
+    "D204",  # one blank line after a class docstring
+    "I",     # import order
+    "ISC",   # implicit string concatenation
+    "LOG",   # logging
+    "N",     # naming
+    "PERF",  # performance
+    "PIE",   # unnecessary constructs
+    "PL",    # pylint
+    "PYI",   # stub files
+    "RET",   # returns
+    "RUF",   # ruff's own rules
+    "SIM",   # simplifications
+    "TC",    # imports only used for typing
+    "TID",   # tidy imports
+    "UP",    # pyupgrade
+]
+ignore = [
+    "D102",   # missing docstring in a public method
+    "ISC001", # conflicts with the formatter
+    "ISC002", # conflicts with the formatter
+    "RUF029", # async function without await
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["F811"] # pytest fixtures imported and then named as parameters
+
+[lint.flake8-type-checking]
+strict = true
+
+[lint.flake8-unused-arguments]
+ignore-variadic-names = true
+
+[lint.mccabe]
+max-complexity = 6
+
+[lint.pydocstyle]
+convention = "google"
+ignore-decorators = ["typing.overload"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "all"
