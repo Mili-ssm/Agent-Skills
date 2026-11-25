@@ -16,6 +16,6 @@ Baseline (2026-11-25, 20 cores): memory engine suite 2,272 passed, 5 skipped in 
   - [x] 2b (5.3→0.8 s; `mem-capture` refactored for lint, review pending) `mem-capture` polls its lock every 5 s (hard-coded): make the poll configurable, shorten `test_capture_auto::test_waits_for_the_lock_then_continues` (5.3 s); cleans `bin/mem-capture` and `test_capture_auto.py`
   - Kept as is: `test_digest` 4.4 s is CPU work (301 `mem.main` calls), `test_settle_run`/`test_auto_curation` 2 s are negative windows longer than the measured 0.8–1.2 s hook latency
 - [ ] 3 Spawn cost (measured by `performance-analyst`, 2026-11-25): tests set `HOME`, so every `bin/mem` launch runs `uv` with an empty cache (0.45 s vs 0.1 s, and needs network)
-  - [ ] 3a `UV_CACHE_DIR` shared in the autouse `isolated_env` (conftest.py); check: serial corroborate 93→~54 s, full suite twice
+  - [x] 3a (suite 30–32 s parallel, twice) `UV_CACHE_DIR` shared in the autouse `isolated_env` (conftest.py); check: serial corroborate 93→~54 s, full suite twice
   - [ ] 3b Optional, owner to choose: `CSafeLoader` in `records.py`/`notes.py` (9× faster frontmatter parse; `test_digest` long pole ~6→~2–3 s; cleans `records.py`, 40 findings); shorter negative waits in `test_settle_run`/`test_auto_curation` need a real "nothing started" signal
 - [ ] 4 Review, PR to `dev`

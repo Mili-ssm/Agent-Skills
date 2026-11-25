@@ -6,7 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
-- Contributors: the engine test suite runs in parallel (`pytest-xdist`, `-n auto`, about 45 s instead of about 5 min on 20 cores); the README command is updated. No change for users.
+- Contributors: the engine test suite runs in parallel (`pytest-xdist`, `-n auto`, and a shared uv cache: about 30 s instead of about 5 min on 20 cores, no network needed); the README command is updated. No change for users.
 
 ## [0.14.0] - 2026-11-25
 
