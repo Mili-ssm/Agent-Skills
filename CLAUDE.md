@@ -9,7 +9,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 | Before every commit (no CI enforces it, N5; the opt-in hook below runs it before a push) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
 | Before a commit that touches a `.py` file | `python3 scripts/lint_touched.py` (`--fix` formats and applies safe fixes first): every touched Python file must pass Ruff and basedpyright with no finding (ADR 0031) |
 | Script tests (`scripts/tests/`) | `uv run --with pytest pytest scripts/tests -q` |
-| Opt-in pre-push hook (validate, tests, touched-file lint, `claude plugin validate`; skips missing tools) | `git config core.hooksPath scripts/hooks` |
+| Git hooks, once per clone: commit runs `lint_touched.py --fix`, push runs `scripts/hooks/pre-push` (validate, tests, touched-file lint, `claude plugin validate`; skips missing tools) | `uv tool install pre-commit && pre-commit install` (`.pre-commit-config.yaml`); without pre-commit, push checks only: `git config core.hooksPath scripts/hooks` |
 | Opening a pull request | `gh pr create --base dev` (GitHub's default branch is `main`, which only releases may reach); a release: `gh pr create --base main --head dev` |
 | Before a release pull request (`dev` → `main`) | `python3 scripts/validate.py --release` (a changed plugin without a bump, or a tag that disagrees with its `plugin.json`, fails); fix before opening the pull request |
 | After changing agents, skills, commands, `user-config/offload-policy.md` or `user-config/routing.md` | `python3 scripts/port.py` (`--report` prints the mapping) |

@@ -437,7 +437,7 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 |---|---|
 | Branch | Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases. An install that follows `dev` (`Mili-ssm/Agent-Skills#dev`; cloud: `AGENT_SKILLS_REF=dev`) still updates only when a version changes; to try unreleased work use `claude --plugin-dir plugins/<name>` |
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
-| Opt-in `pre-push` hook (validate, test suite, touched-file lint, `claude plugin validate`; skips tools that are missing) | `git config core.hooksPath scripts/hooks` |
+| Git hooks, once per clone: a commit lints and formats the touched Python files; a push runs validate, the test suite, touched-file lint and `claude plugin validate` (skips tools that are missing) | `uv tool install pre-commit && pre-commit install`; push checks only, without pre-commit: `git config core.hooksPath scripts/hooks` |
 | Run the script tests | `uv run --with pytest pytest scripts/tests -q` |
 | Lint and type-check the Python files you touched (each must be fully clean; [ADR 0031](docs/adr/0031-a-touched-python-file-passes-ruff-and-basedpyright.md)) | `python3 scripts/lint_touched.py` (`--fix` formats first) |
 | Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |

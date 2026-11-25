@@ -1,0 +1,20 @@
+# Install once per clone: pre-commit install --hook-type pre-commit --hook-type pre-push
+# Both hooks call the repo's own scripts, so tool versions stay pinned in one place (ADR 0031).
+default_install_hook_types: [pre-commit, pre-push]
+repos:
+  - repo: local
+    hooks:
+      - id: lint-touched
+        name: Ruff and basedpyright on touched Python files (formats and safe-fixes first)
+        entry: python3 scripts/lint_touched.py --fix
+        language: system
+        pass_filenames: false
+        types: [python]
+        stages: [pre-commit]
+      - id: repo-checks
+        name: validate.py, script tests, touched-file lint, claude plugin validate
+        entry: scripts/hooks/pre-push
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
