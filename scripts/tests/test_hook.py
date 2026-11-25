@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-ORDER = ["python3", "uv", "python3", "claude"]
+ORDER = ["python3", "uv", "claude"]
 HOOK = Path(__file__).resolve().parent.parent / "hooks" / "pre-push"
 
 
@@ -55,7 +55,7 @@ def test_hook_fails_on_validate_error(tmp_path: Path) -> None:
 def test_hook_skips_missing_tools(tmp_path: Path) -> None:
     proc, calls = run_hook(tmp_path, {"python3": 0})
     assert proc.returncode == 0
-    assert calls == ["python3 scripts/validate.py", "python3 scripts/lint_touched.py"]
+    assert calls == ["python3 scripts/validate.py"]
     assert "pre-push: skipped test suite (uv not found)" in proc.stdout
     assert "pre-push: skipped claude plugin validate (claude not found)" in proc.stdout
 

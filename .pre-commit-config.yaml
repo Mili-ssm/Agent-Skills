@@ -1,18 +1,25 @@
-# Install once per clone: pre-commit install --hook-type pre-commit --hook-type pre-push
-# Both hooks call the repo's own scripts, so tool versions stay pinned in one place (ADR 0031).
+# Install once per clone: uv tool install pre-commit && pre-commit install
+# A commit checks its staged Python files; a push checks the files of the pushed commits; the whole
+# branch: pre-commit run --from-ref origin/dev --to-ref HEAD. A touched file must be fully clean (ADR 0031).
 default_install_hook_types: [pre-commit, pre-push]
+exclude: ^(ports|target)/
 repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.6
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      - id: ruff-format
   - repo: local
     hooks:
-      - id: lint-touched
-        name: Ruff and basedpyright on touched Python files (formats and safe-fixes first)
-        entry: python3 scripts/lint_touched.py --fix
-        language: system
-        pass_filenames: false
+      - id: basedpyright
+        name: basedpyright (warnings fail)
+        entry: basedpyright --warnings
+        language: python
+        additional_dependencies: [basedpyright==1.40.2, pyyaml, pytest]
         types: [python]
-        stages: [pre-commit]
       - id: repo-checks
-        name: validate.py, script tests, touched-file lint, claude plugin validate
+        name: validate.py, script tests, claude plugin validate
         entry: scripts/hooks/pre-push
         language: system
         pass_filenames: false
