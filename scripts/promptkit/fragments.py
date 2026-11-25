@@ -50,7 +50,11 @@ def _fragment_files(folder: Path) -> list[Path]:
 
 
 def load_fragments(folder: Path) -> dict[str, str]:
-    return {p.stem: _read_fragment(p)[0] for p in _fragment_files(folder)}
+    fragments = {p.stem: _read_fragment(p)[0] for p in _fragment_files(folder)}
+    for fid, text in fragments.items():
+        if _fence_flags(text.split("\n"))[1] >= 0:  # a rendered block would hide every later marker
+            raise FragmentError(f"fragment '{fid}' leaves a code fence open")
+    return fragments
 
 
 def verbatim_targets(folder: Path) -> dict[str, str]:
@@ -90,6 +94,8 @@ def _blocks(lines: list[str]) -> list[Block]:
         if fenced:
             continue
         opened, closed = OPEN.match(line), CLOSE.match(line)
+        if not (opened or closed) and line.lstrip().startswith(("<!-- shared:", "<!-- /shared:")):
+            raise FragmentError(f"line {i + 1}: unrecognized shared marker (malformed, or indented 4+ spaces)")
         if opened:
             if current:
                 raise FragmentError(f"line {i + 1}: marker '{opened.group(1)}' opens inside unclosed '{current.id}'")
@@ -118,8 +124,8 @@ def _expand(block: Block, fragments: dict[str, str]) -> str:
 
 
 def render(text: str, fragments: dict[str, str]) -> str:
-    """Fill every block; a CRLF file stays CRLF."""
-    crlf = "\r\n" in text
+    """Fill every block; a CRLF file stays CRLF; a mixed file keeps its lines outside blocks as they are."""
+    crlf = "\r\n" in text and "\n" not in text.replace("\r\n", "")
     if crlf:
         text = text.replace("\r\n", "\n")
     lines = text.split("\n")

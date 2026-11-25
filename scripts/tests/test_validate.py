@@ -537,3 +537,12 @@ def test_memory_agent_and_skill_say_use_proactively_fail(mini_repo):
         f"{MEMORY_AGENT_MD}: only offload workers may say 'Use proactively' (ADR 0010)",
     ])
 
+
+
+def test_run_checks_reports_a_drifted_shared_block(mini_repo):
+    (mini_repo / "shared" / "fragments").mkdir(parents=True)
+    (mini_repo / "shared" / "fragments" / "rule.md").write_text("Never guess.\n", encoding="utf-8")
+    edit(mini_repo, AGENT_MD, "effort: low", "effort: low")  # file exists
+    path = mini_repo / AGENT_MD
+    path.write_text(path.read_text(encoding="utf-8") + "\n<!-- shared:rule -->\nstale\n<!-- /shared:rule -->\n", encoding="utf-8")
+    assert run_checks(mini_repo) == [f"{AGENT_MD}: block 'rule' differs from shared/fragments/rule.md"]

@@ -150,8 +150,10 @@ def test_indented_marker_is_a_marker() -> None:
     text = "  <!-- shared:rule -->\nstale\n   <!-- /shared:rule -->\n"
     assert render(text, FRAGS) == "  <!-- shared:rule -->\nNever guess.\n   <!-- /shared:rule -->\n"
     assert fr.drifted(text, FRAGS) == ["rule"]
+    # 4+ spaces is code at top level but a marker inside a list item: ambiguous, so it is an error
     code = "    <!-- shared:rule -->\nstale\n    <!-- /shared:rule -->\n"
-    assert render(code, FRAGS) == code
+    with pytest.raises(FragmentError, match="unrecognized shared marker"):
+        render(code, FRAGS)
 
 
 def test_check_reports_unclosed_fence(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -205,3 +207,19 @@ def test_scan_scope(tmp_path: Path) -> None:
         "plugins/p/skills/s/SKILL.md",
         "plugins/p/skills/s/references/deep/r.md",
     }
+
+
+def test_render_mixed_newlines_keeps_lines_outside_blocks() -> None:
+    out = render(f"a\r\nb\n{block('stale')}\n", FRAGS)
+    assert out == f"a\r\nb\n{block('Never guess.')}\n"
+
+
+def test_marker_indented_four_spaces_is_an_error() -> None:
+    with pytest.raises(FragmentError, match="unrecognized shared marker"):
+        render("- item\n    <!-- shared:rule -->\n    stale\n    <!-- /shared:rule -->\n", FRAGS)
+
+
+def test_fragment_leaving_a_fence_open_fails(tmp_path: Path) -> None:
+    (tmp_path / "x.md").write_text("```\nx\n", encoding="utf-8")
+    with pytest.raises(FragmentError, match="leaves a code fence open"):
+        fr.load_fragments(tmp_path)
