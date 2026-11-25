@@ -1,0 +1,22 @@
+#!/bin/sh
+# Opt-in: git config core.hooksPath scripts/hooks
+# Runs the repo checks before a push; a tool that is not installed is skipped, not failed.
+cd "${0%/*}/../.." || exit 1
+
+status=0
+run() {
+    label=$1
+    tool=$2
+    shift 2
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        echo "pre-push: skipped $label ($tool not found)"
+        return
+    fi
+    echo "pre-push: $label"
+    "$tool" "$@" || { echo "pre-push: FAILED $label"; status=1; }
+}
+
+run "validate.py" python3 scripts/validate.py
+run "test suite" uv run --with pytest pytest scripts/tests -q
+run "claude plugin validate" claude plugin validate .
+exit $status

@@ -6,7 +6,9 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 
 | When | Run |
 |---|---|
-| Before every commit (no CI or git hook enforces it, N5) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
+| Before every commit (no CI enforces it, N5; the opt-in hook below runs it before a push) | `python3 scripts/validate.py` (also runs `port.py --check`) and `claude plugin validate .` |
+| Script tests (`scripts/tests/`) | `uv run --with pytest pytest scripts/tests -q` |
+| Opt-in pre-push hook (validate, tests, `claude plugin validate`; skips missing tools) | `git config core.hooksPath scripts/hooks` |
 | Opening a pull request | `gh pr create --base dev` (GitHub's default branch is `main`, which only releases may reach); a release: `gh pr create --base main --head dev` |
 | Before a release pull request (`dev` → `main`) | `python3 scripts/validate.py --release` (a changed plugin without a bump, or a tag that disagrees with its `plugin.json`, fails); fix before opening the pull request |
 | After changing agents, skills, commands, `user-config/offload-policy.md` or `user-config/routing.md` | `python3 scripts/port.py` (`--report` prints the mapping) |
@@ -15,13 +17,15 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 
 ## Generated files: never edit by hand
 
-`ports/**`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json`, `user-config/{offload-policy,routing}.{copilot,codex}.md`, the README block between the `recommended-prompt` markers, the `docs/ports.md` block between the `models` markers. Edit the Claude source, then run `scripts/port.py`.
+`ports/**`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json`, `user-config/{offload-policy,routing}.{copilot,codex}.md`, the README block between the `recommended-prompt` markers, the rendered `<!-- shared:… -->` blocks in plugin files (edit the fragment, not the block), the models block of `docs/ports.md`, the `docs/ports.md` block between the `models` markers. Edit the Claude source, then run `scripts/port.py`.
 
 ## Where a change goes
 
 | Change | Edit | Also update |
 |---|---|---|
 | Skill, agent or command | `plugins/agent-skills/{skills,agents,commands}/` | `port.py`; the README catalog row (validate.py checks names, model and preloads); the eval case when a description changes |
+| Shared text (`shared/fragments/`) | the fragment | `python3 -m promptkit.fragments` from `scripts/` re-renders every `<!-- shared:… -->` block; `--check` verifies (validate.py runs it) |
+| Model facts (`shared/models.toml`) | the catalog | any edit: `python3 scripts/port.py`, the regenerated `docs/ports.md` models block must show in the diff; change `AGENT_PAIRS` in `scripts/tests/test_models.py` only on purpose; add a CHANGELOG line |
 | Offload table | `user-config/offload-policy.md` (single copy) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
 | Routing, plan loop and review rules | `user-config/routing.md` (single copy, ADR 0021) | `port.py`; no eval embeds it, so the ADR carries a kill criterion (N6) |
 | Memory plugin | `plugins/memory/`; first read "Current state and where to resume" in `docs/superpowers/plans/2026-11-17-memory-plugin.md` | its tests (`uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`); the stage plan's state table; no port (ADR 0023) |
