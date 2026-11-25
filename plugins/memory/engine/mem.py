@@ -1795,6 +1795,9 @@ _INDEX_RULES = (
     "constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names "
     "no business; the project's current situation -> both."
 )
+# Only a project with a live state memory has written state for the status checker to read (ADR 0030).
+_STATUS_LINE = ("- Resuming earlier work, or asked where things stand: dispatch memory:memory-status-checker "
+                "before reading plans or the backlog yourself.")
 _INDEX_LIMIT = 1500
 _CLAIM_LIMIT = 100
 
@@ -1911,6 +1914,8 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         except Exception:
             pass
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
+    if any(m.kind == "state" for m in mine):
+        lines.append(_STATUS_LINE)
     if notice:
         lines.append(notice)
     if has_store:
