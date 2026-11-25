@@ -269,10 +269,10 @@ def check_agent_rules(rel: Path, fm: Frontmatter, skill_names: set[str], errors:
     effort = fm.get("effort")
     if not effort:
         errors.append(f"{rel}: missing 'effort'")
-    elif effort not in AGENT_EFFORTS:
+    elif not isinstance(effort, str) or effort not in AGENT_EFFORTS:
         errors.append(f"{rel}: 'effort' must be {' | '.join(sorted(AGENT_EFFORTS))} (got {effort!r})")
     turns = fm.get("maxTurns")
-    if turns is not None and not (isinstance(turns, str) and turns.isdigit() and int(turns) > 0):
+    if turns is not None and not (isinstance(turns, str) and re.fullmatch(r"[0-9]+", turns) and int(turns) > 0):
         errors.append(f"{rel}: 'maxTurns' must be a positive integer (got {turns!r})")
     if fm.get("omitClaudeMd") not in (None, "true", "false"):
         errors.append(f"{rel}: 'omitClaudeMd' must be true or false")
@@ -475,7 +475,8 @@ def check_ports(errors: list[str]) -> None:
     )
     if run.returncode != 0:
         lines = run.stdout.splitlines() or run.stderr.strip().splitlines()[-1:]
-        errors.extend(line for line in lines if line.strip() and line not in errors)
+        already = set(errors)  # validate.py reports the shared agent rules itself; port's own repeats stay
+        errors.extend(line for line in lines if line.strip() and line not in already)
 
 
 def readme_table(text: str, heading: str, first_header: str) -> list[dict[str, str]] | None:

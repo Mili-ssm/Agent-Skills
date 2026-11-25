@@ -206,6 +206,24 @@ def test_check_ports_does_not_repeat_an_error_already_found(mini_repo, monkeypat
     assert errors == [line, "other"]
 
 
+def test_check_ports_keeps_its_own_repeated_lines(mini_repo, monkeypatch):
+    fake = subprocess.CompletedProcess([], 1, stdout="other\nother\n", stderr="")
+    monkeypatch.setattr(validate.subprocess, "run", lambda *a, **k: fake)
+    errors: list[str] = []
+    validate.check_ports(errors)
+    assert errors == ["other", "other"]
+
+
+def test_agent_effort_as_list_is_reported_not_crashing(mini_repo):
+    edit(mini_repo, AGENT_MD, "effort: low", "effort:\n  - low")
+    assert run_checks(mini_repo) == [f"{AGENT_MD}: 'effort' must be high | low | medium (got ['low'])"]
+
+
+def test_agent_max_turns_non_ascii_digit(mini_repo):
+    edit(mini_repo, AGENT_MD, "effort: low", "effort: low\nmaxTurns: ²")
+    assert run_checks(mini_repo) == [f"{AGENT_MD}: 'maxTurns' must be a positive integer (got '²')"]
+
+
 def test_non_worker_says_use_proactively(mini_repo):
     edit(mini_repo, AGENT_MD, "Use when asked for it.", "Use proactively when asked for it.")
     assert run_checks(mini_repo) == [f"{AGENT_MD}: only offload workers may say 'Use proactively' (ADR 0010)"]
