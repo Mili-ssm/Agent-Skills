@@ -18,5 +18,6 @@ run() {
 
 run "validate.py" python3 scripts/validate.py
 run "test suite" uv run --with pytest pytest scripts/tests -q
+run "lint touched files" python3 scripts/lint_touched.py
 run "claude plugin validate" claude plugin validate .
 exit $status
