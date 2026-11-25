@@ -41,6 +41,7 @@ from typing import Any
 
 HERE = Path(__file__).resolve().parent
 LOCK_POLL_SECONDS = 5.0
+MIN_LOCK_POLL_SECONDS = 0.01
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au
 import capture_state as cs
@@ -830,7 +831,7 @@ class AutoRun:
         self.session = transcript.stem
         self.start = time.time()
         self.line: dict = {
-            "t": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+            "t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
             "trigger": trigger,
             "session": self.session,
             "windows": 0,
@@ -872,7 +873,8 @@ class AutoRun:
         if self.line["trigger"] == "pre-compact":
             time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
         deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", lock_wait)
-        poll = seconds_env("MEM_CAPTURE_LOCK_POLL", LOCK_POLL_SECONDS)
+        # a floor, so a zero poll cannot spin the loop until the deadline
+        poll = max(seconds_env("MEM_CAPTURE_LOCK_POLL", LOCK_POLL_SECONDS), MIN_LOCK_POLL_SECONDS)
         self.lock = au.take_run_lock(self.cdir)
         while self.lock is None and time.time() < deadline:
             time.sleep(min(poll, max(deadline - time.time(), 0.0)))
