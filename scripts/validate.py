@@ -635,6 +635,23 @@ def check_release_tag(name: str, version: str | None, errors: list[str]) -> None
             errors.append(f"{name}: changes since {tag} under {', '.join(paths)} but the version is still {version}: bump it")
 
 
+STATE_PLAN = Path("docs/superpowers/plans/2026-11-17-memory-plugin.md")  # relative: tests patch ROOT
+STATE_RELEASED = re.compile(r"^\| Released \| `memory` ([0-9][^ ]*) ", re.MULTILINE)
+
+
+def check_state_table_version(errors: list[str]) -> None:
+    """Review D1: the memory plan's state table, which resuming agents read first, names the released version."""
+    plan = ROOT / STATE_PLAN
+    manifest = ROOT / "plugins" / "memory" / ".claude-plugin" / "plugin.json"
+    if not plan.is_file() or not manifest.is_file():
+        return
+    match = STATE_RELEASED.search(plan.read_text(encoding="utf-8"))
+    version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
+    if match and match.group(1) != version:
+        rel = plan.relative_to(ROOT).as_posix()
+        errors.append(f"{rel}: state table says released {match.group(1)}, plugin.json says {version}")
+
+
 def check_versions(errors: list[str], release: bool) -> None:
     """ADR 0027: each plugin has a SemVer version in plugin.json and a CHANGELOG heading for it; catalogs carry no version."""
     for rel in CATALOGS:
@@ -696,6 +713,7 @@ def main() -> int:
     check_public_paths(errors)
     check_fragments(errors)
     check_versions(errors, release)
+    check_state_table_version(errors)
     check_ports(errors)
     for err in errors:
         print(err)

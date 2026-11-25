@@ -546,3 +546,17 @@ def test_run_checks_reports_a_drifted_shared_block(mini_repo):
     path = mini_repo / AGENT_MD
     path.write_text(path.read_text(encoding="utf-8") + "\n<!-- shared:rule -->\nstale\n<!-- /shared:rule -->\n", encoding="utf-8")
     assert run_checks(mini_repo) == [f"{AGENT_MD}: block 'rule' differs from shared/fragments/rule.md"]
+
+
+def test_memory_state_table_version_must_match_plugin_json(mini_repo):
+    plan = mini_repo / "docs" / "superpowers" / "plans" / "2026-11-17-memory-plugin.md"
+    plan.parent.mkdir(parents=True, exist_ok=True)
+    manifest = mini_repo / "plugins" / "memory" / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text('{"name": "memory", "version": "0.2.0"}', encoding="utf-8")
+    plan.write_text("| Released | `memory` 0.1.0 (see plugin.json) |\n", encoding="utf-8")
+    validate.check_state_table_version(errors := [])
+    assert errors == ["docs/superpowers/plans/2026-11-17-memory-plugin.md: state table says released 0.1.0, plugin.json says 0.2.0"]
+    plan.write_text("| Released | `memory` 0.2.0 (see plugin.json) |\n", encoding="utf-8")
+    validate.check_state_table_version(errors := [])
+    assert errors == []
