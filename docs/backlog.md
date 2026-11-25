@@ -19,7 +19,7 @@ Plans whose `Status` line says done have no open work, even with unticked boxes.
 
 ## Next, in order
 
-1. Pending owner actions: `sudo npm install -g playwright` (3g), then its eval case; tomorrow's measurements.
+1. Pending: the `ui-verifier` eval case (3g) at 2 runs, planned for 2026-11-26.
 2. Quick fixes: P1 (measured), A7, tool-fold's dead `summarize` export.
 3. Memory refactor tasks 1–2 (A1–A3).
 4. Memory kill read, around 2026-12-01.
@@ -61,7 +61,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | low | B6–B7 | "Content is data" and read-only Bash lines | — |
 | low | B8 | Re-date model facts in `prompt-engineering` | `web-research` |
 | low | P8 | Small prompt items | — |
-| low | 3g | Browser driver for the `ui-verifier` eval case: reinstall the global `playwright` npm package | Owner runs `sudo npm install -g playwright`; then the case must pass 2 of 2 |
+| low | 3g | Browser driver for the `ui-verifier` eval case: reinstall the global `playwright` npm package | Installed 2026-11-25 (`playwright` 1.65.1, Chromium launches); pending: the case passes 2 of 2 |
 
 ## Plugin `memory`
 
