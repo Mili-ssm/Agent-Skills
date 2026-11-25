@@ -111,7 +111,7 @@ def test_verbatim_in_mismatch_fails(tmp_path: Path, capsys: pytest.CaptureFixtur
     write(tmp_path / "user-config" / "policy.md", "Always guess.\n")
     assert fr.main(["--check", "--root", str(tmp_path)]) == 1
     assert "user-config/policy.md" in capsys.readouterr().out
-    write(tmp_path / "user-config" / "policy.md", "Rules: Never guess.\n")
+    write(tmp_path / "user-config" / "policy.md", "Rules:\nNever guess.\n")
     assert fr.main(["--check", "--root", str(tmp_path)]) == 0
 
 
@@ -223,3 +223,16 @@ def test_fragment_leaving_a_fence_open_fails(tmp_path: Path) -> None:
     (tmp_path / "x.md").write_text("```\nx\n", encoding="utf-8")
     with pytest.raises(FragmentError, match="leaves a code fence open"):
         fr.load_fragments(tmp_path)
+
+
+def test_markers_in_user_config_are_reported(tmp_path: Path) -> None:
+    make_root(tmp_path, "")
+    write(tmp_path / "user-config/offload-policy.md", f"intro\n{block('Never guess.')}\n")
+    assert "user-config/offload-policy.md: shared markers are not allowed in user-config" in fr.check(tmp_path)
+
+
+def test_verbatim_in_needs_whole_lines(tmp_path: Path) -> None:
+    make_root(tmp_path, "")
+    write(tmp_path / "shared/fragments/v.md", "verbatim-in: user-config/p.md\nNever guess.\n")
+    write(tmp_path / "user-config/p.md", "I never guess. Never guess. ok\n")
+    assert "user-config/p.md: text of 'v' is not verbatim in it (shared/fragments/v.md)" in fr.check(tmp_path)

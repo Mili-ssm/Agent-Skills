@@ -14,7 +14,7 @@ rendered text
 - `{{key}}` placeholders in the fragment are filled from the opening marker's attributes. Every placeholder needs an attribute and every attribute a placeholder.
 - Attributes are `key="value"`; a value is the text up to the next `"`, with no escaping, so it cannot contain `"`.
 - A fragment's text is the file without its trailing newline; a fragment that leaves a code fence open is an error.
-- A first line `verbatim-in: <repo-relative path>` (stripped from the text) also requires the text to appear verbatim in that file. Use it for text that lives in `user-config/`, which the tool never scans.
+- A first line `verbatim-in: <repo-relative path>` (stripped from the text) also requires the text to appear verbatim in that file. Use it for text that lives in `user-config/`, which the tool never renders: markers there are an error, because those files are copied raw into evals, users' CLAUDE.md and the README prompt block. Out of scope as well: `user-agents/` (installed raw at user scope) and the README, whose prompt block `port.py` generates from `user-config/`.
 - `README.md` in this folder documents it and is no fragment.
 - A marker naming an id without a fragment is an error (`unknown fragment id`), also when the folder is missing or empty; files without markers pass.
 - An unmarked copy is the fragment's full text occupying whole lines (a match inside a longer line does not count).

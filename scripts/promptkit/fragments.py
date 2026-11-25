@@ -183,8 +183,13 @@ def check(root: Path) -> list[str]:
             problems.append(f"{rel}: {err}")
     for frag_id, target in verbatim_targets(folder).items():
         file = root / target
-        if not file.is_file() or fragments[frag_id] not in file.read_text(encoding="utf-8"):
+        whole = "\n" + file.read_text(encoding="utf-8").replace("\r\n", "\n") + "\n" if file.is_file() else ""
+        if f"\n{fragments[frag_id]}\n" not in whole:  # whole lines, like find_unmarked
             problems.append(f"{target}: text of '{frag_id}' is not verbatim in it (shared/fragments/{frag_id}.md)")
+    for path in sorted((root / "user-config").glob("*.md")):
+        # copied raw into evals, users' CLAUDE.md and the README prompt block: markers would leak there
+        if any(OPEN.match(line) or CLOSE.match(line) for line in path.read_text(encoding="utf-8").splitlines()):
+            problems.append(f"{path.relative_to(root).as_posix()}: shared markers are not allowed in user-config")
     return problems
 
 

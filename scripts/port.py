@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tomllib
-from promptkit.fragments import strip_markers
+from promptkit.fragments import FragmentError, strip_markers
 from validate import FrontmatterError, as_list, check_agent_rules, is_true, parse_frontmatter
 
 # Repo root = parent of scripts/, independent of the current working directory.
@@ -546,7 +546,7 @@ class Generator:
             return transform(
                 text, target, self.agents, skill=skill, command=command, agent=agent
             )
-        except PortError as exc:
+        except (PortError, FragmentError) as exc:
             self.errors.append(f"{where}: {exc}")
             return text
 
