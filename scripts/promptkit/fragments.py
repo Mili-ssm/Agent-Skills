@@ -33,7 +33,7 @@ class Block:
 
 
 def _read_fragment(path: Path) -> tuple[str, str | None]:
-    """Fragment text without its trailing newline, and the `verbatim-in:` target if declared."""
+    """Fragment text without its trailing newlines, and the `verbatim-in:` target if declared."""
     text = path.read_text(encoding="utf-8")
     target = None
     first, _, rest = text.partition("\n")

@@ -39,7 +39,7 @@ ADR 0028 is reserved for the memory plugin split ([refactor plan](../superpowers
 - Editing a shared line means editing its fragment and running `python3 -m promptkit.fragments` from `scripts/`; a hand edit inside a block fails `validate.py`.
 - Markers cost a few tokens per block in each Claude agent's prompt (HTML comments); ports carry none.
 - A new model is one catalog entry plus its level; the literal `AGENT_PAIRS` in `scripts/tests/test_models.py` fails if an agent's Codex pair moves, so a remap is deliberate.
-- With the owner's acceptance (2026-11-25), only the four unused `max` cells changed; no agent's Codex model or effort changed.
+- With the owner's acceptance (2026-11-25), only the four unused `max` cells changed (Fable keeps its 1:1 mapping to astra by effort up to `xhigh`, owner 2026-11-19); no agent's Codex model or effort changed.
 - Unmeasured (eval protocol, CLAUDE.md): three read-only agents (`prompt-engineer`, `fact-checker`, `skeptical-reviewer`) gained the shared wording "build caches and temp dirs are fine" (`ux-reviewer` had it; its extra clause became its own bullet); `skeptical-reviewer` is a worker. Kill criterion: its next `offload/skeptical-reviewer*` run below its last recorded result by 2 or more of 6, or a trace where a reviewer writes into the repository → revert commit `fix(agent-skills): unify drifted copies of the read-only shell line`.
 
 ## Revisit if

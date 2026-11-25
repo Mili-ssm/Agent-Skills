@@ -56,7 +56,7 @@ def grade(model: Model, effort: str, catalog: Catalog) -> float:
 def load_catalog(path: Path) -> Catalog:
     try:
         return _load_catalog(path)
-    except (KeyError, TypeError, tomllib.TOMLDecodeError) as err:  # one readable line, not a bare KeyError
+    except (KeyError, TypeError, AttributeError, ValueError, tomllib.TOMLDecodeError) as err:  # one readable line, not a bare KeyError
         raise ValueError(f"{path}: malformed catalog ({type(err).__name__}: {err})") from err
 
 
