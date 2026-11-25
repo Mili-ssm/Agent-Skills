@@ -167,11 +167,11 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 **Files:**
 - Modify: agent and skill bodies holding a drifted copy of a Task 6a fragment; files cited below; `plugins/agent-skills/CHANGELOG.md`; ADR 0029 (Task 9) carries this task's kill criteria
 
-- [ ] **Step 1:** Drifted copies (same rule, other wording; e.g. the 5 non-identical Bash lines, a `skills-and-agents.md` six-part copy that differs) take the fragment's wording inside a block. List each changed file with the old and new line.
-- [ ] **Step 2:** B9: in files shipped to users (`plugins/*/skills/**`, `plugins/*/agents/**`), replace each bare "ADR NNNN" citation with its reason in a few words (installed users cannot open the ADRs); CHANGELOG and evals keep theirs. B10: `pre-mortem.md` says "risk" where it says "finding" (ADR 0007 vocabulary); `feature-briefing/SKILL.md` gives `ux-reviewer` no `design` mode it lacks (word it by the modes `ux-reviewer.md` has).
-- [ ] **Step 3:** Measure: for each worker whose body changed (likely `fixer`, `implementer`), run its `offload-*` cases per CLAUDE.md § Eval protocol, or read one trace each when the run is not affordable, and record the numbers in ADR 0029. Non-worker bodies ship unmeasured with ADR 0029's kill criteria.
-- [ ] **Step 4:** `python3 scripts/port.py`; `python3 scripts/validate.py`. CHANGELOG line (agent-skills): wording unified in the listed agents; ADR numbers replaced by reasons in shipped text.
-- [ ] **Step 5:** Commits, each revertible alone: `fix(agent-skills): unify drifted copies of shared lines`, then `fix(agent-skills): vocabulary and ADR citations in shipped text`.
+- [x] **Step 1:** Drifted copies (same rule, other wording; e.g. the 5 non-identical Bash lines, a `skills-and-agents.md` six-part copy that differs) take the fragment's wording inside a block. List each changed file with the old and new line.
+- [x] **Step 2:** B9: in files shipped to users (`plugins/*/skills/**`, `plugins/*/agents/**`), replace each bare "ADR NNNN" citation with its reason in a few words (installed users cannot open the ADRs); CHANGELOG and evals keep theirs. B10: `pre-mortem.md` says "risk" where it says "finding" (ADR 0007 vocabulary); `feature-briefing/SKILL.md` gives `ux-reviewer` no `design` mode it lacks (word it by the modes `ux-reviewer.md` has).
+- [x] **Step 3:** Measure: for each worker whose body changed (likely `fixer`, `implementer`), run its `offload-*` cases per CLAUDE.md § Eval protocol, or read one trace each when the run is not affordable, and record the numbers in ADR 0029. Non-worker bodies ship unmeasured with ADR 0029's kill criteria.
+- [x] **Step 4:** `python3 scripts/port.py`; `python3 scripts/validate.py`. CHANGELOG line (agent-skills): wording unified in the listed agents; ADR numbers replaced by reasons in shipped text.
+- [x] **Step 5:** Commits, each revertible alone: `fix(agent-skills): unify drifted copies of shared lines`, then `fix(agent-skills): vocabulary and ADR citations in shipped text`.
 
 ### Task 7: `promptkit.models`: catalog and derivation (no switch yet)
 
