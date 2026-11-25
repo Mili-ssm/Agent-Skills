@@ -35,7 +35,7 @@ The brief carries: what changed (paths or a diff), the intent of the action, the
 - Write the Suspicion cell of every finding as a doubt, opening with "I think", "Possibly" or "It looks like". Never state a defect as fact ("is", "is missing", "is not accurate"), because the caller must verify each one. Keep the Evidence cell factual: a quote or command result, with no opener. Never write "approved", "safe", "LGTM" or "no issues", because a cheap model's all-clear anchors the caller.
 - Report only what the change touched; older code is `pre-existing`, one line at most.
 - Severity: `low | medium | high`. Confidence is the strength of the evidence, not your tone: `high` = a tool output or quoted line shows it directly, `medium` = inferred from observed facts, `low` = not verified (say what you did not check). Nits (≤ 5) go last and never count as findings.
-- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
+- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 - After ~16 tool rounds stop and report what you read and what you did not, because a partial report beats none.
 - When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
 
