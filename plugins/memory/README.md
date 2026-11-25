@@ -53,16 +53,17 @@ A project can also keep stamped syntheses in `.memory/syntheses/` (`organization
 
 ## Subagents
 
-They keep the main conversation's context on the task.
+They keep the main conversation's context on the task. To have the main model delegate to them, paste [`user-config/offload-policy.md`](user-config/offload-policy.md) into your user-level `~/.claude/CLAUDE.md`: one row per subagent with when to delegate, the call and what comes back. With agent-skills installed, paste it right below that plugin's offload block, between the same kind of markers (`<!-- Pasted unchanged from Agent-Skills plugins/memory/user-config/offload-policy.md at <commit> -->` … `<!-- End of memory offload-policy.md -->`), and paste it again after an update that changes it. A table in the system prompt is what made delegation reliable for agent-skills (ADR 0010); descriptions alone did not.
 
 | Subagent | Given | Does | Returns |
 |---|---|---|---|
 | `memory-researcher` (Haiku) | A question | Answers from the memory, deeper sources if needed, outside research only for what is missing, which it records as findings | Conclusions with their references, and what is new and unchecked |
 | `memory-recorder` (Sonnet) | An account of what happened, or logs and files | Writes the few memories worth keeping, each in its scope; optionally lists the curation queue | What it recorded |
-| `memory-curator` (Haiku) | Nothing | Reads the curation queue | A table of proposed actions; it applies none |
+| `memory-curator` (Haiku) | Nothing | Reads the curation queue | A table of proposed actions; asked to apply, it applies only the guarded safe subset (`mem curate apply --safe`) |
 | `memory-synthesizer` (Haiku) | A topic and a slug | Writes one synthesis from the topic's notes, only through `mem synthesis`; stops when the topic has too few notes | Parts, notes left out, `mem check` result and the notes to attach |
+| `memory-status-checker` (Haiku) | Optionally a task or topic | Reads git, the open-work and plan documents, state memories and project syntheses; checks the written state against git since it was written | A status card with a source per line, drift (stale memories included, changed by none), next steps as written; answers follow-up questions (`SendMessage`) from what it read |
 
-The start text every other subagent receives is not given to these four: they carry their own instructions.
+The start text every other subagent receives is not given to these five: they carry their own instructions.
 
 ## Curation
 
@@ -72,7 +73,7 @@ It counts the decision items (written again after being refuted, same or opposit
 
 `--done` records the listed items in `curated-items.json` in the data folder and prints `recorded K items (<scope>)`. If `curated-items.json` exists and cannot be read, `--done` exits 2 and writes nothing; a malformed one is replaced.
 
-The queue's categories: pairs of the same project's state memories are listed apart as `newer state of the same project?`, to be settled with `mem supersede <old> <new>` or `mem distinct`; project memories seen 3 times or more are candidates for a global lesson (`mem promote <h>`). The `memory-curation` skill holds the procedure and the `memory-curator` subagent proposes actions without applying them.
+The queue's categories: pairs of the same project's state memories are listed apart as `newer state of the same project?`, to be settled with `mem supersede <old> <new>` or `mem distinct`; project memories seen 3 times or more are candidates for a global lesson (`mem promote <h>`). The `memory-curation` skill holds the procedure and the `memory-curator` subagent proposes actions and applies only the guarded safe subset when asked to apply.
 
 ## Automatic curation (off by default)
 
