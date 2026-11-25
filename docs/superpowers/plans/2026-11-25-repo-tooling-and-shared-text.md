@@ -144,10 +144,10 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
   A fragment is `shared/fragments/<id>.md`; `{{key}}` placeholders are filled from the opening marker's attributes.
 - Produces: `class FragmentError(ValueError)`; `load_fragments(folder: Path) -> dict[str, str]` (id → text without trailing newline); `render(text: str, fragments: dict[str, str]) -> str` (raises `FragmentError` on unknown id, unclosed or mismatched marker, missing or unused parameter); `strip_markers(text: str) -> str` (removes marker lines, keeps content); `find_unmarked(text: str, fragments: dict[str, str]) -> list[str]` (ids of parameterless fragments whose full text appears outside any block); `main(argv) -> int` with `python3 -m promptkit.fragments [--check] [--root PATH]`, scanning `plugins/*/{agents,commands}/*.md` and `plugins/*/skills/**/*.md` (never `user-config/`: see the pre-mortem findings); `--check` prints `<file>: block '<id>' differs from shared/fragments/<id>.md` per drift and `<file>: text of '<id>' outside a block` per unmarked copy, and exits 1. A fragment may declare `verbatim-in: user-config/offload-policy.md` on its first line (stripped from the text); `--check` then also requires the fragment text to appear verbatim in that file.
 
-- [ ] **Step 1:** Tests: `test_render_fills_block`, `test_render_is_idempotent`, `test_params_fill_placeholders`, `test_missing_param_fails`, `test_unused_param_fails`, `test_unknown_id_fails`, `test_unclosed_marker_fails`, `test_markers_in_code_fence_ignored`, `test_nested_fence_four_backticks`, `test_tilde_fence`, `test_unclosed_fence`, `test_check_reports_hand_edit` (names file and id), `test_shared_text_outside_block_reported`, `test_verbatim_in_mismatch_fails`, `test_strip_markers_keeps_content`.
-- [ ] **Step 2:** Implement; run the suite.
-- [ ] **Step 3:** `validate.py` gains `check_fragments(errors)` calling the `--check` logic (no subprocess needed).
-- [ ] **Step 4:** Commit `feat(scripts): promptkit fragments render shared text into marked blocks`.
+- [x] **Step 1:** Tests: `test_render_fills_block`, `test_render_is_idempotent`, `test_params_fill_placeholders`, `test_missing_param_fails`, `test_unused_param_fails`, `test_unknown_id_fails`, `test_unclosed_marker_fails`, `test_markers_in_code_fence_ignored`, `test_nested_fence_four_backticks`, `test_tilde_fence`, `test_unclosed_fence`, `test_check_reports_hand_edit` (names file and id), `test_shared_text_outside_block_reported`, `test_verbatim_in_mismatch_fails`, `test_strip_markers_keeps_content`.
+- [x] **Step 2:** Implement; run the suite.
+- [x] **Step 3:** `validate.py` gains `check_fragments(errors)` calling the `--check` logic (no subprocess needed).
+- [x] **Step 4:** Commit `feat(scripts): promptkit fragments render shared text into marked blocks`.
 
 ### Task 6a: Markers around identical shared lines (mechanical)
 
