@@ -4,6 +4,7 @@
   python3 scripts/port.py            write ports/, both catalogs and both policy variants
   python3 scripts/port.py --check    prove the copies are current and equivalent to the Claude sources
   python3 scripts/port.py --report   print what each artifact type maps to and what does not map
+  python3 scripts/port.py --models-diff  print where shared/models.toml derives other Codex pairs than CODEX_PAIRS
 
 The Claude sources (plugins/, .claude-plugin/, user-config/offload-policy.md) are only read, so Claude Code
 behaves exactly as before. No CLAUDE.md or AGENTS.md is generated (Claude Code would load it).
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import tomllib
 from promptkit.fragments import FragmentError, strip_markers
+from promptkit.models import derive_pairs, load_catalog
 from validate import FrontmatterError, as_list, check_agent_rules, is_true, parse_frontmatter
 
 # Repo root = parent of scripts/, independent of the current working directory.
@@ -1348,6 +1350,19 @@ def report(src: Sources) -> str:
     return "\n".join(lines)
 
 
+def models_diff(src: Sources) -> str:
+    """Cells where the pairs derived from shared/models.toml differ from CODEX_PAIRS; `*` marks cells agents use."""
+    derived = derive_pairs(load_catalog(ROOT / "shared" / "models.toml"), "claude", "codex")
+    used = {(fm.get("model"), fm.get("effort")) for fm in (a.fm for a in src.agents.values())}
+    lines = []
+    for cell, today in CODEX_PAIRS.items():
+        new = derived.get(cell)
+        if new != today:
+            mark = " [agent cell]" if cell in used else " [unused]"
+            lines.append(f"{cell[0]}/{cell[1]}: {' '.join(today)} -> {' '.join(new) if new else 'missing'}{mark}")
+    return "\n".join(lines) or "no differences"
+
+
 # --- command line -----------------------------------------------------------------------------
 
 
@@ -1366,6 +1381,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print what maps to what and what does not",
     )
+    mode.add_argument(
+        "--models-diff",
+        action="store_true",
+        help="print where the pairs derived from shared/models.toml differ from CODEX_PAIRS",
+    )
     args = parser.parse_args(argv)
 
     src, errors = load_sources()
@@ -1374,6 +1394,9 @@ def main(argv: list[str] | None = None) -> int:
         files, errors = generate(src)
     if not errors and args.report:
         print(report(src))
+        return 0
+    if not errors and args.models_diff:
+        print(models_diff(src))
         return 0
     if not errors and args.check:
         errors = check(src, files)
