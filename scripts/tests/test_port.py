@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tomllib
 
 import pytest
 
@@ -25,6 +26,8 @@ AGENTS = {"implementer", "fixer", "check-runner"}
         ("agent-skills:implementerx", "agent-skills:implementerx"),
         ("agent-skills:implementer_2", "agent-skills:implementer_2"),
         ("no references here", "no references here"),
+        # a bare agent name in prose is already unqualified
+        ("use fixer", "use fixer"),
     ],
 )
 def test_rename_agents(text, want):
@@ -47,6 +50,7 @@ def test_rename_agents(text, want):
 )
 def test_toml_multiline(text, want):
     assert port.toml_multiline(text) == want
+    assert tomllib.loads("v = " + port.toml_multiline(text))["v"] == text
 
 
 @pytest.mark.parametrize(
@@ -131,13 +135,14 @@ READ_ONLY_LINE = "- `Explore` runs on Haiku only with the user-scope override (s
         (port.COPILOT, "ask agent-skills:fixer", {}, "ask fixer"),
         (port.CODEX, "ask agent-skills:fixer", {}, "ask fixer"),
         # model labels: Codex only
-        (port.CODEX, "Haiku (Haiku) reads", {}, f"Haiku ({port.codex_label_model('haiku')}) reads"),
+        (port.CODEX, "Haiku (Haiku) reads", {}, "Haiku (gpt-6-luna) reads"),
         (port.CODEX, "(Sonnet) and (Opus)", {}, "(gpt-6.1-terra) and (gpt-6.2-sol)"),
         (port.COPILOT, "(Haiku) and (Sonnet)", {}, "(Haiku) and (Sonnet)"),
         # paths and built-ins
         (port.COPILOT, "${CLAUDE_PLUGIN_ROOT}/x", {}, f"{port.COPILOT_ROOT}/x"),
         (port.CODEX, "${CLAUDE_PLUGIN_ROOT}/x", {}, f"{port.CODEX_ROOT}/x"),
         (port.CODEX, "~/.claude/plugins/p", {}, f"{port.CODEX_BASE}/p"),
+        (port.COPILOT, "~/.claude/plugins/p", {}, f"{port.COPILOT_BASE}/p"),
         (port.COPILOT, "${CLAUDE_SKILL_DIR}/a.md", {"skill": "s"}, f"{port.COPILOT_ROOT}/skills/s/a.md"),
         (port.CODEX, "use `Explore`", {}, "use `explorer` (built-in role)"),
         (port.COPILOT, "use `Explore`", {}, "use `explore` (built-in agent)"),
