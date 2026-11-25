@@ -27,7 +27,7 @@ copilot = "claude-opus-5.5"
 
 [[vendors.claude.models]]
 alias = "fable"
-level = 4
+level = 4.25  # equal to astra: owner 2026-11-19, "Fable maps 1:1 by effort to astra"
 cost = 80
 copilot = "claude-fable-5.2"
 
