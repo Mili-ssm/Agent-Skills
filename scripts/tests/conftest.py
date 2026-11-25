@@ -31,6 +31,23 @@ def command_text(body: str) -> str:
     return f'---\ndescription: A command.\ndisable-model-invocation: true\nargument-hint: "[task]"\n---\n{body} $ARGUMENTS\n'
 
 
+def write_evals(plugin: Path) -> None:
+    """One trigger grader, one no-trigger grader naming everything, one with-policy case embedding the policy."""
+    evals = plugin / "evals"
+    skills = SKILL
+    agents = "|".join([*sorted(validate.WORKERS), EXTRA_AGENT])
+    head = "---\ntype: regex\ntarget: trace\n"
+    write(evals / "trigger" / SKILL / "graders" / "fired.md", f"{head}pattern: '\\\"skill\\W{{1,8}}(agent-skills:)?{SKILL}\\b'\n---\n")
+    write(
+        evals / "no-trigger" / "neg-demo" / "graders" / "silent.md",
+        f"{head}match: not_contains\npattern: '\\\"skill\\W{{1,8}}(agent-skills:)?({skills})\\b|subagent_type\\W{{1,8}}(agent-skills:)?({agents})\\b'\n---\n",
+    )
+    write(
+        evals / "offload" / "summarizer-with-policy" / "case.yaml",
+        "name: offload-summarizer-with-policy\nexecution:\n  append_system_prompt: |\n    x\n",
+    )
+
+
 def build_mini_repo(root: Path) -> None:
     plugin = root / "plugins" / "agent-skills"
     write(
@@ -45,6 +62,8 @@ def build_mini_repo(root: Path) -> None:
     write(plugin / "commands" / f"{EXTRA_AGENT}.md", command_text(f"Run agent-skills:{EXTRA_AGENT} on"))
     write(plugin / ".claude-plugin" / "plugin.json", json.dumps({"name": "agent-skills", "version": "1.0.0"}))
     write(plugin / "CHANGELOG.md", "# Changelog\n\n## [1.0.0] - 2026-01-01\n\n- First release.\n")
+
+    write_evals(plugin)
 
     entry = {"plugins": [{"name": "agent-skills", "source": "./plugins/agent-skills"}]}
     for rel in validate.CATALOGS:
