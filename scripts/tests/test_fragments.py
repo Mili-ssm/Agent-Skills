@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -71,8 +72,13 @@ def test_tilde_fence() -> None:
     assert render(text, FRAGS) == text
 
 
-def test_unclosed_fence() -> None:
-    text = f"```\n{block('stale')}\n"
+def test_unclosed_fence_hiding_a_marker_fails() -> None:
+    with pytest.raises(FragmentError, match="unclosed code fence opened before a shared marker"):
+        render(f"```\n{block('stale')}\n", FRAGS)
+
+
+def test_unclosed_fence_without_marker_is_fine() -> None:
+    text = "```\ncode\n"
     assert render(text, FRAGS) == text
 
 
@@ -93,7 +99,7 @@ def test_check_reports_hand_edit(tmp_path: Path, capsys: pytest.CaptureFixture[s
 
 
 def test_shared_text_outside_block_reported(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    make_root(tmp_path, "Intro. Never guess.\n")
+    make_root(tmp_path, "Intro.\nNever guess.\n")
     assert fr.main(["--check", "--root", str(tmp_path)]) == 1
     assert "plugins/p/agents/a.md: text of 'rule' outside a block" in capsys.readouterr().out
     assert find_unmarked(block("Never guess.") + "\n", {"rule": "Never guess."}) == []
@@ -118,6 +124,7 @@ def test_render_command_rewrites_files(tmp_path: Path) -> None:
 
 def test_missing_folder_means_no_fragments(tmp_path: Path) -> None:
     assert fr.check(tmp_path) == []
+    assert fr.load_fragments(tmp_path / "shared" / "fragments") == {}
 
 
 def test_validate_check_fragments_reads_root(mini_repo: Path) -> None:
@@ -130,3 +137,71 @@ def test_validate_check_fragments_reads_root(mini_repo: Path) -> None:
     write(mini_repo / "plugins" / "memory" / "agents" / "x.md", f"{block('Never guess!')}\n")
     validate.check_fragments(errors)
     assert errors == ["plugins/memory/agents/x.md: block 'rule' differs from shared/fragments/rule.md"]
+
+
+def test_readme_is_not_a_fragment(tmp_path: Path) -> None:
+    write(tmp_path / "shared" / "fragments" / "README.md", "Docs.\n")
+    write(tmp_path / "shared" / "fragments" / "rule.md", "Never guess.\n")
+    assert fr.load_fragments(tmp_path / "shared" / "fragments") == {"rule": "Never guess."}
+    assert "README" not in fr.verbatim_targets(tmp_path / "shared" / "fragments")
+
+
+def test_indented_marker_is_a_marker() -> None:
+    text = "  <!-- shared:rule -->\nstale\n   <!-- /shared:rule -->\n"
+    assert render(text, FRAGS) == "  <!-- shared:rule -->\nNever guess.\n   <!-- /shared:rule -->\n"
+    assert fr.drifted(text, FRAGS) == ["rule"]
+    code = "    <!-- shared:rule -->\nstale\n    <!-- /shared:rule -->\n"
+    assert render(code, FRAGS) == code
+
+
+def test_check_reports_unclosed_fence(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    make_root(tmp_path, f"```\n{block('stale')}\n")
+    assert fr.main(["--check", "--root", str(tmp_path)]) == 1
+    assert "plugins/p/agents/a.md: unclosed code fence opened before a shared marker" in capsys.readouterr().out
+
+
+def test_render_preserves_crlf(tmp_path: Path) -> None:
+    make_root(tmp_path, "")
+    path = tmp_path / "plugins/p/agents/a.md"
+    path.write_bytes(f"intro\n{block('stale')}\n".replace("\n", "\r\n").encode())
+    assert fr.main(["--root", str(tmp_path)]) == 0
+    assert path.read_bytes() == f"intro\n{block('Never guess.')}\n".replace("\n", "\r\n").encode()
+    assert fr.main(["--check", "--root", str(tmp_path)]) == 0
+
+
+def test_substring_is_not_an_unmarked_copy() -> None:
+    frags = {"g": "guess."}
+    assert find_unmarked("I guess.\n", frags) == []
+    assert find_unmarked("intro\nguess.\noutro\n", frags) == ["g"]
+    assert find_unmarked("guess.", frags) == ["g"]
+
+
+def test_missing_folder_still_scans_markers(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    write(tmp_path / "plugins" / "p" / "agents" / "a.md", f"{block('hand edit')}\n")
+    write(tmp_path / "plugins" / "p" / "agents" / "b.md", "No markers.\n")
+    assert fr.main(["--check", "--root", str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "plugins/p/agents/a.md: unknown fragment id 'rule'" in out
+    assert "b.md" not in out
+
+
+def test_unchanged_render_does_not_write(tmp_path: Path) -> None:
+    make_root(tmp_path, f"{block('Never guess.')}\n")
+    path = tmp_path / "plugins/p/agents/a.md"
+    os.utime(path, (1_000_000, 1_000_000))
+    assert fr.main(["--root", str(tmp_path)]) == 0
+    assert path.stat().st_mtime == 1_000_000
+
+
+def test_scan_scope(tmp_path: Path) -> None:
+    for rel in ("agents/a.md", "commands/c.md", "skills/s/SKILL.md", "skills/s/references/deep/r.md"):
+        write(tmp_path / "plugins" / "p" / rel, "x\n")
+    write(tmp_path / "plugins" / "p" / "README.md", "x\n")
+    write(tmp_path / "user-config" / "u.md", "x\n")
+    found = {f.relative_to(tmp_path).as_posix() for f in fr.scan_files(tmp_path)}
+    assert found == {
+        "plugins/p/agents/a.md",
+        "plugins/p/commands/c.md",
+        "plugins/p/skills/s/SKILL.md",
+        "plugins/p/skills/s/references/deep/r.md",
+    }

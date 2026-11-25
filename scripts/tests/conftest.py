@@ -125,4 +125,5 @@ def run_checks(root: Path) -> list[str]:
     validate.check_readme_catalog(errors)
     validate.check_public_paths(errors)
     validate.check_versions(errors, release=False)
+    validate.check_fragments(errors)
     return errors

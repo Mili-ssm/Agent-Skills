@@ -13,8 +13,8 @@ from pathlib import Path
 
 FRAGMENTS_DIR = Path("shared") / "fragments"
 VERBATIM = "verbatim-in:"
-OPEN = re.compile(r'^<!-- shared:([\w-]+)((?:\s+[\w-]+="[^"]*")*)\s*-->\s*$')
-CLOSE = re.compile(r"^<!-- /shared:([\w-]+) -->\s*$")
+OPEN = re.compile(r'^ {0,3}<!-- shared:([\w-]+)((?:\s+[\w-]+="[^"]*")*)\s*-->\s*$')
+CLOSE = re.compile(r"^ {0,3}<!-- /shared:([\w-]+) -->\s*$")
 ATTR = re.compile(r'([\w-]+)="([^"]*)"')
 FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 PLACEHOLDER = re.compile(r"\{\{([\w-]+)\}\}")
@@ -42,41 +42,51 @@ def _read_fragment(path: Path) -> tuple[str, str | None]:
     return text.rstrip("\n"), target
 
 
-def load_fragments(folder: Path) -> dict[str, str]:
+def _fragment_files(folder: Path) -> list[Path]:
+    """Fragment files of the folder; its README.md documents the folder and is no fragment."""
     if not folder.is_dir():
-        return {}
-    return {p.stem: _read_fragment(p)[0] for p in sorted(folder.glob("*.md"))}
+        return []
+    return [p for p in sorted(folder.glob("*.md")) if p.name != "README.md"]
+
+
+def load_fragments(folder: Path) -> dict[str, str]:
+    return {p.stem: _read_fragment(p)[0] for p in _fragment_files(folder)}
 
 
 def verbatim_targets(folder: Path) -> dict[str, str]:
     """Fragment id -> repo-relative file whose text must contain the fragment verbatim."""
-    if not folder.is_dir():
-        return {}
-    pairs = {p.stem: _read_fragment(p)[1] for p in sorted(folder.glob("*.md"))}
+    pairs = {p.stem: _read_fragment(p)[1] for p in _fragment_files(folder)}
     return {k: v for k, v in pairs.items() if v}
 
 
-def _fence_flags(lines: list[str]) -> list[bool]:
-    """True for each line that is a fence line or inside a fence (CommonMark closing rule)."""
+def _fence_flags(lines: list[str]) -> tuple[list[bool], int]:
+    """Per line: is it a fence line or inside a fence (CommonMark closing rule)? Plus the line index
+    where a fence left open at the end of the file started (-1 when none)."""
     flags: list[bool] = []
     fence = ""
-    for line in lines:
+    opened_at = -1
+    for i, line in enumerate(lines):
         if not fence:
             m = FENCE.match(line)
             fence = m.group(1) if m else ""
+            opened_at = i if m else -1
             flags.append(bool(m))
         else:
             flags.append(True)
             m = FENCE.match(line)
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line.strip().strip(fence[0]):
                 fence = ""
-    return flags
+                opened_at = -1
+    return flags, opened_at
 
 
 def _blocks(lines: list[str]) -> list[Block]:
     blocks: list[Block] = []
     current: Block | None = None
-    for i, (line, fenced) in enumerate(zip(lines, _fence_flags(lines))):
+    flags, unclosed_at = _fence_flags(lines)
+    if unclosed_at >= 0 and any(OPEN.match(line) or CLOSE.match(line) for line in lines[unclosed_at:]):
+        raise FragmentError("unclosed code fence opened before a shared marker")
+    for i, (line, fenced) in enumerate(zip(lines, flags)):
         if fenced:
             continue
         opened, closed = OPEN.match(line), CLOSE.match(line)
@@ -97,7 +107,7 @@ def _blocks(lines: list[str]) -> list[Block]:
 
 def _expand(block: Block, fragments: dict[str, str]) -> str:
     if block.id not in fragments:
-        raise FragmentError(f"unknown fragment '{block.id}'")
+        raise FragmentError(f"unknown fragment id '{block.id}'")
     text = fragments[block.id]
     needed = set(PLACEHOLDER.findall(text))
     for key in sorted(needed - block.attrs.keys()):
@@ -108,10 +118,15 @@ def _expand(block: Block, fragments: dict[str, str]) -> str:
 
 
 def render(text: str, fragments: dict[str, str]) -> str:
+    """Fill every block; a CRLF file stays CRLF."""
+    crlf = "\r\n" in text
+    if crlf:
+        text = text.replace("\r\n", "\n")
     lines = text.split("\n")
     for block in reversed(_blocks(lines)):
         lines[block.start + 1 : block.end] = _expand(block, fragments).split("\n")
-    return "\n".join(lines)
+    out = "\n".join(lines)
+    return out.replace("\n", "\r\n") if crlf else out
 
 
 def strip_markers(text: str) -> str:
@@ -129,13 +144,13 @@ def drifted(text: str, fragments: dict[str, str]) -> list[str]:
 
 
 def find_unmarked(text: str, fragments: dict[str, str]) -> list[str]:
-    """Ids of parameterless fragments whose full text appears outside any block."""
+    """Ids of parameterless fragments whose full text occupies whole lines outside any block."""
     lines = text.split("\n")
     outside = list(lines)
     for block in reversed(_blocks(lines)):
         del outside[block.start : block.end + 1]
-    rest = "\n".join(outside)
-    return [k for k, v in fragments.items() if v and not PLACEHOLDER.search(v) and v in rest]
+    rest = "\n" + "\n".join(outside) + "\n"
+    return [k for k, v in fragments.items() if v and not PLACEHOLDER.search(v) and f"\n{v}\n" in rest]
 
 
 def scan_files(root: Path) -> list[Path]:
@@ -151,8 +166,6 @@ def check(root: Path) -> list[str]:
     """Drift, unmarked copies and `verbatim-in:` mismatches under `root`, one message each."""
     folder = root / FRAGMENTS_DIR
     fragments = load_fragments(folder)
-    if not fragments:
-        return []
     problems: list[str] = []
     for path in scan_files(root):
         rel = path.relative_to(root).as_posix()
@@ -183,7 +196,8 @@ def main(argv: list[str] | None = None) -> int:
     fragments = load_fragments(root / FRAGMENTS_DIR)
     status = 0
     for path in scan_files(root):
-        text = path.read_text(encoding="utf-8")
+        with path.open(encoding="utf-8", newline="") as f:
+            text = f.read()
         try:
             new = render(text, fragments)
         except FragmentError as err:
@@ -191,7 +205,8 @@ def main(argv: list[str] | None = None) -> int:
             status = 1
             continue
         if new != text:
-            path.write_text(new, encoding="utf-8")
+            with path.open("w", encoding="utf-8", newline="") as f:
+                f.write(new)
             print(f"updated {path.relative_to(root).as_posix()}")
     return status
 
