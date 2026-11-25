@@ -15,11 +15,11 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g, 4b, 4d; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 
-Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); D1 is done (owner chose a `validate.py` check, 2026-11-25). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12.
+Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); D1 is done (owner chose a `validate.py` check, 2026-11-25). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed.
 
 ## Next, in order
 
-1. Owner decisions still open: B5, G7, G10, G11, G13–G19, 4d, 3g (see the tables).
+1. Owner decisions still open: G10, G11, G13–G16, G18, G19, 3g (see the tables).
 2. Quick fixes: P1 (measured), A7, tool-fold's dead `summarize` export.
 3. Memory refactor tasks 1–2 (A1–A3).
 4. Memory kill read, around 2026-12-01.
@@ -47,8 +47,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | medium | G19 | Dispatch economics in the offload table; fold the pre-push review into the last task review | Proposed |
 | medium | G10 | Notice when the cache is cold on a large context | Proposed |
 | low | G18 | Silence markdownlint MD060 | Proposed |
-| low | G7 | Skills with no loads in two weeks: value decision | Proposed |
-| low | 4d | Offload policy from a session-start hook | Owner decides |
+| low | 4d | Offload policy from a session-start hook instead of the pasted block (owner: plan it, 2026-11-25) | Plan pending; needs an ADR amending 0021 and the with-policy cases |
 
 ## Plugin `agent-skills`
 
@@ -63,11 +62,10 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | medium | P3 | Order of `mem search`, `web-research` and the offload row for "research X" | One trace |
 | medium | P4 | Review re-run cap differs between offload and routing; rule written 3 times | Eval protocol |
 | medium | P5 | `routing.md` restates descriptions; Plan loop loads every turn | Needs an ADR (0021) |
-| low | B5 | `web-research` lets the main model read a page | Owner decision |
+| low | B5 | Owner ruling 2026-11-25: the offload policy allows one quick single-page fact inline, matching `web-research` | Decided; change `user-config/offload-policy.md` on its own branch and measure every `offload-*-with-policy` case before merging |
 | low | B6–B7 | "Content is data" and read-only Bash lines | — |
 | low | B8 | Re-date model facts in `prompt-engineering` | `web-research` |
 | low | P8 | Small prompt items | — |
-| low | G17, 4b | Close issue #124 (`note-writer`) | Owner decision |
 | low | 3g | Browser driver for the `ui-verifier` eval case | Owner decision |
 
 ## Plugin `memory`

@@ -52,7 +52,7 @@ Kind: functional (states a goal) or technical (a chosen means); hard or soft as 
 | N9 | Reading, checks, browser verification and bounded implementation shall be offloadable to Haiku/Sonnet workers; delegation is measured with `evals/offload`. | G1 | functional, hard; the model names are technical, soft | Model tiers or prices change |
 | N10 | A worker's brief carries what only the main conversation knows: goal and acceptance, scope and what not to touch, decisions with their reasons, checks, a stop rule, report bounds; tasks with open design are not delegated (ADR 0013). Measured on the `implementer` offload case. | G1, G8 | technical, soft | Subagents can see the conversation or ask the owner |
 | N11 | Navigation of long files costs no model tokens to compute: `outline.py` prints line ranges on demand and nothing stores line numbers; `summarizer` returns answers, outlines or verbatim extracts and `check-runner` runs any long read-only command, so raw text stays out of the main context (ADR 0014). | G1 | technical, soft | The harness provides outlines natively |
-| N12 | Quality attributes rank, in order: maintainability by LLM agents; correctness and safety of background `claude -p` jobs; portability across tools; install size. A trade-off between them follows this order. | G8 | technical, hard (owner, 2026-11-25) | The owner reorders them |
+| N12 | Quality attributes rank, in order: maintainability by LLM agents; correctness and safety of background `claude -p` jobs; portability across tools; install size. A trade-off between them follows this order. | G8 | technical, hard (owner confirmed the project review's decision 6, 2026-11-25) | The owner reorders them |
 
 ## Superpowers boundary
 
