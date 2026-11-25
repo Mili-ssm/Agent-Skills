@@ -1,6 +1,6 @@
 # 0030 A status-checker subagent reads the project state for the main model
 
-Status: accepted · Date: 2026-11-25 · Reviewed 2026-11-25
+Status: accepted · Date: 2026-11-25
 
 ## Context
 
@@ -47,7 +47,7 @@ The owner reported the agent is not dispatched on its own. A `prompt-engineer` a
 | Description names concrete moments and two example questions; it failed `validate.py` N2 before ("whenever you need") | `plugins/memory/agents/memory-status-checker.md` |
 | Offload row names the moments and "dispatch it before reading plans or the backlog yourself", replacing "Your judgment, not a fixed moment" | `plugins/memory/user-config/offload-policy.md` |
 | Session start text adds a line naming the agent, only when the project has a live state memory | `_STATUS_LINE` in `plugins/memory/engine/mem.py` |
-| Trigger cases: `memory-status-checker-with-policy` (the table verbatim) and `memory-status-checker-neg-one-fact` (one git fact must stay inline) | `plugins/memory/evals/trigger/` |
+| Trigger cases: `memory-status-checker-with-policy` (the table verbatim) and `memory-status-checker-neg-one-fact` (one repository fact must stay inline) | `plugins/memory/evals/trigger/` |
 
 Rejected: adding `resume` to the SessionStart matcher. A resumed session already holds the start text from its transcript; the matcher keeps `startup|clear|compact`.
 

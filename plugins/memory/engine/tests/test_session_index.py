@@ -251,8 +251,7 @@ def test_triage_line_counts_the_lessons_awaiting_triage(tmp_path):
     assert "Triage: 1 general lesson awaits triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)
 
 
-STATUS = ("- Resuming earlier work, or asked where things stand: dispatch memory:memory-status-checker "
-          "before reading plans or the backlog yourself.")
+STATUS = mem._STATUS_LINE
 
 
 def test_status_line_only_with_a_live_state_memory(proj):

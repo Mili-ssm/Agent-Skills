@@ -7,7 +7,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Changed
 
 - `memory-status-checker` description names when to use it (resuming work, before choosing the next task, asking about the state of the work, docs or git), with two example questions, instead of "whenever you need", so the main model delegates to it more readily. Nothing to migrate.
-- The status-checker row of `user-config/offload-policy.md` names the moments (work resumes, before choosing the next task, the owner asks where things stand) and says to dispatch before reading plans yourself, instead of "your judgment". **Paste the table again** into your `CLAUDE.md` to get it.
+- The status-checker row of `user-config/offload-policy.md` names the moments (work resumes, before choosing the next task, the owner asks where things stand) and says to dispatch it before reading plans or the backlog yourself, instead of "your judgment". **Paste the table again** into your `CLAUDE.md` to get it.
 
 ### Added
 

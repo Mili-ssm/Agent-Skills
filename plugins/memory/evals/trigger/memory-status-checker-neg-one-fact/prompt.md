@@ -7,4 +7,4 @@ plugins: ["../../.."]
 allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash]
 ---
 
-What was the message of the last commit in this repository?
+Which license does this repository use?
