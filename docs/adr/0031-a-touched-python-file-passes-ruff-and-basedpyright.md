@@ -41,3 +41,4 @@ The owner chose "a touched file is fully clean, every rule" after seeing that to
 
 The owner asked for the pre-commit framework. `.pre-commit-config.yaml` holds two local hooks that call the repo's own scripts, so tool versions stay pinned only in `scripts/lint_touched.py`: on commit `lint_touched.py --fix` (formats, safe-fixes, then blocks on what remains), on push `scripts/hooks/pre-push`. `pre-commit install` refuses to run while `core.hooksPath` is set; `git config core.hooksPath scripts/hooks` stays the push-only path for a clone without pre-commit.
 
+Also 2026-11-25: "Python file" includes extensionless scripts whose shebang names python (the six `plugins/memory/bin/mem-*` scripts, about 4,000 lines), which the gate first missed.

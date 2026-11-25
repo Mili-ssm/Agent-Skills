@@ -179,3 +179,10 @@ def test_nested_ports_and_odd_names_are_selected(repo: Path) -> None:
     write(repo, 'odd"name.py')
     write(repo, "tab\tname.py")
     assert select(repo) == sorted(["plugins/x/ports/nested.py", 'odd"name.py', "tab\tname.py"])
+
+
+def test_extensionless_python_scripts_are_selected(repo: Path) -> None:
+    write(repo, "bin/tool", "#!/usr/bin/env python3\nx = 1\n")
+    write(repo, "bin/run.sh", "#!/bin/sh\necho hi\n")
+    write(repo, "bin/notes", "plain text\n")
+    assert select(repo) == ["bin/tool"]

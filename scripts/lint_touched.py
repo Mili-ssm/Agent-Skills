@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Gate: every Python file changed against `dev` must be fully clean under Ruff and basedpyright (ADR 0031).
 
+Python = `.py` files and extensionless scripts with a python shebang.
 Touched = changed since the merge-base with `origin/dev` (else local `dev`), staged, unstaged or untracked
 and not ignored; deleted files and the generated `ports/` are skipped. Untouched files are never checked.
 Tools run through `uvx` with pinned versions, configured by the root `ruff.toml` and `pyrightconfig.json`.
@@ -48,16 +49,28 @@ def merge_base(root: Path) -> str | None:
     return None
 
 
+def is_python(path: Path) -> bool:
+    """A `.py` file, or an extensionless script whose shebang names python."""
+    if path.suffix == ".py":
+        return True
+    if path.suffix:
+        return False
+    with path.open("rb") as handle:
+        first = handle.readline(200)
+    return first.startswith(b"#!") and b"python" in first
+
+
 def touched_files(root: Path, base: str) -> list[str]:
-    """Sorted repo-relative `.py` paths changed since `base`, staged, unstaged or untracked."""
+    """Sorted repo-relative Python paths changed since `base`, staged, unstaged or untracked."""
     changed = git(root, "diff", "--name-only", "-z", base).stdout.split("\0")
     untracked = git(root, "ls-files", "-z", "--others", "--exclude-standard").stdout.split("\0")
     return sorted(
         path
         for path in {*changed, *untracked}
-        if path.endswith(".py")
+        if path
         and not path.startswith(EXCLUDED_PREFIXES)
         and (root / path).is_file()
+        and is_python(root / path)
     )
 
 
