@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-25
+
 ### Added
 
 - `memory-status-checker` subagent (Haiku, read-only): when you resume earlier work, it reads git, the open-work and plan documents and the project's state memories, and returns one status card with a date and a source on every line, the written state that git or a newer memory shows to be out of date, and the next steps as the project wrote them. Ask it follow-up questions with `SendMessage`. Not measured yet.
