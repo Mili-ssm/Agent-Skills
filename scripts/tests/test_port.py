@@ -208,7 +208,7 @@ def test_check_passes_with_block(tmp_path, monkeypatch, capsys):
     reference = port.PLUGIN / "skills" / "prompt-engineering" / "references" / "skills-and-agents.md"
     agent = port.PLUGIN / "agents" / "fixer.md"
     for path, line in (
-        (reference, "6. **Report**: format and max length."),
+        (reference, "## Skills"),
         (agent, "## Rules"),
     ):
         text = path.read_text(encoding="utf-8")

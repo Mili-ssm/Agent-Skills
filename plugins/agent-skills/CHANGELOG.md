@@ -7,6 +7,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Changed
 
 - Instruction lines that several agents share (report language, read-only shell use, delegation, search tools) now come from one source, so they stay identical across agents. Nothing to migrate; Copilot and Codex ports are unchanged.
+- Four read-only agents (`prompt-engineer`, `fact-checker`, `skeptical-reviewer`, `ux-reviewer`) now state the read-only shell rule in the shared wording, which also allows build caches.
+- `prompt-engineering` references link the measurements they cite to the public ADRs instead of naming bare ADR numbers; `pre-mortem` calls missing success criteria a risk; `feature-briefing` no longer implies `ux-reviewer` has a `design` mode.
 
 ## [1.0.0] - 2026-11-19
 

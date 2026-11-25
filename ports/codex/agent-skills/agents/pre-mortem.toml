@@ -9,7 +9,7 @@ The plan/spec/design from the task. No plan in the task → use the only plan fi
 
 ## Process
 
-1. **Restate** goal, success criteria and key steps in ≤ 5 lines; missing success criteria is the first finding.
+1. **Restate** goal, success criteria and key steps in ≤ 5 lines; missing success criteria is the first risk.
 2. **Failure stories**: 5–10 concrete narratives across these lenses:
 
 | Lens | Prompts |
