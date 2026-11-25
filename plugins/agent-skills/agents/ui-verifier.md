@@ -1,7 +1,7 @@
 ---
 name: ui-verifier
 description: Browser verification worker (Sonnet) that drives a running web app with Playwright through given user flows at desktop and mobile widths and returns pass/fail per flow with evidence (expected vs. actual, console errors, failed requests, screenshot path on failure). Read-only. Use proactively after changing a web UI and before calling it done: dispatch it instead of driving the browser yourself, because page snapshots, scripts and logs would otherwise fill the expensive main context. For a usability or accessibility audit use ux-reviewer.
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Monitor
 disallowedTools: Edit, Write, NotebookEdit
 model: sonnet
 effort: medium

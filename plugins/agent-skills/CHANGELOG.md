@@ -6,6 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- `implementer`, `check-runner` and `ui-verifier` can use `Monitor` to wait for a command the harness moved to the background, instead of a blocked `sleep`; `implementer` says so in its rules. Claude Code only; the ports are unchanged in behavior.
 - Codex port model mapping is now derived from a model catalog (`shared/models.toml`); no agent's Codex model or effort changes, and the unused `max` cells now follow the effort policy (never `max`, `xhigh` only on the top model).
 - Instruction lines that several agents share (report language, read-only shell use, delegation, search tools) now come from one source, so they stay identical across agents. Nothing to migrate; Copilot and Codex ports are unchanged.
 - Read-only agents state the read-only shell rule in one shared wording; `prompt-engineer`, `fact-checker` and `skeptical-reviewer` allow temp dirs only, so builds and test runs stay with `check-runner`; `ux-reviewer` keeps its capture-file rule as its own line.

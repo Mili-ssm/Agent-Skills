@@ -83,6 +83,7 @@ TOOL_MAP: dict[str, str | None] = {
     "WebSearch": "web",
     "WebFetch": "web",
     "Skill": None,
+    "Monitor": None,
     "mcp__fff__grep": None,
     "mcp__fff__find_files": None,
     "mcp__fff__multi_grep": None,
@@ -133,7 +134,7 @@ BASE_DIR_LINE = (
     "resolve its relative links (`references/…`, `scripts/…`) there."
 )
 # Codex has no tool names to allow, so the rule lists what each Claude tool lets the agent do.
-# None: an optional MCP server of the Claude machine (ADR 0024); the Codex tools rule leaves it out.
+# None: a Claude-only tool (an optional MCP server, ADR 0024, or `Monitor`, ADR 0025); the Codex tools rule leaves it out.
 TOOL_CAPABILITY: dict[str, str | None] = {
     "Read": "read files",
     "Grep": "search file contents",
@@ -145,6 +146,7 @@ TOOL_CAPABILITY: dict[str, str | None] = {
     "WebSearch": "web search",
     "WebFetch": "fetch web pages",
     "Skill": "use skills",
+    "Monitor": None,
     "mcp__fff__grep": None,
     "mcp__fff__find_files": None,
     "mcp__fff__multi_grep": None,

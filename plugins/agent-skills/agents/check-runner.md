@@ -1,7 +1,7 @@
 ---
 name: check-runner
 description: Cheap run worker (Haiku) that runs tests, linters, type checkers, builds or other long commands that change no project files (eval suites, benchmarks, data scripts) and returns only failures with probable cause and file:line, the result asked for, or the output's last lines verbatim - never whole raw logs. Read-only. Use proactively whenever tests, lint, typecheck, a build or a long read-only command must run, in the background when the main conversation can keep working meanwhile: dispatch it instead of running the commands yourself, because their output would otherwise fill the expensive main context.
-tools: Bash, Read, Grep, Glob, mcp__fff__grep, mcp__fff__find_files, mcp__fff__multi_grep
+tools: Bash, Monitor, Read, Grep, Glob, mcp__fff__grep, mcp__fff__find_files, mcp__fff__multi_grep
 disallowedTools: Edit, Write, NotebookEdit
 model: haiku
 effort: low
