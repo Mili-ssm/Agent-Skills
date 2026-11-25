@@ -94,9 +94,9 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 **Interfaces:**
 - Consumes: `port.transform`, `port.rename_agents`, `port.toml_multiline`, `port.copilot_tools`, `port.codex_capabilities`, `port.stale_token`, `port.q`.
 
-- [ ] **Step 1:** Table-driven tests: `rename_agents` (`agent-skills:x` and bare `x` in prose, no change inside a longer word), `toml_multiline` (text with `"""`, backslashes, trailing newline), `q` (quotes and backslashes), `copilot_tools` (Edit and Write collapse to `edit`, `Skill` dropped), `codex_capabilities` (read-only vs write), `transform` per target (model tag "(Haiku)" rewritten for Codex, `CLAUDE_ONLY_LINE` removed, `/agent-skills:x` → `/x` for Copilot), `stale_token` (a Claude-only token left in output is reported).
-- [ ] **Step 2:** Run the suite; a transform that fails a case is a defect: fix it and report it.
-- [ ] **Step 3:** Commit `test(scripts): table tests for port.py transforms`.
+- [x] **Step 1:** Table-driven tests: `rename_agents` (`agent-skills:x` and bare `x` in prose, no change inside a longer word), `toml_multiline` (text with `"""`, backslashes, trailing newline), `q` (quotes and backslashes), `copilot_tools` (Edit and Write collapse to `edit`, `Skill` dropped), `codex_capabilities` (read-only vs write), `transform` per target (model tag "(Haiku)" rewritten for Codex, `CLAUDE_ONLY_LINE` removed, `/agent-skills:x` → `/x` for Copilot), `stale_token` (a Claude-only token left in output is reported).
+- [x] **Step 2:** Run the suite; a transform that fails a case is a defect: fix it and report it.
+- [x] **Step 3:** Commit `test(scripts): table tests for port.py transforms`.
 
 ### Task 3: One agent-rule table (A10)
 
