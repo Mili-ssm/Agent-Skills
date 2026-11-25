@@ -10,7 +10,7 @@ Read this section first; the stage list below is the detail. Release-by-release 
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.11.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
+| Released | `memory` 0.13.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
 | Unreleased work | None on 2026-11-24: research gaps merged in #178 and released in 0.11.0 (#179). Next: the security fixes (branch `fix/memory-security`), then the open work listed below |
 | Installed | `memory@mili-ssm` at user scope, following `main`; options in use: unverified (read the owner's settings, not this file) |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 2,214 passed, 5 skipped on `dev` (2026-11-24) |
