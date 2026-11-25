@@ -6,7 +6,7 @@ line-length = 100
 preview = true
 show-fixes = true
 target-version = "py312"
-extend-exclude = ["ports", "target"]
+extend-exclude = ["./ports", "./target"] # root only: a nested dir of that name is still checked
 
 [format]
 docstring-code-format = true

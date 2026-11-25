@@ -30,6 +30,7 @@ The owner chose "a touched file is fully clean, every rule" after seeing that to
 - The first edit of a large file costs a full cleanup of that file (format, lint, types); plan it into the task that touches it.
 - `ruff format` rewrites a file the first time it is touched, so that diff mixes formatting with the change; a separate formatting commit keeps review readable.
 - The gate is local: no CI runs it (N5); a machine without `uvx` skips it.
+- A clone with neither `origin/dev` nor `dev` cannot compute the touched set: the script exits 2 and the pre-push hook reports it as a failure.
 
 ## Revisit if
 

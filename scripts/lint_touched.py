@@ -50,8 +50,8 @@ def merge_base(root: Path) -> str | None:
 
 def touched_files(root: Path, base: str) -> list[str]:
     """Sorted repo-relative `.py` paths changed since `base`, staged, unstaged or untracked."""
-    changed = git(root, "diff", "--name-only", base).stdout.splitlines()
-    untracked = git(root, "ls-files", "--others", "--exclude-standard").stdout.splitlines()
+    changed = git(root, "diff", "--name-only", "-z", base).stdout.split("\0")
+    untracked = git(root, "ls-files", "-z", "--others", "--exclude-standard").stdout.split("\0")
     return sorted(
         path
         for path in {*changed, *untracked}
@@ -90,7 +90,7 @@ def check(root: Path, files: list[str]) -> bool:
         run_tool(
             root,
             "basedpyright",
-            ["uvx", "--with", "pyyaml", "--with", "pytest", BASEDPYRIGHT, *files],
+            ["uvx", "--with", "pyyaml", "--with", "pytest", BASEDPYRIGHT, "--warnings", *files],
         ),
     ]
     return all(results)

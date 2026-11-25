@@ -121,6 +121,7 @@ def test_all_checks_pass(repo: Path, tmp_path: Path) -> None:
     ]
     assert "--check" in calls[0]
     assert "--no-fix" in calls[1]
+    assert "--warnings" in calls[2]  # a basedpyright warning fails the gate too
     assert all(c.endswith("new.py") for c in calls)
     assert proc.stdout.count(": pass") == CHECKS
 
@@ -171,3 +172,10 @@ def test_fix_formats_and_fixes_before_checking(repo: Path, tmp_path: Path) -> No
     assert "--check" in calls[2]
     assert "--no-fix" in calls[3]
     assert len(calls) == FIX_CALLS
+
+
+def test_nested_ports_and_odd_names_are_selected(repo: Path) -> None:
+    write(repo, "plugins/x/ports/nested.py")
+    write(repo, 'odd"name.py')
+    write(repo, "tab\tname.py")
+    assert select(repo) == sorted(["plugins/x/ports/nested.py", 'odd"name.py', "tab\tname.py"])
