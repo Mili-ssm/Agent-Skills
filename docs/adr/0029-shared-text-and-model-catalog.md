@@ -1,4 +1,4 @@
-# 0029 Shared prompt text from fragments, Codex mapping from a model catalog
+# 0029 Shared prompt text from fragments, Codex mapping from a model catalog, a tested commit gate
 
 Status: accepted · Date: 2026-11-25 · Amends 0015
 
@@ -12,6 +12,8 @@ The owner wants one source of truth wherever possible, a marketplace that is cle
 | A `SessionStart` render would apply only from the next session and write into a cache that updates replace | Claude Code loads agents and skills at session start |
 | `user-config/*.md` is copied raw into eval cases, users' `~/.claude/CLAUDE.md` and the README prompt block | `scripts/cloud-setup.sh`, `port.py prompts()`, `evals/offload/*-with-policy` |
 | Costs are compared only within a vendor (different plan budgets) | owner, 2026-11-19 |
+
+ADR 0028 is reserved for the memory plugin split ([refactor plan](../superpowers/plans/2026-11-23-memory-refactor.md)).
 
 ## Decision
 
@@ -38,7 +40,7 @@ The owner wants one source of truth wherever possible, a marketplace that is cle
 - Markers cost a few tokens per block in each Claude agent's prompt (HTML comments); ports carry none.
 - A new model is one catalog entry plus its level; the literal `AGENT_PAIRS` in `scripts/tests/test_models.py` fails if an agent's Codex pair moves, so a remap is deliberate.
 - With the owner's acceptance (2026-11-25), only the four unused `max` cells changed; no agent's Codex model or effort changed.
-- Unmeasured (eval protocol, CLAUDE.md): four read-only agents (`prompt-engineer`, `fact-checker`, `skeptical-reviewer`, `ux-reviewer`) gained the shared wording "build caches and temp dirs are fine"; `skeptical-reviewer` is a worker. Kill criterion: its next `offload/skeptical-reviewer*` run below its last recorded result by 2 or more of 6, or a trace where a reviewer writes into the repository → revert commit `fix(agent-skills): unify drifted copies of the read-only shell line`.
+- Unmeasured (eval protocol, CLAUDE.md): three read-only agents (`prompt-engineer`, `fact-checker`, `skeptical-reviewer`) gained the shared wording "build caches and temp dirs are fine" (`ux-reviewer` had it; its extra clause became its own bullet); `skeptical-reviewer` is a worker. Kill criterion: its next `offload/skeptical-reviewer*` run below its last recorded result by 2 or more of 6, or a trace where a reviewer writes into the repository → revert commit `fix(agent-skills): unify drifted copies of the read-only shell line`.
 
 ## Revisit if
 

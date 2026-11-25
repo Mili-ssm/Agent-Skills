@@ -61,7 +61,7 @@ reason = "owner 2026-11-03, ADR 0017; kept as a pin although today's levels deri
 [[overrides]]
 from = ["sonnet", "low"]
 to = ["gpt-6-luna", "high"]
-reason = "owner's original table (2026-11): cheapest Codex pair that matches or beats the Claude pair, the hand table port.py held until 2026-11-25"
+reason = "owner's original table (2026-11), the hand table port.py held until 2026-11-25: the owner judged luna high enough for sonnet low, which the level scale ranks lower"
 
 [[overrides]]
 from = ["sonnet", "xhigh"]
