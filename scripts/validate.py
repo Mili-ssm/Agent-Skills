@@ -238,10 +238,15 @@ def check_links(skill_dir: Path, errors: list[str]) -> None:
                 errors.append(f"{md.relative_to(ROOT)}: links another reference '{target}' (link it from SKILL.md)")
 
 
-def check_skills(errors: list[str]) -> set[str]:
-    """Validate every skill directory and return the set of skill names found."""
+def plugin_dirs() -> list[Path]:
+    """Every plugin folder that ships skills or agents: the general rules run over all of them."""
+    return sorted(p for p in (ROOT / "plugins").glob("*/") if (p / "skills").is_dir() or (p / "agents").is_dir())
+
+
+def check_skills(errors: list[str], plugin: Path) -> set[str]:
+    """Validate every skill directory of a plugin and return the set of skill names found."""
     names: set[str] = set()
-    for skill_md in sorted(PLUGIN.glob("skills/*/SKILL.md")):
+    for skill_md in sorted(plugin.glob("skills/*/SKILL.md")):
         skill_dir = skill_md.parent
         rel = skill_md.relative_to(ROOT)
         names.add(skill_dir.name)
@@ -252,7 +257,8 @@ def check_skills(errors: list[str]) -> set[str]:
             if not NAME_RE.match(skill_dir.name):
                 errors.append(f"{rel}: name must be <= 64 chars of lowercase letters, digits, hyphens")
             check_description(rel, fm.get("description"), errors)
-            check_proactive(rel, fm.get("description"), False, errors)
+            if plugin == PLUGIN:  # the proactive-worker rule is agent-skills scope (ADR 0007, 0010)
+                check_proactive(rel, fm.get("description"), False, errors)
         check_line_budget(rel, text, SKILL_MAX_LINES, errors)
         check_reference_depth(skill_dir, errors)
         check_reference_toc(skill_dir, errors)
@@ -308,10 +314,13 @@ def check_workers_exist(agent_names: set[str], errors: list[str]) -> None:
         errors.append(f"{(PLUGIN / 'agents' / f'{name}.md').relative_to(ROOT)}: worker '{name}' has no agent file")
 
 
-def check_agents(errors: list[str], skill_names: set[str]) -> set[str]:
-    """Validate every agent definition, including its preloaded skills; return the agent names found."""
+def check_agents(errors: list[str], skill_names: set[str], plugin: Path) -> set[str]:
+    """Validate every agent of a plugin, including preloads from its own skills; return the agent names found.
+
+    Workers, their maxTurns and "Use proactively" are agent-skills scope; the other rules apply to every plugin."""
     names: set[str] = set()
-    for agent_md in sorted(PLUGIN.glob("agents/*.md")):
+    own = plugin == PLUGIN
+    for agent_md in sorted(plugin.glob("agents/*.md")):
         name = agent_md.stem
         rel = agent_md.relative_to(ROOT)
         names.add(name)
@@ -322,12 +331,15 @@ def check_agents(errors: list[str], skill_names: set[str]) -> set[str]:
             if not fm.get("tools"):
                 errors.append(f"{rel}: missing 'tools'")
             check_description(rel, fm.get("description"), errors)
-            check_proactive(rel, fm.get("description"), name in WORKERS, errors)
+            if own:
+                check_proactive(rel, fm.get("description"), name in WORKERS, errors)
             check_agent_rules(rel, fm, skill_names, errors)
-            check_max_turns(rel, name, fm, errors)
+            if own:
+                check_max_turns(rel, name, fm, errors)
             check_read_only(rel, fm, errors)
         check_line_budget(rel, text, AGENT_MAX_LINES, errors)
-    check_workers_exist(names, errors)
+    if own:
+        check_workers_exist(names, errors)
     return names
 
 
@@ -661,8 +673,16 @@ def main() -> int:
     parser.add_argument("--release", action="store_true", help="also compare each plugin with its latest git tag (ADR 0027)")
     release = parser.parse_args().release
     errors: list[str] = []
-    skills = check_skills(errors)
-    agents = check_agents(errors, skills)
+    skills: set[str] = set()
+    agents: set[str] = set()
+    total_skills = total_agents = 0
+    for plugin in plugin_dirs():
+        plugin_skills = check_skills(errors, plugin)
+        plugin_agents = check_agents(errors, plugin_skills, plugin)
+        total_skills += len(plugin_skills)
+        total_agents += len(plugin_agents)
+        if plugin == PLUGIN:
+            skills, agents = plugin_skills, plugin_agents
     check_commands(errors, skills, agents)
     check_eval_graders(errors, skills, agents)
     check_offload_policy(errors)
@@ -672,7 +692,7 @@ def main() -> int:
     check_ports(errors)
     for err in errors:
         print(err)
-    print(f"{'FAIL' if errors else 'OK'}: {len(skills)} skills, {len(agents)} agents, {len(errors)} errors")
+    print(f"{'FAIL' if errors else 'OK'}: {total_skills} skills, {total_agents} agents, {len(errors)} errors")
     return 1 if errors else 0
 
 

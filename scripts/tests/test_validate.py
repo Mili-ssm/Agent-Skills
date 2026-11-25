@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from conftest import EXTRA_AGENT, SKILL, run_checks
+from conftest import EXTRA_AGENT, MEMORY_AGENT, MEMORY_SKILL, SKILL, run_checks
 
 import validate
 
@@ -16,6 +16,9 @@ SKILL_MD = f"{PLUGIN}/skills/{SKILL}/SKILL.md"
 AGENT_MD = f"{PLUGIN}/agents/{EXTRA_AGENT}.md"
 WORKER_MD = f"{PLUGIN}/agents/fixer.md"
 GRADERS = f"{PLUGIN}/evals"
+MEMORY = "plugins/memory"
+MEMORY_AGENT_MD = f"{MEMORY}/agents/{MEMORY_AGENT}.md"
+MEMORY_SKILL_MD = f"{MEMORY}/skills/{MEMORY_SKILL}/SKILL.md"
 
 
 def edit(root: Path, rel: str, old: str, new: str) -> None:
@@ -498,3 +501,35 @@ def test_block_scalar_decodes_literal_block():
     text = "a:\n  key: |\n    one\n\n    two\n  other: x\n"
     assert validate.block_scalar(text, "key") == "one\n\ntwo"
     assert validate.block_scalar(text, "absent") is None
+
+
+# --- rules over every plugin (A9) -----------------------------------------------------------------------------
+
+
+def test_memory_agent_invalid_model(mini_repo):
+    edit(mini_repo, MEMORY_AGENT_MD, "model: haiku", "model: gpt")
+    assert run_checks(mini_repo) == [
+        f"{MEMORY_AGENT_MD}: 'model' must be fable | haiku | inherit | opus | sonnet or a full claude- id (got 'gpt')"
+    ]
+
+
+def test_memory_skill_second_person_description(mini_repo):
+    edit(mini_repo, MEMORY_SKILL_MD, "Keeps notes.", "You keep notes.")
+    assert run_checks(mini_repo) == [f"{MEMORY_SKILL_MD}: description must be third person (found 'You')"]
+
+
+def test_memory_agent_preloads_skill_of_another_plugin(mini_repo):
+    edit(mini_repo, MEMORY_AGENT_MD, f"skills: [{MEMORY_SKILL}]", f"skills: [{SKILL}]")
+    assert run_checks(mini_repo) == [f"{MEMORY_AGENT_MD}: preloads unknown skill '{SKILL}'"]
+
+
+def test_memory_agent_without_command_passes(mini_repo):
+    assert not list((mini_repo / MEMORY / "commands").glob("*")), "fixture gives the memory plugin no commands"
+    assert run_checks(mini_repo) == []
+
+
+def test_memory_agent_says_use_proactively_passes(mini_repo):
+    edit(mini_repo, MEMORY_AGENT_MD, "Use when asked for it.", "Use proactively when asked for it.")
+    edit(mini_repo, MEMORY_SKILL_MD, "Use when a note", "Use proactively when a note")
+    assert run_checks(mini_repo) == []
+

@@ -14,6 +14,8 @@ import validate  # noqa: E402
 
 SKILL = "demo-skill"
 EXTRA_AGENT = "demo-reviewer"  # a non-worker agent, so it needs a command
+MEMORY_SKILL = "memo-skill"  # the second plugin: its agent has no command and is no worker
+MEMORY_AGENT = "memo-agent"
 
 
 def write(path: Path, text: str) -> None:
@@ -65,6 +67,15 @@ def build_mini_repo(root: Path) -> None:
 
     write_evals(plugin)
 
+    memory = root / "plugins" / "memory"
+    write(
+        memory / "skills" / MEMORY_SKILL / "SKILL.md",
+        f"---\nname: {MEMORY_SKILL}\ndescription: Keeps notes. Use when a note is needed.\n---\nBody.\n",
+    )
+    write(memory / "agents" / f"{MEMORY_AGENT}.md", agent_text(MEMORY_AGENT, worker=False).replace("---\nBody", f"skills: [{MEMORY_SKILL}]\n---\nBody"))
+    write(memory / ".claude-plugin" / "plugin.json", json.dumps({"name": "memory", "version": "1.0.0"}))
+    write(memory / "CHANGELOG.md", "# Changelog\n\n## [1.0.0] - 2026-01-01\n\n- First release.\n")
+
     entry = {"plugins": [{"name": "agent-skills", "source": "./plugins/agent-skills"}]}
     for rel in validate.CATALOGS:
         write(root / rel, json.dumps(entry))
@@ -101,8 +112,13 @@ def run_checks(root: Path) -> list[str]:
     """Errors of every check except `check_ports` and the `--release` git checks (`root` documents the target)."""
     assert validate.ROOT == root, "patch validate.ROOT with the mini_repo fixture first"
     errors: list[str] = []
-    skills = validate.check_skills(errors)
-    agents = validate.check_agents(errors, skills)
+    skills: set[str] = set()
+    agents: set[str] = set()
+    for plugin in validate.plugin_dirs():
+        plugin_skills = validate.check_skills(errors, plugin)
+        plugin_agents = validate.check_agents(errors, plugin_skills, plugin)
+        if plugin == validate.PLUGIN:
+            skills, agents = plugin_skills, plugin_agents
     validate.check_commands(errors, skills, agents)
     validate.check_eval_graders(errors, skills, agents)
     validate.check_offload_policy(errors)
