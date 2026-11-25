@@ -146,3 +146,10 @@ def test_default_catalog_path_is_independent_of_cwd(monkeypatch, tmp_path: Path)
 
     monkeypatch.chdir(tmp_path)
     assert models.CATALOG.is_file()
+
+
+def test_malformed_catalog_is_one_value_error(tmp_path: Path) -> None:
+    path = tmp_path / "models.toml"
+    path.write_text(toml().replace("effort_step = 0.25\n", ""), encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed catalog"):
+        load_catalog(path)

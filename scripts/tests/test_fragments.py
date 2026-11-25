@@ -236,3 +236,9 @@ def test_verbatim_in_needs_whole_lines(tmp_path: Path) -> None:
     write(tmp_path / "shared/fragments/v.md", "verbatim-in: user-config/p.md\nNever guess.\n")
     write(tmp_path / "user-config/p.md", "I never guess. Never guess. ok\n")
     assert "user-config/p.md: text of 'v' is not verbatim in it (shared/fragments/v.md)" in fr.check(tmp_path)
+
+
+def test_check_reports_a_bad_fragment_without_traceback(tmp_path: Path) -> None:
+    make_root(tmp_path, "")
+    write(tmp_path / "shared/fragments/bad.md", "```\nx\n")
+    assert fr.check(tmp_path) == ["shared/fragments: fragment 'bad' leaves a code fence open"]

@@ -51,7 +51,7 @@ PLUGIN_NAME = "agent-skills"
 
 CATALOG_DATA = load_catalog(CATALOG)
 # Copilot runs the same Claude models, so model and effort pass through unchanged; the ids live in the catalog.
-COPILOT_MODELS = {m.key: m.copilot for m in CATALOG_DATA.models("claude")}
+COPILOT_MODELS = {m.key: m.copilot for m in CATALOG_DATA.models("claude") if m.copilot}  # no id → check_agent reports it
 # Claude (model, effort) -> Codex (model, effort), derived from shared/models.toml (levels, costs, effort policy and
 # the Haiku medium pin; ADR 0017). A pair missing here is an error in --check.
 CODEX_PAIRS: dict[tuple[str, str], tuple[str, str]] = derive_pairs(CATALOG_DATA, "claude", "codex")

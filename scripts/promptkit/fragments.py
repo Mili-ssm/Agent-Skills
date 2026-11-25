@@ -171,7 +171,10 @@ def scan_files(root: Path) -> list[Path]:
 def check(root: Path) -> list[str]:
     """Drift, unmarked copies and `verbatim-in:` mismatches under `root`, one message each."""
     folder = root / FRAGMENTS_DIR
-    fragments = load_fragments(folder)
+    try:
+        fragments = load_fragments(folder)
+    except FragmentError as err:
+        return [f"{FRAGMENTS_DIR.as_posix()}: {err}"]
     problems: list[str] = []
     for path in scan_files(root):
         rel = path.relative_to(root).as_posix()
@@ -204,7 +207,11 @@ def main(argv: list[str] | None = None) -> int:
         for problem in problems:
             print(problem)
         return 1 if problems else 0
-    fragments = load_fragments(root / FRAGMENTS_DIR)
+    try:
+        fragments = load_fragments(root / FRAGMENTS_DIR)
+    except FragmentError as err:
+        print(f"{FRAGMENTS_DIR.as_posix()}: {err}")
+        return 1
     status = 0
     for path in scan_files(root):
         with path.open(encoding="utf-8", newline="") as f:

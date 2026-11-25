@@ -7,6 +7,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 HOOK = Path(__file__).resolve().parent.parent / "hooks" / "pre-push"
 
 
@@ -47,3 +49,17 @@ def test_hook_skips_missing_tools(tmp_path: Path) -> None:
     assert calls == ["python3 scripts/validate.py"]
     assert "pre-push: skipped test suite (uv not found)" in proc.stdout
     assert "pre-push: skipped claude plugin validate (claude not found)" in proc.stdout
+
+
+def test_hook_passes_when_every_check_passes(tmp_path: Path) -> None:
+    proc, calls = run_hook(tmp_path, {"python3": 0, "uv": 0, "claude": 0})
+    assert proc.returncode == 0
+    assert [c.split()[0] for c in calls] == ["python3", "uv", "claude"]
+
+
+@pytest.mark.parametrize("failing", ["uv", "claude"])
+def test_hook_fails_when_a_later_check_fails(tmp_path: Path, failing: str) -> None:
+    tools = {"python3": 0, "uv": 0, "claude": 0, failing: 1}
+    proc, calls = run_hook(tmp_path, tools)
+    assert proc.returncode != 0
+    assert [c.split()[0] for c in calls] == ["python3", "uv", "claude"]

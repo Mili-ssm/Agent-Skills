@@ -54,6 +54,13 @@ def grade(model: Model, effort: str, catalog: Catalog) -> float:
 
 
 def load_catalog(path: Path) -> Catalog:
+    try:
+        return _load_catalog(path)
+    except (KeyError, TypeError, tomllib.TOMLDecodeError) as err:  # one readable line, not a bare KeyError
+        raise ValueError(f"{path}: malformed catalog ({type(err).__name__}: {err})") from err
+
+
+def _load_catalog(path: Path) -> Catalog:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     p = data["policy"]
     policy = Policy(tuple(p["efforts"]), float(p["effort_step"]), frozenset(p["never"]), bool(p["xhigh_only_on_top"]))
