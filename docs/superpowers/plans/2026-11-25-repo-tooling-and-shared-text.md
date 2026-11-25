@@ -69,8 +69,8 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 **Interfaces:**
 - Produces: fixture `mini_repo(tmp_path, monkeypatch) -> Path` that builds a minimal valid repository and patches every path global of `validate` (`ROOT`, `PLUGIN`, `POLICY`, `OFFLOAD_COMMAND`, and any other module-level path). The mini repo holds what every check except `check_ports` reads: `plugins/agent-skills/` with one skill, one worker agent, `commands/offload.md` with its row, one command per non-worker agent, `.claude-plugin/plugin.json` and `CHANGELOG.md`; `.claude-plugin/marketplace.json`; the two other tools' catalogs and every path in `PUBLIC_PATHS` (`user-config/*.md`, `user-agents/Explore.md`, README anchors); `README.md` with the `## Catalog` tables; `LICENSE`. Helper `run_checks(root) -> list[str]` returns the errors of every check except `check_ports` and the `--release` git checks. `conftest.py` puts `scripts/` on `sys.path`.
 
-- [ ] **Step 1:** `test_mini_repo_is_valid` (no errors); run the suite.
-- [ ] **Step 2:** Commit `test(scripts): harness with a minimal valid repository for validate.py`.
+- [x] **Step 1:** `test_mini_repo_is_valid` (no errors); run the suite.
+- [x] **Step 2:** Commit `test(scripts): harness with a minimal valid repository for validate.py`.
 
 ### Task 1b: `validate.py` rule tests (Q1)
 
@@ -80,11 +80,11 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 **Interfaces:**
 - Consumes: `mini_repo`, `run_checks` (Task 1a).
 
-- [ ] **Step 1:** One negative test per rule, each mutating the mini repo once and asserting one error that names the file: skill name ≠ folder, description without trigger, first-person description, SKILL.md over 150 lines, reference two levels deep, reference over 100 lines without `## Contents`, broken relative link, agent without `tools`, invalid `model`, missing `effort`, worker without `maxTurns`, non-worker saying "Use proactively", Read-only agent granting `Edit`, Read-only agent without `omitClaudeMd: true`, unknown preloaded skill, command without `$ARGUMENTS`, non-worker agent with no command, README catalog missing an agent, eval grader naming an unknown agent, public path missing, `plugin.json` version without a CHANGELOG entry.
-- [ ] **Step 2:** Unit tests: `parse_frontmatter` (list keys, quoted values, block scalars, `argument-hint: [x]` stays text, malformed → `FrontmatterError`), `version_key` (`1.10.0` > `1.9.0`, pre-release sorts before release), `block_scalar`.
-- [ ] **Step 3:** The person rule ignores text inside double quotes (owner ruling above): tests `test_quoted_we_passes` (`... such as "what do we know about X"`) and `test_unquoted_we_fails`; implement in `check_description`.
-- [ ] **Step 4:** Run `uv run --with pytest pytest scripts/tests -q`. A rule whose negative test passes without an error is a fail-open defect: fix each in its own commit and list it in the report (kill criterion: more than 3).
-- [ ] **Step 5:** Commit `test(scripts): cover every validate.py rule with a negative case`.
+- [x] **Step 1:** One negative test per rule, each mutating the mini repo once and asserting one error that names the file: skill name ≠ folder, description without trigger, first-person description, SKILL.md over 150 lines, reference two levels deep, reference over 100 lines without `## Contents`, broken relative link, agent without `tools`, invalid `model`, missing `effort`, worker without `maxTurns`, non-worker saying "Use proactively", Read-only agent granting `Edit`, Read-only agent without `omitClaudeMd: true`, unknown preloaded skill, command without `$ARGUMENTS`, non-worker agent with no command, README catalog missing an agent, eval grader naming an unknown agent, public path missing, `plugin.json` version without a CHANGELOG entry.
+- [x] **Step 2:** Unit tests: `parse_frontmatter` (list keys, quoted values, block scalars, `argument-hint: [x]` stays text, malformed → `FrontmatterError`), `version_key` (`1.10.0` > `1.9.0`, pre-release sorts before release), `block_scalar`.
+- [x] **Step 3:** The person rule ignores text inside double quotes (owner ruling above): tests `test_quoted_we_passes` (`... such as "what do we know about X"`) and `test_unquoted_we_fails`; implement in `check_description`.
+- [x] **Step 4:** Run `uv run --with pytest pytest scripts/tests -q`. A rule whose negative test passes without an error is a fail-open defect: fix each in its own commit and list it in the report (kill criterion: more than 3).
+- [x] **Step 5:** Commit `test(scripts): cover every validate.py rule with a negative case`.
 
 ### Task 2: `port.py` transform tests (Q2)
 
