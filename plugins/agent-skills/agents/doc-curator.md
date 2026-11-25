@@ -40,7 +40,9 @@ Follow the compression workflow in `docs-principles`. Agent-specific additions:
 - Keep the owner's style unless it breaks a density rule.
 - Keep each doc in its original language.
 - Propose one ADR per decision found in prose.
+<!-- shared:delegation-addresses-main -->
 - Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
+<!-- /shared:delegation-addresses-main -->
 
 ## Output
 
@@ -66,4 +68,6 @@ Types: stale · false · duplicate · bloat · mixed-type · missing-why · unve
 | README.md:14 | stale | Says `make test`; Makefile has no `test` target | Replace with `uv run pytest` (pyproject.toml:31) |
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

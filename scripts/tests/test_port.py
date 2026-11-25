@@ -189,3 +189,33 @@ def test_transformed_text_has_no_stale_token(target):
         "/agent-skills:review (Haiku) (Sonnet) (Opus) agent-skills:fixer"
     )
     assert port.stale_token(port.transform(text, target, AGENTS), target) is None
+
+
+def test_check_passes_with_block(tmp_path, monkeypatch, capsys):
+    """Shared-block markers in a skill reference and an agent must not reach the ports, and --check must still pass."""
+    import shutil
+
+    for name in ("plugins/agent-skills", "ports", "user-config", ".claude-plugin", ".github", ".agents"):
+        shutil.copytree(port.ROOT / name, tmp_path / name)
+    shutil.copy(port.ROOT / "README.md", tmp_path / "README.md")
+    monkeypatch.setattr(port, "ROOT", tmp_path)
+    monkeypatch.setattr(port, "PLUGIN", tmp_path / "plugins" / "agent-skills")
+    monkeypatch.setattr(port, "CLAUDE_MARKETPLACE", tmp_path / ".claude-plugin" / "marketplace.json")
+    monkeypatch.setattr(port, "POLICY", tmp_path / "user-config" / "offload-policy.md")
+    monkeypatch.setattr(port, "ROUTING", tmp_path / "user-config" / "routing.md")
+    monkeypatch.setattr(port, "README", tmp_path / "README.md")
+
+    reference = port.PLUGIN / "skills" / "prompt-engineering" / "references" / "skills-and-agents.md"
+    agent = port.PLUGIN / "agents" / "fixer.md"
+    for path, line in (
+        (reference, "6. **Report**: format and max length."),
+        (agent, "## Rules"),
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert text.count(line) == 1
+        path.write_text(
+            text.replace(line, f"<!-- shared:x -->\n{line}\n<!-- /shared:x -->"),
+            encoding="utf-8",
+        )
+
+    assert port.main(["--check"]) == 0, capsys.readouterr().out

@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import tomllib
+from promptkit.fragments import strip_markers
 from validate import FrontmatterError, as_list, check_agent_rules, is_true, parse_frontmatter
 
 # Repo root = parent of scripts/, independent of the current working directory.
@@ -439,6 +440,7 @@ def transform(
     agent: bool = False,
 ) -> str:
     """All text transforms for one tool; `command` and `agent` add the ones only those files need."""
+    text = strip_markers(text)
     if SKILL_DIR_VAR in text:
         if skill is None:
             raise PortError(
@@ -493,6 +495,14 @@ def source_files(folder: Path) -> list[Path]:
         for p in sorted(folder.rglob("*"))
         if p.is_file() and "__pycache__" not in p.parts and p.suffix != ".pyc"
     ]
+
+
+def skill_file_bytes(path: Path) -> bytes:
+    """A skill file as the ports carry it: Markdown loses its shared-block markers, other files stay byte-exact."""
+    data = path.read_bytes()
+    if path.suffix != ".md":
+        return data
+    return strip_markers(data.decode("utf-8")).encode("utf-8")
 
 
 def is_executable(path: Path) -> bool:
@@ -589,7 +599,7 @@ class Generator:
                     )
                     self.put_instruction(dest, text, target)
                 else:
-                    self.put(dest, path.read_bytes(), executable=is_executable(path))
+                    self.put(dest, skill_file_bytes(path), executable=is_executable(path))
 
     def commands(self, target: Target) -> None:
         """Commands become user-only skills: neither tool runs Claude command files."""
@@ -859,6 +869,7 @@ def expected_text(
     agent: bool = False,
 ) -> str:
     """What `text` must become for `target`, as an ordered list of swaps (independent of the generator)."""
+    text = strip_markers(text)
     swaps = [
         (SKILL_DIR_VAR, f"{target.root}/skills/{skill}"),
         (PLUGIN_ROOT_VAR, target.root),
@@ -1090,7 +1101,7 @@ class Verifier:
             check = Check(self.errors, rel)
             if inside != "SKILL.md":
                 check.ok(
-                    (ROOT / rel).read_bytes() == path.read_bytes(),
+                    (ROOT / rel).read_bytes() == skill_file_bytes(path),
                     "differs from the Claude source",
                 )
                 continue

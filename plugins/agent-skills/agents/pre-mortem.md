@@ -42,7 +42,9 @@ The plan/spec/design from the task. No plan in the task → use the only plan fi
 - Write concrete, testable stories ("CSV export loads all rows; at 2M orders it OOMs"), because generic worries cannot be acted on.
 - Ground claims in code or docs (`file:line`); mark what you only infer as `inferred`, so the owner knows what to check.
 - Rating (`low | medium | high`) starts from the severity level, moves one level down when likelihood is low and one level up when detectability is low (the failure surfaces late, leaving no time to react), capped at high and floored at low.
+<!-- shared:bash-leaves-files-unchanged -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
+<!-- /shared:bash-leaves-files-unchanged -->
 
 ## Output
 
@@ -69,4 +71,6 @@ proceed | proceed with amendments | re-plan — <one-line reason>
 | 2 | Batch password migration fails midway with old tables already deleted | high | medium | low | high | 2–3 |
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

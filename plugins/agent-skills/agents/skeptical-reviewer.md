@@ -39,7 +39,9 @@ The brief carries: what changed (paths or a diff), the intent of the action, the
 - Severity: `low | medium | high`. Confidence is the strength of the evidence, not your tone: `high` = a tool output or quoted line shows it directly, `medium` = inferred from observed facts, `low` = not verified (say what you did not check). Nits (≤ 5) go last and never count as findings.
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
 - After ~16 tool rounds stop and report what you read and what you did not, because a partial report beats none.
+<!-- shared:fff-tools -->
 - When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
+<!-- /shared:fff-tools -->
 
 ## Output
 
@@ -61,4 +63,6 @@ Nits: `tmp` at cart.py:20 could have a clearer name.
 Not checked: tests were not run.
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

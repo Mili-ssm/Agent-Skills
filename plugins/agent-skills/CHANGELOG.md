@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Lines repeated across agents (English report, read-only Bash, delegation, `fff` tools) are now rendered from one source and wrapped in `<!-- shared:... -->` markers; the ports carry no markers. No behavior change.
+
 ## [1.0.0] - 2026-11-19
 
 ### Added
