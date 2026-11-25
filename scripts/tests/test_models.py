@@ -113,6 +113,19 @@ def test_agent_cells_keep_todays_pairs() -> None:
     derived = derive_pairs(load_catalog(ROOT / "shared" / "models.toml"), "claude", "codex")
     for cell in sorted(cells):
         assert derived[cell] == port.CODEX_PAIRS[cell], cell
+        # literal pins: a catalog edit that moves an agent's Codex pair must change this table on purpose
+        assert cell in AGENT_PAIRS, f"new agent cell {cell}: add its Codex pair to AGENT_PAIRS"
+        assert derived[cell] == AGENT_PAIRS[cell], cell
+
+
+AGENT_PAIRS = {
+    ("haiku", "low"): ("gpt-6-luna", "low"),
+    ("haiku", "medium"): ("gpt-6-luna", "low"),
+    ("haiku", "high"): ("gpt-6-luna", "medium"),
+    ("sonnet", "medium"): ("gpt-6.1-terra", "low"),
+    ("sonnet", "high"): ("gpt-6.1-terra", "medium"),
+    ("opus", "high"): ("gpt-6.2-sol", "medium"),
+}
 
 
 @pytest.mark.parametrize(
