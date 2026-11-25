@@ -4,6 +4,18 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-25
+
+### Added
+
+- `memory-status-checker` subagent (Haiku, read-only): when you resume earlier work, it reads git, the open-work and plan documents and the project's state memories, and returns one status card with a date and a source on every line, the written state that git or a newer memory shows to be out of date, and the next steps as the project wrote them. Ask it follow-up questions with `SendMessage`. Not measured yet.
+- An offload table for your user-level `CLAUDE.md`, `user-config/offload-policy.md`: when to hand memory work to each of the five subagents and what each returns. Paste it to have the main model delegate (README § Subagents); nothing changes until you do.
+- `mem curate` now lists an established lesson whose short form the automatic fill will not write: it gave up after two failed tries, or the lesson is repository-tracked, or a project lesson of weight `strong` you have not confirmed ("no short form", with the `mem memory edit m:<h> --short '<text>' --topic <t>` that fixes it), and the session-start "Curation due" count includes it until a `mem curate --done` pass. `mem rules --more` says those lessons need curation instead of promising the background pass will write them, counting only the lessons it left without a short form. Nothing to migrate.
+
+### Fixed
+
+- The subagent start text is no longer given to `memory-synthesizer`, as the README already said. Nothing to migrate.
+
 ## [0.12.0] - 2026-11-24
 
 ### Security

@@ -10,7 +10,7 @@ Read this section first; the stage list below is the detail. Release-by-release 
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.11.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
+| Released | `memory` 0.13.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
 | Unreleased work | None on 2026-11-24: research gaps merged in #178 and released in 0.11.0 (#179). Next: the security fixes (branch `fix/memory-security`), then the open work listed below |
 | Installed | `memory@mili-ssm` at user scope, following `main`; options in use: unverified (read the owner's settings, not this file) |
 | Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 2,214 passed, 5 skipped on `dev` (2026-11-24) |
@@ -35,6 +35,11 @@ Open items, none blocking:
 | `SessionEnd` shares a 1.5 s budget a plugin hook cannot raise ([platform-parity.md](../../platform-parity.md#memory)); solved on the unreleased branch by the detached commit | Solved, unreleased |
 | What the note repository does that the plugin does not: [inventory](../../studies/2026-11-23-note-repository-parity.md); commit gate done on the unreleased branch, rest proposed | Twelve items, three high |
 | Matching by meaning (stage B3 of the capture design, C28); a paired evaluation of task outcomes with and without the plugin | Not planned yet |
+| To investigate (owner, 2026-11-24): one kind for memories and lessons, every record loadable at session start by a priority level (never, always, ranked levels in between) under the token limit, so the loaded block becomes a starting prompt built from experience and knowledge. Today only established transcript lessons load (`rules.eligible`), and the `load` field already holds `no` and `index`. Evaluate against a paired run with and without it before any design | Not planned yet |
+| To investigate (owner, 2026-11-24): a lesson written with `mem remember` starts with no sighting (no session source), so it never becomes established by evidence; it may start at one sighting, and whether the owner's word should also raise the count is open. Neither can the owner vouch for one: `confirm --by-owner` refuses a non-transcript lesson and `rules.eligible` needs origin `transcript`. On 2026-11-24 the owner vouched for ten manual global lessons, to load light (provisional) once this is built; the list is a project memory (`mem search "vouched for ten manual"`), not here, because handles are note titles. No command sets the weight of an existing memory | Planned by the owner for a later development |
+| To investigate (owner, 2026-11-24): rotate part of the loaded block, a sample of the left-out lessons drawn by importance, so sessions differ slightly and the effect of each lesson (helps, hurts, nothing) becomes measurable | Not planned yet; needs the usefulness signal (C49) |
+| To investigate (owner, 2026-11-24): two loaded sets, a generic top (most general and useful lessons) and a per-project top (the topics or kinds of lesson that matter in that project, local ones included) | Not planned yet |
+| To investigate (owner, 2026-11-24): find paraphrases among new or unconfirmed lessons by searching the five most similar lessons and memories and asking a Haiku judge whether they say the same; today `records.pairs` matches words only (containment 0.6) within one scope, and paraphrases scored 0.41 to 0.58 on 2026-11-24. Overlaps the matching by meaning above | Not planned yet |
 
 Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `dev` or `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D25) and are not reopened without new evidence.
 
