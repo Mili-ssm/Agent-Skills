@@ -107,9 +107,9 @@ Status: planned, pre-mortem amendments applied · Date: 2026-11-25 · Branch: `f
 - Produces in `validate.py`: `AGENT_MODELS: frozenset[str]` (today `haiku`, `sonnet`, `opus`, `fable`, `inherit`), `AGENT_EFFORTS: frozenset[str]` (`low`, `medium`, `high`), and `check_agent_rules(rel: Path, fm: Frontmatter, skill_names: set[str], errors: list[str]) -> None` covering model, effort membership, positive integer `maxTurns` when set, `omitClaudeMd` boolean, preloads.
 - `port.py` imports `AGENT_EFFORTS` and `check_agent_rules`; its `check_agent` keeps only mapping coverage (model in `MODEL_MAP`, pair in `CODEX_PAIRS`, tools in `TOOL_MAP`/`TOOL_CAPABILITY`, Copilot alias conflicts). `EFFORTS` in `port.py` is removed, and the `docs/ports.md` sentence that cites `EFFORTS` names `AGENT_EFFORTS` in `validate.py`. Full `claude-` ids stay accepted (`FULL_MODEL_ID`).
 
-- [ ] **Step 1:** Tests: effort `xhigh` on an agent fails in `validate.py` with the allowed set in the message; `maxTurns: 0` fails; the same agent errors are not reported twice when `validate.py` runs `port.py --check`.
-- [ ] **Step 2:** Implement; `python3 scripts/port.py --check` and the suite pass; ports unchanged (`git status ports/` clean).
-- [ ] **Step 3:** Commit `refactor(scripts): one agent-rule table shared by validate.py and port.py`.
+- [x] **Step 1:** Tests: effort `xhigh` on an agent fails in `validate.py` with the allowed set in the message; `maxTurns: 0` fails; the same agent errors are not reported twice when `validate.py` runs `port.py --check`.
+- [x] **Step 2:** Implement; `python3 scripts/port.py --check` and the suite pass; ports unchanged (`git status ports/` clean).
+- [x] **Step 3:** Commit `refactor(scripts): one agent-rule table shared by validate.py and port.py`.
 
 ### Task 4: Rules over every plugin (A9)
 
