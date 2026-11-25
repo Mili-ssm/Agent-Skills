@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- `memory-status-checker` description names when to use it (resuming work, before choosing the next task, asking about the state of the work, docs or git), with two example questions, instead of "whenever you need", so the main model delegates to it more readily. Nothing to migrate.
+
 ## [0.13.0] - 2026-11-25
 
 ### Added
