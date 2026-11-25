@@ -41,8 +41,12 @@ No claims or no source → stop and return what is missing; you cannot ask the o
 - Propose the smallest replacement that makes the claim true to the source, without restyling the text.
 - Judge each claim against the source given, not whether the source is right; a doubt about the source itself goes in one line under Notes.
 - When the source disagrees with itself (text against table), report both values and which one the claim uses instead of choosing.
+<!-- shared:bash-leaves-files-unchanged allowed="temp dirs" -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
+<!-- /shared:bash-leaves-files-unchanged -->
+<!-- shared:fff-tools -->
 - When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
+<!-- /shared:fff-tools -->
 
 ## Output
 
@@ -68,4 +72,6 @@ Not checked: section 4 (its source is a URL; a local text copy is needed)
 Notes: bench.txt gives 150 ms in the text and 152 ms in table 2; claim 1 uses the text
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

@@ -167,7 +167,7 @@ def test_state_memories_come_first(proj):
     write(proj, "a", "A.", observed=5, kind="lesson")
     write(proj, "s2", "S two.", observed=1, kind="state", created="2026-11-02")
     write(proj, "s1", "S one.", observed=2, kind="state", created="2026-11-01")
-    rows = mem.session_index(None, proj, None, TODAY, limit=8).split("\n")[3:]
+    rows = mem.session_index(None, proj, None, TODAY, limit=8).split("\n")[4:]  # line 3: the status line
     assert [r.split()[0] for r in rows] == ["m:s1", "m:s2", "m:a"]
 
 
@@ -249,3 +249,16 @@ def test_triage_line_counts_the_lessons_awaiting_triage(tmp_path):
     assert "Triage: 2 general lessons await triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)
     (folder / "bbbbbbbbbbbb.md").unlink()
     assert "Triage: 1 general lesson awaits triage (mem curate --global)." in mem.session_index(None, None, folder, TODAY)
+
+
+STATUS = mem._STATUS_LINE
+
+
+def test_status_line_only_with_a_live_state_memory(proj):
+    write(proj, "a", "A.", kind="lesson")
+    assert STATUS not in mem.session_index(None, proj, None, TODAY, limit=8).split("\n")
+    write(proj, "s", "S.", kind="state")
+    lines = mem.session_index(None, proj, None, TODAY, limit=8).split("\n")
+    assert lines[3] == STATUS
+    write(proj, "s", "S.", kind="state", status="superseded")
+    assert STATUS not in mem.session_index(None, proj, None, TODAY, limit=8).split("\n")

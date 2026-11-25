@@ -58,3 +58,7 @@ Kill read from the 2026-11-23 usage study (`.local/studies/2026-11-23-weekly-usa
 | 2 | 2 worktree refusals, or 0.9 per 100 runs | 3 per 100 runs | holds |
 
 Three sampled rule-1 failures: a command that the harness itself moved to the background (output under `tasks/*.output`), then `sleep` plus `cat` of that file. The rule asks for the foreground, but the run cannot keep a command there once the harness backgrounds it, and the agent has no tool to wait on it. Replacing the rule (granting `Monitor`, which the harness error names) or reverting it is suggestion G12 of that study; the owner decides.
+
+## Review 2026-11-25
+
+Owner ruling on G12: replace, not revert. `implementer`, `check-runner` and `ui-verifier` gain the `Monitor` tool (dropped from the Copilot and Codex ports, which have no equivalent); rule 1 keeps the foreground run and adds: when the harness moves a command to the background, wait with `Monitor`, never `sleep`. Unmeasured; kill criterion: in the next usage study, `Blocked: sleep` plus `Monitor` errors at or above 8 per 100 `implementer` runs → revert rule 1.

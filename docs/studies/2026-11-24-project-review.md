@@ -6,6 +6,8 @@ What should improve across the whole repository (all plugins, scripts, docs and 
 
 ## Conclusion
 
+> Done 2026-11-25 on branch `feat/repo-tooling` ([plan](../superpowers/plans/2026-11-25-repo-tooling-and-shared-text.md), ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12.
+
 The repository is healthy at plugin level: no imports cross plugins, every check is green (on 2026-11-24: memory 2,214 passed / 5 skipped in 294 s, tool-fold 154, plan-progress 9, `validate.py` and `port.py --check` OK). The debt sits in four places:
 
 1. **Security of the memory engine** (S1–S7): one high, three medium, three low. S1–S4 and S6 are fixed in [PR #182](https://github.com/Mili-ssm/Agent-Skills/pull/182) (plan `docs/superpowers/plans/2026-11-24-memory-security.md` there); S5 and S7 stay open (§ Security, still open).
@@ -121,9 +123,9 @@ Ruled 2026-11-24:
 
 Open:
 
-4. `validate.py` over every plugin (A9)?
-5. D1: remove the version from the state table, or guard it with a check?
-6. Architect's assumed ranking of quality attributes: maintainability by LLMs, then correctness and safety of background `claude -p` jobs, then portability, then install size. Confirm or reorder.
+4. ~~`validate.py` over every plugin (A9)?~~ Implemented on the owner's request, 2026-11-25.
+5. ~~D1: remove the version from the state table, or guard it with a check?~~ The owner chose a `validate.py` check, 2026-11-25.
+6. Architect's assumed ranking of quality attributes: maintainability by LLMs, then correctness and safety of background `claude -p` jobs, then portability, then install size. ~~Confirm or reorder.~~ Recorded as N12 in `docs/requirements.md`, 2026-11-25.
 
 ## Not checked
 

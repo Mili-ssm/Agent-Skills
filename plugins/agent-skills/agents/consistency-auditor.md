@@ -47,7 +47,9 @@ Mode `project | feature | change` and scope (paths, feature name or change descr
 - When sources contradict, list both and ask which holds; guessing would hide the conflict.
 - Severity `low | medium | high` is the cost if the wrong source is believed. High: data loss, security exposure, a broken contract or the wrong feature built. Medium: rework or misleading guidance on a path in use. Low: cosmetic, or a path nobody uses.
 - Revisit ratings come from the staleness rubric (`low | medium | high`) and stay separate from severity.
+<!-- shared:bash-leaves-files-unchanged allowed="build caches and temp dirs" -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
+<!-- /shared:bash-leaves-files-unchanged -->
 - Return conclusions, not raw dumps.
 
 ## Output
@@ -71,4 +73,6 @@ Counts per kind; anything skipped and why
 | F2 | contradiction | high | "Sessions expire after 30 min" | README.md:40 vs settings.py:88 | `SESSION_TTL = 86400` | — |
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

@@ -28,7 +28,7 @@ Copy and tick:
 | What do our docs, ADRs and code already say or assume? | `consistency-auditor` (mode `change`) |
 | What do official docs and practitioners recommend? | `researcher` × 1–5, one question each |
 | Does it fit the architecture? | `architect` (mode `propose`) |
-| Security, UX or test risks? | `security-reviewer` / `ux-reviewer` / `qa-engineer` (mode `design`), when relevant |
+| Security, UX or test risks? | `security-reviewer` / `ux-reviewer` (it also critiques a screen spec or mockup) / `qa-engineer` (mode `design`), when relevant |
 | Where does the code change? | `explorer` (built-in role) |
 | What do long specs, logs or tickets say? | `summarizer` |
 

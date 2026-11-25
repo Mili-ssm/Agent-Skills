@@ -34,6 +34,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+from promptkit import fragments
+from promptkit.models import CATALOG, load_catalog
+
 # Repo root = parent of the scripts/ directory, independent of the current working directory.
 ROOT = Path(__file__).resolve().parent.parent
 # The agent-skills plugin lives in its own folder so the marketplace can list mods beside it (ADR 0011).
@@ -53,10 +56,12 @@ PROACTIVE = re.compile(r"\buse proactively\b", re.IGNORECASE)
 # Skill/agent name format and description limits from Anthropic's skill-authoring guide.
 NAME_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 DESCRIPTION_MAX = 1024
+QUOTED = re.compile(r'["“][^"“”.!?\n]{1,60}["”]')  # a short quoted user phrase
 # Descriptions are injected into the system prompt, so first/second person breaks discovery.
 # "I" is matched in capitals only and skips "I/O"; the other pronouns match in any case.
 PERSON = re.compile(r"(?-i:\bI\b(?!/))|\b(?:we|you|your|our)\b", re.IGNORECASE)
-MODEL_ALIASES = {"haiku", "sonnet", "opus", "fable", "inherit"}
+AGENT_MODELS = frozenset(m.key for m in load_catalog(CATALOG).models("claude")) | {"inherit"}
+AGENT_EFFORTS = frozenset({"low", "medium", "high"})
 FULL_MODEL_ID = re.compile(r"^claude-[a-z0-9][a-z0-9.-]*$")
 REFERENCE_TOC_THRESHOLD = 100
 CONTENTS_WITHIN_LINES = 15  # "near the top"
@@ -182,7 +187,7 @@ def check_description(rel: Path, desc: object, errors: list[str]) -> None:
         errors.append(f"{rel}: description must say what it does before 'Use when…'")
     if len(desc) > DESCRIPTION_MAX:
         errors.append(f"{rel}: description {len(desc)} chars > {DESCRIPTION_MAX}")
-    person = PERSON.search(desc)
+    person = PERSON.search(QUOTED.sub("", desc))  # quoted user phrases are trigger terms, not the description speaking
     if person:
         errors.append(f"{rel}: description must be third person (found '{person.group(0)}')")
 
@@ -236,10 +241,15 @@ def check_links(skill_dir: Path, errors: list[str]) -> None:
                 errors.append(f"{md.relative_to(ROOT)}: links another reference '{target}' (link it from SKILL.md)")
 
 
-def check_skills(errors: list[str]) -> set[str]:
-    """Validate every skill directory and return the set of skill names found."""
+def plugin_dirs() -> list[Path]:
+    """Every plugin folder that ships skills or agents: the general rules run over all of them."""
+    return sorted(p for p in (ROOT / "plugins").glob("*/") if (p / "skills").is_dir() or (p / "agents").is_dir())
+
+
+def check_skills(errors: list[str], plugin: Path) -> set[str]:
+    """Validate every skill directory of a plugin and return the set of skill names found."""
     names: set[str] = set()
-    for skill_md in sorted(PLUGIN.glob("skills/*/SKILL.md")):
+    for skill_md in sorted(plugin.glob("skills/*/SKILL.md")):
         skill_dir = skill_md.parent
         rel = skill_md.relative_to(ROOT)
         names.add(skill_dir.name)
@@ -250,7 +260,7 @@ def check_skills(errors: list[str]) -> set[str]:
             if not NAME_RE.match(skill_dir.name):
                 errors.append(f"{rel}: name must be <= 64 chars of lowercase letters, digits, hyphens")
             check_description(rel, fm.get("description"), errors)
-            check_proactive(rel, fm.get("description"), False, errors)
+            check_proactive(rel, fm.get("description"), False, errors)  # repo-wide: only workers (ADR 0007, 0010)
         check_line_budget(rel, text, SKILL_MAX_LINES, errors)
         check_reference_depth(skill_dir, errors)
         check_reference_toc(skill_dir, errors)
@@ -258,24 +268,30 @@ def check_skills(errors: list[str]) -> set[str]:
     return names
 
 
-def check_effort(rel: Path, fm: Frontmatter, errors: list[str]) -> None:
-    """ADR 0010: every agent declares its effort."""
-    if not fm.get("effort"):
-        errors.append(f"{rel}: missing 'effort'")
-
-
-def check_model(rel: Path, fm: Frontmatter, errors: list[str]) -> None:
-    """ADR 0010: the model is explicit (cost is a design decision): an alias or a full claude- id."""
+def check_agent_rules(rel: Path, fm: Frontmatter, skill_names: set[str], errors: list[str]) -> None:
+    """ADR 0010: the agent-frontmatter rules shared with scripts/port.py: model, effort, maxTurns, omitClaudeMd, preloads."""
     model = fm.get("model")
-    if not isinstance(model, str) or not (model in MODEL_ALIASES or FULL_MODEL_ID.match(model)):
-        allowed = " | ".join(sorted(MODEL_ALIASES))
+    if not isinstance(model, str) or not (model in AGENT_MODELS or FULL_MODEL_ID.match(model)):
+        allowed = " | ".join(sorted(AGENT_MODELS))
         errors.append(f"{rel}: 'model' must be {allowed} or a full claude- id (got {model!r})")
+    effort = fm.get("effort")
+    if not effort:
+        errors.append(f"{rel}: missing 'effort'")
+    elif not isinstance(effort, str) or effort not in AGENT_EFFORTS:
+        errors.append(f"{rel}: 'effort' must be {' | '.join(sorted(AGENT_EFFORTS))} (got {effort!r})")
+    turns = fm.get("maxTurns")
+    if turns is not None and not (isinstance(turns, str) and re.fullmatch(r"[0-9]+", turns) and int(turns) > 0):
+        errors.append(f"{rel}: 'maxTurns' must be a positive integer (got {turns!r})")
+    if fm.get("omitClaudeMd") not in (None, "true", "false"):
+        errors.append(f"{rel}: 'omitClaudeMd' must be true or false")
+    for skill in as_list(fm.get("skills")):
+        if skill not in skill_names:
+            errors.append(f"{rel}: preloads unknown skill '{skill}'")
 
 
 def check_max_turns(rel: Path, name: str, fm: Frontmatter, errors: list[str]) -> None:
     """ADR 0010: workers cap their turns, so a stuck cheap worker cannot burn tokens unseen."""
-    turns = fm.get("maxTurns")
-    if name in WORKERS and not (isinstance(turns, str) and turns.isdigit() and int(turns) > 0):
+    if name in WORKERS and fm.get("maxTurns") is None:
         errors.append(f"{rel}: worker must set 'maxTurns' to a positive integer")
 
 
@@ -300,10 +316,13 @@ def check_workers_exist(agent_names: set[str], errors: list[str]) -> None:
         errors.append(f"{(PLUGIN / 'agents' / f'{name}.md').relative_to(ROOT)}: worker '{name}' has no agent file")
 
 
-def check_agents(errors: list[str], skill_names: set[str]) -> set[str]:
-    """Validate every agent definition, including its preloaded skills; return the agent names found."""
+def check_agents(errors: list[str], skill_names: set[str], plugin: Path) -> set[str]:
+    """Validate every agent of a plugin, including preloads from its own skills; return the agent names found.
+
+    Workers, their maxTurns and "Use proactively" are agent-skills scope; the other rules apply to every plugin."""
     names: set[str] = set()
-    for agent_md in sorted(PLUGIN.glob("agents/*.md")):
+    own = plugin == PLUGIN
+    for agent_md in sorted(plugin.glob("agents/*.md")):
         name = agent_md.stem
         rel = agent_md.relative_to(ROOT)
         names.add(name)
@@ -314,16 +333,14 @@ def check_agents(errors: list[str], skill_names: set[str]) -> set[str]:
             if not fm.get("tools"):
                 errors.append(f"{rel}: missing 'tools'")
             check_description(rel, fm.get("description"), errors)
-            check_proactive(rel, fm.get("description"), name in WORKERS, errors)
-            check_effort(rel, fm, errors)
-            check_model(rel, fm, errors)
-            check_max_turns(rel, name, fm, errors)
+            check_proactive(rel, fm.get("description"), own and name in WORKERS, errors)  # workers live in agent-skills
+            check_agent_rules(rel, fm, skill_names, errors)
+            if own:
+                check_max_turns(rel, name, fm, errors)
             check_read_only(rel, fm, errors)
-            for skill in as_list(fm.get("skills")):
-                if skill not in skill_names:
-                    errors.append(f"{rel}: preloads unknown skill '{skill}'")
         check_line_budget(rel, text, AGENT_MAX_LINES, errors)
-    check_workers_exist(names, errors)
+    if own:
+        check_workers_exist(names, errors)
     return names
 
 
@@ -464,6 +481,11 @@ def check_offload_policy(errors: list[str]) -> None:
             )
 
 
+def check_fragments(errors: list[str]) -> None:
+    """Marked blocks equal their shared/fragments/<id>.md; shared text is not copied outside a block."""
+    errors.extend(fragments.check(ROOT))
+
+
 def check_memory_offload(errors: list[str]) -> None:
     """ADR 0030: the memory plugin's offload table, which the owner pastes into CLAUDE.md, has a row for every agent."""
     table = ROOT / "plugins" / "memory" / "user-config" / "offload-policy.md"
@@ -483,7 +505,8 @@ def check_ports(errors: list[str]) -> None:
     )
     if run.returncode != 0:
         lines = run.stdout.splitlines() or run.stderr.strip().splitlines()[-1:]
-        errors.extend(line for line in lines if line.strip())
+        already = set(errors)  # validate.py reports the shared agent rules itself; port's own repeats stay
+        errors.extend(line for line in lines if line.strip() and line not in already)
 
 
 def readme_table(text: str, heading: str, first_header: str) -> list[dict[str, str]] | None:
@@ -624,6 +647,25 @@ def check_release_tag(name: str, version: str | None, errors: list[str]) -> None
             errors.append(f"{name}: changes since {tag} under {', '.join(paths)} but the version is still {version}: bump it")
 
 
+STATE_PLAN = Path("docs/superpowers/plans/2026-11-17-memory-plugin.md")  # relative: tests patch ROOT
+STATE_RELEASED = re.compile(r"^\|\s*\**Released\**\s*\|\s*`memory`\s+v?([0-9][0-9A-Za-z.+-]*)", re.MULTILINE)
+
+
+def check_state_table_version(errors: list[str]) -> None:
+    """The memory plan's state table, which agents resuming memory work read first, names the released version."""
+    plan = ROOT / STATE_PLAN
+    manifest = ROOT / "plugins" / "memory" / ".claude-plugin" / "plugin.json"
+    if not plan.is_file() or not manifest.is_file():
+        return
+    rel = plan.relative_to(ROOT).as_posix()
+    match = STATE_RELEASED.search(plan.read_text(encoding="utf-8"))
+    version = json.loads(manifest.read_text(encoding="utf-8")).get("version")
+    if not match:  # a reworded row must not switch the check off
+        errors.append(f"{rel}: no '| Released | `memory` X.Y.Z' row in the state table")
+    elif match.group(1) != version:
+        errors.append(f"{rel}: state table says released {match.group(1)}, plugin.json says {version}")
+
+
 def check_versions(errors: list[str], release: bool) -> None:
     """ADR 0027: each plugin has a SemVer version in plugin.json and a CHANGELOG heading for it; catalogs carry no version."""
     for rel in CATALOGS:
@@ -668,19 +710,29 @@ def main() -> int:
     parser.add_argument("--release", action="store_true", help="also compare each plugin with its latest git tag (ADR 0027)")
     release = parser.parse_args().release
     errors: list[str] = []
-    skills = check_skills(errors)
-    agents = check_agents(errors, skills)
+    skills: set[str] = set()
+    agents: set[str] = set()
+    total_skills = total_agents = 0
+    for plugin in plugin_dirs():
+        plugin_skills = check_skills(errors, plugin)
+        plugin_agents = check_agents(errors, plugin_skills, plugin)
+        total_skills += len(plugin_skills)
+        total_agents += len(plugin_agents)
+        if plugin == PLUGIN:
+            skills, agents = plugin_skills, plugin_agents
     check_commands(errors, skills, agents)
     check_eval_graders(errors, skills, agents)
     check_offload_policy(errors)
     check_memory_offload(errors)
     check_readme_catalog(errors)
     check_public_paths(errors)
+    check_fragments(errors)
     check_versions(errors, release)
+    check_state_table_version(errors)
     check_ports(errors)
     for err in errors:
         print(err)
-    print(f"{'FAIL' if errors else 'OK'}: {len(skills)} skills, {len(agents)} agents, {len(errors)} errors")
+    print(f"{'FAIL' if errors else 'OK'}: {total_skills} skills, {total_agents} agents, {len(errors)} errors")
     return 1 if errors else 0
 
 

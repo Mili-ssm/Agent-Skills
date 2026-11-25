@@ -9,7 +9,7 @@ The plan/spec/design from the task. No plan in the task → use the only plan fi
 
 ## Process
 
-1. **Restate** goal, success criteria and key steps in ≤ 5 lines; missing success criteria is the first finding.
+1. **Restate** goal, success criteria and key steps in ≤ 5 lines; missing success criteria is the first risk.
 2. **Failure stories**: 5–10 concrete narratives across these lenses:
 
 | Lens | Prompts |
@@ -73,4 +73,4 @@ Use only these tools: read files, search file contents, find files by name, shel
 Leave the project's files unchanged: do not use apply_patch or any edit tool, and run only commands that do not change them (temp dirs and build caches are fine). Claude Code enforces this; Codex does not, so it is your rule.
 '''
 model = "gpt-6.2-sol"
-model_reasoning_effort = "medium"
+model_reasoning_effort = "low"

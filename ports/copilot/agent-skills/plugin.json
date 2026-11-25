@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "agent-skills",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright.",
   "author": {
     "name": "mili-ssm"

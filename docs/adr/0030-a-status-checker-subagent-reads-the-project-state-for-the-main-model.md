@@ -37,3 +37,20 @@ The main model learns when to use it, and the four other memory subagents, from 
 - More than 1 in 10 card lines is wrong at its cited source: move it to Sonnet or remove it.
 - Read 5 sessions with the table pasted: the main model ignores it (no memory dispatch where a row applied) or over-delegates (dispatches for a single `mem search`): reword the rows.
 - The trigger case fires in fewer than 2 of 2 runs, or a `neg-*` case starts firing it: reword the description.
+
+## Review 2026-11-25
+
+The owner reported the agent is not dispatched on its own. A `prompt-engineer` audit named three causes; the owner accepted these changes, all unmeasured until the trigger cases run (planned 2026-11-26):
+
+| Change | Where |
+|---|---|
+| Description names concrete moments and two example questions; it failed `validate.py` N2 before ("whenever you need") | `plugins/memory/agents/memory-status-checker.md` |
+| Offload row names the moments and "dispatch it before reading plans or the backlog yourself", replacing "Your judgment, not a fixed moment" | `plugins/memory/user-config/offload-policy.md` |
+| Session start text adds a line naming the agent, only when the project has a live state memory | `_STATUS_LINE` in `plugins/memory/engine/mem.py` |
+| Trigger cases: `memory-status-checker-with-policy` (the table verbatim) and `memory-status-checker-neg-one-fact` (one repository fact must stay inline) | `plugins/memory/evals/trigger/` |
+
+Rejected: adding `resume` to the SessionStart matcher. A resumed session already holds the start text from its transcript; the matcher keeps `startup|clear|compact`.
+
+Revisit if: the positive cases fire in fewer than 2 of 2 runs, or the negative case fires: reword the row or the description, one change per run.
+
+The owner waived N6 for this change on 2026-11-25: it merges to `dev` and ships in memory 0.14.0 unmeasured; the trigger cases run on 2026-11-26 and a failure there reverts or rewords it.

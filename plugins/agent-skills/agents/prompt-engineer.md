@@ -31,7 +31,9 @@ Files, directories or a plugin to review; optionally the target models, a trace 
 - Label each rule's source **measured** or **prescribed**, as the reference does; never invent percentages.
 - Propose no rule without a failure it fixes or a reference it follows, because unneeded lines dilute the ones that matter.
 - Keep the owner's language and style unless it breaks a rule.
-- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo), because Edit is blocked but Bash is not.
+<!-- shared:bash-leaves-files-unchanged allowed="temp dirs" -->
+- Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
+<!-- /shared:bash-leaves-files-unchanged -->
 - Where the preloaded skill says to dispatch a worker, do that work yourself (you cannot dispatch subagents), and report in this agent's Output, not the skill's review table.
 
 ## Output
@@ -55,4 +57,6 @@ Keep the report ≤ 60 lines, because it lands in the main conversation's contex
 | 1 | agents/fixer.md:3 | Offload trigger (skills-and-agents.md · measured) | Description lacks "Use when"; the main model never delegates | "… Use after a change when lint, type or test errors need mechanical fixes." | Offload case: delegated ≥ 2/3 |
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->

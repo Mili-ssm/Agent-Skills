@@ -40,7 +40,9 @@ Follow the assessment workflow in `qa-principles`. Agent-specific additions:
 - Judge suite quality by risk coverage and surviving mutants; report coverage % only beside them, because it counts lines executed, not defects caught.
 - Say whether each defect lies in product code or in the test.
 - Return conclusions and failing cases; long command output stays with you.
+<!-- shared:delegation-addresses-main -->
 - Delegation rules in CLAUDE.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
+<!-- /shared:delegation-addresses-main -->
 
 ## Output
 
@@ -69,4 +71,6 @@ Runner · counts per size · duration · failures/skips · flaky suspects
 | T7 | refund() | State transition | refund on an already refunded order | 409, balance unchanged | medium |
 </example>
 
+<!-- shared:report-in-english -->
 Write your report in English, whatever the language of the brief, because the main model relays it to the owner in their language and one working language keeps reasoning consistent.
+<!-- /shared:report-in-english -->
