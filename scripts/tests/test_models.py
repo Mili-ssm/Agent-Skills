@@ -113,3 +113,23 @@ def test_agent_cells_keep_todays_pairs() -> None:
     derived = derive_pairs(load_catalog(ROOT / "shared" / "models.toml"), "claude", "codex")
     for cell in sorted(cells):
         assert derived[cell] == port.CODEX_PAIRS[cell], cell
+
+
+@pytest.mark.parametrize(
+    "ov",
+    [
+        '[[overrides]]\nfrom = ["a9", "low"]\nto = ["b0", "low"]\nreason = "typo"\n',
+        '[[overrides]]\nfrom = ["a0", "low"]\nto = ["b0", "max"]\nreason = "never-chosen effort"\n',
+        '[[overrides]]\nfrom = ["a0", "low"]\nto = ["b9", "low"]\nreason = "unknown target"\n',
+    ],
+)
+def test_catalog_rejects_bad_override(tmp_path: Path, ov: str) -> None:
+    with pytest.raises(ValueError, match="override"):
+        cat(tmp_path, overrides=ov)
+
+
+def test_default_catalog_path_is_independent_of_cwd(monkeypatch, tmp_path: Path) -> None:
+    from promptkit import models
+
+    monkeypatch.chdir(tmp_path)
+    assert models.CATALOG.is_file()

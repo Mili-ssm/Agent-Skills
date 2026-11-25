@@ -56,12 +56,12 @@ cost = 80
 [[overrides]]
 from = ["haiku", "medium"]
 to = ["gpt-6-luna", "low"]
-reason = "owner 2026-11-03, ADR 0017"
+reason = "owner 2026-11-03, ADR 0017; kept as a pin although today's levels derive the same pair"
 
 [[overrides]]
 from = ["sonnet", "low"]
 to = ["gpt-6-luna", "high"]
-reason = "owner 2026-11-19 cell ruling, docs/ports.md § Models"
+reason = "owner's original table (2026-11): cheapest Codex pair that matches or beats the Claude pair, CODEX_PAIRS in scripts/port.py"
 
 [[overrides]]
 from = ["sonnet", "xhigh"]

@@ -11,7 +11,7 @@ import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-CATALOG = Path("shared") / "models.toml"
+CATALOG = Path(__file__).resolve().parents[2] / "shared" / "models.toml"  # repo root, whatever the cwd
 Pair = tuple[str, str]
 
 
@@ -74,6 +74,12 @@ def load_catalog(path: Path) -> Catalog:
                     f"{vendor}: {nxt.key} at low ({grade(nxt, 'low', catalog)}) must beat {prev.key} at xhigh "
                     f"({grade(prev, 'xhigh', catalog)})"
                 )
+    keys = {m.key for models in by_vendor.values() for m in models}
+    for o in overrides:  # a typo would otherwise be ignored, and a forbidden effort accepted
+        if o.source[0] not in keys or o.source[1] not in policy.efforts:
+            raise ValueError(f"override from {list(o.source)}: unknown model or effort")
+        if o.target[0] not in keys or o.target[1] not in policy.efforts or o.target[1] in policy.never:
+            raise ValueError(f"override to {list(o.target)}: unknown model, or an effort the policy never chooses")
     return catalog
 
 
