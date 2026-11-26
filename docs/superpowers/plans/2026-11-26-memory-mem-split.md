@@ -71,7 +71,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] As Task 2; `_decisions`, `_write_marks` patches retargeted (`orphan_notes` already patched `link_rules`); `orphan_notes` and the due queries already live in `notes/links.py` and `notes/due.py`; `PAIR_WORK` stays in `mem.py` for Task 8 (only `session_index` reads it); `_got_worse` lives in `curate` (hooks may import it).
 
 ### Task 8: `commands/hooks.py`
-- [ ] As Task 2; `PAIR_WORK` patch; session-index hook timed before and after (p50, p95).
+- [x] As Task 2; `PAIR_WORK` patch retargeted to `hooks`; session-index hook p50/p95 267/292 ms before, 270-274/292-298 ms after; `tokenize` joins `_MOVED` (maps to `memories.matching`: `mem.py` no longer imports it); capture and session may be imported by `commands`.
 
 ### Task 9: `commands/synthesis.py`, then docs
 - [ ] As Task 2 (last: highest churn; `_write_logged_changes` patch retargeted; the allow-list ends empty); then ADR 0034 Review line, backlog A5, refactor plan item, resume state.

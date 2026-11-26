@@ -8,7 +8,7 @@ from typing import TypedDict, Unpack
 
 import mem
 import pytest
-from commands import common, curate
+from commands import common, curate, hooks
 from corroborate import decide as corroborate_decide
 from memories import records
 
@@ -146,7 +146,7 @@ def test_pairs_lists_near_copy_and_negation_not_unrelated_nor_dead(tmp_path):
             ("e", "Retries need idempotency keys on every payment call", "forgotten"),
         ]
     ]
-    got = records.pairs(ms, TODAY, tokenize=mem.tokenize)
+    got = records.pairs(ms, TODAY, tokenize=records.tokenize)
     names = {(a.handle, b.handle) for a, b, _ in got}
     assert ("a", "b") in names and ("a", "c") in names
     assert not any("d" in n or "e" in n for n in names)
@@ -207,8 +207,8 @@ def test_pairs_unchanged_without_new_arguments(tmp_path):
     claims += [f"Unrelated topic{n} words alpha{n} beta{n} gamma{n}" for n in range(12)]
     ms = [_mem(tmp_path, f"m{n:02d}", c) for n, c in enumerate(claims)]
     ms[1] = records.replace(ms[1], distinct_from=["m00"])
-    got = records.pairs(ms, TODAY, tokenize=mem.tokenize)
-    assert got and got == _old_pairs(ms, TODAY, tokenize=mem.tokenize)
+    got = records.pairs(ms, TODAY, tokenize=records.tokenize)
+    assert got and got == _old_pairs(ms, TODAY, tokenize=records.tokenize)
 
 
 def _abc(tmp_path):
@@ -223,24 +223,24 @@ def _abc(tmp_path):
 
 def test_pairs_among_compares_only_pairs_with_a_listed_memory(tmp_path):
     ms = _abc(tmp_path)
-    allp = {(a.handle, b.handle) for a, b, _ in records.pairs(ms, TODAY, tokenize=mem.tokenize)}
+    allp = {(a.handle, b.handle) for a, b, _ in records.pairs(ms, TODAY, tokenize=records.tokenize)}
     assert {("a", "b"), ("b", "c"), ("a", "c")} <= allp
-    got = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["c"])
+    got = records.pairs(ms, TODAY, tokenize=records.tokenize, among=["c"])
     assert {(a.handle, b.handle) for a, b, _ in got} == {("a", "c"), ("b", "c")}
-    both = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["b", "c"])
+    both = records.pairs(ms, TODAY, tokenize=records.tokenize, among=["b", "c"])
     assert sorted((a.handle, b.handle) for a, b, _ in both) == [("a", "b"), ("a", "c"), ("b", "c")]
 
 
 def test_pairs_budget_stops_and_reports(tmp_path):
     ms = _abc(tmp_path)
     budget = records.Budget(1)
-    got = records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=budget)
+    got = records.pairs(ms, TODAY, tokenize=records.tokenize, among=["a", "x0"], budget=budget)
     assert budget.left == 0 and budget.exhausted and len(got) <= 1
     roomy = records.Budget(10_000)
-    records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=roomy)
+    records.pairs(ms, TODAY, tokenize=records.tokenize, among=["a", "x0"], budget=roomy)
     assert roomy.left == 10_000 - 17 and not roomy.exhausted  # 9 partners of a, 8 more of x0
     exact = records.Budget(17)
-    records.pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "x0"], budget=exact)
+    records.pairs(ms, TODAY, tokenize=records.tokenize, among=["a", "x0"], budget=exact)
     assert exact.left == 0 and not exact.exhausted  # used up with nothing left to compare
 
 
@@ -258,12 +258,15 @@ def test_refuted_pairs_among_and_budget(tmp_path):
         _mem(tmp_path, "b", "Retries need idempotency keys on every payment call once more"),
     ]
     assert [
-        (a.handle, r.handle) for a, r, _ in records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+        (a.handle, r.handle)
+        for a, r, _ in records.refuted_pairs(ms, TODAY, tokenize=records.tokenize)
     ] == [("a", "r"), ("b", "r")]
-    only = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize, among=["b"])
+    only = records.refuted_pairs(ms, TODAY, tokenize=records.tokenize, among=["b"])
     assert [(a.handle, r.handle) for a, r, _ in only] == [("b", "r")]
     budget = records.Budget(1)
-    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize, among=["a", "b"], budget=budget)
+    got = records.refuted_pairs(
+        ms, TODAY, tokenize=records.tokenize, among=["a", "b"], budget=budget
+    )
     assert len(got) == 1 and budget.left == 0 and budget.exhausted
 
 
@@ -322,16 +325,16 @@ def _refuted_fixture(tmp_path):
 
 def test_refuted_pairs_unchanged_without_new_arguments(tmp_path):
     ms = _refuted_fixture(tmp_path)
-    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+    got = records.refuted_pairs(ms, TODAY, tokenize=records.tokenize)
     assert len(got) > MIN_REFUTED_PAIRS and got == _old_refuted_pairs(
-        ms, TODAY, tokenize=mem.tokenize
+        ms, TODAY, tokenize=records.tokenize
     )
 
 
 def _counting(calls):
     def tokenize(text):
         calls.append(text)
-        return mem.tokenize(text)
+        return records.tokenize(text)
 
     return tokenize
 
@@ -1112,8 +1115,8 @@ def test_pairs_skips_distinct_and_refuted_pairs_are_listed_apart(tmp_path):
             ("r", "Retries need idempotency keys on every payment call", "refuted", []),
         ]
     ]
-    assert records.pairs(ms, TODAY, tokenize=mem.tokenize) == []
-    got = records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+    assert records.pairs(ms, TODAY, tokenize=records.tokenize) == []
+    got = records.refuted_pairs(ms, TODAY, tokenize=records.tokenize)
     assert [(a.handle, b.handle) for a, b, _ in got] == [("a", "r"), ("b", "r")]
 
 
@@ -1179,7 +1182,7 @@ def test_refuted_pairs_list_only_memories_written_after_the_refutation(tmp_path)
                 refuted=refuted,
             ),
         ]
-        return records.refuted_pairs(ms, TODAY, tokenize=mem.tokenize)
+        return records.refuted_pairs(ms, TODAY, tokenize=records.tokenize)
 
     assert len(pair(d(1), d(3), d(9))) == 1
     assert pair(d(3), d(3), d(9)) == [] and pair(d(5), d(3), d(9)) == []
@@ -1439,7 +1442,7 @@ def test_curated_json_keeps_its_format(project, gfolder, tmp_path, capsys):
 
 
 def _session(project, gfolder):
-    return mem.session_index(
+    return hooks.session_index(
         None,
         project,
         gfolder,
@@ -1461,7 +1464,7 @@ def test_budget_shared_across_folders_never_exceeded(project, gfolder, monkeypat
         return made[-1]
 
     monkeypatch.setattr(records, "Budget", wrapped)
-    monkeypatch.setattr(mem, "PAIR_WORK", PAIR_WORK_CAP)
+    monkeypatch.setattr(hooks, "PAIR_WORK", PAIR_WORK_CAP)
     _session(project, gfolder)
     assert len(made) == 1 and made[0].left >= 0 and made[0].left < PAIR_WORK_CAP
 
@@ -1475,12 +1478,12 @@ def test_past_the_budget_found_items_say_at_least_and_none_say_nothing(
     for i in range(10):  # newer, so they are compared first and use the budget
         put(project, f"u{i}", f"Unrelated topic{i} words{i} only{i} here{i}", created=days_ago(0))
     _set_pass(project, 10)
-    monkeypatch.setattr(mem, "PAIR_WORK", 3)
+    monkeypatch.setattr(hooks, "PAIR_WORK", 3)
     assert "Curation due" not in _session(project, gfolder)
-    monkeypatch.setattr(mem, "PAIR_WORK", 150_000)
+    monkeypatch.setattr(hooks, "PAIR_WORK", 150_000)
     assert "Curation due: 1 item" in _session(project, gfolder)
     put(project, "e1", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
-    monkeypatch.setattr(mem, "PAIR_WORK", 3)
+    monkeypatch.setattr(hooks, "PAIR_WORK", 3)
     assert "Curation due: at least 1 item (1 expired)" in _session(project, gfolder)
 
 
@@ -1513,7 +1516,7 @@ def test_session_index_near_the_budget_is_fast(project, gfolder):
         )
     _set_pass(project, 10)
     loaded = records.load_memories(project, "project")
-    budget = records.Budget(mem.PAIR_WORK)
+    budget = records.Budget(hooks.PAIR_WORK)
     assert curate._decisions(
         loaded, TODAY, since=TODAY - datetime.timedelta(days=10), budget=budget
     ).pairs_checked

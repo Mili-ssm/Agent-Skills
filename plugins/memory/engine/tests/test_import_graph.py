@@ -247,10 +247,10 @@ PACKAGE_DEPENDENCIES = {
 PACKAGE_IMPORTERS = {
     "corroborate": {"mem", "commands"},
     "research": {"mem", "commands"},
-    "capture": {"mem", "corroborate"},
+    "capture": {"mem", "corroborate", "commands"},
     "settle": {"mem", "commands"},
     "digest": {"mem", "corroborate", "commands"},
-    "session": {"mem"},
+    "session": {"mem", "commands"},
     "entry": {"run"},
     "commands": {"mem"},
 }
