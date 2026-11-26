@@ -311,7 +311,7 @@ def worse_one(w, claim=NARROW, scope="project", failed=(5, 4), worked=()):
     )
 
 
-def reword_answers(w, mp, shorts=None, writer="ok", checker=True):
+def reword_answers(w, mp, shorts=None, writer="ok", checker: bool | str = True):
     """The fake's two answers of the step. shorts: claim -> proposed short (default NEW_WORDING for every candidate);
     writer/checker as in `answers`, with no `topic` anywhere."""
     mp.delenv("FAKE_REWORD", raising=False)

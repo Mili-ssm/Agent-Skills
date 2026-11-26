@@ -4,7 +4,6 @@ import datetime
 import json
 import os
 import subprocess
-from typing import cast
 
 import auto_state
 import corroborate_reword
@@ -170,9 +169,7 @@ def test_an_unusable_answer_changes_no_lesson_and_three_in_a_row_wait(w, monkeyp
 
 def test_a_checker_that_gives_no_usable_answer_is_a_failed_session(w, monkeypatch):
     worse_one(w)
-    reword_answers(
-        w, monkeypatch, checker=cast("bool", "none")
-    )  # also takes "none" (no usable answer); inferred type is bool
+    reword_answers(w, monkeypatch, checker="none")  # "none": the checker writes no usable answer
     result = reword(w)
     assert result["stopped"] and result["written"] == 0
     assert reword_state(w)["lessons"] == {} and reword_state(w)["failures"]["count"] == 1
