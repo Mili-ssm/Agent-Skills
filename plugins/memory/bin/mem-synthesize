@@ -1267,7 +1267,7 @@ def _check_guard(store: Path, env: dict) -> None:
     os.environ.pop("MEM_STORE", None)
 
 
-def _check_fake_run(store: Path, fake: Path) -> None:
+def _check_fake_run(store: Path, fake: Path, env: dict) -> None:
     lines: list[str] = []
     assert run(str(fake), store, ["one", "two"], 3.0, False, out=lines.append) == 1
     assert (
@@ -1280,11 +1280,22 @@ def _check_fake_run(store: Path, fake: Path) -> None:
     assert "mem-synthesize: after one, two" in log and "mem-synthesize: before" not in log, (
         log
     )  # only a change commits
+    shown = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=store,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+    assert "knowledge/notes/touched.md" in shown.splitlines(), shown  # not held back
+    checked = sp.mem(store, env, "check")
+    # keep.md and the missing index are fixture findings; only the fake's note must be clean
+    assert "touched.md" not in checked.stdout + checked.stderr, checked.stdout + checked.stderr
 
 
 def self_check() -> int:
-    """No model: parsers, the dry run, and a whole run with a fake `claude` that writes nothing (every topic fails,
-    the run goes on, both history commits are made, the store keeps its content)."""
+    """No model: parsers, the dry run, and a whole run with a fake `claude` that writes a valid note and stops
+    (every topic fails, the run goes on, the closing commit holds the note, `mem check` passes, the store keeps its content)."""
     _check_parsers()
     with tempfile.TemporaryDirectory(prefix="mem-synthesize-check-") as tmp_name:
         tmp = Path(tmp_name)
@@ -1296,7 +1307,7 @@ def self_check() -> int:
         fake = _fake_claude(tmp, store)
         _check_guard(store, env)
         _commit_all(store, "demo")
-        _check_fake_run(store, fake)
+        _check_fake_run(store, fake, env)
     print("self-check passed")
     return 0
 
