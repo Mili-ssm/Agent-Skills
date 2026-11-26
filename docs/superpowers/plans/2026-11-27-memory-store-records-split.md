@@ -53,7 +53,7 @@ A recut follows these lists; a cycle is fixed by recutting, never by `TYPE_CHECK
 ---
 
 ### Task 1: Clean the store tests
-- [ ] 27 files (tests, `shortcheck.py`, `evals/rules_layout/run_trial.py`, `evals/signal/score.py`), parallel batches, one commit per file. Check: suite unchanged; lint zero on each.
+- [x] 27 files (tests, `shortcheck.py`, `evals/rules_layout/run_trial.py`, `evals/signal/score.py`), parallel batches, one commit per file. Check: suite unchanged; lint zero on each.
 
 ### Task 2: Move into `store/`
 - [ ] First commit: `_imported_engine_modules` (test_import_graph.py) and `_names` (test_bin_python_floor.py) record `node.module` for `from pkg.mod import x`, so `from store.memory import X` is an edge to `store.memory`, not only `store`; prove with a temporary violating import (pre-mortem: today both ignore it, so several rules pass vacuously).
