@@ -31,3 +31,18 @@ Engine code lives in feature packages under `engine/` (`synthesize/` first; then
 
 - The engine becomes an installed package (for example when `bin/` runs through `uv` as a project): then a `src/` layout and entry points replace the `sys.path` insert.
 - A package grows past about 10 modules or mixes unrelated reasons to change: split it.
+
+## Review 2026-11-27
+
+The last revisit trigger fired: `store/` reached 19 modules in two families with different reasons to change (the memory records, and the notes with their index, validators and syntheses). The owner chose two top-level packages over subpackages inside `store/` and over keeping it flat; `store/` no longer exists.
+
+| Package | Modules | Imports |
+|---|---|---|
+| `core` | gains `yaml_load` (the YAML loader and `safe_load`) and `store_git` (both families commit the store) | stdlib |
+| `memories` | `records` (facade), `journal`, `matching`, `terms`, `locations`, `sightings`, `pairing`, `rules`, `shortcheck`, `fingerprints`, `model`, `parse`, `write` | `core` |
+| `notes` | `note`, `index`, `check`, `syntheses`, `project_syntheses` | `core`, `memories` |
+
+- Layering, enforced in `test_import_graph.py`: `notes → memories → core`; `memories` never imports `notes`. `memories` and `notes` are base layers like `core`: any feature package may import them, within its own entry in `PACKAGE_DEPENDENCIES`.
+- Modules inside `memories/` import siblings directly, never the `records` facade (a rule in the same test).
+- `patch_all` (`tests/patching.py`) patches every `memories.*` and `notes.*` binding of a name.
+- Behavior, goldens and the collected test count are unchanged.

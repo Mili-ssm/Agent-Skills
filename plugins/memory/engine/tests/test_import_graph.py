@@ -189,7 +189,7 @@ FROZEN_EDGES = {
     ("research", "mem"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "memories", "notes", "synthesize",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "notes", "synthesize",
 }  # fmt: skip
 
 
@@ -204,7 +204,7 @@ def test_packages_are_planned_and_edges_frozen():
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
         # itself and the base layers (`core`, `memories`, `notes`) are not cross-package edges
-        and target not in {own, "core", "store", "memories", "notes"}
+        and target not in {own, "core", "memories", "notes"}
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
@@ -218,7 +218,6 @@ PACKAGE_DEPENDENCIES = {
     "core": set(),
     "memories": {"core"},
     "notes": {"core", "memories"},
-    "store": {"core"},
     "corroborate": {"core", "memories", "capture", "digest", "synthesize"},
     "capture": {"core", "memories"},
     "settle": {"core", "memories"},
@@ -291,7 +290,7 @@ def test_engine_uses_no_relative_imports():
 
 
 def test_store_modules_import_the_defining_module_not_the_records_facade():
-    """`store/records.py` re-exports for the importers outside `store`; inside it every module names the module that defines what it uses."""
+    """`memories/records.py` re-exports for the importers outside `memories`; inside it every module names the module that defines what it uses."""
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     extra = sorted(
         name

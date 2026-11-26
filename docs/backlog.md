@@ -1,6 +1,6 @@
 # Backlog: open work by area and priority
 
-Updated: 2026-11-26 · Expires: 2026-12-10
+Updated: 2026-11-27 · Expires: 2026-12-11
 
 **Expiry rule (owner, 2026-11-25):** every edit sets `Updated` to the edit date and `Expires` to 14 days later, so the list cannot sit unmaintained. Past `Expires`, the list is stale: re-check it against its sources before acting on it, then refresh it or delete it.
 
@@ -75,7 +75,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Done, PR #202 ([plan](superpowers/plans/2026-11-26-memory-jobs.md)): identical copies only (owner); differing copies stay |
 | medium | A7 | Refactor: import direction | Done: tokenize and both cycles (PR #198); `session_env` in `headless.py` (PR #201) |
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean (PR #200) ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` into `engine/synthesize/` done on its branch ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)); `bin/` through `uv` and the shared corroborate job runner pending |
-| high | A14 | Refactor: `engine/` (35 flat modules) into feature packages (`corroborate/`, `research/`, `capture/`, `settle/`, `store/`, `core/`…), one package per pull request, each with an import-boundary test; owner ruling 2026-11-26, after the `synthesize/` pilot | In progress: `corroborate/`, `research/`, `capture/`, `settle/`, `digest/`, `session/`, `core/` done on stacked branches ([plan](superpowers/plans/2026-11-26-memory-engine-packages.md)); `store/` goes with A6 |
+| high | A14 | Refactor: `engine/` (35 flat modules) into feature packages (`corroborate/`, `research/`, `capture/`, `settle/`, `store/`, `core/`…), one package per pull request, each with an import-boundary test; owner ruling 2026-11-26, after the `synthesize/` pilot | In progress: `corroborate/`, `research/`, `capture/`, `settle/`, `digest/`, `session/`, `core/` done on stacked branches ([plan](superpowers/plans/2026-11-26-memory-engine-packages.md)); `store/` became `memories/` and `notes/` (ADR 0034 Review 2026-11-27), finished with A6 |
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
 | low | — | Refactor A7 deferred findings (untested TLS branch, `plan_commands` non-string `quote`, naming nits; [plan](superpowers/plans/2026-11-26-memory-import-direction.md) § Deferred findings) | Open |
