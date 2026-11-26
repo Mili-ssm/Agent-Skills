@@ -95,7 +95,16 @@ def test_cli_matches_golden(store, capsys):
     expected = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert sorted(actual) == sorted(expected)
     for key in sorted(expected):
-        assert actual[key] == expected[key], key
+        assert _words(actual[key]) == _words(expected[key]), key
+
+
+def _words(entry: dict[str, object]) -> dict[str, object]:
+    """The entry with its text reduced to words: argparse wraps usage lines differently across Python versions
+    (3.12.0 puts a lone `...` on its own line), and a move must keep every word, not every line break."""
+    return {
+        key: " ".join(value.split()) if isinstance(value, str) else value
+        for key, value in entry.items()
+    }
 
 
 def test_golden_covers_help_and_errors(store, capsys):
