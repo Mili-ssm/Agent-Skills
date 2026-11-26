@@ -13,9 +13,9 @@ ENGINE = Path(__file__).resolve().parent.parent
 SCANNED = [ENGINE / "tests", ENGINE.parent / "evals"]
 MEM = "mem"
 
-# Patches still aimed at an import `mem.py` holds: each A5 task retargets its names to the defining module and
-# shrinks this set; it is empty after the last task.
-ALLOWED = {"time"}
+# Patches aimed at an import `mem.py` holds, not at the defining module: none is left (every A5 task retargeted its
+# names); a new entry needs a reason.
+ALLOWED: set[str] = set()
 
 _PATCH_CALLS = {
     "setattr",
@@ -95,14 +95,9 @@ def test_no_patch_of_a_name_mem_does_not_define():
     assert not problems, "patch the module that defines the name:\n" + "\n".join(problems)
 
 
-def test_allow_list_names_are_still_patched():
-    """An entry nobody patches any more is stale: delete it, so the list only shrinks."""
-    patched = {
-        name
-        for path in _scanned_files()
-        for _, name in _patched_names(ast.parse(path.read_text(encoding="utf-8")))
-    }
-    assert not ALLOWED - patched, f"stale allow-list entries: {sorted(ALLOWED - patched)}"
+def test_allow_list_is_empty():
+    """Every patch targets the module that defines the name: no exception is left (ADR 0028)."""
+    assert not ALLOWED, f"allow-list entries left: {sorted(ALLOWED)}"
 
 
 @pytest.mark.parametrize(

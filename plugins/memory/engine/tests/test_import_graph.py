@@ -246,7 +246,7 @@ PACKAGE_DEPENDENCIES = {
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
     "corroborate": {"mem"},
-    "research": {"mem"},
+    "research": {"mem", "commands"},
     "capture": {"mem", "corroborate"},
     "settle": {"mem"},
     "digest": {"mem", "corroborate"},
