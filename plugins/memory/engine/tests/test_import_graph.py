@@ -133,3 +133,30 @@ def test_engine_modules_use_no_dynamic_import():
         if (call := _dynamic_import(node))
     ]
     assert not dynamic, "dynamic imports in engine modules:\n" + "\n".join(dynamic)
+
+
+STORE_MODULES = (
+    "records",
+    "syntheses",
+    "project_syntheses",
+    "store_git",
+    "index",
+    "notes",
+    "check",
+)
+
+
+def test_store_modules_never_import_synthesize():
+    """The store sits below the synthesis feature: no store module reaches `synthesize`, directly or through others."""
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    reached: dict[str, list[str]] = {}
+    for store in STORE_MODULES:
+        seen: set[str] = set()
+        todo = [store]
+        while todo:
+            for dep in graph[todo.pop()] - seen:
+                seen.add(dep)
+                todo.append(dep)
+        if hit := sorted(m for m in seen if m.split(".")[0] == PACKAGE):
+            reached[store] = hit
+    assert not reached, f"store modules reaching the synthesize package: {reached}"
