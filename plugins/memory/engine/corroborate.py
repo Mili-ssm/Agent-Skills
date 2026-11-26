@@ -1,25 +1,31 @@
 """`corroborate`: what the background corroboration pass reads and what it does with the groups a model returns.
 
 Pure: no model call, no file write, no subprocess. The command builds on it; this module only decides."""
+
 from __future__ import annotations
 
 import datetime
 import hashlib
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Collection, Mapping, Sequence
+from typing import TYPE_CHECKING
 
 import capture
 import records
 import rules
 import shortcheck
 
+if TYPE_CHECKING:
+    from collections.abc import Collection, Sequence
+
 MAX_LESSONS = 150
 MAX_GROUPS = 30
 FILL_CAP = 30  # lessons one `fill` session is asked about
-FILL_ATTEMPTS = 2  # automatic fills that may fail to give a lesson a short form before it is left alone
+# automatic fills that may fail to give a lesson a short form before it is left alone
+FILL_ATTEMPTS = 2
 FILL_FAILURES = 3
 REWORD_CAP = 5  # lessons one automatic rewording session is asked about
 REWORD_ATTEMPTS = 2  # refused proposals for one version before the step gives up on it
@@ -45,7 +51,11 @@ def project_memories(project: Path) -> list[records.Memory]:
     tracked = records.tracked_memories(project)
     if tracked is None:
         return []
-    return [m for m in records.load_memories(records.project_dir(project), "project") if m.handle not in tracked]
+    return [
+        m
+        for m in records.load_memories(records.project_dir(project), "project")
+        if m.handle not in tracked
+    ]
 
 
 @dataclass(frozen=True)
@@ -61,8 +71,11 @@ def _readable(m: records.Memory, today: datetime.date) -> bool:
         return False
     if records.is_live(m, today):
         return True
-    return (m.valid_until is not None and records.standing(m) == "unconfirmed"
-            and 0 < (today - m.valid_until).days <= LAPSED_DAYS)
+    return (
+        m.valid_until is not None
+        and records.standing(m) == "unconfirmed"
+        and 0 < (today - m.valid_until).days <= LAPSED_DAYS
+    )
 
 
 def _newest_first(lessons: list[Lesson]) -> list[Lesson]:
@@ -71,17 +84,23 @@ def _newest_first(lessons: list[Lesson]) -> list[Lesson]:
     return lessons
 
 
-def collect(projects: Sequence[Path], global_folder: Path | None, today: datetime.date) -> list[Lesson]:
+def collect(
+    projects: Sequence[Path], global_folder: Path | None, today: datetime.date
+) -> list[Lesson]:
     """Active transcript lessons, live or unconfirmed and lapsed for at most LAPSED_DAYS; a project record with
     `promote: no` or already linked to a global record is left out. Newest first, cut at MAX_LESSONS."""
     out: list[Lesson] = []
     for n, project in enumerate(projects, start=1):
-        for m in project_memories(project):
-            if _readable(m, today) and m.promote != "no" and not m.general:
-                out.append(Lesson(f"p{n}:{m.handle}", "project", project, m))
-    for m in records.load_memories(global_folder, "global"):
-        if _readable(m, today):
-            out.append(Lesson(f"g:{m.handle}", "global", None, m))
+        out.extend(
+            Lesson(f"p{n}:{m.handle}", "project", project, m)
+            for m in project_memories(project)
+            if _readable(m, today) and m.promote != "no" and not m.general
+        )
+    out.extend(
+        Lesson(f"g:{m.handle}", "global", None, m)
+        for m in records.load_memories(global_folder, "global")
+        if _readable(m, today)
+    )
     return _newest_first(out)[:MAX_LESSONS]
 
 
@@ -92,7 +111,9 @@ def _reach(lesson: Lesson) -> str:
 def _encoded(lesson: Lesson) -> str:
     """JSON of what the model is shown plus the sources, so two different lessons never give the same text."""
     m = lesson.memory
-    return json.dumps([lesson.id, _reach(lesson), m.claim, m.context, sorted(m.sources)], ensure_ascii=False)
+    return json.dumps(
+        [lesson.id, _reach(lesson), m.claim, m.context, sorted(m.sources)], ensure_ascii=False
+    )
 
 
 def lesson_fingerprint(lesson: Lesson) -> str:
@@ -111,8 +132,10 @@ def _line(text: str | None) -> str:
 
 
 def lesson_lines(lessons: Sequence[Lesson]) -> list[str]:
-    """`<id>\\t<reach, or "general" for a global record>\\t<claim>\\t<context>`, one line each."""
-    return [f"{x.id}\t{_reach(x)}\t{_line(x.memory.claim)}\t{_line(x.memory.context)}" for x in lessons]
+    r"""`<id>\\t<reach, or "general" for a global record>\\t<claim>\\t<context>`, one line each."""
+    return [
+        f"{x.id}\t{_reach(x)}\t{_line(x.memory.claim)}\t{_line(x.memory.context)}" for x in lessons
+    ]
 
 
 @dataclass(frozen=True)
@@ -120,6 +143,53 @@ class Group:
     ids: list[str]
     claim: str
     context: str
+
+
+def _group_shape(item: object) -> tuple[list[str], str, str] | None:
+    """(ids, claim, context) of an item of the shape {"ids": [str], "claim": str, "context": str (optional)}."""
+    if not isinstance(item, dict):
+        return None
+    ids, claim, context = item.get("ids"), item.get("claim"), item.get("context", "")
+    if not isinstance(ids, list) or not ids or not all(isinstance(x, str) for x in ids):
+        return None
+    if not isinstance(claim, str) or not (context is None or isinstance(context, str)):
+        return None
+    return ids, claim, context or ""
+
+
+def _id_problem(ids: list[str], by_id: Mapping[str, Lesson], used: set[str]) -> str | None:
+    unknown = [x for x in ids if x not in by_id]
+    if unknown:
+        return f"unknown id {unknown[0]}"
+    if len(set(ids)) != len(ids):
+        return "names an id more than once"
+    if any(x in used for x in ids):
+        return "shares an id with an earlier group"
+    return None
+
+
+def _content_problem(
+    ids: list[str], claim: str, by_id: Mapping[str, Lesson], kept: int
+) -> str | None:
+    if not _line(claim):
+        return "empty claim"
+    if len(ids) == 1 and (by_id[ids[0]].scope == "global" or _reach(by_id[ids[0]]) != "general"):
+        return "one member that is global or of reach project"
+    if kept >= MAX_GROUPS:
+        return f"more than {MAX_GROUPS} groups"
+    return None
+
+
+def _judge_group(
+    item: object, by_id: Mapping[str, Lesson], used: set[str], kept: int
+) -> Group | str:
+    """The group an item makes, or the reason it is dropped."""
+    shape = _group_shape(item)
+    if shape is None:
+        return "not an object with ids, claim and context"
+    ids, claim, context = shape
+    why = _id_problem(ids, by_id, used) or _content_problem(ids, claim, by_id, kept)
+    return why or Group(ids, _line(claim), _line(context))
 
 
 def validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group], list[str]]:
@@ -131,44 +201,22 @@ def validate_groups(raw: object, lessons: Sequence[Lesson]) -> tuple[list[Group]
     items = raw.get("groups") if isinstance(raw, dict) else None
     if not isinstance(items, list):
         return [], ["the answer is not an object with a list `groups`"]
-    raw = items
     by_id = {x.id: x for x in lessons}
     kept: list[Group] = []
     reasons: list[str] = []
     used: set[str] = set()
-    for i, item in enumerate(raw, start=1):
-        why = None
-        ids = item.get("ids") if isinstance(item, dict) else None
-        claim = item.get("claim") if isinstance(item, dict) else None
-        context = item.get("context", "") if isinstance(item, dict) else None
-        if not isinstance(item, dict) or not isinstance(ids, list) or not ids \
-                or not all(isinstance(x, str) for x in ids) or not isinstance(claim, str) \
-                or not (context is None or isinstance(context, str)):
-            why = "not an object with ids, claim and context"
-        else:
-            unknown = [x for x in ids if x not in by_id]
-            if unknown:
-                why = f"unknown id {unknown[0]}"
-            elif len(set(ids)) != len(ids):
-                why = "names an id more than once"
-            elif any(x in used for x in ids):
-                why = "shares an id with an earlier group"
-            elif not _line(claim):
-                why = "empty claim"
-            elif len(ids) == 1 and (by_id[ids[0]].scope == "global" or _reach(by_id[ids[0]]) != "general"):
-                why = "one member that is global or of reach project"
-            elif len(kept) >= MAX_GROUPS:
-                why = f"more than {MAX_GROUPS} groups"
-        if why:
-            reasons.append(f"group {i}: {why}")
+    for i, item in enumerate(items, start=1):
+        judged = _judge_group(item, by_id, used, len(kept))
+        if isinstance(judged, str):
+            reasons.append(f"group {i}: {judged}")
             continue
-        used.update(ids)
-        kept.append(Group(ids, _line(claim), _line(context)))
+        used.update(judged.ids)
+        kept.append(judged)
     return kept, reasons
 
 
 def verification_lines(groups: Sequence[Group], lessons: Mapping[str, Lesson]) -> list[str]:
-    """For each group a block for the verifying session: `group <n>`, one `<id>\\t<claim>\\t<context>` line per
+    r"""For each group a block for the verifying session: `group <n>`, one `<id>\\t<claim>\\t<context>` line per
     member, then `proposed\\t<claim>\\t<context>`. `<n>` counts from 1."""
     out: list[str] = []
     for n, g in enumerate(groups, start=1):
@@ -183,6 +231,40 @@ def verification_lines(groups: Sequence[Group], lessons: Mapping[str, Lesson]) -
 _ANSWERS = ("same", "faithful", "general")
 
 
+def _by_group(items: list, count: int) -> dict[int, list[dict]] | None:
+    """The verdicts by the number of the group they name; None when one cannot be placed (it may be a refusal of
+    any group)."""
+    by_group: dict[int, list[dict]] = {}
+    for item in items:
+        n = item.get("group") if isinstance(item, dict) else None
+        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= count:
+            return None
+        by_group.setdefault(n, []).append(item)
+    return by_group
+
+
+def _verdict_failures(v: dict, g: Group) -> list[str]:
+    failed = []
+    reason = v.get("reason")
+    if not (isinstance(reason, str) and reason.strip()):
+        failed.append("reason is empty or missing")
+    for key in _ANSWERS:
+        if key == "faithful" and any(i.startswith("g:") for i in g.ids):
+            continue  # a group with a global member keeps that record's wording: the proposed claim is not used
+        answer = v.get(key, True if key == "same" and len(g.ids) == 1 else None)
+        if answer is not True:
+            failed.append(f"{key} is not true")
+    return failed
+
+
+def _group_failures(found: list[dict], g: Group) -> list[str]:
+    if not found:
+        return ["no verdict"]
+    if len(found) > 1:
+        return ["more than one verdict"]
+    return _verdict_failures(found[0], g)
+
+
 def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group], list[str]]:
     """`raw` is {"verdicts": [{"group": n, "reason": str, "same": bool, "faithful": bool, "general": bool}]}.
     A group is kept only with exactly one verdict naming it, a non-empty reason and all three answers exactly
@@ -192,31 +274,13 @@ def validate_verdicts(raw: object, groups: Sequence[Group]) -> tuple[list[Group]
     items = raw.get("verdicts") if isinstance(raw, dict) else None
     if not isinstance(items, list):
         return [], ["the answer is not an object with a list `verdicts`"]
-    by_group: dict[int, list[dict]] = {}
-    reasons: list[str] = []
-    for item in items:
-        n = item.get("group") if isinstance(item, dict) else None
-        if isinstance(n, bool) or not isinstance(n, int) or not 1 <= n <= len(groups):
-            # a verdict that cannot be placed may be a refusal of any group: nothing is kept
-            return [], ["a verdict does not name an existing group by its number: nothing is kept"]
-        else:
-            by_group.setdefault(n, []).append(item)
+    by_group = _by_group(items, len(groups))
+    if by_group is None:
+        return [], ["a verdict does not name an existing group by its number: nothing is kept"]
     kept: list[Group] = []
+    reasons: list[str] = []
     for n, g in enumerate(groups, start=1):
-        found = by_group.get(n, [])
-        if len(found) != 1:
-            reasons.append(f"group {n}: {'no verdict' if not found else 'more than one verdict'}")
-            continue
-        v = found[0]
-        failed = []
-        if not (isinstance(v.get("reason"), str) and v["reason"].strip()):
-            failed.append("reason is empty or missing")
-        for key in _ANSWERS:
-            if key == "faithful" and any(i.startswith("g:") for i in g.ids):
-                continue  # a group with a global member keeps that record's wording: the proposed claim is not used
-            answer = v.get(key, True if key == "same" and len(g.ids) == 1 else None)
-            if answer is not True:
-                failed.append(f"{key} is not true")
+        failed = _group_failures(by_group.get(n, []), g)
         if failed:
             reasons.append(f"group {n}: " + "; ".join(failed))
         else:
@@ -238,6 +302,7 @@ class Action:
     cases: `target` (a global handle that already counts the session), `entry`, `cases` (only the raw `log` entries of
         the members that the target lacks).
     link: `member` (lesson id), `project`, `target` (as for sighting)."""
+
     kind: str
     keep: str | None = None
     drop: str | None = None
@@ -266,6 +331,116 @@ def _cases_of(lessons: Sequence[Lesson], sessions: set[str]) -> list[str]:
     return sorted(wanted, key=lambda e: wanted[e].on)
 
 
+def _project_merges(members: Sequence[Lesson]) -> tuple[list[Action], dict[str, list[Lesson]]]:
+    """The merges inside each project, and the lessons each kept project lesson stands for."""
+    out: list[Action] = []
+    stands: dict[str, list[Lesson]] = {}
+    by_project: dict[Path, list[Lesson]] = {}
+    for x in members:
+        if x.scope == "project" and x.project is not None:
+            by_project.setdefault(x.project, []).append(x)
+    for project in sorted(by_project):
+        same = by_project[project]
+        keep = _oldest(same)
+        stands[keep.id] = list(same)
+        dropped = sorted((x for x in same if x is not keep), key=lambda x: x.id)
+        out.extend(
+            Action("merge", keep=keep.id, drop=other.id, project=project) for other in dropped
+        )
+    return out, stands
+
+
+def _global_merges(members: Sequence[Lesson]) -> tuple[list[Action], Lesson | None]:
+    """The merges of the global members, and the one that is kept."""
+    globals_ = [x for x in members if x.scope == "global"]
+    if not globals_:
+        return [], None
+    gkeep = _oldest(globals_)
+    dropped = sorted((x for x in globals_ if x is not gkeep), key=lambda x: x.id)
+    return [Action("merge_global", keep=gkeep.id, drop=other.id) for other in dropped], gkeep
+
+
+def _first_entries(general: Sequence[Lesson], sess_of: Mapping[str, list[str]]) -> dict[str, str]:
+    """session -> sighting entry of the first member, in order, that holds it."""
+    first: dict[str, str] = {}
+    for x in general:
+        key = records.project_key(x.project) if x.project is not None else None
+        for s in sess_of[x.id]:
+            first.setdefault(s, records.sighting_entry(s, key))
+    return first
+
+
+def _write_global(
+    group: Group, general: Sequence[Lesson], held: Sequence[Lesson], first: Mapping[str, str]
+) -> Action:
+    origin = _oldest(held)
+    weights = [y.memory.weight or "medium" for y in held]
+    return Action(
+        "write_global",
+        claim=group.claim,
+        context=group.context or None,
+        record_kind=origin.memory.kind,
+        weight=max(weights, key=records.WEIGHTS.index),
+        entries=list(first.values()),
+        members=[x.id for x in general],
+        cases=_cases_of(held, set(first)),
+    )
+
+
+def _target_actions(
+    target: records.Memory, entries: Sequence[str], held: Sequence[Lesson]
+) -> list[Action]:
+    """A sighting for each entry the target lacks, a `cases` action for an entry it counts but lacks cases of."""
+    out: list[Action] = []
+    for e in entries:
+        key = records.session_key(e) or ""
+        carried = _cases_of(held, {key})
+        if not records.counted(target, e):
+            out.append(Action("sighting", target=target.handle, entry=e, cases=carried))
+            continue
+        missing = [
+            r
+            for r in carried
+            if (c := records.case(r)) and not records.has_case(target, key, c.outcome)
+        ]
+        if missing:
+            out.append(Action("cases", target=target.handle, entry=e, cases=missing))
+    return out
+
+
+def _general_actions(
+    group: Group,
+    lessons: Mapping[str, Lesson],
+    stands: Mapping[str, list[Lesson]],
+    gkeep: Lesson | None,
+) -> list[Action]:
+    sess_of = {
+        k: list(dict.fromkeys(s for y in held for s in records.sessions(y.memory)))
+        for k, held in stands.items()
+    }
+    # a member with no session holds no evidence: it is neither written, sighted nor linked
+    general = sorted(
+        (
+            lessons[k]
+            for k, held in stands.items()
+            if sess_of[k] and any(_reach(y) == "general" for y in held)
+        ),
+        key=lambda x: x.id,
+    )
+    if not general:
+        return []
+    first = _first_entries(general, sess_of)
+    held = [y for x in general for y in stands[x.id]]
+    if gkeep is None:
+        out = [_write_global(group, general, held, first)]
+        handle = None
+    else:
+        handle = gkeep.memory.handle
+        out = _target_actions(gkeep.memory, list(first.values()), held)
+    out.extend(Action("link", member=x.id, project=x.project, target=handle) for x in general)
+    return out
+
+
 def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
     """The steps for one group, in order: merges inside a project, a merge of global members, then for the
     members of reach `general` left: a write_global unless a global record is the target, one sighting per entry
@@ -275,71 +450,26 @@ def actions(group: Group, lessons: Mapping[str, Lesson]) -> list[Action]:
     a session with a member may state another lesson of that session, so a pass that stopped half way may write a
     second global record, which a later pass joins with the first as two global members."""
     members = [lessons[i] for i in group.ids]
-    out: list[Action] = []
-    stands: dict[str, list[Lesson]] = {}  # kept project lesson id -> the lessons it stands for
-    by_project: dict[Path, list[Lesson]] = {}
-    for x in members:
-        if x.scope == "project" and x.project is not None:
-            by_project.setdefault(x.project, []).append(x)
-    for project in sorted(by_project):
-        same = by_project[project]
-        keep = _oldest(same) if len(same) > 1 else same[0]
-        stands[keep.id] = list(same)
-        for other in sorted((x for x in same if x is not keep), key=lambda x: x.id):
-            out.append(Action("merge", keep=keep.id, drop=other.id, project=project))
-    globals_ = [x for x in members if x.scope == "global"]
-    gkeep = _oldest(globals_) if globals_ else None
-    for other in sorted((x for x in globals_ if x is not gkeep), key=lambda x: x.id):
-        out.append(Action("merge_global", keep=gkeep.id, drop=other.id))
-
-    sess_of = {k: list(dict.fromkeys(s for y in group_of for s in records.sessions(y.memory)))
-               for k, group_of in stands.items()}
-    # a member with no session holds no evidence: it is neither written, sighted nor linked
-    general = sorted((lessons[k] for k, group_of in stands.items()
-                      if sess_of[k] and any(_reach(y) == "general" for y in group_of)), key=lambda x: x.id)
-    if not general:
-        return out
-    first: dict[str, str] = {}  # session -> entry of the first member, in order, that holds it
-    for x in general:
-        key = records.project_key(x.project)
-        for s in sess_of[x.id]:
-            first.setdefault(s, records.sighting_entry(s, key))
-    entries = list(first.values())
-
-    target: records.Memory | None = gkeep.memory if gkeep else None
-    if target is None:
-        origin = _oldest([y for x in general for y in stands[x.id]])
-        weights = [y.memory.weight or "medium" for x in general for y in stands[x.id]]
-        out.append(Action("write_global", claim=group.claim, context=group.context or None,
-                          record_kind=origin.memory.kind, weight=max(weights, key=records.WEIGHTS.index),
-                          entries=entries, members=[x.id for x in general],
-                          cases=_cases_of([y for x in general for y in stands[x.id]], set(first))))
-        handle = None
-    else:
-        handle = target.handle
-        held = [y for x in general for y in stands[x.id]]
-        for e in entries:
-            key = records.session_key(e)
-            carried = _cases_of(held, {key})
-            if not records.counted(target, e):
-                out.append(Action("sighting", target=handle, entry=e, cases=carried))
-                continue
-            missing = [r for r in carried if not records.has_case(target, key, records.case(r).outcome)]
-            if missing:
-                out.append(Action("cases", target=handle, entry=e, cases=missing))
-    for x in general:
-        out.append(Action("link", member=x.id, project=x.project, target=handle))
-    return out
+    out, stands = _project_merges(members)
+    merged, gkeep = _global_merges(members)
+    return [*out, *merged, *_general_actions(group, lessons, stands, gkeep)]
 
 
-def fill_records(projects: Sequence[Path], global_folder: Path | None) -> list[tuple[str, Path | None, records.Memory]]:
+def fill_records(
+    projects: Sequence[Path], global_folder: Path | None
+) -> list[tuple[str, Path | None, records.Memory]]:
     """Every readable record, as (id, project path or None, memory), with the ids of `collect`: `p<n>:<handle>` for
     the n-th project and `g:<handle>` for a global record."""
     out: list[tuple[str, Path | None, records.Memory]] = []
     for n, project in enumerate(projects, start=1):
-        out += [(f"p{n}:{m.handle}", project, m) for m in project_memories(project)
-                if m.error is None]
-    out += [(f"g:{m.handle}", None, m) for m in records.load_memories(global_folder, "global") if m.error is None]
+        out += [
+            (f"p{n}:{m.handle}", project, m) for m in project_memories(project) if m.error is None
+        ]
+    out += [
+        (f"g:{m.handle}", None, m)
+        for m in records.load_memories(global_folder, "global")
+        if m.error is None
+    ]
     return out
 
 
@@ -348,8 +478,29 @@ def fill_key(project: Path | None, handle: str) -> str:
     return f"g:{handle}" if project is None else f"{records.project_key(project)}:{handle}"
 
 
-def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today: datetime.date,
-                    cap: int = FILL_CAP, attempts: dict | None = None) -> list[tuple[str, records.Memory]]:
+def _fill_wanted(m: records.Memory, today: datetime.date) -> bool:
+    """Could load as a rule, is not awaiting triage, and lacks a valid short form or topic."""
+    if not rules.eligible(m, today) or m.triage == "pending":
+        return False
+    return not (records.valid_short(m.short) and records.valid_topic(m.topic))
+
+
+def _fill_left_alone(m: records.Memory, project: Path | None, attempts: dict) -> bool:
+    """The automatic fill's view: a lesson it will not try."""
+    if attempt_count(attempts.get(fill_key(project, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS:
+        return True
+    if project is not None and m.weight == "strong" and m.owner_confirmed is None:
+        return True
+    return records.valid_short(m.short)
+
+
+def fill_candidates(
+    projects: Sequence[Path],
+    global_folder: Path | None,
+    today: datetime.date,
+    cap: int = FILL_CAP,
+    attempts: dict | None = None,
+) -> list[tuple[str, records.Memory]]:
     """(id, memory) of the lessons that could load as a rule (`rules.eligible`) and are not awaiting triage, but
     lack a valid short form or topic. The confirmed first, then the most corroborated; at most `cap`.
     With `attempts` (`fill_key` -> {"digest", "count"}), the automatic fill's view: a lesson tried `FILL_ATTEMPTS`
@@ -357,34 +508,40 @@ def fill_candidates(projects: Sequence[Path], global_folder: Path | None, today:
     a valid short form (it may be one the owner read: the pass never replaces a short form), leave before the cap."""
     found = []
     for i, p, m in fill_records(projects, global_folder):
-        if not (rules.eligible(m, today) and m.triage != "pending"
-                and not (records.valid_short(m.short) and records.valid_topic(m.topic))):
+        if not _fill_wanted(m, today):
             continue
-        if attempts is not None:
-            if attempt_count(attempts.get(fill_key(p, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS:
-                continue
-            if p is not None and m.weight == "strong" and m.owner_confirmed is None:
-                continue
-            if records.valid_short(m.short):
-                continue
+        if attempts is not None and _fill_left_alone(m, p, attempts):
+            continue
         found.append((i, m))
-    found.sort(key=lambda x: (x[1].owner_confirmed is None, -len(records.projects(x[1])),
-                              -len(records.sessions(x[1])), x[0]))
+    found.sort(
+        key=lambda x: (
+            x[1].owner_confirmed is None,
+            -len(records.projects(x[1])),
+            -len(records.sessions(x[1])),
+            x[0],
+        )
+    )
     return found[:cap]
 
 
-def fill_wont_write(m: records.Memory, project: Path | None, attempts: dict, today: datetime.date) -> bool:
+def fill_wont_write(
+    m: records.Memory, project: Path | None, attempts: dict, today: datetime.date
+) -> bool:
     """True when the automatic fill will not write a short form for this lesson, so only the owner can
     (`mem memory edit --short`). The lesson could load as a rule (`rules.eligible`, not awaiting triage, loads in
     full) and has no valid short form, and: the fill gave up after `FILL_ATTEMPTS` failed fills on its present claim,
     or it is a project lesson the fill never attempts (repository-tracked, see `project_memories`; strong and not
     confirmed by the owner, see `fill_candidates`). `m` is marked by `records.mark_repository`; `project` is the
     project root, None for a global lesson."""
-    if not (rules.eligible(m, today) and m.triage != "pending" and m.load != "index" and not records.valid_short(m.short)):
+    if not (rules.eligible(m, today) and m.triage != "pending" and m.load != "index"):
+        return False
+    if records.valid_short(m.short):
         return False
     if attempt_count(attempts.get(fill_key(project, m.handle)), claim_digest(m)) >= FILL_ATTEMPTS:
         return True
-    return project is not None and (m.from_repository or (m.weight == "strong" and m.owner_confirmed is None))
+    return project is not None and (
+        m.from_repository or (m.weight == "strong" and m.owner_confirmed is None)
+    )
 
 
 def attempt_count(entry: object, digest: str) -> int:
@@ -482,11 +639,16 @@ def validate_fill(payload: object, ids: Sequence[str]) -> tuple[dict[str, dict],
             short = short if isinstance(short, str) else ""
             topic = topic if isinstance(topic, str) else ""
             problem = fill_problem(short, topic)
-            kept[ident] = {"short": short[:300], "topic": topic, **({"problem": problem} if problem else {})}
+            kept[ident] = {
+                "short": short[:300],
+                "topic": topic,
+                **({"problem": problem} if problem else {}),
+            }
     return kept, reasons
 
 
 # --- automatic rewording of a loaded lesson that got worse ---
+
 
 def reword_key(project: Path | None, handle: str) -> str:
     """The key of a lesson in the rewording's state: the fill's, one per lesson."""
@@ -501,7 +663,11 @@ def _entry(state: Mapping, key: str) -> Mapping:
 
 def _count(entry: Mapping, version: datetime.date) -> int:
     count = entry.get("count")
-    if entry.get("version") != version.isoformat() or not isinstance(count, int) or isinstance(count, bool):
+    if (
+        entry.get("version") != version.isoformat()
+        or not isinstance(count, int)
+        or isinstance(count, bool)
+    ):
         return 0
     return count
 
@@ -512,34 +678,55 @@ def reword_open(m: records.Memory, last: datetime.date) -> bool:
     return m.reworded != last and not (m.reviewed is not None and m.reviewed >= last)
 
 
-def reword_candidates(projects: Sequence[Path], gfolder: Path | None, today: datetime.date, state: Mapping,
-                      *, every: bool = False) -> list[tuple[str, records.Memory]]:
+def _loading(
+    recs: Sequence[tuple[str, Path | None, records.Memory]],
+    project: Path | None,
+    today: datetime.date,
+) -> set[int]:
+    """`id()` of the records that load, or are left out only for the size limit, in the view of `project`."""
+    glob = [m for _, p, m in recs if p is None]
+    mine = [m for _, p, m in recs if p is not None and p == project]
+    choice = rules.choose(mine, glob, today)
+    return {id(m) for m in choice.loaded} | {id(m) for m, why in choice.left if why == rules.OVER}
+
+
+def _reword_skipped(m: records.Memory, entry: Mapping, every: bool) -> bool:
+    versions = records.version_list(m)
+    if (
+        not versions
+        or (not every and not records.got_worse(m))
+        or not reword_open(m, versions[-1][0])
+    ):
+        return True
+    last = versions[-1][0]
+    spent = entry.get("spent") is True and entry.get("version") == last.isoformat()
+    return m.reword_failed == last or spent or _count(entry, last) >= REWORD_ATTEMPTS
+
+
+def reword_candidates(
+    projects: Sequence[Path],
+    gfolder: Path | None,
+    today: datetime.date,
+    state: Mapping,
+    *,
+    every: bool = False,
+) -> list[tuple[str, records.Memory]]:
     """(id, memory) of the lessons the automatic rewording may take: loading (or left out only for the size limit
     of the block) in some project's view, got worse, whatever its weight, and not: the pass's own rewording
     (`reworded` is the present version's date), the version the owner kept (`reviewed` on or after it), given up
     on, or spent for the present version (`spent` is a fact about the version its entry names). Most failed on the present version first; at most `REWORD_CAP`.
     With `every`, the lessons that did not get worse are taken too, and there is no cap."""
     recs = fill_records(projects, gfolder)
-    glob = [m for _, p, m in recs if p is None]
     found: dict[str, tuple[str, records.Memory]] = {}
     for project in projects or [None]:
-        mine = [m for _, p, m in recs if p is not None and p == project]
-        choice = rules.choose(mine, glob, today)
-        taken = {id(m) for m in choice.loaded} | {id(m) for m, why in choice.left if why == rules.OVER}
+        taken = _loading(recs, project, today)
         for i, p, m in recs:
             if id(m) in taken and (p is None or p == project):
                 found.setdefault(reword_key(p, m.handle), (i, m))
     out = []
     for key, (i, m) in found.items():
-        versions = records.version_list(m)
-        entry = _entry(state, key)
-        if not versions or (not every and not records.got_worse(m)) or not reword_open(m, versions[-1][0]):
-            continue
-        last = versions[-1][0]
-        if (m.reword_failed == last or (entry.get("spent") is True and entry.get("version") == last.isoformat())
-                or _count(entry, last) >= REWORD_ATTEMPTS):
-            continue
-        out.append((i, m))
+        if not _reword_skipped(m, _entry(state, key), every):
+            out.append((i, m))
     out.sort(key=lambda x: (-records.tallies(x[1])[-1].failed, x[0]))
     return out if every else out[:REWORD_CAP]
 
@@ -567,7 +754,9 @@ def reword_blocks(items: Sequence[tuple[str, records.Memory]]) -> str:
         found = records.tallies(m)
         for t in found:
             mark = " (present)" if t is found[-1] else ""
-            block.append(f"version {t.number} (worked {t.worked}, failed {t.failed}): {_line(t.text)}{mark}")
+            block.append(
+                f"version {t.number} (worked {t.worked}, failed {t.failed}): {_line(t.text)}{mark}"
+            )
         signals = _failure_signals(m.body)
         block.append(f"failed after it loaded: {', '.join(signals) if signals else 'not recorded'}")
         blocks.append("\n".join(block))
@@ -577,6 +766,7 @@ def reword_blocks(items: Sequence[tuple[str, records.Memory]]) -> str:
 def same_text(a: str, b: str) -> bool:
     def norm(x: str) -> str:
         return " ".join(x.lower().split()).strip(" .!;:")
+
     return norm(a) == norm(b)
 
 
@@ -595,11 +785,18 @@ def reword_problem(short: str, memory: records.Memory) -> str | None:
     return None
 
 
-def validate_reword(payload: object, items: Sequence[tuple[str, records.Memory]]) -> dict[str, dict]:
+def _items_of(payload: object) -> list | None:
+    listed = payload.get("items") if isinstance(payload, dict) else None
+    return listed if isinstance(listed, list) else None
+
+
+def validate_reword(
+    payload: object, items: Sequence[tuple[str, records.Memory]]
+) -> dict[str, dict]:
     """The writer's answer {"items": [{"id", "short"}]} as {id: {"short", "problem"}} for the ids asked; an id the
     answer lacks is absent; the first item of an id wins. ValueError when the answer is not an object with a list."""
-    listed = payload.get("items") if isinstance(payload, dict) else None
-    if not isinstance(listed, list):
+    listed = _items_of(payload)
+    if listed is None:
         raise ValueError("the answer is not an object with a list `items`")
     memories = dict(items)
     out: dict[str, dict] = {}
@@ -613,8 +810,9 @@ def validate_reword(payload: object, items: Sequence[tuple[str, records.Memory]]
     return out
 
 
-def reword_survivors(proposed: Mapping[str, dict], items: Sequence[tuple[str, records.Memory]]
-                     ) -> tuple[list[tuple[str, records.Memory, str]], dict[str, str]]:
+def reword_survivors(
+    proposed: Mapping[str, dict], items: Sequence[tuple[str, records.Memory]]
+) -> tuple[list[tuple[str, records.Memory, str]], dict[str, str]]:
     """The proposals fit to go to the checking session, as (id, memory, short), and a refusal word for each other
     proposal: `same_text` (an earlier wording), `refused_code` (any other problem, or `shortcheck`). An id the writer
     did not answer is in neither."""
@@ -633,8 +831,11 @@ def reword_survivors(proposed: Mapping[str, dict], items: Sequence[tuple[str, re
     return kept, refused
 
 
-def reword_outcome(items: Sequence[tuple[str, records.Memory]], proposed: Mapping[str, dict],
-                   accepted: Collection[str]) -> dict[str, str]:
+def reword_outcome(
+    items: Sequence[tuple[str, records.Memory]],
+    proposed: Mapping[str, dict],
+    accepted: Collection[str],
+) -> dict[str, str]:
     """One word per candidate: written, same_text, refused_code, refused_check or no_proposal (the writer's answer has
     no item for it). The step itself adds `changed` and `failed_edit`, which count no attempt."""
     kept, refused = reword_survivors(proposed, items)
@@ -654,19 +855,25 @@ def _key_of(m: records.Memory) -> str:
     return reword_key(None if m.scope == "global" else m.path.parent.parent, m.handle)
 
 
-def reword_state_after(state: Mapping, items: Sequence[tuple[str, records.Memory]], outcome: Mapping[str, str],
-                       today: datetime.date) -> tuple[dict, list[str]]:
+def reword_state_after(
+    state: Mapping,
+    items: Sequence[tuple[str, records.Memory]],
+    outcome: Mapping[str, str],
+    today: datetime.date,
+) -> tuple[dict, list[str]]:
     """The state once the step has run, and the ids to give up on (a `reword_failed` mark): `written` spends the
     version it was written from (the present one of `items`, so an undo leaves the lesson skipped and a newer
     version of the owner's takes it once more); a refusal or a missing proposal counts an attempt against its present version (a count for another
     version starts again); `changed` and `failed_edit` change nothing. `state` is not mutated."""
-    lessons = {k: dict(v) for k, v in (state.get("lessons") or {}).items() if isinstance(v, Mapping)}
+    lessons = {
+        k: dict(v) for k, v in (state.get("lessons") or {}).items() if isinstance(v, Mapping)
+    }
     new = {**{k: v for k, v in state.items() if k != "lessons"}, "lessons": lessons}
     giveup: list[str] = []
     for ident, m in items:
         word = outcome.get(ident, "no_proposal")
         versions = records.version_list(m)
-        if word in ("changed", "failed_edit") or not versions:
+        if word in {"changed", "failed_edit"} or not versions:
             continue
         key, on = _key_of(m), versions[-1][0]
         entry = lessons.get(key, {})
@@ -674,7 +881,11 @@ def reword_state_after(state: Mapping, items: Sequence[tuple[str, records.Memory
             lessons[key] = {"version": on.isoformat(), "count": _count(entry, on), "spent": True}
             continue
         count = _count(entry, on) + 1
-        lessons[key] = {"version": on.isoformat(), "count": count, "spent": entry.get("spent") is True}
+        lessons[key] = {
+            "version": on.isoformat(),
+            "count": count,
+            "spent": entry.get("spent") is True,
+        }
         if count >= REWORD_ATTEMPTS:
             giveup.append(ident)
     return new, giveup
