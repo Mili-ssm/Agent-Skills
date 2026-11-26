@@ -35,7 +35,6 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 import auto_state
 import check as check_rules
 import config
-import digest
 import handoff
 import index as index_files
 import jobs
@@ -66,6 +65,7 @@ from check import (
     orphan_notes,
 )
 from corroborate import decide as corroborate_decide
+from digest import lessons as digest_lessons
 from index import (
     INDEX_FOLDERS,
     apply_index,
@@ -5161,8 +5161,12 @@ def _rules_digest(
 ) -> tuple[dict | None, dict | None]:
     """The digest file and the topics it may speak for, (None, None) when either cannot be read: callers then print without it."""
     try:
-        data = digest.read(data_dir(os.environ))
-        return (data, digest.topics_of(global_lessons, today)) if data["topics"] else (None, None)
+        data = digest_lessons.read(data_dir(os.environ))
+        return (
+            (data, digest_lessons.topics_of(global_lessons, today))
+            if data["topics"]
+            else (None, None)
+        )
     except Exception:
         logger.debug("reading the rules digest failed", exc_info=True)
         return None, None

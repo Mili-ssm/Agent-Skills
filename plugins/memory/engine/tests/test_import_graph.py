@@ -221,6 +221,7 @@ PACKAGE_DEPENDENCIES = {
     },
     "capture": {"records", "jobs"},
     "settle": {"records", "jobs", "safe_io", "store_git"},
+    "digest": {"records", "rules", "shortcheck", "digest_text"},
     "research": {
         "records", "config", "jobs", "safe_io", "headless", "notes", "synthesize", "mem",
     },
@@ -231,6 +232,7 @@ PACKAGE_IMPORTERS = {
     "research": {"mem"},
     "capture": {"mem", "corroborate"},
     "settle": {"mem"},
+    "digest": {"mem", "corroborate"},
 }
 
 

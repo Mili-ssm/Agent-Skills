@@ -12,9 +12,9 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-import digest as dg
 import jobs
 import records
+from digest import lessons as dg
 
 from corroborate import decide as corroborate_decide
 from corroborate import run as corroborate_run
