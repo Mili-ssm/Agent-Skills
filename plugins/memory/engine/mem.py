@@ -40,23 +40,26 @@ from digest import lessons as digest_lessons
 from memories import records, rules, shortcheck
 from memories.records import tokenize
 from notes import check as check_rules
+from notes import fields as note_fields
 from notes import index as index_files
 from notes import note as note_files
 from notes import project_syntheses, syntheses
 from notes.check import (
-    LEVELS,
     MAX_KNOWLEDGE_NAME,
     NAME_PATTERNS,
-    OPTIONAL_FIELDS,
-    SCHEMAS,
-    Problem,
     check,
     due_requirements,
     due_rereads,
     due_retests,
-    instruction_word,
     invalid_changed,
     orphan_notes,
+)
+from notes.fields import (
+    LEVELS,
+    OPTIONAL_FIELDS,
+    SCHEMAS,
+    Problem,
+    instruction_word,
 )
 from notes.index import (
     INDEX_FOLDERS,
@@ -88,7 +91,7 @@ if TYPE_CHECKING:
         Note,
     )
 
-# Names that live in check, notes and index; callers may still read them from `mem`.
+# Names that live in check, fields, notes and index; callers may still read them from `mem`.
 _MOVED = frozenset({
     "BASELINE_HEADING",
     "EXPERIMENT_DIRS",
@@ -196,7 +199,7 @@ _MOVED = frozenset({
 
 def __getattr__(name: str) -> object:
     if name in _MOVED:
-        for module in (check_rules, note_files, index_files):
+        for module in (check_rules, note_fields, note_files, index_files):
             if hasattr(module, name):
                 return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -990,7 +993,7 @@ def _dump_frontmatter(data: dict) -> str:
 def _knowledge_name_problem(stem: str) -> str | None:
     if word := instruction_word(stem):
         return (
-            f'knowledge name reads as an instruction ("{word}-..."): {check_rules._INSTRUCTION_FIX}'
+            f'knowledge name reads as an instruction ("{word}-..."): {note_fields._INSTRUCTION_FIX}'
         )
     if len(stem) > MAX_KNOWLEDGE_NAME:
         return f"knowledge name too long ({len(stem)} characters): {check_rules._LONG_NAME_FIX}"
@@ -1276,7 +1279,7 @@ def _rename_keep_literature_prefix(root: Path, old: Path, stem: str) -> None:
     year, *tokens = old.stem.split("-")
     slug = (
         slugify(cast("list[str]", authors)[0])  # `_authors` found a valid list
-        if check_rules._authors(authors) is None
+        if note_fields._authors(authors) is None
         else tokens[0]
     )  # as rule_consistency: may span tokens
     n = next((k for k in range(1, len(tokens)) if "".join(tokens[:k]) == slug), 1)
@@ -5759,7 +5762,7 @@ def _curate_notes_file(
     """Sort one knowledge note into the queues (disputed, not yet part of a synthesis, older than its section)."""
     if note.type != "knowledge" or note.error is not None or not isinstance(note.meta, dict):
         return
-    if check_rules._disputed(note.meta.get("disputed")) is None:
+    if note_fields._disputed(note.meta.get("disputed")) is None:
         queues.disputed.append(
             f"  {note_files._handle(note.rel)}  {_flat(str(note.meta.get('claim', '')))}  "
             f"(source: {note.meta['disputed'][0]['source']})"
@@ -8426,7 +8429,7 @@ def _source_mark(fact: str, source: str, quote: str) -> tuple[str, str, str]:
     if (
         parts.scheme not in {"http", "https"}
         or not parts.netloc
-        or check_rules._url(source) is not None
+        or note_fields._url(source) is not None
     ):
         raise ValueError("the source must be an http(s) URL")
     return fact, source, quote
