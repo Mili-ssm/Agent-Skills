@@ -88,7 +88,19 @@ Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is g
 - Kill: after the last step `grep -rnE "from store|\"store\.|'store'|store/" plugins/memory --include=*.py` and in `bin/` finds anything outside fixtures; a guard stays green when violated; collected count or a golden changes; `mem.<name>` for a `_MOVED` name raises.
 
 ### Task 4: Split reviews and gate
-- [ ] Split reviews of `check.py` (1,396 lines) and `syntheses.py` (1,313): split along their sections if cohesive parts exist, else record why not. Full matrix; docs (ADR 0034 `## Review`, backlog A6/A14, resume state, this plan).
+- [ ] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) along their sections (proposed cut, outline 2026-11-27; the pre-mortem measures it against the call graph). No facade: each has few importers (`check`: mem.py, session/notices.py; `syntheses`: mem.py, synthesize/*, project_syntheses, check, evals), so importers and `monkeypatch` targets move to the defining module.
+
+| Module | Holds | From |
+|---|---|---|
+| `notes/fields.py` | `Problem`, field validators (`_string` … `_disputed`), the field schemas, `instruction_word` | check.py |
+| `notes/links.py` | `rule_index_fresh`, `rule_links`, `orphan_notes` and their helpers (code stripping, relative links) | check.py |
+| `notes/due.py` | `rule_requirements`, `due_retests`, `due_rereads`, `due_counts`, `due_requirements` and helpers | check.py |
+| `notes/check.py` | structure, schema, topic, size, handle, synthesis and supersession rules, the rule list, `check`, `invalid_changed` | stays |
+| `notes/syntheses.py` | `Section`, `Synthesis`, load, validate, source numbering, `shown`, `source_kinds` | stays |
+| `notes/units.py` | `Unit`, `_Ref`, `_Line`, `_Parser`, `units`, `without_references`, `fingerprint*`, `is_current`, `word_count`, `first_paragraph` | syntheses.py |
+| `notes/synthesis_edit.py` | `snapshot`, `create`, `add_section`, `edit_section`, `_RefEditor`, `change_references`, guards, `append_section`, `renamed_section`, `without_section`, `with_topics`, `match_sections` | syntheses.py |
+
+Check: each module ≤ 600 lines, acyclic, suite count unchanged, goldens, patches proven per the patch rule. Full matrix; docs (ADR 0034 `## Review`, backlog A6/A14, resume state, this plan).
 
 ## Deferred findings
 
