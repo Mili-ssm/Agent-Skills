@@ -250,5 +250,7 @@ def test_rules_unread_with_read_is_refused_and_writes_nothing(gfolder, capsys):
     # the background curator may run `mem rules --unread*` (pipeline.MEM_ALLOWED): that prefix must never mark as read
     assert remember("--short", SHORT) == 0
     before = only(gfolder).path.read_bytes()
+    capsys.readouterr()
     assert mem.main(["rules", "--unread", "--read", "all"]) == REFUSED
+    assert "cannot be used together" in capsys.readouterr().err
     assert only(gfolder).path.read_bytes() == before and only(gfolder).short_by == "model"

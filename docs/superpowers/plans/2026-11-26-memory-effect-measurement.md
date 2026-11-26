@@ -2,7 +2,7 @@
 
 Status: in progress · Date: 2026-11-26 · Branch: feat/memory-lesson-holdout (stacked on fix/skeptical-reviewer-p1-b1, PR #218)
 
-Owner ruling (2026-11-26): proceed with the order the review of that day proposed. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "learning funnel"`, `mem search "VibeMemBench"`).
+Owner ruling (2026-11-26): proceed with the order the review of that day proposed. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
 
 ## Tasks
 
@@ -49,7 +49,7 @@ Cost estimate: 10 lesson scenarios and 3 without, 3 arms, 5 runs: 195 runs at ab
 
 ## Matching by meaning: design for the owner (task 6, not built)
 
-Problem, measured: `mem-settle` showed 1 pair in 65 real runs and corroboration added 7 sightings to 107 transcript lessons in five days, because `records.pairs` (`engine/memories/matching.py`) keeps a pair only at a word containment of 0.6 and real paraphrases score 0.41 to 0.58 (plugin plan § Current state, owner's item of 2026-11-24). The run and lesson counts were read from the plugin's logs and the default store on 2026-11-26 and are recorded as project memories (`mem search "learning funnel"`, `mem search "mem-settle production"`), not in a tracked file. So duplicates stay apart, a lesson seen again in other words gains no sighting, and 90 general lessons wait in quarantine with a 30-day expiry.
+Problem, measured: `mem-settle` showed 1 pair in 65 real runs and corroboration added 7 sightings to 107 transcript lessons in five days, because `records.pairs` (`engine/memories/matching.py`) keeps a pair only at a word containment of 0.6 and real paraphrases score 0.41 to 0.58 (plugin plan § Current state, owner's item of 2026-11-24). The run and lesson counts were read from the plugin's logs and the default store on 2026-11-26 and are recorded as project memories (`mem search "after 5 days of automatic capture"`, `mem search "mem-settle production"`), not in a tracked file. So duplicates stay apart, a lesson seen again in other words gains no sighting, and 90 general lessons wait in quarantine with a 30-day expiry.
 
 Proposal, in the shape the owner sketched on 2026-11-24:
 
@@ -62,6 +62,6 @@ Proposal, in the shape the owner sketched on 2026-11-24:
 
 Trial before it is turned on, rule fixed here: 60 pairs built from real records on a store copy (20 paraphrases written by a session that does not see the judge's brief, 20 valid versions that must stay apart, 20 unrelated look-alikes above the 0.25 floor), two runs. Adopt when no run applies a wrong action on more than 1 pair of 60, at least 14 of the 20 paraphrases are joined, and the two runs agree on at least 54 of 60. The result is preliminary if the paraphrase writer reused more than half of the base's content words (measured by containment), the limit the stage W trial named for its own paraphrases; the half is this plan's choice.
 
-Cost estimate: one session per pair costs about 0.004 USD at Haiku (the measured cost of one short-form session of `mem-corroborate`, 2026-11-26); the stage W trial judged 32 pairs in one session for 0.018 USD, about 0.0006 USD a pair, but one case at a time is what C39 found a small model judges better. The trial: 60 pairs, two runs, a second session on the positives, about 160 sessions, about 0.65 USD, capped at 2 USD. A daily run over about 30 new records with five candidates each is about 150 sessions, about 0.6 USD; batching the candidates of one record into one session would cut that to about 0.1 USD and is the first thing to compare in the trial. Earlier estimates in this project were low by 3 to 5 times.
+Cost estimate: one session per pair costs about 0.004 USD at Haiku (the measured cost of one short-form session of `mem-corroborate`, 2026-11-26); the stage W trial judged 32 pairs in one session for 0.018 USD, about 0.0006 USD a pair, but one case at a time is what C39 found a small model judges better. The trial: 60 pairs, two runs, a second session on the positives, about 160 sessions, about 0.65 USD, capped at 2 USD. A daily run over about 30 new records with five candidates each is about 150 sessions, about 0.6 USD; batching the candidates of one record into one session would cut that to about 0.1 USD and is the first thing to compare in the trial. The 0.004 USD is taken from a session of another kind and the number of second sessions depends on how many pairs are judged positive, so both are assumptions the trial replaces with measured figures. Earlier estimates in this project were low by 3 to 5 times.
 
 Open for the owner: the budget; whether the pass replaces `mem-settle`'s pair source or runs beside it; whether a lesson joined this way counts as a sighting when both wordings came from one session (proposed: no).
