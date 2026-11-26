@@ -20,10 +20,10 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
-2. Quick fix: P1 (measured).
+2. P1 and B1: done on `fix/skeptical-reviewer-p1-b1` (ADR 0017 Measurement 2026-11-26, P1), waiting for a pull request.
 3. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's shared corroborate job runner, A8 (tool-fold), the low items below.
-4. Memory seamless stage 3, T2–T5 (owner, 2026-11-26: started; 4 unattached notes on covered topics).
-5. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 passes the day ratio (10/10), details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
+4. Memory seamless stage 3, T2–T5: started 2026-11-26 ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
+5. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 gives a day ratio of 10/10, its denominator all session days because session starts carry no outside flag; details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
 
@@ -49,8 +49,8 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 
 | Pri | ID | Task | Check |
 |---|---|---|---|
-| high | P1 | `skeptical-reviewer` description excludes diff review that routing sends it | Eval protocol |
-| high | B1 | `skeptical-reviewer` accepts a process-review brief | One trace |
+| high | P1 | `skeptical-reviewer` description excludes diff review that routing sends it | Done on `fix/skeptical-reviewer-p1-b1`, measured |
+| high | B1 | `skeptical-reviewer` accepts a process-review brief | Done on `fix/skeptical-reviewer-p1-b1`, one trace; deferred: the description and README row still name change review only (needs its own eval) |
 | medium | B3 | `implementer`: a report path in the brief is a deliverable | One trace |
 | medium | B4 | `researcher`: stop rule near `maxTurns` | — |
 | medium | B2 | `doc-curator` applies edits only on `Mode: apply` | One trace |

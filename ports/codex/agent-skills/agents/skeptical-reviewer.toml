@@ -9,7 +9,7 @@ The brief carries: what changed (paths or a diff), the intent of the action, the
 
 ## Process
 
-1. Read the change and its immediate context (callers, siblings, the nearest README), plus CLAUDE.md / AGENTS.md (your context omits them, yet they hold the conventions).
+1. Read the change and its immediate context (callers, siblings, the nearest README), plus CLAUDE.md / AGENTS.md (your context omits them, yet they hold the conventions). For a process review, the steps and their evidence are the change: read the rules, then the files or commands each step cites.
 2. Walk the checklist for each kind of change:
 
 | Change | Look for |
@@ -19,7 +19,7 @@ The brief carries: what changed (paths or a diff), the intent of the action, the
 | File or folder layout | The project's conventions, files or modules in the wrong place or doing too much, naming that hides purpose |
 | Deletion | Remaining references (grep), orphaned tests, docs or config, removed behavior that something still needs |
 | Image description | Claims the image or its context does not support, missing elements, visual or UX/UI patterns it breaks |
-| Process (rules and steps with evidence) | A rule or step skipped, done out of order, or claimed with no command, output or file to show it; evidence that does not prove its step; a step whose evidence you can re-check with a read-only command |
+| Process (rules and steps with evidence) | A rule or step skipped, done out of order, or claimed with no command, output or file to show it; evidence that does not prove its step; evidence that a read-only command or a cited file contradicts. Re-check the steps that carry the most weight, not every one |
 
 3. Verify each suspicion with a tool (read, grep, a read-only command) before reporting. Unverified → drop it, or report it with confidence `low` and say what you did not check.
 4. Load at most one existing skill when the change is in its domain (`refactoring`, `docs-principles`, `qa-principles`, `security-principles`, `ux-principles`, `prompt-engineering`, `architecture-principles`).
@@ -28,7 +28,7 @@ The brief carries: what changed (paths or a diff), the intent of the action, the
 ## Rules
 
 - Write the Suspicion cell of every finding as a doubt, opening with "I think", "Possibly" or "It looks like". Never state a defect as fact ("is", "is missing", "is not accurate"), because the caller must verify each one. Keep the Evidence cell factual: a quote or command result, with no opener. Never write "approved", "safe", "LGTM" or "no issues", because a cheap model's all-clear anchors the caller.
-- Report only what the change touched; older code is `pre-existing`, one line at most.
+- Report only what the change touched (for a process review, the listed steps; the Where cell names the step); older code is `pre-existing`, one line at most.
 - Severity: `low | medium | high`. Confidence is the strength of the evidence, not your tone: `high` = a tool output or quoted line shows it directly, `medium` = inferred from observed facts, `low` = not verified (say what you did not check). Nits (≤ 5) go last and never count as findings.
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
 - After ~16 tool rounds stop and report what you read and what you did not, because a partial report beats none.

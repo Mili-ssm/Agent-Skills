@@ -107,9 +107,9 @@ The offload policy's `skeptical-reviewer` row and closing line now name the two-
 - `offload-implementer-with-policy` is identical on both sides: the main model writes the code itself in every run, as its record of 0.17 says. The policy change does not move it.
 - `offload-ui-verifier-with-policy` drops 1 run of 6, under the revert threshold of 2, so the change is kept. Both sides sit far below the record of 6/6 because no browser launches in the eval sandbox (Playwright finds no Chromium; system Chrome exits on the read-only `$HOME`): the two graders that need the browser fail on `dev` too, while dispatch is 6/6 on both. That record cannot be reproduced on this machine until backlog item 3g is done (set aside by the owner, 2026-11-26).
 
-## Measurement 2026-11-26 (P1 description, B1 body)
+## Measurement 2026-11-26, P1
 
-P1 (project review 2026-11-24): the description no longer says "Not for … PR or diff review (code-review)", because `user-config/routing.md` § Reviews sends this agent the staged diff before a push or pull request. Sonnet main, `--scaffold --allow-tools Bash Edit Write` for the offload cases; cost 5.15 USD in all (owner cap 5 USD, overrun 0.15 by in-flight runs).
+P1 (project review 2026-11-24): the description no longer says "Not for … PR or diff review (code-review)", because `user-config/routing.md` § Reviews sends this agent the staged diff before a push or pull request. Sides: `dev` = `origin/dev` 5e837d9 in a worktree; P1 = dc1740d (description only, B1 not yet written). Sonnet main, `--scaffold --allow-tools Bash Edit Write` for the offload cases; cost 5.15 USD in all (owner cap 5 USD, overrun 0.15 by in-flight runs).
 
 | Case | Last record | P1, 2 runs | Rerun, 6 runs: `dev` | Rerun, 6 runs: P1 |
 |---|---|---|---|---|
@@ -119,7 +119,7 @@ P1 (project review 2026-11-24): the description no longer says "Not for … PR o
 | `neg-*` (5 cases) | 15/15 silent | 10/10 silent | — | — |
 
 - Canary before the rerun: `offload-summarizer-with-hook` showed the table (1/1).
-- No case drops 2 or more of 6 against `dev`: `-with-hook` rises 2/6 → 5/6; `-quality` is 3/4 against 4/6, at most 1 of 6 lower if both stopped runs failed. The change is kept. The 2-run dip of `-with-hook` came from run noise on both sides: `dev` itself scores 2/6, below its 2-run record.
+- No case drops 2 or more of 6 against `dev`: `-with-hook` rises 2/6 → 5/6; `-quality` is 3/4 against 4/6, at most 1 of 6 lower if both stopped runs failed. The change is kept; on `-quality` the 6-run rerun was only partly met (4 of 6 runs on the P1 side), so its verdict rests on that bound. The 2-run dip of `-with-hook` came from run noise on both sides: `dev` itself scores 2/6, below its 2-run record.
 - `clean-file` (no finding invented on a clean file) fails on both sides, so it is not caused by P1.
 
-B1, unmeasured: the body accepts a process-review brief (rules and steps with their evidence, no paths) and adds a `Process` checklist row, instead of stopping on "No paths and no diff". No eval case covers a process review. Cheapest check: one trace of a process-review dispatch. Kill criterion: the agent stops for missing paths on a process-review brief, or reports a `Process` finding with no command or quote in its Evidence cell.
+B1 (commit aae4bd9 and its review fixes), unmeasured by eval: the body accepts a process-review brief (rules and steps with their evidence, no paths) and adds a `Process` checklist row, instead of stopping on "No paths and no diff". No eval case covers a process review. One trace on 2026-11-26 (headless, `--plugin-dir plugins/agent-skills`, Sonnet main, 0.24 USD): given a six-step process brief with no paths, the agent read the cited commit and ADR and returned four `Process` findings, each with a quote in its Evidence cell, instead of stopping. Kill criterion: the agent stops for missing paths on a process-review brief, or reports a `Process` finding with no command or quote in its Evidence cell.
