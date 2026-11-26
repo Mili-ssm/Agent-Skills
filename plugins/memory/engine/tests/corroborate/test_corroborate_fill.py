@@ -9,7 +9,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import records
 from core import jobs
 from corroborate import cli as corroborate_cli
 from corroborate import decide as corroborate_decide
@@ -42,6 +41,7 @@ from corroborate_world import (
     two_projects,
     w,
 )
+from store import records
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
 

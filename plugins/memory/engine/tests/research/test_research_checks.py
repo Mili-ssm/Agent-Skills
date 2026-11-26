@@ -13,8 +13,8 @@ from pathlib import Path
 
 import mem
 import pytest
-import records
 from research import checks as rc
+from store import records
 
 ENGINE = Path(__file__).resolve().parents[2]
 HANDLE = "attention-replaces-recurrence"

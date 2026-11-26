@@ -6,7 +6,6 @@ import os
 import subprocess
 
 import pytest
-import records
 from core import jobs
 from corroborate import reword as corroborate_reword
 from corroborate import run as corroborate_run
@@ -30,6 +29,7 @@ from corroborate_world import (
     w,
     worse_one,
 )
+from store import records
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
 

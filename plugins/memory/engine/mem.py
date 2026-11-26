@@ -32,18 +32,21 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
-import check as check_rules
-import index as index_files
-import notes as note_files
-import project_syntheses
-import records
-import rules
-import shortcheck
-import store_git
-import syntheses
 import yaml
 from capture import state as capture_state
-from check import (
+from core import auto_state, config, jobs, safe_io
+from corroborate import decide as corroborate_decide
+from digest import lessons as digest_lessons
+from research import checks as research_checks
+from session import handoff
+from session import notices as session_notices
+from settle import state as settle_state
+from settle import verdicts as settle_verdicts
+from store import check as check_rules
+from store import index as index_files
+from store import notes as note_files
+from store import project_syntheses, records, rules, shortcheck, store_git, syntheses
+from store.check import (
     LEVELS,
     MAX_KNOWLEDGE_NAME,
     NAME_PATTERNS,
@@ -58,15 +61,12 @@ from check import (
     invalid_changed,
     orphan_notes,
 )
-from core import auto_state, config, jobs, safe_io
-from corroborate import decide as corroborate_decide
-from digest import lessons as digest_lessons
-from index import (
+from store.index import (
     INDEX_FOLDERS,
     apply_index,
     index_targets,
 )
-from notes import (
+from store.notes import (
     FrontmatterError,
     ancestors,
     descendants,
@@ -78,17 +78,12 @@ from notes import (
     slugify,
     split_frontmatter,
 )
-from records import tokenize
-from research import checks as research_checks
-from session import handoff
-from session import notices as session_notices
-from settle import state as settle_state
-from settle import verdicts as settle_verdicts
+from store.records import tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
-    from notes import (
+    from store.notes import (
         Note,
     )
 

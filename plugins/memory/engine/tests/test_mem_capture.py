@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import records
+from store import records
 
 PLUGIN = Path(__file__).resolve().parents[2]
 CAPTURE = PLUGIN / "bin" / "mem-capture"

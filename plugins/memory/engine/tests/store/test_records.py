@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import TypedDict, Unpack
 
 import pytest
-import records
 import yaml
+from store import records
 
 TODAY = datetime.date(2026, 11, 17)
 RAW_OBSERVED = 3

@@ -3,9 +3,9 @@ import io
 
 import mem
 import pytest
-import records
 from settle import state as settle_state
 from settle import verdicts as settle_verdicts
+from store import records
 
 TODAY = datetime.date.today()
 K1, K2 = "0123456789ab", "ba9876543210"

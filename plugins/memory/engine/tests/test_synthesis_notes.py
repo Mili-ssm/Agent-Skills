@@ -2,7 +2,7 @@
 
 import mem
 import pytest
-import syntheses
+from store import syntheses
 
 NOTE = "../knowledge/computing/attention-replaces-recurrence.md"
 SRC = f"Sources: [attention]({NOTE})"

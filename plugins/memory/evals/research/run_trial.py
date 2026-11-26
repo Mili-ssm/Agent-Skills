@@ -55,7 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import mem
 import trial_env
-from records import memories_root
+from store.records import memories_root
 from synthesize import pipeline as sp
 
 if TYPE_CHECKING:

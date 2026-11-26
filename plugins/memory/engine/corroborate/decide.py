@@ -13,10 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import records
-import rules
-import shortcheck
 from capture import extract as capture_extract
+from store import records, rules, shortcheck
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence

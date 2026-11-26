@@ -8,8 +8,8 @@ from typing import TypedDict, Unpack
 
 import mem
 import pytest
-import records
 from corroborate import decide as corroborate_decide
+from store import records
 
 TODAY = datetime.date.today()
 

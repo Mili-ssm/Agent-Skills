@@ -12,8 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import check
-import store_git
+from store import check, store_git
 
 if TYPE_CHECKING:
     import datetime

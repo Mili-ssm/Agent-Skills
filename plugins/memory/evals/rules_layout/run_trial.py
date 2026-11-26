@@ -29,8 +29,8 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
-import records
 import trial_env
+from store import records
 
 PLUGIN = trial_env.PLUGIN
 REPO = trial_env.REPO

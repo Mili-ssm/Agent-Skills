@@ -6,8 +6,8 @@ from pathlib import Path
 
 import mem
 import pytest
-import records
 from corroborate import decide as corroborate_decide
+from store import records
 
 K1, K2 = "0123456789ab", "ba9876543210"
 SHORT = "Retries need idempotency keys on payment calls."

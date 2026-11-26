@@ -8,14 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-import digest_text
-import records
+from store import fingerprints as digest_text
+from store import records
 
 if TYPE_CHECKING:
     import datetime
     from collections.abc import Sequence
 
-    from records import Memory
+    from store.records import Memory
 
 HEADER = (
     "memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "

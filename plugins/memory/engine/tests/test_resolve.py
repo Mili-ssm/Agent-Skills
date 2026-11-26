@@ -1,8 +1,8 @@
 import json
 
 import mem
-import notes
 from conftest import usage_log_path
+from store import notes
 from test_find_new import write_note
 from test_search_stats import add
 

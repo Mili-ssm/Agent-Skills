@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mem
 import pytest
-import syntheses
+from store import syntheses
 
 A = "../knowledge/computing/attention-replaces-recurrence.md"
 B = "../literature/computing/2017-vaswani-attention.md"

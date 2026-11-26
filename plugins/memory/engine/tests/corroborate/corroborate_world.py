@@ -9,10 +9,10 @@ from pathlib import Path
 from typing import TypedDict, Unpack
 
 import pytest
-import records
 from core import jobs
 from corroborate import decide as corroborate_decide
 from corroborate import reword as corroborate_reword
+from store import records
 
 PLUGIN = Path(__file__).resolve().parents[3]
 CORR = PLUGIN / "bin" / "mem-corroborate"

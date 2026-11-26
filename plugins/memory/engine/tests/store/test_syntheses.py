@@ -4,7 +4,7 @@ import time
 
 import mem
 import pytest
-import syntheses
+from store import syntheses
 
 NOTE = "../knowledge/computing/attention-replaces-recurrence.md"
 SRC = f"Sources: [attention]({NOTE})"
@@ -379,7 +379,9 @@ def test_init_creates_the_folder_and_accepts_it_again(tmp_path, capsys):
 
 def test_syntheses_and_records_import_nothing_from_mem():
     for name in ("syntheses.py", "records.py"):
-        src = (mem.Path(__file__).resolve().parent.parent / name).read_text(encoding="utf-8")
+        src = (mem.Path(__file__).resolve().parent.parent.parent / "store" / name).read_text(
+            encoding="utf-8"
+        )
         assert not re.search(r"^\s*(import|from) mem\b", src, re.MULTILINE)
 
 
