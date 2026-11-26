@@ -1,4 +1,4 @@
-from integrate.rows import Row, check_claim, parse_rows
+from integrate.rows import Row, check_claim, parse_rows, row_of
 
 MALFORMED = 3
 
@@ -53,3 +53,13 @@ def test_check_claim_refuses_a_forbidden_term(tmp_path):
 def test_check_claim_refuses_brackets_and_multi_unit_claims():
     assert check_claim("Use [x] here.", {}) == "claim holds brackets"
     assert check_claim("One. Two.", {}) == "claim is not one sentence"
+
+
+def test_row_of_is_the_row_for_exactly_one_well_formed_line():
+    fp = "ab12cd34ef"
+    assert row_of(f"n1 | s:a#b | append | {fp}") == Row("n1", "s:a#b", "append", None, fp)
+    assert row_of(f"n1 | s:a#b | unit 2 | {fp}") == Row("n1", "s:a#b", "unit", 2, fp)
+    assert row_of(f"n1 | s:a#b | append | {fp} x") is None
+    assert row_of("# comment") is None
+    assert row_of("") is None
+    assert row_of(f"n1 | s:a#b | append | {fp}\nn2 | s:a#b | append | {fp}") is None

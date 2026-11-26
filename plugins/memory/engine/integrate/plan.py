@@ -7,10 +7,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
-from integrate.rows import parse_rows
+from integrate.rows import row_of
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     from integrate.rows import Row
 
@@ -23,7 +23,7 @@ class PartInfo(NamedTuple):
 class Offered(NamedTuple):
     """What the session saw: note handles, and parts keyed `s:HANDLE#SECTION`."""
 
-    notes: Collection[str]
+    notes: frozenset[str]
     parts: Mapping[str, PartInfo]
 
 
@@ -51,11 +51,10 @@ def placement_rows(lines: Sequence[str], offered: Offered) -> tuple[list[Row], l
         text = line.strip()
         if text == "none" or text.startswith("#"):
             continue
-        rows, bad = parse_rows(text)
-        if bad or len(rows) != 1:
+        row = row_of(text)
+        if row is None:
             refused.append("malformed row")
             continue
-        row = rows[0]
         if reason := _refusal(row, offered, placed):
             refused.append(reason)
             continue

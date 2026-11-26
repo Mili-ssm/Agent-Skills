@@ -63,6 +63,12 @@ def parse_rows(raw: str) -> tuple[list[Row], list[str]]:
     return rows, bad
 
 
+def row_of(line: str) -> Row | None:
+    """The row when the line is exactly one well-formed row, else None."""
+    rows, bad = parse_rows(line)
+    return rows[0] if len(rows) == 1 and not bad else None
+
+
 def _refusal(text: str, env: Mapping[str, str]) -> str | None:
     if secret_in([text]):
         return "secret in the claim"
