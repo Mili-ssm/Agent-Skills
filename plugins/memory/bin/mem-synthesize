@@ -22,41 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-from synthesize import references as bf
-from synthesize.backfill import backfill_one, done_file, run_backfill
-from synthesize.cli import main as _cli_main
-from synthesize.run import (
-    ESTIMATE_PER_BACKFILL,
-    default_store,
-    history_commit,
-    session_env,
-    state_dir,
-    topics_without_synthesis,
-)
-from synthesize.topics import ReferenceOptions, add_references, run
-
-# Names other loaders still read from this script (`mem-auto`, `mem-settle`, the tests and `run_trials.py`).
-__all__ = [
-    "ESTIMATE_PER_BACKFILL",
-    "ReferenceOptions",
-    "add_references",
-    "backfill_one",
-    "bf",
-    "default_store",
-    "done_file",
-    "history_commit",
-    "main",
-    "run",
-    "run_backfill",
-    "session_env",
-    "state_dir",
-    "topics_without_synthesis",
-]
-
-
-def main() -> int:
-    return _cli_main(__doc__ or "")
-
+from synthesize import cli
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(cli.main(__doc__ or ""))
