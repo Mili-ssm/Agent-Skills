@@ -144,7 +144,6 @@ def test_handle_resolution_parses_no_note(hub_root, capsys, monkeypatch):
     def fail(*_):
         raise AssertionError("parsed a note")
 
-    monkeypatch.setattr(mem, "_read_note", fail)
     monkeypatch.setattr(
         notes_mod, "_read_note", fail
     )  # discover_notes lives in notes since the split
