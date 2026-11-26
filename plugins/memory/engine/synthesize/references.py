@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
 from core import headless
 from syntheses import document
+from syntheses import units as synthesis_units
 
 from synthesize import pipeline as sp
 
@@ -36,10 +37,10 @@ def select(path: Path, done: dict[str, str]) -> list[dict]:
     `Sources:` line), `fingerprint`."""
     chosen = []
     for section in document.load_one(path).parts:
-        sources = [t for t in section.sources if document._is_ref(t)]
-        found, _ = document.units(section.text)
+        sources = [t for t in section.sources if synthesis_units._is_ref(t)]
+        found, _ = synthesis_units.units(section.text)
         bare = [u for u in found if not u.refs]
-        fingerprint = document.fingerprint(section.text)
+        fingerprint = synthesis_units.fingerprint(section.text)
         if sources and bare and done.get(section.handle) != fingerprint:
             chosen.append({
                 "handle": section.handle,

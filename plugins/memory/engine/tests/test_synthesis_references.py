@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mem
 import pytest
-from syntheses import document
+from syntheses import document, units
 
 A = "../knowledge/computing/attention-replaces-recurrence.md"
 B = "../literature/computing/2017-vaswani-attention.md"
@@ -12,7 +12,7 @@ SRC = f"Sources: [attention]({A})"
 
 
 def parse(text):
-    return document.units(text)
+    return units.units(text)
 
 
 def plains(text):
@@ -149,28 +149,26 @@ BASE = f"The reasons are clear. Another reason holds.\n\n{SRC}\n"
 
 
 def test_fingerprint_ignores_references_and_their_targets():
-    plain = document.fingerprint(BASE)
+    plain = units.fingerprint(BASE)
     with_ref = f"The reasons are clear.[x]({A}) Another reason holds.\n\n{SRC}\n"
     moved = f"The reasons are clear.[x]({B}) Another reason holds.\n\n{SRC}\n"
-    assert document.fingerprint(with_ref) == plain == document.fingerprint(moved)
-    assert document.fingerprint(BASE.replace("clear", "unclear")) != plain
+    assert units.fingerprint(with_ref) == plain == units.fingerprint(moved)
+    assert units.fingerprint(BASE.replace("clear", "unclear")) != plain
 
 
 def test_fingerprint_sees_a_change_of_the_text_around_a_reference():
     inline = f"See [the paper]({A}) now.\n\n{SRC}\n"
-    assert document.fingerprint(inline) != document.fingerprint(inline.replace("now", "later"))
-    assert document.fingerprint(inline) == document.fingerprint(inline.replace(A, B))
+    assert units.fingerprint(inline) != units.fingerprint(inline.replace("now", "later"))
+    assert units.fingerprint(inline) == units.fingerprint(inline.replace(A, B))
 
 
 def test_legacy_fingerprint_is_the_old_hash_and_still_current():
-    assert document.fingerprint_legacy(BASE) == document.fingerprint(
-        BASE
-    )  # no references: the same
+    assert units.fingerprint_legacy(BASE) == units.fingerprint(BASE)  # no references: the same
     with_ref = f"The reasons are clear.[x]({A}) Another reason holds.\n\n{SRC}\n"
-    assert document.fingerprint_legacy(with_ref) != document.fingerprint(with_ref)
-    old, new = document.fingerprint_legacy(with_ref), document.fingerprint(with_ref)
-    assert document.is_current(old, with_ref) and document.is_current(new, with_ref)
-    assert not document.is_current("0" * 10, with_ref) and not document.is_current(None, with_ref)
+    assert units.fingerprint_legacy(with_ref) != units.fingerprint(with_ref)
+    old, new = units.fingerprint_legacy(with_ref), units.fingerprint(with_ref)
+    assert units.is_current(old, with_ref) and units.is_current(new, with_ref)
+    assert not units.is_current("0" * 10, with_ref) and not units.is_current(None, with_ref)
 
 
 # ---- CLI -----------------------------------------------------------------------------------------------------
@@ -293,10 +291,10 @@ def test_rename_of_a_referenced_note_leaves_the_member_notes_current(run, made):
 def test_a_note_stamped_with_the_old_fingerprint_is_current(run, made):
     path = next((made / "knowledge").rglob("one-note.md"))
     section = document.load_one(made / "syntheses" / "attention.md").sections[-1]
-    legacy = document.fingerprint_legacy(section.text)
-    assert legacy != document.fingerprint(section.text)
+    legacy = units.fingerprint_legacy(section.text)
+    assert legacy != units.fingerprint(section.text)
     path.write_text(
-        path.read_text(encoding="utf-8").replace(document.fingerprint(section.text), legacy),
+        path.read_text(encoding="utf-8").replace(units.fingerprint(section.text), legacy),
         encoding="utf-8",
     )
     assert "one-note  s:attention#alpha" not in run("curate", "--notes")[1]

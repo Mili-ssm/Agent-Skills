@@ -5,7 +5,7 @@ from pathlib import Path
 
 import mem
 import pytest
-from syntheses import document
+from syntheses import document, units
 
 USAGE_EXIT = 2
 GAMMA_UNITS = 2
@@ -151,7 +151,7 @@ def test_add_after_a_plain_sentence_copies_label_and_target_from_the_sources_lin
     assert (
         f"First plain sentence here. [attention]({A_SPELLED}) Second" in new
     )  # the Sources line's own spelling
-    assert document.without_references(new) == document.without_references(old)
+    assert units.without_references(new) == units.without_references(old)
     assert run("check")[:2] == (0, "")
     assert "updated: '" in (made / SYN).read_text(encoding="utf-8")
 
@@ -270,13 +270,13 @@ def test_when_every_line_is_refused_nothing_is_written_or_logged(run, made, tmp_
 
 def test_one_restore_puts_back_the_synthesis_and_a_restamped_note(run, made, tmp_path):
     section = part(made, "alpha")
-    legacy = document.fingerprint_legacy(section)
-    new_fp = document.fingerprint(section)
+    legacy = units.fingerprint_legacy(section)
+    new_fp = units.fingerprint(section)
     path = note(made, "one-note")
     path.write_text(path.read_text(encoding="utf-8").replace(new_fp, legacy), encoding="utf-8")
     before = files(made)
     assert refs(run, tmp_path, f"alpha | 3 | add {B}")[0] == 0
-    assert stamp(made, "one-note") == document.fingerprint(part(made, "alpha")) != legacy
+    assert stamp(made, "one-note") == units.fingerprint(part(made, "alpha")) != legacy
     assert (
         stamp(made, "two-note") == new_fp
     )  # already current by the new definition and unchanged by it
@@ -310,7 +310,7 @@ def test_restore_after_a_later_edit_of_a_restamped_note_is_refused_as_for_other_
     path = note(made, "one-note")
     path.write_text(
         path.read_text(encoding="utf-8").replace(
-            document.fingerprint(section), document.fingerprint_legacy(section)
+            units.fingerprint(section), units.fingerprint_legacy(section)
         ),
         encoding="utf-8",
     )
@@ -334,7 +334,7 @@ def test_remove_from_a_pair_separated_by_a_comma_leaves_no_comma(gone, left):
     assert reasons == [None] * len(gone)
     kept = "".join(f" [{k}]({targets[k]})" for k in left)
     assert new == text.replace(pair, kept, 1)
-    assert document.without_references(new) == document.without_references(text)
+    assert units.without_references(new) == units.without_references(text)
 
 
 GAMMA = (
@@ -358,15 +358,15 @@ def test_a_reference_can_follow_a_unit_that_ends_in_an_abbreviation(run, made, t
     )
     old = part(made, "gamma")
     before = files(made)
-    shape = [(u.n, u.plain) for u in document.units(old)[0]]
+    shape = [(u.n, u.plain) for u in units.units(old)[0]]
     assert len(shape) == GAMMA_UNITS
     code, out, err = refs(run, tmp_path, f"gamma | 1 | add {A}", f"gamma | 2 | add {B}")
     assert (code, err) == (0, "")
     assert out.splitlines()[0] == "s:attention#gamma: added 2, removed 0, refused 0"
     new = part(made, "gamma")
     assert f"in Yu et al. [attention]({A})\n" in new and f"Cy et al. [vaswani]({B})\n" in new
-    assert [(u.n, u.plain) for u in document.units(new)[0]] == shape
-    assert document.fingerprint(new) == document.fingerprint(old)
+    assert [(u.n, u.plain) for u in units.units(new)[0]] == shape
+    assert units.fingerprint(new) == units.fingerprint(old)
     assert run("check")[:2] == (0, "")
     after = files(made)
     code, out, err = refs(run, tmp_path, f"gamma | 1 | add {A}", f"gamma | 2 | add {B}")
@@ -404,7 +404,7 @@ def test_a_reference_can_follow_a_unit_that_ends_in_a_colon_before_a_table_or_li
     )
     old = part(made, "delta")
     before = files(made)
-    shape = [(u.n, u.plain) for u in document.units(old)[0]]
+    shape = [(u.n, u.plain) for u in units.units(old)[0]]
     assert (
         len(shape) == DELTA_UNITS
         and shape[1][1].endswith("were:")
@@ -415,8 +415,8 @@ def test_a_reference_can_follow_a_unit_that_ends_in_a_colon_before_a_table_or_li
     assert out.splitlines()[0] == "s:attention#delta: added 2, removed 0, refused 0"
     new = part(made, "delta")
     assert f"were: [attention]({A})\n" in new and f"as follows: [vaswani]({B})\n- item one" in new
-    assert [(u.n, u.plain) for u in document.units(new)[0]] == shape
-    assert document.fingerprint(new) == document.fingerprint(old)
+    assert [(u.n, u.plain) for u in units.units(new)[0]] == shape
+    assert units.fingerprint(new) == units.fingerprint(old)
     assert run("check")[:2] == (0, "")
     after = files(made)
     code, out, err = refs(run, tmp_path, f"delta | 2 | add {A}", f"delta | 5 | add {B}")
@@ -453,11 +453,11 @@ def test_one_line_that_breaks_the_part_is_refused_alone(run, made, tmp_path, mon
 @pytest.mark.parametrize("after", ["# A heading", "> A quote", "A plain paragraph."])
 def test_a_colon_line_before_anything_but_a_table_or_list_keeps_its_reference_inline(after):
     text = f"Alpha holds: [x](../knowledge/x/a.md)\n\n{after}\n"
-    (unit, *_), _ = document.units(text)
+    (unit, *_), _ = units.units(text)
     assert unit.plain.startswith("Alpha holds: x"), unit.plain
 
 
 def test_an_indented_list_after_a_colon_line_takes_a_trailing_reference():
     text = "Alpha holds: [x](../knowledge/x/a.md)\n  - an item\n"
-    (unit, *_), _ = document.units(text)
+    (unit, *_), _ = units.units(text)
     assert unit.plain == "Alpha holds:", unit.plain

@@ -2,7 +2,7 @@
 
 import mem
 import pytest
-from syntheses import document
+from syntheses import document, units
 
 NOTE = "../knowledge/computing/attention-replaces-recurrence.md"
 SRC = f"Sources: [attention]({NOTE})"
@@ -87,7 +87,7 @@ def test_one_call_writes_section_and_note_with_part_of_and_hash(run, made, tmp_p
     text = note_path(hub_root).read_text(encoding="utf-8")
     section = document.load_one(made).sections[-1]
     assert 'part_of: "attention#why-it-works"' in text or "part_of: attention#why-it-works" in text
-    assert document.fingerprint(section.text) in text
+    assert units.fingerprint(section.text) in text
     assert "topics: [ml, computing]" in text
     assert run("check")[:2] == (0, "")
     code, out, _ = run("show", "attention-is-cheap")

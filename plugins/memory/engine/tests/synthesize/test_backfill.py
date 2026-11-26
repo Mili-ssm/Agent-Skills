@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from syntheses import document
+from syntheses import document, units
 from synthesize import backfill as sb
 from synthesize import cli, topics
 from synthesize import pipeline as sp
@@ -107,7 +107,7 @@ def marks(ms):
 
 def words(root):
     text = synthesis_text(root)
-    return {h: document.without_references(t) for h, t in sp.split_parts(text).items()}
+    return {h: units.without_references(t) for h, t in sp.split_parts(text).items()}
 
 
 ANSWER = f"""```text
@@ -128,7 +128,7 @@ def test_select_skips_url_only_fully_referenced_and_done_parts(full):
         "alpha",
         "beta",
     ]  # gamma, delta, epsilon skipped
-    done = {"alpha": document.fingerprint(document.load_one(path).parts[0].text)}
+    done = {"alpha": units.fingerprint(document.load_one(path).parts[0].text)}
     assert [p["handle"] for p in bf.select(path, done)] == ["beta"]
     assert [p["handle"] for p in bf.select(path, {"beta": "stale"})] == ["alpha", "beta"]
 
@@ -169,7 +169,7 @@ def test_valid_lines_apply_and_nothing_else_changes(ms, fake, full, tmp_path):
     assert row["mem_check"] == before_check and row["cost"] == pytest.approx(0.02)
     path = full / "syntheses" / "attention.md"
     refs = {
-        s.handle: {u.n: u.refs for u in document.units(s.text)[0]}
+        s.handle: {u.n: u.refs for u in units.units(s.text)[0]}
         for s in document.load_one(path).parts
     }
     assert refs["alpha"][1] == [A, B] and refs["alpha"][2] == [A, B] and refs["alpha"][3] == [B]

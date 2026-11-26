@@ -378,7 +378,11 @@ def test_init_creates_the_folder_and_accepts_it_again(tmp_path, capsys):
 
 
 def test_syntheses_and_records_import_nothing_from_mem():
-    for folder, name in (("syntheses", "document.py"), ("memories", "records.py")):
+    for folder, name in (
+        ("syntheses", "document.py"),
+        ("syntheses", "units.py"),
+        ("memories", "records.py"),
+    ):
         src = (mem.Path(__file__).resolve().parent.parent.parent / folder / name).read_text(
             encoding="utf-8"
         )

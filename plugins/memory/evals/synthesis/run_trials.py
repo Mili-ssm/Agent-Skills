@@ -63,6 +63,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import trial_env
 from syntheses import document
+from syntheses import units as synthesis_units
 from synthesize import pipeline as sp
 from synthesize import topics as synthesize_topics
 from synthesize.pipeline import (
@@ -210,12 +211,14 @@ def drop_unlisted_references(store: Path) -> int:
         for part in syn.parts:
             line = document._sources_line(part.text) or ""
             listed = {
-                document._resolved(base, t) for t in document._links(line) if document._relative(t)
+                document._resolved(base, t)
+                for t in document._links(line)
+                if synthesis_units._relative(t)
             }
-            _, every, _, body_end = document._parse(part.text)
+            _, every, _, body_end = synthesis_units._parse(part.text)
             bad = [r for r in every if document._resolved(base, r.target) not in listed]
             if bad:
-                new = document._remove(part.text, 0, body_end, bad) + part.text[body_end:]
+                new = synthesis_units._remove(part.text, 0, body_end, bad) + part.text[body_end:]
                 text, total = document.apply_part_text(text, part.handle, new), total + len(bad)
         path.write_text(text)
     return total
@@ -283,7 +286,7 @@ def without_references_text(path: Path) -> str:
     text = path.read_text(encoding="utf-8")
     for section in document.load_one(path).sections:
         text = document.apply_part_text(
-            text, section.handle, document.without_references(section.text)
+            text, section.handle, synthesis_units.without_references(section.text)
         )
     return text
 
@@ -1065,7 +1068,7 @@ def file_units(path: Path) -> list[tuple[str, int, list[str]]]:
     """(part handle, unit number, normalized reference targets without repeats) for every unit of the file's parts."""
     out = []
     for section in document.load_one(path).parts:
-        found, _ = document.units(section.text)
+        found, _ = synthesis_units.units(section.text)
         out += [(section.handle, u.n, [_norm(t) for t in dict.fromkeys(u.refs)]) for u in found]
     return out
 
@@ -1159,8 +1162,8 @@ def part_sources(base: Path, parts: list) -> dict[str, dict[Path, tuple[str, str
     sources: dict[str, dict[Path, tuple[str, str]]] = {}
     for section in parts:
         sources[section.handle] = mine = {}
-        for m in document._REF_LINK.finditer(document._sources_line(section.text) or ""):
-            if document._is_ref(m.group(2)):
+        for m in synthesis_units._REF_LINK.finditer(document._sources_line(section.text) or ""):
+            if synthesis_units._is_ref(m.group(2)):
                 mine.setdefault(document._resolved(base, m.group(2)), (m.group(1), m.group(2)))
     return sources
 
@@ -1184,7 +1187,8 @@ def unit_candidate(scope: PlantScope, n: int, own: list) -> tuple[bool, tuple] |
         r
         for r in own
         if r.trailing
-        and scope.verdicts.get((scope.handle, n, _norm(document._file_part(r.target)))) is True
+        and scope.verdicts.get((scope.handle, n, _norm(synthesis_units._file_part(r.target))))
+        is True
     ]
     if not ok:
         return None
@@ -1197,7 +1201,7 @@ def unit_candidate(scope: PlantScope, n: int, own: list) -> tuple[bool, tuple] |
 
 def part_candidates(scope: PlantScope, text: str, kinds: dict) -> tuple[list, list]:
     """The strong and the weak swap candidates of one part's `text`, over the units the judge marked `finding`."""
-    found, refs, orphans, _ = document._parse(text)
+    found, refs, orphans, _ = synthesis_units._parse(text)
     orphan_at = {r.start for r in orphans}
     strong, weak = [], []
     for unit in found:
@@ -1224,7 +1228,7 @@ def choose_swaps(
         for handle, n, ok, other in group:
             ref, (label, target) = rng.choice(ok), rng.choice(other)
             edits.setdefault(handle, []).append((ref.start, ref.end, f"[{label}]({target})"))
-            out.append((handle, n, _norm(document._file_part(target))))
+            out.append((handle, n, _norm(synthesis_units._file_part(target))))
     return planted, planted_weak, edits
 
 
@@ -1769,7 +1773,7 @@ def changed_parts(before: Path, after: Path) -> list[str]:
         for h in sorted(set(a) | set(b))
         if h not in a
         or h not in b
-        or document.without_references(a[h]) != document.without_references(b[h])
+        or synthesis_units.without_references(a[h]) != synthesis_units.without_references(b[h])
     ]
 
 

@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any, Required, TypedDict, Unpack
 from core import headless
 from memories import records
 from syntheses import document
+from syntheses import units as synthesis_units
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -291,12 +292,14 @@ def units_text(synthesis: Path) -> str:
     `<number> | <text without references> | <targets, or ->`, then `Sources: <note targets>`."""
     lines = []
     for section in document.load_one(synthesis).parts:
-        found, _ = document.units(section.text)
+        found, _ = synthesis_units.units(section.text)
         lines.append(f"## {section.handle}")
         lines += [
             f"{u.n} | {' '.join(u.plain.split())} | {', '.join(u.refs) or '-'}" for u in found
         ]
-        lines.append("Sources: " + ", ".join(t for t in section.sources if document._is_ref(t)))
+        lines.append(
+            "Sources: " + ", ".join(t for t in section.sources if synthesis_units._is_ref(t))
+        )
     return "\n".join(lines) + "\n"
 
 

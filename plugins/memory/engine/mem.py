@@ -82,7 +82,7 @@ from session import handoff
 from session import notices as session_notices
 from settle import state as settle_state
 from settle import verdicts as settle_verdicts
-from syntheses import document
+from syntheses import document, units
 from syntheses import project as project_syntheses
 
 if TYPE_CHECKING:
@@ -5748,7 +5748,7 @@ def _curate_notes_stale(
     handle, _, section = part.partition("#")
     syn = next((x for x in synths if x.handle == handle), None)
     sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
-    if sec is not None and not document.is_current(
+    if sec is not None and not units.is_current(
         note.meta.get("part_of_hash"), sec.text, _note_target(note.rel)
     ):
         return f"  {name}  s:{handle}#{section}"
@@ -6969,7 +6969,7 @@ def _synthesis_text(source: str | None) -> str | None:
 
 def _long_note(handle: str, path: Path, section: str) -> None:
     sec = next((x for x in document.load_one(path).sections if x.handle == section), None)
-    if sec is not None and (n := document.word_count(sec.text)) > document.LONG_SECTION_WORDS:
+    if sec is not None and (n := units.word_count(sec.text)) > document.LONG_SECTION_WORDS:
         print(
             f"mem: s:{handle}#{section} has {n} words: consider splitting it into two parts "
             "(mem synthesis add).",
@@ -7071,7 +7071,7 @@ def _attach(args: argparse.Namespace) -> int:
             _set_part_of(
                 text,
                 f"{syn.handle}#{sec.handle}",
-                document.note_fingerprint(sec.text, _note_target(rel)),
+                units.note_fingerprint(sec.text, _note_target(rel)),
             ).encode("utf-8"),
         )
     except (ValueError, OSError, FrontmatterError) as exc:
@@ -7498,7 +7498,7 @@ def _refs_attempt(unit: _RefsPart, picked: list[int]) -> tuple[str, list[str | N
     )
     if text == part.text:
         return text, why_not, None
-    if document.without_references(text) != document.without_references(part.text):
+    if units.without_references(text) != units.without_references(part.text):
         return (
             text,
             why_not,
@@ -7571,8 +7571,8 @@ def _refs_note_edits(
     for note, text in _part_of_notes(root, f"{handle}#{name}"):
         stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
         rel = note.relative_to(root).as_posix()
-        new_fp = document.note_fingerprint(new, _note_target(rel))
-        if document.is_current(stored, old, _note_target(rel)) and stored != new_fp:
+        new_fp = units.note_fingerprint(new, _note_target(rel))
+        if units.is_current(stored, old, _note_target(rel)) and stored != new_fp:
             notes[note] = (
                 text.encode("utf-8"),
                 _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"),
@@ -7725,7 +7725,7 @@ def _synthesis_note_new(
         level=args.level,
         origin=note.origin,
         part_of=note.part_of,
-        part_of_hash=document.fingerprint(note.cleaned),
+        part_of_hash=units.fingerprint(note.cleaned),
     )
     return target, created
 
@@ -7733,9 +7733,7 @@ def _synthesis_note_new(
 def _synthesis_note_checked(root: Path, target: Path, cleaned: str) -> str:
     """Stamp the note's `part_of_hash` and require that it has no check problem; returns its path."""
     rel = target.relative_to(root).as_posix()
-    if (stamp := document.note_fingerprint(cleaned, _note_target(rel))) != document.fingerprint(
-        cleaned
-    ):
+    if (stamp := units.note_fingerprint(cleaned, _note_target(rel))) != units.fingerprint(cleaned):
         safe_io.replace_file(
             target,
             _set_field(note_files._read_text(target), "part_of_hash", stamp).encode("utf-8"),
@@ -8013,7 +8011,7 @@ def _new_link_part(args: argparse.Namespace, fields: dict[str, Any]) -> str | No
         return None
     syn, sec = _section_ref(args.root, args.part_of)
     fields["part_of"] = f"{syn.handle}#{sec.handle}"
-    fields["part_of_hash"] = document.fingerprint(sec.text)
+    fields["part_of_hash"] = units.fingerprint(sec.text)
     return sec.text
 
 
@@ -8045,7 +8043,7 @@ def _new_write(
         **fields,
     )
     if part_text is not None:
-        stamp = document.note_fingerprint(
+        stamp = units.note_fingerprint(
             part_text, _note_target(path.relative_to(args.root).as_posix())
         )
         if stamp != fields["part_of_hash"]:
