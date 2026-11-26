@@ -60,6 +60,11 @@ def _names(node: ast.AST) -> set[str]:
     return set()
 
 
+def _is_python_script(path: Path) -> bool:
+    """A `bin/` file that is a python script; the uv launchers are bash and load nothing themselves."""
+    return path.is_file() and path.read_text(encoding="utf-8").startswith("#!/usr/bin/env python3")
+
+
 def _edges(path: Path) -> set[Path]:
     """Engine modules and sibling bin scripts that `path` imports, loads by `import_module` or loads by path."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -72,7 +77,11 @@ def _edges(path: Path) -> set[Path]:
         )  # a package is its `__init__.py`
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", name) and module.is_file():
             found.add(module)
-        elif re.fullmatch(r"mem-[a-z]+", name) and (BIN / name).is_file() and name not in EXCLUDED:
+        elif (
+            _is_python_script(BIN / name)
+            and re.fullmatch(r"mem-[a-z]+", name)
+            and name not in EXCLUDED
+        ):
             found.add(BIN / name)
     return found - {path}
 
@@ -105,9 +114,7 @@ def test_scripts_are_found() -> None:
     assert {p.name for p in _scripts()} >= {
         "mem-auto",
         "mem-capture",
-        "mem-corroborate",
         "mem-settle",
-        "mem-synthesize",
     }
     assert ENGINE / "synthesize" / "run.py" in _closure(BIN / "mem-settle")
     assert ENGINE / "core" / "jobs.py" in _closure(BIN / "mem-settle")

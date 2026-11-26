@@ -115,9 +115,16 @@ def _env(**extra: str) -> dict[str, str]:
     return env
 
 
+def _command(script: str) -> list[str]:
+    """`bin/mem-synthesize` is a uv launcher: the test Python runs its entry through `engine/run.py` instead."""
+    if script == "mem-synthesize":
+        return [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", script]
+    return [sys.executable, str(BIN / script)]
+
+
 def _run(script: str, *args: str, env: dict[str, str] | None = None):
     return subprocess.run(
-        [sys.executable, str(BIN / script), *args],
+        [*_command(script), *args],
         capture_output=True,
         text=True,
         encoding="utf-8",

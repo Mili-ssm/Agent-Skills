@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import TypedDict, Unpack
 
@@ -191,7 +192,15 @@ def run(w, *args, **options: Unpack[RunOptions]):
     full = {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     full["FAKE_MODE"] = mode
     full.update(env or {})
-    argv = [str(corr or CORR), cmd, *(["--claude", str(w.fake)] if claude else []), *args]
+    launcher = corr or CORR
+    # `bin/mem-corroborate` is a uv launcher: the test Python runs its entry through the `engine/run.py` beside it
+    entry = [
+        sys.executable,
+        str(launcher.parent.parent / "engine" / "run.py"),
+        "--bin",
+        launcher.name,
+    ]
+    argv = [*entry, cmd, *(["--claude", str(w.fake)] if claude else []), *args]
     return subprocess.run(argv, env=full, capture_output=True, text=True, timeout=300, check=False)
 
 
@@ -239,7 +248,12 @@ def fake_plugin(w, shell):
     plug = w.tmp / "plug"
     (plug / "bin").mkdir(parents=True)
     shutil.copy(CORR, plug / "bin" / "mem-corroborate")
-    (plug / "engine").symlink_to(PLUGIN / "engine")
+    # `run.py` is a real copy and the rest links to the engine, so the modules find the `mem` wrapper at plug/bin/mem
+    (plug / "engine").mkdir()
+    shutil.copy(PLUGIN / "engine" / "run.py", plug / "engine" / "run.py")
+    for child in (PLUGIN / "engine").iterdir():
+        if child.is_dir() and (child / "__init__.py").is_file():
+            (plug / "engine" / child.name).symlink_to(child)
     mem = plug / "bin" / "mem"
     mem.write_text("#!/bin/sh\n" + shell.replace("REAL", str(MEM)) + f'\nexec {MEM} "$@"\n')
     for f in (mem, plug / "bin" / "mem-corroborate"):
