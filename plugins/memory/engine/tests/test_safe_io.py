@@ -95,7 +95,9 @@ def test_synthesis_write_refuses_a_symlinked_syntheses_folder(tmp_path):
     target.mkdir()
     (mem / "syntheses").symlink_to(target)
     with pytest.raises(safe_io.UnsafePath):
-        ps.write_part(mem, tmp_path, "organization", "Heading", "Text.", ["target"], TODAY)
+        ps.write_part(
+            mem, tmp_path, ps.NewPart("organization", "Heading", "Text.", ["target"]), TODAY
+        )
     assert list(target.iterdir()) == []
 
 
@@ -112,7 +114,9 @@ def test_load_each_ignores_a_symlinked_syntheses_folder(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
     (tmp_path / "src.txt").write_text("x")
-    ps.write_part(real, tmp_path, "organization", "Heading", "Text.", ["src.txt"], TODAY)
+    ps.write_part(
+        real, tmp_path, ps.NewPart("organization", "Heading", "Text.", ["src.txt"]), TODAY
+    )
     assert ps.load_each(real)[0]
     mem = tmp_path / ".memory"
     mem.mkdir()
@@ -139,7 +143,9 @@ def test_confirm_part_refuses_a_symlinked_syntheses_folder(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
     (tmp_path / "src.txt").write_text("x")
-    ps.write_part(real, tmp_path, "organization", "Heading", "Text.", ["src.txt"], TODAY)
+    ps.write_part(
+        real, tmp_path, ps.NewPart("organization", "Heading", "Text.", ["src.txt"]), TODAY
+    )
     handle = ps.load_each(real)[0]["organization"][0].handle
     before = (ps.folder(real) / "organization.md").read_text()
     mem = tmp_path / ".memory"

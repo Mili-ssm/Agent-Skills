@@ -2471,7 +2471,10 @@ def _ps_add(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
     if _refuse_secret([args.heading, body]):
         return 4
     handle = project_syntheses.write_part(
-        memory_dir, tree, args.name, args.heading, body, paths, datetime.date.today()
+        memory_dir,
+        tree,
+        project_syntheses.NewPart(args.name, args.heading, body, paths),
+        datetime.date.today(),
     )
     ref = f"p:{args.name}#{handle}"
     print(ref)
