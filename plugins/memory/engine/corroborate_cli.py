@@ -12,13 +12,13 @@ import tempfile
 import time
 from pathlib import Path
 
-import auto_state as au
 import capture_state as cs
 import corroborate_digest
 import corroborate_fill
 import corroborate_reword
 import corroborate_run
 import corroborate_state
+import jobs
 
 logger = logging.getLogger(__name__)
 
@@ -223,8 +223,8 @@ def self_check() -> int:
             "auto ran without the option"
         )
         cdir = corroborate_state.corroborate_dir(tmp / "data")
-        held = au.take_run_lock(cdir)
-        assert held is not None and au.take_run_lock(cdir) is None
+        held = jobs.take_run_lock(cdir)
+        assert held is not None and jobs.take_run_lock(cdir) is None
         assert (cdir.stat().st_mode & 0o777) == _PRIVATE_MODE, oct(cdir.stat().st_mode)
         os.close(held)
         cmd = corroborate_run.session_cmd(
@@ -243,7 +243,7 @@ def self_check() -> int:
             t.startswith(("Read(", "Write(", "Edit(")) and f"{tmp}/w" in t for t in allowed
         ), allowed
         run = cdir / "runs" / "x"
-        au.private_dir(run)
+        jobs.private_dir(run)
         a, b = tmp / "a.md", tmp / "b.md"
         a.write_text("one")
         journal = corroborate_state.Journal(run)
@@ -254,7 +254,7 @@ def self_check() -> int:
         assert corroborate_state.undo_run(run)[0] and a.read_text() == "one" and not b.exists()
         a.write_text("two")
         run2 = cdir / "runs" / "y"
-        au.private_dir(run2)
+        jobs.private_dir(run2)
         journal = corroborate_state.Journal(run2)
         watched = journal.watch([a])
         a.write_text("three")
