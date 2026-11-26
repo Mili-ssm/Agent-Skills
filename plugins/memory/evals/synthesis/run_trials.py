@@ -41,8 +41,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.machinery
-import importlib.util
 import json
 import logging
 import math
@@ -66,6 +64,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import syntheses
 import trial_env
 from synthesize import pipeline as sp
+from synthesize import topics as synthesize_topics
 from synthesize.pipeline import (
     CHEAP,
     DELETE_ONLY,
@@ -562,25 +561,9 @@ def judge_and_refs(
     return mark_lost(row, lost)
 
 
-_SYNTHESIZE: list[ModuleType] = []
-
-
 def load_synthesize() -> ModuleType:
-    """The `mem-synthesize` script as a module (it has no .py suffix): the one implementation of the reference step."""
-    if not _SYNTHESIZE:
-        path = str(PLUGIN / "bin" / "mem-synthesize")
-        spec = importlib.util.spec_from_loader(
-            "mem_synthesize_bin", importlib.machinery.SourceFileLoader("mem_synthesize_bin", path)
-        )
-        if spec is None or spec.loader is None:
-            raise ImportError(path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = (
-            module  # before 3.15, @dataclass looks its module up in sys.modules
-        )
-        spec.loader.exec_module(module)
-        _SYNTHESIZE.append(module)
-    return _SYNTHESIZE[0]
+    """`synthesize.topics`: the one implementation of the reference step (`add_references`, `ReferenceOptions`)."""
+    return synthesize_topics
 
 
 def reference_backfill(claude: str, base: Path, env: dict, topic: str) -> dict:
