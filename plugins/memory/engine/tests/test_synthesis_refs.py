@@ -5,6 +5,7 @@ from pathlib import Path
 
 import mem
 import pytest
+from patching import patch_all
 from syntheses import document, edit, units
 
 USAGE_EXIT = 2
@@ -432,11 +433,12 @@ def test_a_reference_can_follow_a_unit_that_ends_in_a_colon_before_a_table_or_li
 
 def test_one_line_that_breaks_the_part_is_refused_alone(run, made, tmp_path, monkeypatch):
     real = document.validate_section
-    monkeypatch.setattr(
-        document,
+    patch_all(
+        monkeypatch,
         "validate_section",
         lambda text, root: ["broken"] if f"too. [vaswani]({B})" in text else real(text, root),
     )
+    assert edit.validate_section is document.validate_section is not real
     code, out, err = refs(
         run, tmp_path, f"alpha | 1 | add {A}", f"alpha | 3 | add {B}", f"alpha | 4 | add {B}"
     )
