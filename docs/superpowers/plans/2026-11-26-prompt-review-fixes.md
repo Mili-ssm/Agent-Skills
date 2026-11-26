@@ -1,6 +1,6 @@
 # Prompt review fixes (2026-11-26)
 
-Status: done, pull request #195 open · Branch: `fix/prompt-review-2026-11-26` · Base: `dev`
+Status: done, merged with pull request #195 and released on 2026-11-26 · Branch: `fix/prompt-review-2026-11-26` · Base: `dev`
 
 Source: four `prompt-engineer` audits on 2026-11-26 (workers, specialists, skills and commands, memory plugin) and the trigger evals run the same day. The owner asked for the high and medium findings and for the `memory-status-checker` result to be recorded. No `description` changes: every item is a body, a command or injected text, so it ships unmeasured (CLAUDE.md § Rules), except the offload policy, which is measured.
 

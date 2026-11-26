@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: done 2026-11-26, review pending · Branch: `fix/prompt-review-2026-11-26` · Date: 2026-11-26
+Status: done, reviewed, merged with pull request #195 and released on 2026-11-26 · Branch: `fix/prompt-review-2026-11-26` · Date: 2026-11-26
 
 **Goal:** `plugins/memory/engine/mem.py` and `plugins/memory/engine/tests/test_curation.py` pass the commit gate of ADR 0031 with no finding, behavior unchanged, so the one-sentence change to the session start text can be committed.
 
