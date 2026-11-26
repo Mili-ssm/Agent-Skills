@@ -1,19 +1,38 @@
 """`bin/mem-corroborate`: the commands, the automatic run's options and an engine that cannot load."""
+
 import argparse
 import json
 import shutil
 import sys
-
-import pytest
 
 import auto_state
 import corroborate_cli
 import corroborate_digest
 import corroborate_reword
 import corroborate_run
-import mem  # noqa: E402
-from corroborate_world import CORR, NARROW, NEW_WORDING, OLD_WORDING, OPTION, PLUGIN, by_claim, calls, log_lines, model, reword, reword_answers, reword_state, run, status, w, worse_one
+import pytest
+from corroborate_world import (
+    CORR,
+    NARROW,
+    NEW_WORDING,
+    OLD_WORDING,
+    OPTION,
+    PLUGIN,
+    by_claim,
+    calls,
+    log_lines,
+    model,
+    reword,
+    reword_answers,
+    reword_state,
+    run,
+    w,
+    worse_one,
+)
 
+__all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
+
+USAGE_EXIT = 2  # exit code for a refused command line
 
 # ---- the option auto_reword: the step in the automatic run ---------------------------------------------------------
 
@@ -26,18 +45,21 @@ def test_auto_runs_reword_only_with_the_option(w, monkeypatch):
     reword_answers(w, monkeypatch)
     for env in ({}, {REWORD_OPTION: "false"}, {REWORD_OPTION: "1"}, {REWORD_OPTION: "TRUE"}):
         done = run(w, cmd="auto", env={OPTION: "true", **env})
-        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
-        assert not any("reword" in x for x in log_lines(w)) and by_claim(w, NARROW).short == OLD_WORDING
+        assert done.returncode == 0 and not done.stdout and not done.stderr
+        assert (
+            not any("reword" in x for x in log_lines(w))
+            and by_claim(w, NARROW).short == OLD_WORDING
+        )
         assert not (w.cdir / "reword-attempts.json").exists()
-    off = [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in log_lines(w)]
+    off = [{k: v for k, v in x.items() if k not in {"t", "ms"}} for x in log_lines(w)]
     done = run(w, cmd="auto", env={OPTION: "true", REWORD_OPTION: "true"})
-    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    assert done.returncode == 0 and not done.stdout and not done.stderr
     lines = log_lines(w)
     (reworded,) = [x for x in lines if "reword" in x]
     assert lines[-1] is reworded and "fill" in lines[-2] and reworded["reword"]["written"] == 1
     assert isinstance(reworded["ms"], int) and reworded["t"]
     assert by_claim(w, NARROW).short == NEW_WORDING
-    assert [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in lines[:len(off)]] == off
+    assert [{k: v for k, v in x.items() if k not in {"t", "ms"}} for x in lines[: len(off)]] == off
 
 
 def test_auto_skips_reword_when_loaded_rules_are_off(w, monkeypatch):
@@ -46,8 +68,11 @@ def test_auto_skips_reword_when_loaded_rules_are_off(w, monkeypatch):
     reword_answers(w, monkeypatch)
     for env in ({"MEM_LOADED_RULES": "off"}, {"CLAUDE_PLUGIN_OPTION_LOADED_RULES": "false"}):
         done = run(w, cmd="auto", env={OPTION: "true", REWORD_OPTION: "true", **env})
-        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
-        assert not any("reword" in x for x in log_lines(w)) and by_claim(w, NARROW).short == OLD_WORDING
+        assert done.returncode == 0 and not done.stdout and not done.stderr
+        assert (
+            not any("reword" in x for x in log_lines(w))
+            and by_claim(w, NARROW).short == OLD_WORDING
+        )
 
 
 def test_auto_does_not_reword_without_auto_capture(w, monkeypatch):
@@ -83,13 +108,16 @@ def test_auto_runs_digest_only_with_the_layout(w, monkeypatch):
     model(w, [])
     for env in ({}, {LAYOUT_OPTION: "flat"}, {LAYOUT_OPTION: "grouped"}, {LAYOUT_OPTION: "DIGEST"}):
         done = run(w, cmd="auto", env={OPTION: "true", **env})
-        assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
-        assert not any("digest" in x for x in log_lines(w)) and not (w.data / "rules-digest.json").exists()
+        assert done.returncode == 0 and not done.stdout and not done.stderr
+        assert (
+            not any("digest" in x for x in log_lines(w))
+            and not (w.data / "rules-digest.json").exists()
+        )
     for off in ({"MEM_LOADED_RULES": "off"}, {"CLAUDE_PLUGIN_OPTION_LOADED_RULES": "false"}):
         done = run(w, cmd="auto", env={OPTION: "true", LAYOUT_OPTION: "digest", **off})
         assert done.returncode == 0 and not any("digest" in x for x in log_lines(w))
     done = run(w, cmd="auto", env={OPTION: "true", LAYOUT_OPTION: "digest"})
-    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    assert done.returncode == 0 and not done.stdout and not done.stderr
     lines = log_lines(w)
     (digested,) = [x for x in lines if "digest" in x]
     assert lines[-1] is digested and "fill" in lines[-2] and isinstance(digested["digest"], dict)
@@ -118,18 +146,20 @@ def test_auto_without_the_layout_is_as_before(w, monkeypatch):
     reword_answers(w, monkeypatch)
     env = {OPTION: "true", REWORD_OPTION: "true"}
     run(w, cmd="auto", env=env)
-    before = [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in log_lines(w)]
+    before = [{k: v for k, v in x.items() if k not in {"t", "ms"}} for x in log_lines(w)]
     store = by_claim(w, NARROW).short
     assert [list(x) for x in before][-1] == ["reword"] and store == NEW_WORDING
     run(w, cmd="auto", env=env)
-    after = [{k: v for k, v in x.items() if k not in ("t", "ms")} for x in log_lines(w)]
-    assert after[:len(before)] == before and not any("digest" in x for x in after)
+    after = [{k: v for k, v in x.items() if k not in {"t", "ms"}} for x in log_lines(w)]
+    assert after[: len(before)] == before and not any("digest" in x for x in after)
     assert by_claim(w, NARROW).short == store and not (w.data / "rules-digest.json").exists()
 
 
 def test_plugin_json_has_the_option_off():
     config = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text())["userConfig"]
-    assert config["auto_reword"]["type"] == "boolean" and config["auto_reword"].get("default") is False
+    assert (
+        config["auto_reword"]["type"] == "boolean" and config["auto_reword"].get("default") is False
+    )
 
 
 def test_reword_sheet_is_refused_inside_a_repository(w, monkeypatch):
@@ -137,8 +167,12 @@ def test_reword_sheet_is_refused_inside_a_repository(w, monkeypatch):
     reword_answers(w, monkeypatch)
     repo = w.tmp / "repo"
     (repo / ".git").mkdir(parents=True)
-    done = run(w, "--every", "--dry-run", "--sheet", str(repo / "sheet.md"), cmd="reword", mode="never")
-    assert done.returncode == 2 and "repository" in done.stderr and "--sheet" in done.stderr
+    done = run(
+        w, "--every", "--dry-run", "--sheet", str(repo / "sheet.md"), cmd="reword", mode="never"
+    )
+    assert (
+        done.returncode == USAGE_EXIT and "repository" in done.stderr and "--sheet" in done.stderr
+    )
     assert calls(w) == 0 and not (repo / "sheet.md").exists()
 
 
@@ -167,7 +201,12 @@ def test_a_failed_edit_spends_no_attempt(w, monkeypatch, code):
     before = by_claim(w, NARROW)
     for _ in range(2):
         result = reword(w)
-        assert (result["failed_edits"], result["written"], result["refused_code"], result["no_proposal"]) == (1, 0, 0, 0)
+        assert (
+            result["failed_edits"],
+            result["written"],
+            result["refused_code"],
+            result["no_proposal"],
+        ) == (1, 0, 0, 0)
     assert by_claim(w, NARROW) == before and by_claim(w, NARROW).reword_failed is None
     assert reword_state(w)["lessons"] == {}
 
@@ -194,8 +233,25 @@ def test_an_unwritable_sheet_does_not_fail_an_applied_run(w, monkeypatch):
 
 # ---- an engine that cannot load: `auto` still reports, `status` and `ack` still work ---------------------------------
 
-ENGINE_LOG_KEYS = ["t", "lessons", "groups", "proposed", "verified", "dropped", "written", "sightings", "links", "merges",
-                   "refused", "failed_actions", "cases", "skipped", "cost", "failed", "ms"]
+ENGINE_LOG_KEYS = [
+    "t",
+    "lessons",
+    "groups",
+    "proposed",
+    "verified",
+    "dropped",
+    "written",
+    "sightings",
+    "links",
+    "merges",
+    "refused",
+    "failed_actions",
+    "cases",
+    "skipped",
+    "cost",
+    "failed",
+    "ms",
+]
 
 
 def test_auto_with_an_engine_that_cannot_load_writes_its_failed_status(w):
@@ -209,11 +265,15 @@ def test_auto_with_an_engine_that_cannot_load_writes_its_failed_status(w):
     (stub / "yaml.py").write_text('raise ImportError("no yaml in this test")\n')
     env = {"PYTHONPATH": str(stub), OPTION: "true"}
     done = run(w, cmd="auto", env=env, corr=launcher)
-    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    assert done.returncode == 0 and not done.stdout and not done.stderr
     status = auto_state.read_json(w.cdir / "status.json")
     assert status["state"] == "failed" and status["failure"]["reason"] == "engine import error"
     log = [json.loads(x) for x in (w.cdir / "log.jsonl").read_text().splitlines()]
-    assert len(log) == 1 and list(log[0]) == ENGINE_LOG_KEYS and log[0]["failed"] == "engine import error"
+    assert (
+        len(log) == 1
+        and list(log[0]) == ENGINE_LOG_KEYS
+        and log[0]["failed"] == "engine import error"
+    )
     shown = run(w, cmd="status", claude=False, env=env, corr=launcher)
     assert shown.returncode == 0 and "unacknowledged failure: engine import error" in shown.stdout
     assert run(w, cmd="ack", claude=False, env=env, corr=launcher).returncode == 0
