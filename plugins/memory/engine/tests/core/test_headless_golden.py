@@ -220,6 +220,12 @@ SYNTH_MEM_ALLOWED = (
 )
 
 
+def test_background_sessions_may_list_unread_short_forms_but_not_mark_them_read() -> None:
+    allowed = synth_pipeline.MEM_ALLOWED
+    assert "rules --unread" in allowed
+    assert not any(sub == "rules" or sub.startswith("rules --read") for sub in allowed)
+
+
 def test_synthesis_command_line_minimal(run: Recorder, tmp_path: Path) -> None:
     work, settings, store = tmp_path / "work", tmp_path / "settings.json", tmp_path / "store"
     synth_pipeline.run_session(

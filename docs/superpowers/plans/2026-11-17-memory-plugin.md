@@ -81,13 +81,13 @@ Rules that hold for every stage, from the owner: the origin of the notes is neve
 | The signal's rule fails on the held-out half | Stage 6 | Do not ship the hook; keep the session index |
 | The owner turns the plugin off | Any time | Record why in ADR 0023 and stop |
 
-Proposed on 2026-11-26 for the read of 2026-12-01 (the owner accepts, changes or drops each row at the read; until then the table above is the rule). Reason: the day ratio counts activity, and it passed at 10 of 10 while most use came from developing the plugin itself; the learning-loop study of 2026-11-21 already classed it as volume, not quality. Figures behind this: `mem search "kill criterion day ratio"`.
+Proposed on 2026-11-26 for the read of 2026-12-01 (the owner accepts, changes or drops each row at the read; until then the table above is the rule). Reason: the day ratio counts activity, and it passed at 10 of 10 while most use came from developing the plugin itself; the learning-loop study of 2026-11-21 (local, not published; ADR 0023, Review 2026-11-21) already listed it among the counts that show volume, not quality. Figures behind this: `mem search "kill criterion day ratio"`.
 
 | Observation | Read at | Action |
 |---|---|---|
 | The paired offline trial of the loaded lessons ([plan](2026-11-26-memory-effect-measurement.md#paired-offline-trial-of-the-loaded-lessons-task-7)) shows no help by its rule | When it has run | Rewrite a sample of short forms with the situation and the action stated and rerun, before any new lesson mechanism |
 | The same trial shows cost on tasks where no lesson bears | When it has run | Lower `RULES_LIMIT` or load by topic |
-| Searches followed within 30 minutes by `mem show` of a returned record stay below 20% (`docs/studies/scripts/memory_usage.py`, M3: 190 of 1,344 on 2026-11-26) | Each kill read | Give `mem search` a relevance floor before any other search work |
+| Searches followed within 30 minutes by `mem show` of a returned record are below 20% (`docs/studies/scripts/memory_usage.py`, M3: 190 of 1,344, 14%, on 2026-11-26, so this row already fires) | Each kill read | Give `mem search` a relevance floor before any other search work |
 | The session start text grows past a median of 4,500 characters (M8: 4,206 on 2026-11-26) with no readable effect | Each kill read | Lower `RULES_LIMIT` |
 
 ## Pre-mortem of 2026-11-17 and what changed

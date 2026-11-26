@@ -39,7 +39,7 @@ Build the attachment path only, and leave the sibling step until notes need it.
 | Tasks | Proposal | Reason |
 |---|---|---|
 | 1, 2, 5, 6, 7 | Build, with Task 5 and Task 6 cut to the `place` and `check` sessions (no `siblings` brief, no sibling rows in `plan_commands`) | They join a note to its part with one undo. Python writes every word, so the cost of an error is one wrong attachment, which the trial counts |
-| 3 (`mem note link`), 4 (note-handle sources, `mem note contradicts`) | Deferred | 4 candidate notes on 2026-11-26, none under an exactly matching topic: no sibling update has been needed yet, and Task 4 carries the amendment that is partly blocked (5). No source measures the error rate of sibling updates ([seamless plan](2026-11-17-memory-seamless.md#what-the-literature-gives-and-how-it-is-adapted), A-MEM row) |
+| 3 (`mem note link`), 4 (note-handle sources, `mem note contradicts`) | Deferred | 4 candidate notes on 2026-11-26, none under an exactly matching topic: no sibling update has been needed yet, and Task 4 carries pre-mortem amendment 5, which applies only in part: the `disputed` validators are pure and check the shape of a handle, so a note-handle source is resolved at write time and in `mem check`. No source measures the error rate of sibling updates ([seamless plan](2026-11-17-memory-seamless.md#what-the-literature-gives-and-how-it-is-adapted), A-MEM row) |
 | 8 (trial) | Keep, without the contradicting-sibling seeds | The trial's wrong-attachment and unbacked-sentence counts do not depend on siblings |
 
 Reopen Tasks 3 and 4 when `mem curate --notes` lists 20 or more unattached notes on covered topics, or the owner meets two notes of one part that contradict each other with no pair in the queue.

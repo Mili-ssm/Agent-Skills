@@ -244,3 +244,11 @@ def test_curate_counts_the_unread_short_forms_and_says_nothing_with_none(gfolder
     capsys.readouterr()
     assert mem.main(["curate", "--global"]) == 0
     assert "short forms nobody read: 1 (mem rules --unread)" in capsys.readouterr().out
+
+
+def test_rules_unread_with_read_is_refused_and_writes_nothing(gfolder, capsys):
+    # the background curator may run `mem rules --unread*` (pipeline.MEM_ALLOWED): that prefix must never mark as read
+    assert remember("--short", SHORT) == 0
+    before = only(gfolder).path.read_bytes()
+    assert mem.main(["rules", "--unread", "--read", "all"]) == REFUSED
+    assert only(gfolder).path.read_bytes() == before and only(gfolder).short_by == "model"

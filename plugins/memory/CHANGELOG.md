@@ -15,7 +15,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Fixed
 
-- The background curator of `mem-auto` can now list the short forms nobody read (`mem rules --unread`); before, that command was not among the ones its session may run, so the queue item "short forms nobody read" was never processed in the background and kept growing. It still cannot mark them as read.
+- The background curator of `mem-auto` can now list the short forms nobody read (`mem rules --unread`); before, that command was not among the ones its session may run, so the queue item "short forms nobody read" was never processed in the background. It still cannot mark them as read.
 - A background session stopped by its time limit in the middle of a multibyte character no longer loses its partial output with a decoding error.
 - The compaction handoff check reports a missing plan file with a very long name on Python 3.12 and 3.13, as it already did on 3.14.
 - Research checks keep the page text after an unclosed `<script>` or `<style>` on early Python 3.12 patches (3.12.0), as later patches do.
