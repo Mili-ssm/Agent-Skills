@@ -2,6 +2,7 @@ import ast
 import importlib.machinery
 import importlib.util
 import json
+import sys
 from pathlib import Path
 
 import capture
@@ -622,12 +623,14 @@ def test_a_step_the_owner_asked_for_that_paid_off_needs_the_owners_words():
     assert capture.validate([agent], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
 
 
-def test_the_brief_names_every_signal_and_the_amended_exclusion():
+def test_the_brief_names_every_signal_and_the_amended_exclusion(monkeypatch):
     path = Path(__file__).resolve().parents[2] / "bin" / "mem-capture"
     loader = importlib.machinery.SourceFileLoader("mem_capture_brief", str(path))
     spec = importlib.util.spec_from_loader("mem_capture_brief", loader)
     assert spec is not None
     mod = importlib.util.module_from_spec(spec)
+    # @dataclass before Python 3.13 looks the module up in sys.modules
+    monkeypatch.setitem(sys.modules, spec.name, mod)
     loader.exec_module(mod)
     for name in capture.SIGNALS:
         assert f'"{name}"' in mod.BRIEF
