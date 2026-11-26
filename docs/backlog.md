@@ -21,7 +21,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. Quick fix: P1 (measured).
-3. Memory refactor task 2 (A2, A3); A1 is done on its branch.
+3. Memory refactor task 2 (A3; A2 done on branch refactor/memory-headless); A1 is done on its branch.
 4. Memory kill read, around 2026-12-01.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.

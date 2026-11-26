@@ -107,7 +107,7 @@ Out of scope: the eval harnesses' own `claude -p` calls (`evals/*/run_trial*.py`
 
 - [x] **Step 2:** Goldens: builder 2 gains `--tools Read,Write` and `--strict-mcp-config`, builder 3 gains `--strict-mcp-config`; run: fail.
 - [x] **Step 3:** Both builders through `headless.command`, runners through `headless.run_raw`; env builders unchanged (`mem-capture` inline, `mem-settle` `run_env`). Goldens, suite, both `--self-check`s, lint pass. Commit `fix(memory): capture and settle sessions load no MCP server; capture has only Read and Write`.
-- [x] **Step 4 (owner-approved spend, about $0.25):** one live `mem-capture` run on a small transcript in a scratch store; check that the session wrote `candidates.json` (with `--tools Read,Write` the Edit tool is gone; `corroborate` runs the same set). If it wrote none: kill criterion.
+- [x] **Step 4 (owner-approved spend, about $0.25):** one live `mem-capture` run on a small transcript in a scratch store; check that the session wrote `candidates.json` (with `--tools Read,Write` the Edit tool is gone; `corroborate` runs the same set). If it wrote none: kill criterion. Result 2026-11-26: exit 0, 2 candidates kept from a 5-line scratch transcript, cost 0.0055 USD (the session created `candidates.json`).
 
 ### Task 6: Gate and docs
 

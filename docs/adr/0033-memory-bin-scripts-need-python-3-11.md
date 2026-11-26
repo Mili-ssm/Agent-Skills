@@ -12,20 +12,20 @@ Status: accepted · Date: 2026-11-26
 
 ## Decision
 
-The `bin/` python scripts and the engine modules they import need Python 3.11 or newer. Ruff targets `bin/*` and `engine/headless.py` at `py311`; `engine/tests/test_bin_python_floor.py` parses every engine module a `bin/` script imports (transitively) at feature version 3.11 and rejects 3.12-only names. `bin/mem-research` is excluded until `bin/` runs through `uv` (refactor plan, task "`bin/` holds launchers only").
+The `bin/` python scripts and the engine modules they import need Python 3.11 or newer. Ruff targets `bin/*` and `engine/headless.py` at `py311`; `engine/tests/test_bin_python_floor.py` parses every engine module a `bin/` script imports (transitively) at feature version 3.11 and rejects three 3.12-only names (`override`, `batched`, `TypeAliasType`); other standard-library names are not checked. `bin/mem-research` is excluded until `bin/` runs through `uv` (refactor plan, task "`bin/` holds launchers only").
 
 ## Alternatives
 
 | Option | Rejected because |
 |---|---|
-| Keep 3.10: replace `Unpack`/`Required` with `NamedTuple` or dataclasses in everything `bin/` imports | About 15 signatures and their callers to change again, for systems (Ubuntu 22.04, Debian 12 system `python3`) not known to be in use |
+| Keep 3.10: replace `Unpack`/`Required` with `NamedTuple` or dataclasses in everything `bin/` imports | About 15 signatures and their callers to change again, for systems with a 3.10 `python3` (Ubuntu 22.04) not known to be in use |
 | Run every `bin/` script through `uv` now | The right end state, but it changes hooks and launchers: bigger than the refactor in progress |
 
 ## Consequences
 
-- A system with only Python 3.10 can no longer run the background passes; `mem` itself is unaffected (it uses `uv`).
+- A system whose `python3` is 3.10 (Ubuntu 22.04) can no longer run the background passes; `mem` itself is unaffected (it uses `uv`).
 - The 3.10 workaround in `bin/mem-corroborate` (`timezone.utc`) is gone; `datetime.UTC` is allowed.
-- The floor test, not Ruff, is what catches a newer API in code `bin/` imports.
+- The floor test, not Ruff, catches 3.12 syntax and the three names it lists in code `bin/` imports; any other newer API still needs a review or a 3.11 run.
 
 ## Revisit if
 
