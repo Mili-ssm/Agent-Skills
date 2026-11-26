@@ -2,7 +2,7 @@
 
 Status: in progress · Date: 2026-11-26 · Branch: feat/memory-lesson-holdout (stacked on fix/skeptical-reviewer-p1-b1, PR #218)
 
-Owner ruling (2026-11-26): proceed with the order the review of that day proposed. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
+Owner rulings (2026-11-26): proceed with the order the review of that day proposed; the paired trial starts as a pilot capped at 3 USD; matching by meaning is built after it, its trial capped at 2 USD. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
 
 ## Tasks
 
@@ -47,6 +47,19 @@ Action by the rule: help and no cost → keep the loaded block, and the rotation
 
 Cost estimate: 10 lesson scenarios and 3 without, 3 arms, 5 runs: 195 runs at about 0.06 USD (2026-11-22) is about 12 USD; estimates in this project were low by 3 to 5 times, so the cap bounds the spend, and in-flight runs pass a cap unless each command's cap is set below the total. A pilot of 4 scenarios, arms N and L, 3 runs is 24 runs, about 1.5 USD.
 
+### Pilot (owner, 2026-11-26: cap 3 USD)
+
+Four scenarios, arms N and L, 3 runs each, run one after another so no run in flight passes the cap: `plugins/memory/evals/lessons_effect/`. Arm L's session start text is what `mem rules --layout digest` prints for the owner's real lessons, read once before the first model call; a scenario whose lesson is not in that text is void, not a miss. No lesson text and no handle is stored in the repository: a scenario names its lesson by marker words.
+
+| Scenario | The loaded lesson it tests (topic) | Outcome scored by code |
+|---|---|---|
+| `pipe-status` | shell: a test piped into `tail` before `&&` lets a failure through | A failing check with a clean-looking tail: no commit was made |
+| `docs-against-code` | docs: review commands and options against the code before closing a docs change | The README's wrong option name is fixed or named in the reply |
+| `real-data` | testing: reproduce the symptom with the real data source, not only fixtures | The tool runs on the real file after the fix |
+| `keep-the-look` | ui: change only what was asked | The label changed and the stylesheet's bytes did not |
+
+The pilot answers two things only: whether the harness measures (canary, void runs, scores that differ between runs), and whether arm N leaves room: a scenario that arm N already passes in 3 of 3 runs has no headroom and says nothing about its lesson (VibeMemBench recommends gating on headroom). It cannot support "the lessons help": 4 scenarios and 3 runs are below the reading rule above.
+
 ## Matching by meaning: design for the owner (task 6, not built)
 
 Problem, measured: `mem-settle` showed 1 pair in 65 real runs and corroboration added 7 sightings to 107 transcript lessons in five days, because `records.pairs` (`engine/memories/matching.py`) keeps a pair only at a word containment of 0.6 and real paraphrases score 0.41 to 0.58 (plugin plan § Current state, owner's item of 2026-11-24). The run and lesson counts were read from the plugin's logs and the default store on 2026-11-26 and are recorded as project memories (`mem search "after 5 days of automatic capture"`, `mem search "mem-settle production"`), not in a tracked file. So duplicates stay apart, a lesson seen again in other words gains no sighting, and 90 general lessons wait in quarantine with a 30-day expiry.
@@ -65,3 +78,22 @@ Trial before it is turned on, rule fixed here: 60 pairs built from real records 
 Cost estimate: one session per pair costs about 0.004 USD at Haiku (the measured cost of one short-form session of `mem-corroborate`, 2026-11-26); the stage W trial judged 32 pairs in one session for 0.018 USD, about 0.0006 USD a pair, but one case at a time is what C39 found a small model judges better. The trial: 60 pairs, two runs, a second session on the positives, about 160 sessions, about 0.65 USD, capped at 2 USD. A daily run over about 30 new records with five candidates each is about 150 sessions, about 0.6 USD; batching the candidates of one record into one session would cut that to about 0.1 USD and is the first thing to compare in the trial. The 0.004 USD is taken from a session of another kind and the number of second sessions depends on how many pairs are judged positive, so both are assumptions the trial replaces with measured figures. Earlier estimates in this project were low by 3 to 5 times.
 
 Open for the owner: the budget; whether the pass replaces `mem-settle`'s pair source or runs beside it; whether a lesson joined this way counts as a sighting when both wordings came from one session (proposed: no).
+
+## Results
+
+### Pilot, 2026-11-27 (`plugins/memory/evals/lessons_effect/run_trial.py --runs 3`, Sonnet, 24 sessions and 2 canary sessions, 1.46 USD of the 3 USD cap)
+
+| Scenario | Arm N (no lessons) avoided the failure | Arm L (the loaded block) | Mean cost N / L (USD) |
+|---|---|---|---|
+| `pipe-status` | 3 of 3 | 3 of 3 | 0.053 / 0.052 |
+| `docs-against-code` | 3 of 3 | 3 of 3 | 0.054 / 0.061 |
+| `real-data` | 3 of 3 | 3 of 3 | 0.058 / 0.068 |
+| `keep-the-look` | 3 of 3 | 3 of 3 | 0.056 / 0.060 |
+
+The canary passed in both arms, no run was an error, and the owner's folders did not change. By the pilot's own rule every scenario has **no headroom**: the model without lessons already set `pipefail`, ran the tool on the real file, named the README's wrong option and left the stylesheet alone (read in the traces of run 1, and re-scored afterwards on the 24 kept projects with stricter checks: no commit and one reflog entry; the total printed for the real file with the data untouched; the button's class and the stylesheet unchanged). In `docs-against-code` every session of both arms named the right option in its reply and none corrected the README, which the scenario counts as avoided because the task asked only for one added sentence. So the pilot says the harness measures and says **nothing about whether the lessons help**. Mean cost over the 12 runs of each arm: 0.055 USD without and 0.060 USD with the block, about 10% more on tasks this small (the block is a larger share of a tiny session than of a real one); three runs a cell cannot separate that from noise.
+
+What it changes:
+
+- The full trial as designed (ten scenarios of this kind) would repeat this: a small isolated task does not reproduce a failure that happened deep in a long session. It is not run.
+- The lessons were captured from long sessions under load. A scenario with headroom has to start from that state: the candidate design is a replay, the real session up to the turn before the recorded failure, continued with and without the lesson, on the sessions whose `failed` case produced each lesson. Open: whether a headless session can be continued from a cut copy of a transcript with a different session start text, and its cost per run (a long context, not 0.06 USD). To be designed with the owner before any build.
+- Until a scenario with headroom exists, the outcome rows proposed in the plugin plan's kill criteria cannot be read; the cost row can.
