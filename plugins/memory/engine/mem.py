@@ -45,8 +45,6 @@ import records
 import rules
 import safe_io
 import session_notices
-import settle
-import settle_state
 import shortcheck
 import store_git
 import syntheses
@@ -87,6 +85,8 @@ from notes import (
 )
 from records import tokenize
 from research import checks as research_checks
+from settle import state as settle_state
+from settle import verdicts as settle_verdicts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
@@ -6454,8 +6454,8 @@ def cmd_curate(args: argparse.Namespace) -> int:
     return _curate_report(args, scopes, attempts, today)
 
 
-def _settle_actions() -> settle.Actions:
-    return settle.Actions(_merge_pair, _supersede_pair, _distinct_pair)
+def _settle_actions() -> settle_verdicts.Actions:
+    return settle_verdicts.Actions(_merge_pair, _supersede_pair, _distinct_pair)
 
 
 def _settle_reason_ok(reason: str) -> bool:
@@ -6473,7 +6473,7 @@ def _settle_missing_folder(command: str) -> int:
 
 
 def _settle_due(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
-    count = settle.due(folder, args.minutes, time.time(), today)
+    count = settle_verdicts.due(folder, args.minutes, time.time(), today)
     if count is None:
         return 1
     print(count)
@@ -6481,12 +6481,12 @@ def _settle_due(args: argparse.Namespace, folder: Path, today: datetime.date) ->
 
 
 def _settle_pending(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
-    with settle.locked(folder):
-        state = settle.load_state(folder)
-        found = settle.pending(
+    with settle_verdicts.locked(folder):
+        state = settle_verdicts.load_state(folder)
+        found = settle_verdicts.pending(
             records.load_memories(folder, "global"), state, today, tokenize=tokenize
         )
-        settle.offer(folder, state, found, time.time())
+        settle_verdicts.offer(folder, state, found, time.time())
     if args.json:
         print(json.dumps(found, ensure_ascii=False, indent=1))
     else:
@@ -6506,8 +6506,8 @@ def _settle_apply(args: argparse.Namespace, folder: Path, today: datetime.date) 
         print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
         return 2
     try:
-        with settle.locked(folder):
-            lines = settle.apply_verdicts(
+        with settle_verdicts.locked(folder):
+            lines = settle_verdicts.apply_verdicts(
                 folder,
                 records.load_memories(folder, "global"),
                 rows,
@@ -6517,7 +6517,7 @@ def _settle_apply(args: argparse.Namespace, folder: Path, today: datetime.date) 
                 reason_ok=_settle_reason_ok,
                 tokenize=tokenize,
             )
-    except settle.NoListing as exc:
+    except settle_verdicts.NoListing as exc:
         print("\n".join(exc.lines))
         print(f"mem: {exc}", file=sys.stderr)
         return 1
@@ -6526,22 +6526,22 @@ def _settle_apply(args: argparse.Namespace, folder: Path, today: datetime.date) 
 
 
 def _settle_log(args: argparse.Namespace, folder: Path, _today: datetime.date) -> int:
-    out = settle.listing(folder, args.all)
+    out = settle_verdicts.listing(folder, args.all)
     if out:
         print("\n".join(out))
     return 0
 
 
 def _settle_ack(_args: argparse.Namespace, folder: Path, _today: datetime.date) -> int:
-    print(f"acknowledged {settle.ack(folder)}")
+    print(f"acknowledged {settle_verdicts.ack(folder)}")
     return 0
 
 
 def _settle_undo(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
     try:
-        with settle.locked(folder):
-            print("\n".join(settle.undo(folder, args.number, today)))
-    except settle.NothingToUndo as exc:
+        with settle_verdicts.locked(folder):
+            print("\n".join(settle_verdicts.undo(folder, args.number, today)))
+    except settle_verdicts.NothingToUndo as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
     return 0

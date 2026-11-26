@@ -6,8 +6,8 @@ import json
 import mem
 import pytest
 import records
-import settle
 import store_git
+from settle import verdicts as settle_verdicts
 from test_curation import days_ago, gfolder, put
 
 # re-exported: pytest finds the fixture in this module by its name
@@ -35,7 +35,7 @@ def run(gfolder, capsys):
 
 
 def state(folder):
-    return json.loads((folder / settle.STATE_NAME).read_text(encoding="utf-8"))
+    return json.loads((folder / settle_verdicts.STATE_NAME).read_text(encoding="utf-8"))
 
 
 def verdicts(tmp_path, *rows):
@@ -129,7 +129,7 @@ def test_the_unjudged_record_is_the_newer_even_when_created_earlier(gfolder, run
     put(gfolder, "b-second", NEW, created=days_ago(1))
     st = state(gfolder)
     st["judged"].append("a-first")
-    settle.save_state(gfolder, st)
+    settle_verdicts.save_state(gfolder, st)
     [pair] = json.loads(run("pending", "--json")[1])
     assert pair["newer"] == "b-second"
 
@@ -176,7 +176,9 @@ def test_a_refused_row_keeps_its_pair_pending_for_one_more_run_then_logs_left(
     assert len(json.loads(run("pending", "--json")[1])) == 1  # offered again
     assert run("apply", "--verdicts", merge)[1].startswith("refused")
     assert "new-one" in state(gfolder)["judged"]
-    [entry] = [json.loads(line) for line in (gfolder / settle.LOG_NAME).read_text().splitlines()]
+    [entry] = [
+        json.loads(line) for line in (gfolder / settle_verdicts.LOG_NAME).read_text().splitlines()
+    ]
     assert entry["decision"] == "left" and entry["files"] == {}
     assert "left" in run("log")[1]
     assert not run("pending")[1]
@@ -267,7 +269,7 @@ def test_judged_covers_unpaired_new_records_and_spares_those_written_after_pendi
         run("due", "--minutes", "30")[0] == 1
     )  # the run just ended: too soon, though "late" waits
     assert (
-        settle.due(gfolder, 30, state(gfolder)["last_apply"] + 31 * 60, TODAY) == DUE_PAIRS
+        settle_verdicts.due(gfolder, 30, state(gfolder)["last_apply"] + 31 * 60, TODAY) == DUE_PAIRS
     )  # "late" and the retained "new-one"
 
 
@@ -356,7 +358,7 @@ def test_log_lists_unacknowledged_settlings_until_ack(gfolder, run, tmp_path):
     assert (number, date, decision) == ("1", TODAY.isoformat(), "supersede") and OLD[:20] in claims
     assert run("ack")[1].strip() == "acknowledged 1"
     assert not run("log")[1] and run("log", "--all")[1]
-    entry = json.loads((gfolder / settle.LOG_NAME).read_text().splitlines()[0])
+    entry = json.loads((gfolder / settle_verdicts.LOG_NAME).read_text().splitlines()[0])
     assert entry["reason"] == "newer wording" and {entry["older"], entry["newer"]} == {
         "old-one",
         "new-one",
@@ -365,14 +367,16 @@ def test_log_lists_unacknowledged_settlings_until_ack(gfolder, run, tmp_path):
 
 def test_due_needs_new_records_and_an_elapsed_interval(gfolder):
     put(gfolder, "old-one", OLD)
-    assert settle.due(gfolder, 30, 1000.0, TODAY) is None  # first use initializes; nothing is new
+    assert (
+        settle_verdicts.due(gfolder, 30, 1000.0, TODAY) is None
+    )  # first use initializes; nothing is new
     put(gfolder, "new-one", NEW)
-    assert settle.due(gfolder, 30, 1000.0, TODAY) == 1  # never applied
+    assert settle_verdicts.due(gfolder, 30, 1000.0, TODAY) == 1  # never applied
     st = state(gfolder)
     st["last_apply"] = 1000.0
-    settle.save_state(gfolder, st)
-    assert settle.due(gfolder, 30, 1000.0 + 30 * 60, TODAY) is None
-    assert settle.due(gfolder, 30, 1000.0 + 30 * 60 + 1, TODAY) == 1
+    settle_verdicts.save_state(gfolder, st)
+    assert settle_verdicts.due(gfolder, 30, 1000.0 + 30 * 60, TODAY) is None
+    assert settle_verdicts.due(gfolder, 30, 1000.0 + 30 * 60 + 1, TODAY) == 1
 
 
 def test_due_command_exit_codes(gfolder, run):
@@ -406,11 +410,11 @@ def test_settle_state_files_are_ignored_by_the_store_repository():
 @pytest.mark.parametrize("text", ["not json {", "[1, 2]", '{"acked": 0}', '{"judged": "x"}'])
 def test_an_unreadable_state_file_is_an_error_and_never_replaced(gfolder, run, text):
     put(gfolder, "old-one", OLD)
-    path = gfolder / settle.STATE_NAME
+    path = gfolder / settle_verdicts.STATE_NAME
     path.write_text(text, encoding="utf-8")
     for argv in (("pending",), ("due", "--minutes", "0"), ("log",)):
         code, _, err = run(*argv)
-        assert code == EXIT_REFUSED and settle.STATE_NAME in err
+        assert code == EXIT_REFUSED and settle_verdicts.STATE_NAME in err
     assert path.read_text(encoding="utf-8") == text
 
 
@@ -426,12 +430,12 @@ def test_an_empty_queue_judges_what_it_examined_and_stops_due(gfolder, run):
 
 def test_a_second_process_is_refused_while_the_lock_is_held(gfolder, run, tmp_path):
     seeded(gfolder, run)
-    before = (gfolder / settle.STATE_NAME).read_bytes()
-    with settle.locked(gfolder):
+    before = (gfolder / settle_verdicts.STATE_NAME).read_bytes()
+    with settle_verdicts.locked(gfolder):
         for argv in (("pending",), ("apply", "--verdicts", verdicts(tmp_path)), ("undo", "1")):
             code, out, err = run(*argv)
             assert code == EXIT_REFUSED and not out and "another mem settle command" in err
-    assert (gfolder / settle.STATE_NAME).read_bytes() == before
+    assert (gfolder / settle_verdicts.STATE_NAME).read_bytes() == before
     assert run("pending")[0] == 0  # released
 
 
@@ -457,7 +461,7 @@ def test_a_failure_after_a_file_changed_is_logged_as_partial_and_can_be_undone(
     )[1]
     assert out.startswith("failed") and "disk went away" in out
     assert snapshot(gfolder) != before
-    entry = json.loads((gfolder / settle.LOG_NAME).read_text().splitlines()[0])
+    entry = json.loads((gfolder / settle_verdicts.LOG_NAME).read_text().splitlines()[0])
     assert entry["partial"] is True and entry["decision"] == "merge" and entry["files"]
     assert "merge" in run("log")[1]
     assert run("undo", "1")[0] == 0 and snapshot(gfolder) == before
@@ -486,7 +490,9 @@ def test_settle_creates_no_gitignore_outside_a_repository(gfolder, run):
 
 
 def log_entries(folder):
-    return [json.loads(line) for line in (folder / settle.LOG_NAME).read_text().splitlines()]
+    return [
+        json.loads(line) for line in (folder / settle_verdicts.LOG_NAME).read_text().splitlines()
+    ]
 
 
 def two_newcomers(gfolder, run):
@@ -542,15 +548,17 @@ def test_apply_without_a_listing_changes_nothing_and_fails(gfolder, run, tmp_pat
     put(gfolder, "old-one", OLD, created=days_ago(10))
     run("pending")
     put(gfolder, "new-one", NEW, created=days_ago(1))
-    before, files = (gfolder / settle.STATE_NAME).read_bytes(), snapshot(gfolder)
+    before, files = (gfolder / settle_verdicts.STATE_NAME).read_bytes(), snapshot(gfolder)
     code, out, _ = run(
         "apply",
         "--verdicts",
         verdicts(tmp_path, {"a": "old-one", "b": "new-one", "decision": "distinct"}),
     )
     assert code != 0 and out.startswith("refused") and "mem settle pending" in out
-    assert (gfolder / settle.STATE_NAME).read_bytes() == before and snapshot(gfolder) == files
-    assert not (gfolder / settle.LOG_NAME).exists()
+    assert (gfolder / settle_verdicts.STATE_NAME).read_bytes() == before and snapshot(
+        gfolder
+    ) == files
+    assert not (gfolder / settle_verdicts.LOG_NAME).exists()
 
 
 def test_a_programming_error_still_logs_the_changed_record_then_propagates(
@@ -576,7 +584,7 @@ def test_a_programming_error_still_logs_the_changed_record_then_propagates(
         )
     [entry] = log_entries(gfolder)
     assert entry["partial"] is True and entry["files"]
-    with settle.locked(gfolder):  # the lock was released
+    with settle_verdicts.locked(gfolder):  # the lock was released
         pass
     assert run("undo", "1")[0] == 0 and snapshot(gfolder) == before
 

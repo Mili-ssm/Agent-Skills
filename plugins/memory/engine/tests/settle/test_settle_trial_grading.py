@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-TRIAL = Path(__file__).resolve().parents[2] / "evals" / "settle" / "run_trial.py"
+TRIAL = Path(__file__).resolve().parents[3] / "evals" / "settle" / "run_trial.py"
 
 
 def _load() -> Any:

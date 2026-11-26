@@ -4,8 +4,8 @@ import io
 import mem
 import pytest
 import records
-import settle
-import settle_state
+from settle import state as settle_state
+from settle import verdicts as settle_verdicts
 
 TODAY = datetime.date.today()
 K1, K2 = "0123456789ab", "ba9876543210"
@@ -145,9 +145,9 @@ def test_settle_leaves_quarantine_alone(gfolder, monkeypatch):
     assert len(started) == 1
     assert write_established(ESTABLISHED.replace("Walrus", "Walruses")) == 0
     loaded = records.load_memories(gfolder, "global")
-    state = settle.load_state(gfolder)
+    state = settle_verdicts.load_state(gfolder)
     state["judged"] = []
-    found = settle.pending(loaded, state, TODAY, tokenize=mem.tokenize)
+    found = settle_verdicts.pending(loaded, state, TODAY, tokenize=mem.tokenize)
     held = {m.handle for m in loaded if records.quarantined(m)}
     assert held and found
     assert all(not ({p["a"], p["b"]} & held) for p in found)
@@ -176,27 +176,27 @@ def test_signal_names_an_established_twin(gfolder, tmp_path, monkeypatch, capsys
 
 def test_settle_state_ignores_quarantine_until_release(gfolder, capsys):
     assert write_established() == 0
-    state = settle.load_state(gfolder)  # first use: the established record is judged
+    state = settle_verdicts.load_state(gfolder)  # first use: the established record is judged
     assert write_quarantined() == 0
     assert write_established("Otter pools freeze quickly in winter.") == 0
     q = next(m for m in records.load_memories(gfolder, "global") if m.claim == QUARANTINED)
-    assert settle.unjudged_count(gfolder, state, TODAY) == 1  # only the otter record
+    assert settle_verdicts.unjudged_count(gfolder, state, TODAY) == 1  # only the otter record
     assert mem.main(["settle", "pending"]) == 0
-    assert q.handle not in settle.load_state(gfolder)["judged"]
+    assert q.handle not in settle_verdicts.load_state(gfolder)["judged"]
     assert mem.main(["confirm", "--global", q.handle, "--source", f"session a project {K1}"]) == 0
     assert mem.main(["confirm", "--global", q.handle, "--source", f"session b project {K2}"]) == 0
     capsys.readouterr()
     q = next(m for m in records.load_memories(gfolder, "global") if m.claim == QUARANTINED)
     assert not records.quarantined(q)
-    state = settle.load_state(gfolder)
-    assert settle.unjudged_count(gfolder, state, TODAY) == 1
+    state = settle_verdicts.load_state(gfolder)
+    assert settle_verdicts.unjudged_count(gfolder, state, TODAY) == 1
     assert (
         write_established(QUARANTINED + " Indeed.") == 0
     )  # a twin of the released record, to pair with it
     loaded = records.load_memories(gfolder, "global")
     assert any(
         q.handle in {p["a"], p["b"]}
-        for p in settle.pending(loaded, state, TODAY, tokenize=mem.tokenize)
+        for p in settle_verdicts.pending(loaded, state, TODAY, tokenize=mem.tokenize)
     )
 
 
@@ -205,7 +205,7 @@ def test_first_use_does_not_judge_a_quarantined_record(gfolder):
     assert write_established() == 0
     q = next(m for m in records.load_memories(gfolder, "global") if records.quarantined(m))
     e = next(m for m in records.load_memories(gfolder, "global") if not records.quarantined(m))
-    judged = settle.load_state(gfolder)["judged"]  # first use: no state file yet
+    judged = settle_verdicts.load_state(gfolder)["judged"]  # first use: no state file yet
     assert e.handle in judged and q.handle not in judged
 
 

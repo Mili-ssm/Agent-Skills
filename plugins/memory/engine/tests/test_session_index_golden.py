@@ -7,8 +7,8 @@ import json
 from pathlib import Path
 
 import mem
-import settle
-import settle_state
+from settle import state as settle_state
+from settle import verdicts as settle_verdicts
 
 FAILED_AT = 1_700_049_600  # 2023-11-15 12:00 UTC: the same date in every time zone
 
@@ -42,7 +42,7 @@ def test_session_index_with_job_notices(tmp_path, monkeypatch, capsys):
         "---\nkind: lesson\nclaim: Pin the golden.\ncreated: 2026-11-01\nobserved: 1\nstatus: active\n---\n",
         encoding="utf-8",
     )
-    (memories / settle.LOG_NAME).write_text(
+    (memories / settle_verdicts.LOG_NAME).write_text(
         json.dumps({"seq": 1, "decision": "merge", "date": "2026-11-02"}) + "\n", encoding="utf-8"
     )
     data = tmp_path / "mem-data"

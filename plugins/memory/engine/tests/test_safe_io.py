@@ -9,7 +9,7 @@ import project_syntheses as ps
 import pytest
 import records
 import safe_io
-import settle
+from settle import verdicts as settle_verdicts
 
 TODAY = datetime.date(2026, 11, 24)
 MODE_GROUP_READABLE = 0o644
@@ -276,9 +276,9 @@ def test_import_refuses_a_symlinked_destination_folder(tmp_path, capsys):
 def test_settle_log_append_refuses_a_symlinked_log(tmp_path):
     victim = tmp_path / "victim.txt"
     victim.write_text("precious")
-    (tmp_path / settle.LOG_NAME).symlink_to(victim)
+    (tmp_path / settle_verdicts.LOG_NAME).symlink_to(victim)
     with pytest.raises(OSError):
-        settle._append_log(tmp_path, {"undo": 1})
+        settle_verdicts._append_log(tmp_path, {"undo": 1})
     assert victim.read_text() == "precious"
 
 

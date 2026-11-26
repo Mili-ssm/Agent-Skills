@@ -1,5 +1,5 @@
 """Background settling (`bin/mem-settle`): where its state lives, the lines of the session start text, and the trigger
-the write path calls. Standard library plus `settle` and `jobs`; every function that runs in a write or at
+the write path calls. Standard library plus `settle.verdicts` and `jobs`; every function that runs in a write or at
 session start swallows its errors, because it must never fail what it rides on."""
 
 from __future__ import annotations
@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex
 
 import jobs
-import settle
+
+from settle import verdicts as settle_verdicts
 
 if TYPE_CHECKING:
     import datetime
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-BIN = Path(__file__).resolve().parents[1] / "bin" / "mem-settle"
+BIN = Path(__file__).resolve().parents[2] / "bin" / "mem-settle"
 DEFAULT_MINUTES = 30.0
 # Set by the SessionStart hook for the session's shell commands: without them nothing here starts a run (trials, tests).
 ENV_FLAG, ENV_MINUTES, ENV_CLAUDE = "MEM_SETTLE_AUTO", "MEM_SETTLE_MINUTES", "MEM_SETTLE_CLAUDE"
@@ -55,12 +56,12 @@ _WORDS = {"merge": "merged", "supersede": "superseded", "distinct": "kept distin
 def settled_line(folder: Path | None) -> str | None:
     """One line while settlings the owner has not acknowledged (and not undone) exist. Reads only: it never creates
     the state file, so a store that never settled stays untouched."""
-    if folder is None or not (folder / settle.LOG_NAME).is_file():
+    if folder is None or not (folder / settle_verdicts.LOG_NAME).is_file():
         return None
-    acked = jobs.read_json(folder / settle.STATE_NAME).get("acked", 0)
+    acked = jobs.read_json(folder / settle_verdicts.STATE_NAME).get("acked", 0)
     fresh = [
         s
-        for s in settle.settlings(folder)
+        for s in settle_verdicts.settlings(folder)
         if s["seq"] > (acked if isinstance(acked, int) else 0) and not s["undone"]
     ]
     if not fresh:
@@ -94,7 +95,7 @@ def _start(
     if environ.get(ENV_FLAG) != "1":
         return False
     minutes = minutes_of(environ.get(ENV_MINUTES))
-    if settle.due(folder, minutes, now, today) is None:
+    if settle_verdicts.due(folder, minutes, now, today) is None:
         return False
     cmd = [sys.executable, str(BIN), "run", "--minutes", str(minutes)]
     if store is not None:

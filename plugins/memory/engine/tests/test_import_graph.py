@@ -220,12 +220,18 @@ PACKAGE_DEPENDENCIES = {
         "capture", "digest", "synthesize",
     },
     "capture": {"records", "jobs"},
+    "settle": {"records", "jobs", "safe_io", "store_git"},
     "research": {
         "records", "config", "jobs", "safe_io", "headless", "notes", "synthesize", "mem",
     },
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
-PACKAGE_IMPORTERS = {"corroborate": {"mem"}, "research": {"mem"}, "capture": {"mem", "corroborate"}}
+PACKAGE_IMPORTERS = {
+    "corroborate": {"mem"},
+    "research": {"mem"},
+    "capture": {"mem", "corroborate"},
+    "settle": {"mem"},
+}
 
 
 def test_package_imports_only_its_dependencies():
