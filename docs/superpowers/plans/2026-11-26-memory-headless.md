@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: planned, pre-mortem amendments applied (2026-11-26) · Branch: `refactor/memory-headless` (stacked on `refactor/memory-corroborate-split`, PR #200) · Date: 2026-11-26
+Status: implemented (2026-11-26); branch not yet pushed · Branch: `refactor/memory-headless` (stacked on `refactor/memory-corroborate-split`, PR #200) · Date: 2026-11-26
 
 **Goal:** the seven builders of `claude -p` sessions in the memory plugin build their command through one spec in `engine/headless.py`, and the three that lack it get `--strict-mcp-config` (owner ruling 2026-11-23); everything else about each session stays as it is.
 
@@ -88,31 +88,46 @@ Out of scope: the eval harnesses' own `claude -p` calls (`evals/*/run_trial*.py`
 
 ### Task 4a: `synth_pipeline.py` clean
 
-- [ ] **Step 1:** `synth_pipeline.py` clean (38 Ruff, 15 basedpyright, unformatted), behavior unchanged; `run_session` keeps its signature and keyword names (callers: `bin/mem-synthesize`, `bin/mem-auto`, `evals/synthesis/run_trials.py`, `evals/synthesis/audit_refs.py`, tests). Goldens and runner tests unchanged. Commit `refactor(memory): synth_pipeline clean`.
+- [x] **Step 1:** `synth_pipeline.py` clean (38 Ruff, 15 basedpyright, unformatted), behavior unchanged; `run_session` keeps its signature and keyword names (callers: `bin/mem-synthesize`, `bin/mem-auto`, `evals/synthesis/run_trials.py`, `evals/synthesis/audit_refs.py`, tests). Goldens and runner tests unchanged. Commit `refactor(memory): synth_pipeline clean`.
 
 ### Task 4b: `synth_pipeline.run_session` on `headless`, with `--strict-mcp-config`
 
 **Files:** Modify `engine/synth_pipeline.py`, `engine/tests/test_headless_golden.py`.
 
-- [ ] **Step 2:** In the golden test, add `--strict-mcp-config` to builder 4's expected map; run: fails.
-- [ ] **Step 3:** `run_session` builds through `headless.command` and runs through `headless.run_raw`; its log, timing and `MEM_SANDBOX*` env stay. Golden, suite, lint pass. Commit `fix(memory): synthesis sessions load no MCP server (--strict-mcp-config)`.
+- [x] **Step 2:** In the golden test, add `--strict-mcp-config` to builder 4's expected map; run: fails.
+- [x] **Step 3:** `run_session` builds through `headless.command` and runs through `headless.run_raw`; its log, timing and `MEM_SANDBOX*` env stay. Golden, suite, lint pass. Commit `fix(memory): synthesis sessions load no MCP server (--strict-mcp-config)`.
 
 ### Task 5a: `bin/mem-settle` clean
 
-- [ ] **Step 1:** `bin/mem-settle` clean (24 Ruff, 4 basedpyright, unformatted), behavior unchanged (py311: `Unpack` allowed since ADR 0033); its self-check's slice of the command between `--allowedTools` and `--disallowedTools` keeps working. Commit `refactor(memory): mem-settle clean`.
+- [x] **Step 1:** `bin/mem-settle` clean (24 Ruff, 4 basedpyright, unformatted), behavior unchanged (py311: `Unpack` allowed since ADR 0033); its self-check's slice of the command between `--allowedTools` and `--disallowedTools` keeps working. Commit `refactor(memory): mem-settle clean`.
 
 ### Task 5b: `bin/mem-capture` and `bin/mem-settle` on `headless`, with their flags
 
 **Files:** Modify `bin/mem-capture`, `bin/mem-settle`, `engine/tests/test_headless_golden.py`.
 
-- [ ] **Step 2:** Goldens: builder 2 gains `--tools Read,Write` and `--strict-mcp-config`, builder 3 gains `--strict-mcp-config`; run: fail.
-- [ ] **Step 3:** Both builders through `headless.command`, runners through `headless.run_raw`; env builders unchanged (`mem-capture` inline, `mem-settle` `run_env`). Goldens, suite, both `--self-check`s, lint pass. Commit `fix(memory): capture and settle sessions load no MCP server; capture has only Read and Write`.
-- [ ] **Step 4 (owner-approved spend, about $0.25):** one live `mem-capture` run on a small transcript in a scratch store; check that the session wrote `candidates.json` (with `--tools Read,Write` the Edit tool is gone; `corroborate` runs the same set). If it wrote none: kill criterion.
+- [x] **Step 2:** Goldens: builder 2 gains `--tools Read,Write` and `--strict-mcp-config`, builder 3 gains `--strict-mcp-config`; run: fail.
+- [x] **Step 3:** Both builders through `headless.command`, runners through `headless.run_raw`; env builders unchanged (`mem-capture` inline, `mem-settle` `run_env`). Goldens, suite, both `--self-check`s, lint pass. Commit `fix(memory): capture and settle sessions load no MCP server; capture has only Read and Write`.
+- [x] **Step 4 (owner-approved spend, about $0.25):** one live `mem-capture` run on a small transcript in a scratch store; check that the session wrote `candidates.json` (with `--tools Read,Write` the Edit tool is gone; `corroborate` runs the same set). If it wrote none: kill criterion.
 
 ### Task 6: Gate and docs
 
-- [ ] **Step 1:** `pre-commit run --from-ref <plan base> --to-ref HEAD` passes; `python3 scripts/validate.py`; `claude plugin validate .`.
-- [ ] **Step 2:** `plugins/memory/CHANGELOG.md` `[Unreleased]` `### Changed`: capture, settle, synthesis, curation (`mem-auto`) and reference-audit sessions no longer load MCP servers; capture sessions have only the Read and Write tools. Refactor plan: tick the `headless.py` half of the task and note `jobs.py` (A3) still open; backlog A2 and A7 rows; this plan's Status. Commit.
+- [x] **Step 1:** `pre-commit run --from-ref <plan base> --to-ref HEAD` passes; `python3 scripts/validate.py`; `claude plugin validate .`.
+- [x] **Step 2:** `plugins/memory/CHANGELOG.md` `[Unreleased]` `### Changed`: capture, settle, synthesis, curation (`mem-auto`) and reference-audit sessions no longer load MCP servers; capture sessions have only the Read and Write tools. Refactor plan: tick the `headless.py` half of the task and note `jobs.py` (A3) still open; backlog A2 and A7 rows; this plan's Status. Commit.
+
+## Deferred findings
+
+Low findings of the task reviews, ruled on 2026-11-26 (none changes the result of a valid call):
+
+| Finding | Ruling |
+|---|---|
+| A timed-out session cut inside a multibyte character raises `UnicodeDecodeError` (strict decode, research's base behavior); no test pins it | Open: kept as at base |
+| `test_headless.py`'s 0.2 s timeout case may be slow to start under load | Open: raise the timeout if it ever flakes |
+| `mem-auto` takes its `started` time after `count_new` (before it, at base) | Accepted: milliseconds |
+| `mem-settle`: if `run_env` raises, the `start:` log line is no longer written first | Open: `ms.session_env` has no raise path today |
+| Explicit `encoding="utf-8"` on log writes (Ruff PLW1514); `subprocess` output still decodes with the locale | Accepted recipe (as in A1) |
+| The capture brief is pinned by a prefix only | Open: the brief is not what A2 changes |
+
+Found on the way (outside A2): `mem-settle`, `mem-synthesize` and `mem-auto` already need PyYAML on the system `python3` (they load `records`); `mem-research` needs 3.12. Both end when `bin/` runs through `uv` (A4).
 
 ## Kill criteria
 

@@ -71,9 +71,9 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 |---|---|---|---|
 | medium | — | Release #185 (Unreleased entry in `CHANGELOG.md`) | Waiting for a release |
 | low | — | Refactor A1 deferred findings (`mem-synthesize --self-check` fails since before A1; split reviews of `mem-synthesize` (with A4) and `run_trials.py`; low notes; [plan](superpowers/plans/2026-11-26-memory-config.md) § Deferred findings) | Open |
-| high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Not started |
+| high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Done on branch refactor/memory-headless ([plan](superpowers/plans/2026-11-26-memory-headless.md)); deferred lows in its ledger |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Not started |
-| medium | A7 | Refactor: import direction | Open: only session_env, moved into A2 (tokenize and both cycles done on branch refactor/memory-a7-a1-a3) |
+| medium | A7 | Refactor: import direction | Done: tokenize and both cycles on refactor/memory-a7-a1-a3; `session_env` in `headless.py` on refactor/memory-headless |
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean on branch refactor/memory-corroborate-split ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` logic pending |
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
