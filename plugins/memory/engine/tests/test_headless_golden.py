@@ -17,6 +17,7 @@ import pytest
 import research_pipeline
 from synthesize import pipeline as synth_pipeline
 from synthesize import references as backfill
+from synthesize import run as sr
 
 PLUGIN = Path(__file__).resolve().parents[2]
 BUDGET = 0.25
@@ -81,7 +82,7 @@ def mem_settle() -> ModuleType:
 
 @pytest.fixture(scope="module")
 def mem_synthesize() -> ModuleType:
-    return load_bin("mem-synthesize")
+    return sr
 
 
 class Recorder:

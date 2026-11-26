@@ -19,6 +19,7 @@ import jobs
 import pytest
 import research_pipeline
 import settle_state
+from synthesize import run as sr
 
 PLUGIN = Path(__file__).resolve().parents[2]
 DAY = 86400
@@ -62,7 +63,7 @@ def mem_settle() -> Any:
 
 @pytest.fixture(scope="module")
 def mem_synthesize() -> Any:
-    return load_bin("mem-synthesize")
+    return sr
 
 
 # ---- row 1: state folder (identical in all four copies) ----
