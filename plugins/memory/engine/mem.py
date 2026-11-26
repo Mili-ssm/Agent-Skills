@@ -7236,7 +7236,7 @@ def _structure_detach_plan(root: Path, note: str) -> _StructurePlan | None:
     meta = split_frontmatter(text)[0]
     part = meta.get("part_of") if isinstance(meta, dict) else None
     if not isinstance(part, str):
-        raise ValueError(f"{note_files._handle(rel)} is not part of a synthesis")
+        raise NoteFormatError(f"{note_files._handle(rel)} is not part of a synthesis")
     return _StructurePlan(
         {found: (original, _detached(text, rel).encode("utf-8"))},
         [f"{note_files._handle(rel)}\tdetached from s:{part}"],
