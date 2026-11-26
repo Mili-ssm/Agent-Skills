@@ -6584,7 +6584,11 @@ def cmd_settle(args: argparse.Namespace) -> int:
         return 2
 
 
-_TEMPLATES = Path(__file__).resolve().parent / "templates"
+_ENGINE = Path(__file__).resolve().parent
+_MEM_PY = (
+    _ENGINE / "mem.py"
+)  # `mem stats` counts this file by name, wherever the code that counts it lives
+_TEMPLATES = _ENGINE / "templates"
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -8953,7 +8957,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
     memory_line = _stats_memory_line(args)
     if memory_line is not None:
         lines.insert(1, memory_line)
-    script = Path(__file__).resolve().read_text(encoding="utf-8")
+    script = _MEM_PY.read_text(encoding="utf-8")
     lines.append(f"orphans: {len(orphan_notes(root))}")
     lines += [
         f"topics: {topic_count}",
