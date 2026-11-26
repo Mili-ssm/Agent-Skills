@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 import auto_state
 import capture_state
 import check as check_rules
+import config
 import corroborate
 import digest
 import handoff
@@ -265,61 +266,31 @@ def _env_value(env: Mapping[str, str], key: str) -> str:
     return env.get(key) or ""
 
 
-def _config_file(env: Mapping[str, str]) -> Path | None:
-    base = _env_value(env, "XDG_CONFIG_HOME")
-    if not base:
-        home = _env_value(env, "HOME")
-        if not home:
-            return None
-        base = str(Path(home) / ".config")
-    return Path(base) / "agent-memory" / "store"
-
-
-def _config_store(env: Mapping[str, str]) -> str:
-    path = _config_file(env)
-    if path is None:
-        return ""
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return ""
-    return lines[0].strip() if lines else ""
-
-
 NO_STORE = (
     'mem: no store is set. Run "mem init" to create the default store, or set the plugin\'s "store" option, '
     "or pass --root <folder>, or set MEM_STORE."
 )
 
 
-def _default_store(env: Mapping[str, str]) -> Path | None:
-    """The default store when its folder exists."""
-    path = records.default_store(env)
-    return path if path is not None and path.is_dir() else None
+def no_store_message(env: Mapping[str, str]) -> str:
+    """NO_STORE, plus a line when the default folder exists without its marker (it is not used, and why)."""
+    folder = config.default_store_path(env)
+    if folder is None or not folder.is_dir() or (folder / config.STORE_MARKER).is_file():
+        return NO_STORE
+    return (
+        f"{NO_STORE}\nmem: {folder} has no {config.STORE_MARKER}, so it is not used; "
+        "add the file by hand only if you own that folder and mean to write to it."
+    )
 
 
-def store_source(cli_root: str | None, env: Mapping[str, str]) -> str | None:
+def store_source(cli_root: str | None, env: Mapping[str, str]) -> config.StoreSource | None:
     """Where the store path comes from: --root, MEM_STORE, the config file or the default store."""
-    if cli_root:
-        return "--root"
-    if _env_value(env, "MEM_STORE"):
-        return "MEM_STORE"
-    if _config_store(env):
-        return "config file"
-    if _default_store(env) is not None:
-        return "default"
-    return None
+    return config.store_source(cli_root, env)
 
 
 def resolve_root(cli_root: str | None, env: Mapping[str, str]) -> Path | None:
     """The store folder by precedence --root, MEM_STORE, config file, default store; not checked for existence."""
-    source = store_source(cli_root, env)
-    if source is None:
-        return None
-    if source == "default":
-        return _default_store(env)
-    raw = {"--root": cli_root, "MEM_STORE": env.get("MEM_STORE")}.get(source) or _config_store(env)
-    return Path(raw).expanduser()
+    return config.resolve_store(cli_root, env)
 
 
 def data_dir(env: Mapping[str, str]) -> Path | None:
@@ -4813,7 +4784,7 @@ def cmd_distinct(args: argparse.Namespace) -> int:
 def _writable_store(args: argparse.Namespace, command: str) -> Path | None:
     root = args.root
     if not isinstance(root, Path) or not root.is_dir():
-        print(NO_STORE, file=sys.stderr)
+        print(no_store_message(os.environ) if root is None else NO_STORE, file=sys.stderr)
         return None
     if not records.store_is_writable(root):
         print(
@@ -6625,7 +6596,9 @@ def _history_store(args: argparse.Namespace) -> Path | None:
     root = resolve_root(args.root, os.environ)
     if root is None or not root.is_dir():
         print(
-            NO_STORE if root is None else f"mem: the store folder does not exist: {root}",
+            no_store_message(os.environ)
+            if root is None
+            else f"mem: the store folder does not exist: {root}",
             file=sys.stderr,
         )
         return None
@@ -6672,7 +6645,7 @@ def _history_init_folder(args: argparse.Namespace) -> Path | None:
     """The store folder `mem history init` turns into a repository; None after a message on stderr."""
     folder = Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
     if folder is None:
-        print(NO_STORE, file=sys.stderr)
+        print(no_store_message(os.environ), file=sys.stderr)
         return None
     if not folder.is_dir():
         print(f"mem: the store folder does not exist: {folder}", file=sys.stderr)
@@ -10475,7 +10448,7 @@ def _memories_need_no_store(args: argparse.Namespace, root: Path | None) -> bool
 def _store_refusal(args: argparse.Namespace, root: Path | None) -> str | None:
     """The message that refuses `args.command` on this store, or None when the command may run."""
     if root is None:
-        return NO_STORE
+        return no_store_message(os.environ)
     if root.exists() and not root.is_dir():
         return f"mem: the store is not a folder: {root}"
     if not root.is_dir():

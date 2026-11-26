@@ -25,7 +25,7 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 
 | Folder | Set by | Notes |
 |---|---|---|
-| Store (notes) | Nothing to set: the default store is created on first use (`mem init`). Or the plugin option `store`, `MEM_STORE`, `--root` | A store is read-only unless it holds a `mem-store.yaml` marker; the default one has it. An existing folder of notes without the marker is never made writable by this tool. To sync, make the store a git repository and push it to a remote of your choice |
+| Store (notes) | Nothing to set: the default store is created on first use (`mem init`). Or the plugin option `store`, `MEM_STORE`, `--root`. Every entry point resolves it as `--root` > `MEM_STORE` > config file `store` (first line) > the default store, which counts only with its `mem-store.yaml` | A store is read-only unless it holds a `mem-store.yaml` marker; the default one has it. An existing folder of notes without the marker is never made writable by this tool. To sync, make the store a git repository and push it to a remote of your choice |
 | Global memories | Plugin option `memories`, or `MEM_MEMORIES`; else `memories/` in a writable store | May not be inside a read-only store. Nothing specific to a project belongs here. `mem terms add <term>` lists a hard term (a write that contains it is refused); `mem terms add <term> --soft` lists a soft one (the agent must ask the owner); `mem terms list` and `remove` manage them |
 | Other projects | A local registry, filled as memories are written (`mem projects list`) | Never read by default. `mem search "<q>" --project <name>` or `--all-projects` includes them, each under its own header; the registry holds names and paths, stays on this machine and is not synced |
 | Project memories | The main worktree's `.memory/` | Kept out of git through `.git/info/exclude`, added once when the folder is created; remove that line to commit the folder. Memories a repository commits still load, but the owner confirmation in their file does not count and they are marked "from repository" |
@@ -43,7 +43,7 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 
 `mem import <folder> [--dry-run] [--overwrite] [--with-sources] [--research-data]` copies the `literature/` and `knowledge/` files, the Markdown files and figures of `research/` (its data and code only with `--research-data`) and the topics of an older folder of notes into the store, reading the source only. Files that differ stay as they are and are listed, unless `--overwrite`; imported text is not checked for secrets or terms, only reported.
 
-Plugin options take effect in the next session: a `SessionStart` hook exports them to shell commands and writes them under `$XDG_CONFIG_HOME/agent-memory/`.
+Plugin options take effect in the next session: a `SessionStart` hook exports them to shell commands and writes them under `$XDG_CONFIG_HOME/agent-memory/` (else `~/.config/agent-memory/`). Those files (`store`, `memories`) are yours to edit: the hook records what it wrote in `<name>.hook` and only updates or removes a file whose content matches that record, so a file you wrote or changed stays, and with no `store` option the hooks hand over the store that file names, else the default store.
 
 ## Syntheses
 
