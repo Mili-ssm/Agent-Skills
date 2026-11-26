@@ -13,6 +13,13 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 - With no `HOME` and no `XDG_DATA_HOME`, no entry point uses a default store (`mem-research` and `mem-synthesize` no longer fall back to the home folder from the system user database).
 - The config files under `~/.config/agent-memory/` (`store`, `memories`) can be edited by hand. The session start hook records what it writes in `<name>.hook` next to the file, and no longer deletes or overwrites a file it did not write. With no `store` option, the hooks hand over the store the `store` file names, else the default store. Migration: a file written by an older version has no record and is kept, so after changing or clearing the `store` option, check that `~/.config/agent-memory/store` names the store you want, or delete it.
 
+### Fixed
+
+- A background session stopped by its time limit in the middle of a multibyte character no longer loses its partial output with a decoding error.
+- The compaction handoff check reports a missing plan file with a very long name on Python 3.12 and 3.13, as it already did on 3.14.
+- Research checks keep the page text after an unclosed `<script>` or `<style>` on early Python 3.12 patches (3.12.0), as later patches do.
+- Research checks refuse a verdict whose quote is not text instead of stopping with an error.
+
 ## [0.15.0] - 2026-11-26
 
 ### Added

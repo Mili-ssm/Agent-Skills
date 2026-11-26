@@ -120,7 +120,7 @@ Low findings of the task reviews, ruled on 2026-11-26 (none changes the result o
 
 | Finding | Ruling |
 |---|---|
-| A timed-out session cut inside a multibyte character raises `UnicodeDecodeError` (strict decode, research's base behavior); no test pins it | Open: kept as at base |
+| A timed-out session cut inside a multibyte character raises `UnicodeDecodeError` (strict decode, research's base behavior); no test pins it | Fixed in the [fixes plan](2026-11-26-memory-fixes.md): the timeout path drops only the cut trailing character |
 | `test_headless.py`'s 0.2 s timeout case may be slow to start under load | Open: raise the timeout if it ever flakes |
 | `mem-auto` takes its `started` time after `count_new` (before it, at base) | Accepted: milliseconds |
 | `mem-settle`: if `run_env` raises, the `start:` log line is no longer written first | Open: `ms.session_env` has no raise path today |

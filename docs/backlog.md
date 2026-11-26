@@ -15,13 +15,13 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g and 4b; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 
-Item 4d is closed: the offload tables load from session start hooks (ADR 0032). Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); Q4 is done (#193: suite 287 s → about 30 s); D1 is done (owner chose a `validate.py` check, 2026-11-25). A1 is done on branch `refactor/memory-config` (store resolution in `engine/config.py`, owner rulings 2026-11-26). P4 is done: the policy names the cap; its closing line stays, so the rule keeps three homes (ADR 0017 Measurement 2026-11-26). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
+Item 4d is closed: the offload tables load from session start hooks (ADR 0032). Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); Q4 is done (#193: suite 287 s → about 30 s); D1 is done (owner chose a `validate.py` check, 2026-11-25). A1 is done (#199: store resolution in `engine/config.py`, owner rulings 2026-11-26). P4 is done: the policy names the cap; its closing line stays, so the rule keeps three homes (ADR 0017 Measurement 2026-11-26). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. Quick fix: P1 (measured).
-3. Memory refactor: A1, A2, A3, A7 and the first part of A4 merged to dev on 2026-11-26 (PRs #198–#202); next, in the owner's order (2026-11-26): fixes first (the sub-plans' deferred findings, `test_backfill.py` lint debt), then the rest of A4, A5, A6, A8.
+3. Memory refactor: A1, A2, A3, A7 and the first part of A4 merged to dev on 2026-11-26 (PRs #198–#202); the fixes the owner put first are done on `fix/memory-fixes` ([plan](superpowers/plans/2026-11-26-memory-fixes.md): the suite passes on Python 3.12.0, 3.13, 3.14 and 3.15); next the rest of A4, A5, A6, A8.
 4. Memory kill read, around 2026-12-01.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
@@ -70,7 +70,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | Pri | ID | Task | State |
 |---|---|---|---|
 | medium | — | Release #185 (Unreleased entry in `CHANGELOG.md`) | Waiting for a release |
-| low | — | Refactor A1 deferred findings (`mem-synthesize --self-check` fails since before A1; split reviews of `mem-synthesize` (with A4) and `run_trials.py`; low notes; [plan](superpowers/plans/2026-11-26-memory-config.md) § Deferred findings) | Open |
+| low | — | Refactor A1 deferred findings (split reviews of `mem-synthesize` (with A4) and `run_trials.py`; low notes; [plan](superpowers/plans/2026-11-26-memory-config.md) § Deferred findings) | Open |
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Done, PR #201 ([plan](superpowers/plans/2026-11-26-memory-headless.md)); deferred lows in its ledger |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Done, PR #202 ([plan](superpowers/plans/2026-11-26-memory-jobs.md)): identical copies only (owner); differing copies stay |
 | medium | A7 | Refactor: import direction | Done: tokenize and both cycles (PR #198); `session_env` in `headless.py` (PR #201) |
@@ -84,7 +84,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | Stage 4 | Kill read into ADR 0023 `## Review` | Around 2026-12-01 |
 | medium | Q5 | Remove `sleep` negatives and wall-clock asserts: lock waits done in #193; left: `test_auto_curation` negative windows (1.5–2 s) are only 1.1–1.5× its hook latency under load (1.31 s; `test_settle_run` has about 3×), a synchronous "decided not to start" record in `mem-auto` would give a real signal ([plan](superpowers/plans/2026-11-25-faster-tests.md)) | Partly done |
 | medium | Q7 | One mutation run on `records.py` and `check.py` | Open |
-| low | Q8, Q9 | Split large test files; small test gaps | Open (Q8: `test_mem_corroborate.py` done with A4 (PR #200); other large files and Q9 open) |
+| low | Q8, Q9 | Split large test files; small test gaps | Open (Q8: `test_mem_corroborate.py` done with A4 (PR #200); other large files open; the Q9 same-second fill test fixed in the [fixes plan](superpowers/plans/2026-11-26-memory-fixes.md)) |
 | medium | P6 | `subagent-start.sh` skips `memory-synthesizer` | Open |
 | medium | P7 | One home for curation rules (agent or skill) | Open |
 | medium | D6 | Split `plugins/memory/README.md` | Open |
