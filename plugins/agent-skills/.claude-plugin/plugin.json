@@ -3,5 +3,13 @@
   "version": "1.1.0",
   "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright.",
   "author": { "name": "mili-ssm" },
-  "repository": "https://github.com/Mili-ssm/Agent-Skills"
+  "repository": "https://github.com/Mili-ssm/Agent-Skills",
+  "userConfig": {
+    "offload_policy": {
+      "type": "boolean",
+      "title": "Offload table at session start",
+      "description": "Loads the offload table (about 700 tokens) into the context at session start and after a compaction, so the main conversation delegates the right work to the cheap workers. Turn it off when your own CLAUDE.md or account instructions already hold the table.",
+      "default": true
+    }
+  }
 }

@@ -1,0 +1,17 @@
+{
+  "description": "Prints the offload table when a session starts, clears or compacts",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/offload-policy.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

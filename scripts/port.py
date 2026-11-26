@@ -5,8 +5,9 @@
   python3 scripts/port.py --check    prove the copies are current and equivalent to the Claude sources
   python3 scripts/port.py --report   print what each artifact type maps to and what does not map
 
-The Claude sources (plugins/, .claude-plugin/, user-config/offload-policy.md) are only read, so Claude Code
-behaves exactly as before. No CLAUDE.md or AGENTS.md is generated (Claude Code would load it).
+The Claude sources (plugins/, .claude-plugin/, user-config/offload-policy.md) are only read, except one output:
+plugins/agent-skills/hooks/offload-policy.md, the copy the session start hook prints (an installed hook reads
+only files under its plugin root). Claude Code behaves as before otherwise. No CLAUDE.md or AGENTS.md is generated (Claude Code would load it).
 
 Standard library only (Python 3.11+, tomllib). Exit code 0 = ok, 1 = errors (printed one per line).
 """
@@ -38,6 +39,7 @@ POLICY = ROOT / "user-config" / "offload-policy.md"
 ROUTING = ROOT / "user-config" / "routing.md"
 README = ROOT / "README.md"
 README_REL = "README.md"
+HOOK_POLICY_REL = "plugins/agent-skills/hooks/offload-policy.md"
 # README block filled by this script: the recommended prompt (offload policy + routing) per tool.
 PROMPT_BEGIN = "<!-- BEGIN generated: recommended-prompt -->"
 PROMPT_END = "<!-- END generated: recommended-prompt -->"
@@ -715,6 +717,10 @@ class Generator:
                 target.routing, f"{ROUTING_BANNER}\n\n{text.rstrip(chr(10))}\n", target
             )
 
+    def hook_policy(self) -> None:
+        """The offload table copy the session start hook prints, byte for byte (no banner: the hook prints it as is)."""
+        self.put(HOOK_POLICY_REL, self.src.policy)
+
     def readme(self) -> None:
         """README.md with the recommended-prompt block regenerated (the rest is kept as is)."""
         if not README.is_file():
@@ -815,6 +821,7 @@ def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
         gen.agents_for(target)
     gen.catalogs()
     gen.policies()
+    gen.hook_policy()
     gen.readme()
     gen.ports_doc()
     return gen.files, list(dict.fromkeys(gen.errors))
