@@ -75,6 +75,9 @@ Order (fewest importers first; each task is one pull request on the previous bra
 
 | Finding | Ruling |
 |---|---|
+| Cleanups grew `check.py` to 1,396 lines and `syntheses.py` to 1,313 (owner's 1,000-line split review); `corroborate.py` 891 | Split reviews with Task 5 + A6 (`store/`), where both land |
+| Cleanup review: `capture._Scan` control flow (old `continue`/`break` as `return True/False`) not traced line by line; tests pass | Open, low |
+| Store-only lint debt (28 test files, about 304 findings) | Task 5 runs together with A6 (`records` split), which touches the same tests |
 
 ## Kill criteria
 
