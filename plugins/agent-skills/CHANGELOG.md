@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- `architecture-principles`: the smell catalog names flat sprawl (many modules in one folder, a shared filename prefix in place of packages) and its remedy, grouping by feature.
+
 ## [1.2.0] - 2026-11-26
 
 ### Added

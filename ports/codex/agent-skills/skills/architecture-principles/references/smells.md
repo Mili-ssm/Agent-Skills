@@ -18,6 +18,7 @@
 | Speculative generality | One-implementation abstractions, unused hooks | YAGNI | Inline until the second variant |
 | Missing boundary validation | Invalid data travels deep before failing | Parse, don't validate | Typed parsing at the edge |
 | Golden hammer | One tool/pattern applied everywhere | Fit to problem | Choose per quality attribute |
+| Flat sprawl | Dozens of modules in one folder; names sharing a prefix (`billing_*.py`) stand in for packages | CCP, locality | Group by feature into packages; keep helpers and tests beside their users |
 | Big ball of mud | No discernible structure | All of the above | Strangle by feature; enforce new boundaries with fitness functions |
 
 ## Churn-hotspot analysis (Tornhill, *Your Code as a Crime Scene*)
