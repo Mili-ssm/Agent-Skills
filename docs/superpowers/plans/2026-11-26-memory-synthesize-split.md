@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: planned (pre-mortem 2026-11-26 applied) · Branch: `refactor/memory-synthesize-split` (from `dev` 46d4317) · Date: 2026-11-26
+Status: implemented, PR to dev pending (pre-mortem 2026-11-26 applied) · Branch: `refactor/memory-synthesize-split` (from `dev` 46d4317) · Date: 2026-11-26
 
 **Goal:** the synthesis job lives in one feature package, `engine/synthesize/`; `bin/mem-synthesize` becomes a thin launcher; `mem-auto`, `mem-settle`, tests and evals import the package instead of loading the script with `exec_module`; behavior unchanged. This is the pilot of the owner's ruling to organize `engine/` into feature packages (2026-11-26); the other packages follow in a later plan, one package per pull request.
 
@@ -95,8 +95,8 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 ### Task 3: Split `bin/mem-synthesize` into the package
 
 - [x] 3a `synthesize/run.py`, `backfill.py`, `topics.py`, `cli.py` by verbatim moves plus the named changes; the launcher is the docstring, `sys.path` setup and `sys.exit(cli.main(__doc__))`; py311 line. Commit `refactor(memory): mem-synthesize logic in engine/synthesize/`.
-- [ ] 3b `mem-auto` and `mem-settle` import `synthesize.run`/`synthesize.topics` and drop the `SourceFileLoader` block. Commit.
-- [ ] 3c Tests and `run_trials.py` import the package instead of loading the script; the `ms` fixture of `test_backfill.py` becomes module imports; patches retargeted and each proven. One commit per batch.
+- [x] 3b `mem-auto` and `mem-settle` import `synthesize.run`/`synthesize.topics` and drop the `SourceFileLoader` block. Commit.
+- [x] 3c Tests and `run_trials.py` import the package instead of loading the script; the `ms` fixture of `test_backfill.py` becomes module imports; patches retargeted and each proven. One commit per batch.
 
 ### Task 4: Boundary rule and test placement
 
@@ -115,6 +115,9 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 | Task 3a: the `backfill_one` patch in `test_a_failing_mem_check_with_no_reference_written_is_not_blamed_on_the_step` cannot be proven (the test passes without it; already so at base) | Open, low: the test does not prove what it names |
 | Eval cleanups review: `test_settle_trial_grading.py` asserts one of three verdicts and no threshold boundary; `evals/research/run_trial.py` grew to 954 lines | Open, low |
 | `evals/synthesis/frozen-main/README.md` names `engine/synth_briefs/` | Accepted: it describes a frozen `main` snapshot |
+| Task 3a review: `Path` in `synthesize/run.py` is imported under `TYPE_CHECKING` only, so `typing.get_type_hints` on its functions would raise | Rejected: no code reads the hints; Ruff's TC rules require it |
+| Task 3b/3c review: the floor edge matched any `run.py` (there is also `engine/run.py`); the broken-engine golden did not assert the yaml cause | Fixed: full path; `stub: no yaml` asserted |
+| Task 4: `test_bin_python_floor._loaders()` globbed `tests/*.py` and lost the moved tests; now `rglob` | Accepted: keeps coverage, 2,668 tests collected before and after |
 | Pre-mortem: `bin/` scripts already need PyYAML at import time through `synth_pipeline`/`backfill` → `syntheses`; the lazy `_syntheses()` did nothing | Recorded; the import becomes top-level (Global Constraints) |
 
 ## Kill criteria
