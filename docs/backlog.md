@@ -20,7 +20,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
-2. Quick fixes: P1 (measured), tool-fold's dead `summarize` export.
+2. Quick fix: P1 (measured).
 3. Memory refactor tasks 1–2 (A1–A3).
 4. Memory kill read, around 2026-12-01.
 
@@ -103,7 +103,6 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 |---|---|---|
 | medium | Q6 | Tests for `agents.tsx` before A8 |
 | medium | A8 | Split `agents.tsx` at the next tool-fold change |
-| low | — | Remove the dead `summarize` export |
 | low | Q8, D9 | Split large test files; shorten README lines |
 
 ## Mod `plan-progress`
