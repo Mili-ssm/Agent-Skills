@@ -127,7 +127,7 @@ def _load_bin(name, monkeypatch):
     spec = importlib.util.spec_from_loader(name, loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
-    # @dataclass before Python 3.13 looks the module up in sys.modules; teardown removes the entry
+    # @dataclass before Python 3.15 looks the module up in sys.modules; teardown removes the entry
     monkeypatch.setitem(sys.modules, name, module)
     loader.exec_module(module)
     return module
