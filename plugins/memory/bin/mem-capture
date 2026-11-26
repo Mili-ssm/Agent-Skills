@@ -8,7 +8,7 @@ while [ -L "$src" ]; do
 done
 here="$(cd -P "$(dirname "$src")" && pwd)"
 if ! command -v uv >/dev/null 2>&1; then
-  echo "mem: uv is not installed (https://docs.astral.sh/uv/)" >&2
+  echo "mem-capture: uv is not installed (https://docs.astral.sh/uv/)" >&2
   exit 127
 fi
 exec uv run --quiet --script "$here/../engine/run.py" --bin mem-capture "$@"

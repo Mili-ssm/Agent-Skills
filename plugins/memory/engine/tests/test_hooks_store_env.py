@@ -302,3 +302,43 @@ def test_session_env_memories_file_follows_the_same_rules(tmp_path):
     assert "export MEM_MEMORIES=/m" in exported
     _env_file_run(tmp_path)
     assert (cfg / "memories").read_text() == "/by/hand\n"
+
+
+def _failing_mem_plugin(tmp_path, with_uv):
+    """A hook copy whose `mem` does not answer, run with a PATH of symlinks to the few tools the hook uses."""
+    root = tmp_path / "plug"
+    shutil.copytree(HOOKS, root / "hooks")
+    (root / "bin").mkdir()
+    mem = root / "bin" / "mem"
+    mem.write_text("#!/bin/sh\nexit 1\n")
+    mem.chmod(0o755)
+    shim = tmp_path / "shim"
+    shim.mkdir()
+    for tool in ("dirname", "cat", "timeout"):
+        found = shutil.which(tool)
+        assert found
+        (shim / tool).symlink_to(found)
+    if with_uv:
+        (shim / "uv").symlink_to(shutil.which("true") or "/bin/true")
+    return root, shim
+
+
+@pytest.mark.parametrize(("with_uv", "notice"), [(False, True), (True, False)])
+def test_the_session_text_names_a_missing_uv_only_when_mem_did_not_answer(
+    tmp_path, with_uv, notice
+):
+    root, shim = _failing_mem_plugin(tmp_path, with_uv)
+    done = subprocess.run(
+        ["/bin/bash", str(root / "hooks" / "session-index.sh")],
+        env={"PATH": str(shim), "HOME": str(tmp_path / "home")},
+        input="{}",
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+    assert done.returncode == 0 and not done.stderr
+    assert "memory: the mem command searches" in done.stdout  # the rules heredoc still prints
+    assert ("uv is not installed" in done.stdout) is notice
+    if notice:
+        assert "https://docs.astral.sh/uv/" in done.stdout
