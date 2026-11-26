@@ -6,6 +6,7 @@ test_backfill, so its command line and its answer are the real ones."""
 import math
 
 import pytest
+from synthesize import backfill as sb
 from synthesize import pipeline as sp
 from test_backfill import B, answer, fake, ms, sessions
 from test_synth_pipeline_refs import ALPHA, BETA, store
@@ -218,12 +219,12 @@ def test_a_failing_mem_check_after_the_references_fails_the_topic(
     ms, fake, store, tmp_path, monkeypatch
 ):
     answer(tmp_path, REFS)
-    real = ms.backfill_one
+    real = sb.backfill_one
 
     def broken(*a, **kw):
         return {**real(*a, **kw), "mem_check": 1}
 
-    monkeypatch.setattr(ms, "backfill_one", broken)
+    monkeypatch.setattr(sb, "backfill_one", broken)
     code, _, (row,) = synthesize(ms, fake, store, tmp_path)
     assert code == 1 and row["status"].startswith("failed: mem check exit 1 after references"), row
     assert f"mem restore s:{TOPIC}" in row["status"] and row["refs"] == APPLIED
@@ -234,8 +235,8 @@ def test_a_failing_mem_check_with_no_reference_written_is_not_blamed_on_the_step
     ms, fake, store, tmp_path, monkeypatch
 ):
     monkeypatch.setenv("FAKE_MODE", "error")
-    real = ms.backfill_one
-    monkeypatch.setattr(ms, "backfill_one", lambda *a, **kw: {**real(*a, **kw), "mem_check": 1})
+    real = sb.backfill_one
+    monkeypatch.setattr(sb, "backfill_one", lambda *a, **kw: {**real(*a, **kw), "mem_check": 1})
     code, _, (row,) = synthesize(ms, fake, store, tmp_path)
     assert code == 0 and row["status"].startswith("ok, references not added: "), row
 

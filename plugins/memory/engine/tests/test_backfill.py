@@ -10,6 +10,7 @@ import pytest
 import syntheses
 from synthesize import pipeline as sp
 from synthesize import references as bf
+from synthesize import run as sr
 from test_synth_pipeline_refs import A, B, store, synthesis_text
 
 __all__ = ["store"]  # re-exported: pytest finds the fixture in this module by its name
@@ -346,7 +347,7 @@ def test_a_failed_done_list_write_does_not_skip_the_table_or_the_commit(
     monkeypatch.setattr(bf, "save_done", boom)
     commits = []
     monkeypatch.setattr(
-        ms, "history_commit", lambda store, env, message, log: commits.append(message)
+        sr, "history_commit", lambda store, env, message, log: commits.append(message)
     )
     code, lines, rows = backfill(ms, fake, full)
     assert code == 1 and rows[0]["status"] == "ok, done list not saved: disk full"
