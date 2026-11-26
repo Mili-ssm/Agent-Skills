@@ -104,7 +104,7 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 
 ### Task 5: Gate and docs
 
-- [ ] Full suite on 3.12.0, 3.13.5, 3.14.4, default; self-checks on 3.11.15 and default; `pre-commit run --from-ref dev --to-ref HEAD`; `python3 scripts/validate.py`; `claude plugin validate .`. Refactor plan progress line; backlog A4 row plus a new row "engine into feature packages" (the rest, after this pilot); config plan's split-review bullet; this plan's Status and deferred findings; resume state.
+- [x] Full suite on 3.12.0, 3.13.5, 3.14.4, default; self-checks on 3.11.15 and default; `pre-commit run --from-ref dev --to-ref HEAD`; `python3 scripts/validate.py`; `claude plugin validate .`. Refactor plan progress line; backlog A4 row plus a new row "engine into feature packages" (the rest, after this pilot); config plan's split-review bullet; this plan's Status and deferred findings; resume state.
 
 ## Deferred findings
 
