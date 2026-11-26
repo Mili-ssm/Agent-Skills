@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 import backfill as bf
+import config
 import synth_pipeline as sp
 
 logger = logging.getLogger(__name__)
@@ -146,12 +147,8 @@ def _syntheses() -> ModuleType:
 
 
 def default_store() -> Path | None:
-    """The store `mem` falls back to: MEM_STORE, else the default store under the XDG data folder."""
-    if os.environ.get("MEM_STORE"):
-        return Path(os.environ["MEM_STORE"]).expanduser()
-    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    found = Path(data) / "agent-memory" / "store"
-    return found if (found / "mem-store.yaml").is_file() else None
+    """The store `mem` falls back to: MEM_STORE, the config file, else the marked default store."""
+    return config.resolve_store(None, os.environ)
 
 
 def state_dir() -> Path:

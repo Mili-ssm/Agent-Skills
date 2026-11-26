@@ -95,9 +95,9 @@ CASES: dict[str, Case] = {
         root="cs",
         root_no_cli="cs",
         # ruling 1: global_root, research and synth honour the config file
-        global_root=None,
-        research=None,
-        synth=None,
+        global_root=f"cs/{GLOBAL}",
+        research="cs",
+        synth="cs",
     ),
     "config-only": Case(
         STD,
@@ -106,9 +106,9 @@ CASES: dict[str, Case] = {
         root="cs",
         root_no_cli="cs",
         # ruling 1: global_root, research and synth honour the config file
-        global_root=None,
-        research=None,
-        synth=None,
+        global_root=f"cs/{GLOBAL}",
+        research="cs",
+        synth="cs",
     ),
     "config-first-line-blank-with-marked-default": Case(
         STD,
@@ -137,10 +137,10 @@ CASES: dict[str, Case] = {
         source="config file",
         root="cs",
         root_no_cli="cs",
-        # ruling 1: global_root, research and synth honour the config file (today the default wins)
-        global_root=f"{SHARE}/{GLOBAL}",
-        research=SHARE,
-        synth=SHARE,
+        # ruling 1: global_root, research and synth honour the config file
+        global_root=f"cs/{GLOBAL}",
+        research="cs",
+        synth="cs",
     ),
     "default-marked": Case(
         STD,
@@ -155,11 +155,10 @@ CASES: dict[str, Case] = {
     "default-folder-without-marker": Case(
         STD,
         {f"{SHARE}/": ""},
-        # ruling 2: mem.store_source/resolve_root stop using it; global_root is already None (store not
-        # writable), research and synth are already None
-        source="default",
-        root=SHARE,
-        root_no_cli=SHARE,
+        # ruling 2: no entry point uses an unmarked default folder
+        source=None,
+        root=None,
+        root_no_cli=None,
         global_root=None,
         research=None,
         synth=None,
@@ -192,9 +191,9 @@ CASES: dict[str, Case] = {
         root="cs",
         root_no_cli="cs",
         # ruling 1: global_root, research and synth honour the config file
-        global_root=None,
-        research=None,
-        synth=None,
+        global_root=f"cs/{GLOBAL}",
+        research="cs",
+        synth="cs",
     ),
     "no-home-no-xdg": Case(
         {"HOME": ""},
@@ -204,8 +203,8 @@ CASES: dict[str, Case] = {
         root=None,
         root_no_cli=None,
         global_root=None,
-        research=HOME_SHARE,
-        synth=HOME_SHARE,
+        research=None,
+        synth=None,
     ),
     "no-home-no-xdg-with-mem-store": Case(
         {"HOME": "", "MEM_STORE": "{p}/ms"},
@@ -260,9 +259,9 @@ CASES: dict[str, Case] = {
         root="home/cs",
         root_no_cli="home/cs",
         # ruling 1: global_root, research and synth honour the config file
-        global_root=None,
-        research=None,
-        synth=None,
+        global_root=f"home/cs/{GLOBAL}",
+        research="home/cs",
+        synth="home/cs",
     ),
     "home-unset-no-xdg": Case(
         {},
@@ -272,8 +271,8 @@ CASES: dict[str, Case] = {
         root=None,
         root_no_cli=None,
         global_root=None,
-        research=HOME_SHARE,
-        synth=HOME_SHARE,
+        research=None,
+        synth=None,
     ),
 }
 

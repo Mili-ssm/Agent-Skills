@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, Required, TypedDict, Unpack
 
 import auto_state as au
+import config
 import mem
 import research_checks as rc
 import synth_pipeline as sp
@@ -105,11 +106,7 @@ def state_dir() -> Path:
 
 
 def default_store() -> Path | None:
-    if os.environ.get("MEM_STORE"):
-        return Path(os.environ["MEM_STORE"]).expanduser()
-    data = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    found = Path(data) / "agent-memory" / "store"
-    return found if (found / "mem-store.yaml").is_file() else None
+    return config.resolve_store(None, os.environ)
 
 
 def runs_dir(store: Path) -> Path:

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Protocol, Required, TypedDict, Unpack
 
+import config
 import safe_io
 import yaml
 from notes import safe_load
@@ -253,23 +254,9 @@ def forget_project(data: Path | None, name: str) -> bool:
     return True
 
 
-def _config_base(env: Mapping[str, str]) -> Path | None:
-    if env.get("XDG_CONFIG_HOME"):
-        return Path(env["XDG_CONFIG_HOME"])
-    if env.get("HOME"):
-        return Path(env["HOME"]) / ".config"
-    return None
-
-
 def _configured_memories(env: Mapping[str, str]) -> str:
     """The first non-blank line of agent-memory/memories under the config folder, else an empty string."""
-    base = _config_base(env)
-    if base is None:
-        return ""
-    try:
-        lines = (base / "agent-memory" / "memories").read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError):
-        return ""
+    lines = config.config_lines(env, "memories")
     return next((ln.strip() for ln in lines if ln.strip()), "")
 
 
@@ -291,8 +278,7 @@ def global_memories_root(env: Mapping[str, str]) -> Path | None:
     """The folder of global memories for a command that takes no store argument (the background commands):
     `memories_root` with the store that MEM_STORE names, else the default store. Without this a background run
     that is given only MEM_STORE, as the hooks give it, finds no global memory."""
-    named = env.get("MEM_STORE")
-    store = Path(named).expanduser() if named else default_store(env)
+    store = config.resolve_store(None, env)
     return memories_root(env, store if store is not None and store.is_dir() else None)
 
 
@@ -1552,17 +1538,13 @@ def ensure_excluded(project: Path) -> bool:
 
 
 def forbidden_file(env: Mapping[str, str]) -> Path | None:
-    base = _config_base(env)
-    return base / "agent-memory" / "forbidden-terms" if base is not None else None
+    base = config.config_dir(env)
+    return base / "forbidden-terms" if base is not None else None
 
 
 def default_store(env: Mapping[str, str]) -> Path | None:
-    """The store used when none is named: agent-memory/store under XDG_DATA_HOME, else under ~/.local/share."""
-    if env.get("XDG_DATA_HOME"):
-        return Path(env["XDG_DATA_HOME"]) / "agent-memory" / "store"
-    if env.get("HOME"):
-        return Path(env["HOME"]) / ".local" / "share" / "agent-memory" / "store"
-    return None
+    """The store used when none is named: the path only, `mem init` creates it (see `config.default_store`)."""
+    return config.default_store_path(env)
 
 
 class ForbiddenListError(ValueError):
