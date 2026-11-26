@@ -4784,7 +4784,7 @@ def cmd_distinct(args: argparse.Namespace) -> int:
 def _writable_store(args: argparse.Namespace, command: str) -> Path | None:
     root = args.root
     if not isinstance(root, Path) or not root.is_dir():
-        print(NO_STORE, file=sys.stderr)
+        print(no_store_message(os.environ) if root is None else NO_STORE, file=sys.stderr)
         return None
     if not records.store_is_writable(root):
         print(

@@ -114,14 +114,15 @@ def test_default_store_is_the_last_resort_and_only_when_it_has_the_marker(tmp_pa
     assert mem.store_source("/r", {**env, "MEM_STORE": "/m"}) == "--root"
 
 
-def test_unmarked_default_folder_is_named_in_the_refusal(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("argv", [["search", "x"], ["restore", "s:x"], ["history", "init"]])
+def test_unmarked_default_folder_is_named_in_the_refusal(argv, monkeypatch, tmp_path, capsys):
     folder = tmp_path / "share" / "agent-memory" / "store"
     folder.mkdir(parents=True)
     for key in ("MEM_STORE", "XDG_CONFIG_HOME"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
-    assert mem.main(["search", "x"]) == EXIT_USAGE
+    assert mem.main(argv) == EXIT_USAGE
     err = capsys.readouterr().err.splitlines()
     assert err == [
         mem.NO_STORE,
