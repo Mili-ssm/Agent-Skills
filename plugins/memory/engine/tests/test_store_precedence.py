@@ -217,6 +217,64 @@ CASES: dict[str, Case] = {
         research="ms",
         synth="ms",
     ),
+    "mem-store-beats-config": Case(
+        {**STD, "MEM_STORE": "{p}/ms"},
+        {"ms/mem-store.yaml": "format: 1\n", CFG: "{p}/cs\n", "cs/mem-store.yaml": "format: 1\n"},
+        source="MEM_STORE",
+        root="ms",
+        root_no_cli="ms",
+        global_root=f"ms/{GLOBAL}",
+        research="ms",
+        synth="ms",
+    ),
+    "mem-store-beats-config-and-marked-default": Case(
+        {**STD, "MEM_STORE": "{p}/ms"},
+        {
+            **MARKED,
+            "ms/mem-store.yaml": "format: 1\n",
+            CFG: "{p}/cs\n",
+            "cs/mem-store.yaml": "format: 1\n",
+        },
+        source="MEM_STORE",
+        root="ms",
+        root_no_cli="ms",
+        global_root=f"ms/{GLOBAL}",
+        research="ms",
+        synth="ms",
+    ),
+    "root-beats-mem-store-and-config": Case(
+        {**STD, "MEM_STORE": "{p}/ms"},
+        {"ms/mem-store.yaml": "format: 1\n", CFG: "{p}/cs\n", "cs/mem-store.yaml": "format: 1\n"},
+        cli_root="r",
+        source="--root",
+        root="r",
+        root_no_cli="ms",
+        global_root=f"ms/{GLOBAL}",
+        research="ms",
+        synth="ms",
+    ),
+    "config-with-tilde": Case(
+        {"HOME": "{p}/home"},
+        {"home/.config/agent-memory/store": "~/cs\n", "home/cs/mem-store.yaml": "format: 1\n"},
+        source="config file",
+        root="home/cs",
+        root_no_cli="home/cs",
+        # ruling 1: global_root, research and synth honour the config file
+        global_root=None,
+        research=None,
+        synth=None,
+    ),
+    "home-unset-no-xdg": Case(
+        {},
+        {f"{HOME_SHARE}/mem-store.yaml": "format: 1\n"},
+        # HOME-less ruling: research and synth lose their Path.home() fallback (patched to tmp/home) and answer None
+        source=None,
+        root=None,
+        root_no_cli=None,
+        global_root=None,
+        research=HOME_SHARE,
+        synth=HOME_SHARE,
+    ),
 }
 
 
@@ -252,15 +310,19 @@ def test_store_source(world):
 
 
 @with_cases
-def test_resolve_root_with_cli_root(world):
+def test_resolve_root(world):
     case, env, at = world
     assert mem.resolve_root(str(at(case.cli_root)) if case.cli_root else None, env) == at(case.root)
 
 
-@with_cases
+@pytest.mark.parametrize(
+    "world",
+    [name for name, case in CASES.items() if case.cli_root],
+    indirect=True,
+)
 def test_resolve_root_without_cli_root(world):
     case, env, at = world
-    assert mem.resolve_root(None, env) == at(case.root_no_cli if case.cli_root else case.root)
+    assert mem.resolve_root(None, env) == at(case.root_no_cli)
 
 
 @with_cases
@@ -284,3 +346,18 @@ def test_mem_synthesize_default_store(world):
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     assert module.default_store() == at(case.synth)
+
+
+DEFAULT_PATHS: dict[str, tuple[dict[str, str], str | None]] = {
+    "xdg-data-home": ({"HOME": "{p}/home", "XDG_DATA_HOME": "{p}/share"}, SHARE),
+    "only-home": ({"HOME": "{p}/home"}, HOME_SHARE),
+    "neither": ({}, None),
+}
+
+
+@pytest.mark.parametrize("name", list(DEFAULT_PATHS))
+def test_records_default_store(name, tmp_path):
+    """`mem init` relies on it: the default folder path with no marker check, whatever exists on disk."""
+    env_template, rel = DEFAULT_PATHS[name]
+    env = {k: v.replace("{p}", str(tmp_path)) for k, v in env_template.items()}
+    assert records.default_store(env) == (tmp_path / rel if rel else None)
