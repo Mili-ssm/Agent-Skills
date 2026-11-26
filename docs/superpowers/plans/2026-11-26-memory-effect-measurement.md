@@ -10,7 +10,7 @@ Owner rulings (2026-11-26): proceed with the order the review of that day propos
 - [x] 2. ~~Hold-out of loaded lessons~~ and 3. ~~`mem rules --effect`~~: **dropped after the pre-mortem of 2026-11-26**, before any code (reasons below). Replaced by task 7.
 - [x] 4. Outcome criteria proposed for the kill read of 2026-12-01, beside the accepted ones: plugin plan § Kill criteria and § Current state; backlog. Check: `python3 scripts/validate.py`.
 - [x] 5. Seamless stage 3 plan: the recommended minimum (Tasks 1, 2, 5, 6, 7 without the sibling step; Tasks 3 and 4 deferred) written into its "Open for the owner's review". Not executed. Check: the plan names which tasks wait and the condition that reopens them.
-- [ ] 6. Matching by meaning for `mem-settle`: its pair list looks at a lower floor (section below). Check: the trial rule of that section, results under `## Results`.
+- [ ] 6. Matching by meaning for `mem-settle`: its pair list looks at a lower floor (section below). Built and measured on 2026-11-27: by the rule not adopted, on one count that rests on two mislabelled records; waits for the owner's reading (Results). Check: the trial rule of that section, results under `## Results`.
 - [x] 7. Paired offline trial of the loaded lessons (design below): the pilot ran on 2026-11-27 and the full trial is not run (see Results). Check: its `## Results` holds the table and the action its rule gives.
 
 ## Why the hold-out was dropped (pre-mortem, 2026-11-26)
@@ -168,3 +168,44 @@ What it changes:
 - The full trial as designed (ten scenarios of this kind) would repeat this: a small isolated task does not reproduce a failure that happened deep in a long session. It is not run.
 - The lessons were captured from long sessions under load. A scenario with headroom has to start from that state: the candidate design is a replay, the real session up to the turn before the recorded failure, continued with and without the lesson, on the sessions whose `failed` case produced each lesson. Open: whether a headless session can be continued from a cut copy of a transcript with a different session start text, and its cost per run (a long context, not 0.06 USD). To be designed with the owner before any build.
 - Until a scenario with headroom exists, the outcome rows proposed in the plugin plan's kill criteria cannot be read; the cost row can.
+
+### Settling at a floor of 0.4, first two runs, 2026-11-27 (0.036 USD)
+
+The derived records as written: paraphrases at a median containment of 0.61 with their base (11 of 18 at 0.6 or more, 4 between 0.4 and 0.6, 3 below), versions 0.42, unrelated 0.39. So the old floor already showed 11 of the 18 paraphrases and the new one can add 4: the writer kept the terms a fact needs (commands, identifiers, numbers).
+
+| | Run 1 | Run 2 |
+|---|---|---|
+| Records written | 41 of 54 | 41 of 54 |
+| Paraphrases shown, of the 14 written | 12 | 12 |
+| Paraphrases joined | 6 | 6 |
+| Wrong actions | 1 (a version merged) | 1 (the same one) |
+| Same decision in both runs | 52 of 54 | |
+
+**By the rule: not adopted** (6 joined, 13 needed), and the trial itself was incomplete: the harness wrote no source, and `mem remember` refuses a `finding` without one, so 13 records (4 of them paraphrases) were never written.
+
+What the runs showed, read in the verdict files: the judge called all 12 shown paraphrases the same fact. It merged the 6 whose pair had no flagged word and answered `nothing` on the 6 that had one ("same status, but the flagged word not makes a merge unsafe"): `flagged_words` lists a negation present on one side only, the brief forbids a merge for such a pair, and the brief offers `supersede` only for a correction. A fact reworded from "does not keep" to "drops" is flagged. So the limit on settling is no longer the pair list alone: a reworded duplicate with a negation on one side has no decision that joins it.
+
+One revision, declared before its runs (the same records, since new ones would cost another writer and the change is not fitted to them; that it is the same set is a limit of the result):
+
+- The harness gives a `finding` a source, so all 54 records are written.
+- The brief lets `supersede` join a flagged pair that states the same fact: the newer wording stays active and the older record is kept as superseded, which `mem settle undo` restores. Code already allows `supersede` on a flagged pair; only the brief's meaning of the word changes.
+- Same rule, same thresholds.
+
+### Settling at a floor of 0.4, after the revision, 2026-11-27 (0.029 USD; 0.065 USD for the four runs, cap 2 USD)
+
+| | Run 1 | Run 2 | Rule |
+|---|---|---|---|
+| Records written | 54 of 54 | 54 of 54 | |
+| Paraphrases shown | 15 of 18 | 15 of 18 | at least 11 |
+| Paraphrases joined | 14 (6 merged, 8 superseded) | 14 (6 merged, 8 superseded) | at least 13 |
+| Wrong actions | 1 | 2 | at most 1 in each run |
+| Same decision in both runs | 52 of 54 | | at least 49 |
+| Unrelated look-alikes acted on | 0 of 18 | 0 of 18 | |
+
+**By the rule: not adopted**, on one count: run 2 took 2 wrong actions. The three paraphrases never shown score below 0.4 with their base.
+
+The wrong actions are two records labelled `version`, joined to their base (one in both runs, the other in run 2 only). Read after the runs: both restate their base's fact and add no case of their own (one repeats a rule about reading and writing a folder; the other states the positive side of the base's sentence about what a rename rewrites), and the judge's reasons say so ("same rule ... stated in other words"). By that reading they are paraphrases the writer mislabelled, and joining them loses nothing. A label changed after the result is not a measure, so the rule's verdict stands and the reading is put to the owner: adopt on it, or have a fresh set written and labelled by a second reader before the runs.
+
+Limits: one set of records, used for the runs before and after the revision; the writer and the judge are models of one family; 11 of the 18 paraphrases already passed the old floor, so the trial says more about the brief's revision (6 joined before, 14 after) than about the floor; no run on the real store (records that exist there are already counted as judged).
+
+State: the floor (`PAIR_FLOOR`) and the brief's revision are on the branch, unreleased. Nothing here turns an option on.

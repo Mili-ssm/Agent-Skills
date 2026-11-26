@@ -113,8 +113,18 @@ def write_derived(store: Path, env: dict, rows: list[dict]) -> dict[str, dict]:
     `error` and no handle."""
     mapping: dict[str, dict] = {}
     for row in rows:
+        # a finding needs a source: without one `mem remember` refuses it and the row is never judged
+        source = ("--source", "settle trial") if row["kind"] == "finding" else ()
         done = sp.mem(
-            store, env, "remember", "--global", "--kind", row["kind"], "--claim", row["claim"]
+            store,
+            env,
+            "remember",
+            "--global",
+            "--kind",
+            row["kind"],
+            "--claim",
+            row["claim"],
+            *source,
         )
         first = done.stdout.split("\t")[0].strip() if done.returncode == 0 else ""
         if first.startswith("m:"):
