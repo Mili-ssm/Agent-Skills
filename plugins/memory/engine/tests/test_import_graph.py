@@ -1,6 +1,7 @@
 """Import direction among engine modules: leaves stay below mem, and no module imports another in a cycle."""
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -311,3 +312,17 @@ def test_store_modules_import_the_defining_module_not_the_records_facade():
         and "memories.records" in deps
     )
     assert not extra, f"store modules importing the records facade: {extra}"
+
+
+def test_package_docstring_maps_every_module():
+    """An agent reads a package's `__init__.py` docstring as its module map: one `` `name`: role`` line per module, none for a missing one."""
+    problems = []
+    for init in sorted(ENGINE.glob("*/__init__.py")):
+        doc = ast.get_docstring(ast.parse(init.read_text(encoding="utf-8"))) or ""
+        listed = set(re.findall(r"^`(\w+)`: \S", doc, re.MULTILINE))
+        files = {p.stem for p in init.parent.glob("*.py")} - {"__init__"}
+        problems += [f"{init.parent.name}: no entry for {name}" for name in sorted(files - listed)]
+        problems += [
+            f"{init.parent.name}: entry for missing {name}" for name in sorted(listed - files)
+        ]
+    assert not problems, problems
