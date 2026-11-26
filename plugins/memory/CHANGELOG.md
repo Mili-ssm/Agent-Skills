@@ -6,6 +6,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- The background passes (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-settle`, `mem-synthesize`) need a system `python3` of 3.11 or newer (was 3.10). `mem` itself still runs through `uv`.
+- Capture, settle, synthesis and curation (`mem-auto`) sessions no longer load MCP servers (`--strict-mcp-config`), like the corroborate, research and reference sessions already did; capture sessions have only the Read and Write tools. Impact: these background sessions cannot call tools from your MCP servers; none of the plugin's prompts asks them to. Migration: none.
 - Every entry point now finds the store the same way: `--root`, then `MEM_STORE`, then the first line of the `store` config file, then the default store. Background commands and `mem-research`/`mem-synthesize` use the store named in the config file when `MEM_STORE` is unset, as `mem` already did.
 - The default store counts only when it holds its `mem-store.yaml` marker. A folder there without the marker is no longer used (`mem` says it is not used and how to adopt it: add the file by hand only if you own that folder and mean to write to it).
 - With no `HOME` and no `XDG_DATA_HOME`, no entry point uses a default store (`mem-research` and `mem-synthesize` no longer fall back to the home folder from the system user database).

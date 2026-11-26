@@ -18,8 +18,8 @@ import auto_state as au
 import capture_state as cs
 import corroborate
 import corroborate_state
+import headless
 import records
-import research_pipeline as rp
 import synth_pipeline as sp
 
 if TYPE_CHECKING:
@@ -209,58 +209,25 @@ def session_cmd(
     """One session. Only Read and Write exist (`--tools`, no MCP server) and the rules allow them inside `work`
     only; no Bash, no web, hooks disabled by `settings`."""
     model, max_budget = limits
-    return [
-        claude,
-        "-p",
-        brief,
-        "--model",
-        model,
-        "--effort",
-        "medium",
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        "--tools",
-        "Read,Write",
-        "--strict-mcp-config",
-        "--allowedTools",
-        f"Read(/{work}/**)",
-        f"Write(/{work}/**)",
-        f"Edit(/{work}/**)",
-        "--disallowedTools",
-        "Bash",
-        "WebSearch",
-        "WebFetch",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        "--max-budget-usd",
-        f"{max_budget:.4f}",
-    ]
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=brief,
+            model=model,
+            effort="medium",
+            settings=settings,
+            tools=("Read", "Write"),
+            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+            disallowed=("Bash", "WebSearch", "WebFetch"),
+            max_budget=max_budget,
+        )
+    )
 
 
 def run_session(cmd: list[str], work: Path) -> dict:
-    try:
-        done = subprocess.run(
-            cmd,
-            cwd=work,
-            env=rp.session_env(),
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            errors="replace",
-            timeout=SESSION_TIMEOUT,
-            check=False,
-        )
-        raw = done.stdout
-    except subprocess.TimeoutExpired as exc:
-        raw = (
-            exc.stdout.decode(errors="replace")
-            if isinstance(exc.stdout, bytes)
-            else (exc.stdout or "")
-        )
+    raw = headless.run_raw(
+        cmd, cwd=work, env=headless.session_env(), timeout=SESSION_TIMEOUT, errors="replace"
+    ).stdout
     return sp.parse(raw)
 
 
