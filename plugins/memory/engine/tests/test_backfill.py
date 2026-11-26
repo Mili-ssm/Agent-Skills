@@ -35,12 +35,15 @@ elif mode == "error":
 
 
 @pytest.fixture
-def ms():
+def ms(monkeypatch):
     loader = importlib.machinery.SourceFileLoader("mem_synthesize_bin", str(BIN))
     spec = importlib.util.spec_from_loader("mem_synthesize_bin", loader)
     if spec is None:
         raise ImportError(f"cannot load {BIN}")
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(
+        sys.modules, spec.name, module
+    )  # @dataclass before Python 3.13 looks its module up here
     loader.exec_module(module)
     return module
 
