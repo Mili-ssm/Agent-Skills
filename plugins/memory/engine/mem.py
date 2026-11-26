@@ -2540,85 +2540,117 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
         return 1 if isinstance(exc, project_syntheses.Unavailable) else 2
 
 
-def cmd_show(args: argparse.Namespace) -> int:
+@dataclasses.dataclass(frozen=True)
+class _ShowPart:
+    """What showing one argument produced: its blocks, the paths shown, and whether it went well."""
+
+    blocks: list[str]
+    shown: list[str]
+    ok: bool
+    refused: bool = False
+
+
+def _show_refused_options(args: argparse.Namespace) -> bool:
+    """Whether the options of `mem show` are refused (a message is already printed); `--ranges` alone exits."""
     if args.ranges and not args.outline:
         build_parser().error("--ranges needs --outline")
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
-        return 2
-    if args.project and _other_projects([args.project], False) is None:
+        return True
+    return bool(args.project) and _other_projects([args.project], False) is None
+
+
+def _show_project_handle(args: argparse.Namespace, arg: str) -> _ShowPart | None:
+    """A `p:` handle; None when there is no store to read it from."""
+    if (
+        args.project or args.section
+    ):  # refused per handle, so other handles in the call are still shown
+        print(
+            f"mem: --project and --section do not apply to `p:` handles ({arg})",
+            file=sys.stderr,
+        )
+        return _ShowPart([f"== {arg}\n(not found)"], [], ok=False, refused=True)
+    context = _project_synthesis_context()
+    if context is None:
+        return None
+    try:
+        return _ShowPart([_project_synthesis_block(arg, context[0], context[1])], [], ok=True)
+    except project_syntheses.ProjectSynthesisError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        refused = not isinstance(exc, project_syntheses.Unavailable)
+        return _ShowPart([f"== {arg}\n(not found)"], [], ok=False, refused=refused)
+
+
+def _show_memory_handle(args: argparse.Namespace, arg: str) -> _ShowPart:
+    found = _find_memory(args, arg.removeprefix("m:"))
+    if found is None:
+        print(f"mem: no memory {arg}", file=sys.stderr)
+        return _ShowPart([f"== {arg}\n(not found)"], [], ok=False)
+    if found.error is not None:
+        print(f"mem: skipped {found.path}: {found.error}", file=sys.stderr)
+        return _ShowPart([], [], ok=False)
+    return _ShowPart([_memory_block(found, args.section)], [], ok=True)
+
+
+def _show_one_arg(args: argparse.Namespace, arg: str) -> _ShowPart | None:
+    """One argument of a call that mixes handles and paths; None when the call must stop with exit 2."""
+    if arg.startswith("p:"):
+        return _show_project_handle(args, arg)
+    if arg.startswith("s:"):
+        block = _synthesis_block(args, arg)
+        return _ShowPart([block or f"== {arg}\n(not found)"], [], ok=block is not None)
+    if _is_memory_arg(args, arg):
+        return _show_memory_handle(args, arg)
+    return _ShowPart(
+        *show(args.root, [arg], sections=args.section, outline=args.outline, ranges=args.ranges)
+    )
+
+
+def _show_mixed(args: argparse.Namespace) -> _ShowPart | None:
+    """A call with handles among its arguments, shown one by one; None when it must stop with exit 2."""
+    blocks: list[str] = []
+    shown: list[str] = []
+    ok, refused = True, False
+    for arg in args.paths:
+        part = _show_one_arg(args, arg)
+        if part is None:
+            return None
+        blocks += part.blocks
+        shown += part.shown
+        ok = ok and part.ok
+        refused = refused or part.refused
+    return _ShowPart(blocks, shown, ok, refused)
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    if _show_refused_options(args):
         return 2
     if any(a.startswith(("s:", "p:")) or _is_memory_arg(args, a) for a in args.paths):
-        blocks, shown, ok, refused = [], [], True, False
-        for arg in args.paths:
-            if arg.startswith("p:"):
-                if (
-                    args.project or args.section
-                ):  # refused per handle, so other handles in the call are still shown
-                    print(
-                        f"mem: --project and --section do not apply to `p:` handles ({arg})",
-                        file=sys.stderr,
-                    )
-                    blocks.append(f"== {arg}\n(not found)")
-                    ok, refused = False, True
-                    continue
-                context = _project_synthesis_context()
-                if context is None:
-                    return 2
-                try:
-                    blocks.append(_project_synthesis_block(arg, context[0], context[1]))
-                except project_syntheses.ProjectSynthesisError as exc:
-                    print(f"mem: {exc}", file=sys.stderr)
-                    blocks.append(f"== {arg}\n(not found)")
-                    ok = False
-                    refused = refused or not isinstance(exc, project_syntheses.Unavailable)
-                continue
-            if arg.startswith("s:"):
-                block = _synthesis_block(args, arg)
-                blocks.append(block or f"== {arg}\n(not found)")
-                ok = ok and block is not None
-                continue
-            if _is_memory_arg(args, arg):
-                found = _find_memory(args, arg.removeprefix("m:"))
-                if found is None:
-                    print(f"mem: no memory {arg}", file=sys.stderr)
-                    blocks.append(f"== {arg}\n(not found)")
-                    ok = False
-                elif found.error is not None:
-                    print(f"mem: skipped {found.path}: {found.error}", file=sys.stderr)
-                    ok = False
-                else:
-                    blocks.append(_memory_block(found, args.section))
-                continue
-            b, sh, o = show(
-                args.root, [arg], sections=args.section, outline=args.outline, ranges=args.ranges
-            )
-            blocks += b
-            shown += sh
-            ok = ok and o
+        part = _show_mixed(args)
+        if part is None:
+            return 2
     else:
-        blocks, shown, ok, refused = (
+        part = _ShowPart(
             *show(
                 args.root,
                 args.paths,
                 sections=args.section,
                 outline=args.outline,
                 ranges=args.ranges,
-            ),
-            False,
+            )
         )
-    print("\n\n".join(blocks))
-    if ok:
+    print("\n\n".join(part.blocks))
+    if part.ok:
         log_usage(
             args.root,
             {
                 "cmd": "show",
-                "paths": list(dict.fromkeys(shown)),
+                "paths": list(dict.fromkeys(part.shown)),
                 "sections": args.section or [],
                 "outline": bool(args.outline),
             },
         )
-    return 2 if refused else 0 if ok else 1
+    return 2 if part.refused else 0 if part.ok else 1
 
 
 _INIT_ALLOWED = {
@@ -2751,18 +2783,297 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
     return [m for m in memories if records.is_live(m, today) and not records.quarantined(m)]
 
 
+class SessionIndexOptions(TypedDict, total=False):
+    """The keyword options of `session_index`; `tracked` defaults to an empty set, the rest to 0 or None."""
+
+    limit: int
+    passes: Mapping[str, datetime.date] | None
+    notice: str | None
+    stats: dict[str, int] | None
+    marks: Mapping[str, frozenset[str]] | None
+    tracked: frozenset[str] | None
+
+
+@dataclasses.dataclass(frozen=True)
+class _DueScan:
+    """What the "Curation due" count of every folder shares."""
+
+    today: datetime.date
+    passes: Mapping[str, datetime.date] | None
+    marks: Mapping[str, frozenset[str]] | None
+    tracked: frozenset[str] | None
+    budget: records.Budget  # one for both folders, the project's first (C101)
+
+
+def _index_existing(store: Path | None, memories: Path | None) -> tuple[Path | None, Path | None]:
+    """The store and the global folder, each None when it is not a folder."""
+    try:
+        has_store = store is not None and store.is_dir()
+        has_memories = memories is not None and memories.is_dir()
+    except OSError:
+        return None, None
+    return (store if has_store else None, memories if has_memories else None)
+
+
+def _index_count_due(
+    due: dict[str, int],
+    folder: Path,
+    loaded: list[records.Memory],
+    root: Path | None,
+    scan: _DueScan,
+) -> bool:
+    """Add the decision items of one folder to `due`; True when all its pairs were checked."""
+    key = str(folder.resolve())
+    found = _decisions(
+        loaded,
+        scan.today,
+        since=(scan.passes or {}).get(key),
+        budget=scan.budget,
+        attempts=_fill_attempts(os.environ),
+        root=root,
+        tracked=scan.tracked,
+    )
+    known = (scan.marks or {}).get(key, frozenset())
+    for k, label in found.keys().items():
+        if k not in known:
+            due[label] = due.get(label, 0) + 1
+    return found.pairs_checked
+
+
+def _index_add_due(
+    due: dict[str, int],
+    folder: Path,
+    loaded: list[records.Memory],
+    root: Path | None,
+    scan: _DueScan,
+) -> bool:
+    """Like `_index_count_due`, but a failure leaves this folder out of the count (False): the rest prints."""
+    try:
+        return _index_count_due(due, folder, loaded, root, scan)
+    except Exception:
+        logger.debug("counting a store folder failed", exc_info=True)
+        return False
+
+
+def _index_due_counts(
+    project: Path | None,
+    loaded_project: list[records.Memory],
+    memories: Path | None,
+    loaded_global: list[records.Memory],
+    scan: _DueScan,
+) -> tuple[dict[str, int], bool]:
+    """The decision items by label, and whether the count is complete; empty without `passes`."""
+    due: dict[str, int] = {}
+    complete = True
+    if scan.passes is None:
+        return due, complete
+    if project is not None:
+        complete = _index_add_due(due, project, loaded_project, project.parent, scan) and complete
+    if memories is not None:
+        complete = _index_add_due(due, memories, loaded_global, None, scan) and complete
+    return due, complete
+
+
+def _index_folder_lines(
+    store: Path | None,
+    memories: Path | None,
+    loaded_global: list[records.Memory],
+    today: datetime.date,
+) -> list[str]:
+    lines = []
+    if store is not None:
+        lines.append(f"Store: {_count_notes(store)} notes.")
+    if memories is not None:
+        lines.append(f"Global memories: {len(_readable(loaded_global, today))}.")
+    return lines
+
+
+def _index_due_line(due: dict[str, int], complete: bool) -> list[str]:
+    total = sum(due.values())
+    if not total:
+        return []
+    parts = ", ".join(
+        f"{due[label]} {label}" for label in _DECISION_LABELS.values() if label in due
+    )
+    return [
+        (
+            f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
+            f"({parts}) (after the current task: dispatch memory:memory-curator)."
+        )
+    ]
+
+
+def _index_triage_line(loaded_global: list[records.Memory], today: datetime.date) -> list[str]:
+    waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
+    if not waiting:
+        return []
+    return [
+        (
+            f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
+            "(mem curate --global)."
+        )
+    ]
+
+
+def _index_choose_rules(
+    loaded_project: list[records.Memory], loaded_global: list[records.Memory], today: datetime.date
+) -> rules.Choice | None:
+    try:
+        return rules.choose(loaded_project, loaded_global, today)
+    except Exception:
+        logger.debug("loading the rules failed", exc_info=True)
+        return None
+
+
+def _index_worse_count(
+    loaded_project: list[records.Memory],
+    loaded_global: list[records.Memory],
+    today: datetime.date,
+    choice: rules.Choice,
+) -> list[str]:
+    worse = sum(
+        1 for _, loaded in _got_worse(loaded_project, loaded_global, today, choice) if loaded
+    )
+    if not worse:
+        return []
+    return [
+        f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision (mem curate)."
+    ]
+
+
+def _index_worse_line(
+    loaded_project: list[records.Memory],
+    loaded_global: list[records.Memory],
+    today: datetime.date,
+    choice: rules.Choice | None,
+) -> list[str]:
+    """The "Got worse" line; nothing loads when the rules are off, so nothing "got worse after loading"."""
+    if choice is None:
+        return []
+    try:
+        return _index_worse_count(loaded_project, loaded_global, today, choice)
+    except Exception:
+        logger.debug("the session start usage tally failed", exc_info=True)
+        return []
+
+
+def _index_head_lines(mine: list[records.Memory], due: dict[str, int], complete: bool) -> list[str]:
+    """The project count and the curation line, which sit between the folder counts and the triage line."""
+    lines = [f"This project: {len(mine)} memories."] if mine else []
+    return lines + _index_due_line(due, complete)
+
+
+def _index_live_project(
+    loaded_project: list[records.Memory], today: datetime.date
+) -> list[records.Memory]:
+    """The project's live memories, the current situation first, then the newest observed."""
+    mine = [m for m in loaded_project if records.is_live(m, today)]
+    mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
+    mine.sort(key=lambda m: m.created or datetime.date.min, reverse=True)
+    mine.sort(key=lambda m: m.observed, reverse=True)
+    mine.sort(key=lambda m: m.kind != "state")
+    return mine
+
+
+def _index_lines(
+    head: list[str],
+    mine: list[records.Memory],
+    notice: str | None,
+    store: Path | None,
+    today: datetime.date,
+) -> list[str]:
+    """The head line, the rules, the status line, the notice and the store's due lines."""
+    lines = [" ".join(head), *_INDEX_RULES.split("\n")[1:]]
+    if any(m.kind == "state" for m in mine):
+        lines.append(_STATUS_LINE)
+    if notice:
+        lines.append(notice)
+    if store is not None:
+        lines += session_notices.store_due_lines(store, today, data_dir(os.environ))
+    return lines
+
+
+def _index_rules_with_digest(
+    choice: rules.Choice, layout: str, digest: dict | None, topics: dict | None
+) -> list[str]:
+    try:
+        extra = rules.block(choice, layout, digest=digest, topics=topics)
+        extra += rules.index_lines(choice, digest=digest, topics=topics)
+    except Exception:  # a failure in the digest leaves the block without it
+        logger.debug("the rules digest failed", exc_info=True)
+        extra = rules.block(choice, "grouped" if layout == "digest" else layout)
+        more = rules.more_line(choice)
+        if more:
+            extra.append(more)
+    return extra
+
+
+def _index_rules_lines(
+    choice: rules.Choice,
+    loaded_global: list[records.Memory],
+    today: datetime.date,
+    stats: dict[str, int] | None,
+) -> list[str]:
+    layout = _rules_layout()
+    digest, topics = _rules_digest(loaded_global, today)
+    extra = _index_rules_with_digest(choice, layout, digest, topics)
+    if stats is not None:
+        stats.update(
+            rules=len(choice.loaded),
+            rules_left=len(rules.not_fitted(choice)),
+            rules_chars=len("\n".join(extra)),
+        )
+    return extra
+
+
+def _index_rules_block(
+    choice: rules.Choice | None,
+    loaded_global: list[records.Memory],
+    today: datetime.date,
+    stats: dict[str, int] | None,
+) -> list[str]:
+    """The lessons that load as rules; `stats` receives their numbers. Empty when `choice` is None."""
+    if choice is None:
+        return []
+    try:
+        return _index_rules_lines(choice, loaded_global, today, stats)
+    except Exception:
+        logger.debug("the rules block failed", exc_info=True)
+        return []
+
+
+def _index_memory_rows(mine: list[records.Memory]) -> list[str]:
+    rows = []
+    for m in mine:
+        claim = " ".join(m.claim.split())
+        if len(claim) > _CLAIM_LIMIT:
+            claim = claim[:_CLAIM_LIMIT] + "…"
+        created = m.created.isoformat() if m.created else "undated"
+        rows.append(f"  m:{m.handle} [{m.kind}, {created}] {claim}")
+    return rows
+
+
+def _index_fit(lines: list[str], extra: list[str], rows: list[str], limit: int) -> str:
+    """The text with as many rows as fit `_INDEX_LIMIT` (the rules block does not count), at most `limit`."""
+    shown = min(limit, len(rows))
+    while True:
+        tail = (
+            [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories']
+            if shown < len(rows)
+            else []
+        )
+        text = "\n".join(lines + rows[:shown] + tail)
+        if len(text) <= _INDEX_LIMIT or shown == 0:
+            return "\n".join(lines + extra + rows[:shown] + tail)
+        shown -= 1
+
+
 def session_index(
     store: Path | None,
     project: Path | None,
     memories: Path | None,
     today: datetime.date,
-    *,
-    limit: int = 0,
-    passes: Mapping[str, datetime.date] | None = None,
-    notice: str | None = None,
-    stats: dict[str, int] | None = None,
-    marks: Mapping[str, frozenset[str]] | None = None,
-    tracked: frozenset[str] | None = frozenset(),
+    **options: Unpack[SessionIndexOptions],
 ) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
@@ -2771,151 +3082,29 @@ def session_index(
     `notice` is one more line after the rules (the failure of the automatic curation run).
     The lessons that load as rules follow the notice; `stats`, when given, receives their numbers (rules, rules_left,
     rules_chars). `limit` and `_INDEX_LIMIT` apply to the text without them."""
-    try:
-        has_store = store is not None and store.is_dir()
-        has_memories = memories is not None and memories.is_dir()
-    except OSError:
-        has_store = has_memories = False
-    head = [_INDEX_HEAD]
-    due: dict[str, int] = {}
-    complete = True
-    budget = records.Budget(PAIR_WORK)  # one for both folders, the project's first (C101)
-    loaded_global: list[records.Memory] = []
-
-    def due_in(folder: Path, loaded: list[records.Memory], root: Path | None) -> None:
-        nonlocal complete
-        try:
-            key = str(folder.resolve())
-            found = _decisions(
-                loaded,
-                today,
-                since=(passes or {}).get(key),
-                budget=budget,
-                attempts=_fill_attempts(os.environ),
-                root=root,
-                tracked=tracked,
-            )
-            known = (marks or {}).get(key, frozenset())
-            for k, label in found.keys().items():
-                if k not in known:
-                    due[label] = due.get(label, 0) + 1
-            complete = complete and found.pairs_checked
-        except Exception:
-            logger.debug("counting a store folder failed", exc_info=True)
-            complete = False  # this folder stays out of the count, so the line says "at least"; the rest prints
-
-    if store is not None and has_store:
-        head.append(f"Store: {_count_notes(store)} notes.")
-    if memories is not None and has_memories:
-        loaded_global = records.load_memories(memories, "global")
-        live = len(_readable(loaded_global, today))
-        head.append(f"Global memories: {live}.")
+    tracked = options.get("tracked", frozenset())
+    stats = options.get("stats")
+    store_dir, memories_dir = _index_existing(store, memories)
+    loaded_global = records.load_memories(memories_dir, "global")
     loaded_project = records.mark_repository(records.load_memories(project, "project"), tracked)
-    if passes is not None and project is not None:
-        due_in(project, loaded_project, project.parent)
-    if passes is not None and memories is not None and has_memories:
-        due_in(memories, loaded_global, None)
-    mine = [m for m in loaded_project if records.is_live(m, today)]
-    if mine:
-        mine.sort(key=lambda m: m.handle)  # stable sorts, least significant key first
-        mine.sort(key=lambda m: m.created or datetime.date.min, reverse=True)
-        mine.sort(key=lambda m: m.observed, reverse=True)
-        mine.sort(key=lambda m: m.kind != "state")  # the project's current situation first
-        head.append(f"This project: {len(mine)} memories.")
-    total = sum(due.values())
-    if total:
-        parts = ", ".join(
-            f"{due[label]} {label}" for label in _DECISION_LABELS.values() if label in due
-        )
-        head.append(
-            f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
-            f"({parts}) (after the current task: dispatch memory:memory-curator)."
-        )
-    if has_memories:
-        waiting = sum(
-            1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today)
-        )
-        if waiting:
-            head.append(
-                f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
-                "(mem curate --global)."
-            )
+    scan = _DueScan(
+        today, options.get("passes"), options.get("marks"), tracked, records.Budget(PAIR_WORK)
+    )
+    due_counts = _index_due_counts(project, loaded_project, memories_dir, loaded_global, scan)
+    mine = _index_live_project(loaded_project, today)
     rules_off = _rules_off()
-    choice: rules.Choice | None = None
-    if not rules_off:
-        try:
-            choice = rules.choose(loaded_project, loaded_global, today)
-        except Exception:
-            logger.debug("loading the rules failed", exc_info=True)
-            choice = None
-    if (
-        choice is not None
-    ):  # nothing loads when the rules are off, so nothing "got worse after loading"
-        try:
-            worse = sum(
-                1
-                for _, loaded in _got_worse(loaded_project, loaded_global, today, choice)
-                if loaded
-            )
-            if worse:
-                head.append(
-                    f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
-                    "(mem curate)."
-                )
-        except Exception:
-            logger.debug("the session start usage tally failed", exc_info=True)
-    lines = [" ".join(head), *_INDEX_RULES.split("\n")[1:]]
-    if any(m.kind == "state" for m in mine):
-        lines.append(_STATUS_LINE)
-    if notice:
-        lines.append(notice)
-    if store is not None and has_store:
-        lines += session_notices.store_due_lines(store, today, data_dir(os.environ))
-    extra: list[str] = []
-    if rules_off:
-        if stats is not None:
-            stats.update(rules=0, rules_left=0, rules_chars=0)
-    elif choice is not None:
-        try:
-            layout = _rules_layout()
-            digest, topics = _rules_digest(loaded_global, today)
-            try:
-                extra = rules.block(choice, layout, digest=digest, topics=topics)
-                extra += rules.index_lines(choice, digest=digest, topics=topics)
-            except Exception:  # a failure in the digest leaves the block without it
-                logger.debug("the rules digest failed", exc_info=True)
-                extra = rules.block(choice, "grouped" if layout == "digest" else layout)
-                more = rules.more_line(choice)
-                if more:
-                    extra.append(more)
-            if stats is not None:
-                stats.update(
-                    rules=len(choice.loaded),
-                    rules_left=len(rules.not_fitted(choice)),
-                    rules_chars=len("\n".join(extra)),
-                )
-        except Exception:
-            logger.debug("the rules block failed", exc_info=True)
-            extra = []
+    choice = None if rules_off else _index_choose_rules(loaded_project, loaded_global, today)
+    head = [_INDEX_HEAD, *_index_folder_lines(store_dir, memories_dir, loaded_global, today)]
+    head += _index_head_lines(mine, *due_counts)
+    head += _index_triage_line(loaded_global, today)
+    head += _index_worse_line(loaded_project, loaded_global, today, choice)
+    lines = _index_lines(head, mine, options.get("notice"), store_dir, today)
+    if rules_off and stats is not None:
+        stats.update(rules=0, rules_left=0, rules_chars=0)
+    extra = _index_rules_block(choice, loaded_global, today, stats)
+    limit = options.get("limit", 0)
     if mine and limit > 0:
-        rows = []
-        for m in mine:
-            claim = " ".join(m.claim.split())
-            if len(claim) > _CLAIM_LIMIT:
-                claim = claim[:_CLAIM_LIMIT] + "…"
-            created = m.created.isoformat() if m.created else "undated"
-            rows.append(f"  m:{m.handle} [{m.kind}, {created}] {claim}")
-        shown = min(limit, len(rows))
-        while True:
-            tail = (
-                [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories']
-                if shown < len(rows)
-                else []
-            )
-            text = "\n".join(lines + rows[:shown] + tail)
-            if len(text) <= _INDEX_LIMIT or shown == 0:
-                return "\n".join(lines + extra + rows[:shown] + tail)
-            shown -= 1
+        return _index_fit(lines, extra, _index_memory_rows(mine), limit)
     return "\n".join(lines + extra)
 
 
@@ -2945,22 +3134,24 @@ def _hook_input() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def _append_hook_log(entry: dict[str, Any]) -> None:
+    folder = data_dir(os.environ)
+    if folder is None:
+        return
+    log_path = folder / "hooks" / "log.jsonl"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, (json.dumps(entry) + "\n").encode("ascii"))
+    finally:
+        os.close(fd)
+
+
 def _log_hook(entry: dict[str, Any]) -> None:
     """Append one line to the hook log in the data folder; never raises. Holds no text and no path."""
     entry = {"t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
-    try:
-        folder = data_dir(os.environ)
-        if folder is None:
-            return
-        log_path = folder / "hooks" / "log.jsonl"
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-        try:
-            os.write(fd, (json.dumps(entry) + "\n").encode("ascii"))
-        finally:
-            os.close(fd)
-    except (OSError, ValueError, TypeError):
-        pass
+    with contextlib.suppress(OSError, ValueError, TypeError):
+        _append_hook_log(entry)
 
 
 def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
@@ -2979,6 +3170,78 @@ def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class _HookScope:
+    """Where a hook runs: the store when it is a given path, the folder of the hook's `cwd`, the global folder."""
+
+    store: Path | None
+    cwd: Path
+    memories: Path | None
+
+
+def _hook_cwd(data: dict[str, Any]) -> Path:
+    cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
+    return cwd if cwd.is_dir() else Path.cwd()
+
+
+def _hook_scope(args: argparse.Namespace, data: dict[str, Any]) -> _HookScope:
+    store = args.root if isinstance(args.root, Path) else None
+    cwd = _hook_cwd(data)
+    memories = records.memories_root(
+        os.environ, store if store is not None and store.is_dir() else None
+    )
+    return _HookScope(store, cwd, memories)
+
+
+def _session_notice(make: Callable[[], str | None]) -> str | None:
+    try:
+        return make()
+    except Exception:
+        logger.debug("a session start notice failed", exc_info=True)
+        return None
+
+
+def _session_notices(store: Path | None, memories: Path | None) -> str | None:
+    """The failure lines of the background runs, one per line; None when there are none."""
+    notices = []
+    for make in (
+        lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
+        lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
+        lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
+        lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
+        lambda: settle_state.settled_line(memories),
+    ):
+        found = _session_notice(make)
+        if found:
+            notices.append(found)
+    return "\n".join(notices) or None
+
+
+def _session_text(args: argparse.Namespace, data: dict[str, Any], stats: dict[str, int]) -> str:
+    store = args.root if isinstance(args.root, Path) else None
+    cwd = _hook_cwd(data)
+    try:
+        project = records.project_root(cwd, os.environ)
+    except OSError:
+        project = None
+    memories = records.memories_root(
+        os.environ, store if store is not None and store.is_dir() else None
+    )
+    notice = _session_notices(store, memories)
+    return session_index(
+        store,
+        records.project_dir(project) if project else None,
+        memories,
+        datetime.date.today(),
+        limit=max(args.list, 0),
+        passes=read_passes(os.environ),
+        notice=notice,
+        stats=stats,
+        marks=read_marks(os.environ),
+        tracked=records.tracked_memories(project) if project else frozenset(),
+    )
+
+
 def cmd_session_index(args: argparse.Namespace) -> int:
     """Never fails: the rules matter most when nothing is configured yet. Writes only the hook log, with --hook,
     and the day's due-note count (session_notices.DUE_CACHE_NAME)."""
@@ -2986,45 +3249,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     data = _hook_input() if args.hook else {}
     stats: dict[str, int] = {}
     try:
-        store = args.root if isinstance(args.root, Path) else None
-        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
-        if not cwd.is_dir():
-            cwd = Path.cwd()
-        try:
-            project = records.project_root(cwd, os.environ)
-        except OSError:
-            project = None
-        memories = records.memories_root(
-            os.environ, store if store is not None and store.is_dir() else None
-        )
-        notices = []
-        for make in (
-            lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
-            lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
-            lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
-            lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
-            lambda: settle_state.settled_line(memories),
-        ):
-            try:
-                found = make()
-            except Exception:
-                logger.debug("a session start notice failed", exc_info=True)
-                found = None
-            if found:
-                notices.append(found)
-        notice = "\n".join(notices) or None
-        text = session_index(
-            store,
-            records.project_dir(project) if project else None,
-            memories,
-            datetime.date.today(),
-            limit=max(args.list, 0),
-            passes=read_passes(os.environ),
-            notice=notice,
-            stats=stats,
-            marks=read_marks(os.environ),
-            tracked=records.tracked_memories(project) if project else frozenset(),
-        )
+        text = _session_text(args, data, stats)
     except Exception:
         logger.debug("building the session start text failed", exc_info=True)
         text = _INDEX_RULES
@@ -3049,40 +3274,46 @@ _COMPACT_OUT_LIMIT = 300
 _SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 
 
+def _compact_entry(
+    data: dict[str, Any], summary: str, found: dict[str, str], lines: list[str], started: float
+) -> dict[str, Any]:
+    """The hook log line of a compaction: counts and flags only."""
+    text = summary[:_COMPACT_PARSE_LIMIT]
+    trigger, session = data.get("trigger"), data.get("session_id")
+    return {
+        "hook": "post-compact",
+        "trigger": trigger if isinstance(trigger, str) and trigger in {"manual", "auto"} else None,
+        "session": session if isinstance(session, str) and _SESSION_ID.fullmatch(session) else None,
+        "chars": len(summary),
+        "marker": handoff.has_marker(text),
+        "handoff": [f for f in handoff.FIELDS if f in found],
+        "plan_named": handoff.names_plan(found.get("plan", "")),
+        "unrecorded": handoff.unrecorded(text),
+        "mismatches": len(lines),
+        "ms": int((time.monotonic() - started) * 1000),
+    }
+
+
+def _compact_log(args: argparse.Namespace, started: float) -> None:
+    data = _hook_input() if args.hook else {}
+    summary = data.get("compact_summary")
+    if not isinstance(summary, str):
+        return
+    text = summary[:_COMPACT_PARSE_LIMIT]
+    cwd = _hook_cwd(data)
+    found = handoff.parse(text)
+    lines = handoff.mismatches(found, cwd)
+    if lines:
+        print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
+    if args.hook:
+        _log_hook(_compact_entry(data, summary, found, lines, started))
+
+
 def cmd_compact_log(args: argparse.Namespace) -> int:
     """Never fails and prints nothing on bad input. Prints the handoff mismatch lines and logs counts only."""
     started = time.monotonic()
     try:
-        data = _hook_input() if args.hook else {}
-        summary = data.get("compact_summary")
-        if not isinstance(summary, str):
-            return 0
-        text = summary[:_COMPACT_PARSE_LIMIT]
-        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
-        if not cwd.is_dir():
-            cwd = Path.cwd()
-        found = handoff.parse(text)
-        lines = handoff.mismatches(found, cwd)
-        trigger, session = data.get("trigger"), data.get("session_id")
-        if lines:
-            print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
-        if args.hook:
-            _log_hook({
-                "hook": "post-compact",
-                "trigger": trigger
-                if isinstance(trigger, str) and trigger in {"manual", "auto"}
-                else None,
-                "session": session
-                if isinstance(session, str) and _SESSION_ID.fullmatch(session)
-                else None,
-                "chars": len(summary),
-                "marker": handoff.has_marker(text),
-                "handoff": [f for f in handoff.FIELDS if f in found],
-                "plan_named": handoff.names_plan(found.get("plan", "")),
-                "unrecorded": handoff.unrecorded(text),
-                "mismatches": len(lines),
-                "ms": int((time.monotonic() - started) * 1000),
-            })
+        _compact_log(args, started)
     except Exception:
         logger.debug("logging the compact summary failed", exc_info=True)
     return 0
@@ -3120,60 +3351,89 @@ def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Re
     return text
 
 
+@dataclasses.dataclass(frozen=True)
+class _SignalInput:
+    """The brief a signal is for, and with --hook the hook's JSON and the tool input it came in."""
+
+    data: dict[str, Any]
+    tool_input: Any
+    brief: str
+
+
+def _signal_input(args: argparse.Namespace) -> _SignalInput | None:
+    """None when there is no brief to signal: not an Agent call, or an empty brief."""
+    data: dict[str, Any] = {}
+    tool_input: Any = None
+    if args.hook:
+        data = _hook_input()
+        tool_input = data.get("tool_input")
+        if data.get("tool_name") != "Agent" or not isinstance(tool_input, dict):
+            return None
+        brief = tool_input.get("prompt")
+    else:
+        brief = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+    if not isinstance(brief, str) or not brief.strip():
+        return None
+    return _SignalInput(data, tool_input, brief)
+
+
+def _signal_related(
+    args: argparse.Namespace, given: _SignalInput
+) -> tuple[list[records.Related], list[records.Related]]:
+    """The strong and the possibly related memories of the brief (memories only)."""
+    scope = _hook_scope(args, given.data)
+    project = records.project_root(scope.cwd, os.environ)
+    found = records.load_memories(records.project_dir(project) if project else None, "project") + [
+        m for m in records.load_memories(scope.memories, "global") if not records.quarantined(m)
+    ]
+    return records.related_records(found, [], given.brief, datetime.date.today(), tokenize=tokenize)
+
+
+def _signal_log(
+    given: _SignalInput,
+    strong: Sequence[records.Related],
+    possible: Sequence[records.Related],
+    started: float,
+) -> None:
+    subagent_type = given.tool_input.get("subagent_type")
+    _log_hook({
+        "hook": "signal",
+        "ms": int((time.monotonic() - started) * 1000),
+        "strong": len(strong),
+        "possible": len(possible),
+        "subagent_type": subagent_type if isinstance(subagent_type, str) else None,
+        "words": len(given.brief.split()),
+    })
+
+
+def _signal_print(args: argparse.Namespace, given: _SignalInput, text: str) -> None:
+    if not args.hook:
+        print(text)
+        return
+    updated = {**given.tool_input, "prompt": f"{given.brief}\n\n{text}"}
+    print(
+        json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}})
+    )
+
+
+def _signal(args: argparse.Namespace, started: float) -> None:
+    given = _signal_input(args)
+    if given is None:
+        return
+    strong, possible = _signal_related(args, given)
+    text = signal_text(strong, possible)
+    if args.hook:
+        _signal_log(given, strong, possible, started)
+    if text:
+        _signal_print(args, given, text)
+
+
 def cmd_signal(args: argparse.Namespace) -> int:
     """Never fails. Without --hook: the brief on standard input, the signal text out. With --hook: the hook's JSON in,
     the brief with the signal appended out (updatedInput, never a permission decision), one line in the hook log."""
     started = time.monotonic()
     try:
-        data: dict[str, Any] = {}
-        tool_input: Any = None
-        if args.hook:
-            data = _hook_input()
-            tool_input = data.get("tool_input")
-            if data.get("tool_name") != "Agent" or not isinstance(tool_input, dict):
-                return 0
-            brief = tool_input.get("prompt")
-        else:
-            brief = None if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
-        if not isinstance(brief, str) or not brief.strip():
-            return 0
-        subagent_type = tool_input.get("subagent_type") if args.hook else None
-        store = args.root if isinstance(args.root, Path) else None
-        cwd = Path(data["cwd"]) if isinstance(data.get("cwd"), str) and data["cwd"] else Path.cwd()
-        if not cwd.is_dir():
-            cwd = Path.cwd()
-        project = records.project_root(cwd, os.environ)
-        memories = records.memories_root(
-            os.environ, store if store is not None and store.is_dir() else None
-        )
-        today = datetime.date.today()
-        found = records.load_memories(
-            records.project_dir(project) if project else None, "project"
-        ) + [m for m in records.load_memories(memories, "global") if not records.quarantined(m)]
-        strong, possible = records.related_records(
-            found, [], brief, today, tokenize=tokenize
-        )  # memories only
-        text = signal_text(strong, possible)
-        if args.hook:
-            _log_hook({
-                "hook": "signal",
-                "ms": int((time.monotonic() - started) * 1000),
-                "strong": len(strong),
-                "possible": len(possible),
-                "subagent_type": subagent_type if isinstance(subagent_type, str) else None,
-                "words": len(brief.split()),
-            })
-        if not text:
-            return 0
-        if args.hook:
-            updated = {**tool_input, "prompt": f"{brief}\n\n{text}"}
-            print(
-                json.dumps({
-                    "hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}
-                })
-            )
-        else:
-            print(text)
+        _signal(args, started)
     except Exception:
         logger.debug("the signal hook failed", exc_info=True)
     return 0
@@ -3325,156 +3585,228 @@ def _check_short_claim(args: argparse.Namespace, claim: str) -> int | None:
     return None
 
 
-def cmd_remember(args: argparse.Namespace) -> int:
-    today = datetime.date.today()
-    store = _optional_store(args)
+class _RememberRefusalError(Exception):
+    """`mem remember` refused the call, after a message on stderr; `code` is its exit code."""
+
+    def __init__(self, code: int) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+@dataclasses.dataclass(frozen=True)
+class _RememberTarget:
+    """Where a memory is written: its scope, the folder, and the project root for a project memory."""
+
+    scope: str
+    folder: Path
+    project: Path | None
+
+
+def _refuse(code: int | None) -> None:
+    """Stop `mem remember` with `code` when a check returned one."""
+    if code:
+        raise _RememberRefusalError(code)
+
+
+def _remember_check_args(args: argparse.Namespace) -> None:
     args.claim = " ".join(args.claim.split())
     if args.context is not None:
         args.context = " ".join(args.context.split()) or None
     if not args.claim:
         print("mem: the claim is empty.", file=sys.stderr)
-        return 2
+        raise _RememberRefusalError(2)
     if args.kind not in records.KINDS:
         print(f"mem: unknown kind {args.kind!r}.", file=sys.stderr)
-        return 2
-    if (refused := _check_short_topic(args)) is not None:
-        return refused
-    if (refused := _check_short_claim(args, args.claim)) is not None:
-        return refused
-    if args.is_global:
-        folder = records.memories_root(os.environ, store)
-        if folder is None:
-            print(
-                'mem: no folder for global memories: set the plugin\'s "memories" option, '
-                'or MEM_MEMORIES, or use a store made with "mem init".',
-                file=sys.stderr,
-            )
-            return 2
-        if _read_only_store(store, folder.resolve()):
-            print(_READ_ONLY_MEMORIES, file=sys.stderr)
-            return 2
-        project = None
-    else:
-        project = records.project_root(Path.cwd(), os.environ)
-        if project is None:
-            print(
-                "mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
-                file=sys.stderr,
-            )
-            return 2
-        folder = records.project_dir(project)
-        if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
-            print(_READ_ONLY_PROJECT, file=sys.stderr)
-            return 2
+        raise _RememberRefusalError(2)
+    _refuse(_check_short_topic(args))
+    _refuse(_check_short_claim(args, args.claim))
+
+
+def _remember_global_target(store: Path | None) -> _RememberTarget:
+    folder = records.memories_root(os.environ, store)
+    if folder is None:
+        print(
+            'mem: no folder for global memories: set the plugin\'s "memories" option, '
+            'or MEM_MEMORIES, or use a store made with "mem init".',
+            file=sys.stderr,
+        )
+        raise _RememberRefusalError(2)
+    if _read_only_store(store, folder.resolve()):
+        print(_READ_ONLY_MEMORIES, file=sys.stderr)
+        raise _RememberRefusalError(2)
+    return _RememberTarget("global", folder, None)
+
+
+def _remember_project_target(store: Path | None) -> _RememberTarget:
+    project = records.project_root(Path.cwd(), os.environ)
+    if project is None:
+        print(
+            "mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
+            file=sys.stderr,
+        )
+        raise _RememberRefusalError(2)
+    folder = records.project_dir(project)
+    if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
+        print(_READ_ONLY_PROJECT, file=sys.stderr)
+        raise _RememberRefusalError(2)
+    return _RememberTarget("project", folder, project)
+
+
+def _remember_target(args: argparse.Namespace, store: Path | None) -> _RememberTarget:
+    return _remember_global_target(store) if args.is_global else _remember_project_target(store)
+
+
+def _remember_check_options(args: argparse.Namespace, today: datetime.date) -> None:
     if not args.source and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
         print("mem: --outcome and --seen-on need --source.", file=sys.stderr)
-        return 2
+        raise _RememberRefusalError(2)
     if getattr(args, "seen_on", None) is not None and args.seen_on > today:
         print("mem: --seen-on cannot be later than today.", file=sys.stderr)
-        return 2
-    scope = "global" if args.is_global else "project"
+        raise _RememberRefusalError(2)
     if args.kind in {"finding", "document"} and not args.source:
         print(f"mem: a {args.kind} needs at least one --source.", file=sys.stderr)
-        return 2
+        raise _RememberRefusalError(2)
+
+
+def _remember_body(args: argparse.Namespace) -> str:
     try:
-        body = _memory_body(args.body_file)
+        return _memory_body(args.body_file)
     except (OSError, UnicodeDecodeError) as exc:
         print(f"mem: cannot read the body: {exc}", file=sys.stderr)
-        return 2
+        raise _RememberRefusalError(2) from exc
+
+
+def _remember_check_text(args: argparse.Namespace, body: str) -> None:
+    """Refuse a text that looks like a secret (4), and for the global scope one with a forbidden term."""
     if _refuse_secret([args.claim, args.context or "", body, *args.source, args.short or ""]):
-        return 4
+        raise _RememberRefusalError(4)
     if args.is_global:
-        refused = _check_terms(
-            [
-                args.claim,
-                args.context or "",
-                body,
-                *args.source,
-                records.slug_of(args.claim),
-                args.short or "",
-            ],
-            args.kind,
-            args.owner_approved,
+        _refuse(
+            _check_terms(
+                [
+                    args.claim,
+                    args.context or "",
+                    body,
+                    *args.source,
+                    records.slug_of(args.claim),
+                    args.short or "",
+                ],
+                args.kind,
+                args.owner_approved,
+            )
         )
-        if refused:
-            return refused
-    if getattr(args, "origin", None) == "transcript":
-        for source in args.source:
-            if (
-                " ".join(source.split()).lower().startswith(records.SESSION_PREFIX)
-                and records.sighting(source) is None
-            ):
-                print(
-                    f"mem: --source {source!r} is not a session entry: write 'session <id>' or "
-                    f"'session <id> project <{records.PROJECT_KEY_LEN} hex characters>'.",
-                    file=sys.stderr,
-                )
-                return 2
+
+
+def _remember_check_sessions(args: argparse.Namespace) -> None:
+    """A source of a transcript record that starts like a session entry must be one."""
+    if getattr(args, "origin", None) != "transcript":
+        return
+    for source in args.source:
+        if (
+            " ".join(source.split()).lower().startswith(records.SESSION_PREFIX)
+            and records.sighting(source) is None
+        ):
+            print(
+                f"mem: --source {source!r} is not a session entry: write 'session <id>' or "
+                f"'session <id> project <{records.PROJECT_KEY_LEN} hex characters>'.",
+                file=sys.stderr,
+            )
+            raise _RememberRefusalError(2)
+
+
+def _remember_check_valid_until(
+    args: argparse.Namespace, target: _RememberTarget, today: datetime.date
+) -> None:
+    if getattr(args, "origin", None) != "transcript" or args.valid_until is None:
+        return
+    draft = records.Memory(
+        target.scope,
+        target.folder,
+        "",
+        args.kind,
+        args.claim,
+        today,
+        1,
+        "active",
+        None,
+        None,
+        records.normalized_sources(args.source),
+        "",
+        None,
+        origin="transcript",
+        weight=getattr(args, "weight", None),
+    )
+    if records.standing(draft) != "established":
+        print(
+            f"mem: --valid-until is refused: the life of a record from a transcript is "
+            f"{records.UNCONFIRMED_DAYS} days from the last session that showed it.",
+            file=sys.stderr,
+        )
+        raise _RememberRefusalError(2)
+
+
+def _remember_same_claim(
+    args: argparse.Namespace, existing: list[records.Memory], live: list[records.Memory]
+) -> list[records.Memory]:
+    """The live memories with the claim, and, for a call from a session, the lapsed ones from a transcript."""
     from_session = getattr(args, "origin", None) == "transcript" and any(
         map(records.session_key, args.source)
     )
-    if getattr(args, "origin", None) == "transcript" and args.valid_until is not None:
-        draft = records.Memory(
-            scope,
-            folder,
-            "",
-            args.kind,
-            args.claim,
-            today,
-            1,
-            "active",
-            None,
-            None,
-            records.normalized_sources(args.source),
-            "",
-            None,
-            origin="transcript",
-            weight=getattr(args, "weight", None),
-        )
-        if records.standing(draft) != "established":
-            print(
-                f"mem: --valid-until is refused: the life of a record from a transcript is "
-                f"{records.UNCONFIRMED_DAYS} days from the last session that showed it.",
-                file=sys.stderr,
-            )
-            return 2
-    claim_tokens = tokenize(args.claim)
-    existing = records.load_memories(folder, scope)
-    live = [m for m in existing if records.is_live(m, today)]
-    if not args.force:
-        lapsed = [
-            m
-            for m in existing
-            if from_session
-            and m.error is None
-            and m.status == "active"
-            and m.origin == "transcript"
-            and m not in live
-        ]
-        same = [m for m in live + lapsed if _same_claim(m.claim, args.claim)]
-        if same:
-            seen = _add_sightings(same, args, today, folder, project)
-            if seen:
-                return 3
-            for m in same:
-                print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
-            print(
-                f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
-                "or repeat with --force to write a new one.",
-                file=sys.stderr,
-            )
-            return 3
-    related = records.match_memories(_readable(live, today), claim_tokens, today, tokenize=tokenize)
-    exclude_failed = False
-    if project is not None:
-        try:
-            records.ensure_excluded(project)
-        except OSError:
-            exclude_failed = True
+    lapsed = [
+        m
+        for m in existing
+        if from_session
+        and m.error is None
+        and m.status == "active"
+        and m.origin == "transcript"
+        and m not in live
+    ]
+    return [m for m in live + lapsed if _same_claim(m.claim, args.claim)]
+
+
+def _remember_check_duplicates(
+    args: argparse.Namespace,
+    target: _RememberTarget,
+    today: datetime.date,
+    existing: list[records.Memory],
+    live: list[records.Memory],
+) -> None:
+    """Exit 3 when the claim exists, unless `--force`."""
+    if args.force:
+        return
+    same = _remember_same_claim(args, existing, live)
+    if not same:
+        return
+    if _add_sightings(same, args, today, target.folder, target.project):
+        raise _RememberRefusalError(3)
+    for m in same:
+        print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
+    print(
+        f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
+        "or repeat with --force to write a new one.",
+        file=sys.stderr,
+    )
+    raise _RememberRefusalError(3)
+
+
+def _remember_exclude_failed(project: Path | None) -> bool:
+    """Keep `.memory/` out of git status for a project; True when that failed."""
+    if project is None:
+        return False
     try:
-        m = records.write_memory(
-            folder,
-            scope,
+        records.ensure_excluded(project)
+    except OSError:
+        return True
+    return False
+
+
+def _remember_write(
+    args: argparse.Namespace, target: _RememberTarget, body: str, today: datetime.date
+) -> records.Memory:
+    try:
+        return records.write_memory(
+            target.folder,
+            target.scope,
             kind=args.kind,
             claim=args.claim,
             body=body,
@@ -3493,10 +3825,19 @@ def cmd_remember(args: argparse.Namespace) -> int:
         )
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
-        return 2
-    _register_project(project)
-    rel = m.path.relative_to(project if project is not None else folder).as_posix()
-    print(f"m:{m.handle}\t{rel}")
+        raise _RememberRefusalError(2) from exc
+
+
+def _remember_report(
+    m: records.Memory,
+    target: _RememberTarget,
+    exclude_failed: bool,
+    related: Sequence[records.Memory],
+) -> None:
+    """The handle and path on stdout; the warning and the related memories on stderr."""
+    _register_project(target.project)
+    rel = m.path.relative_to(target.project if target.project is not None else target.folder)
+    print(f"m:{m.handle}\t{rel.as_posix()}")
     if exclude_failed:
         print(
             "mem: could not add .memory/ to .git/info/exclude; the folder may appear in git status.",
@@ -3512,14 +3853,109 @@ def cmd_remember(args: argparse.Namespace) -> int:
                 f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
                 file=sys.stderr,
             )
-    log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
+
+
+def _remember_log(
+    args: argparse.Namespace,
+    store: Path | None,
+    target: _RememberTarget,
+    m: records.Memory,
+    today: datetime.date,
+) -> None:
+    log_usage(store, {"cmd": "remember", "scope": target.scope, **_approval(args)})
     if (
-        scope == "global"
+        target.scope == "global"
         and getattr(args, "origin", None) != "pipeline"
         and not records.quarantined(m)
     ):
-        settle_state.maybe_start(folder, store, os.environ, time.time(), today)
+        settle_state.maybe_start(target.folder, store, os.environ, time.time(), today)
+
+
+def _remember(args: argparse.Namespace) -> None:
+    """The steps of `mem remember`; a refusal raises `_RememberRefusalError`."""
+    today = datetime.date.today()
+    store = _optional_store(args)
+    _remember_check_args(args)
+    target = _remember_target(args, store)
+    _remember_check_options(args, today)
+    body = _remember_body(args)
+    _remember_check_text(args, body)
+    _remember_check_sessions(args)
+    _remember_check_valid_until(args, target, today)
+    existing = records.load_memories(target.folder, target.scope)
+    live = [m for m in existing if records.is_live(m, today)]
+    _remember_check_duplicates(args, target, today, existing, live)
+    related = records.match_memories(
+        _readable(live, today), tokenize(args.claim), today, tokenize=tokenize
+    )
+    exclude_failed = _remember_exclude_failed(target.project)
+    m = _remember_write(args, target, body, today)
+    _remember_report(m, target, exclude_failed, related)
+    _remember_log(args, store, target, m, today)
+
+
+def cmd_remember(args: argparse.Namespace) -> int:
+    try:
+        _remember(args)
+    except _RememberRefusalError as refusal:
+        return refusal.code
     return 0
+
+
+def _memory_scopes(args: argparse.Namespace) -> dict[str, dict[str, records.Memory]]:
+    """The memories of each scope by handle."""
+    project = records.project_root(Path.cwd(), os.environ)
+    folders = {
+        "project": records.project_dir(project) if project else None,
+        "global": records.memories_root(os.environ, _optional_store(args)),
+    }
+    return {
+        scope: {m.handle: m for m in records.load_memories(folder, scope)}
+        for scope, folder in folders.items()
+    }
+
+
+def _memory_missing(
+    loaded: dict[str, dict[str, records.Memory]], order: Sequence[str], handles: Sequence[str]
+) -> str | None:
+    """The first handle that no scope in `order` holds."""
+    for handle in handles:
+        if not any(handle.removeprefix("m:") in loaded[scope] for scope in order):
+            return handle
+    return None
+
+
+def _memory_pick(
+    loaded: dict[str, dict[str, records.Memory]], order: Sequence[str], handles: Sequence[str]
+) -> list[records.Memory] | None:
+    """The memories of the first scope in `order` that holds all `handles`; None after a message on stderr."""
+    missing = _memory_missing(loaded, order, handles)
+    if missing is not None:
+        print(f"mem: no memory named {missing}", file=sys.stderr)
+        return None
+    names = [h.removeprefix("m:") for h in handles]
+    scope = next((s for s in order if all(name in loaded[s] for name in names)), None)
+    if scope is None:
+        print(
+            f"mem: {' and '.join('m:' + n for n in names)} are in different scopes: both must be in the same one.",
+            file=sys.stderr,
+        )
+        return None
+    return [loaded[scope][name] for name in names]
+
+
+def _memory_refused(found: Sequence[records.Memory], store: Path | None) -> bool:
+    """Whether a memory cannot be changed (an unreadable record, or a read-only store), after a message on stderr."""
+    for m in found:
+        if m.error is not None:
+            print(f"mem: {m.path}: {m.error}", file=sys.stderr)
+            return True
+        if _read_only_store(store, m.path.resolve()):
+            print(
+                _READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr
+            )
+            return True
+    return False
 
 
 def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records.Memory] | None:
@@ -3527,41 +3963,11 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
 
     A handle found in both scopes means the project one, as for any lookup; with several handles the scope is
     one that holds all of them, and handles that exist only in different scopes are refused."""
-    project = records.project_root(Path.cwd(), os.environ)
-    folders = {
-        "project": records.project_dir(project) if project else None,
-        "global": records.memories_root(os.environ, _optional_store(args)),
-    }
-    loaded = {
-        scope: {m.handle: m for m in records.load_memories(folder, scope)}
-        for scope, folder in folders.items()
-    }
+    loaded = _memory_scopes(args)
     order = ("global",) if args.is_global else ("project", "global")
-    names = [h.removeprefix("m:") for h in handles]
-    for name, raw in zip(names, handles, strict=False):
-        if not any(name in loaded[scope] for scope in order):
-            print(f"mem: no memory named {raw}", file=sys.stderr)
-            return None
-    for scope in order:
-        if all(name in loaded[scope] for name in names):
-            found = [loaded[scope][name] for name in names]
-            break
-    else:
-        print(
-            f"mem: {' and '.join('m:' + n for n in names)} are in different scopes: both must be in the same one.",
-            file=sys.stderr,
-        )
+    found = _memory_pick(loaded, order, handles)
+    if found is None or _memory_refused(found, _optional_store(args)):
         return None
-    store = _optional_store(args)
-    for m in found:
-        if m.error is not None:
-            print(f"mem: {m.path}: {m.error}", file=sys.stderr)
-            return None
-        if _read_only_store(store, m.path.resolve()):
-            print(
-                _READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr
-            )
-            return None
     return found
 
 
@@ -3623,109 +4029,165 @@ def _add_plain_source(
     return records.update(memory, today, **changes) if changes else memory
 
 
+@dataclasses.dataclass(frozen=True)
+class _ConfirmOptions:
+    """The validated flags of `mem confirm`; `outcome` is None when none was given."""
+
+    until: datetime.date | None
+    source: str | None
+    note: str | None
+    outcome: str | None
+    seen_on: datetime.date | None
+
+
+def _confirm_options(args: argparse.Namespace, today: datetime.date) -> _ConfirmOptions:
+    until = getattr(args, "until", None)
+    if until is not None:
+        try:
+            until = datetime.date.fromisoformat(until)
+        except ValueError:
+            raise ValueError(f"--until needs a date as YYYY-MM-DD, not {until!r}") from None
+    source = getattr(args, "source", None)
+    if source is None and getattr(args, "note", None):
+        raise ValueError("--note needs --source")
+    if source is None and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
+        raise ValueError("--outcome and --seen-on need --source")
+    if getattr(args, "seen_on", None) is not None and args.seen_on > today:
+        raise ValueError("--seen-on cannot be later than today")
+    return _ConfirmOptions(
+        until,
+        source,
+        getattr(args, "note", None),
+        getattr(args, "outcome", None),
+        getattr(args, "seen_on", None),
+    )
+
+
+def _confirm_by_owner(
+    options: _ConfirmOptions, m: records.Memory, today: datetime.date
+) -> tuple[list[str], bool]:
+    """The owner confirms a lesson captured from a transcript; True in the second place when it already was."""
+    if options.source is not None or options.until is not None:
+        raise ValueError("--by-owner stands alone: it takes no --source or --until")
+    if m.origin != "transcript":
+        raise ValueError(
+            f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
+            "lesson captured from one"
+        )
+    if m.status != "active":
+        raise ValueError(f"m:{m.handle} is {m.status}: the owner confirms only an active memory")
+    if m.owner_confirmed:
+        return [f"m:{m.handle}\talready confirmed by the owner: nothing changed"], True
+    records.log_before(m, "confirm")
+    after = dataclasses.replace(m, owner_confirmed=today)
+    records.update(m, today, owner_confirmed=today, **records.standing_changes(m, after, today))
+    return [f"m:{m.handle}\tconfirmed by the owner"], False
+
+
+def _confirm_check_source(options: _ConfirmOptions, m: records.Memory) -> None:
+    source = options.source
+    if source is not None and not source.strip():
+        raise ValueError("--source is empty")
+    if source is not None and m.origin == "transcript" and records.session_key(source) is None:
+        raise ValueError(f"--source takes a session ('session <id>'), not {source!r}")
+    if options.until is not None and records.standing(m) == "unconfirmed":
+        raise ValueError(
+            "a record from a transcript is confirmed only by another session showing it: "
+            "use --source 'session <id>', not --until"
+        )
+    if source is not None and m.status != "active":
+        raise ValueError(f"m:{m.handle} is {m.status}: a source is added only to an active memory")
+
+
+def _confirm_is_counted(options: _ConfirmOptions, m: records.Memory) -> bool:
+    """Whether the source is already one of the memory's sources (a session already counted)."""
+    source = options.source
+    if source is None:
+        return False
+    if m.origin == "transcript":
+        return records.counted(m, source)
+    seen = {records.session_key(s) or s.strip() for s in m.sources}
+    return (records.session_key(source) or source.strip()) in seen
+
+
+def _confirm_add_case(
+    options: _ConfirmOptions, source: str, found: list[records.Memory], today: datetime.date
+) -> list[str]:
+    """A counted session gets a case only on request: `--outcome` that the memory does not have yet."""
+    outcome = options.outcome or "seen"
+    records.log_before(found[0], "confirm")
+    found[0], _ = records.add_case(found[0], source, options.seen_on or today, outcome, today)
+    if options.until is None:
+        return [f"m:{found[0].handle}\tcase {outcome} added"]
+    records.update(found[0], today, valid_until=options.until)
+    return [f"m:{found[0].handle}\tcase {outcome} added; valid until {options.until.isoformat()}"]
+
+
+def _confirm_counted(
+    options: _ConfirmOptions, found: list[records.Memory], today: datetime.date
+) -> tuple[list[str], bool]:
+    """The source is already counted: a case when asked for, else nothing but `--until`; True in the second place
+    when the call changed nothing."""
+    source = options.source
+    m = found[0]
+    key = records.session_key(source) if source is not None else None
+    if (
+        m.origin == "transcript"
+        and key
+        and source is not None  # a session key comes only from a source
+        and options.outcome
+        and not records.has_case(m, key, options.outcome)
+    ):
+        return _confirm_add_case(options, source, found, today), False
+    if options.until is None:
+        return [f"m:{m.handle}\t{source} is already a source: nothing changed"], True
+    records.log_before(m, "confirm")  # the source is not counted again; the date is still set
+    records.update(m, today, valid_until=options.until)
+    return [
+        f"m:{m.handle}\t{source} is already a source; valid until {options.until.isoformat()}"
+    ], True
+
+
+def _confirm_observe(
+    options: _ConfirmOptions, m: records.Memory, today: datetime.date
+) -> list[str]:
+    """Count one more observation, with the source and the note when given, and `--until`."""
+    source = options.source
+    records.log_before(m, "confirm")
+    if source is not None and m.origin == "transcript":
+        updated, _ = records.add_sighting(
+            m, source, today, options.note, outcome=options.outcome or "seen", on=options.seen_on
+        )
+    else:
+        updated = records.observe(m, today)
+        if source is not None:
+            updated = _add_plain_source(updated, source.strip(), today, options.note)
+    if options.until is not None:
+        updated = records.update(updated, today, valid_until=options.until)
+    return [f"m:{updated.handle}\tobserved {updated.observed}"]
+
+
+def _confirm_apply(
+    args: argparse.Namespace, found: list[records.Memory], today: datetime.date
+) -> tuple[list[str], bool]:
+    """The lines to print, and whether the call repeated what the memory already had."""
+    options = _confirm_options(args, today)
+    if getattr(args, "by_owner", False):
+        return _confirm_by_owner(options, found[0], today)
+    _confirm_check_source(options, found[0])
+    if _confirm_is_counted(options, found[0]):
+        return _confirm_counted(options, found, today)
+    return _confirm_observe(options, found[0], today), False
+
+
 def cmd_confirm(args: argparse.Namespace) -> int:
     repeated: list[bool] = []
 
     def apply(found, today):
-        until = getattr(args, "until", None)
-        if until is not None:
-            try:
-                until = datetime.date.fromisoformat(until)
-            except ValueError:
-                raise ValueError(f"--until needs a date as YYYY-MM-DD, not {until!r}") from None
-        source = getattr(args, "source", None)
-        if source is None and getattr(args, "note", None):
-            raise ValueError("--note needs --source")
-        if source is None and (getattr(args, "outcome", None) or getattr(args, "seen_on", None)):
-            raise ValueError("--outcome and --seen-on need --source")
-        if getattr(args, "seen_on", None) is not None and args.seen_on > today:
-            raise ValueError("--seen-on cannot be later than today")
-        from_transcript = found[0].origin == "transcript"
-        key = records.session_key(source) if source is not None else None
-        if getattr(args, "by_owner", False):
-            if source is not None or until is not None:
-                raise ValueError("--by-owner stands alone: it takes no --source or --until")
-            m = found[0]
-            if m.origin != "transcript":
-                raise ValueError(
-                    f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
-                    "lesson captured from one"
-                )
-            if m.status != "active":
-                raise ValueError(
-                    f"m:{m.handle} is {m.status}: the owner confirms only an active memory"
-                )
-            if m.owner_confirmed:
-                repeated.append(True)
-                return [f"m:{m.handle}\talready confirmed by the owner: nothing changed"]
-            records.log_before(m, "confirm")
-            after = dataclasses.replace(m, owner_confirmed=today)
-            records.update(
-                m, today, owner_confirmed=today, **records.standing_changes(m, after, today)
-            )
-            return [f"m:{m.handle}\tconfirmed by the owner"]
-        if source is not None and not source.strip():
-            raise ValueError("--source is empty")
-        if source is not None and from_transcript and key is None:
-            raise ValueError(f"--source takes a session ('session <id>'), not {source!r}")
-        if until is not None and records.standing(found[0]) == "unconfirmed":
-            raise ValueError(
-                "a record from a transcript is confirmed only by another session showing it: "
-                "use --source 'session <id>', not --until"
-            )
-        if source is not None and found[0].status != "active":
-            raise ValueError(
-                f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory"
-            )
-        seen = {records.session_key(s) or s.strip() for s in found[0].sources}
-        already = (
-            records.counted(found[0], source)
-            if from_transcript and source is not None
-            else (source is not None and (key or source.strip()) in seen)
-        )
-        outcome = (
-            getattr(args, "outcome", None) or "seen"
-        )  # `seen` is the default, resolved here so that
-        seen_on = getattr(args, "seen_on", None)  # a counted session gets a case only on request
-        if already:
+        lines, again = _confirm_apply(args, found, today)
+        if again:
             repeated.append(True)
-            if (
-                from_transcript
-                and key
-                and source is not None  # a session key comes only from a source
-                and getattr(args, "outcome", None)
-                and not records.has_case(found[0], key, outcome)
-            ):
-                records.log_before(found[0], "confirm")
-                found[0], _ = records.add_case(found[0], source, seen_on or today, outcome, today)
-                repeated.pop()  # a case was written: the call changed something
-                if until is None:
-                    return [f"m:{found[0].handle}\tcase {outcome} added"]
-                records.update(found[0], today, valid_until=until)
-                return [
-                    f"m:{found[0].handle}\tcase {outcome} added; valid until {until.isoformat()}"
-                ]
-            if until is None:
-                return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
-            records.log_before(
-                found[0], "confirm"
-            )  # the source is not counted again; the date is still set
-            records.update(found[0], today, valid_until=until)
-            return [
-                f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"
-            ]
-        records.log_before(found[0], "confirm")
-        if source is not None and from_transcript:
-            updated, _ = records.add_sighting(
-                found[0], source, today, args.note, outcome=outcome, on=seen_on
-            )
-        else:
-            updated = records.observe(found[0], today)
-            if source is not None:
-                updated = _add_plain_source(updated, source.strip(), today, args.note)
-        if until is not None:
-            updated = records.update(updated, today, valid_until=until)
-        return [f"m:{updated.handle}\tobserved {updated.observed}"]
+        return lines
 
     code = _act(args, [args.handle], apply, args.command, because=getattr(args, "note", None))
     return 3 if code == 0 and repeated else code
