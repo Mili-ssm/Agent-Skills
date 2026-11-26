@@ -40,9 +40,11 @@ The last revisit trigger fired: `store/` reached 19 modules in two families with
 |---|---|---|
 | `core` | gains `yaml_load` (the YAML loader and `safe_load`) and `store_git` (both families commit the store) | stdlib; PyYAML in `yaml_load` only |
 | `memories` | `records` (facade), `journal`, `matching`, `terms`, `locations`, `sightings`, `pairing`, `rules`, `shortcheck`, `fingerprints`, `model`, `parse`, `write` | `core` |
-| `notes` | `note`, `index`, `check`, `syntheses`, `project_syntheses` | `core`, `memories` |
+| `syntheses` | `document` (model, load, validation, source numbering), `units` (unit parser, fingerprints), `edit` (section writes and their guards), `project` (project syntheses) | `core`, `memories` |
+| `notes` | `note`, `index`, `check` (the rule catalog), `fields`, `links`, `due` | `core`, `memories`, `syntheses` |
 
-- Layering, enforced in `test_import_graph.py`: `notes → memories → core`; `memories` never imports `notes`. `memories` and `notes` are base layers like `core`: any feature package may import them, within its own entry in `PACKAGE_DEPENDENCIES`.
+- Layering, enforced in `test_import_graph.py`: `notes → syntheses → memories → core`; `memories` imports neither `notes` nor `syntheses`, `syntheses` never imports `notes`. `memories`, `syntheses` and `notes` are base layers like `core`: any feature package may import them, within its own entry in `PACKAGE_DEPENDENCIES`.
 - Modules inside `memories/` import siblings directly, never the `records` facade (a rule in the same test).
-- `patch_all` (`tests/patching.py`) patches every `memories.*` and `notes.*` binding of a name.
-- Behavior, goldens and the collected test count are unchanged.
+- `patch_all` (`tests/patching.py`) patches every `memories.*`, `syntheses.*` and `notes.*` binding of a name.
+- `notes/check.py` (1,396 lines) and the old `notes/syntheses.py` (1,316) were split by cohesion, not to a line cap; `check.py` keeps the whole rule catalog (~800 lines). Owner rule 2026-11-27: size is a balance, neither one 10k-line file nor a hundred 100-line files; split a file that mixes reasons to change or abstraction levels, or a part likely to grow or change often; merge small parts that rarely change. Measured norm: CPython 3.14 stdlib median 269 lines, p90 1,165, p99 3,409; rustc's tidy rejects files over 3,000 lines.
+- Behavior and goldens are unchanged; the collected count grew only by new guard tests.

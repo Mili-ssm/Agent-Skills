@@ -1,5 +1,8 @@
 """Syntheses: one long Markdown document per subject, built from sections added or edited one at a time.
 
+This module holds the document model, loading, validation and source numbering; `syntheses.units` parses units and
+fingerprints, `syntheses.edit` writes sections.
+
 A synthesis is never rewritten whole (a model's rewrite of a whole document drops most of it): `add_section`
 appends one section and `edit_section` replaces one section's text, and every other byte of the file stays as it
 was. Each part ends with a `Sources:` line linking the notes it rests on, because a synthesis is third-hand.

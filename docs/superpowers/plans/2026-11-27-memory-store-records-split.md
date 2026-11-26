@@ -88,7 +88,7 @@ Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is g
 - Kill: after the last step `grep -rnE "from store|\"store\.|'store'|store/" plugins/memory --include=*.py` and in `bin/` finds anything outside fixtures; a guard stays green when violated; collected count or a golden changes; `mem.<name>` for a `_MOVED` name raises.
 
 ### Task 4: Split reviews and gate
-- [ ] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) by cohesion. Owner 2026-11-27: size is a review trigger, not a cap (a cohesive 1k–3k file can be right); group by function. Pre-mortem 2026-11-27 measured the first cut (check stayed ~771 lines; a `syntheses` ↔ `units` cycle; `synthesis_*`/`*_rules` prefixes in a 12-module `notes/`), so the syntheses go to their own base package. Layering: `notes → syntheses → memories → core` (syntheses import only core and memories today).
+- [x] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) by cohesion. Owner 2026-11-27: size is a review trigger, not a cap (a cohesive 1k–3k file can be right); group by function. Pre-mortem 2026-11-27 measured the first cut (check stayed ~771 lines; a `syntheses` ↔ `units` cycle; `synthesis_*`/`*_rules` prefixes in a 12-module `notes/`), so the syntheses go to their own base package. Layering: `notes → syntheses → memories → core` (syntheses import only core and memories today).
 
 | Module | Holds | From |
 |---|---|---|
