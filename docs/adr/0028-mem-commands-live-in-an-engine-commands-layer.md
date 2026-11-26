@@ -36,3 +36,7 @@ Create `engine/commands/` (`common`, `admin`, `read`, `edit`, `sources`, `synthe
 - `commands/` passes 10 modules or one of its modules passes 2,600 lines.
 - The parser in `mem.py` passes 1,200 lines, or flag changes keep touching two files.
 - The session-index hook's start-up p95 passes 1 s.
+
+## Measurement 2026-11-26
+
+After the nine tasks ([plan](../superpowers/plans/2026-11-26-memory-mem-split.md)): `mem.py` 10,502 → 1,403 lines (the parser alone 948); command modules 364 (`admin`) to 2,077 (`memory`) lines, `notes/search.py` 392; `_MOVED` 101 → 155 names; the patch-guard allow-list ended empty; session-index hook p95 292 ms before, 284 ms after; suite 2,795 → 3,032 tests (new guards and goldens).
