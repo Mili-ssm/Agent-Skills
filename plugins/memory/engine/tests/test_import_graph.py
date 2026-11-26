@@ -34,7 +34,7 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", ["notes", "index", "check", "session_notices"])
+@pytest.mark.parametrize("module", ["notes", "index", "check", "session.notices"])
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
@@ -73,7 +73,7 @@ def test_check_stays_pure():
 
 
 def test_session_notices_does_not_import_mem():
-    tree = ast.parse((ENGINE / "session_notices.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ENGINE / "session" / "notices.py").read_text(encoding="utf-8"))
     imported = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
     imported |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
     assert "mem" not in imported
@@ -222,6 +222,7 @@ PACKAGE_DEPENDENCIES = {
     "capture": {"records", "jobs"},
     "settle": {"records", "jobs", "safe_io", "store_git"},
     "digest": {"records", "rules", "shortcheck", "digest_text"},
+    "session": {"check", "store_git"},
     "research": {
         "records", "config", "jobs", "safe_io", "headless", "notes", "synthesize", "mem",
     },
@@ -233,6 +234,7 @@ PACKAGE_IMPORTERS = {
     "capture": {"mem", "corroborate"},
     "settle": {"mem"},
     "digest": {"mem", "corroborate"},
+    "session": {"mem"},
 }
 
 

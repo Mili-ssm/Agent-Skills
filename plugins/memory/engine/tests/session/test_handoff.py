@@ -1,6 +1,6 @@
 import time
 
-import handoff
+from session import handoff
 
 TWO_LINES = 2
 THREE_ITEMS = 3
