@@ -1,8 +1,17 @@
 # Memory: measure the effect of loaded lessons before adding mechanisms
 
-Status: in progress · Date: 2026-11-26 · Branch: feat/memory-lesson-holdout (stacked on fix/skeptical-reviewer-p1-b1, PR #218)
+Status: waiting for the owner (four decisions below) · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout (pushed, no pull request; stacked on fix/skeptical-reviewer-p1-b1, PR #218)
 
 Owner rulings (2026-11-26): proceed with the order the review of that day proposed; the paired trial starts as a pilot capped at 3 USD; matching by meaning is built after it, its trial capped at 2 USD. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
+
+## Where to resume
+
+Nothing is running and the tree is clean. Model usage spent on this plan: 1.53 USD (pilot 1.46, settle trial 0.065) of the 5 USD the owner allowed (3 for the pilot, 2 for the settle trial). Open, each the owner's decision:
+
+1. `mem-settle` at the lower floor with the revised brief: adopt on the reading of the two records labelled `version` (the agent's recommendation), or have a fresh set written and labelled by a second reader and rerun (Results, last section).
+2. A scenario with headroom for the loaded lessons: the replay design is not written; first find out whether a headless session can continue from a cut copy of a transcript with another session start text, and what a run costs.
+3. Seamless stage 3: the reduced scope proposed in [its task plan](2026-11-26-memory-seamless-stage-3-integration.md#recommended-minimum-review-of-2026-11-26-a-proposal-the-owner-decides); not executed.
+4. PR #218 is open and this branch contains it; a pull request for this branch waits for that merge or the owner's word.
 
 ## Tasks
 
