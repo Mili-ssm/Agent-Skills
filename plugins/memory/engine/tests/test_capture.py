@@ -629,7 +629,7 @@ def test_the_brief_names_every_signal_and_the_amended_exclusion(monkeypatch):
     spec = importlib.util.spec_from_loader("mem_capture_brief", loader)
     assert spec is not None
     mod = importlib.util.module_from_spec(spec)
-    # @dataclass before Python 3.13 looks the module up in sys.modules
+    # @dataclass before Python 3.15 looks the module up in sys.modules
     monkeypatch.setitem(sys.modules, spec.name, mod)
     loader.exec_module(mod)
     for name in capture.SIGNALS:

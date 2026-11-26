@@ -43,7 +43,7 @@ def ms(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(
         sys.modules, spec.name, module
-    )  # @dataclass before Python 3.13 looks its module up here
+    )  # @dataclass before Python 3.15 looks its module up here
     loader.exec_module(module)
     return module
 
