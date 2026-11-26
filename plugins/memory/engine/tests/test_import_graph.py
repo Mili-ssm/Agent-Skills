@@ -217,14 +217,15 @@ def test_packages_are_planned_and_edges_frozen():
 PACKAGE_DEPENDENCIES = {
     "corroborate": {
         "records", "jobs", "safe_io", "headless", "rules", "shortcheck",
-        "capture", "capture_state", "digest", "synthesize",
+        "capture", "digest", "synthesize",
     },
+    "capture": {"records", "jobs"},
     "research": {
         "records", "config", "jobs", "safe_io", "headless", "notes", "synthesize", "mem",
     },
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
-PACKAGE_IMPORTERS = {"corroborate": {"mem"}, "research": {"mem"}}
+PACKAGE_IMPORTERS = {"corroborate": {"mem"}, "research": {"mem"}, "capture": {"mem", "corroborate"}}
 
 
 def test_package_imports_only_its_dependencies():

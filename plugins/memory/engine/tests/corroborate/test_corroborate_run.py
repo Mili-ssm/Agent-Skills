@@ -7,10 +7,10 @@ import stat
 import subprocess
 from pathlib import Path
 
-import capture_state
 import jobs
 import pytest
 import records
+from capture import state as capture_state
 from corroborate import decide as corroborate_decide
 from corroborate import state as corroborate_state
 from corroborate_world import (

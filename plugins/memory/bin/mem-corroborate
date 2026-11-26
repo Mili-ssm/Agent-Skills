@@ -39,7 +39,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
-import capture_state as cs
+from capture import state as cs
 from corroborate import state as corroborate_state
 
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)

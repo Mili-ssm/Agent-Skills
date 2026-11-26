@@ -6,8 +6,8 @@ import sys
 import time
 from pathlib import Path
 
-import capture_state
 import jobs
+from capture import state as capture_state
 
 OFFSET = 42
 PRIVATE_FILE = 0o600
@@ -123,10 +123,10 @@ def test_failure_line_survives_a_malformed_at(tmp_path):
 
 
 def test_capture_state_imports_without_yaml_records_or_capture():
-    engine = str(Path(capture_state.__file__).parent)
+    engine = str(Path(capture_state.__file__).parent.parent)
     code = (
-        "import sys\nfor n in ('yaml', 'records', 'capture'):\n    sys.modules[n] = None\n"
-        f"sys.path.insert(0, {engine!r})\nimport capture_state\n"
+        "import sys\nfor n in ('yaml', 'records', 'capture.extract'):\n    sys.modules[n] = None\n"
+        f"sys.path.insert(0, {engine!r})\nfrom capture import state\n"
     )
     done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
     assert done.returncode == 0, done.stderr

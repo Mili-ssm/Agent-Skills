@@ -3,11 +3,11 @@ import os
 import subprocess
 from pathlib import Path
 
-import capture
 import mem
 import pytest
 import records
 import rules
+from capture import extract as capture_extract
 from test_rules_session import FIT, gfolder, pad, write
 
 # re-exported: pytest finds the fixture in this module by its name
@@ -484,13 +484,13 @@ def test_every_signal_has_an_outcome():
     }
     worked = {"owner_approval", "owner_request_paid_off", "effective_practice"}
     seen = {"plan_changed_by_review", "decision_with_reason"}
-    assert failed | worked | seen == set(capture.SIGNALS)
-    assert {s: capture.outcome(s) for s in capture.SIGNALS} == {
+    assert failed | worked | seen == set(capture_extract.SIGNALS)
+    assert {s: capture_extract.outcome(s) for s in capture_extract.SIGNALS} == {
         **dict.fromkeys(failed, "failed"),
         **dict.fromkeys(worked, "worked"),
         **dict.fromkeys(seen, "seen"),
     }
-    assert capture.outcome("other") == "seen"
+    assert capture_extract.outcome("other") == "seen"
 
 
 def test_confirm_records_outcome_and_day(project):

@@ -33,7 +33,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 import auto_state
-import capture_state
 import check as check_rules
 import config
 import digest
@@ -52,6 +51,7 @@ import shortcheck
 import store_git
 import syntheses
 import yaml
+from capture import state as capture_state
 from check import (
     LEVELS,
     MAX_KNOWLEDGE_NAME,

@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-import capture_state as cs
 import headless
 import jobs
 import records
+from capture import state as cs
 from synthesize import pipeline as sp
 
 from corroborate import decide as corroborate_decide
