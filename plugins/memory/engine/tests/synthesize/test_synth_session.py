@@ -4,7 +4,7 @@ import subprocess
 
 import mem
 import pytest
-from core.safe_io import sandbox_refusal
+from core import safe_io
 from research import checks as research_checks
 from synthesize import pipeline as sp
 
@@ -155,8 +155,8 @@ def test_sandbox_checks_every_file_option(tmp_path, monkeypatch, key):
     monkeypatch.setenv("MEM_SANDBOX", "1")
     monkeypatch.setenv("MEM_SANDBOX_ROOTS", str(inside))
     monkeypatch.chdir(inside)
-    assert sandbox_refusal("synthesis", {key: str(outside / "secret.txt")})
-    assert sandbox_refusal("synthesis", {key: str(inside / "ok.md")}) is None
+    assert safe_io.sandbox_refusal("synthesis", {key: str(outside / "secret.txt")})
+    assert safe_io.sandbox_refusal("synthesis", {key: str(inside / "ok.md")}) is None
 
 
 @pytest.mark.parametrize(
@@ -164,12 +164,12 @@ def test_sandbox_checks_every_file_option(tmp_path, monkeypatch, key):
 )
 def test_sandbox_refuses_other_projects(monkeypatch, key, value):
     monkeypatch.setenv("MEM_SANDBOX", "1")
-    refusal = sandbox_refusal("search", {key: value})
+    refusal = safe_io.sandbox_refusal("search", {key: value})
     assert refusal is not None and "off in this session" in refusal
-    assert sandbox_refusal("search", {key: [] if key == "project" else False}) is None
-    assert sandbox_refusal("curate", {"project": None, "is_project": True}) is None
+    assert safe_io.sandbox_refusal("search", {key: [] if key == "project" else False}) is None
+    assert safe_io.sandbox_refusal("curate", {"project": None, "is_project": True}) is None
     monkeypatch.delenv("MEM_SANDBOX")
-    assert sandbox_refusal("search", {key: value}) is None
+    assert safe_io.sandbox_refusal("search", {key: value}) is None
 
 
 def test_sandbox_refuses_all_projects_on_the_command_line(monkeypatch, capsys):
