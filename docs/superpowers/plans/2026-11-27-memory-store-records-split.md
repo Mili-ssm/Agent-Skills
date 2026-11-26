@@ -77,6 +77,16 @@ ADR 0034's revisit trigger fired: `store/` reached 19 modules in two families wi
 
 - [ ] One commit per step: (1) `core/yaml_load.py` and `core/store_git.py`; (2) `memories/` move with renames; (3) `notes/` move; (4) delete `store/`, graph rules (`memories` imports only core and memories; `notes` only core, memories, notes; the no-facade rule now for `memories/*`), tests to `tests/memories/` and `tests/notes/`, `ruff.toml` py311 entries, string refs, eval answer keys. Check per step: suite, collected count unchanged, goldens, bin self-checks on 3.11.15, the graph rule bites.
 
+Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is guards that go vacuous):
+- Every guard that names modules by string is retargeted and proven by a temporary violation: `test_import_graph.py` (`store.store_git` check, `test_notes_imports_no_other_engine_module` → allow `core.yaml_load` explicitly, base-layer set, PACKAGE_DEPENDENCIES, STORE_MODULES, no-facade prefix), `tests/capture/test_capture_state.py` `sys.modules` block, `tests/store/test_records_facade.py` `node.module`, `tests/patching.py` prefix (`memories.`, `notes.`), `bin/mem-capture` `import_module("store.records")` (the floor test skips unresolved names).
+- Every `from store` in `evals/` (6 files) retargeted, checked by an import smoke test of each eval with `engine/` on `sys.path`.
+- `"safe_load"` leaves `mem.py` `_MOVED` (no caller reads `mem.safe_load`; F401 would strip it from `note.py`).
+- Modules keep their aliases (`notes_mod` in check/index, `note_files` in mem.py): `note` is a loop variable in 72+ places.
+- `ruff.toml` py311 entries for `memories/*`, `notes/*` land with their move; I001 regrouping fixed by hand after `ruff check --no-fix`.
+- Remaining facade patches on `records.update` / `records.log_before` move to `patch_all`.
+- Docs: ADR 0034 `## Review 2026-11-27` (the revisit trigger fired), README `engine/store/shortcheck.py`, backlog A14.
+- Kill: after the last step `grep -rnE "from store|\"store\.|'store'|store/" plugins/memory --include=*.py` and in `bin/` finds anything outside fixtures; a guard stays green when violated; collected count or a golden changes; `mem.<name>` for a `_MOVED` name raises.
+
 ### Task 4: Split reviews and gate
 - [ ] Split reviews of `check.py` (1,396 lines) and `syntheses.py` (1,313): split along their sections if cohesive parts exist, else record why not. Full matrix; docs (ADR 0034 `## Review`, backlog A6/A14, resume state, this plan).
 
