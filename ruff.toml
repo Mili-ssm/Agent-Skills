@@ -47,6 +47,7 @@ ignore = [
 # bin/ scripts run with the system python3 (not uv), so they keep to 3.10 syntax and stdlib.
 [per-file-target-version]
 "plugins/memory/bin/*" = "py310"
+"plugins/memory/engine/headless.py" = "py310"
 
 [lint.per-file-ignores]
 "**/tests/**" = ["F811"] # pytest fixtures imported and then named as parameters

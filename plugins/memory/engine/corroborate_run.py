@@ -18,8 +18,8 @@ import auto_state as au
 import capture_state as cs
 import corroborate
 import corroborate_state
+import headless
 import records
-import research_pipeline as rp
 import synth_pipeline as sp
 
 if TYPE_CHECKING:
@@ -246,7 +246,7 @@ def run_session(cmd: list[str], work: Path) -> dict:
         done = subprocess.run(
             cmd,
             cwd=work,
-            env=rp.session_env(),
+            env=headless.session_env(),
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,

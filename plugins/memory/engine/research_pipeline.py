@@ -30,6 +30,7 @@ from typing import Any, Required, TypedDict, Unpack
 
 import auto_state as au
 import config
+import headless
 import mem
 import research_checks as rc
 import synth_pipeline as sp
@@ -57,14 +58,6 @@ SHOW_CHARS, RESULT_CHARS = 1500, 8000
 MEMORY_ROUNDS = 2  # the memory session runs once, and once more when it asks for searches
 EPSILON = 1e-9  # a budget below this counts as spent
 KEEP_SECONDS = 30 * 86400
-SESSION_VARS = (
-    "CLAUDE_ENV_FILE",
-    "CLAUDE_PID",
-    "CLAUDE_PROJECT_DIR",
-    "CLAUDE_CODE_SESSION_ID",
-    "CLAUDE_CODE_MESSAGING_SOCKET",
-    "CLAUDE_CODE_MESSAGING_TOKEN",
-)
 RESULT_LINE = re.compile(r"^knowledge/[^\t]*?([^/\t]+)\.md\t", re.MULTILINE)
 URL = re.compile(r"https?://[^\s\"'<>)\]]+")
 
@@ -130,27 +123,6 @@ def mem_env(store: Path) -> dict[str, str]:
         p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p
     )
     env["MEM_STORE"] = str(store)
-    return env
-
-
-def has_mem(folder: str) -> bool:
-    try:
-        return os.access(Path(folder) / "mem", os.X_OK) and (Path(folder) / "mem").is_file()
-    except OSError:
-        return False
-
-
-def session_env() -> dict[str, str]:
-    """The environment of every model session: no `MEM_*`, no `CLAUDE_PLUGIN_*`, no session variable of the process
-    that started this one, and a PATH without any folder that holds `mem`."""
-    env = {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(("MEM_", "CLAUDE_PLUGIN")) and k not in SESSION_VARS
-    }
-    env["PATH"] = os.pathsep.join(
-        p for p in env.get("PATH", "").split(os.pathsep) if p and not has_mem(p)
-    )
     return env
 
 
@@ -451,7 +423,7 @@ def read_need(path: Path) -> dict | str:
 
 
 def memory_step(run: Run, store: Path, claude: str, question: str, settings: Path) -> dict:
-    env = session_env()
+    env = headless.session_env()
     shown: set[str] = set()
     text = search_block(store, question, shown)
     need: dict | str = {}
@@ -513,7 +485,7 @@ def web_step(
         "web",
         web_cmd(claude, prompt, settings, run.gate(SHARE["web"])),
         work,
-        session_env(),
+        headless.session_env(),
         prompt,
     )
     events = web_events(done["raw"])
@@ -547,7 +519,7 @@ def verdict_step(run: Run, claude: str, data: dict[str, Any], settings: Path) ->
         "verdict",
         file_cmd(claude, prompt, work, settings, run.gate(None)),
         work,
-        session_env(),
+        headless.session_env(),
         prompt,
     )
     try:
@@ -886,11 +858,11 @@ def self_check() -> int:
             "CLAUDE_PLUGIN_OPTION_STORE": "x",
             "PATH": f"{tmp / 'bin'}{os.pathsep}{os.environ.get('PATH', '')}",
         })
-        env = session_env()
+        env = headless.session_env()
         assert not any(k.startswith(("MEM_", "CLAUDE_PLUGIN")) for k in env), (
             "a MEM or plugin variable reached a session"
         )
-        assert not any(has_mem(p) for p in env["PATH"].split(os.pathsep)), (
+        assert not any(headless.has_mem(p) for p in env["PATH"].split(os.pathsep)), (
             "mem is on a session's PATH"
         )
         cmd = web_cmd("claude", "prompt", tmp / "s.json", 0.2)
@@ -989,7 +961,7 @@ def main(argv: list[str] | None = None) -> int:
             + (f"would stop: {problem}" if problem else "would start")
         )
         return 0
-    for name in SESSION_VARS:
+    for name in headless.SESSION_VARS:
         os.environ.pop(name, None)
     return research(
         store,

@@ -12,6 +12,7 @@ from typing import Any
 
 import backfill
 import corroborate_run
+import headless
 import pytest
 import research_pipeline
 import synth_pipeline
@@ -367,7 +368,7 @@ def crafted(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, str]:
 
 
 def test_research_session_env(crafted: dict[str, str]) -> None:
-    env = research_pipeline.session_env()
+    env = headless.session_env()
     assert env["KEEP_ME"] == "3"
     for gone in (
         "MEM_X",
