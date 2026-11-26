@@ -209,6 +209,7 @@ SYNTH_MEM_ALLOWED = (
     "Bash(mem show*)",
     "Bash(mem memories*)",
     "Bash(mem search*)",
+    "Bash(mem rules --unread*)",
     "Bash(mem find*)",
     "Bash(mem check*)",
     "Bash(mem synthesis list*)",
@@ -217,6 +218,13 @@ SYNTH_MEM_ALLOWED = (
     "Bash(mem synthesis append*)",
     "Bash(mem synthesis edit*)",
 )
+
+
+def test_background_sessions_list_unread_short_forms_and_no_entry_names_read() -> None:
+    # the rule is a prefix: `mem rules --unread --read` matches it and is refused by `mem` itself (test_short_by.py)
+    allowed = synth_pipeline.MEM_ALLOWED
+    assert "rules --unread" in allowed
+    assert not any(sub == "rules" or "--read" in sub for sub in allowed)
 
 
 def test_synthesis_command_line_minimal(run: Recorder, tmp_path: Path) -> None:

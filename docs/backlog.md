@@ -1,6 +1,6 @@
 # Backlog: open work by area and priority
 
-Updated: 2026-11-26 · Expires: 2026-12-10
+Updated: 2026-11-27 · Expires: 2026-12-11
 
 **Expiry rule (owner, 2026-11-25):** every edit sets `Updated` to the edit date and `Expires` to 14 days later, so the list cannot sit unmaintained. Past `Expires`, the list is stale: re-check it against its sources before acting on it, then refresh it or delete it.
 
@@ -20,9 +20,9 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
-2. P1 and B1: done on `fix/skeptical-reviewer-p1-b1` (ADR 0017 Measurement 2026-11-26, P1), waiting for a pull request.
+2. P1 and B1: done (ADR 0017 Measurement 2026-11-26, P1), merged into `dev` on 2026-11-27 (PR #218).
 3. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's shared corroborate job runner, A8 (tool-fold), the low items below.
-4. Memory seamless stage 3, T2–T5: started 2026-11-26 ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
+4. Memory effect measurement ([plan](superpowers/plans/2026-11-26-memory-effect-measurement.md)): the pilot showed no headroom; the owner asked on 2026-11-27 for a scenario the model fails without the lesson (its task 8). Memory seamless stage 3: the owner accepted the reduced scope on 2026-11-27, in execution ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
 5. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 gives a day ratio of 10/10, its denominator all session days because session starts carry no outside flag; details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
@@ -66,7 +66,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 
 ## Plugin `memory`
 
-Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR first), stage 7 remote, stage 9, stage 8.
+Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 → kill read → Codex port (new ADR first), stage 7 remote, stage 9, stage 8.
 
 | Pri | ID | Task | State |
 |---|---|---|---|

@@ -249,6 +249,18 @@ def _among_order(
                 yield min(i, j), max(i, j)
 
 
+@dataclass(frozen=True)
+class PairSearch:
+    """How `pairs` searches: `among` (handles, in the order to search) limits it to pairs with at least one of them,
+    each pair once; `budget` spends 1 per comparison and stops the search when spent (the caller reads
+    `budget.exhausted`); `floor` is the lowest containment kept, STRONG unless a caller whose pairs a model judges
+    lowers it."""
+
+    among: Sequence[str] | None = None
+    budget: Budget | None = None
+    floor: float = STRONG
+
+
 def pairs(
     memories: Sequence[Memory],
     today: datetime.date,
@@ -260,29 +272,36 @@ def pairs(
     """Pairs of live memories whose claims contain each other with at least STRONG, in either direction.
 
     A claim and its negation score as high as a near-copy: a pair means "same or opposite", never "duplicate".
+    `among` and `budget` as in `PairSearch`."""
+    return pairs_by(memories, today, tokenize, PairSearch(among=among, budget=budget))
 
-    With `among` (handles, in the order to search) only pairs with at least one of them are compared, each pair
-    once, searching `among` in its order. With `budget` each comparison spends 1 and the search stops when it is
-    spent, returning what it found; the caller reads `budget.exhausted` (a comparison was needed with none left)."""
+
+def pairs_by(
+    memories: Sequence[Memory],
+    today: datetime.date,
+    tokenize: Callable[[str], list[str]],
+    how: PairSearch,
+) -> list[tuple[Memory, Memory, float]]:
+    """`pairs` with every choice of `PairSearch`, the floor included."""
     live = sorted((m for m in memories if is_live(m, today)), key=lambda m: m.handle)
     index = {m.handle: i for i, m in enumerate(live)}
     tokens = [set(tokenize(m.claim)) for m in live]
     terms = [_terms(t) for t in tokens]
-    if among is None:
+    if how.among is None:
         order = ((i, j) for i in range(len(live)) for j in range(i + 1, len(live)))
     else:
-        order = _among_order(live, index, among)
+        order = _among_order(live, index, how.among)
     found = []
     for i, j in order:
         a, b = live[i], live[j]
         if b.handle in a.distinct_from or a.handle in b.distinct_from:
             continue
-        if budget is not None and not budget.spend():
+        if how.budget is not None and not how.budget.spend():
             break
         score = max(
             _containment_of_terms(terms[i], tokens[j]), _containment_of_terms(terms[j], tokens[i])
         )
-        if score >= STRONG:
+        if score >= how.floor:
             found.append((a, b, score))
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
     return found

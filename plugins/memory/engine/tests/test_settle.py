@@ -597,3 +597,42 @@ def test_undo_of_a_left_entry_says_there_is_nothing_to_undo(gfolder, run, tmp_pa
     run("apply", "--verdicts", verdicts(tmp_path))
     code, _, err = run("undo", "1")
     assert code == 1 and "settling 1 changed no record: nothing to undo" in err
+
+
+CLIENT = "Use the build cache for every release build of the desktop client."
+REWORDED = "A warm cache shortens how long the desktop client takes to compile before shipping."  # containment 0.43
+FARTHER = "Shipping the client goes faster when the compiler cache is reused between releases."  # containment 0.29
+
+
+def test_pending_shows_a_reworded_look_alike_below_the_curation_floor(gfolder, run):
+    seeded(gfolder, run, claim="unrelated words only here")
+    put(gfolder, "client-one", CLIENT, created=days_ago(10))
+    run("pending")
+    put(gfolder, "client-two", REWORDED, created=days_ago(1))
+    put(gfolder, "client-three", FARTHER, created=days_ago(1))
+    code, out, _ = run("pending", "--json")
+    found = {frozenset((p["a"], p["b"])) for p in json.loads(out)}
+    assert code == 0 and frozenset(("client-one", "client-two")) in found
+    assert not any("client-three" in pair for pair in found)
+    live = records.load_memories(gfolder, "global")
+    in_queue = {
+        frozenset((a.handle, b.handle))
+        for a, b, _ in records.pairs(live, TODAY, tokenize=records.tokenize)
+    }
+    assert (
+        frozenset(("client-one", "client-two")) not in in_queue
+    )  # the curation queue keeps its own floor
+
+
+def test_a_web_record_is_never_the_newer_side_of_an_offered_pair(gfolder, run, tmp_path):
+    seeded(gfolder, run, claim="unrelated words only here")
+    put(gfolder, "web-one", NEW, created=days_ago(1), extra="origin: web\n")
+    put(gfolder, "global-two", OLD + " Really.", created=days_ago(5))
+    code, out, _ = run("pending", "--json")
+    pairs = [p for p in json.loads(out) if {p["a"], p["b"]} == {"web-one", "global-two"}]
+    assert code == 0 and pairs and pairs[0]["newer"] is None
+    for decision in ("supersede", "merge"):
+        row = verdicts(tmp_path, {"a": "global-two", "b": "web-one", "decision": decision})
+        assert run("apply", "--verdicts", row)[1].startswith("refused")
+    live = {m.handle: m.status for m in records.load_memories(gfolder, "global")}
+    assert live["global-two"] == "active" and live["web-one"] == "active"

@@ -6,6 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- Settling (`mem-settle`, option `auto_settle`) now also finds a duplicate global memory written in other words: it compares a new memory with existing ones that share fewer words than before, and it can join two wordings of one fact that differ in a negation ("does not keep" against "drops") by superseding the older record. Expect more pairs in `mem settle pending`, more settlings in the session start line, and a model session in more runs (about 0.015 USD each); every settling is undone with `mem settle undo`. The curation queue you read is unchanged. A record that came from the web or from a pipeline is never the one kept.
 - The background passes (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-research`, `mem-settle`, `mem-synthesize`) now run through `uv`, like `mem`: no system `python3` is needed, but `uv` is required. A missing `uv` is reported once in the session start text. Migration: install `uv` (https://docs.astral.sh/uv/) if you have not; after a plugin update on an offline machine the first run fails until you are online once.
 - Capture, settle, synthesis and curation (`mem-auto`) sessions no longer load MCP servers (`--strict-mcp-config`), like the corroborate, research and reference sessions already did; capture sessions have only the Read and Write tools. Impact: these background sessions cannot call tools from your MCP servers; none of the plugin's prompts asks them to. Migration: none.
 - Every entry point now finds the store the same way: `--root`, then `MEM_STORE`, then the first line of the `store` config file, then the default store. Background commands and `mem-research`/`mem-synthesize` use the store named in the config file when `MEM_STORE` is unset, as `mem` already did.
@@ -15,6 +16,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Fixed
 
+- The background curator of `mem-auto` can now list the short forms nobody read (`mem rules --unread`); before, that command was not among the ones its session may run, so the queue item "short forms nobody read" was never processed in the background. It still cannot mark them as read.
 - A background session stopped by its time limit in the middle of a multibyte character no longer loses its partial output with a decoding error.
 - The compaction handoff check reports a missing plan file with a very long name on Python 3.12 and 3.13, as it already did on 3.14.
 - Research checks keep the page text after an unclosed `<script>` or `<style>` on early Python 3.12 patches (3.12.0), as later patches do.

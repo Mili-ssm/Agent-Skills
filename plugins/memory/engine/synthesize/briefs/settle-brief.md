@@ -7,7 +7,7 @@ Read `{PAIRS_FILE}`: a JSON list of pairs of short memories, each with `pair`, `
 | decision | meaning |
 |---|---|
 | `merge` | the same fact in other words: nothing is lost if one record stays |
-| `supersede` | the newer claim corrects or replaces the older one: the older is no longer true |
+| `supersede` | the newer claim corrects the older one, or says the same fact in a pair that cannot be merged: only the newer record stays active, and the older is kept as superseded |
 | `distinct` | different facts that only look alike, for example two versions, two systems, or two cases that are both valid |
 | `nothing` | you cannot tell from the two claims |
 
@@ -15,7 +15,7 @@ Read `{PAIRS_FILE}`: a JSON list of pairs of short memories, each with `pair`, `
 
 - **When unsure, choose `nothing`.** A wrong merge or supersede loses a fact, and a wrong `distinct` hides the pair from every later check; a duplicate that stays costs only a little reading, and the pair is offered again.
 - **A pair whose `newer` is null cannot be merged or superseded**, because the code cannot tell which record to keep; choose `distinct` or `nothing`.
-- **A pair whose `flagged_words` is not empty cannot be merged**: those words may make the claims opposites or versions. Choose `supersede` (only when `newer` is not null), `distinct` or `nothing`.
+- **A pair whose `flagged_words` is not empty cannot be merged**: those words may make the claims opposites or versions, so read both claims whole. When they state the same fact in other words ("does not keep" against "drops"), or the newer corrects the older, choose `supersede` (only when `newer` is not null): the newer wording stays and the older record can be restored. When both are valid, choose `distinct`; when you cannot tell, `nothing`.
 - Judge only the two claims in the file. Do not look for other files and do not guess what a claim leaves out.
 
 ## Output

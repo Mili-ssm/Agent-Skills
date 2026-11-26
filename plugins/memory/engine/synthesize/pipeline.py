@@ -186,7 +186,8 @@ def parse(stdout: str) -> dict:
 
 
 # The `mem` subcommands the background sessions may run, one `Bash(mem <sub>*)` rule each. Sources: the curator
-# (agents/memory-curator.md: `curate` with `apply --safe`, `show`, `memories`, `search`), the writer
+# (agents/memory-curator.md: `curate` with `apply --safe`, `show`, `memories`, `search`, `rules --unread`, which only
+# lists; `rules --read` marks short forms as read by the owner and stays out), the writer
 # (agents/memory-synthesizer.md: `find`, `show`, `synthesis list|new|add|append|edit`, `check`), and the checker and
 # fixer briefs (briefs/*.md: `search`, `show`, `synthesis edit`, `check`). No `import`, `fetch-sources`, `new`,
 # `remember` or `history`: no brief names them, and `attach` and `refs` run from code (`mem()`), not in a session.
@@ -195,6 +196,7 @@ MEM_ALLOWED = (
     "show",
     "memories",
     "search",
+    "rules --unread",
     "find",
     "check",
     "synthesis list",
