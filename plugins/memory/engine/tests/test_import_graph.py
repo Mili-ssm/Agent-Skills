@@ -206,7 +206,7 @@ PLANNED_PACKAGES = {
 
 
 def test_packages_are_planned_and_edges_frozen():
-    """Packages import each other only along FROZEN_EDGES (any package may import `core`); `core` imports no other package."""
+    """Packages import each other only along FROZEN_EDGES (any package may import `core` or `store`, the base layers); `core` imports no other package."""
     assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     new_edges = sorted(
@@ -215,6 +215,7 @@ def test_packages_are_planned_and_edges_frozen():
         if (own := name.split(".")[0]) in PACKAGES
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
+        # itself and the base layers (`core`, `store`) are not cross-package edges
         and target not in {own, "core", "store"}
         and (own, target) not in FROZEN_EDGES
     )
@@ -222,8 +223,8 @@ def test_packages_are_planned_and_edges_frozen():
 
 
 # Engine modules a package may import besides its own and stdlib: its low-level dependencies and the
-# frozen edges to other features; `core` imports only itself and the standard library, `store` stdlib, `core`
-# and itself. `store` and `core` are base layers: any package may import them.
+# frozen edges to other features. `core` and `store` are base layers that any package may import: `core`
+# imports only itself and the standard library, `store` only those and `core`.
 PACKAGE_DEPENDENCIES = {
     "core": set(),
     "store": {"core"},
@@ -296,3 +297,14 @@ def test_engine_uses_no_relative_imports():
         if any(isinstance(node, ast.ImportFrom) and node.level > 0 for node in ast.walk(tree))
     )
     assert not relative, f"relative imports in: {relative}"
+
+
+def test_store_modules_import_the_defining_module_not_the_records_facade():
+    """`store/records.py` re-exports for the importers outside `store`; inside it every module names the module that defines what it uses."""
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    extra = sorted(
+        name
+        for name, deps in graph.items()
+        if name.startswith("store.") and name != "store.records" and "store.records" in deps
+    )
+    assert not extra, f"store modules importing the records facade: {extra}"

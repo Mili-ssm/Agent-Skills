@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING, TypedDict
 import yaml
 from core import safe_io
 
-from store import records
+from store import journal
+from store.matching import STOPWORDS
+from store.notes import safe_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -145,7 +147,7 @@ def _meta_of(text: str) -> dict[str, object]:
     m = _FRONTMATTER.match(text)
     if not m:
         raise ValueError("no YAML frontmatter")
-    meta = records.safe_load(m.group(1))
+    meta = safe_load(m.group(1))
     if not isinstance(meta, dict):
         raise _invalid("frontmatter is not a mapping")
     return meta
@@ -805,7 +807,7 @@ def first_paragraph(text: str) -> str:
 def snapshot(path: Path):
     """A function that puts back the synthesis and its curation log as they are now (for a write that must not
     leave half a change when a later step fails)."""
-    log = path.parent / records.CURATION_LOG
+    log = path.parent / journal.CURATION_LOG
     before = path.read_bytes()
     log_before = log.read_bytes() if log.exists() else None
 
@@ -904,7 +906,7 @@ def prepare_add(path: Path, heading: str, text: str, today: datetime.date) -> tu
 def add_section(path: Path, heading: str, text: str, today: datetime.date) -> str:
     """Append `## heading` and its text; returns the section handle. Logs the previous file for undo."""
     handle, new, _ = prepare_add(path, heading, text, today)
-    records.log_before(load_one(path), "add")
+    journal.log_before(load_one(path), "add")
     _write(path, new)
     return handle
 
@@ -930,7 +932,7 @@ def _replace(syn: Synthesis, target: Section, text: str, today: datetime.date, a
     n = next(k for k, (i, _) in enumerate(heads) if i + 1 == target.line)
     end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
     lines[heads[n][0] + 1 : end] = ["", *text.split("\n"), ""]
-    records.log_before(syn, action)
+    journal.log_before(syn, action)
     _write(path, _bump("\n".join(lines), today))
 
 
@@ -1257,7 +1259,7 @@ def _topics_range(lines: list[str], path: Path) -> tuple[int, int]:
 
 def _check_topics(path: Path, new: str, topics: Sequence[str]) -> None:
     head = _FRONTMATTER.match(new)
-    meta = records.safe_load(head.group(1)) if head else None
+    meta = safe_load(head.group(1)) if head else None
     got = meta.get("topics") if isinstance(meta, dict) else None
     if got != list(topics):
         raise ValueError(
@@ -1297,7 +1299,7 @@ def match_sections(
     """Sections holding at least half (rounded up) of the query's non-stop-word terms in heading and first paragraph.
 
     Best first: most terms in the heading, then most overall, then handle."""
-    terms = set(query_tokens) - records.STOPWORDS
+    terms = set(query_tokens) - STOPWORDS
     if not terms:
         return []
     need = (len(terms) + 1) // 2

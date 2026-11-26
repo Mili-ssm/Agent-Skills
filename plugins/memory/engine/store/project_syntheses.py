@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, NamedTuple
 import yaml
 from core import safe_io
 
-from store import records, syntheses
+from store import syntheses
+from store.memory_model import PROJECT_DIR
+from store.notes import safe_load
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -104,7 +106,7 @@ def _check_frontmatter(path: Path) -> None:
         raise fail(f"cannot be read ({type(e).__name__})") from None
     m = syntheses._FRONTMATTER.match(text)
     try:
-        meta = records.safe_load(m.group(1)) if m else None
+        meta = safe_load(m.group(1)) if m else None
     except yaml.YAMLError:
         meta = None
     if not isinstance(meta, dict) or not isinstance(meta.get("title"), str):
@@ -203,9 +205,9 @@ def _bad_path(p: str) -> bool:
     if any(c in p for c in (",", "|", "\\", "\n")):
         return True
     norm = posixpath.normpath(p)
-    return norm in {"..", records.PROJECT_DIR} or norm.startswith((
+    return norm in {"..", PROJECT_DIR} or norm.startswith((
         "../",
-        records.PROJECT_DIR + "/",
+        PROJECT_DIR + "/",
     ))
 
 
@@ -362,7 +364,7 @@ def freshness(worktree: Path, stamp: Stamp) -> str:
     prefix = _git(worktree, "rev-parse", "--show-prefix")
     if prefix is None:
         return UNKNOWN
-    own = prefix.stdout.strip() + records.PROJECT_DIR + "/"
+    own = prefix.stdout.strip() + PROJECT_DIR + "/"
     touched = [n for n in _names(diff, False) + _names(status, True) if not n.startswith(own)]
     if touched or any(not (worktree / p).exists() for p in stamp.paths):
         return CHANGED
