@@ -9,16 +9,23 @@ import pytest
 
 ENGINE = Path(__file__).resolve().parent.parent
 PACKAGE = "synthesize"
-# Package modules are named by their dotted path (`synthesize.pipeline`); the package itself is `synthesize` (its `__init__.py`).
-MODULES = (
-    {path.stem for path in ENGINE.glob("*.py")}
-    | {
-        f"{PACKAGE}.{path.stem}"
-        for path in (ENGINE / PACKAGE).glob("*.py")
-        if path.stem != "__init__"
-    }
-    | {PACKAGE}
-)
+
+
+def _module_name(path: Path) -> str:
+    """Dotted name of an engine file: `a/b.py` is `a.b`, a package's `__init__.py` is the package."""
+    parts = list(path.relative_to(ENGINE).with_suffix("").parts)
+    return ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
+
+
+ENGINE_FILES = sorted(p for p in ENGINE.rglob("*.py") if "tests" not in p.relative_to(ENGINE).parts)
+MODULES = {_module_name(path) for path in ENGINE_FILES}
+# Feature packages: the directories of the engine that hold an `__init__.py`.
+PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.py"}
+
+
+def test_modules_cover_every_engine_file():
+    """One module name per file: a file whose name collides with another would hide from every rule below."""
+    assert len(MODULES) == len(ENGINE_FILES), sorted(MODULES)
 
 
 def _source(name: str) -> Path:
@@ -39,8 +46,8 @@ def test_module_imports_without_mem(module):
 def test_notes_imports_no_other_engine_module():
     code = (
         "import sys; before = set(sys.modules); import notes; "
-        "import pathlib; engine = {p.stem for p in pathlib.Path('.').glob('*.py')}; "
-        "loaded = (set(sys.modules) - before) & engine - {'notes'}; assert not loaded, loaded"
+        f"engine = {sorted(MODULES)!r}; "
+        "loaded = (set(sys.modules) - before) & set(engine) - {'notes'}; assert not loaded, loaded"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
@@ -169,3 +176,36 @@ def test_store_modules_never_import_synthesize():
         if hit := sorted(m for m in seen if m.split(".")[0] == PACKAGE):
             reached[store] = hit
     assert not reached, f"store modules reaching the synthesize package: {reached}"
+
+
+# Every cross-package edge allowed in the engine, as (importer, imported), frozen at the base of backlog A14
+# (docs/superpowers/plans/2026-11-26-memory-engine-packages.md). Each package task adds its package to the
+# engine; an edge not listed here is new and fails. The list only shrinks (A5 removes research -> mem).
+FROZEN_EDGES = {
+    ("corroborate", "capture"),
+    ("corroborate", "digest"),
+    ("corroborate", "synthesize"),
+    ("research", "synthesize"),
+    ("research", "mem"),
+    ("digest", "store"),
+    ("session", "store"),
+}
+PLANNED_PACKAGES = {
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "synthesize",
+}  # fmt: skip
+
+
+def test_packages_are_planned_and_edges_frozen():
+    """Packages import each other only along FROZEN_EDGES; `core` and `store` import no feature package."""
+    assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    new_edges = sorted(
+        f"{name} -> {dep}"
+        for name, deps in graph.items()
+        if (own := name.split(".")[0]) in PACKAGES
+        for dep in deps
+        if (target := dep.split(".")[0]) in PACKAGES
+        and target != own
+        and (own, target) not in FROZEN_EDGES
+    )
+    assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
