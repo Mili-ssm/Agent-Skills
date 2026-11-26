@@ -1,9 +1,8 @@
 import datetime
 import io
 
-import pytest
-
 import mem
+import pytest
 import records
 import settle
 import settle_state
@@ -12,6 +11,7 @@ TODAY = datetime.date.today()
 K1, K2 = "0123456789ab", "ba9876543210"
 QUARANTINED = "Zebra caches expire silently under load."
 ESTABLISHED = "Walrus queues drain slowly during deploys."
+EXIT_REFUSED = 3
 
 
 @pytest.fixture
@@ -22,8 +22,23 @@ def gfolder(tmp_path, monkeypatch):
 
 
 def write_quarantined(claim=QUARANTINED, *extra):
-    return mem.main(["remember", "--global", "--origin", "transcript", "--reach", "general", "--weight", "light",
-                     "--kind", "lesson", "--claim", claim, "--source", "session a", *extra])
+    return mem.main([
+        "remember",
+        "--global",
+        "--origin",
+        "transcript",
+        "--reach",
+        "general",
+        "--weight",
+        "light",
+        "--kind",
+        "lesson",
+        "--claim",
+        claim,
+        "--source",
+        "session a",
+        *extra,
+    ])
 
 
 def write_established(claim=ESTABLISHED):
@@ -64,14 +79,27 @@ def test_memories_listing_hides_it_and_the_flag_shows_it(both, capsys):
 
 
 def test_remember_hint_does_not_show_it(both, capsys):
-    q, e = both
-    assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", "Zebra caches expire quietly under heavy load."]) == 0
+    q, _ = both
+    assert (
+        mem.main([
+            "remember",
+            "--global",
+            "--kind",
+            "lesson",
+            "--claim",
+            "Zebra caches expire quietly under heavy load.",
+        ])
+        == 0
+    )
     err = capsys.readouterr().err
     assert q.handle not in err
 
 
 def test_identical_claim_is_still_refused(both, capsys):
-    assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", QUARANTINED]) == 3
+    assert (
+        mem.main(["remember", "--global", "--kind", "lesson", "--claim", QUARANTINED])
+        == EXIT_REFUSED
+    )
 
 
 def test_handle_still_resolves(both, capsys):
@@ -86,12 +114,26 @@ def test_project_scope_is_unchanged(tmp_path, monkeypatch, capsys):
     root = tmp_path / "proj"
     root.mkdir()
     monkeypatch.setenv("MEM_PROJECT", str(root))
-    assert mem.main(["remember", "--origin", "transcript", "--kind", "lesson", "--claim", QUARANTINED,
-                     "--source", "session a"]) == 0
+    assert (
+        mem.main([
+            "remember",
+            "--origin",
+            "transcript",
+            "--kind",
+            "lesson",
+            "--claim",
+            QUARANTINED,
+            "--source",
+            "session a",
+        ])
+        == 0
+    )
     capsys.readouterr()
     assert mem.main(["memories"]) == 0
     assert "unconfirmed" in capsys.readouterr().out
-    assert "This project: 1 memories." in mem.session_index(None, records.project_dir(root), None, TODAY)
+    assert "This project: 1 memories." in mem.session_index(
+        None, records.project_dir(root), None, TODAY
+    )
 
 
 def test_settle_leaves_quarantine_alone(gfolder, monkeypatch):
@@ -119,7 +161,7 @@ def test_signal_does_not_name_a_quarantined_record(gfolder, tmp_path, monkeypatc
     capsys.readouterr()
     assert mem.main(["signal"]) == 0
     out = capsys.readouterr().out
-    assert q.handle not in out and out.strip() == ""
+    assert q.handle not in out and not out.strip()
 
 
 def test_signal_names_an_established_twin(gfolder, tmp_path, monkeypatch, capsys):
@@ -148,9 +190,14 @@ def test_settle_state_ignores_quarantine_until_release(gfolder, capsys):
     assert not records.quarantined(q)
     state = settle.load_state(gfolder)
     assert settle.unjudged_count(gfolder, state, TODAY) == 1
-    assert write_established(QUARANTINED + " Indeed.") == 0  # a twin of the released record, to pair with it
+    assert (
+        write_established(QUARANTINED + " Indeed.") == 0
+    )  # a twin of the released record, to pair with it
     loaded = records.load_memories(gfolder, "global")
-    assert any(q.handle in (p["a"], p["b"]) for p in settle.pending(loaded, state, TODAY, tokenize=mem.tokenize))
+    assert any(
+        q.handle in {p["a"], p["b"]}
+        for p in settle.pending(loaded, state, TODAY, tokenize=mem.tokenize)
+    )
 
 
 def test_first_use_does_not_judge_a_quarantined_record(gfolder):
@@ -167,6 +214,6 @@ def test_quarantine_listing_hides_a_forgotten_record(both, capsys):
     assert mem.main(["forget", "--global", q.handle]) == 0
     capsys.readouterr()
     assert mem.main(["memories", "--global", "--quarantine"]) == 0
-    assert capsys.readouterr().out.strip() == ""
+    assert not capsys.readouterr().out.strip()
     assert mem.main(["memories", "--global", "--quarantine", "--dead"]) == 0
     assert q.handle in capsys.readouterr().out
