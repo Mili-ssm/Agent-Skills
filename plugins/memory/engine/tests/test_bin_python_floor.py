@@ -121,7 +121,7 @@ def _loaders() -> list[Path]:
     """Every file that may run a module by `exec_module`: the `bin/` scripts, the engine tests and the eval harnesses."""
     return [
         *_scripts(),
-        *sorted((ENGINE / "tests").glob("*.py")),
+        *sorted((ENGINE / "tests").rglob("*.py")),
         *sorted((ROOT / "evals").rglob("*.py")),
     ]
 

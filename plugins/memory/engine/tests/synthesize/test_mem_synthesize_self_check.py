@@ -4,7 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SYNTHESIZE = Path(__file__).resolve().parents[2] / "bin" / "mem-synthesize"
+SYNTHESIZE = Path(__file__).resolve().parents[3] / "bin" / "mem-synthesize"
 
 
 def test_self_check_passes():

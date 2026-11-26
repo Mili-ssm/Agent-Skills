@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 BIN = PLUGIN / "bin"
 MEM = PLUGIN / "engine" / "mem.py"
 A = "../knowledge/computing/attention-replaces-recurrence.md"
