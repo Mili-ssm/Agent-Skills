@@ -15,7 +15,10 @@ def test_append_text_matches_append_section(tmp_path):
         encoding="utf-8",
     )
     append_section(path, "basics", NEW, datetime.date(2026, 2, 2))
-    assert append_text(OLD, NEW) in path.read_text(encoding="utf-8")
+    body = (
+        path.read_text(encoding="utf-8").split("## Basics\n\n", 1)[1].strip()
+    )  # Basics is the last section
+    assert body == append_text(OLD, NEW)
 
 
 def test_append_text_merges_sources_line():

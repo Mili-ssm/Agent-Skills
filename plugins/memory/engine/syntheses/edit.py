@@ -435,7 +435,8 @@ def append_text(
     section_text: str, text: str, *, store: Path | None = None, is_summary: bool = False
 ) -> str:
     """The section text after `text` is added at its end, before its `Sources:` line; links of a closing `Sources:`
-    line in `text` join the section's own line. Pure: nothing is read or written."""
+    line in `text` join the section's own line. Writes nothing; pure unless `store` is given, which makes
+    `validate_section` read that store."""
     text = _clean(text)
     if not text:
         raise ValueError("the text to append is empty")

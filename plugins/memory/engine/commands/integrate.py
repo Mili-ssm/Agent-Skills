@@ -174,7 +174,7 @@ def _apply_row(build: _Build, row: Row) -> str | None:
     if isinstance(note, str):
         return note
     path, rel, meta = note
-    if not part.old or not units.fingerprint(part.old).startswith(row.fingerprint):
+    if not part.old or units.fingerprint(part.old) != row.fingerprint:
         return "part changed since it was read"
     claim = _flat(meta.get("claim", ""))
     try:

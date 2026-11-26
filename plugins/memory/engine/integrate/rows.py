@@ -12,10 +12,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 _FIELDS = 4
-_ROW = re.compile(r"[^\s|]+")
+_NOTE = re.compile(r"[^\s|]+")
 _TARGET = re.compile(r"s:[a-z0-9-]+#[a-z0-9-]+")
 _ACTION = re.compile(r"append|unit ([1-9][0-9]*)")
-_FINGERPRINT = re.compile(r"[0-9a-f]{8,}")
+_FINGERPRINT = re.compile(r"[0-9a-f]{10}")
 
 
 class Row(NamedTuple):
@@ -32,8 +32,10 @@ def _parse_line(line: str) -> Row | None:
         return None
     note, target, action, fingerprint = parts
     act = _ACTION.fullmatch(action)
+    if note.startswith("-"):  # it becomes a command argument; the target always starts with `s:`
+        return None
     if not (
-        _ROW.fullmatch(note)
+        _NOTE.fullmatch(note)
         and _TARGET.fullmatch(target)
         and act
         and _FINGERPRINT.fullmatch(fingerprint)
