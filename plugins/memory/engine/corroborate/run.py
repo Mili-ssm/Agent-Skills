@@ -15,12 +15,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 import capture_state as cs
-import corroborate
-import corroborate_state
 import headless
 import jobs
 import records
 from synthesize import pipeline as sp
+
+from corroborate import decide as corroborate_decide
+from corroborate import state as corroborate_state
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -53,7 +54,7 @@ REMEMBER_BODY = (
 
 
 # Not resolved: `fake_plugin` in the tests links `engine/`, and a resolved path would reach the real `bin/mem`.
-MEM = Path(__file__).parent.parent / "bin" / "mem"
+MEM = Path(__file__).parent.parent.parent / "bin" / "mem"
 
 
 MEM_TIMEOUT = 60
@@ -288,7 +289,7 @@ class Applier:
             "cases": 0,
         }
         self.refused_ids: set[str] = set()
-        self.current: corroborate.Group | None = None
+        self.current: corroborate_decide.Group | None = None
         self.written: str | None = (
             None  # the global record that this group's write_global made or found
         )
@@ -488,7 +489,7 @@ class Applier:
 
 def stable_key(lesson) -> str:
     """The name of a lesson that does not change between runs (the ids of a lessons file depend on the registry)."""
-    return corroborate.fill_key(lesson.project, lesson.memory.handle)
+    return corroborate_decide.fill_key(lesson.project, lesson.memory.handle)
 
 
 def planned(acts) -> list[dict]:
@@ -589,8 +590,8 @@ class _World:
     today: datetime.date
 
     def collect(self) -> list:
-        return corroborate.collect(
-            corroborate.counted_projects(self.registry), self.gfolder, self.today
+        return corroborate_decide.collect(
+            corroborate_decide.counted_projects(self.registry), self.gfolder, self.today
         )
 
 
@@ -687,7 +688,7 @@ def _verify(ctx: _Run, root: Path, judged: _Judged, by_id: dict) -> None:
     """The verifying session over the proposed groups: sets what was kept and why the rest was not."""
     work = root / "verify"
     work.mkdir(mode=0o700)
-    lines = corroborate.verification_lines(judged.proposed, by_id)
+    lines = corroborate_decide.verification_lines(judged.proposed, by_id)
     corroborate_state.write_private(work / "groups.txt", "".join(f"{ln}\n" for ln in lines))
     out = work / "verdicts.json"
     brief = VERIFY_BRIEF.format(groups=work / "groups.txt", out=out)
@@ -697,13 +698,13 @@ def _verify(ctx: _Run, root: Path, judged: _Judged, by_id: dict) -> None:
     judged.incomplete = judged.incomplete or not (
         isinstance(data, dict) and isinstance(data.get("verdicts"), list)
     )
-    judged.kept, judged.vreasons = corroborate.validate_verdicts(data, judged.proposed)
+    judged.kept, judged.vreasons = corroborate_decide.validate_verdicts(data, judged.proposed)
 
 
 def _judge_file(groups_file: str, lessons: list) -> _Judged:
     """A reviewed groups file: no sessions, every valid group is kept."""
     proposal = read_object(Path(groups_file).expanduser())
-    proposed, reasons = corroborate.validate_groups(proposal, lessons)
+    proposed, reasons = corroborate_decide.validate_groups(proposal, lessons)
     return _Judged(proposal, proposed, reasons, list(proposed), [])
 
 
@@ -715,13 +716,14 @@ def _judge_sessions(
     corroborate_state.write_private(root / "settings.json", json.dumps({"disableAllHooks": True}))
     proposal = _propose(ctx, root)
     incomplete = not (isinstance(proposal, dict) and isinstance(proposal.get("groups"), list))
-    proposed, reasons = corroborate.validate_groups(proposal, lessons)
+    proposed, reasons = corroborate_decide.validate_groups(proposal, lessons)
     # a refused group waits until one of its lessons changes (a sighting, a new wording): all marks must still hold
     proposed = [
         g
         for g in proposed
         if not all(
-            refused_seen.get(stable_key(by_id[i])) == corroborate.lesson_fingerprint(by_id[i])
+            refused_seen.get(stable_key(by_id[i]))
+            == corroborate_decide.lesson_fingerprint(by_id[i])
             for i in g.ids
         )
     ]
@@ -764,7 +766,7 @@ def _write_plan(ctx: _Run, judged: _Judged, by_id: dict) -> None:
     if ctx.out_file is None:
         raise TypeError("a dry run needs an output file")
     plan = [
-        {"ids": g.ids, "claim": g.claim, "actions": planned(corroborate.actions(g, by_id))}
+        {"ids": g.ids, "claim": g.claim, "actions": planned(corroborate_decide.actions(g, by_id))}
         for g in judged.kept
     ]
     report = {
@@ -788,7 +790,7 @@ def _apply_groups(ctx: _Run, judged: _Judged, by_id: dict, root: Path, world: _W
         applier.current = g
         failed_before = applier.counts["failed_actions"]
         try:
-            applier.apply(g, corroborate.actions(g, by_id))
+            applier.apply(g, corroborate_decide.actions(g, by_id))
         except Exception as exc:  # one odd group never stops the others
             logger.debug("a group failed", exc_info=True)
             ctx.log(f"group failed: {type(exc).__name__}: {exc}")
@@ -805,7 +807,7 @@ def _refusal_marks(
 ) -> tuple[dict, set[str]]:
     """The marks the next run keeps: the fingerprints the lessons have now, after this run's own writes (a merge
     changes the kept record); the marks this run added."""
-    after = {stable_key(x): corroborate.lesson_fingerprint(x) for x in world.collect()}
+    after = {stable_key(x): corroborate_decide.lesson_fingerprint(x) for x in world.collect()}
     marked = {stable_key(by_id[i]) for i in ids}
     marks = {k: v for k, v in refused_seen.items() if isinstance(v, str) and k in after}
     marks.update({k: after[k] for k in marked if k in after})
@@ -827,7 +829,7 @@ def _retry_entry(world: _World, seen: dict, before: str) -> tuple[dict, bool]:
     """A run with a failed action or an unusable answer saves no fingerprint, so the next run tries again, but only
     MAX_RETRIES times on the same lessons; then it gives up (the fingerprint is saved) and says so."""
     count = _retries_so_far(seen, before) + 1
-    now = corroborate.fingerprint(
+    now = corroborate_decide.fingerprint(
         world.collect()
     )  # after this run's writes: what the next run starts from
     if count >= MAX_RETRIES:
@@ -851,7 +853,7 @@ def _next_state(
     elif (
         not ctx.groups_file
     ):  # a reviewed file never tells the model's pass that the lessons were seen
-        state["fingerprint"] = corroborate.fingerprint(world.collect())
+        state["fingerprint"] = corroborate_decide.fingerprint(world.collect())
     elif "fingerprint" in seen:
         state["fingerprint"] = seen["fingerprint"]
     return state, False
@@ -862,7 +864,7 @@ def _run_pass(ctx: _Run) -> dict:
     refused_seen = seen["refused"] if isinstance(seen.get("refused"), dict) else {}
     world = _read_world(ctx.data)
     lessons = world.collect()
-    before = corroborate.fingerprint(
+    before = corroborate_decide.fingerprint(
         lessons
     )  # compared with the retry a failed run stored (its lessons after its writes)
     ctx.line["lessons"] = len(lessons)
@@ -873,7 +875,7 @@ def _run_pass(ctx: _Run) -> dict:
     root = _start_run(ctx)  # only a run that works gets a folder and a status
     by_id = {x.id: x for x in lessons}
     corroborate_state.write_private(
-        root / "lessons.txt", "".join(f"{ln}\n" for ln in corroborate.lesson_lines(lessons))
+        root / "lessons.txt", "".join(f"{ln}\n" for ln in corroborate_decide.lesson_lines(lessons))
     )
     judged = (
         _judge_file(ctx.groups_file, lessons)
@@ -1004,7 +1006,7 @@ def _fill_world():
     """(data folder, registry, counted projects, global folder, project name of each path)."""
     data = corroborate_state.data_dir()
     registry = records.read_registry(data)
-    projects = corroborate.counted_projects(registry)
+    projects = corroborate_decide.counted_projects(registry)
     names: dict[Path, str] = {}
     for name in sorted(registry):
         entry = registry[name]

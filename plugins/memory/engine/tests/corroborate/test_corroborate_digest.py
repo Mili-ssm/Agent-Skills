@@ -5,11 +5,11 @@ import os
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import corroborate_digest
 import digest
 import jobs
 import mem
 import records
+from corroborate import digest as corroborate_digest
 from corroborate_world import TODAY, calls, globals_, run, snapshot, w
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name

@@ -1,11 +1,11 @@
 import os
 from pathlib import Path
 
-import corroborate
 import mem
 import pytest
 import records
 import rules
+from corroborate import decide as corroborate_decide
 from test_case_log import (
     FAILS,
     TODAY,
@@ -161,7 +161,9 @@ def os_gmem():
 
 
 def candidates(state=NONE_YET, **kw):
-    return [m.claim for _, m in corroborate.reword_candidates([], os_gmem(), TODAY, state, **kw)]
+    return [
+        m.claim for _, m in corroborate_decide.reword_candidates([], os_gmem(), TODAY, state, **kw)
+    ]
 
 
 def test_candidates_are_loading_lessons_that_got_worse(project, gfolder):
@@ -214,7 +216,9 @@ def test_a_wording_the_owner_wrote_after_a_rewording_gets_one_attempt(project, g
     m = worse("Reworded.", reworded=ago(10))
     m = owner_version(m, 5)  # the owner wrote a newer version, which got worse
     assert candidates() == ["Reworded."]
-    state, _ = corroborate.reword_state_after(NONE_YET, [("g:a", m)], {"g:a": "written"}, TODAY)
+    state, _ = corroborate_decide.reword_state_after(
+        NONE_YET, [("g:a", m)], {"g:a": "written"}, TODAY
+    )
     assert entry_of(state, m) == {"version": ago(5).isoformat(), "count": 0, "spent": True}
     # the pass wrote its version today and marked it
     m = records.update(
@@ -237,7 +241,7 @@ def test_a_kept_wording_is_not_reworded_but_a_later_one_is(project, gfolder):
 
 def test_spent_is_per_version(project, gfolder):
     m = worse("Spent.")
-    key = corroborate.reword_key(None, m.handle)
+    key = corroborate_decide.reword_key(None, m.handle)
     here = {
         "lessons": {key: {"version": ago(10).isoformat(), "count": 0, "spent": True}},
         "failures": {},
@@ -254,7 +258,7 @@ def test_a_given_up_version_and_a_spent_lesson_are_skipped(project, gfolder):
     spent = worse("Spent.")
     twice = worse("Twice.")
     earlier = worse("Earlier count.")
-    key = lambda m: corroborate.reword_key(None, m.handle)
+    key = lambda m: corroborate_decide.reword_key(None, m.handle)
     state = {
         "lessons": {
             key(spent): {"version": ago(10).isoformat(), "count": 0, "spent": True},
@@ -272,7 +276,7 @@ def test_cap_and_order(project, gfolder):
         worse(f"Lesson {n}.", fails=[(5, "failed"), (4, "failed")] + [(3, "failed")] * n)
     got = candidates()
     assert got == ["Lesson 6.", "Lesson 5.", "Lesson 4.", "Lesson 3.", "Lesson 2."]
-    assert len(got) == corroborate.REWORD_CAP
+    assert len(got) == corroborate_decide.REWORD_CAP
 
 
 def test_every_takes_lessons_that_did_not_get_worse(project, gfolder):
@@ -294,7 +298,7 @@ def test_the_block_shows_versions_tallies_and_failure_signals(project, gfolder):
         body='Seen again (rework): "x"\nSeen again (effective_practice).\n'
         "Seen again (owner_correction).\nSeen again (rework).\n",
     )
-    block = corroborate.reword_blocks([("g:" + m.handle, m)])
+    block = corroborate_decide.reword_blocks([("g:" + m.handle, m)])
     assert block == (
         f"id: g:{m.handle}\nclaim: Failing lesson.\n"
         "version 1 (worked 1, failed 0): First text.\n"
@@ -305,26 +309,28 @@ def test_the_block_shows_versions_tallies_and_failure_signals(project, gfolder):
         "owner_correction", ""
     )
     bare = global_lesson("No signals.", versions=[(10, "First text.")])
-    assert "failed after it loaded: not recorded" in corroborate.reword_blocks([("g:b", bare)])
+    assert "failed after it loaded: not recorded" in corroborate_decide.reword_blocks([
+        ("g:b", bare)
+    ])
 
 
 def test_same_text():
-    assert corroborate.same_text("Check the data first.", "check  the data first")
-    assert not corroborate.same_text("Check the data first.", "Check the real data first.")
+    assert corroborate_decide.same_text("Check the data first.", "check  the data first")
+    assert not corroborate_decide.same_text("Check the data first.", "Check the real data first.")
 
 
 def test_reword_problem(project, gfolder):
     m = worse("Failing lesson.")
-    assert corroborate.reword_problem("x" * 121, m)
-    assert corroborate.reword_problem("", m)
-    assert corroborate.reword_problem("first text", m) == "same as an earlier wording"
-    assert corroborate.reword_problem("A new wording.", m) is None
+    assert corroborate_decide.reword_problem("x" * 121, m)
+    assert corroborate_decide.reword_problem("", m)
+    assert corroborate_decide.reword_problem("first text", m) == "same as an earlier wording"
+    assert corroborate_decide.reword_problem("A new wording.", m) is None
 
 
 def test_validate_reword(project, gfolder):
     a, b = worse("Lesson a."), worse("Lesson b.")
     items = [("g:a", a), ("g:b", b)]
-    got = corroborate.validate_reword(
+    got = corroborate_decide.validate_reword(
         {
             "items": [
                 {"id": "g:a", "short": "A new wording."},
@@ -335,18 +341,18 @@ def test_validate_reword(project, gfolder):
         items,
     )
     assert got == {"g:a": {"short": "A new wording.", "problem": None}}
-    bad = corroborate.validate_reword({"items": [{"id": "g:b", "short": 5}]}, items)
+    bad = corroborate_decide.validate_reword({"items": [{"id": "g:b", "short": 5}]}, items)
     assert not bad["g:b"]["short"] and bad["g:b"]["problem"]
 
     with pytest.raises(ValueError):
-        corroborate.validate_reword({"items": "no"}, items)
+        corroborate_decide.validate_reword({"items": "no"}, items)
 
 
 # --- Task 3: what the step decides from the two answers ---
 
 
 def proposals(items, *shorts):
-    return corroborate.validate_reword(
+    return corroborate_decide.validate_reword(
         {"items": [{"id": i, "short": s} for (i, _), s in zip(items, shorts, strict=False)]}, items
     )
 
@@ -363,7 +369,7 @@ def three():
 def test_survivors_and_refusals(project, gfolder):
     items = three()
     got = proposals(items, "A new wording.", "first text", "Always a new wording.")
-    kept, refused = corroborate.reword_survivors(got, items)
+    kept, refused = corroborate_decide.reword_survivors(got, items)
     assert kept == [("g:a", items[0][1], "A new wording.")]
     assert refused == {"g:b": "same_text", "g:c": "refused_code"}
 
@@ -373,7 +379,7 @@ def test_outcome_words(project, gfolder):
     got = proposals(
         items[:4], "A new wording.", "first text", "Always a new wording.", "Another wording."
     )
-    out = corroborate.reword_outcome(items, got, {"g:a"})
+    out = corroborate_decide.reword_outcome(items, got, {"g:a"})
     assert out == {
         "g:a": "written",
         "g:b": "same_text",
@@ -384,12 +390,12 @@ def test_outcome_words(project, gfolder):
 
 
 def entry_of(state, m, project=None):
-    return state["lessons"][corroborate.reword_key(project, m.handle)]
+    return state["lessons"][corroborate_decide.reword_key(project, m.handle)]
 
 
 def test_a_written_lesson_is_spent(project, gfolder):
     m = worse("Lesson a.")
-    state, giveup = corroborate.reword_state_after(
+    state, giveup = corroborate_decide.reword_state_after(
         NONE_YET, [("g:a", m)], {"g:a": "written"}, TODAY
     )
     assert (
@@ -403,10 +409,12 @@ def test_a_written_lesson_is_spent(project, gfolder):
 def test_two_refusals_for_one_version_give_up(project, gfolder):
     m = worse("Lesson a.")
     items = [("g:a", m)]
-    once, giveup = corroborate.reword_state_after(NONE_YET, items, {"g:a": "refused_check"}, TODAY)
+    once, giveup = corroborate_decide.reword_state_after(
+        NONE_YET, items, {"g:a": "refused_check"}, TODAY
+    )
     assert entry_of(once, m)["count"] == 1 and entry_of(once, m)["spent"] is False and giveup == []
     assert NONE_YET == {"lessons": {}, "failures": {}}
-    twice, giveup = corroborate.reword_state_after(once, items, {"g:a": "same_text"}, TODAY)
+    twice, giveup = corroborate_decide.reword_state_after(once, items, {"g:a": "same_text"}, TODAY)
     assert (
         entry_of(twice, m)["count"] == TWO and giveup == ["g:a"] and entry_of(once, m)["count"] == 1
     )
@@ -414,12 +422,12 @@ def test_two_refusals_for_one_version_give_up(project, gfolder):
 
 def test_a_refusal_for_a_new_version_starts_again(project, gfolder):
     m = worse("Lesson a.")
-    key = corroborate.reword_key(None, m.handle)
+    key = corroborate_decide.reword_key(None, m.handle)
     old = {
         "lessons": {key: {"version": ago(40).isoformat(), "count": 1, "spent": False}},
         "failures": {"x": 1},
     }
-    state, giveup = corroborate.reword_state_after(
+    state, giveup = corroborate_decide.reword_state_after(
         old, [("g:a", m)], {"g:a": "refused_code"}, TODAY
     )
     assert state["lessons"][key] == {"version": ago(10).isoformat(), "count": 1, "spent": False}
@@ -438,21 +446,25 @@ def test_a_project_lesson_has_the_key_of_its_project(project):
         sources=[records.sighting_entry("session s1", "k")],
     )
     m = records.update(m, TODAY, short="First text.")
-    state, _ = corroborate.reword_state_after(
+    state, _ = corroborate_decide.reword_state_after(
         NONE_YET, [("p1:" + m.handle, m)], {"p1:" + m.handle: "written"}, TODAY
     )
-    assert list(state["lessons"]) == [corroborate.reword_key(project, m.handle)]
+    assert list(state["lessons"]) == [corroborate_decide.reword_key(project, m.handle)]
 
 
 def test_a_missing_proposal_counts_an_attempt(project, gfolder):
     m = worse("Lesson a.")
     items = [("g:a", m)]
-    once, giveup = corroborate.reword_state_after(NONE_YET, items, {"g:a": "no_proposal"}, TODAY)
+    once, giveup = corroborate_decide.reword_state_after(
+        NONE_YET, items, {"g:a": "no_proposal"}, TODAY
+    )
     assert (
         entry_of(once, m) == {"version": ago(10).isoformat(), "count": 1, "spent": False}
         and giveup == []
     )
-    twice, giveup = corroborate.reword_state_after(once, items, {"g:a": "no_proposal"}, TODAY)
+    twice, giveup = corroborate_decide.reword_state_after(
+        once, items, {"g:a": "no_proposal"}, TODAY
+    )
     assert entry_of(twice, m)["count"] == TWO and giveup == ["g:a"]
 
 
@@ -463,7 +475,9 @@ def test_a_changed_lesson_and_a_failed_edit_count_nothing(project, gfolder, word
         "lessons": {"k": {"version": "2026-01-01", "count": 1, "spent": False}},
         "failures": {},
     }
-    state, giveup = corroborate.reword_state_after(before, [("g:a", m)], {"g:a": word}, TODAY)
+    state, giveup = corroborate_decide.reword_state_after(
+        before, [("g:a", m)], {"g:a": word}, TODAY
+    )
     assert state == before and giveup == []
 
 

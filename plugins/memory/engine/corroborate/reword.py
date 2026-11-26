@@ -13,11 +13,12 @@ import time
 from pathlib import Path
 from typing import NamedTuple, TypedDict, Unpack
 
-import corroborate
-import corroborate_run
-import corroborate_state
 import jobs
 import records
+
+from corroborate import decide as corroborate_decide
+from corroborate import run as corroborate_run
+from corroborate import state as corroborate_state
 
 logger = logging.getLogger(__name__)
 
@@ -193,14 +194,14 @@ def _retry_give_ups(cdir: Path, state: dict, projects, gfolder: Path | None) -> 
     """The `--reword-failed` edit of a give-up that did not run: every lesson the state counts REWORD_ATTEMPTS or more
     for its present version and whose record lacks the mark gets it again. Returns the marks written."""
     applier, done, seen = None, 0, set()
-    for _i, p, m in corroborate.fill_records(projects, gfolder):
-        key, versions = corroborate.reword_key(p, m.handle), records.version_list(m)
+    for _i, p, m in corroborate_decide.fill_records(projects, gfolder):
+        key, versions = corroborate_decide.reword_key(p, m.handle), records.version_list(m)
         if key in seen or not versions or m.reword_failed == versions[-1][0]:
             continue
         seen.add(key)
         if (
-            corroborate._count(corroborate._entry(state, key), versions[-1][0])
-            >= corroborate.REWORD_ATTEMPTS
+            corroborate_decide._count(corroborate_decide._entry(state, key), versions[-1][0])
+            >= corroborate_decide.REWORD_ATTEMPTS
         ):
             applier = applier or _reword_applier(cdir, gfolder)
             if _reword_edit(applier, p, m, "--reword-failed") == "ok":
@@ -209,7 +210,7 @@ def _retry_give_ups(cdir: Path, state: dict, projects, gfolder: Path | None) -> 
 
 
 def _reword_candidates(params: _Params, state: dict, projects, gfolder: Path | None) -> list:
-    candidates = corroborate.reword_candidates(
+    candidates = corroborate_decide.reword_candidates(
         projects, gfolder, datetime.date.today(), state, every=params.every
     )
     return candidates[: max(params.limit, 0)] if params.every else candidates
@@ -236,7 +237,7 @@ def _still_open(seen, m) -> bool:
         seen is not None
         and (seen.claim, seen.short) == (m.claim, m.short)
         and seen.status == "active"
-        and corroborate.reword_open(seen, records.version_list(seen)[-1][0])
+        and corroborate_decide.reword_open(seen, records.version_list(seen)[-1][0])
     )
 
 
@@ -257,9 +258,13 @@ class _RewordPass:
     ) -> None:
         self.params, self.cdir, self.result, self.state = params, cdir, result, state
         self.projects, self.gfolder, self.candidates = world
-        self.where = {i: p for i, p, _m in corroborate.fill_records(self.projects, self.gfolder)}
+        self.where = {
+            i: p for i, p, _m in corroborate_decide.fill_records(self.projects, self.gfolder)
+        }
         self.by_id = dict(self.candidates)
-        keys = {i: corroborate.reword_key(self.where[i], m.handle) for i, m in self.candidates}
+        keys = {
+            i: corroborate_decide.reword_key(self.where[i], m.handle) for i, m in self.candidates
+        }
         self.fingerprint = hashlib.sha256(
             json.dumps(
                 sorted(
@@ -275,14 +280,16 @@ class _RewordPass:
 
     def run(self) -> dict:
         claude = self.params.claude
-        if self.failures["count"] >= corroborate.FILL_FAILURES:
+        if self.failures["count"] >= corroborate_decide.FILL_FAILURES:
             return _finish(self.result, stopped="waiting for the lessons to change", asked=0)
         if not claude:
             return _finish(self.result, stopped="no claude binary")
         sessions = self._sessions(claude)
         if sessions.failure is not None:
             return self._failed_session(sessions.failure)
-        outcome = corroborate.reword_outcome(self.candidates, sessions.proposed, sessions.accepted)
+        outcome = corroborate_decide.reword_outcome(
+            self.candidates, sessions.proposed, sessions.accepted
+        )
         if self.params.apply:
             self._apply(sessions.proposed, outcome)
         self._tally(outcome)
@@ -325,7 +332,7 @@ class _RewordPass:
         proposed = self._ask_writer(claude, scratch)
         if proposed is None:
             return _Sessions({}, set(), {}, "the writer session gave no usable answer")
-        kept, _refused = corroborate.reword_survivors(proposed, self.candidates)
+        kept, _refused = corroborate_decide.reword_survivors(proposed, self.candidates)
         if not kept:
             return _Sessions(proposed, set(), {})
         return self._ask_checker(claude, scratch, proposed, kept)
@@ -334,24 +341,28 @@ class _RewordPass:
         limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, self.params.budget)
         job = corroborate_run.AskJob(
             corroborate_run.REWORD_BRIEF,
-            corroborate.reword_blocks(self.candidates),
+            corroborate_decide.reword_blocks(self.candidates),
             "lessons",
             REWORD_WRITER_OUT,
         )
         payload, cost, ok = corroborate_run._ask(claude, scratch, "write", limits, job)
         self.result["cost"] += cost
         try:
-            return corroborate.validate_reword(payload, self.candidates) if ok else None
+            return corroborate_decide.validate_reword(payload, self.candidates) if ok else None
         except ValueError:
             return None
 
     def _ask_checker(self, claude: str, scratch: Path, proposed: dict, kept: list) -> _Sessions:
-        text = corroborate.check_lines([(i, m.claim, m.context, short) for i, m, short in kept])
+        text = corroborate_decide.check_lines([
+            (i, m.claim, m.context, short) for i, m, short in kept
+        ])
         limits = corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, self.params.budget)
         job = corroborate_run.AskJob(corroborate_run.CHECK_BRIEF, text, "pairs", REWORD_CHECK_OUT)
         payload, cost, ok = corroborate_run._ask(claude, scratch, "check", limits, job)
         self.result["cost"] += cost
-        checked = corroborate.validate_check(payload, [i for i, _m, _s in kept]) if ok else None
+        checked = (
+            corroborate_decide.validate_check(payload, [i for i, _m, _s in kept]) if ok else None
+        )
         if checked is None:
             return _Sessions({}, set(), {}, "the checker session gave no usable answer")
         accepted = {i for i, faithful in checked.items() if faithful}
@@ -359,7 +370,7 @@ class _RewordPass:
 
     def _edit_written(self, proposed: dict, outcome: dict[str, str]) -> None:
         now = {
-            i: m for i, _p, m in corroborate.fill_records(self.projects, self.gfolder)
+            i: m for i, _p, m in corroborate_decide.fill_records(self.projects, self.gfolder)
         }  # the owner may have edited meanwhile
         for i, m in self.candidates:
             if outcome[i] != "written":
@@ -378,7 +389,7 @@ class _RewordPass:
 
     def _apply(self, proposed: dict, outcome: dict[str, str]) -> None:
         self._edit_written(proposed, outcome)
-        new_state, giveup = corroborate.reword_state_after(
+        new_state, giveup = corroborate_decide.reword_state_after(
             self.state, self.candidates, outcome, datetime.date.today()
         )
         self.state["lessons"] = new_state["lessons"]

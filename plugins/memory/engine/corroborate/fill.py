@@ -15,13 +15,14 @@ import time
 from pathlib import Path
 from typing import NamedTuple
 
-import corroborate
-import corroborate_run
-import corroborate_state
 import jobs
 import records
 import rules
 import shortcheck
+
+from corroborate import decide as corroborate_decide
+from corroborate import run as corroborate_run
+from corroborate import state as corroborate_state
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +70,7 @@ def _propose_in(args, scratch: Path, candidates: list) -> tuple[dict, list[str],
     corroborate_state.write_private(settings, json.dumps({"disableAllHooks": True}))
     work = scratch / "fill"
     work.mkdir(mode=0o700)
-    corroborate_state.write_private(work / "lessons.txt", corroborate.fill_lines(candidates))
+    corroborate_state.write_private(work / "lessons.txt", corroborate_decide.fill_lines(candidates))
     out = work / "fill.json"
     brief = corroborate_run.FILL_BRIEF.format(lessons=work / "lessons.txt", out=out)
     limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, args.budget)
@@ -79,7 +80,7 @@ def _propose_in(args, scratch: Path, candidates: list) -> tuple[dict, list[str],
     if not done["has_result"] or done["error"]:
         print("mem-corroborate: the session failed; nothing was written", file=sys.stderr)
         return None
-    kept, reasons = corroborate.validate_fill(
+    kept, reasons = corroborate_decide.validate_fill(
         corroborate_run.read_object(out), [i for i, _m in candidates]
     )
     return kept, reasons, done["cost"]
@@ -108,7 +109,7 @@ def _dry_items(kept: dict, by_id: dict, where: dict, names: dict) -> list[dict]:
             "short": fields["short"],
             "topic": fields["topic"],
             "load": "index" if m.load == "index" else "yes",
-            "claim_digest": corroborate.claim_digest(m),
+            "claim_digest": corroborate_decide.claim_digest(m),
             **({"problem": fields["problem"]} if "problem" in fields else {}),
         })
     return items
@@ -136,8 +137,8 @@ def fill_dry_run(args) -> int:
     except ValueError as exc:
         print(f"mem-corroborate: registry unreadable: {exc}", file=sys.stderr)
         return 1
-    candidates = corroborate.fill_candidates(projects, gfolder, datetime.date.today())
-    where = {i: p for i, p, _m in corroborate.fill_records(projects, gfolder)}
+    candidates = corroborate_decide.fill_candidates(projects, gfolder, datetime.date.today())
+    where = {i: p for i, p, _m in corroborate_decide.fill_records(projects, gfolder)}
     kept: dict[str, dict] = {}
     reasons: list[str] = []
     cost = 0.0
@@ -217,7 +218,7 @@ class _Filler:
         self.user_read = user_read
         self.known = {
             i: _Known(p, m, _scope(p, names))
-            for i, p, m in corroborate.fill_records(projects, gfolder)
+            for i, p, m in corroborate_decide.fill_records(projects, gfolder)
         }
         self.applier = corroborate_run.Applier(
             corroborate_state.Journal(run), {}, gfolder, run, self._log
@@ -292,7 +293,7 @@ class _Filler:
             return
         self.used.add(item.ident)
         known = self.known[item.ident]
-        if item.raw.get("claim_digest") != corroborate.claim_digest(known.m):
+        if item.raw.get("claim_digest") != corroborate_decide.claim_digest(known.m):
             out.failed += 1
             self._log(f"item {n} failed: {item.ident} changed its claim since the file was made")
         elif self._edit(item, known):
@@ -452,13 +453,16 @@ def _finish(cdir: Path, result: dict, **changes) -> dict:
 
 
 def _lessons(projects: list, gfolder: Path | None, state: dict) -> dict[str, _Lesson]:
-    candidates = corroborate.fill_candidates(
+    candidates = corroborate_decide.fill_candidates(
         projects, gfolder, datetime.date.today(), attempts=state["lessons"]
     )
-    where = {i: p for i, p, _m in corroborate.fill_records(projects, gfolder)}
+    where = {i: p for i, p, _m in corroborate_decide.fill_records(projects, gfolder)}
     return {
         i: _Lesson(
-            m, where[i], corroborate.fill_key(where[i], m.handle), corroborate.claim_digest(m)
+            m,
+            where[i],
+            corroborate_decide.fill_key(where[i], m.handle),
+            corroborate_decide.claim_digest(m),
         )
         for i, m in candidates
     }
@@ -481,7 +485,7 @@ def _plan(cdir: Path, result: dict) -> _Auto | dict:
     failures = state["failures"]
     if failures["fingerprint"] != fingerprint:
         failures["count"] = 0
-    if failures["count"] >= corroborate.FILL_FAILURES:
+    if failures["count"] >= corroborate_decide.FILL_FAILURES:
         return _finish(cdir, result, stopped="waiting for the lessons to change", asked=0)
     return _Auto(cdir, result, state, lessons, names, gfolder, fingerprint)
 
@@ -498,7 +502,7 @@ def _writer_session(
     ctx: _Auto, claude: str, scratch: Path, budget: float
 ) -> tuple[dict[str, str], list[tuple[str, dict]]]:
     """The writer's proposals through the code check: (id -> why refused, the (id, item) pairs that passed)."""
-    lines = corroborate.fill_lines([(i, x.m) for i, x in ctx.lessons.items()])
+    lines = corroborate_decide.fill_lines([(i, x.m) for i, x in ctx.lessons.items()])
     limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, budget)
     payload, cost, ok = corroborate_run._ask(
         claude,
@@ -510,7 +514,7 @@ def _writer_session(
     ctx.result["cost"] += cost
     if not (ok and isinstance(payload, dict) and isinstance(payload.get("items"), list)):
         raise _SessionError("the writer session gave no usable answer")
-    kept, _dropped_reasons = corroborate.validate_fill(payload, list(ctx.lessons))
+    kept, _dropped_reasons = corroborate_decide.validate_fill(payload, list(ctx.lessons))
     reason: dict[str, str] = {}
     passed: list[tuple[str, dict]] = []
     for i, x in ctx.lessons.items():
@@ -532,7 +536,7 @@ def _writer_session(
 def _checker_session(
     ctx: _Auto, claude: str, scratch: Path, budget: float, passed: list[tuple[str, dict]]
 ) -> dict[str, bool]:
-    text = corroborate.check_lines([
+    text = corroborate_decide.check_lines([
         (i, ctx.lessons[i].m.claim, ctx.lessons[i].m.context, item["short"]) for i, item in passed
     ])
     limits = corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, budget)
@@ -544,7 +548,7 @@ def _checker_session(
         corroborate_run.AskJob(corroborate_run.CHECK_BRIEF, text, "pairs", "verdicts.json"),
     )
     ctx.result["cost"] += cost
-    checked = corroborate.validate_check(payload, [i for i, _x in passed]) if ok else None
+    checked = corroborate_decide.validate_check(payload, [i for i, _x in passed]) if ok else None
     if checked is None:
         raise _SessionError("the checker session gave no usable answer")
     return checked
@@ -626,14 +630,14 @@ def _count_attempts(
     for i in applied:
         attempts[ctx.lessons[i].key] = {
             "digest": ctx.lessons[i].digest,
-            "count": corroborate.FILL_ATTEMPTS,
+            "count": corroborate_decide.FILL_ATTEMPTS,
         }
     holds: list[tuple[str, str]] = []
     for i, why in reason.items():
         x = ctx.lessons[i]
-        count = corroborate.attempt_count(attempts.get(x.key), x.digest) + 1
+        count = corroborate_decide.attempt_count(attempts.get(x.key), x.digest) + 1
         attempts[x.key] = {"digest": x.digest, "count": count}
-        if count >= corroborate.FILL_ATTEMPTS:
+        if count >= corroborate_decide.FILL_ATTEMPTS:
             holds.append((i, why))
     return holds
 
@@ -677,7 +681,7 @@ def _written_ids(items: list[dict]) -> list[str]:
     """The ids of the items whose short form is in the records now: what an `apply_fill` that raised had written."""
     try:
         _data, projects, gfolder, _names = corroborate_run._fill_world()
-        known = {i: m for i, _p, m in corroborate.fill_records(projects, gfolder)}
+        known = {i: m for i, _p, m in corroborate_decide.fill_records(projects, gfolder)}
     except ValueError:
         return []
     return [

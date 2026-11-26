@@ -5,11 +5,11 @@ import json
 import os
 import subprocess
 
-import corroborate_reword
-import corroborate_run
 import jobs
 import pytest
 import records
+from corroborate import reword as corroborate_reword
+from corroborate import run as corroborate_run
 from corroborate_world import (
     GCLAIM,
     MEM,

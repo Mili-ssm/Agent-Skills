@@ -8,14 +8,14 @@ import stat
 import subprocess
 from pathlib import Path
 
-import corroborate
-import corroborate_cli
-import corroborate_fill
-import corroborate_run
-import corroborate_state
 import jobs
 import pytest
 import records
+from corroborate import cli as corroborate_cli
+from corroborate import decide as corroborate_decide
+from corroborate import fill as corroborate_fill
+from corroborate import run as corroborate_run
+from corroborate import state as corroborate_state
 from corroborate_world import (
     BRIEF,
     BRIEF2,
@@ -170,7 +170,7 @@ def test_fill_dry_run_writes_the_proposal_and_changes_nothing(w):
         "process",
         "yes",
     )
-    assert first["claim_digest"] == corroborate.claim_digest(
+    assert first["claim_digest"] == corroborate_decide.claim_digest(
         next(m for m in project_records(w.pa).values() if m.claim == SAME)
     )
     assert (
@@ -347,7 +347,7 @@ def test_fill_items_drop_what_is_invalid_or_unknown_and_rewrite_a_filled_record(
         if ("p", a.handle) in ids
         else next(i for (k, h), i in ids.items() if h == a.handle and k != "g")
     )
-    digest = corroborate.claim_digest(a)
+    digest = corroborate_decide.claim_digest(a)
     good = {
         "id": pid,
         "handle": a.handle,
@@ -529,7 +529,7 @@ def test_fill_items_load_alone_with_unchanged_short_and_topic(w):
         "short": SHORT,
         "topic": "process",
         "load": "index",
-        "claim_digest": corroborate.claim_digest(_a(w)),
+        "claim_digest": corroborate_decide.claim_digest(_a(w)),
     }
     out.write_text(json.dumps([item]))
     done = fill_run(w, "--items", str(out), claude=False, mode="never")
@@ -1074,7 +1074,7 @@ def test_a_failing_apply_three_times_in_a_row_makes_the_step_wait(w, monkeypatch
     _breaking_apply(w, monkeypatch)
     # two attempts per lesson end the asking sooner than three failures could, so the attempts are cleared between
     # runs: what is under test is the failure count on the same lessons
-    for n in range(corroborate.FILL_FAILURES):
+    for n in range(corroborate_decide.FILL_FAILURES):
         assert auto(w)["stopped"] == "the apply failed"
         state = attempts(w)
         assert state["failures"]["count"] == n + 1
@@ -1104,7 +1104,7 @@ def test_a_fill_that_raises_after_writing_marks_what_was_written_as_spent(w, mon
     monkeypatch.setattr(corroborate_fill, "apply_fill", write_then_break)
     assert auto(w)["stopped"] == "the apply failed"
     assert by_claim(w, NARROW).short == SHORTS[NARROW]
-    assert count_of(w, NARROW) == [corroborate.FILL_ATTEMPTS]
+    assert count_of(w, NARROW) == [corroborate_decide.FILL_ATTEMPTS]
     records.update(by_claim(w, NARROW), TODAY, short=None, topic=None)  # the owner removes it
     assert auto(w)["asked"] == 0 and calls(w) == SESSION_PAIR
 
@@ -1146,7 +1146,7 @@ def test_apply_fill_without_user_read_passes_no_load_flag(w, monkeypatch):
         "short": SHORTS[NARROW],
         "topic": "process",
         "load": "yes",
-        "claim_digest": corroborate.claim_digest(m),
+        "claim_digest": corroborate_decide.claim_digest(m),
     }
     assert (
         corroborate_fill.apply_fill([item], w.cdir / "runs" / "direct-fill", user_read=False)[

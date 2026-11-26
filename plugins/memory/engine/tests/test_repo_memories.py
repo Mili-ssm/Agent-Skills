@@ -4,10 +4,10 @@ import datetime
 import subprocess
 from pathlib import Path
 
-import corroborate
 import mem
 import pytest
 import records
+from corroborate import decide as corroborate_decide
 
 K1, K2 = "0123456789ab", "ba9876543210"
 SHORT = "Retries need idempotency keys on payment calls."
@@ -123,11 +123,11 @@ def test_uninitialized_submodule_gitlink_counts_as_tracked(repo, tmp_path):
 
 def test_corroboration_ignores_repository_lessons(repo, tmp_path):
     lesson(sessions=2, confirmed=False)
-    assert [x.id for x in corroborate.collect([repo], None, TODAY)] == [
+    assert [x.id for x in corroborate_decide.collect([repo], None, TODAY)] == [
         "p1:payment-retries-need-idempotency-keys"
     ]
     commit(repo)
-    assert corroborate.collect([repo], None, TODAY) == []
+    assert corroborate_decide.collect([repo], None, TODAY) == []
 
 
 def test_fill_job_never_picks_a_tracked_lesson(repo):
@@ -148,15 +148,17 @@ def test_fill_job_never_picks_a_tracked_lesson(repo):
         "--source",
         f"session b project {K2}",
     ])
-    before = corroborate.fill_candidates([repo], None, TODAY)
+    before = corroborate_decide.fill_candidates([repo], None, TODAY)
     commit(repo)
-    assert before and corroborate.fill_candidates([repo], None, TODAY) == []
-    assert corroborate.fill_records([repo], None) == []
-    assert corroborate.reword_candidates([repo], None, TODAY, {}, every=True) == []
+    assert before and corroborate_decide.fill_candidates([repo], None, TODAY) == []
+    assert corroborate_decide.fill_records([repo], None) == []
+    assert corroborate_decide.reword_candidates([repo], None, TODAY, {}, every=True) == []
 
 
 def test_reword_job_never_picks_a_tracked_lesson(repo):
     lesson(sessions=2, confirmed=False)
-    before = corroborate.reword_candidates([repo], None, TODAY, {}, every=True)
+    before = corroborate_decide.reword_candidates([repo], None, TODAY, {}, every=True)
     commit(repo)
-    assert before and corroborate.reword_candidates([repo], None, TODAY, {}, every=True) == []
+    assert (
+        before and corroborate_decide.reword_candidates([repo], None, TODAY, {}, every=True) == []
+    )

@@ -8,13 +8,13 @@ import subprocess
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import corroborate
-import corroborate_reword
 import jobs
 import pytest
 import records
+from corroborate import decide as corroborate_decide
+from corroborate import reword as corroborate_reword
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 CORR = PLUGIN / "bin" / "mem-corroborate"
 MEM = PLUGIN / "bin" / "mem"
 TODAY = datetime.date.today()
@@ -129,7 +129,7 @@ def glob(w, claim, sessions, project=None, created=TODAY):
 
 def lessons(w):
     registry = records.read_registry(w.data)
-    return corroborate.collect(corroborate.counted_projects(registry), w.gmem, TODAY)
+    return corroborate_decide.collect(corroborate_decide.counted_projects(registry), w.gmem, TODAY)
 
 
 def ident(w, snippet):
@@ -257,7 +257,9 @@ def candidate_ids(w):
     """claim -> ids of the lessons that lack a short form, as the fill sees them."""
     registry = records.read_registry(w.data)
     found = {}
-    for i, _p, m in corroborate.fill_records(corroborate.counted_projects(registry), w.gmem):
+    for i, _p, m in corroborate_decide.fill_records(
+        corroborate_decide.counted_projects(registry), w.gmem
+    ):
         found.setdefault(m.claim, []).append(i)
     return found
 

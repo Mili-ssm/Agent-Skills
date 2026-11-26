@@ -54,7 +54,7 @@ Order (fewest importers first; each task is one pull request on the previous bra
 ---
 
 ### Task 1: `corroborate/`
-- [ ] First commit: `test_import_graph.py` builds MODULES from every `engine/**/*.py` outside tests (dotted names, packages by `__init__.py`) and asserts its size equals the file count; `test_notes_imports_no_other_engine_module` uses the same set; the frozen edge list above becomes a test. Then clean `corroborate.py`; move the seven modules; importers, patches, `ruff.toml`, tests to `tests/corroborate/`; rule. Check: suite, goldens of `mem-corroborate` (`tests/test_corroborate_cli.py` and the self-check), collected count.
+- [x] First commit: `test_import_graph.py` builds MODULES from every `engine/**/*.py` outside tests (dotted names, packages by `__init__.py`) and asserts its size equals the file count; `test_notes_imports_no_other_engine_module` uses the same set; the frozen edge list above becomes a test. Then clean `corroborate.py`; move the seven modules; importers, patches, `ruff.toml`, tests to `tests/corroborate/`; rule. Check: suite, goldens of `mem-corroborate` (`tests/test_corroborate_cli.py` and the self-check), collected count.
 
 ### Task 2: `research/`
 - [ ] Move `research_checks`, `research_pipeline`; a rule that no package except `research` (frozen, until A5) imports root `mem` or `run`; importers (`bin/mem-research`), tests to `tests/research/`; rule. Check: suite; `bin/mem-research --help` byte-identical.

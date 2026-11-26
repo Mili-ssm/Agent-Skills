@@ -5,12 +5,12 @@ import json
 import shutil
 import sys
 
-import corroborate_cli
-import corroborate_digest
-import corroborate_reword
-import corroborate_run
 import jobs
 import pytest
+from corroborate import cli as corroborate_cli
+from corroborate import digest as corroborate_digest
+from corroborate import reword as corroborate_reword
+from corroborate import run as corroborate_run
 from corroborate_world import (
     CORR,
     NARROW,
