@@ -100,7 +100,7 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 
 ### Task 4: Boundary rule and test placement
 
-- [ ] The store-never-imports-synthesize rule in `test_import_graph.py`, proven by a temporary violating import. Move the synthesis tests into `engine/tests/synthesize/` (names stay unique; `tests/conftest.py` still applies). Commit each.
+- [x] The store-never-imports-synthesize rule in `test_import_graph.py`, proven by a temporary violating import. Move the synthesis tests into `engine/tests/synthesize/` (no `__init__.py`: modules stay top-level and the engine package `synthesize` is not shadowed; `test_bin_python_floor.py` now uses `rglob` so the moved files stay covered). Commit each. Also done: package `__init__.py` coverage in both import tests; `run_trials.py --self-check` stub takes `log` by keyword.
 
 ### Task 5: Gate and docs
 
@@ -111,7 +111,7 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 | Finding | Ruling |
 |---|---|
 | Task 1 review: the dry-run goldens build their fixture with `mem.py`, so they run on 3.12+ only; the `--help`, bad-argument and broken-engine goldens run on 3.11 too | Accepted: the 3.11 floor is covered by the self-checks |
-| Task 2 review: `test_bin_python_floor.py` and `test_import_graph.py` skip `synthesize/__init__.py` (an import added there would escape both) | Fix in Task 4 |
+| Task 2 review: `test_bin_python_floor.py` and `test_import_graph.py` skip `synthesize/__init__.py` (an import added there would escape both) | Fixed in Task 4 |
 | Task 3a: the `backfill_one` patch in `test_a_failing_mem_check_with_no_reference_written_is_not_blamed_on_the_step` cannot be proven (the test passes without it; already so at base) | Open, low: the test does not prove what it names |
 | Eval cleanups review: `test_settle_trial_grading.py` asserts one of three verdicts and no threshold boundary; `evals/research/run_trial.py` grew to 954 lines | Open, low |
 | `evals/synthesis/frozen-main/README.md` names `engine/synth_briefs/` | Accepted: it describes a frozen `main` snapshot |
