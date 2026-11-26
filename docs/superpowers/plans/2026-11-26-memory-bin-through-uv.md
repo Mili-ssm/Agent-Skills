@@ -32,13 +32,13 @@ Status: planned, two pre-mortems 2026-11-26 applied, owner chose the shared laun
 ---
 
 ### Task 1: Dispatch and the three small scripts
-- [ ] `engine/run.py` `--bin` table (argv rewrite, lazy `mem`); `entry/` package with its graph rules in `test_import_graph.py` (`entry` may import every feature package, only `run` imports it); `mem-research`, `mem-synthesize`, `mem-corroborate` become bash launchers, their bodies in their packages. Check: suite; a golden `--help` of all six saved before Task 1 and diffed after every task; self-checks through the launchers; `bin/mem` unchanged in behavior (`mem settle log`).
+- [x] `engine/run.py` `--bin` table (argv rewrite, lazy `mem`); `entry/` package with its graph rules in `test_import_graph.py` (`entry` may import every feature package, only `run` imports it); `mem-research`, `mem-synthesize`, `mem-corroborate` become bash launchers, their bodies in their packages. Check: suite; a golden `--help` of all six saved before Task 1 and diffed after every task; self-checks through the launchers; `bin/mem` unchanged in behavior (`mem settle log`).
 
 ### Task 2: `mem-auto` and `mem-settle`
-- [ ] Bodies to `entry/auto.py` and `entry/settle.py`; launchers; tests that load the bin files with `SourceFileLoader` (`test_auto_curation.py:507`) load the entry module; `settle/state.py` executes `bin/mem-settle`. Check: as Task 1, plus the detached start path in a hook-like environment.
+- [x] Bodies to `entry/auto.py` and `entry/settle.py`; launchers; tests that load the bin files with `SourceFileLoader` (`test_auto_curation.py:507`) load the entry module; `settle/state.py` executes `bin/mem-settle`. Check: as Task 1, plus the detached start path in a hook-like environment.
 
 ### Task 3: `mem-capture`
-- [ ] Body to `entry/capture.py` (size review after the move, split by cohesion only if needed); launcher; `MEM`/`CORROBORATE` point at `<plugin>/bin/`; the yaml import fallback and its test retire (uv provides pyyaml); `SourceFileLoader` tests (`test_mem_capture.py:124-131`, `test_capture_auto.py:643`) load the entry module; `test_capture_auto.py:335-343` runs the entry with the test Python and keeps only `bin/mem` without uv. Check: as Task 1; capture goldens.
+- [x] Body to `entry/capture.py` (size review after the move, split by cohesion only if needed); launcher; `MEM`/`CORROBORATE` point at `<plugin>/bin/`; the yaml import fallback and its test retire (uv provides pyyaml); `SourceFileLoader` tests (`test_mem_capture.py:124-131`, `test_capture_auto.py:643`) load the entry module; `test_capture_auto.py:335-343` runs the entry with the test Python and keeps only `bin/mem` without uv. Check: as Task 1; capture goldens.
 
 ### Task 4: Notice, tests, lint, decision record
 - [ ] `session-env.sh` notice when `uv` is missing (one line, through the existing session-start output); launch-path tests: each launcher under a shim PATH without `uv` exits 127 with the message, and with `uv` runs `--help` (warm cache; a cold-cache case is gated as needing the network); `test_bin_python_floor.py` replaced by a test that every `bin/` file is a bash launcher whose `--bin` name is in `run.py`'s table (prove it bites); `ruff.toml` `py311` entries removed after a `--target-version py312` spike (over ~20 findings outside `bin/`: own PR); the "3.11-safe / without uv" docstrings; ADR superseding 0033; CHANGELOG; README. Check: suite on default, 3.12.0–3.14.4; validate.py; `claude plugin validate .`; pre-commit from `origin/dev`.
@@ -47,6 +47,9 @@ Status: planned, two pre-mortems 2026-11-26 applied, owner chose the shared laun
 
 | Finding | Ruling |
 |---|---|
+| `mem --bin X` now dispatches to a job instead of an argparse error (Task 1 review) | accepted: `mem` has no `--bin` option and nobody types it |
+| `entry/capture.py` 1,201 lines holds three subcommands (offline trial, auto, sweep) sharing the apply helpers (Task 3) | kept whole: in the size band and one CLI; split into `entry/capture/` if it grows |
+| The floor test's `synthesize/run.py` closure assert dropped (Task 2 review) | accepted: the 3.11 floor ends in Task 4 |
 
 ## Kill criteria
 
