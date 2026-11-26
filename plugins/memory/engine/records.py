@@ -2,11 +2,13 @@
 
 Imports nothing from mem.py (mem.py imports this module), so similarity and match_memories take tokens or a tokenizer.
 """
+
 from __future__ import annotations
 
 import datetime
 import hashlib
 import json
+import logging
 import os
 import re
 import subprocess
@@ -14,12 +16,16 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Collection, Iterable, Iterator, Mapping, NamedTuple, Protocol, Sequence
-
-import yaml
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 import safe_io
-from notes import safe_load  # noqa: F401  (the one place that picks libyaml's C parser; dates stay dates, unlike HubLoader)
+import yaml
+from notes import safe_load
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+
+logger = logging.getLogger(__name__)
 
 KINDS = ("decision", "constraint", "pitfall", "lesson", "finding", "document", "state")
 ORIGINS = ("web", "pipeline", "transcript")
@@ -32,6 +38,8 @@ SESSION_PREFIX = "session "
 OUTCOMES = ("worked", "failed", "seen")
 TRIAGES = ("pending",)
 PROJECT_KEY_LEN = 12
+SHORT_DATE_LEN = 10  # characters of an ISO date
+GLOBAL_MIN_PROJECTS = 2  # distinct projects that establish a global memory
 SHORT_LIMIT = 120  # characters of the one-line form a lesson loads as at session start
 TOPIC_LIMIT = 24
 _TOPIC = re.compile(r"[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)?")
@@ -65,28 +73,48 @@ class Memory:
     origin: str | None = None  # "web", "pipeline" or "transcript"; None: written in a session
     reach: str | None = None  # "project" or "general": how far the lesson reaches
     weight: str | None = None  # "light", "medium" or "strong": how much it weighs
-    owner_confirmed: datetime.date | None = None  # the owner vouched for the lesson: it is established
+    owner_confirmed: datetime.date | None = (
+        None  # the owner vouched for the lesson: it is established
+    )
     triage: str | None = None  # "pending": a global record that left quarantine and awaits triage
-    triage_reason: str | None = None  # why a lesson is held at triage; meaningful only while triage is "pending"
+    triage_reason: str | None = (
+        None  # why a lesson is held at triage; meaningful only while triage is "pending"
+    )
     released: datetime.date | None = None  # the day a global record left quarantine
     general: str | None = None  # handle of the global record a project record was generalized into
-    short: str | None = None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
-    short_by: str | None = None  # "model": the short form was written by a model and the owner has not read it
+    short: str | None = (
+        None  # the claim in one line of at most SHORT_LIMIT characters, as it loads at session start
+    )
+    short_by: str | None = (
+        None  # "model": the short form was written by a model and the owner has not read it
+    )
     topic: str | None = None  # one or two lowercase words that group rules
     from_repository: bool = False  # a repository commits the file: its owner_confirmed is not the reader's (mark_repository)
-    load: str | None = None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
-    log: list[str] = field(default_factory=list)  # valid case entries "<date> session <id> <outcome>", in file order
-    versions: list[str] = field(default_factory=list)  # valid entries "<date> <short form>", sorted by date
+    load: str | None = (
+        None  # "no": the owner turned this lesson's rule off; "index": only counted by topic
+    )
+    log: list[str] = field(
+        default_factory=list
+    )  # valid case entries "<date> session <id> <outcome>", in file order
+    versions: list[str] = field(
+        default_factory=list
+    )  # valid entries "<date> <short form>", sorted by date
     reviewed: datetime.date | None = None  # the day the owner looked at a lesson that got worse
-    reworded: datetime.date | None = None  # the day the automatic step reworded the short form (once, for good)
-    reword_failed: datetime.date | None = None  # the date of the version the automatic step gave up on
+    reworded: datetime.date | None = (
+        None  # the day the automatic step reworded the short form (once, for good)
+    )
+    reword_failed: datetime.date | None = (
+        None  # the date of the version the automatic step gave up on
+    )
 
 
 def _git_common_dir(cwd: Path) -> Path | None:
     try:
         out = subprocess.run(
             ["git", "-C", str(cwd), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-            capture_output=True, text=True, check=False,
+            capture_output=True,
+            text=True,
+            check=False,
         )
     except (OSError, ValueError):
         return None
@@ -98,15 +126,19 @@ def _git_common_dir(cwd: Path) -> Path | None:
 
 def _main_worktree(cwd: Path) -> Path | None:
     try:
-        out = subprocess.run(["git", "-C", str(cwd), "worktree", "list", "--porcelain"],
-                             capture_output=True, text=True, check=False)
+        out = subprocess.run(
+            ["git", "-C", str(cwd), "worktree", "list", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     except (OSError, ValueError):
         return None
     if out.returncode != 0:
         return None
     for line in out.stdout.splitlines():
         if line.startswith("worktree "):
-            first = Path(line[len("worktree "):])
+            first = Path(line[len("worktree ") :])
             # A submodule lists its git directory (under .git/modules), not its folder: ask for the folder.
             if (first / ".git").exists():
                 return first
@@ -116,8 +148,12 @@ def _main_worktree(cwd: Path) -> Path | None:
 
 def _toplevel(cwd: Path) -> Path | None:
     try:
-        out = subprocess.run(["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
-                             capture_output=True, text=True, check=False)
+        out = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     except (OSError, ValueError):
         return None
     line = out.stdout.strip()
@@ -153,13 +189,16 @@ def read_registry(data: Path | None) -> dict[str, dict[str, str]]:
         reg = json.loads(text)
     except ValueError as exc:
         raise ValueError(f"the registry of projects is not valid JSON: {exc}") from exc
-    if not isinstance(reg, dict) or not all(isinstance(v, dict) and isinstance(v.get("path"), str)
-                                            for v in reg.values()):
+    if not isinstance(reg, dict) or not all(
+        isinstance(v, dict) and isinstance(v.get("path"), str) for v in reg.values()
+    ):
         raise ValueError("the registry of projects has an unexpected shape")
     return reg
 
 
-def register_project(data: Path | None, project: Path, today: datetime.date, name: str | None = None) -> str | None:
+def register_project(
+    data: Path | None, project: Path, today: datetime.date, name: str | None = None
+) -> str | None:
     """Register `project` (or refresh its `seen` date) in the data folder; its name, None without a data folder.
 
     The name is the folder's name, with -2, -3 ... when another path holds it; an explicit `name` held by another
@@ -194,7 +233,7 @@ def register_project(data: Path | None, project: Path, today: datetime.date, nam
 def forget_project(data: Path | None, name: str) -> bool:
     """Remove a project from the registry; False when the name is unknown."""
     reg = read_registry(data)
-    if name not in reg:
+    if data is None or name not in reg:
         return False
     del reg[name]
     tmp = data / f"{REGISTRY_FILE}.{os.getpid()}.tmp"
@@ -221,13 +260,17 @@ def memories_root(env: Mapping[str, str], store: Path | None) -> Path | None:
         base = _config_base(env)
         if base is not None:
             try:
-                lines = (base / "agent-memory" / "memories").read_text(encoding="utf-8").splitlines()
+                lines = (
+                    (base / "agent-memory" / "memories").read_text(encoding="utf-8").splitlines()
+                )
             except (OSError, UnicodeDecodeError):
                 lines = []
             named = next((ln.strip() for ln in lines if ln.strip()), "")
     if named:
         if named == "~" or named.startswith("~/"):
-            named = str(Path(env["HOME"]) / named[2:]) if env.get("HOME") else os.path.expanduser(named)
+            named = (
+                str(Path(env["HOME"]) / named[2:]) if env.get("HOME") else os.path.expanduser(named)
+            )
         return Path(named)
     if store is not None and store_is_writable(store):
         return store / GLOBAL_DIR
@@ -243,43 +286,62 @@ def global_memories_root(env: Mapping[str, str]) -> Path | None:
     return memories_root(env, store if store is not None and store.is_dir() else None)
 
 
+class FieldTypeError(ValueError):
+    """A frontmatter value of the wrong type; a ValueError so every caller that catches one still catches it."""
+
+
 def _date(value, name: str) -> datetime.date | None:
     if value is None:
         return None
     if isinstance(value, datetime.datetime):
-        raise ValueError(f"{name} must be a date")
+        raise FieldTypeError(f"{name} must be a date")
     if isinstance(value, datetime.date):
         return value
     if isinstance(value, str):
         return datetime.date.fromisoformat(value)
-    raise ValueError(f"{name} must be an ISO date")
+    raise FieldTypeError(f"{name} must be an ISO date")
 
 
 def _split(text: str) -> tuple[dict, str]:
-    m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
+    m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.DOTALL)
     if not m:
         raise ValueError("no YAML frontmatter")
     meta = safe_load(m.group(1))
     if not isinstance(meta, dict):
-        raise ValueError("frontmatter is not a mapping")
-    return meta, text[m.end():]
+        raise FieldTypeError("frontmatter is not a mapping")
+    return meta, text[m.end() :]
 
 
 def valid_short(text) -> bool:
-    return isinstance(text, str) and bool(text.strip()) and text == text.strip() and len(text) <= SHORT_LIMIT \
+    return (
+        isinstance(text, str)
+        and bool(text.strip())
+        and text == text.strip()
+        and len(text) <= SHORT_LIMIT
         and len(text.splitlines()) == 1
+    )
 
 
 TRIAGE_REASON_LIMIT = 200
 
 
 def valid_triage_reason(text) -> bool:
-    return isinstance(text, str) and bool(text.strip()) and text == text.strip() and len(text) <= TRIAGE_REASON_LIMIT \
+    return (
+        isinstance(text, str)
+        and bool(text.strip())
+        and text == text.strip()
+        and len(text) <= TRIAGE_REASON_LIMIT
         and len(text.splitlines()) == 1
+    )
 
 
 def valid_topic(text) -> bool:
-    return isinstance(text, str) and len(text) <= TOPIC_LIMIT and text != "other" and _TOPIC.fullmatch(text) is not None
+    return (
+        isinstance(text, str)
+        and len(text) <= TOPIC_LIMIT
+        and text != "other"
+        and _TOPIC.fullmatch(text) is not None
+    )
 
 
 def _parse(path: Path, scope: str) -> Memory:
@@ -314,7 +376,13 @@ def _parse(path: Path, scope: str) -> Memory:
             refuted = None
         distinct = meta.get("distinct_from")
         distinct = [str(h) for h in distinct] if isinstance(distinct, list) else []
-        promote = "no" if meta.get("promote") in ("no", False) else "done" if meta.get("promote") == "done" else None  # YAML reads a bare no as False
+        promote = (
+            "no"
+            if meta.get("promote") in {"no", False}
+            else "done"
+            if meta.get("promote") == "done"
+            else None
+        )  # YAML reads a bare no as False
         superseded_by = meta.get("superseded_by")
         superseded_by = str(superseded_by) if superseded_by else None
         origin = meta.get("origin") if meta.get("origin") in ORIGINS else None
@@ -323,14 +391,30 @@ def _parse(path: Path, scope: str) -> Memory:
         triage = meta.get("triage") if meta.get("triage") in TRIAGES else None
         general = meta.get("general")
         general = general if isinstance(general, str) and general.strip() else None
-        short = meta.get("short") if valid_short(meta.get("short")) else None  # a bad value reads as absent
-        short_by = "model" if meta.get("short_by") == "model" else None  # any other value reads as absent
-        triage_reason = meta.get("triage_reason") if triage == "pending" and valid_triage_reason(meta.get("triage_reason")) else None
+        short = (
+            meta.get("short") if valid_short(meta.get("short")) else None
+        )  # a bad value reads as absent
+        short_by = (
+            "model" if meta.get("short_by") == "model" else None
+        )  # any other value reads as absent
+        triage_reason = (
+            meta.get("triage_reason")
+            if triage == "pending" and valid_triage_reason(meta.get("triage_reason"))
+            else None
+        )
         topic = meta.get("topic") if valid_topic(meta.get("topic")) else None
         raw_log = meta.get("log")
-        log = [e for e in raw_log if isinstance(e, str) and case(e)] if isinstance(raw_log, list) else []  # a bad value reads as absent
+        log = (
+            [e for e in raw_log if isinstance(e, str) and case(e)]
+            if isinstance(raw_log, list)
+            else []
+        )  # a bad value reads as absent
         raw_versions = meta.get("versions")
-        versions = sorted((e for e in raw_versions if _version(e)), key=lambda e: e[:10]) if isinstance(raw_versions, list) else []
+        versions = (
+            sorted((e for e in raw_versions if _version(e)), key=lambda e: e[:10])
+            if isinstance(raw_versions, list)
+            else []
+        )
         try:
             reviewed = _date(meta.get("reviewed"), "reviewed")
         except ValueError:  # a bad value reads as absent
@@ -344,7 +428,13 @@ def _parse(path: Path, scope: str) -> Memory:
         except ValueError:  # a bad value reads as absent
             reword_failed = None
         raw_load = meta.get("load")
-        load = ("index" if raw_load == "index" else "no" if raw_load == "no" or raw_load is False else None)  # YAML reads a bare no as False; 0 is not no
+        load = (
+            "index"
+            if raw_load == "index"
+            else "no"
+            if raw_load == "no" or raw_load is False
+            else None
+        )  # YAML reads a bare no as False; 0 is not no
         try:
             owner_confirmed = _date(meta.get("owner_confirmed"), "owner_confirmed")
         except ValueError:  # a bad value must not hide the memory
@@ -353,23 +443,61 @@ def _parse(path: Path, scope: str) -> Memory:
             released = _date(meta.get("released"), "released")
         except ValueError:
             released = None
-        return replace(base, origin=origin, reach=reach, weight=weight, owner_confirmed=owner_confirmed, triage=triage, triage_reason=triage_reason,
-                       released=released, general=general, short=short, short_by=short_by, topic=topic, load=load, log=log, versions=versions, reviewed=reviewed, reworded=reworded, reword_failed=reword_failed, kind=kind, superseded_by=superseded_by, last_observed=last_observed, refuted=refuted, distinct_from=distinct, promote=promote, claim=claim.strip(), created=_date(meta.get("created"), "created"),
-                       observed=observed, status=status, context=context,
-                       valid_until=_date(meta.get("valid_until"), "valid_until"),
-                       sources=list(sources), body=body)
+        return replace(
+            base,
+            origin=origin,
+            reach=reach,
+            weight=weight,
+            owner_confirmed=owner_confirmed,
+            triage=triage,
+            triage_reason=triage_reason,
+            released=released,
+            general=general,
+            short=short,
+            short_by=short_by,
+            topic=topic,
+            load=load,
+            log=log,
+            versions=versions,
+            reviewed=reviewed,
+            reworded=reworded,
+            reword_failed=reword_failed,
+            kind=kind,
+            superseded_by=superseded_by,
+            last_observed=last_observed,
+            refuted=refuted,
+            distinct_from=distinct,
+            promote=promote,
+            claim=claim.strip(),
+            created=_date(meta.get("created"), "created"),
+            observed=observed,
+            status=status,
+            context=context,
+            valid_until=_date(meta.get("valid_until"), "valid_until"),
+            sources=list(sources),
+            body=body,
+        )
     except Exception as e:  # one broken file must not break the rest
-        return replace(base, error=f"{type(e).__name__}: {e}".splitlines()[0])
+        logger.debug("cannot parse %s", path, exc_info=True)
+        name = (
+            "ValueError" if isinstance(e, FieldTypeError) else type(e).__name__
+        )  # the error text predates the subclass
+        return replace(base, error=f"{name}: {e}".splitlines()[0])
 
 
 def load_memories(folder: Path | None, scope: str) -> list[Memory]:
     try:
         if folder is None or not folder.is_dir():
             return []
-        if scope == "project" and folder.is_symlink():  # a cloned repository's planted link; global folders may be synced links
+        if (
+            scope == "project" and folder.is_symlink()
+        ):  # a cloned repository's planted link; global folders may be synced links
             return []
-        return [_parse(p, scope) for p in sorted(folder.glob("*.md"), key=lambda p: p.stem)
-                if p.is_file() and not (scope == "project" and p.is_symlink())]
+        return [
+            _parse(p, scope)
+            for p in sorted(folder.glob("*.md"), key=lambda p: p.stem)
+            if p.is_file() and not (scope == "project" and p.is_symlink())
+        ]
     except OSError:
         return []
 
@@ -428,22 +556,40 @@ def _render(m: Memory, extra: Mapping[str, str] | None = None) -> str:
     if m.reword_failed:
         meta["reword_failed"] = m.reword_failed.isoformat()
     meta.update(extra or {})
-    head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
+    head = yaml.safe_dump(
+        meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6
+    )
     return f"---\n{head}---\n{m.body}"
 
 
-def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, today: datetime.date,
-                 context: str | None = None, valid_until: datetime.date | None = None,
-                 sources: Sequence[str] = (), origin: str | None = None,
-                 reach: str | None = None, weight: str | None = None,
-                 short: str | None = None, topic: str | None = None, short_by: str | None = None,
-                 outcome: str | None = None, on: datetime.date | None = None) -> Memory:
+def write_memory(
+    folder: Path,
+    scope: str,
+    *,
+    kind: str,
+    claim: str,
+    body: str,
+    today: datetime.date,
+    context: str | None = None,
+    valid_until: datetime.date | None = None,
+    sources: Sequence[str] = (),
+    origin: str | None = None,
+    reach: str | None = None,
+    weight: str | None = None,
+    short: str | None = None,
+    topic: str | None = None,
+    short_by: str | None = None,
+    outcome: str | None = None,
+    on: datetime.date | None = None,
+) -> Memory:
     if outcome is not None and outcome not in OUTCOMES:
         raise ValueError(f"unknown outcome {outcome!r}")
     if short is not None and not valid_short(short):
         raise ValueError(f"the short form must be one line of at most {SHORT_LIMIT} characters")
     if topic is not None and not valid_topic(topic):
-        raise ValueError(f"the topic must be one or two lowercase words of at most {TOPIC_LIMIT} characters")
+        raise ValueError(
+            f"the topic must be one or two lowercase words of at most {TOPIC_LIMIT} characters"
+        )
     if kind not in KINDS:
         raise ValueError(f"unknown kind {kind!r}")
     if origin is not None and origin not in ORIGINS:
@@ -455,14 +601,29 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     claim = claim.strip()
     if not claim:
         raise ValueError("claim is empty")
-    if kind in ("finding", "document") and not sources:
+    if kind in {"finding", "document"} and not sources:
         raise ValueError(f"a {kind} needs at least one source")
     sources = normalized_sources(sources)
     released = triage = None
     if origin == "transcript":
         # the standing decides the end date and the release, before the per-kind defaults
-        draft = Memory(scope, folder, "", kind, claim, today, 1, "active", None, None, sources, "", None,
-                       origin=origin, weight=weight)
+        draft = Memory(
+            scope,
+            folder,
+            "",
+            kind,
+            claim,
+            today,
+            1,
+            "active",
+            None,
+            None,
+            sources,
+            "",
+            None,
+            origin=origin,
+            weight=weight,
+        )
         changes = standing_changes(None, draft, today)
         released, triage = changes.get("released"), changes.get("triage")
         if valid_until is None:
@@ -474,16 +635,43 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
     if scope == "project":
         safe_io.refuse_symlink_chain(folder, folder)
     folder.mkdir(parents=True, exist_ok=True)
-    log = [case_entry(on or today, key, outcome) for key in dict.fromkeys(filter(None, map(session_key, sources)))] \
-        if outcome else []
+    log = (
+        [
+            case_entry(on or today, key, outcome)
+            for key in dict.fromkeys(filter(None, map(session_key, sources)))
+        ]
+        if outcome
+        else []
+    )
     base = slug_of(claim)
     handle, n = base, 1
     while True:
         path = folder / f"{handle}.md"
-        m = Memory(scope, path, handle, kind, claim, today, 1, "active", context, valid_until,
-                   list(sources), body if body.endswith("\n") or not body else body + "\n", None, origin=origin,
-                   reach=reach, weight=weight, triage=triage, released=released, short=short, short_by=short_by if short else None, topic=topic, log=log,
-                   versions=[version_entry(today, short)] if short else [])
+        m = Memory(
+            scope,
+            path,
+            handle,
+            kind,
+            claim,
+            today,
+            1,
+            "active",
+            context,
+            valid_until,
+            list(sources),
+            body if body.endswith("\n") or not body else body + "\n",
+            None,
+            origin=origin,
+            reach=reach,
+            weight=weight,
+            triage=triage,
+            released=released,
+            short=short,
+            short_by=short_by if short else None,
+            topic=topic,
+            log=log,
+            versions=[version_entry(today, short)] if short else [],
+        )
         try:
             with path.open("x", encoding="utf-8") as f:  # exclusive: never overwrite
                 f.write(_render(m))
@@ -494,8 +682,11 @@ def write_memory(folder: Path, scope: str, *, kind: str, claim: str, body: str, 
 
 
 def is_live(memory: Memory, today: datetime.date) -> bool:
-    return (memory.error is None and memory.status == "active"
-            and (memory.valid_until is None or memory.valid_until >= today))
+    return (
+        memory.error is None
+        and memory.status == "active"
+        and (memory.valid_until is None or memory.valid_until >= today)
+    )
 
 
 def similarity(a: Iterable[str], b: Iterable[str]) -> float:
@@ -518,14 +709,19 @@ def update(memory: Memory, today: datetime.date, **changes) -> Memory:
         current = _parse(memory.path, memory.scope)
         if new_short != current.short:
             kept = [(on, text) for on, text in version_list(current) if on != today]
-            meta["versions"] = [version_entry(on, text) for on, text in sorted([*kept, (today, new_short)], key=lambda v: v[0])]
+            meta["versions"] = [
+                version_entry(on, text)
+                for on, text in sorted([*kept, (today, new_short)], key=lambda v: v[0])
+            ]
     for key, value in changes.items():
         if value is None:
             meta.pop(key, None)
         else:
             meta[key] = value.isoformat() if isinstance(value, datetime.date) else value
-    head = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6)
-    safe_io.replace_file(memory.path, f"---\n{head}---\n{body}".encode("utf-8"))
+    head = yaml.safe_dump(
+        meta, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10**6
+    )
+    safe_io.replace_file(memory.path, f"---\n{head}---\n{body}".encode())
     return _parse(memory.path, memory.scope)
 
 
@@ -549,7 +745,11 @@ def under_temp(path: Path) -> bool:
     if os.environ.get("MEM_COUNT_TEMP_PROJECTS") == "1":
         return False
     resolved = path.resolve()
-    roots = {Path(tempfile.gettempdir()).resolve(), Path("/tmp").resolve(), Path("/var/tmp").resolve()}
+    roots = {
+        Path(tempfile.gettempdir()).resolve(),
+        Path("/tmp").resolve(),
+        Path("/var/tmp").resolve(),
+    }
     return any(resolved == r or r in resolved.parents for r in roots)
 
 
@@ -565,8 +765,8 @@ def sighting(source: str) -> tuple[str, str | None] | None:
         text, key = found.group(1), found.group(2)
         if not _PROJECT_KEY.fullmatch(key):
             return None
-    elif "project" in text[len(SESSION_PREFIX):].split():
-        return None   # "session a project" or "... project <key> extra": a keyed entry gone wrong, not a session id
+    elif "project" in text[len(SESSION_PREFIX) :].split():
+        return None  # "session a project" or "... project <key> extra": a keyed entry gone wrong, not a session id
     return (text, key) if len(text) - len(SESSION_PREFIX) <= MAX_SESSION_ID else None
 
 
@@ -623,8 +823,21 @@ def tracked_memories(project: Path) -> frozenset[str] | None:
     try:
         if (folder / ".git").exists():
             return None
-        run = subprocess.run(["git", "-C", str(project), "ls-files", "-z", "--recurse-submodules", "--", f"{PROJECT_DIR}/"],
-                             capture_output=True, timeout=2, check=False)
+        run = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(project),
+                "ls-files",
+                "-z",
+                "--recurse-submodules",
+                "--",
+                f"{PROJECT_DIR}/",
+            ],
+            capture_output=True,
+            timeout=2,
+            check=False,
+        )
     except (OSError, subprocess.SubprocessError):
         return frozenset()
     if run.returncode != 0:
@@ -632,14 +845,20 @@ def tracked_memories(project: Path) -> frozenset[str] | None:
     names = [Path(n.decode("utf-8", "replace")) for n in run.stdout.split(b"\0") if n]
     if any(n.as_posix() == PROJECT_DIR for n in names):  # a gitlink lists as the folder itself
         return None
-    return frozenset(n.stem for n in names if n.suffix == ".md" and n.parent.as_posix() == PROJECT_DIR)
+    return frozenset(
+        n.stem for n in names if n.suffix == ".md" and n.parent.as_posix() == PROJECT_DIR
+    )
 
 
 def mark_repository(memories: Sequence[Memory], tracked: frozenset[str] | None) -> list[Memory]:
     """Copies of the tracked memories with `from_repository` set and the owner confirmation in the file dropped: a
     repository's author is not the reader. Sightings still count. `tracked` None marks them all."""
-    return [replace(m, from_repository=True, owner_confirmed=None) if tracked is None or m.handle in tracked else m
-            for m in memories]
+    return [
+        replace(m, from_repository=True, owner_confirmed=None)
+        if tracked is None or m.handle in tracked
+        else m
+        for m in memories
+    ]
 
 
 def standing(memory: Memory) -> str | None:
@@ -653,7 +872,9 @@ def standing(memory: Memory) -> str | None:
         return "established"
     weight = memory.weight or "medium"
     if memory.scope == "global":
-        enough = len(projects(memory)) >= 2 and (weight != "strong" or len(sessions(memory)) >= 3)
+        enough = len(projects(memory)) >= GLOBAL_MIN_PROJECTS and (
+            weight != "strong" or len(sessions(memory)) >= SIGHTINGS_NEEDED["strong"]
+        )
     else:
         enough = len(sessions(memory)) >= SIGHTINGS_NEEDED[weight]
     return "established" if enough else "unconfirmed"
@@ -668,7 +889,9 @@ def standing_changes(before: Memory | None, after: Memory, today: datetime.date)
     the release of a global record the first time it is established, awaiting triage unless the owner confirmed it
     (that confirmation is the triage). `before` is None for a record being written."""
     established = standing(after) == "established"
-    changes: dict = {"valid_until": None if established else today + datetime.timedelta(days=UNCONFIRMED_DAYS)}
+    changes: dict = {
+        "valid_until": None if established else today + datetime.timedelta(days=UNCONFIRMED_DAYS)
+    }
     if after.scope == "global" and established:
         if before is None or before.released is None:
             changes["released"] = today
@@ -685,7 +908,9 @@ def counted(memory: Memory, source: str) -> bool:
     found = sighting(source)
     if found is None or found[0] not in sessions(memory):
         return False
-    return not found[1] or any(f and f[0] == found[0] and f[1] for f in map(sighting, memory.sources))
+    return not found[1] or any(
+        f and f[0] == found[0] and f[1] for f in map(sighting, memory.sources)
+    )
 
 
 class Case(NamedTuple):
@@ -729,7 +954,7 @@ def _version(entry) -> tuple[datetime.date, str] | None:
         on = datetime.date.fromisoformat(day)
     except ValueError:
         return None
-    return (on, text) if len(day) == 10 and valid_short(text) else None
+    return (on, text) if len(day) == SHORT_DATE_LEN and valid_short(text) else None
 
 
 def version_entry(on: datetime.date, short: str) -> str:
@@ -762,13 +987,18 @@ def merged_log(keep: Memory, drop: Memory) -> list[str]:
     """The log of a merged lesson by date: one entry per (session, outcome), the earlier day kept, and a `seen` entry
     only for a session with no other entry. An entry that is not a case is kept once, as it is."""
     entries = list(dict.fromkeys([*keep.log, *drop.log]))
-    best: dict[tuple[str, str], str] = {}
+    earliest: dict[tuple[str, str], tuple[datetime.date, str]] = {}
     for e in entries:
         c = case(e)
-        if c is not None and ((c.session, c.outcome) not in best or c.on < case(best[(c.session, c.outcome)]).on):
-            best[(c.session, c.outcome)] = e
+        if c is not None:
+            held = earliest.get((c.session, c.outcome))
+            if held is None or c.on < held[0]:
+                earliest[c.session, c.outcome] = (c.on, e)
+    best = {key: e for key, (_, e) in earliest.items()}
     cased = {session for session, outcome in best if outcome != "seen"}
-    chosen = {e for (session, outcome), e in best.items() if outcome != "seen" or session not in cased}
+    chosen = {
+        e for (session, outcome), e in best.items() if outcome != "seen" or session not in cased
+    }
     result = [e for e in entries if case(e) is None or e in chosen]
     result.sort(key=lambda e: e[:10])
     return result
@@ -799,7 +1029,10 @@ def tallies(memory: Memory) -> list[Tally]:
         owners = [i for i, (on, _) in enumerate(versions) if on < c.on]
         if owners:
             counts[owners[-1]][c.outcome == "failed"] += 1
-    return [Tally(i + 1, on, text, w, f) for i, ((on, text), (w, f)) in enumerate(zip(versions, counts))]
+    return [
+        Tally(i + 1, on, text, w, f)
+        for i, ((on, text), (w, f)) in enumerate(zip(versions, counts, strict=False))
+    ]
 
 
 def reword_note(memory: Memory) -> str:
@@ -823,9 +1056,14 @@ def got_worse(memory: Memory) -> bool:
         return False
     cur, prev = found[-1], found[-2] if len(found) > 1 else None
     since = memory.reviewed
-    recent = sum(1 for c in cases(memory) if c.outcome == "failed" and (since is None or c.on > since)
-                 and c.on > cur.since)
-    return recent >= FAILED_TO_LIST and (cur.failed > cur.worked or (prev is not None and cur.balance < prev.balance))
+    recent = sum(
+        1
+        for c in cases(memory)
+        if c.outcome == "failed" and (since is None or c.on > since) and c.on > cur.since
+    )
+    return recent >= FAILED_TO_LIST and (
+        cur.failed > cur.worked or (prev is not None and cur.balance < prev.balance)
+    )
 
 
 def mark_words(memory: Memory) -> str:
@@ -850,7 +1088,9 @@ def _log_with(memory: Memory, key: str, on: datetime.date, outcome: str) -> list
     return [*memory.log, case_entry(on, key, outcome)]
 
 
-def add_case(memory: Memory, session: str, on: datetime.date, outcome: str, today: datetime.date) -> tuple[Memory, bool]:
+def add_case(
+    memory: Memory, session: str, on: datetime.date, outcome: str, today: datetime.date
+) -> tuple[Memory, bool]:
     """Add the case of `session` (any spelling of a session source) to the log; False and no write when it adds
     nothing. Not a session or an unknown outcome: ValueError."""
     key = session_key(session)
@@ -864,8 +1104,15 @@ def add_case(memory: Memory, session: str, on: datetime.date, outcome: str, toda
     return update(memory, today, log=log), True
 
 
-def add_sighting(memory: Memory, session: str, today: datetime.date, note: str | None = None, *,
-                 outcome: str = "seen", on: datetime.date | None = None) -> tuple[Memory, bool]:
+def add_sighting(
+    memory: Memory,
+    session: str,
+    today: datetime.date,
+    note: str | None = None,
+    *,
+    outcome: str = "seen",
+    on: datetime.date | None = None,
+) -> tuple[Memory, bool]:
     """Record that another session shows the memory: `session` is a full source entry ("session <id>", with
     " project <key>" when known).
 
@@ -887,13 +1134,18 @@ def add_sighting(memory: Memory, session: str, today: datetime.date, note: str |
     if key in sessions(memory):
         if counted(memory, session):
             return (memory, False) if log is None else (update(memory, today, **changes), False)
-        sources = [sighting_entry(key, project) if (f := sighting(s)) and f[0] == key else s for s in memory.sources]
+        sources = [
+            sighting_entry(key, project) if (f := sighting(s)) and f[0] == key else s
+            for s in memory.sources
+        ]
         sources = normalized_sources(sources)
     else:
         sources = [*memory.sources, sighting_entry(key, project)]
         changes.update({"observed": memory.observed + 1, "last_observed": today})
         if note and note.strip():
-            head = memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+            head = (
+                memory.body if memory.body.endswith("\n") or not memory.body else memory.body + "\n"
+            )
             changes["body"] = f"{head}{' '.join(note.split())}\n"
     changes["sources"] = sources
     if memory.origin == "transcript":
@@ -907,6 +1159,7 @@ class Budget:
 
     `left` counts down by one per comparison. `exhausted` turns True when a search needed a comparison and `left`
     was 0: `left == 0` alone does not say it, because a budget spent to the last comparison compared everything."""
+
     left: int
     exhausted: bool = False
 
@@ -927,10 +1180,12 @@ def _containment_of_terms(terms: frozenset[str], other_tokens: Collection[str]) 
     """`containment` over precomputed terms."""
     if len(terms) < MIN_TERMS:
         return 0.0
-    return len(terms & other_tokens) / len(terms)
+    return len(terms.intersection(other_tokens)) / len(terms)
 
 
-def _among_order(live: Sequence[Memory], index: Mapping[str, int], among: Sequence[str]) -> Iterator[tuple[int, int]]:
+def _among_order(
+    live: Sequence[Memory], index: Mapping[str, int], among: Sequence[str]
+) -> Iterator[tuple[int, int]]:
     """Index pairs with at least one `among` memory, each pair once, in the order of `among`."""
     seen: set[str] = set()
     for h in among:
@@ -943,9 +1198,14 @@ def _among_order(live: Sequence[Memory], index: Mapping[str, int], among: Sequen
                 yield min(i, j), max(i, j)
 
 
-def pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callable[[str], list[str]],
-          among: Sequence[str] | None = None,
-          budget: Budget | None = None) -> list[tuple[Memory, Memory, float]]:
+def pairs(
+    memories: Sequence[Memory],
+    today: datetime.date,
+    *,
+    tokenize: Callable[[str], list[str]],
+    among: Sequence[str] | None = None,
+    budget: Budget | None = None,
+) -> list[tuple[Memory, Memory, float]]:
     """Pairs of live memories whose claims contain each other with at least STRONG, in either direction.
 
     A claim and its negation score as high as a near-copy: a pair means "same or opposite", never "duplicate".
@@ -968,16 +1228,23 @@ def pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callabl
             continue
         if budget is not None and not budget.spend():
             break
-        score = max(_containment_of_terms(terms[i], tokens[j]), _containment_of_terms(terms[j], tokens[i]))
+        score = max(
+            _containment_of_terms(terms[i], tokens[j]), _containment_of_terms(terms[j], tokens[i])
+        )
         if score >= STRONG:
             found.append((a, b, score))
     found.sort(key=lambda t: (-t[2], t[0].handle, t[1].handle))
     return found
 
 
-def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize: Callable[[str], list[str]],
-                  among: Sequence[str] | None = None,
-                  budget: Budget | None = None) -> list[tuple[Memory, Memory, float]]:
+def refuted_pairs(
+    memories: Sequence[Memory],
+    today: datetime.date,
+    *,
+    tokenize: Callable[[str], list[str]],
+    among: Sequence[str] | None = None,
+    budget: Budget | None = None,
+) -> list[tuple[Memory, Memory, float]]:
     """(live, refuted, score): a live memory whose claim and a refuted one's contain each other with at least STRONG,
     unless the two are recorded as distinct or the live one is not strictly newer than the refutation
     (its `refuted` date, else the refuted memory's `created`).
@@ -987,12 +1254,15 @@ def refuted_pairs(memories: Sequence[Memory], today: datetime.date, *, tokenize:
     if among is not None:
         by_handle = {m.handle: m for m in live}
         live = [by_handle[h] for h in dict.fromkeys(among) if h in by_handle]
-    dead = sorted((m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle)
+    dead = sorted(
+        (m for m in memories if m.error is None and m.status == "refuted"), key=lambda m: m.handle
+    )
     dead_seen: dict[str, tuple[set[str], frozenset[str]]] = {}  # tokenized when first compared
     found = []
     spent = False
     for a in live:
-        ta = terms_a = None
+        ta = None
+        terms_a: frozenset[str] = frozenset()
         for r in dead:
             if r.handle in a.distinct_from or a.handle in r.distinct_from:
                 continue
@@ -1029,13 +1299,36 @@ def _claim_words(claim: str) -> set[str]:
 def differing_words(a: str, b: str) -> list[str]:
     """The words that occur in only one of the two claims, sorted; stop words are left out except negations,
     digits stay. Empty when nothing is left."""
-    return sorted(w for w in _claim_words(a) ^ _claim_words(b) if w in _NEGATIONS or w not in STOPWORDS)
+    return sorted(
+        w for w in _claim_words(a) ^ _claim_words(b) if w in _NEGATIONS or w not in STOPWORDS
+    )
 
 
 # Pairs of words that make two claims opposites; either member of a pair may be the one in each claim.
-OPPOSITES = ("works/fails work/fail passes/fails pass/fail enable/disable enabled/disabled allow/deny "
-             "allowed/denied before/after always/never on/off safe/unsafe increase/decrease with/without "
-             "can/cannot must/may add/remove start/stop true/false required/optional sync/async up/down").split()
+OPPOSITES = [
+    "works/fails",
+    "work/fail",
+    "passes/fails",
+    "pass/fail",
+    "enable/disable",
+    "enabled/disabled",
+    "allow/deny",
+    "allowed/denied",
+    "before/after",
+    "always/never",
+    "on/off",
+    "safe/unsafe",
+    "increase/decrease",
+    "with/without",
+    "can/cannot",
+    "must/may",
+    "add/remove",
+    "start/stop",
+    "true/false",
+    "required/optional",
+    "sync/async",
+    "up/down",
+]
 
 
 def _partners() -> dict[str, set[str]]:
@@ -1058,23 +1351,34 @@ def flagged_words(a: str, b: str) -> list[str]:
     flagged = set()
     for mine, other in ((only_a, only_b), (only_b, only_a)):
         for w in mine:
-            if (w in _NEGATIONS or w.endswith(("n't", "n\u2019t")) or any(c.isdigit() for c in w)
-                    or _PARTNERS.get(w, set()) & other):
+            if (
+                w in _NEGATIONS
+                or w.endswith(("n't", "n\u2019t"))
+                or any(c.isdigit() for c in w)
+                or _PARTNERS.get(w, set()) & other
+            ):
                 flagged.add(w)
     return sorted(flagged)
 
 
 class Logged(Protocol):
     """What the curation log needs of a record: a file and a handle (a memory or a synthesis)."""
+
     path: Path
     handle: str
 
 
 def log_before(memory: Logged, action: str) -> None:
     """Append the file's whole current text to the `.curation-log` beside it, before an action changes the file."""
-    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
-             "handle": memory.handle, "before": memory.path.read_bytes().decode("utf-8")}
-    safe_io.append_text(memory.path.parent / CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n")
+    entry = {
+        "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "action": action,
+        "handle": memory.handle,
+        "before": memory.path.read_bytes().decode("utf-8"),
+    }
+    safe_io.append_text(
+        memory.path.parent / CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n"
+    )
 
 
 def _log_lines(memory: Logged) -> list[str] | None:
@@ -1104,8 +1408,14 @@ def last_log_entry(memory: Logged) -> dict | None:
         except ValueError:
             skipped += 1
             entry = None
-        parsed.append(entry if isinstance(entry, dict) and entry.get("handle") == memory.handle else None)
-    undone = {e["undone"] for e in parsed if e and e.get("action") == "restore" and isinstance(e.get("undone"), int)}
+        parsed.append(
+            entry if isinstance(entry, dict) and entry.get("handle") == memory.handle else None
+        )
+    undone = {
+        e["undone"]
+        for e in parsed
+        if e and e.get("action") == "restore" and isinstance(e.get("undone"), int)
+    }
     for number in range(len(parsed) - 1, -1, -1):
         entry = parsed[number]
         if entry and isinstance(entry.get("before"), str) and number not in undone:
@@ -1116,9 +1426,15 @@ def last_log_entry(memory: Logged) -> dict | None:
 def restore(memory: Logged, entry: dict) -> None:
     """Put back the text a log entry holds, byte for byte, through a temporary file, then log that it was used."""
     safe_io.replace_file(memory.path, entry["before"].encode("utf-8"))
-    marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": "restore",
-              "handle": memory.handle, "undone": entry["line"]}
-    safe_io.append_text(memory.path.parent / CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
+    marker = {
+        "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "action": "restore",
+        "handle": memory.handle,
+        "undone": entry["line"],
+    }
+    safe_io.append_text(
+        memory.path.parent / CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n"
+    )
 
 
 def ensure_excluded(project: Path) -> bool:
@@ -1157,19 +1473,21 @@ class ForbiddenListError(ValueError):
     """The forbidden-terms file exists but cannot be read or decoded."""
 
 
-TERMS_HEADER = ("# Terms that must not reach the global scope, one per line; matching ignores case and accents.\n"
-                "# A plain line is a hard term: the write is refused. \"soft: <term>\" or \"soft[<kind>]: <term>\" "
-                "is a soft term: the owner must approve the write.\n"
-                "# Manage the list with: mem terms list | add | remove.\n")
+TERMS_HEADER = (
+    "# Terms that must not reach the global scope, one per line; matching ignores case and accents.\n"
+    '# A plain line is a hard term: the write is refused. "soft: <term>" or "soft[<kind>]: <term>" '
+    "is a soft term: the owner must approve the write.\n"
+    "# Manage the list with: mem terms list | add | remove.\n"
+)
 TERM_KINDS = (*KINDS, "note", "synthesis")
 _SOFT_LINE = re.compile(r"^soft(?:\[([a-z]+)\])?:(.*)$")
 
 
 class Term(NamedTuple):
-    line: int          # line number in the file
+    line: int  # line number in the file
     text: str
     soft: bool
-    kind: str | None   # a soft term that applies to one kind only
+    kind: str | None  # a soft term that applies to one kind only
 
 
 def parse_term(raw: str, line: int = 0) -> Term | None:
@@ -1237,14 +1555,18 @@ def forbidden_line(texts: Iterable[str], env: Mapping[str, str]) -> int | None:
 
 _PLACEHOLDER = re.compile(r"^[\"']?(<[^>]*>|\u2026|\.{3}|x{3,}|changeme|example)", re.IGNORECASE)
 _ASSIGNMENT = re.compile(
-    r"(?i)(?:password|passwd|secret|api[_-]?key|token)\b[\"']?\s*[:=]\s*[\"']?(\S{8,})")
+    r"(?i)(?:password|passwd|secret|api[_-]?key|token)\b[\"']?\s*[:=]\s*[\"']?(\S{8,})"
+)
 
 # Deliberately conservative: a false refusal costs one rewrite, a stored secret may be synced elsewhere.
 SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("AWS access key id", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("GitHub token", re.compile(r"(?:gh[pousr]_|github_pat_)[A-Za-z0-9_]{20,}")),
-    ("API key", re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}")),  # not the "sk-" inside "risk-parity-…"
+    (
+        "API key",
+        re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}"),
+    ),  # not the "sk-" inside "risk-parity-…"
     ("Slack token", re.compile(r"xox[bpars]-\S{10,}")),
     ("credential in a URL", re.compile(r"://[^/\s:@]+:[^/\s@]+@")),
 )
@@ -1276,15 +1598,101 @@ def store_is_writable(store: Path) -> bool:
     return (store / STORE_MARKER).is_file()
 
 
-STOPWORDS = frozenset("""a an the and or but nor of in on at to for from by with about as into over under
-is are was were be been being am do does did has have had will would can could should may might must
-i you he she it we they me him her us them my your his its our their this that these those
-what which who whom whose when where why how not no if then than so there here""".split())
+STOPWORDS = frozenset([
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "nor",
+    "of",
+    "in",
+    "on",
+    "at",
+    "to",
+    "for",
+    "from",
+    "by",
+    "with",
+    "about",
+    "as",
+    "into",
+    "over",
+    "under",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "am",
+    "do",
+    "does",
+    "did",
+    "has",
+    "have",
+    "had",
+    "will",
+    "would",
+    "can",
+    "could",
+    "should",
+    "may",
+    "might",
+    "must",
+    "i",
+    "you",
+    "he",
+    "she",
+    "it",
+    "we",
+    "they",
+    "me",
+    "him",
+    "her",
+    "us",
+    "them",
+    "my",
+    "your",
+    "his",
+    "its",
+    "our",
+    "their",
+    "this",
+    "that",
+    "these",
+    "those",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "whose",
+    "when",
+    "where",
+    "why",
+    "how",
+    "not",
+    "no",
+    "if",
+    "then",
+    "than",
+    "so",
+    "there",
+    "here",
+])
 
 
-def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], today: datetime.date, *,
-                   tokenize: Callable[[str], list[str]], limit: int = 3,
-                   include_dead: bool = False) -> list[Memory]:
+def match_memories(
+    memories: Sequence[Memory],
+    query_tokens: Sequence[str],
+    today: datetime.date,
+    *,
+    tokenize: Callable[[str], list[str]],
+    limit: int = 3,
+    include_dead: bool = False,
+) -> list[Memory]:
     """Memories holding at least half (rounded up) of the query's non-stop-word terms, best first."""
     terms = set(query_tokens) - STOPWORDS
     if not terms:
@@ -1298,7 +1706,15 @@ def match_memories(memories: Sequence[Memory], query_tokens: Sequence[str], toda
         overall = terms & set(tokenize(" ".join([m.claim, m.context or "", m.body])))
         if len(overall) >= need:
             scored.append((m, len(in_claim), len(overall)))
-    scored.sort(key=lambda t: (-t[1], -t[2], -t[0].observed, -(t[0].created or datetime.date.min).toordinal(), t[0].handle))
+    scored.sort(
+        key=lambda t: (
+            -t[1],
+            -t[2],
+            -t[0].observed,
+            -(t[0].created or datetime.date.min).toordinal(),
+            t[0].handle,
+        )
+    )
     return [m for m, _, _ in scored[:limit]]
 
 
@@ -1330,8 +1746,14 @@ class Related(NamedTuple):
     score: float
 
 
-def related_records(memories: Sequence[Memory], note_stems: Sequence[str], text: str, today: datetime.date, *,
-                    tokenize: Callable[[str], list[str]]) -> tuple[list[Related], list[Related]]:
+def related_records(
+    memories: Sequence[Memory],
+    note_stems: Sequence[str],
+    text: str,
+    today: datetime.date,
+    *,
+    tokenize: Callable[[str], list[str]],
+) -> tuple[list[Related], list[Related]]:
     """Records whose claim (a note: its file stem) is largely contained in the text: (strong, possible).
 
     A record whose handle occurs in the text as a whole token, with or without "m:", is left out: the text already
