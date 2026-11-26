@@ -53,7 +53,8 @@ if [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then
 else
   handle "" store MEM_STORE
   # A `store` config file that names a store is `mem`'s to resolve: no default store is exported over it.
-  [ -z "$(config_store)" ] && default_store
+  named="$(config_store)"
+  if [ -n "$named" ]; then export_var MEM_STORE "$named"; else default_store; fi
 fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
 # mem-research, run from a shell command of this session, needs the claude binary and the owner's default depth; the

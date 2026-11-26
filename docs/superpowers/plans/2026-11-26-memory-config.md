@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: Tasks 1–8 implemented on the branch, Task 9 planned (owner ruling 2026-11-26), not merged; § Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
+Status: implemented on the branch, not merged; § Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
 
 **Goal:** one pure module, `engine/config.py`, decides where the note store and the config files are, every Python entry point and every hook uses it, and the two owner rulings of 2026-11-26 hold everywhere.
 
@@ -154,12 +154,12 @@ Owner, 2026-11-26, after the final review: the `store` config file is user-edita
 
 **Interfaces:**
 - `session-env.sh` `handle` records what it writes: next to `$cfg/<name>` a file `$cfg/<name>.hook` holding the exact value written. Option set: write `$cfg/<name>` and the record only when `$cfg/<name>` is missing or its content equals the record (hook-owned); a file that differs (written or edited by hand) is kept; the option is exported either way. Option empty: remove `$cfg/<name>` only when its content equals the record; always remove the record. Applies to `store` and `memories` alike.
-- `store-env.sh` gains `config_store` (prints the first line of `${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory/store`, stripped, or nothing). `export_store_env` and `session-env.sh`'s `default_store` export the default store only when no option is set AND `config_store` prints nothing; when the config file names a store, no `MEM_STORE` is exported, so `mem` and `config.py` resolve it (config file > default).
+- `store-env.sh` gains `config_store` (prints the first line of `${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory/store`, stripped, or nothing). `export_store_env` and `session-env.sh`'s `default_store` export the default store only when no option is set AND `config_store` prints nothing; when the config file names a store, the hooks export that value as `MEM_STORE` (config file > default; changed after the Task 9 review so `session-end.sh`'s `MEM_STORE` gate still starts auto curation and settle).
 - Hooks stay silent and exit 0 in every case.
 
-- [ ] **Step 1:** Tests first (fail on the current hooks): hand-written `store` file with the option empty survives a session start and no `MEM_STORE` is exported (session-env and the printing hooks); a hook-written file is still removed when the option is cleared; the option set with a different hand-written file keeps the file and exports the option; the option set with no file writes file and record; same for `memories`; a config file plus a marked default store: no `MEM_STORE` exported.
-- [ ] **Step 2:** Implement; run the hook tests and the suite; `bash -n`; `claude plugin validate plugins/memory`.
-- [ ] **Step 3:** CHANGELOG (`### Changed`, for users): the config files under `~/.config/agent-memory/` can be edited by hand; the hooks no longer delete or overwrite a file they did not write, and no longer export the default store when the `store` file names one. Migration: a file written by an older version has no record, so after clearing the `store` option remove `~/.config/agent-memory/store` by hand if it still names the old store. README: replace the sentence added in `81e5399` accordingly. Commit, all hooks on.
+- [x] **Step 1:** Tests first (fail on the current hooks): hand-written `store` file with the option empty survives a session start and no `MEM_STORE` is exported (session-env and the printing hooks); a hook-written file is still removed when the option is cleared; the option set with a different hand-written file keeps the file and exports the option; the option set with no file writes file and record; same for `memories`; a config file plus a marked default store: no `MEM_STORE` exported.
+- [x] **Step 2:** Implement; run the hook tests and the suite; `bash -n`; `claude plugin validate plugins/memory`.
+- [x] **Step 3:** CHANGELOG (`### Changed`, for users): the config files under `~/.config/agent-memory/` can be edited by hand; the hooks no longer delete or overwrite a file they did not write, and no longer export the default store when the `store` file names one. Migration: a file written by an older version has no record, so after clearing the `store` option remove `~/.config/agent-memory/store` by hand if it still names the old store. README: replace the sentence added in `81e5399` accordingly. Commit, all hooks on.
 
 ## Deferred findings
 
@@ -167,6 +167,7 @@ Owner, 2026-11-26, after the final review: the `store` config file is user-edita
 - `bin/mem-synthesize --self-check` fails on its last assertion (`mem history commit` makes no "after one, two" commit); it fails the same at `65e901a`, before this plan.
 - Split reviews due (owner rule: code files over 1,000 lines): `bin/mem-synthesize` grew 564 → 1,339 lines (about 400 from formatting, 24 → 81 functions) and belongs to A4 (logic into the engine); `evals/synthesis/run_trials.py` grew 2,162 → 4,345 lines.
 - No CHANGELOG line for `signal.sh`: `mem` already resolved the default store itself, so its new export changes nothing a user sees (dropped after the Task 7 review). Inside sessions the hooks own the config file (written from the `store` option, removed when it is cleared), so the default store exported by the hooks never competes with it; ruling 1 matters for commands run by hand.
+- Shell `config_store` reads a CR-only line end differently from `config.py`'s `splitlines` (low).
 - Low review notes: `records._parse` special-cases `FieldTypeError`'s name to keep stored error text; formatter-placed comments inside `Memory` fields; `research_pipeline.budget_of` raises `TypeError` for a non-string (argparse never passes one); `run_trials.one_row` raises `ValueError` before the budget call when arm M has no control; single-use helpers in `mem-synthesize`; `mem --root` help omits the default store (pre-existing).
 
 ## Kill criteria

@@ -158,7 +158,7 @@ def test_session_env_option_cleared_keeps_a_file_it_has_no_record_of(tmp_path):
     r, exported = _env_file_run(tmp_path)
     assert r.returncode == 0 and not r.stderr
     assert (cfg / "store").read_text() == "/old\n"
-    assert "MEM_STORE" not in exported
+    assert "export MEM_STORE=/old" in exported  # the kept file names the store
 
 
 def test_session_env_hands_over_a_marked_default_store(tmp_path):
@@ -214,21 +214,21 @@ def _cfg(tmp_path):
 
 
 @pytest.mark.parametrize("name", PRINTING)
-def test_a_config_file_store_is_left_to_mem(tmp_path, name):
+def test_a_config_file_store_beats_the_default(tmp_path, name):
     root = _plugin(tmp_path)
     (_cfg(tmp_path) / "store").write_text("/from/file\n")
     _default_store(tmp_path, marked=True)
     r = _run(root, name, _env(tmp_path))
     assert r.returncode == 0 and not r.stderr
-    assert "STORE=unset" in r.stdout
+    assert "STORE=/from/file" in r.stdout
 
 
-def test_session_end_leaves_a_config_file_store_to_mem(tmp_path):
+def test_session_end_uses_a_config_file_store(tmp_path):
     (_cfg(tmp_path) / "store").write_text("/from/file\n")
     _default_store(tmp_path, marked=True)
     r, calls = _session_end(tmp_path)
     assert r.returncode == 0 and not r.stderr
-    assert "STORE=unset" in calls
+    assert "STORE=/from/file" in calls
 
 
 def test_session_env_keeps_a_hand_written_store_file(tmp_path):
@@ -238,7 +238,7 @@ def test_session_env_keeps_a_hand_written_store_file(tmp_path):
     r, exported = _env_file_run(tmp_path)
     assert r.returncode == 0 and not r.stderr
     assert (cfg / "store").read_text() == "/by/hand\n"
-    assert "MEM_STORE" not in exported
+    assert "export MEM_STORE=/by/hand" in exported  # the file beats the marked default store
 
 
 def test_session_env_removes_the_file_it_wrote_when_the_option_is_cleared(tmp_path):
