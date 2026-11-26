@@ -165,11 +165,11 @@ def loop(monkeypatch, tmp_path, store, reports, *, answers=None, **kw):
     work.mkdir(exist_ok=True)
     ran, prompts = [], []
 
-    def fake_session(*args, **_k):
+    def fake_session(*args, **kw):
         prompt, log = (
             args[2],
-            args[6],
-        )  # run_session(claude, model, prompt, work, settings, env, log, ...)
+            kw["log"],
+        )  # run_session(claude, model, prompt, work, settings, *, env, log, ...)
         role = log.name.split("-", 1)[1].removesuffix(".jsonl")
         ran.append(role)
         prompts.append(prompt)
@@ -194,7 +194,15 @@ def loop(monkeypatch, tmp_path, store, reports, *, answers=None, **kw):
     monkeypatch.setattr(sp, "run_session", fake_session)
     sessions = []
     done = sp.lean_loop(
-        "claude", {}, tmp_path, store, work, tmp_path / "set", "attention", sessions, **kw
+        "claude",
+        {},
+        tmp_path,
+        store,
+        work,
+        settings=tmp_path / "set",
+        topic="attention",
+        sessions=sessions,
+        **kw,
     )
     return done, ran, prompts, work
 
@@ -309,7 +317,7 @@ def test_guard_parts_reverts_a_part_whose_fixer_version_added_a_reference(store)
     before = path.read_text()
     after = before.replace("Beta says something plain.", f"Beta says something plain. [v]({B})")
     path.write_text(after)
-    bad, back = sp.guard_parts(store, {}, "attention", before, after, ["alpha"])
+    bad, back = sp.guard_parts(store, {}, "attention", before, after, allowed=["alpha"])
     assert (bad, back) == (["beta"], ["beta"])
     assert (
         sp.split_parts(path.read_text())["beta"].strip() == sp.split_parts(before)["beta"].strip()

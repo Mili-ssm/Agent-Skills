@@ -29,8 +29,8 @@ def test_run_session_scopes_reads_and_sets_the_sandbox(monkeypatch, tmp_path):
         "p",
         work,
         tmp_path / "s.json",
-        env,
-        tmp_path / "log",
+        env=env,
+        log=tmp_path / "log",
         read_roots=[store, work],
     )
     cmd = seen["cmd"]

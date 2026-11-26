@@ -214,8 +214,8 @@ def audit_session(ctx: AuditContext, handle: str, text: str) -> tuple[dict | Non
         prompt,
         work,
         base / "settings.json",
-        ctx.env,
-        base / f"audit-{handle}.jsonl",
+        env=ctx.env,
+        log=base / f"audit-{handle}.jsonl",
         effort=sp.CHEAP,
         max_budget=rt.RESERVE["ref"],
     )

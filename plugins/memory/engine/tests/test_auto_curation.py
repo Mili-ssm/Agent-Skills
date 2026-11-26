@@ -475,7 +475,15 @@ def _loop(monkeypatch, tmp_path, results, left):
     work = tmp_path / "w"
     work.mkdir()
     done = sp.lean_loop(
-        "claude", {}, tmp_path, tmp_path / "s", work, tmp_path / "set", "t", sessions, left=left
+        "claude",
+        {},
+        tmp_path,
+        tmp_path / "s",
+        work,
+        settings=tmp_path / "set",
+        topic="t",
+        sessions=sessions,
+        left=left,
     )
     return done, sessions, ran
 

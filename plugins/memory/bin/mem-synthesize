@@ -360,8 +360,8 @@ class _TopicRun:
             prompt,
             self.work,
             self.settings,
-            self.env,
-            self.base / "01-writer.jsonl",
+            env=self.env,
+            log=self.base / "01-writer.jsonl",
             effort="high",
             agent=AGENT,
             max_budget=remaining,
@@ -392,9 +392,9 @@ class _TopicRun:
             self.base,
             self.store,
             self.work,
-            self.settings,
-            self.topic,
-            self.sessions,
+            settings=self.settings,
+            topic=self.topic,
+            sessions=self.sessions,
             left=self.left if self.budget_left is not None else None,
             read_roots=sp.session_roots(self.store, self.env, self.work),
         )
@@ -1224,7 +1224,7 @@ def _check_guard(store: Path, env: dict) -> None:
         encoding="utf-8",
     )
     after = demo.read_text(encoding="utf-8")
-    bad, back = sp.guard_parts(store, env, "demo", before, after, ["alpha"])
+    bad, back = sp.guard_parts(store, env, "demo", before, after, allowed=["alpha"])
     assert (bad, back) == (["beta"], ["beta"]), (bad, back)
     now = sp.split_parts(demo.read_text(encoding="utf-8"))
     assert (
@@ -1236,7 +1236,7 @@ def _check_guard(store: Path, env: dict) -> None:
     assert (
         sp.mem(store, env, "restore", "s:demo").returncode == 0
     )  # the revert is one undoable step
-    assert sp.guard_parts(store, env, "demo", before, before, [])[0] == []
+    assert sp.guard_parts(store, env, "demo", before, before, allowed=[])[0] == []
     os.environ.pop("MEM_STORE", None)
 
 

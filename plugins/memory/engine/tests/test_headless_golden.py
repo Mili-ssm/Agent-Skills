@@ -207,7 +207,14 @@ SYNTH_MEM_ALLOWED = (
 def test_synthesis_command_line_minimal(run: Recorder, tmp_path: Path) -> None:
     work, settings, store = tmp_path / "work", tmp_path / "settings.json", tmp_path / "store"
     synth_pipeline.run_session(
-        CLAUDE, "haiku", PROMPT, work, settings, {}, tmp_path / "log", read_roots=[store]
+        CLAUDE,
+        "haiku",
+        PROMPT,
+        work,
+        settings,
+        env={},
+        log=tmp_path / "log",
+        read_roots=[store],
     )
     skill_dir = PLUGIN / "skills" / "memory-synthesis"
     assert run.cmd[:3] == ["claude", "-p", "the prompt"]
@@ -242,8 +249,8 @@ def test_synthesis_command_line_with_effort_budget_and_agent(run: Recorder, tmp_
         PROMPT,
         work,
         settings,
-        {},
-        tmp_path / "log",
+        env={},
+        log=tmp_path / "log",
         effort="high",
         agent="curator",
         max_budget=BUDGET,
@@ -441,8 +448,8 @@ def test_synthesis_session_adds_the_sandbox_variables_and_leaves_the_callers_env
         PROMPT,
         tmp_path / "work",
         tmp_path / "settings.json",
-        caller_env,
-        tmp_path / "log",
+        env=caller_env,
+        log=tmp_path / "log",
         read_roots=[store, memories],
     )
     assert run.kwargs["env"] == {
@@ -458,7 +465,13 @@ def test_synthesis_session_without_roots_sets_empty_sandbox_roots(
     run: Recorder, tmp_path: Path
 ) -> None:
     synth_pipeline.run_session(
-        CLAUDE, "haiku", PROMPT, tmp_path, tmp_path / "s.json", {}, tmp_path / "log"
+        CLAUDE,
+        "haiku",
+        PROMPT,
+        tmp_path,
+        tmp_path / "s.json",
+        env={},
+        log=tmp_path / "log",
     )
     assert run.kwargs["env"] == {"MEM_SANDBOX": "1", "MEM_SANDBOX_ROOTS": ""}
 
@@ -525,7 +538,13 @@ def test_settle_runner_arguments(mem_settle: ModuleType, run: Recorder, tmp_path
 def test_synthesis_runner_arguments(run: Recorder, tmp_path: Path) -> None:
     env = {"E": "1"}
     synth_pipeline.run_session(
-        CLAUDE, "haiku", PROMPT, tmp_path, tmp_path / "s.json", env, tmp_path / "log"
+        CLAUDE,
+        "haiku",
+        PROMPT,
+        tmp_path,
+        tmp_path / "s.json",
+        env=env,
+        log=tmp_path / "log",
     )
     assert run.kwargs == {
         "cwd": tmp_path,
@@ -534,6 +553,7 @@ def test_synthesis_runner_arguments(run: Recorder, tmp_path: Path) -> None:
         "capture_output": True,
         "text": True,
         "timeout": SYNTH_TIMEOUT,
+        "check": False,
     }
     synth_pipeline.run_session(
         CLAUDE,
@@ -541,9 +561,9 @@ def test_synthesis_runner_arguments(run: Recorder, tmp_path: Path) -> None:
         PROMPT,
         tmp_path,
         tmp_path / "s.json",
-        env,
-        tmp_path / "log",
-        CUSTOM_TIMEOUT,
+        env=env,
+        log=tmp_path / "log",
+        timeout=CUSTOM_TIMEOUT,
     )
     assert run.kwargs["timeout"] == CUSTOM_TIMEOUT
 
