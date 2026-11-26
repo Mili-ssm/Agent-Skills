@@ -1,5 +1,7 @@
 # Memory capture records Implementation Plan
 
+Status: done · merged in #150, 2026-11-22 · unticked boxes are not open work
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `mem-capture run --write` turns validated candidates into project memories that say where they came from, how far they reach, how much they weigh and whether they are established yet; a lesson the project already holds gains a sighting instead of a copy; and the brief asks for wording that carries a lesson's certainty.

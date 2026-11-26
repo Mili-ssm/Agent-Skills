@@ -1,5 +1,7 @@
 # Automatic rewording of a lesson that got worse Implementation Plan
 
+Status: done · merged in #171, 2026-11-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** With the option `auto_reword` on, the background pass writes one new short form, once per lesson, for a loaded lesson whose present version got worse, checked as the fill's short forms are; every later worsening of that lesson, and a rewording that could not be written, stay with the owner.

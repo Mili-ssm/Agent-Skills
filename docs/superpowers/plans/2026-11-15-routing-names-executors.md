@@ -1,5 +1,7 @@
 # Routing names the skill or agent
 
+Status: done · merged in #115, 2026-11-15
+
 Goal: make `user-config/routing.md` say who the model can use for each need, so skills and agents are used without the owner naming them (owner, 2026-11-15). `user-config/offload-policy.md`, agents, skills and commands do not change.
 
 - [x] `routing.md`: opening rule on unasked use; rows name skills and agents, not commands; the three rules ported from the owner's file; `fixer` covers tests broken by a rename. Check: `python3 scripts/port.py --check` and `python3 scripts/validate.py` pass; `git diff --stat main -- user-config/offload-policy.md` is empty.

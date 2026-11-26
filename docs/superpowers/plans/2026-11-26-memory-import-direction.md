@@ -1,8 +1,10 @@
 # Memory engine import direction (A7): Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: done · merged in #198, 2026-11-26
 
-Status: implemented, merged to dev 2026-11-26 (PR #198); § Deferred findings stays open · Branch: `refactor/memory-a7-a1-a3` · Base: `65e901a` · Date: 2026-11-26
+§ Deferred findings stays open · Branch: `refactor/memory-a7-a1-a3` · Base: `65e901a` · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** the memory engine has no import cycle, and every Python file this change touches passes the ADR 0031 gate with no finding; behavior unchanged.
 

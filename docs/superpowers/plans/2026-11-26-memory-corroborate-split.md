@@ -1,8 +1,10 @@
 # `mem-corroborate` launcher split (first part of A4): Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: done · merged in #200, 2026-11-26
 
-Status: implemented, merged to dev 2026-11-26 (PR #200) · Branch: `refactor/memory-corroborate-split` (stacked on `refactor/memory-config`, PR #199) · Date: 2026-11-26
+Branch: `refactor/memory-corroborate-split` (stacked on `refactor/memory-config`, PR #199) · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `bin/mem-corroborate` becomes a thin launcher; its logic lives in engine modules, every touched file is clean under ADR 0031, and behavior is unchanged. Then A2 can put all seven `claude -p` launchers behind `headless.py`.
 

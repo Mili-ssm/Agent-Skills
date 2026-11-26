@@ -1,6 +1,8 @@
 # Memory plugin refactor plan
 
-Status: in progress (2026-11-26: import direction and config done, `mem-corroborate` split done; see the task list) — planned 2026-11-23 (owner: postponed for usage limits); extended 2026-11-24 with the [project review](../../studies/2026-11-24-project-review.md) (A2–A5 and A7, owner ruling); runs after the security fixes (branch `fix/memory-security`) · Date: 2026-11-23
+Status: in progress · session-end cost and the parked signal code (after the kill read, about 2026-12-01) remain; checkboxes lag the merged work, PRs #198–#217
+
+Date: 2026-11-23
 
 Behavior-preserving refactor of `plugins/memory`, from steps 2 and 4 to 7 of the [structure assessment](../../studies/2026-11-23-memory-plugin-structure.md#recommended-sequence), which holds the findings, evidence and each step's extra check. Steps 0, 1 and 3 (the `notes.py`, `index.py` and `check.py` split) shipped with the [research-gaps plan](2026-11-23-memory-research-gaps.md). Each task passes the full suite with no behavior change; one pull request per task, to `dev`.
 

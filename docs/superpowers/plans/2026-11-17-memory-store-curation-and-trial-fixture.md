@@ -1,8 +1,10 @@
 # Memory store curation and a trial fixture
 
-Owner's request, 2026-11-17: bring the linked origin documents into the default store, run an intensive curation pass over the general memory, leave the store's git remote for after a period of use, and give tests and trials a fixture that keeps them inside the repository (plugin from the repository, store in an ignored folder) instead of the owner's real store.
+Status: done · merged in #120, 2026-11-17
 
-**Status:** done 2026-11-17. The store is outside this repository: its work is recorded here without note titles (public repository).
+Outcome: done 2026-11-17. The store is outside this repository: its work is recorded here without note titles (public repository).
+
+Owner's request, 2026-11-17: bring the linked origin documents into the default store, run an intensive curation pass over the general memory, leave the store's git remote for after a period of use, and give tests and trials a fixture that keeps them inside the repository (plugin from the repository, store in an ignored folder) instead of the owner's real store.
 
 Rules for this work: a backup of the store is taken before any change (`~/.local/share/agent-memory/backups/`, outside the store); every store change goes through `mem` (undo by `mem restore`), except copying the linked documents, which `mem import` does not cover; the origin repository is read, not written (the owner's standing rule until the plugin is finished; moving documents out of it is put to the owner).
 

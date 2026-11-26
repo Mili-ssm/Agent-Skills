@@ -1,5 +1,7 @@
 # usage-ledger mod Implementation Plan
 
+Status: unknown · no `plugins/usage-ledger`, branch or pull request found, and no backlog entry; never executed or not recorded
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Before Task 1, run `agent-skills:pre-mortem` on this plan (owner's working agreement).
 
 **Goal:** A new opt-in mod, `usage-ledger`, that shows the tokens spent by the main agent and its subagents in this session, at a verbosity the owner picks, to judge how offloading performs.

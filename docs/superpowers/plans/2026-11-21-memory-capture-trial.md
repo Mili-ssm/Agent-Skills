@@ -1,5 +1,7 @@
 # Memory capture trial Implementation Plan
 
+Status: done · merged in #149, 2026-11-22
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** An offline command turns one session transcript into at most 5 evidence-anchored memory candidates in a local file, and a trial over 10 past transcripts tells whether the owner would keep them.

@@ -6,6 +6,9 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- `skeptical-reviewer`: its description no longer excludes diff review, so it matches the review row that sends it the staged diff before a push or pull request.
+- `skeptical-reviewer`: accepts a process-review brief (rules and steps with their evidence, no paths) and checks it with a new `Process` row, instead of stopping for missing paths. Unmeasured, one trace (ADR 0017, Measurement 2026-11-26, P1).
+
 - `architecture-principles`: the smell catalog names flat sprawl (many modules in one folder, a shared filename prefix in place of packages) and its remedy, grouping by feature.
 - `architecture-principles`: a new § File size treats file size as a balance, not a limit; the `architect` reads it when it measures file sizes, and measures the call graph before proposing a split.
 - `implementer`: when its task moves, renames, splits or merges modules, it checks that the tests guarding the old names still fail when violated, and reports any it could not prove. Unmeasured (ADR 0013, Review 2026-11-26).

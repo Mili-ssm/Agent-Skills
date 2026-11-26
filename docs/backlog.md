@@ -20,9 +20,10 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
-2. Quick fix: P1 (measured).
-3. Memory refactor: A1, A2, A3, A7 and the first part of A4 merged to dev on 2026-11-26 (PRs #198–#202); the fixes the owner put first merged (#204: the suite passes on Python 3.12.0 to 3.15); `mem-synthesize` into the `engine/synthesize/` package is done on `refactor/memory-synthesize-split` ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)), the pilot of the owner's ruling to group `engine/` into feature packages; next the other packages (one per pull request), `bin/` through `uv`, A8 (A5 and A6 done).
-4. Memory kill read, around 2026-12-01.
+2. P1 and B1: done on `fix/skeptical-reviewer-p1-b1` (ADR 0017 Measurement 2026-11-26, P1), waiting for a pull request.
+3. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's shared corroborate job runner, A8 (tool-fold), the low items below.
+4. Memory seamless stage 3, T2–T5: started 2026-11-26 ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
+5. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 gives a day ratio of 10/10, its denominator all session days because session starts carry no outside flag; details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
 
@@ -31,8 +32,8 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | Pri | ID | Task | Effort | State |
 |---|---|---|---|---|
 | high | D2 | Memory seamless plan: move finished stages to a results section | S | Open |
-| low | D7 | Finished plans still without a `Status` line | S | Partly done |
-| low | D9 | Misc. doc fixes (requirements date, R1–R5 ID clash, platform-parity plan status, a broken anchor, orphan docs) | S | Open |
+| low | D7 | Finished plans still without a `Status` line | S | Done 2026-11-26 (the Ruff hooks no longer touch Markdown), except `2026-11-25-usage-ledger-mod` (state unknown) |
+| low | D9 | Misc. doc fixes: left the R1–R5 ID clash (`superpowers-seams.md` vs `requirements.md`), one orphan spec (`specs/2026-11-17-memory-plugin-field-research.md`), `tool-fold/README.md` line length | S | Partly done (anchor and platform-parity status fixed 2026-11-26; requirements date was right) |
 | low | — | Tooling follow-ups from the `feat/repo-tooling` reviews: marker splice and catalog tables from `port.py` into `promptkit`; `AGENT_EFFORTS` vs the catalog's efforts; one derivation in `port.py`; the hook runs on branch deletes; parked edge cases (two stray quotes hide 'we'; a multi-line fragment split by a block counts as unmarked; the Claude-only Explore line kept outside commands); PR #186 pre-merge review: the pre-push hook checks the working tree, not the pushed refs; a catalog override may target `xhigh` on a non-top model; `check-runner` keeps an unmarked near-copy of `bash-leaves-files-unchanged`; no negative test for `check_memory_offload`; no check keeps the memory `-with-policy` eval's embedded table equal to `plugins/memory/user-config/offload-policy.md` | M | Deferred (ADR 0029) |
 | low | — | pre-commit follow-ups (ADR 0031): the basedpyright hook lacks `playwright`, so touching `ux_audit.py` fails on its import; nothing runs `pre-commit validate-config` before a commit | S | Deferred |
 | low | S7 | `scripts/cloud-setup.sh` may pick another marketplace's `Explore.md` | S | Open |
@@ -48,8 +49,8 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 
 | Pri | ID | Task | Check |
 |---|---|---|---|
-| high | P1 | `skeptical-reviewer` description excludes diff review that routing sends it | Eval protocol |
-| high | B1 | `skeptical-reviewer` accepts a process-review brief | One trace |
+| high | P1 | `skeptical-reviewer` description excludes diff review that routing sends it | Done on `fix/skeptical-reviewer-p1-b1`, measured |
+| high | B1 | `skeptical-reviewer` accepts a process-review brief | Done on `fix/skeptical-reviewer-p1-b1`, one trace; deferred: the description and README row still name change review only (needs its own eval) |
 | medium | B3 | `implementer`: a report path in the brief is a deliverable | One trace |
 | medium | B4 | `researcher`: stop rule near `maxTurns` | — |
 | medium | B2 | `doc-curator` applies edits only on `Mode: apply` | One trace |
@@ -74,16 +75,16 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Done, PR #201 ([plan](superpowers/plans/2026-11-26-memory-headless.md)); deferred lows in its ledger |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Done, PR #202 ([plan](superpowers/plans/2026-11-26-memory-jobs.md)): identical copies only (owner); differing copies stay |
 | medium | A7 | Refactor: import direction | Done: tokenize and both cycles (PR #198); `session_env` in `headless.py` (PR #201) |
-| high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean (PR #200) ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` into `engine/synthesize/` done on its branch ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)); `bin/` through `uv` and the shared corroborate job runner pending |
+| high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean (PR #200) ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` into `engine/synthesize/` done on its branch ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)); `bin/` through `uv` done (#216, ADR 0035); the shared corroborate job runner pending |
 | high | A14 | Refactor: `engine/` (35 flat modules) into feature packages (`corroborate/`, `research/`, `capture/`, `settle/`, `store/`, `core/`…), one package per pull request, each with an import-boundary test; owner ruling 2026-11-26, after the `synthesize/` pilot | Done: PRs #206–#214 ([plans](superpowers/plans/2026-11-26-memory-engine-packages.md), [store](superpowers/plans/2026-11-26-memory-store-records-split.md)); ADR 0034 § Review 2026-11-26 |
 | medium | A6 | Refactor: split `records.py` | Done: PR #214, nine modules behind a facade in `memories/` ([plan](superpowers/plans/2026-11-26-memory-store-records-split.md)); deferred findings in its table |
-| high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Done (this PR series): `mem.py` 10,502 → 1,403 lines, nine modules in `engine/commands/` and `notes/search.py` ([plan](superpowers/plans/2026-11-26-memory-mem-split.md)) |
+| high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Done, PR #217: `mem.py` 10,502 → 1,403 lines, nine modules in `engine/commands/` and `notes/search.py` ([plan](superpowers/plans/2026-11-26-memory-mem-split.md)) |
 | low | — | Refactor A7 deferred findings (untested TLS branch, `plan_commands` non-string `quote`, naming nits; [plan](superpowers/plans/2026-11-26-memory-import-direction.md) § Deferred findings) | Open |
 | low | — | Refactor: move the 56 importers of the `memories/records` facade to the defining modules (optional) | Not started |
 | low | — | Refactor: measure `find_claude` in the session-end hook | Not started |
 | low | — | Split `bin/mem-capture` (1,265 lines after its lint refactor) into engine modules | Not started |
 | low | A11 | Refactor: parked signal code, after the kill read | Not started |
-| high | Stage 4 | Kill read into ADR 0023 `## Review` | Around 2026-12-01 |
+| high | Stage 4 | Kill read into ADR 0023 `## Review` | 2026-12-01; provisional read 2026-11-26 passes the day ratio |
 | medium | Q5 | Remove `sleep` negatives and wall-clock asserts: lock waits done in #193; left: `test_auto_curation` negative windows (1.5–2 s) are only 1.1–1.5× its hook latency under load (1.31 s; `test_settle_run` has about 3×), a synchronous "decided not to start" record in `mem-auto` would give a real signal ([plan](superpowers/plans/2026-11-25-faster-tests.md)) | Partly done |
 | medium | Q7 | One mutation run on `records.py` and `check.py` | Open |
 | low | Q8, Q9 | Split large test files; small test gaps | Open (Q8: `test_mem_corroborate.py` done with A4 (PR #200); other large files open; the Q9 same-second fill test fixed in the [fixes plan](superpowers/plans/2026-11-26-memory-fixes.md)) |
@@ -92,7 +93,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | medium | D6 | Split `plugins/memory/README.md` | Open |
 | low | S5 | Capture-born rules load without owner triage | Open |
 | low | — | Two hardening notes on note writes | Decide when touched |
-| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Second in the owner order; T1 merged, T2–T5 wait until unattached notes accumulate (owner) |
+| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Started 2026-11-26 (owner); T1 merged |
 | low | Seamless 4, 5 | Split a synthesis; join `mem-auto` | After their trials |
 | low | Stages 7, 8, 9, 10 | Remote sync; Rust decision; capture experiment; project syntheses results | Open |
 | low | C52, C49 | Automatic short-form path; usefulness of a loaded lesson | No plan yet |

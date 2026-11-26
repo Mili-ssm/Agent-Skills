@@ -1,8 +1,10 @@
 # Memory prompts tuned, then a leaner synthesis loop on Haiku medium: plan
 
-Owner's request, 2026-11-17: before more trials, optimize the prompts of the memory system (agents, skills, hook texts) using the memory and its research; then test synthesis curation with Haiku at medium effort and a loop refined to avoid needless rework. Builds on `2026-11-17-memory-synthesis-haiku.md` (results: the hybrid loop was as accurate but not cheaper, because of two full fix rounds).
+Status: done · merged in #123, 2026-11-17
 
-**Status:** done 2026-11-17 (preliminary): Haiku medium writer with the lean loop qualifies at about 0.25 USD per synthesis.
+Outcome: done 2026-11-17 (preliminary): Haiku medium writer with the lean loop qualifies at about 0.25 USD per synthesis.
+
+Owner's request, 2026-11-17: before more trials, optimize the prompts of the memory system (agents, skills, hook texts) using the memory and its research; then test synthesis curation with Haiku at medium effort and a loop refined to avoid needless rework. Builds on `2026-11-17-memory-synthesis-haiku.md` (results: the hybrid loop was as accurate but not cheaper, because of two full fix rounds).
 
 ## Constraints
 

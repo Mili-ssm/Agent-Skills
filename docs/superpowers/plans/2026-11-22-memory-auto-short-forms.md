@@ -1,5 +1,7 @@
 # Memory Automatic Short Forms Implementation Plan
 
+Status: done · merged in #165, 2026-11-22 · unticked boxes are not open work
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A lesson that becomes established gets its short form and topic written, checked and applied by the background pass with nobody reading it first; only a `strong` lesson, or one whose short form was refused twice, waits for the owner.

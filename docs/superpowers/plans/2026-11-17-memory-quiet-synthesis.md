@@ -1,8 +1,10 @@
 # Quiet synthesis curation: a named writer and a script-driven pipeline
 
-Owner, 2026-11-17: curation is too verbose and costly when the main session relays every report; a named agent should write syntheses (general-purpose writers showed as such in the interface). Builds on the lean loop measured in `2026-11-17-memory-prompts-and-loop.md` (Haiku writer, one fix round, about 0.25 USD per synthesis at medium effort; the owner then set high effort, unmeasured).
+Status: done · merged in #126, 2026-11-17
 
-**Status:** implemented; the trigger case fires 1 of 2.
+Outcome: implemented; the trigger case fires 1 of 2.
+
+Owner, 2026-11-17: curation is too verbose and costly when the main session relays every report; a named agent should write syntheses (general-purpose writers showed as such in the interface). Builds on the lean loop measured in `2026-11-17-memory-prompts-and-loop.md` (Haiku writer, one fix round, about 0.25 USD per synthesis at medium effort; the owner then set high effort, unmeasured).
 
 ## Decisions
 

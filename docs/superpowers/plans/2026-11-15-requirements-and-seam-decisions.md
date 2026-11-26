@@ -1,5 +1,7 @@
 # Requirements review and seam decisions
 
+Status: done · merged in #114, 2026-11-15
+
 Goal: record the owner's decisions of 2026-11-15 so that requirements, ADRs, the routing text and the seams document agree, and the two plugins give one instruction per task. No agent, skill or command file changes; `user-config/offload-policy.md` stays byte-identical because the offload evals embed it.
 
 ## Decisions taken by the owner (intent-elicitation, 2026-11-15)

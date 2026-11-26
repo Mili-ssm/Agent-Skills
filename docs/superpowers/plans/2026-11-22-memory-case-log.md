@@ -1,5 +1,7 @@
 # Case log of a lesson Implementation Plan
 
+Status: done · merged in #168, 2026-11-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A lesson records each later case with its date and outcome (`worked`, `failed`, `seen`) and each version of its short form with its text, shows the tally of each version, and is listed for the owner when its present version got worse, while it keeps loading.
