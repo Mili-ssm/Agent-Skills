@@ -26,60 +26,195 @@ import sys
 import tempfile
 import time
 import urllib.parse
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Collection, Iterable, Mapping, Sequence
-
-import yaml
+from typing import TYPE_CHECKING, Any
 
 import auto_state
 import capture_state
+import check as check_rules
 import corroborate
+import digest
 import handoff
+import index as index_files
+import notes as note_files
 import project_syntheses
 import records
-import safe_io
-import shortcheck
+import research_checks
 import rules
-from records import tokenize  # noqa: F401  (the tokenizer lives in records; kept here under its old name)
-import settle
+import safe_io
 import session_notices
+import settle
 import settle_state
+import shortcheck
 import store_git
 import syntheses
+import yaml
+from check import (
+    LEVELS,
+    MAX_KNOWLEDGE_NAME,
+    NAME_PATTERNS,
+    OPTIONAL_FIELDS,
+    SCHEMAS,
+    Problem,
+    check,
+    due_requirements,
+    due_rereads,
+    due_retests,
+    instruction_word,
+    invalid_changed,
+    orphan_notes,
+)
+from index import (
+    INDEX_FOLDERS,
+    apply_index,
+    index_targets,
+)
+from notes import (
+    FrontmatterError,
+    ancestors,
+    descendants,
+    discover_notes,
+    load_topics,
+    load_yaml,
+    root_of,
+    root_topics,
+    slugify,
+    split_frontmatter,
+)
+from records import tokenize
 
-from notes import (  # noqa: F401  (moved out of mem.py; re-exported so mem.X keeps working)
-    ancestors, _BaseLoader, descendants, discover_notes, _DROPPED_TAGS, FrontmatterError, _handle, HubLoader,
-    _is_hidden, key_line, leaf_topics, load_topics, load_yaml, _no_duplicate_keys, Note, _note_files, _parent,
-    _read_note, _read_text, root_of, root_topics, safe_load, slugify, split_frontmatter, _yaml_problem,
-)
-from index import (  # noqa: F401  (moved out of mem.py; re-exported so mem.X keeps working)
-    apply_index, _cell, _domain_notes, _DOMAIN_PURPOSE, _index_cells, _INDEX_COLUMNS, INDEX_END, INDEX_FOLDERS,
-    _index_row, INDEX_START, index_targets, _indexable, IndexTarget, render_domain_index, render_index,
-    _rows_table, _subtopics, _with_index,
-)
-from check import (  # noqa: F401  (moved out of mem.py; re-exported so mem.X keeps working)
-    _authors, _BACKTICKS, BASELINE_HEADING, _blank, check, _CODE_SPAN, _CONCRETE_ID, _DATE, _date,
-    _DISPUTE_KEYS, _disputed, due_requirements, due_rereads, due_retests, _enum, EXPERIMENT_DIRS, _FENCE,
-    _handle_list, _handle_value, _has_committable_file, _heading_problems, _IMPERATIVES, _in_fence,
-    _INSTRUCTION_FIX, instruction_word, _INTENT_ID, _is_index_readme, _iso_date, LEVELS, _LINK, _LOCAL_DIRS,
-    _LONG_NAME_FIX, _markdown_files, MAX_FILE_BYTES, MAX_KNOWLEDGE_NAME, MODEL_SPECIFIC_ROOT, _MONTH, _month,
-    _NAME_FIX, NAME_PATTERNS, _nonempty_dir, OPTIONAL_FIELDS, orphan_notes, _part_hash, _PART_OF, _part_of,
-    Problem, _REFDEF, _relative_links, REQUIRED_HEADINGS, _requirement_rows, _REQUIREMENTS, REREAD_DAYS,
-    RESERVED_TOPIC, RETEST_DAYS, rule_consistency, rule_domain, rule_file_size, rule_flat, rule_handles,
-    rule_index_fresh, rule_links, rule_names, rule_placeholders, rule_requirements, rule_schema,
-    rule_supersession, rule_syntheses, rule_topics_file, rule_topics_used, RULES, SCHEMAS, _SCHEME,
-    _split_cells, _starts_with_author, _string, _strip_code, _target_spans, _TOPIC_ID, _topic_line, _topics,
-    _UNTRACKED_DIRS, _url, Validator, _visible, _year, invalid_changed,
-)
+if TYPE_CHECKING:
+    from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
+
+    from notes import (
+        Note,
+    )
+
+# Names that moved out of mem.py into check, notes and index; callers still use `mem.<name>`.
+_MOVED = frozenset({
+    "HubLoader",
+    "INDEX_END",
+    "INDEX_START",
+    "MAX_FILE_BYTES",
+    "_BACKTICKS",
+    "_BaseLoader",
+    "_CODE_SPAN",
+    "_CONCRETE_ID",
+    "_DATE",
+    "_DISPUTE_KEYS",
+    "_DOMAIN_PURPOSE",
+    "_DROPPED_TAGS",
+    "_FENCE",
+    "_IMPERATIVES",
+    "_INDEX_COLUMNS",
+    "_INSTRUCTION_FIX",
+    "_INTENT_ID",
+    "_LINK",
+    "_LOCAL_DIRS",
+    "_LONG_NAME_FIX",
+    "_MONTH",
+    "_NAME_FIX",
+    "_PART_OF",
+    "_REFDEF",
+    "_REQUIREMENTS",
+    "_SCHEME",
+    "_TOPIC_ID",
+    "_UNTRACKED_DIRS",
+    "_authors",
+    "_blank",
+    "_cell",
+    "_date",
+    "_disputed",
+    "_domain_notes",
+    "_enum",
+    "_handle",
+    "_handle_list",
+    "_handle_value",
+    "_has_committable_file",
+    "_heading_problems",
+    "_in_fence",
+    "_index_cells",
+    "_index_row",
+    "_indexable",
+    "_is_hidden",
+    "_is_index_readme",
+    "_iso_date",
+    "_markdown_files",
+    "_month",
+    "_no_duplicate_keys",
+    "_nonempty_dir",
+    "_note_files",
+    "_parent",
+    "_part_hash",
+    "_part_of",
+    "_read_note",
+    "_read_text",
+    "_relative_links",
+    "_requirement_rows",
+    "_rows_table",
+    "_split_cells",
+    "_starts_with_author",
+    "_string",
+    "_strip_code",
+    "_subtopics",
+    "_target_spans",
+    "_topic_line",
+    "_topics",
+    "_url",
+    "_visible",
+    "_with_index",
+    "_yaml_problem",
+    "_year",
+    "leaf_topics",
+})
+
+
+def __getattr__(name: str) -> object:
+    if name in _MOVED:
+        for module in (check_rules, note_files, index_files):
+            if hasattr(module, name):
+                return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
-_SYNTHESIS_WRITES = ("new", "add", "edit", "append", "attach", "rename", "remove", "detach", "topics", "refs")
-_NO_STORE_NEEDED = ("remember", "observe", "confirm", "refute", "supersede", "merge", "forget", "promote",
-                    "distinct", "restore", "triage", "memory", "memories", "curate", "settle", "session-index", "rules", "compact-log", "signal", "projects",
-                    "project-synthesis")
+_SYNTHESIS_WRITES = (
+    "new",
+    "add",
+    "edit",
+    "append",
+    "attach",
+    "rename",
+    "remove",
+    "detach",
+    "topics",
+    "refs",
+)
+_NO_STORE_NEEDED = (
+    "remember",
+    "observe",
+    "confirm",
+    "refute",
+    "supersede",
+    "merge",
+    "forget",
+    "promote",
+    "distinct",
+    "restore",
+    "triage",
+    "memory",
+    "memories",
+    "curate",
+    "settle",
+    "session-index",
+    "rules",
+    "compact-log",
+    "signal",
+    "projects",
+    "project-synthesis",
+)
 
 
 def _env_value(env: Mapping[str, str], key: str) -> str:
@@ -107,8 +242,10 @@ def _config_store(env: Mapping[str, str]) -> str:
     return lines[0].strip() if lines else ""
 
 
-NO_STORE = ('mem: no store is set. Run "mem init" to create the default store, or set the plugin\'s "store" option, '
-            "or pass --root <folder>, or set MEM_STORE.")
+NO_STORE = (
+    'mem: no store is set. Run "mem init" to create the default store, or set the plugin\'s "store" option, '
+    "or pass --root <folder>, or set MEM_STORE."
+)
 
 
 def _default_store(env: Mapping[str, str]) -> Path | None:
@@ -164,13 +301,20 @@ def _unknown_topic_message(topic: str, known: dict) -> str:
     words = set(topic.lower().split("-"))
     close = sorted(t for t in known if words & set(t.split("-")) or topic.lower() in t)
     hint = f"close ids: {', '.join(close)}; " if close else ""
-    return f"unknown topic {topic}: {hint}for free text use: mem search \"{topic.replace('-', ' ')}\" (ids: topics.yaml)"
+    return f'unknown topic {topic}: {hint}for free text use: mem search "{topic.replace("-", " ")}" (ids: topics.yaml)'
 
 
-def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = None,
-                    kind: str | None = None, status: str | None = None,
-                    confidence: str | None = None, level: str | None = None,
-                    superseded: bool = False) -> list[Note]:
+def _matching_notes(
+    root: Path,
+    *,
+    type: str | None = None,
+    topic: str | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    confidence: str | None = None,
+    level: str | None = None,
+    superseded: bool = False,
+) -> list[Note]:
     """Parsable typed notes matching every filter; unparsable ones are skipped with a warning.
 
     A note with `superseded_by` is left out unless `superseded`."""
@@ -186,8 +330,10 @@ def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = 
     result = []
     for note in discover_notes(root):
         if note.error is not None or not isinstance(note.meta, dict):
-            print(f"mem: skipping {note.rel}: {note.error or 'frontmatter is not a mapping'}",
-                  file=sys.stderr)
+            print(
+                f"mem: skipping {note.rel}: {note.error or 'frontmatter is not a mapping'}",
+                file=sys.stderr,
+            )
             continue
         meta = note.meta
         if note.type not in types:
@@ -198,7 +344,9 @@ def _matching_notes(root: Path, *, type: str | None = None, topic: str | None = 
             continue
         if scope is not None:
             listed = meta.get("topics")
-            if not isinstance(listed, list) or not scope.intersection(t for t in listed if isinstance(t, str)):
+            if not isinstance(listed, list) or not scope.intersection(
+                t for t in listed if isinstance(t, str)
+            ):
                 continue
         result.append(note)
     return result
@@ -228,13 +376,18 @@ FIELD_B = {"title": 0.3, "body": 0.75}
 def _fields(note: Note) -> dict[str, str]:
     """Searchable text per field: the title (`claim` for knowledge notes), and the body with topics and authors."""
     meta = note.meta
-    extra = [" ".join(str(v) for v in meta[f]) for f in ("topics", "authors") if isinstance(meta.get(f), list)]
+    extra = [
+        " ".join(str(v) for v in meta[f])
+        for f in ("topics", "authors")
+        if isinstance(meta.get(f), list)
+    ]
     return {"title": _title(note), "body": "\n".join(extra + [note.body])}
 
 
 @dataclass(frozen=True)
 class Corpus:
     """Notes with per-field term counts and lengths, so many queries can be ranked without re-reading notes."""
+
     notes: list[Note]
     counts: list[dict[str, collections.Counter]]
     lengths: list[dict[str, int]]
@@ -244,7 +397,9 @@ class Corpus:
 def build_corpus(root: Path, **filters: str | None) -> Corpus:
     """Read and tokenize the notes matching `filters` once."""
     notes = _matching_notes(root, **filters)
-    counts = [{f: collections.Counter(tokenize(text)) for f, text in _fields(n).items()} for n in notes]
+    counts = [
+        {f: collections.Counter(tokenize(text)) for f, text in _fields(n).items()} for n in notes
+    ]
     lengths = [{f: sum(c.values()) for f, c in fields.items()} for fields in counts]
     total = len(notes)
     average = {f: sum(l[f] for l in lengths) / total if total else 0.0 for f in FIELD_WEIGHTS}
@@ -269,8 +424,13 @@ def rank(corpus: Corpus, query: str, *, limit: int = 10) -> list[tuple[Note, flo
     for note, fields, length in zip(corpus.notes, corpus.counts, corpus.lengths):
         score = 0.0
         for term in terms:
-            tf = sum(FIELD_WEIGHTS[f] * fields[f][term] / (1 - FIELD_B[f] + FIELD_B[f] * length[f] / corpus.average[f])
-                     for f in FIELD_WEIGHTS if fields[f].get(term) and corpus.average[f])
+            tf = sum(
+                FIELD_WEIGHTS[f]
+                * fields[f][term]
+                / (1 - FIELD_B[f] + FIELD_B[f] * length[f] / corpus.average[f])
+                for f in FIELD_WEIGHTS
+                if fields[f].get(term) and corpus.average[f]
+            )
             if tf:
                 score += idf[term] * tf * (BM25_K1 + 1) / (tf + BM25_K1)
         if score > 0:
@@ -279,16 +439,22 @@ def rank(corpus: Corpus, query: str, *, limit: int = 10) -> list[tuple[Note, flo
     return scored[:limit]
 
 
-def search(root: Path, query: str, *, limit: int = 10, **filters: str | None) -> list[tuple[str, float, str]]:
+def search(
+    root: Path, query: str, *, limit: int = 10, **filters: str | None
+) -> list[tuple[str, float, str]]:
     """(rel, score, title) of the best BM25F matches, best first; notes scoring 0 are omitted."""
-    return [(n.rel, score, _title(n)) for n, score in rank(build_corpus(root, **filters), query, limit=limit)]
+    return [
+        (n.rel, score, _title(n))
+        for n, score in rank(build_corpus(root, **filters), query, limit=limit)
+    ]
 
 
 LINK_SEEDS = LINK_EXTRA = 10
 
 
-def linked_notes(root: Path, corpus: Corpus, ranked: list[tuple[Note, float]],
-                 shown: int) -> list[tuple[Note, float]]:
+def linked_notes(
+    root: Path, corpus: Corpus, ranked: list[tuple[Note, float]], shown: int
+) -> list[tuple[Note, float]]:
     """Up to `LINK_EXTRA` notes of `corpus` linked to or from the first `LINK_SEEDS` printed results of `ranked` (the full
     ranking), not among its first `shown`, as (note, own score; 0 when it does not match the query).
 
@@ -304,7 +470,9 @@ def linked_notes(root: Path, corpus: Corpus, ranked: list[tuple[Note, float]],
     own = {n.rel: score for n, score in ranked}
     printed = {n.rel for n, _ in ranked[:shown]}
     support: dict[str, float] = {}
-    for note, score in ranked[:min(shown, LINK_SEEDS)]:  # seeds are printed results, so "above" holds
+    for note, score in ranked[
+        : min(shown, LINK_SEEDS)
+    ]:  # seeds are printed results, so "above" holds
         for rel in graph[note.rel] - printed:
             support[rel] = support.get(rel, 0.0) + score
     best = sorted(support, key=lambda rel: (-(support[rel] + own.get(rel, 0.0)), rel))[:LINK_EXTRA]
@@ -333,8 +501,10 @@ def eval_rows(root: Path) -> list[tuple[int, str, list[str]]] | None:
             continue
         if not in_table or len(cells) != 2 or not cells[0] or set(cells[0]) <= set("-: "):
             continue
-        wanted = [os.path.normpath(f"docs/{m.split('#')[0]}").replace(os.sep, "/")
-                  for m in _MD_LINK.findall(cells[1])]
+        wanted = [
+            os.path.normpath(f"docs/{m.split('#')[0]}").replace(os.sep, "/")
+            for m in _MD_LINK.findall(cells[1])
+        ]
         rows.append((number, cells[0].strip("`"), wanted))
     return rows
 
@@ -345,7 +515,7 @@ RELATIONS = ("links-to", "linked-from", "similar")
 def _link_targets(root: Path, note: Note) -> set[str]:
     """Hub-relative paths the note links to (a folder link means its README.md), as `orphan_notes` resolves them."""
     targets = set()
-    for _, _, file_part in _relative_links(note.body, refs=True):
+    for _, _, file_part in check_rules._relative_links(note.body, refs=True):
         target = os.path.normpath(root / Path(note.rel).parent / file_part)
         if Path(target).is_dir():
             target = os.path.join(target, "README.md")
@@ -353,7 +523,9 @@ def _link_targets(root: Path, note: Note) -> set[str]:
     return targets
 
 
-def related(root: Path, rel: str, *, limit: int = 5, corpus: Corpus | None = None) -> dict[str, list[Note]]:
+def related(
+    root: Path, rel: str, *, limit: int = 5, corpus: Corpus | None = None
+) -> dict[str, list[Note]]:
     """Notes `rel` links to, notes linking to it (typed notes only, by path) and its `limit` most similar notes.
 
     Raises ValueError when `rel` is not a typed note; pass `corpus` (of all notes) to reuse one already built."""
@@ -365,9 +537,14 @@ def related(root: Path, rel: str, *, limit: int = 5, corpus: Corpus | None = Non
     links_to = [n for n in corpus.notes if n.rel in outgoing and n.rel != rel]
     linked_from = [n for n in corpus.notes if n.rel != rel and rel in _link_targets(root, n)]
     seen = {rel, *(n.rel for n in links_to + linked_from)}
-    similar = [n for n, _ in rank(corpus, _title(note), limit=limit + len(seen)) if n.rel not in seen]
-    return {"links-to": sorted(links_to, key=lambda n: n.rel), "linked-from": sorted(linked_from, key=lambda n: n.rel),
-            "similar": similar[:limit]}
+    similar = [
+        n for n, _ in rank(corpus, _title(note), limit=limit + len(seen)) if n.rel not in seen
+    ]
+    return {
+        "links-to": sorted(links_to, key=lambda n: n.rel),
+        "linked-from": sorted(linked_from, key=lambda n: n.rel),
+        "similar": similar[:limit],
+    }
 
 
 def _mention_pattern(note: Note) -> re.Pattern[str] | None:
@@ -376,10 +553,17 @@ def _mention_pattern(note: Note) -> re.Pattern[str] | None:
     words = re.findall(r"\w+", _title(note))
     parts = [r"(?i:\b" + r"\W+".join(map(re.escape, words)) + r"\b)"] if len(words) >= 4 else []
     authors = note.meta.get("authors")
-    if note.type == "literature" and isinstance(authors, list) and authors and str(authors[0]).split():
+    if (
+        note.type == "literature"
+        and isinstance(authors, list)
+        and authors
+        and str(authors[0]).split()
+    ):
         surname = str(authors[0]).split()[-1]
-        parts.append(rf"\b{re.escape(surname)}\b.{{0,40}}\b{re.escape(str(note.meta.get('year')))}\b")
-    return re.compile("|".join(parts), re.S) if parts else None
+        parts.append(
+            rf"\b{re.escape(surname)}\b.{{0,40}}\b{re.escape(str(note.meta.get('year')))}\b"
+        )
+    return re.compile("|".join(parts), re.DOTALL) if parts else None
 
 
 def unlinked_mentions(root: Path, rel: str, corpus: Corpus) -> list[Note]:
@@ -392,9 +576,16 @@ def unlinked_mentions(root: Path, rel: str, corpus: Corpus) -> list[Note]:
     pattern = _mention_pattern(note)
     if pattern is None:
         return []
-    return sorted((n for n in corpus.notes
-                   if n.rel != rel and pattern.search(_LINK.sub("", n.body)) and rel not in _link_targets(root, n)),
-                  key=lambda n: n.rel)
+    return sorted(
+        (
+            n
+            for n in corpus.notes
+            if n.rel != rel
+            and pattern.search(check_rules._LINK.sub("", n.body))
+            and rel not in _link_targets(root, n)
+        ),
+        key=lambda n: n.rel,
+    )
 
 
 def search_eval(root: Path, *, limit: int = 10) -> tuple[list[str], int, int, float] | None:
@@ -428,8 +619,11 @@ _HEADING = re.compile(r"^(#{1,4})[ \t]+\S")
 
 def _headings(lines: list[str]) -> list[tuple[int, int, str]]:
     """(0-based index, level, text) of each Markdown heading outside fenced code."""
-    return [(i, len(h.group(1)), line) for i, (line, fenced) in enumerate(zip(lines, _in_fence(lines)))
-            if not fenced and (h := _HEADING.match(line))]
+    return [
+        (i, len(h.group(1)), line)
+        for i, (line, fenced) in enumerate(zip(lines, check_rules._in_fence(lines)))
+        if not fenced and (h := _HEADING.match(line))
+    ]
 
 
 def _sections(lines: list[str], wanted: list[str]) -> list[str]:
@@ -449,8 +643,11 @@ def _sections(lines: list[str], wanted: list[str]) -> list[str]:
     return out
 
 
-_KEY_FACTS = {"knowledge": ("confidence", "updated", "level"), "literature": ("year", "kind", "url", "level"),
-              "research": ("status", "started")}
+_KEY_FACTS = {
+    "knowledge": ("confidence", "updated", "level"),
+    "literature": ("year", "kind", "url", "level"),
+    "research": ("status", "started"),
+}
 
 
 def _key_facts(note_type: str, meta: Any) -> str | None:
@@ -458,35 +655,60 @@ def _key_facts(note_type: str, meta: Any) -> str | None:
     if not isinstance(meta, dict) or note_type not in _KEY_FACTS:
         return None
     flag = " [disputed]" if note_type == "knowledge" and meta.get("disputed") else ""
-    return " \u00b7 ".join(f"{k}: {meta[k]}{flag if k == 'confidence' else ''}" for k in _KEY_FACTS[note_type]
-                          if meta.get(k) is not None) or None
+    return (
+        " \u00b7 ".join(
+            f"{k}: {meta[k]}{flag if k == 'confidence' else ''}"
+            for k in _KEY_FACTS[note_type]
+            if meta.get(k) is not None
+        )
+        or None
+    )
 
 
 DETAILS = ("paths", "titles", "facts", "snippet", "summary")
 _LEAD_SECTION = {"knowledge": "Claim", "literature": "TL;DR"}
 
 
-def snippet(note: Note, terms: Sequence[str] = (), *, weights: Mapping[str, float] | None = None,
-            width: int = 200) -> str:
+def snippet(
+    note: Note,
+    terms: Sequence[str] = (),
+    *,
+    weights: Mapping[str, float] | None = None,
+    width: int = 200,
+) -> str:
     """The body line (not blank, heading, table separator or inside a fenced code block) with the highest
     total weight of its distinct `terms` (`weights`, else 1 each), earliest on ties; else the first such line.
     Whitespace is collapsed and text over `width` is cut with an ellipsis."""
     body = note.body.splitlines()
-    fenced = _in_fence(body)
-    lines = [line for line, inside in zip(body, fenced)
-             if not inside and line.strip() and not line.lstrip().startswith("#") and not set(line.strip()) <= set("|-: ")]
+    fenced = check_rules._in_fence(body)
+    lines = [
+        line
+        for line, inside in zip(body, fenced)
+        if not inside
+        and line.strip()
+        and not line.lstrip().startswith("#")
+        and not set(line.strip()) <= set("|-: ")
+    ]
     if not lines:
         return ""
     wanted = set(terms)
-    weight = lambda line: sum(1.0 if weights is None else weights.get(t, 0.0) for t in wanted & set(tokenize(line)))
+    weight = lambda line: sum(
+        1.0 if weights is None else weights.get(t, 0.0) for t in wanted & set(tokenize(line))
+    )
     best = max(lines, key=weight)  # max keeps the earliest tie
     text = " ".join(best.split())
-    return text if len(text) <= width else text[:width - 1] + "\u2026"
+    return text if len(text) <= width else text[: width - 1] + "\u2026"
 
 
-def format_hit(note: Note, detail: str, *, score: float | None = None,
-               terms: Sequence[str] = (), weights: Mapping[str, float] | None = None,
-               name: str | None = None) -> list[str]:
+def format_hit(
+    note: Note,
+    detail: str,
+    *,
+    score: float | None = None,
+    terms: Sequence[str] = (),
+    weights: Mapping[str, float] | None = None,
+    name: str | None = None,
+) -> list[str]:
     """Output lines for one note at a `DETAILS` level; `score` is omitted from the line when None and
     `name` (a short handle) replaces the path."""
     if detail == "paths":
@@ -502,8 +724,9 @@ def format_hit(note: Note, detail: str, *, score: float | None = None,
         lines.append("  " + text)
     if detail == "summary":
         body = note.body.splitlines()
-        lead = _LEAD_SECTION.get(note.type) or next((line[2:].strip() for _, level, line in _headings(body)
-                                                     if level == 2), None)
+        lead = _LEAD_SECTION.get(note.type) or next(
+            (line[2:].strip() for _, level, line in _headings(body) if level == 2), None
+        )
         if lead is not None:
             lines.extend("  " + line for line in _sections(body, [lead])[1:] if line.strip())
     return lines
@@ -512,12 +735,21 @@ def format_hit(note: Note, detail: str, *, score: float | None = None,
 def short_handles(root: Path) -> dict[str, str]:
     """Path -> the shortest prefix of its handle, cut at a hyphen and at least two words long, that no other
     handle starts with (the whole handle when none is); `resolve_note` turns it back into the note."""
-    handles = {rel: _handle(rel) for rel in (p.relative_to(root).as_posix() for _, p in _note_files(root))}
+    handles = {
+        rel: note_files._handle(rel)
+        for rel in (p.relative_to(root).as_posix() for _, p in note_files._note_files(root))
+    }
     out = {}
     for rel, handle in handles.items():
         words = handle.split("-")
-        out[rel] = next((pre for k in range(2, len(words)) if sum(h.startswith(pre := "-".join(words[:k]))
-                                                                  for h in handles.values()) == 1), handle)
+        out[rel] = next(
+            (
+                pre
+                for k in range(2, len(words))
+                if sum(h.startswith(pre := "-".join(words[:k])) for h in handles.values()) == 1
+            ),
+            handle,
+        )
     return out
 
 
@@ -536,10 +768,13 @@ def resolve_note(root: Path, arg: str, *, prefix: bool = True) -> Path | list[st
     name = arg.removesuffix(".md")
     if not name:
         return None
-    rels = sorted(p.relative_to(root).as_posix() for _, p in _note_files(root))
-    for found in ([r for r in rels if _handle(r) == name or r.removesuffix(".md") == name],
-                  [r for r in rels if _handle(r).startswith(name) or r.startswith(name)]
-                  if prefix and name == arg else []):
+    rels = sorted(p.relative_to(root).as_posix() for _, p in note_files._note_files(root))
+    for found in (
+        [r for r in rels if note_files._handle(r) == name or r.removesuffix(".md") == name],
+        [r for r in rels if note_files._handle(r).startswith(name) or r.startswith(name)]
+        if prefix and name == arg
+        else [],
+    ):
         if found:
             return root / found[0] if len(found) == 1 else found
     return None
@@ -549,14 +784,24 @@ def _ambiguous(arg: str, found: list[str]) -> None:
     print(f"ambiguous: {arg} matches {len(found)} notes:", *found[:10], sep="\n", file=sys.stderr)
 
 
-_CONCLUSION = {"knowledge": ("Claim", "Does not apply when"), "literature": ("TL;DR",), "research": ("Question",)}
+_CONCLUSION = {
+    "knowledge": ("Claim", "Does not apply when"),
+    "literature": ("TL;DR",),
+    "research": ("Question",),
+}
 
 
 def _expand_conclusion(note_type: str, lines: list[str], sections: list[str]) -> list[str]:
     """Replace `conclusion` by the note type's lead sections that exist; other kinds get their first `## `."""
     present = [line[2:].strip() for _, level, line in _headings(lines) if level == 2]
-    lead = [n for n in _CONCLUSION.get(note_type, present[:1]) if n.casefold() in {p.casefold() for p in present}]
-    return [x for s in sections for x in (lead or [s] if s.strip().casefold() == "conclusion" else [s])]
+    lead = [
+        n
+        for n in _CONCLUSION.get(note_type, present[:1])
+        if n.casefold() in {p.casefold() for p in present}
+    ]
+    return [
+        x for s in sections for x in (lead or [s] if s.strip().casefold() == "conclusion" else [s])
+    ]
 
 
 def _outline_ranges(lines: list[str], body_line: int) -> list[str]:
@@ -566,14 +811,20 @@ def _outline_ranges(lines: list[str], body_line: int) -> list[str]:
     heads = _headings(lines)
     rows = []
     for n, (i, level, line) in enumerate(heads):
-        stop = next((j for j, lv, _ in heads[n + 1:] if lv <= level), len(lines))
+        stop = next((j for j, lv, _ in heads[n + 1 :] if lv <= level), len(lines))
         words = sum(len(x.split()) for x in lines[i:stop])
         rows.append(f"{body_line + i}-{body_line + stop - 1}\t{words}w\t{line}")
     return rows
 
 
-def show(root: Path, paths: list[str], *, sections: list[str] | None = None,
-         outline: bool = False, ranges: bool = False) -> tuple[list[str], list[str], bool]:
+def show(
+    root: Path,
+    paths: list[str],
+    *,
+    sections: list[str] | None = None,
+    outline: bool = False,
+    ranges: bool = False,
+) -> tuple[list[str], list[str], bool]:
     """Blocks of output, one per path; the resolved paths shown; whether every path was found."""
     blocks: list[str] = []
     shown: list[str] = []
@@ -594,7 +845,7 @@ def show(root: Path, paths: list[str], *, sections: list[str] | None = None,
         out = [f"== {rel}"]
         note_type = rel.split("/", 1)[0]
         try:
-            text = _read_text(path)
+            text = note_files._read_text(path)
         except FrontmatterError as exc:
             blocks.append(f"== {rel}\n({exc})")
             ok = False
@@ -624,28 +875,39 @@ def show(root: Path, paths: list[str], *, sections: list[str] | None = None,
 
 
 def _dump_frontmatter(data: dict) -> str:
-    dumped = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, default_flow_style=None,
-                            width=float("inf"))
+    dumped = yaml.safe_dump(
+        data, sort_keys=False, allow_unicode=True, default_flow_style=None, width=float("inf")
+    )
     return f"---\n{dumped}---\n"
 
 
 def _knowledge_name_problem(stem: str) -> str | None:
     if word := instruction_word(stem):
-        return f'knowledge name reads as an instruction ("{word}-..."): {_INSTRUCTION_FIX}'
+        return (
+            f'knowledge name reads as an instruction ("{word}-..."): {check_rules._INSTRUCTION_FIX}'
+        )
     if len(stem) > MAX_KNOWLEDGE_NAME:
-        return f"knowledge name too long ({len(stem)} characters): {_LONG_NAME_FIX}"
+        return f"knowledge name too long ({len(stem)} characters): {check_rules._LONG_NAME_FIX}"
     return None
 
 
-def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today: datetime.date,
-             body: str | None = None, **fields: Any) -> Path:
+def new_note(
+    root: Path,
+    note_type: str,
+    *,
+    slug: str,
+    topics: list[str],
+    today: datetime.date,
+    body: str | None = None,
+    **fields: Any,
+) -> Path:
     """Create a note from its template (or with `body` in place of the template body), refusing
     bad slugs, unknown topics and existing paths."""
     if note_type not in SCHEMAS:
         raise NewNoteError(f"unknown note type '{note_type}'")
     template = root / "templates" / f"{note_type}.md"
     try:
-        _, template_body, _ = split_frontmatter(_read_text(template))
+        _, template_body, _ = split_frontmatter(note_files._read_text(template))
         known = load_topics(root)
     except FrontmatterError as exc:
         raise NewNoteError(f"cannot read template or topics: {exc}") from exc
@@ -656,8 +918,10 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
             raise NewNoteError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
     domain = root_of(known, topics[0])
     if domain not in root_topics(known):
-        raise NewNoteError(f"topic '{topics[0]}' has no root topic (its parent chain ends at "
-                           f"'{domain}'): fix its parent in topics.yaml")
+        raise NewNoteError(
+            f"topic '{topics[0]}' has no root topic (its parent chain ends at "
+            f"'{domain}'): fix its parent in topics.yaml"
+        )
     all_topics = list(topics)
     for t in topics:
         all_topics += [a for a in ancestors(known, t) if a not in all_topics]
@@ -665,18 +929,25 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
     meta: dict[str, Any] = dict(fields)
     if note_type == "literature":
         author = meta.pop("author", "")
-        names = [a.strip() for a in author.split(",") if a.strip()] if isinstance(author, str) else []
+        names = (
+            [a.strip() for a in author.split(",") if a.strip()] if isinstance(author, str) else []
+        )
         meta["authors"] = names
         first = slugify(names[0]) if names else ""
         if not first:
-            raise NewNoteError("author must contain at least one ASCII letter or digit "
-                               "to form the filename")
-        if _starts_with_author(slug.split("-"), first):
-            raise NewNoteError(f"slug '{slug}' repeats the first author '{first}', which the "
-                               f"filename already holds: drop '{first}-' from --slug")
-        if slug.split("-")[0] == str(meta.get("year")):
-            raise NewNoteError(f"slug '{slug}' repeats the year; `new` adds '<year>-<author>-' "
-                               "itself: pass only the descriptive part as --slug")
+            raise NewNoteError(
+                "author must contain at least one ASCII letter or digit to form the filename"
+            )
+        if check_rules._starts_with_author(slug.split("-"), first):
+            raise NewNoteError(
+                f"slug '{slug}' repeats the first author '{first}', which the "
+                f"filename already holds: drop '{first}-' from --slug"
+            )
+        if slug.split("-", maxsplit=1)[0] == str(meta.get("year")):
+            raise NewNoteError(
+                f"slug '{slug}' repeats the year; `new` adds '<year>-<author>-' "
+                "itself: pass only the descriptive part as --slug"
+            )
         name = f"{meta.get('year')}-{first}-{slug}.md"
         meta["added"] = today.isoformat()
         target = root / "literature" / domain / name
@@ -694,7 +965,7 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
     meta["topics"] = all_topics
 
     if not NAME_PATTERNS[note_type].fullmatch(pattern_name):
-        raise NewNoteError(f"invalid name '{pattern_name}': {_NAME_FIX[note_type]}")
+        raise NewNoteError(f"invalid name '{pattern_name}': {check_rules._NAME_FIX[note_type]}")
     ordered = {}
     for field, validator in SCHEMAS[note_type].items():
         if field not in meta and field in OPTIONAL_FIELDS:
@@ -708,24 +979,34 @@ def new_note(root: Path, note_type: str, *, slug: str, topics: list[str], today:
     if extra:
         raise NewNoteError(f"unexpected fields for {note_type}: {', '.join(sorted(extra))}")
     if note_type == "research" and target.parent.exists():
-        raise NewNoteError(f"folder {target.parent.relative_to(root).as_posix()} already exists: "
-                           "choose another slug")
+        raise NewNoteError(
+            f"folder {target.parent.relative_to(root).as_posix()} already exists: "
+            "choose another slug"
+        )
     if target.exists():
         raise NewNoteError(f"{target.relative_to(root).as_posix()} already exists")
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    safe_io.replace_file(target, (_dump_frontmatter(ordered) + (template_body if body is None else body)).encode("utf-8"))
+    safe_io.replace_file(
+        target,
+        (_dump_frontmatter(ordered) + (template_body if body is None else body)).encode("utf-8"),
+    )
     try:
         apply_index(root)
     except FrontmatterError as exc:
-        raise NewNoteError(f"{target.relative_to(root).as_posix()} was created but the index "
-                           f"was not updated ({exc}): fix it, then run mem index") from exc
+        raise NewNoteError(
+            f"{target.relative_to(root).as_posix()} was created but the index "
+            f"was not updated ({exc}): fix it, then run mem index"
+        ) from exc
     return target
 
 
 # --- rename --------------------------------------------------------------------
 
-def _link_edits(text: str, base: Path, old: Path, new_name: str, new_path: Path | None = None) -> tuple[str, int]:
+
+def _link_edits(
+    text: str, base: Path, old: Path, new_name: str, new_path: Path | None = None
+) -> tuple[str, int]:
     """`text` of the file `base` with each relative link to `old` pointing at `new_name`, and their count.
 
     Links are found as `_relative_links` finds them (code is masked in place, so offsets stay valid);
@@ -734,32 +1015,37 @@ def _link_edits(text: str, base: Path, old: Path, new_name: str, new_path: Path 
     the note may sit in another folder.
     """
     lines = text.split("\n")
-    masked = _CODE_SPAN.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)),
-                            "\n".join(" " * len(l) if f else l for l, f in zip(lines, _in_fence(lines))))
+    masked = check_rules._CODE_SPAN.sub(
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        "\n".join(" " * len(l) if f else l for l, f in zip(lines, check_rules._in_fence(lines))),
+    )
     count = 0
     for i, line in enumerate(masked.split("\n")):
-        for start, end in reversed(_target_spans(line, True)):
+        for start, end in reversed(check_rules._target_spans(line, True)):
             target = line[start:end]
             raw = target.split("#", 1)[0]
-            if target.startswith(("#", "mailto:")) or _SCHEME.match(target) or not raw:
+            if target.startswith(("#", "mailto:")) or check_rules._SCHEME.match(target) or not raw:
                 continue
             try:
                 hit = (base.parent / urllib.parse.unquote(raw)).resolve() == old
             except (OSError, ValueError):
                 continue
             if hit and new_path is not None:
-                lines[i] = lines[i][:start] + Path(os.path.relpath(new_path, base.parent)).as_posix() \
-                    + lines[i][start + len(raw):]
+                lines[i] = (
+                    lines[i][:start]
+                    + Path(os.path.relpath(new_path, base.parent)).as_posix()
+                    + lines[i][start + len(raw) :]
+                )
                 count += 1
             elif hit:
                 cut = start + len(raw) - len(raw.rsplit("/", 1)[-1])
-                lines[i] = lines[i][:cut] + new_name + lines[i][start + len(raw):]
+                lines[i] = lines[i][:cut] + new_name + lines[i][start + len(raw) :]
                 count += 1
     return "\n".join(lines), count
 
 
 def _split_frontmatter_block(text: str) -> re.Match | None:
-    return re.match(r"---\n(.*?)\n---[ \t]*(?:\n|$)", text, re.S)
+    return re.match(r"---\n(.*?)\n---[ \t]*(?:\n|$)", text, re.DOTALL)
 
 
 def _set_field(text: str, key: str, value: Any) -> str:
@@ -775,11 +1061,16 @@ def _set_field(text: str, key: str, value: Any) -> str:
         end = start + 1
         while end < len(lines) and re.match(r"(\s|- )", lines[end]):
             end += 1
-    rendered = "" if value is None else yaml.safe_dump(value, allow_unicode=True, default_flow_style=True,
-                                                       width=float("inf")).split("\n")[0]
+    rendered = (
+        ""
+        if value is None
+        else yaml.safe_dump(
+            value, allow_unicode=True, default_flow_style=True, width=float("inf")
+        ).split("\n")[0]
+    )
     new = [] if value is None else [f"{key}: {rendered}"]
     new_lines = lines[:start] + new + lines[end:] if start is not None else lines + new
-    return "---\n" + "\n".join(new_lines) + "\n---\n" + text[m.end():]
+    return "---\n" + "\n".join(new_lines) + "\n---\n" + text[m.end() :]
 
 
 def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
@@ -795,7 +1086,10 @@ def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
             text, count = _set_field(text, "superseded_by", new), count + 1
         names = meta.get("distinct_from")
         if isinstance(names, list) and old in names:
-            text, count = _set_field(text, "distinct_from", sorted(new if h == old else h for h in names)), count + 1
+            text, count = (
+                _set_field(text, "distinct_from", sorted(new if h == old else h for h in names)),
+                count + 1,
+            )
     return text, count
 
 
@@ -809,27 +1103,41 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
     if isinstance(old, list):
         raise NewNoteError(f"ambiguous: {arg} matches {len(old)} notes: {', '.join(old[:10])}")
     parts = old.relative_to(root).parts if old else ()
-    if len(parts) != 3 or parts[0] not in ("literature", "knowledge") or old.name == "README.md" or _is_hidden(old, root):
-        raise NewNoteError(f"{arg} is not a literature or knowledge note: give its path or exact handle "
-                           "(no prefix; investigations are not renamed)")
+    if (
+        len(parts) != 3
+        or parts[0] not in ("literature", "knowledge")
+        or old.name == "README.md"
+        or note_files._is_hidden(old, root)
+    ):
+        raise NewNoteError(
+            f"{arg} is not a literature or knowledge note: give its path or exact handle "
+            "(no prefix; investigations are not renamed)"
+        )
     kind, stem = parts[0], new_stem.removesuffix(".md")
     name, new = f"{stem}.md", old.with_name(f"{stem}.md")
     if not NAME_PATTERNS[kind].fullmatch(name):
-        raise NewNoteError(f"invalid name '{name}': {_NAME_FIX[kind]}")
+        raise NewNoteError(f"invalid name '{name}': {check_rules._NAME_FIX[kind]}")
     if kind == "knowledge" and (problem := _knowledge_name_problem(stem)):
         raise NewNoteError(problem)
     if kind == "literature":
-        meta = _read_note(kind, old, root).meta
+        meta = note_files._read_note(kind, old, root).meta
         authors = meta.get("authors") if isinstance(meta, dict) else None
         year, *tokens = old.stem.split("-")
-        slug = slugify(authors[0]) if _authors(authors) is None else tokens[0]  # as rule_consistency: may span tokens
+        slug = (
+            slugify(authors[0]) if check_rules._authors(authors) is None else tokens[0]
+        )  # as rule_consistency: may span tokens
         n = next((k for k in range(1, len(tokens)) if "".join(tokens[:k]) == slug), 1)
         new_year, *new_tokens = stem.split("-")
         if new_year != year or tokens[:n] != new_tokens[:n]:
             raise NewNoteError(f"the name must keep the prefix {'-'.join([year, *tokens[:n]])}-")
-        if (rest := new_tokens[n:]) and (_starts_with_author(rest, slug) or rest[0] == year):
+        if (rest := new_tokens[n:]) and (
+            check_rules._starts_with_author(rest, slug) or rest[0] == year
+        ):
             raise NewNoteError("the name repeats the author or the year after the prefix")
-    if new.exists() or any(_handle(p.relative_to(root).as_posix()) == stem for _, p in _note_files(root)):
+    if new.exists() or any(
+        note_files._handle(p.relative_to(root).as_posix()) == stem
+        for _, p in note_files._note_files(root)
+    ):
         raise NewNoteError(f"a note named '{stem}' already exists")
     sources, new_sources = root / SOURCES_DIR / old.stem, root / SOURCES_DIR / stem
     if new_sources.exists():
@@ -837,22 +1145,29 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
     edits: dict[Path, str] = {}
     links = 0
     copy = f"{SOURCES_DIR}/{old.stem}/"
-    for path in _markdown_files(root):
+    for path in check_rules._markdown_files(root):
         try:
-            text = _read_text(path)
+            text = note_files._read_text(path)
         except FrontmatterError as exc:
-            raise NewNoteError(f"cannot read {path.relative_to(root).as_posix()} to rewrite its links ({exc}): "
-                               "fix it, then rename") from exc
+            raise NewNoteError(
+                f"cannot read {path.relative_to(root).as_posix()} to rewrite its links ({exc}): "
+                "fix it, then rename"
+            ) from exc
         edited, count = _link_edits(text, path, old, name)
         count += edited.count(copy)  # a note's text naming its local copy
         edited, named = _rename_handle_fields(edited, old.stem, stem)
         count += named
         if count:
             edits[path], links = edited.replace(copy, f"{SOURCES_DIR}/{stem}/"), links + count
-    locked = [p for p in (*edits, old, old.parent, *((sources, sources.parent) if sources.is_dir() else ()))
-              if not os.access(p, os.W_OK)]
+    locked = [
+        p
+        for p in (*edits, old, old.parent, *((sources, sources.parent) if sources.is_dir() else ()))
+        if not os.access(p, os.W_OK)
+    ]
     if locked:
-        raise NewNoteError(f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}")
+        raise NewNoteError(
+            f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}"
+        )
     originals = {(new if p == old else p): p.read_bytes() for p in (*edits, old)}
     listings = _index_files(root)
     for path, text in edits.items():
@@ -863,8 +1178,10 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
     try:
         apply_index(root)
     except FrontmatterError as exc:
-        raise NewNoteError(f"{new.relative_to(root).as_posix()} was renamed but the index was not "
-                           f"updated ({exc}): fix it, then run mem index") from exc
+        raise NewNoteError(
+            f"{new.relative_to(root).as_posix()} was renamed but the index was not "
+            f"updated ({exc}): fix it, then run mem index"
+        ) from exc
     _log_group(root, _with_changed_listings(originals, listings), "rename", {new: old})
     return new, links, len(edits)
 
@@ -887,22 +1204,35 @@ def _index_files(root: Path) -> dict[Path, bytes]:
     return {t.path: t.path.read_bytes() for t in targets if t.path.is_file()}
 
 
-def _with_changed_listings(originals: dict[Path, bytes], listings: Mapping[Path, bytes]) -> dict[Path, bytes]:
+def _with_changed_listings(
+    originals: dict[Path, bytes], listings: Mapping[Path, bytes]
+) -> dict[Path, bytes]:
     """`originals` plus each listing file in `listings` whose bytes are not what they were."""
     return {**{p: b for p, b in listings.items() if p.read_bytes() != b}, **originals}
 
 
-def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: Mapping[Path, Path] | None = None,
-               group: str | None = None) -> None:
+def _log_group(
+    root: Path,
+    originals: Mapping[Path, bytes],
+    action: str,
+    moved: Mapping[Path, Path] | None = None,
+    group: str | None = None,
+) -> None:
     """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
     and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since.
     `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
     group = group or uuid.uuid4().hex
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     out = []
     for path, before in originals.items():
-        entry = {"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
-                 "before": before.decode("utf-8"), "after": _sha(path.read_bytes())}
+        entry = {
+            "t": stamp,
+            "action": action,
+            "handle": path.relative_to(root).as_posix(),
+            "group": group,
+            "before": before.decode("utf-8"),
+            "after": _sha(path.read_bytes()),
+        }
         if moved and path in moved:
             entry["from"] = moved[path].relative_to(root).as_posix()
         out.append(json.dumps(entry, ensure_ascii=False) + "\n")
@@ -910,20 +1240,29 @@ def _log_group(root: Path, originals: Mapping[Path, bytes], action: str, moved: 
 
 
 def _resolve_notes(root: Path, args: Sequence[str]) -> list[Path]:
-    typed = {p.resolve() for _, p in _note_files(root)}
+    typed = {p.resolve() for _, p in note_files._note_files(root)}
     found = []
     for arg in args:
         path = resolve_note(root, arg)
         if isinstance(path, list):
-            raise NewNoteError(f"ambiguous: {arg} matches {len(path)} notes: {', '.join(path[:10])}")
+            raise NewNoteError(
+                f"ambiguous: {arg} matches {len(path)} notes: {', '.join(path[:10])}"
+            )
         if path is None or path not in typed:
             raise NewNoteError(f"no note {arg}")
         found.append(path)
     return found
 
 
-def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str, *, drop: bool,
-                today: datetime.date) -> tuple[Path, int, int]:
+def unify_notes(
+    root: Path,
+    keep_arg: str,
+    other_args: Sequence[str],
+    body: str,
+    *,
+    drop: bool,
+    today: datetime.date,
+) -> tuple[Path, int, int]:
     """Make `keep_arg` the unified note of itself and `other_args`; return (keep path, notes unified, links rewritten).
 
     The kept note takes `body`, the union of the topics and the lowest confidence; each other note gets
@@ -933,56 +1272,70 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     paths = _resolve_notes(root, [keep_arg, *other_args])
     if len(set(paths)) != len(paths):
         raise NewNoteError("the same note is named twice: unify needs different notes")
-    notes = [_read_note(p.relative_to(root).parts[0], p, root) for p in paths]
+    notes = [note_files._read_note(p.relative_to(root).parts[0], p, root) for p in paths]
     for note in notes:
         if note.error is not None or not isinstance(note.meta, dict):
-            raise NewNoteError(f"{note.rel} cannot be read ({note.error or 'frontmatter is not a mapping'})")
+            raise NewNoteError(
+                f"{note.rel} cannot be read ({note.error or 'frontmatter is not a mapping'})"
+            )
     if len({n.type for n in notes}) > 1:
         raise NewNoteError("the notes are of different types: unify joins notes of one type")
     keep, others = notes[0], notes[1:]
     for note in notes:
         if note.meta.get("superseded_by") is not None:
             raise NewNoteError(f"{note.rel} is already superseded by {note.meta['superseded_by']}")
-    handles = {_handle(n.rel) for n in notes}
+    handles = {note_files._handle(n.rel) for n in notes}
     for note in discover_notes(root):
         if isinstance(note.meta, dict) and note.meta.get("superseded_by") in handles:
-            raise NewNoteError(f"{note.rel} is already superseded by {note.meta['superseded_by']}: unify into the "
-                               "note that replaced it, or leave it")
+            raise NewNoteError(
+                f"{note.rel} is already superseded by {note.meta['superseded_by']}: unify into the "
+                "note that replaced it, or leave it"
+            )
     unified = {n.rel for n in notes}
     had = set().union(*(_link_targets(root, n) for n in notes))
     lost = sorted(had - _link_targets(root, dataclasses.replace(keep, body=body)) - unified)
     if lost and not drop:
-        raise NewNoteError(f"the unified text drops the links {', '.join(lost)}; use --drop if that is meant.")
+        raise NewNoteError(
+            f"the unified text drops the links {', '.join(lost)}; use --drop if that is meant."
+        )
 
-    keep_text = _read_text(keep.path)
+    keep_text = note_files._read_text(keep.path)
     m = _split_frontmatter_block(keep_text)
     if m is None:
         raise NewNoteError(f"{keep.rel} has no frontmatter")
     union = list(keep.meta.get("topics") or [])
     union += [t for o in others for t in (o.meta.get("topics") or []) if t not in union]
-    new_text = _set_field(keep_text[:m.end()] + body, "topics", union)
+    new_text = _set_field(keep_text[: m.end()] + body, "topics", union)
     if "confidence" in SCHEMAS[keep.type]:
-        ranks = [_CONFIDENCE_ORDER.index(n.meta["confidence"]) for n in notes if n.meta.get("confidence") in _CONFIDENCE_ORDER]
+        ranks = [
+            _CONFIDENCE_ORDER.index(n.meta["confidence"])
+            for n in notes
+            if n.meta.get("confidence") in _CONFIDENCE_ORDER
+        ]
         if ranks:
             new_text = _set_field(new_text, "confidence", _CONFIDENCE_ORDER[min(ranks)])
     if keep.type == "knowledge":
         new_text = _set_field(new_text, "updated", today.isoformat())
     edits: dict[Path, str] = {keep.path: new_text}
     for o in others:
-        edits[o.path] = _set_field(_read_text(o.path), "superseded_by", _handle(keep.rel))
+        edits[o.path] = _set_field(
+            note_files._read_text(o.path), "superseded_by", note_files._handle(keep.rel)
+        )
     links = 0
     skip = {o.path for o in others}
-    for path in _markdown_files(root):
+    for path in check_rules._markdown_files(root):
         rel = path.relative_to(root).as_posix()
-        if path.resolve() in skip or _is_index_readme(rel):
+        if path.resolve() in skip or check_rules._is_index_readme(rel):
             continue
         resolved = path.resolve()
         original = edits.get(resolved)
         if original is None:
             try:
-                original = _read_text(path)
+                original = note_files._read_text(path)
             except FrontmatterError as exc:
-                raise NewNoteError(f"cannot read {rel} to rewrite its links ({exc}): fix it, then unify") from exc
+                raise NewNoteError(
+                    f"cannot read {rel} to rewrite its links ({exc}): fix it, then unify"
+                ) from exc
         text = original
         for o in others:
             text, count = _link_edits(text, resolved, o.path, "", keep.path)
@@ -991,7 +1344,9 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
             edits[resolved] = text
     locked = [p for p in edits if not os.access(p, os.W_OK)]
     if locked:
-        raise NewNoteError(f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}")
+        raise NewNoteError(
+            f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}"
+        )
 
     # Line numbers move with the edit, so a problem is known by its file and message: the store may hold
     # problems older than this change (an imported note that links a document left behind), and they do not block it.
@@ -1005,7 +1360,9 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
     try:
         apply_index(root)
         after = check(root)
-        more = collections.Counter((p.path, p.message) for p in after) - before  # counted: a second copy is new
+        more = (
+            collections.Counter((p.path, p.message) for p in after) - before
+        )  # counted: a second copy is new
         problems = [p for p in after if (p.path, p.message) in more]
     except FrontmatterError as exc:
         problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
@@ -1016,8 +1373,10 @@ def unify_notes(root: Path, keep_arg: str, other_args: Sequence[str], body: str,
             apply_index(root)
         except (FrontmatterError, OSError):
             pass
-        raise NewNoteError(f"the unified notes have {len(problems)} problems, so nothing was written:\n"
-                           + "\n".join(str(p) for p in problems))
+        raise NewNoteError(
+            f"the unified notes have {len(problems)} problems, so nothing was written:\n"
+            + "\n".join(str(p) for p in problems)
+        )
     _log_group(root, _with_changed_listings(originals, listings), "unify")
     return keep.path, len(notes), links
 
@@ -1030,18 +1389,28 @@ FETCH_DEADLINE = 120  # seconds for one download, all redirects together
 FETCH_PAUSE = 1.0
 FETCH_MAX_BYTES = 50 * 1024 * 1024  # larger sources stay online only (C-14)
 _USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0"
-_CONTENT_EXT = {"application/pdf": "pdf", "text/html": "html", "application/xhtml+xml": "html",
-                "text/plain": "txt"}
+_CONTENT_EXT = {
+    "application/pdf": "pdf",
+    "text/html": "html",
+    "application/xhtml+xml": "html",
+    "text/plain": "txt",
+}
 _SUFFIX_EXT = {".pdf": "pdf", ".html": "html", ".htm": "html", ".txt": "txt"}
 
 
 def _download(url: str) -> tuple[bytes, str]:
     """(body, Content-Type) of a URL, redirects followed. Goes through the address-checked transport of
     `research_checks`: a host that resolves to a non-public address, at any hop, is refused."""
-    import research_checks  # late: research_checks imports mem
     try:
-        return research_checks.fetch_raw(url, lambda _: FETCH_MAX_BYTES, over="fail", headers={"User-Agent": _USER_AGENT, "Accept": "*/*"},
-                                         deadline=FETCH_DEADLINE, max_redirects=10, timeout=FETCH_TIMEOUT)
+        return research_checks.fetch_raw(
+            url,
+            lambda _: FETCH_MAX_BYTES,
+            over="fail",
+            headers={"User-Agent": _USER_AGENT, "Accept": "*/*"},
+            deadline=FETCH_DEADLINE,
+            max_redirects=10,
+            timeout=FETCH_TIMEOUT,
+        )
     except research_checks.FetchError as exc:
         raise ValueError(str(exc)) from exc
 
@@ -1054,12 +1423,42 @@ def _source_extension(url: str, content_type: str) -> str:
     return _SUFFIX_EXT.get(suffix, "html")
 
 
-_SKIP_TAGS = {"script", "style", "noscript", "nav", "header", "footer", "aside", "svg", "title", "select", "button",
-              "option"}
-_BLOCK_TAGS = {"p", "div", "br", "li", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "table", "section", "article",
-               "blockquote", "pre"}
-_CHARSET = re.compile(rb"""charset\s*=\s*["']?([\w.:-]+)""", re.I)
-MIN_TEXT_WORDS = 200  # a shorter conversion is a shell page (script-rendered, paywalled), not a source text
+_SKIP_TAGS = {
+    "script",
+    "style",
+    "noscript",
+    "nav",
+    "header",
+    "footer",
+    "aside",
+    "svg",
+    "title",
+    "select",
+    "button",
+    "option",
+}
+_BLOCK_TAGS = {
+    "p",
+    "div",
+    "br",
+    "li",
+    "tr",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "table",
+    "section",
+    "article",
+    "blockquote",
+    "pre",
+}
+_CHARSET = re.compile(rb"""charset\s*=\s*["']?([\w.:-]+)""", re.IGNORECASE)
+MIN_TEXT_WORDS = (
+    200  # a shorter conversion is a shell page (script-rendered, paywalled), not a source text
+)
 
 
 class _TextExtractor(html.parser.HTMLParser):
@@ -1079,13 +1478,15 @@ class _TextExtractor(html.parser.HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         self.main = max(0, self.main - (tag in ("article", "main")))
         if tag in self.skip:
-            del self.skip[len(self.skip) - 1 - self.skip[::-1].index(tag):]
+            del self.skip[len(self.skip) - 1 - self.skip[::-1].index(tag) :]
         if tag in _BLOCK_TAGS:
             self.out.append("\n")
 
     def handle_data(self, data: str) -> None:
         if not self.skip:
-            self.out.append(re.sub(r"\s+", " ", data))  # a newline inside the markup is not a line break
+            self.out.append(
+                re.sub(r"\s+", " ", data)
+            )  # a newline inside the markup is not a line break
 
 
 def html_to_text(data: bytes) -> str:
@@ -1110,8 +1511,10 @@ def _literature_notes(root: Path, paths: list[str] | None) -> tuple[list[Note], 
     if not paths:
         return notes, []
     by_rel = {n.rel: n for n in notes}
-    return ([by_rel[p] for p in paths if p in by_rel],
-            [f"failed {p}: not a literature note" for p in paths if p not in by_rel])
+    return (
+        [by_rel[p] for p in paths if p in by_rel],
+        [f"failed {p}: not a literature note" for p in paths if p not in by_rel],
+    )
 
 
 def _txt_files(folder: Path) -> list[Path]:
@@ -1121,8 +1524,11 @@ def _txt_files(folder: Path) -> list[Path]:
 
 def _write_text_copy(folder: Path) -> str | None:
     """Write `source.txt` from the folder's largest HTML copy, else its largest PDF; None when written, else the reason."""
+
     def largest(*patterns: str) -> Path | None:
-        found = [p for pat in patterns for p in folder.glob(pat) if p.is_file() and not p.is_symlink()]
+        found = [
+            p for pat in patterns for p in folder.glob(pat) if p.is_file() and not p.is_symlink()
+        ]
         return max(found, key=lambda p: (p.stat().st_size, p.name), default=None)
 
     if _txt_files(folder):
@@ -1139,8 +1545,12 @@ def _write_text_copy(folder: Path) -> str | None:
     if not shutil.which("pdftotext"):
         return "pdftotext is not installed"
     try:
-        done = subprocess.run(["pdftotext", str(pdf), str(folder / "source.txt")], check=False, timeout=60,
-                              capture_output=True)
+        done = subprocess.run(
+            ["pdftotext", str(pdf), str(folder / "source.txt")],
+            check=False,
+            timeout=60,
+            capture_output=True,
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         return f"pdftotext failed: {exc}"
     if done.returncode == 0:
@@ -1182,8 +1592,9 @@ def build_missing_texts(root: Path, paths: list[str] | None = None) -> tuple[lis
     return lines, not bad
 
 
-def fetch_sources(root: Path, paths: list[str] | None = None, *,
-                  force: bool = False) -> tuple[list[str], bool]:
+def fetch_sources(
+    root: Path, paths: list[str] | None = None, *, force: bool = False
+) -> tuple[list[str], bool]:
     """Download each literature note's `url` into .sources/<note-stem>/; returns (output lines, all ok)."""
     notes, lines = _literature_notes(root, paths)
     counts = {"fetched": 0, "skipped": 0, "failed": len(lines)}
@@ -1212,7 +1623,9 @@ def fetch_sources(root: Path, paths: list[str] | None = None, *,
             folder.mkdir(parents=True, exist_ok=True)
             if ext == "txt" and any(p.name != "source.txt" for p in _txt_files(folder)):
                 raise ValueError("the folder already holds a .txt")
-            for old in folder.glob("source.*"):  # --force: drop copies of another type or a stale text
+            for old in folder.glob(
+                "source.*"
+            ):  # --force: drop copies of another type or a stale text
                 old.unlink()
             safe_io.replace_file(folder / f"source.{ext}", data)
         except (OSError, ValueError, http.client.HTTPException) as exc:
@@ -1221,8 +1634,12 @@ def fetch_sources(root: Path, paths: list[str] | None = None, *,
             continue
         if ext == "pdf" and shutil.which("pdftotext") and not _txt_files(folder):
             try:
-                subprocess.run(["pdftotext", str(folder / "source.pdf"), str(folder / "source.txt")],
-                               check=False, timeout=60, capture_output=True)
+                subprocess.run(
+                    ["pdftotext", str(folder / "source.pdf"), str(folder / "source.txt")],
+                    check=False,
+                    timeout=60,
+                    capture_output=True,
+                )
             except (OSError, subprocess.SubprocessError):
                 pass
         note_line = f"fetched {note.rel}"
@@ -1235,7 +1652,9 @@ def fetch_sources(root: Path, paths: list[str] | None = None, *,
                 note_line += f" (no text: {reason})"
         lines.append(note_line)
         counts["fetched"] += 1
-    lines.append(f"fetched {counts['fetched']}, skipped {counts['skipped']}, failed {counts['failed']}")
+    lines.append(
+        f"fetched {counts['fetched']}, skipped {counts['skipped']}, failed {counts['failed']}"
+    )
     return lines, counts["failed"] == 0
 
 
@@ -1244,13 +1663,19 @@ def source_text(root: Path, rel: str) -> Path | None:
     folder = root / SOURCES_DIR / Path(rel).stem
     texts: list[Path] = []
     for pattern in ("*.txt", "*.md"):
-        texts = [p for p in folder.glob(pattern) if p.is_file() and not p.is_symlink()] if folder.is_dir() else []
+        texts = (
+            [p for p in folder.glob(pattern) if p.is_file() and not p.is_symlink()]
+            if folder.is_dir()
+            else []
+        )
         if texts:
             break
     return min(texts, key=lambda p: (-p.stat().st_size, p.name), default=None)
 
 
-def passages(text: str, query: str, *, count: int = 5, words: int = 500) -> tuple[int, list[tuple[int, int, str]]]:
+def passages(
+    text: str, query: str, *, count: int = 5, words: int = 500
+) -> tuple[int, list[tuple[int, int, str]]]:
     """(word count, [(first, last, text)] of the `count` best windows by BM25 over this text, in document order).
 
     Windows of `words` words start half a window apart (BM25 k1 1.2, b 0.75); the last ends at the text's end;
@@ -1262,7 +1687,7 @@ def passages(text: str, query: str, *, count: int = 5, words: int = 500) -> tupl
         starts.append(start)
         if start + words >= len(tokens):
             break
-    wins = [" ".join(tokens[s:s + words]) for s in starts]
+    wins = [" ".join(tokens[s : s + words]) for s in starts]
     counts = [collections.Counter(tokenize(w)) for w in wins]
     lengths = [sum(c.values()) for c in counts]
     average = sum(lengths) / len(wins)
@@ -1272,12 +1697,17 @@ def passages(text: str, query: str, *, count: int = 5, words: int = 500) -> tupl
         idf[term] = math.log(1 + (len(wins) - n + 0.5) / (n + 0.5))
     scored = []
     for i, (c, length) in enumerate(zip(counts, lengths)):
-        score = sum(idf[t] * c[t] * 2.2 / (c[t] + 1.2 * (1 - 0.75 + 0.75 * length / average))
-                    for t in idf if c.get(t) and average)
+        score = sum(
+            idf[t] * c[t] * 2.2 / (c[t] + 1.2 * (1 - 0.75 + 0.75 * length / average))
+            for t in idf
+            if c.get(t) and average
+        )
         if score > 0:
             scored.append((-score, i))
     best = sorted(i for _, i in sorted(scored)[:count])
-    return len(tokens), [(starts[i] + 1, min(starts[i] + words, len(tokens)), wins[i]) for i in best]
+    return len(tokens), [
+        (starts[i] + 1, min(starts[i] + words, len(tokens)), wins[i]) for i in best
+    ]
 
 
 # --- CLI ---------------------------------------------------------------------
@@ -1300,7 +1730,10 @@ def _in_scopes(rel: str, scopes: list[str]) -> bool:
 
 def _page_footer(offset: int, shown: int, total: int) -> None:
     if shown and offset + shown < total:
-        print(f"-- {offset + 1}-{offset + shown} of {total}; next: --offset {offset + shown} --", file=sys.stderr)
+        print(
+            f"-- {offset + 1}-{offset + shown} of {total}; next: --offset {offset + shown} --",
+            file=sys.stderr,
+        )
     elif not shown and offset:
         print(f"-- offset {offset} is past the {total} matches --", file=sys.stderr)
 
@@ -1330,13 +1763,20 @@ def cmd_index(args: argparse.Namespace) -> int:
 
 def cmd_find(args: argparse.Namespace) -> int:
     try:
-        notes = _matching_notes(args.root, type=args.type, topic=args.topic, kind=args.kind,
-                                status=args.status, confidence=args.confidence, level=args.level,
-                                superseded=args.superseded)
+        notes = _matching_notes(
+            args.root,
+            type=args.type,
+            topic=args.topic,
+            kind=args.kind,
+            status=args.status,
+            confidence=args.confidence,
+            level=args.level,
+            superseded=args.superseded,
+        )
     except (FrontmatterError, OSError) as exc:
         print(f"mem: cannot find: {exc}", file=sys.stderr)
         return 1
-    page = sorted(notes, key=lambda n: n.rel)[args.offset:args.offset + args.limit]
+    page = sorted(notes, key=lambda n: n.rel)[args.offset : args.offset + args.limit]
     names = short_handles(args.root) if args.handles else {}
     for note in page:
         print("\n".join(format_hit(note, args.detail, name=names.get(note.rel))))
@@ -1352,13 +1792,21 @@ def topic_tree(root: Path, topic: str | None = None) -> list[tuple[int, str, int
     counts: collections.Counter = collections.Counter()
     for note in _matching_notes(root):
         listed = note.meta.get("topics")
-        direct = {t for t in listed if isinstance(t, str) and t in known} if isinstance(listed, list) else set()
+        direct = (
+            {t for t in listed if isinstance(t, str) and t in known}
+            if isinstance(listed, list)
+            else set()
+        )
         counts.update(direct.union(*(ancestors(known, t) for t in direct)))
     rows: list[tuple[int, str, int]] = []
 
     def walk(tid: str, depth: int) -> None:
         rows.append((depth, tid, counts[tid]))
-        for child in sorted(t for t in known if _parent(known, t) == tid and t not in {r[1] for r in rows}):
+        for child in sorted(
+            t
+            for t in known
+            if note_files._parent(known, t) == tid and t not in {r[1] for r in rows}
+        ):
             walk(child, depth + 1)
 
     for tid in [topic] if topic else sorted(root_topics(known)):
@@ -1390,13 +1838,18 @@ def _is_outside(root: Path, cwd: Path | None) -> bool:
         return True
 
 
-def log_usage(root: Path | None, entry: dict[str, Any], *, env: Mapping[str, str] | None = None,
-              cwd: Path | None = None) -> None:
+def log_usage(
+    root: Path | None,
+    entry: dict[str, Any],
+    *,
+    env: Mapping[str, str] | None = None,
+    cwd: Path | None = None,
+) -> None:
     """Append one JSON line to the usage log in the data folder; never raises, never changes output."""
     env = os.environ if env is None else env
     if env.get("MEM_USAGE_LOG") == "0":
         return
-    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
+    entry = {"t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
     try:
         log_path = _usage_log(env)
         if root is not None:
@@ -1423,8 +1876,10 @@ def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
         project = records.project_root(Path.cwd(), os.environ)
     except OSError:
         project = None
-    return [("project", records.project_dir(project) if project else None),
-            ("global", records.memories_root(os.environ, _optional_store(args)))]
+    return [
+        ("project", records.project_dir(project) if project else None),
+        ("global", records.memories_root(os.environ, _optional_store(args))),
+    ]
 
 
 def _register_project(project: Path | None) -> None:
@@ -1463,8 +1918,11 @@ def _other_projects(names: Sequence[str], every: bool) -> list[tuple[str, Path]]
     except OSError:
         current = None
     chosen = list(dict.fromkeys([*(reg if every else ()), *names]))
-    return [(n, records.project_dir(Path(reg[n]["path"]))) for n in chosen
-            if current is None or Path(reg[n]["path"]) != current]
+    return [
+        (n, records.project_dir(Path(reg[n]["path"])))
+        for n in chosen
+        if current is None or Path(reg[n]["path"]) != current
+    ]
 
 
 def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
@@ -1476,7 +1934,11 @@ def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
 def _unconfirmed(m: records.Memory) -> str:
     """A web finding is unchecked until a second source confirms it; a transcript memory until another session shows it."""
     if m.origin == "transcript":
-        return ", from transcript, unconfirmed" if records.standing(m) == "unconfirmed" else ", from transcript"
+        return (
+            ", from transcript, unconfirmed"
+            if records.standing(m) == "unconfirmed"
+            else ", from transcript"
+        )
     return ", web, unconfirmed" if m.origin == "web" else ""
 
 
@@ -1484,15 +1946,19 @@ def _memory_line(m: records.Memory, today: datetime.date) -> str:
     dead = _memory_status(m, today)
     created = m.created.isoformat() if m.created else "undated"
     claim = " ".join(m.claim.split())  # a hand-edited tab or newline must not add a column
-    return (f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
-            f"{', ' + dead if dead else ''}]\t{claim}")
+    return (
+        f"m:{m.handle}\t[memory: {m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+        f"{', ' + dead if dead else ''}]\t{claim}"
+    )
 
 
 def _tally_line(tally: records.Tally, until: datetime.date) -> str:
     """The `mem show` line of one version; `until` is the date of the next version, or today for the last."""
     days = (until - tally.since).days
-    return (f"version {tally.number} since {tally.since.isoformat()} ({days} day{'' if days == 1 else 's'}): "
-            f"worked {tally.worked}, failed {tally.failed}: {tally.text}")
+    return (
+        f"version {tally.number} since {tally.since.isoformat()} ({days} day{'' if days == 1 else 's'}): "
+        f"worked {tally.worked}, failed {tally.failed}: {tally.text}"
+    )
 
 
 def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
@@ -1518,7 +1984,10 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
     if m.load:
         out.append(f"load: {m.load}")
     out += ["", "## Claim", " ".join(m.claim.split())]
-    if not (sections and any(s.strip().casefold() == "conclusion" for s in sections)) and m.body.strip():
+    if (
+        not (sections and any(s.strip().casefold() == "conclusion" for s in sections))
+        and m.body.strip()
+    ):
         out += ["", m.body.rstrip("\n")]
     return "\n".join(out)
 
@@ -1559,7 +2028,7 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
         stop = next((x.line - 1 for x in syn.sections if x.line > found[0].line), len(lines))
         return "\n".join([f"== s:{handle}#{section}", *lines[start:stop]]).rstrip("\n")
     out = [f"== s:{handle}"]
-    first = text[:syntheses._FRONTMATTER.match(text).end()].count("\n")
+    first = text[: syntheses._FRONTMATTER.match(text).end()].count("\n")
     body = lines[first:]
     if args.outline and not args.ranges:
         out.extend(f"{first + 1 + i}: {line}" for i, _, line in _headings(body))
@@ -1593,10 +2062,14 @@ def _existing_parts(found: dict[str, list[project_syntheses.Part]]) -> str:
 
 
 def _part_line(name: str, part: project_syntheses.Part, tree: Path) -> str:
-    return f"p:{name}#{part.handle}\t{project_syntheses.freshness(tree, part.stamp)}\t{part.heading}"
+    return (
+        f"p:{name}#{part.handle}\t{project_syntheses.freshness(tree, part.stamp)}\t{part.heading}"
+    )
 
 
-def _load_project_syntheses(memory_dir: Path, name: str | None = None) -> dict[str, list[project_syntheses.Part]]:
+def _load_project_syntheses(
+    memory_dir: Path, name: str | None = None
+) -> dict[str, list[project_syntheses.Part]]:
     """The files that load; a broken one does not hide the others, but asking for it by name raises its error."""
     found, broken = project_syntheses.load_each(memory_dir)
     for path, error in broken:
@@ -1611,12 +2084,16 @@ def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
     found = _load_project_syntheses(memory_dir, name)
     parts = found.get(name)
     if parts is None:
-        raise project_syntheses.Unavailable(f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}")
+        raise project_syntheses.Unavailable(
+            f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}"
+        )
     if handle is None:
         return "\n".join(_part_line(name, p, tree) for p in parts)
     part = next((p for p in parts if p.handle == handle), None)
     if part is None:
-        raise project_syntheses.Unavailable(f"no part {handle!r} in {name}; parts that exist: {_existing_parts(found)}")
+        raise project_syntheses.Unavailable(
+            f"no part {handle!r} in {name}; parts that exist: {_existing_parts(found)}"
+        )
     state = project_syntheses.describe(project_syntheses.freshness(tree, part.stamp))
     s = part.stamp
     stamp = project_syntheses._render_stamp(s.paths, s.date, s.commit)
@@ -1624,8 +2101,11 @@ def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
 
 
 def _warn_uncommitted(ref: str) -> None:
-    print(f"mem: {ref} covers files with uncommitted changes; "
-          "it will read possibly stale until you confirm it after committing.", file=sys.stderr)
+    print(
+        f"mem: {ref} covers files with uncommitted changes; "
+        "it will read possibly stale until you confirm it after committing.",
+        file=sys.stderr,
+    )
 
 
 def cmd_project_synthesis(args: argparse.Namespace) -> int:
@@ -1650,13 +2130,17 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
                 return 2
             if args.name not in project_syntheses.NAMES:
                 raise project_syntheses.ProjectSynthesisError(
-                    f"unknown project synthesis {args.name!r}; use one of: {', '.join(project_syntheses.NAMES)}")
+                    f"unknown project synthesis {args.name!r}; use one of: {', '.join(project_syntheses.NAMES)}"
+                )
             paths = [p for p in (item.strip() for item in args.paths.split(",")) if p]
-            project_syntheses._check_paths(tree, paths)  # before the secret scan, so a bad path is not reported as a secret
+            project_syntheses._check_paths(
+                tree, paths
+            )  # before the secret scan, so a bad path is not reported as a secret
             if _refuse_secret([args.heading, body]):
                 return 4
-            handle = project_syntheses.write_part(memory_dir, tree, args.name, args.heading, body,
-                                                  paths, datetime.date.today())
+            handle = project_syntheses.write_part(
+                memory_dir, tree, args.name, args.heading, body, paths, datetime.date.today()
+            )
             ref = f"p:{args.name}#{handle}"
             print(ref)
             if project_syntheses.covers_uncommitted(tree, paths):
@@ -1666,9 +2150,12 @@ def cmd_project_synthesis(args: argparse.Namespace) -> int:
         found = _load_project_syntheses(memory_dir, name)
         if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
             raise project_syntheses.Unavailable(
-                f"no part {args.part!r}; parts that exist: {_existing_parts(found)}")
+                f"no part {args.part!r}; parts that exist: {_existing_parts(found)}"
+            )
         project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
-        print(f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}")
+        print(
+            f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}"
+        )
         part = next(p for p in found[name] if p.handle == handle)
         if project_syntheses.covers_uncommitted(tree, part.stamp.paths):
             _warn_uncommitted(f"p:{name}#{handle}")
@@ -1690,8 +2177,13 @@ def cmd_show(args: argparse.Namespace) -> int:
         blocks, shown, ok, refused = [], [], True, False
         for arg in args.paths:
             if arg.startswith("p:"):
-                if args.project or args.section:  # refused per handle, so other handles in the call are still shown
-                    print(f"mem: --project and --section do not apply to `p:` handles ({arg})", file=sys.stderr)
+                if (
+                    args.project or args.section
+                ):  # refused per handle, so other handles in the call are still shown
+                    print(
+                        f"mem: --project and --section do not apply to `p:` handles ({arg})",
+                        file=sys.stderr,
+                    )
                     blocks.append(f"== {arg}\n(not found)")
                     ok, refused = False, True
                     continue
@@ -1723,22 +2215,50 @@ def cmd_show(args: argparse.Namespace) -> int:
                 else:
                     blocks.append(_memory_block(found, args.section))
                 continue
-            b, sh, o = show(args.root, [arg], sections=args.section, outline=args.outline, ranges=args.ranges)
+            b, sh, o = show(
+                args.root, [arg], sections=args.section, outline=args.outline, ranges=args.ranges
+            )
             blocks += b
             shown += sh
             ok = ok and o
     else:
-        blocks, shown, ok, refused = *show(args.root, args.paths, sections=args.section, outline=args.outline,
-                                           ranges=args.ranges), False
+        blocks, shown, ok, refused = (
+            *show(
+                args.root,
+                args.paths,
+                sections=args.section,
+                outline=args.outline,
+                ranges=args.ranges,
+            ),
+            False,
+        )
     print("\n\n".join(blocks))
     if ok:
-        log_usage(args.root, {"cmd": "show", "paths": list(dict.fromkeys(shown)), "sections": args.section or [],
-                              "outline": bool(args.outline)})
+        log_usage(
+            args.root,
+            {
+                "cmd": "show",
+                "paths": list(dict.fromkeys(shown)),
+                "sections": args.section or [],
+                "outline": bool(args.outline),
+            },
+        )
     return 2 if refused else 0 if ok else 1
 
 
-_INIT_ALLOWED = {"mem-store.yaml", "topics.yaml", "literature", "knowledge", "research", "memories", "templates",
-                 "syntheses", ".git", ".gitignore", "README.md"}
+_INIT_ALLOWED = {
+    "mem-store.yaml",
+    "topics.yaml",
+    "literature",
+    "knowledge",
+    "research",
+    "memories",
+    "templates",
+    "syntheses",
+    ".git",
+    ".gitignore",
+    "README.md",
+}
 
 
 def _memory_body(source: str | None) -> str:
@@ -1760,10 +2280,19 @@ def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None
     """An exact handle: the project scope wins over the global one."""
     named = getattr(args, "project", None)
     if named:  # an explicit, read-only look at another project
-        return next((m for m in records.load_memories(_named_folder(named), "project") if m.handle == handle), None)
+        return next(
+            (
+                m
+                for m in records.load_memories(_named_folder(named), "project")
+                if m.handle == handle
+            ),
+            None,
+        )
     project = records.project_root(Path.cwd(), os.environ)
-    folders = [("project", records.project_dir(project) if project else None),
-               ("global", records.memories_root(os.environ, _optional_store(args)))]
+    folders = [
+        ("project", records.project_dir(project) if project else None),
+        ("global", records.memories_root(os.environ, _optional_store(args))),
+    ]
     for scope, folder in folders:
         for m in records.load_memories(folder, scope):
             if m.handle == handle:
@@ -1771,13 +2300,19 @@ def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None
     return None
 
 
-_READ_ONLY_PROJECT = ("mem: this project is the store, which is read-only: it has no mem-store.yaml; "
-                      "a memory cannot be written here.")
-_READ_ONLY_MEMORIES = "mem: the memories folder is inside the store, which is read-only: it has no mem-store.yaml."
+_READ_ONLY_PROJECT = (
+    "mem: this project is the store, which is read-only: it has no mem-store.yaml; "
+    "a memory cannot be written here."
+)
+_READ_ONLY_MEMORIES = (
+    "mem: the memories folder is inside the store, which is read-only: it has no mem-store.yaml."
+)
 
 
 def _read_only_store(store: Path | None, path: Path) -> bool:
-    return store is not None and not records.store_is_writable(store) and records.inside(path, store)
+    return (
+        store is not None and not records.store_is_writable(store) and records.inside(path, store)
+    )
 
 
 def _same_claim(a: str, b: str) -> bool:
@@ -1796,13 +2331,15 @@ _INDEX_RULES = (
     "no business; the project's current situation -> both."
 )
 # Only a project with a live state memory has written state for the status checker to read (ADR 0030).
-_STATUS_LINE = ("- Resuming earlier work, or asked where things stand: dispatch memory:memory-status-checker "
-                "before reading plans or the backlog yourself.")
+_STATUS_LINE = (
+    "- Resuming earlier work, or asked where things stand: dispatch memory:memory-status-checker "
+    "before reading plans or the backlog yourself."
+)
 _INDEX_LIMIT = 1500
 _CLAIM_LIMIT = 100
 
 
-_SUPERSEDED_LINE = re.compile(r"^superseded_by:", re.M)
+_SUPERSEDED_LINE = re.compile(r"^superseded_by:", re.MULTILINE)
 
 
 def _is_superseded_file(path: Path) -> bool:
@@ -1812,15 +2349,19 @@ def _is_superseded_file(path: Path) -> bool:
             head = f.read(16384)
     except OSError:
         return False
-    m = re.match(r"---\r?\n(.*?)\r?\n---", head, re.S)
+    m = re.match(r"---\r?\n(.*?)\r?\n---", head, re.DOTALL)
     return m is not None and _SUPERSEDED_LINE.search(m.group(1)) is not None
 
 
 def _count_notes(store: Path) -> int:
     """Notes by file name only: the index runs at every session start and must not read them."""
     try:
-        files = [p for kind in ("literature", "knowledge") for p in store.glob(f"{kind}/*/*.md")
-                 if p.name != "README.md"]
+        files = [
+            p
+            for kind in ("literature", "knowledge")
+            for p in store.glob(f"{kind}/*/*.md")
+            if p.name != "README.md"
+        ]
         files += list(store.glob("research/*/README.md"))
         return sum(1 for f in files if not _is_superseded_file(f))
     except OSError:
@@ -1835,10 +2376,19 @@ def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[
     return [m for m in memories if records.is_live(m, today) and not records.quarantined(m)]
 
 
-def session_index(store: Path | None, project: Path | None, memories: Path | None, today: datetime.date,
-                  *, limit: int = 0, passes: Mapping[str, datetime.date] | None = None, notice: str | None = None,
-                  stats: dict[str, int] | None = None, marks: Mapping[str, frozenset[str]] | None = None,
-                  tracked: frozenset[str] | None = frozenset()) -> str:
+def session_index(
+    store: Path | None,
+    project: Path | None,
+    memories: Path | None,
+    today: datetime.date,
+    *,
+    limit: int = 0,
+    passes: Mapping[str, datetime.date] | None = None,
+    notice: str | None = None,
+    stats: dict[str, int] | None = None,
+    marks: Mapping[str, frozenset[str]] | None = None,
+    tracked: frozenset[str] | None = frozenset(),
+) -> str:
     """Text for the start of a session: three generic lines with counts; the project's newest memories when limit > 0.
 
     `passes` (date of the last curation pass per resolved folder) turns on the "Curation due" count; None leaves it out.
@@ -1861,8 +2411,15 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         nonlocal complete
         try:
             key = str(folder.resolve())
-            found = _decisions(loaded, today, since=(passes or {}).get(key), budget=budget,
-                               attempts=_fill_attempts(os.environ), root=root, tracked=tracked)
+            found = _decisions(
+                loaded,
+                today,
+                since=(passes or {}).get(key),
+                budget=budget,
+                attempts=_fill_attempts(os.environ),
+                root=root,
+                tracked=tracked,
+            )
             known = (marks or {}).get(key, frozenset())
             for k, label in found.keys().items():
                 if k not in known:
@@ -1870,6 +2427,7 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             complete = complete and found.pairs_checked
         except Exception:
             complete = False  # this folder stays out of the count, so the line says "at least"; the rest prints
+
     if has_store:
         head.append(f"Store: {_count_notes(store)} notes.")
     if has_memories:
@@ -1890,14 +2448,22 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
         head.append(f"This project: {len(mine)} memories.")
     total = sum(due.values())
     if total:
-        parts = ", ".join(f"{due[label]} {label}" for label in _DECISION_LABELS.values() if label in due)
-        head.append(f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
-                    f"({parts}) (run mem curate after the current task).")
+        parts = ", ".join(
+            f"{due[label]} {label}" for label in _DECISION_LABELS.values() if label in due
+        )
+        head.append(
+            f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
+            f"({parts}) (after the current task: dispatch memory:memory-curator)."
+        )
     if has_memories:
-        waiting = sum(1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today))
+        waiting = sum(
+            1 for m in loaded_global if m.triage == "pending" and records.is_live(m, today)
+        )
         if waiting:
-            head.append(f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
-                        "(mem curate --global).")
+            head.append(
+                f"Triage: {waiting} general lesson{' awaits' if waiting == 1 else 's await'} triage "
+                "(mem curate --global)."
+            )
     rules_off = _rules_off()
     choice: rules.Choice | None = None
     if not rules_off:
@@ -1905,12 +2471,20 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             choice = rules.choose(loaded_project, loaded_global, today)
         except Exception:
             choice = None
-    if choice is not None:  # nothing loads when the rules are off, so nothing "got worse after loading"
+    if (
+        choice is not None
+    ):  # nothing loads when the rules are off, so nothing "got worse after loading"
         try:
-            worse = sum(1 for _, loaded in _got_worse(loaded_project, loaded_global, today, choice) if loaded)
+            worse = sum(
+                1
+                for _, loaded in _got_worse(loaded_project, loaded_global, today, choice)
+                if loaded
+            )
             if worse:
-                head.append(f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
-                            "(mem curate).")
+                head.append(
+                    f"Got worse: {worse} loaded lesson{' needs' if worse == 1 else 's need'} a decision "
+                    "(mem curate)."
+                )
         except Exception:
             pass
     lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
@@ -1937,7 +2511,11 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
                 if more:
                     extra.append(more)
             if stats is not None:
-                stats.update(rules=len(choice.loaded), rules_left=len(rules.not_fitted(choice)), rules_chars=len("\n".join(extra)))
+                stats.update(
+                    rules=len(choice.loaded),
+                    rules_left=len(rules.not_fitted(choice)),
+                    rules_chars=len("\n".join(extra)),
+                )
         except Exception:
             extra = []
     if mine and limit > 0:
@@ -1950,7 +2528,11 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
             rows.append(f"  m:{m.handle} [{m.kind}, {created}] {claim}")
         shown = min(limit, len(rows))
         while True:
-            tail = [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories'] if shown < len(rows) else []
+            tail = (
+                [f'  … and {len(rows) - shown} more: mem search "<words>" --scope memories']
+                if shown < len(rows)
+                else []
+            )
             text = "\n".join(lines + rows[:shown] + tail)
             if len(text) <= _INDEX_LIMIT or shown == 0:
                 return "\n".join(lines + extra + rows[:shown] + tail)
@@ -1958,12 +2540,18 @@ def session_index(store: Path | None, project: Path | None, memories: Path | Non
     return "\n".join(lines + extra)
 
 
-def _got_worse(project: Sequence[records.Memory], global_: Sequence[records.Memory],
-               today: datetime.date, choice: "rules.Choice | None" = None) -> list[tuple[records.Memory, bool]]:
+def _got_worse(
+    project: Sequence[records.Memory],
+    global_: Sequence[records.Memory],
+    today: datetime.date,
+    choice: rules.Choice | None = None,
+) -> list[tuple[records.Memory, bool]]:
     """The lessons whose present version got worse (records.got_worse) and that the rules block loads or leaves out
     over the cap; the flag says "loaded". `choose` gets both scopes so that the cap is the one of session start."""
     choice = choice if choice is not None else rules.choose(project, global_, today)
-    found = [(m, True) for m in choice.loaded] + [(m, False) for m, why in choice.left if why == rules.OVER]
+    found = [(m, True) for m in choice.loaded] + [
+        (m, False) for m, why in choice.left if why == rules.OVER
+    ]
     return [(m, loaded) for m, loaded in found if records.got_worse(m)]
 
 
@@ -1980,7 +2568,7 @@ def _hook_input() -> dict[str, Any]:
 
 def _log_hook(entry: dict[str, Any]) -> None:
     """Append one line to the hook log in the data folder; never raises. Holds no text and no path."""
-    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
+    entry = {"t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
     try:
         folder = data_dir(os.environ)
         if folder is None:
@@ -2000,12 +2588,16 @@ def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
     """The line `mem session-index` adds after a failed corroboration pass (`mem-corroborate ack` clears it)."""
     if data is None:
         return None
-    found = auto_state.failure(auto_state.read_json(data / "corroborate" / auto_state.STATUS_NAME), now)
+    found = auto_state.failure(
+        auto_state.read_json(data / "corroborate" / auto_state.STATUS_NAME), now
+    )
     if found is None:
         return None
     reason = " ".join(str(found["reason"]).split())[:200]
-    return (f"memory: the last corroboration pass failed ({reason}): see mem-corroborate status, "
-            "then mem-corroborate ack.")
+    return (
+        f"memory: the last corroboration pass failed ({reason}): see mem-corroborate status, "
+        "then mem-corroborate ack."
+    )
 
 
 def cmd_session_index(args: argparse.Namespace) -> int:
@@ -2023,13 +2615,17 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             project = records.project_root(cwd, os.environ)
         except OSError:
             project = None
-        memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+        memories = records.memories_root(
+            os.environ, store if store is not None and store.is_dir() else None
+        )
         notices = []
-        for make in (lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
-                     lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
-                     lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
-                     lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
-                     lambda: settle_state.settled_line(memories)):
+        for make in (
+            lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
+            lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
+            lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
+            lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
+            lambda: settle_state.settled_line(memories),
+        ):
             try:
                 found = make()
             except Exception:
@@ -2037,20 +2633,33 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             if found:
                 notices.append(found)
         notice = "\n".join(notices) or None
-        text = session_index(store, records.project_dir(project) if project else None, memories,
-                             datetime.date.today(), limit=max(args.list, 0), passes=read_passes(os.environ),
-                             notice=notice, stats=stats, marks=read_marks(os.environ),
-                             tracked=records.tracked_memories(project) if project else frozenset())
+        text = session_index(
+            store,
+            records.project_dir(project) if project else None,
+            memories,
+            datetime.date.today(),
+            limit=max(args.list, 0),
+            passes=read_passes(os.environ),
+            notice=notice,
+            stats=stats,
+            marks=read_marks(os.environ),
+            tracked=records.tracked_memories(project) if project else frozenset(),
+        )
     except Exception:
         text = _INDEX_RULES
         stats.clear()
     print(text)
     if args.hook:
         source = data.get("source")
-        _log_hook({"hook": "session-index", "source": source if isinstance(source, str) else None,
-                   "ms": int((time.monotonic() - started) * 1000), "chars": len(text),
-                   "rules": stats.get("rules", 0), "rules_left": stats.get("rules_left", 0),
-                   "rules_chars": stats.get("rules_chars", 0)})
+        _log_hook({
+            "hook": "session-index",
+            "source": source if isinstance(source, str) else None,
+            "ms": int((time.monotonic() - started) * 1000),
+            "chars": len(text),
+            "rules": stats.get("rules", 0),
+            "rules_left": stats.get("rules_left", 0),
+            "rules_chars": stats.get("rules_chars", 0),
+        })
     return 0
 
 
@@ -2077,13 +2686,20 @@ def cmd_compact_log(args: argparse.Namespace) -> int:
         if lines:
             print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
         if args.hook:
-            _log_hook({"hook": "post-compact", "trigger": trigger if trigger in ("manual", "auto") else None,
-                       "session": session if isinstance(session, str) and _SESSION_ID.fullmatch(session) else None,
-                       "chars": len(summary), "marker": handoff.has_marker(text),
-                       "handoff": [f for f in handoff.FIELDS if f in found],
-                       "plan_named": handoff.names_plan(found.get("plan", "")),
-                       "unrecorded": handoff.unrecorded(text), "mismatches": len(lines),
-                       "ms": int((time.monotonic() - started) * 1000)})
+            _log_hook({
+                "hook": "post-compact",
+                "trigger": trigger if trigger in ("manual", "auto") else None,
+                "session": session
+                if isinstance(session, str) and _SESSION_ID.fullmatch(session)
+                else None,
+                "chars": len(summary),
+                "marker": handoff.has_marker(text),
+                "handoff": [f for f in handoff.FIELDS if f in found],
+                "plan_named": handoff.names_plan(found.get("plan", "")),
+                "unrecorded": handoff.unrecorded(text),
+                "mismatches": len(lines),
+                "ms": int((time.monotonic() - started) * 1000),
+            })
     except Exception:
         pass
     return 0
@@ -2097,7 +2713,9 @@ def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Re
     """The block appended to a subagent's brief: handles and counts only, at most _SIGNAL_LIMIT characters."""
     if not strong:
         return ""
-    shown = [f"{r.kind}:{r.handle}" for r in strong[:_SIGNAL_HANDLES]]  # only strong matches are named
+    shown = [
+        f"{r.kind}:{r.handle}" for r in strong[:_SIGNAL_HANDLES]
+    ]  # only strong matches are named
 
     def render(items: list[str]) -> str:
         return "\n".join([
@@ -2105,7 +2723,8 @@ def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Re
             f"{len(strong)} strong, {len(possible)} possibly related. Read one with: mem show m:<handle> "
             "(they are files in .memory/).",
             "They are experience, not fact: where one conflicts with this brief, the brief wins and you report "
-            "the conflict."])
+            "the conflict.",
+        ])
 
     text = render(shown)
     while len(text) > _SIGNAL_LIMIT and len(shown) > 1:  # very long note names
@@ -2136,22 +2755,35 @@ def cmd_signal(args: argparse.Namespace) -> int:
         if not cwd.is_dir():
             cwd = Path.cwd()
         project = records.project_root(cwd, os.environ)
-        memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+        memories = records.memories_root(
+            os.environ, store if store is not None and store.is_dir() else None
+        )
         today = datetime.date.today()
-        found = (records.load_memories(records.project_dir(project) if project else None, "project")
-                 + [m for m in records.load_memories(memories, "global") if not records.quarantined(m)])
-        strong, possible = records.related_records(found, [], brief, today, tokenize=tokenize)  # memories only
+        found = records.load_memories(
+            records.project_dir(project) if project else None, "project"
+        ) + [m for m in records.load_memories(memories, "global") if not records.quarantined(m)]
+        strong, possible = records.related_records(
+            found, [], brief, today, tokenize=tokenize
+        )  # memories only
         text = signal_text(strong, possible)
         if args.hook:
-            _log_hook({"hook": "signal", "ms": int((time.monotonic() - started) * 1000),
-                       "strong": len(strong), "possible": len(possible),
-                       "subagent_type": subagent_type if isinstance(subagent_type, str) else None,
-                       "words": len(brief.split())})
+            _log_hook({
+                "hook": "signal",
+                "ms": int((time.monotonic() - started) * 1000),
+                "strong": len(strong),
+                "possible": len(possible),
+                "subagent_type": subagent_type if isinstance(subagent_type, str) else None,
+                "words": len(brief.split()),
+            })
         if not text:
             return 0
         if args.hook:
             updated = {**tool_input, "prompt": f"{brief}\n\n{text}"}
-            print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}}))
+            print(
+                json.dumps({
+                    "hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": updated}
+                })
+            )
         else:
             print(text)
     except Exception:
@@ -2164,27 +2796,41 @@ def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
     term, 5 for a soft one the owner has not approved, 2 when the list cannot be read, created or located (no HOME and
     no XDG_CONFIG_HOME). A missing list is created, so it never blocks."""
     if records.forbidden_file(os.environ) is None:
-        print("mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
-              file=sys.stderr)
+        print(
+            "mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
+            file=sys.stderr,
+        )
         return 2
     try:
         records.ensure_terms_file(os.environ)
         hits = records.term_hits(texts, os.environ, kind)
     except records.ForbiddenListError as exc:
-        print(f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.", file=sys.stderr)
+        print(
+            f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.",
+            file=sys.stderr,
+        )
         return 2
     except OSError as exc:
-        print(f"mem: the forbidden-terms list cannot be created ({exc}); nothing was written.", file=sys.stderr)
+        print(
+            f"mem: the forbidden-terms list cannot be created ({exc}); nothing was written.",
+            file=sys.stderr,
+        )
         return 2
     hard = next((t for t in hits if not t.soft), None)
     if hard is not None:
-        print(f"mem: the text contains a forbidden term (line {hard.line} of the forbidden-terms list); "
-              "nothing was written.", file=sys.stderr)
+        print(
+            f"mem: the text contains a forbidden term (line {hard.line} of the forbidden-terms list); "
+            "nothing was written.",
+            file=sys.stderr,
+        )
         return 4
     soft = next((t for t in hits), None)
     if soft is not None and not approved:
-        print(f'mem: the text mentions "{soft.text}" (a soft term): ask the owner whether this may be written to the '
-              "global scope; if they agree, repeat with --owner-approved.", file=sys.stderr)
+        print(
+            f'mem: the text mentions "{soft.text}" (a soft term): ask the owner whether this may be written to the '
+            "global scope; if they agree, repeat with --owner-approved.",
+            file=sys.stderr,
+        )
         return 5
     return 0
 
@@ -2198,12 +2844,20 @@ def _refuse_secret(texts: Sequence[str]) -> bool:
     name = records.secret_in(texts)
     if name is None:
         return False
-    print(f"mem: the text looks like it contains a secret ({name}); nothing was written.", file=sys.stderr)
+    print(
+        f"mem: the text looks like it contains a secret ({name}); nothing was written.",
+        file=sys.stderr,
+    )
     return True
 
 
-def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, today: datetime.date, folder: Path,
-                   project: Path | None) -> bool:
+def _add_sightings(
+    same: Sequence[records.Memory],
+    args: argparse.Namespace,
+    today: datetime.date,
+    folder: Path,
+    project: Path | None,
+) -> bool:
     """An identical claim from another session: when both the existing record and this call come from a transcript,
     the session goes onto the existing record. True when the call was handled (the caller still exits 3)."""
     keys = [records.sighting_entry(*f) for f in map(records.sighting, args.source) if f]
@@ -2218,13 +2872,20 @@ def _add_sightings(same: Sequence[records.Memory], args: argparse.Namespace, tod
             sid = records.session_key(key)
             if explicit and sid and not records.has_case(target, sid, explicit):
                 records.log_before(target, "confirm")
-                target, _ = records.add_case(target, key, getattr(args, "seen_on", None) or today, explicit, today)
+                target, _ = records.add_case(
+                    target, key, getattr(args, "seen_on", None) or today, explicit, today
+                )
                 cased = True
                 print(f"mem: case {explicit} added to m:{target.handle}.", file=sys.stderr)
             continue
         records.log_before(target, "confirm")
-        target, _ = records.add_sighting(target, key, today, outcome=getattr(args, "outcome", None) or "seen",
-                                         on=getattr(args, "seen_on", None))
+        target, _ = records.add_sighting(
+            target,
+            key,
+            today,
+            outcome=getattr(args, "outcome", None) or "seen",
+            on=getattr(args, "seen_on", None),
+        )
         added = True
         print(f"mem: {key} added to m:{target.handle}.", file=sys.stderr)
     print(f"m:{target.handle}\t{'sighting' if added else 'case' if cased else 'already counted'}")
@@ -2240,11 +2901,17 @@ def _check_short_topic(args: argparse.Namespace) -> int | None:
     if args.short is not None:
         args.short = " ".join(args.short.split())
     if args.short and not records.valid_short(args.short):
-        print(f"mem: the short form must be one line of at most {records.SHORT_LIMIT} characters.", file=sys.stderr)
+        print(
+            f"mem: the short form must be one line of at most {records.SHORT_LIMIT} characters.",
+            file=sys.stderr,
+        )
         return 2
     if args.topic and not records.valid_topic(args.topic):
-        print(f"mem: the topic must be one or two lowercase words, at most {records.TOPIC_LIMIT} characters, "
-              f'not "other".', file=sys.stderr)
+        print(
+            f"mem: the topic must be one or two lowercase words, at most {records.TOPIC_LIMIT} characters, "
+            f'not "other".',
+            file=sys.stderr,
+        )
         return 2
     return None
 
@@ -2254,11 +2921,18 @@ def _check_short_claim(args: argparse.Namespace, claim: str) -> int | None:
     than the claim it will sit on; else None."""
     user_read = getattr(args, "user_read", False)
     if user_read and args.short is None:
-        print("mem: --user-read goes with --short: it says the owner read that text.", file=sys.stderr)
+        print(
+            "mem: --user-read goes with --short: it says the owner read that text.", file=sys.stderr
+        )
         return 2
     if args.short and not user_read and (reasons := shortcheck.problems(claim, args.short)):
-        print("mem: the short form is refused: " + "; ".join(reasons) + ". Reword it, or pass --user-read if the "
-              "owner read this text.", file=sys.stderr)
+        print(
+            "mem: the short form is refused: "
+            + "; ".join(reasons)
+            + ". Reword it, or pass --user-read if the "
+            "owner read this text.",
+            file=sys.stderr,
+        )
         return 2
     return None
 
@@ -2282,8 +2956,11 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if args.is_global:
         folder = records.memories_root(os.environ, store)
         if folder is None:
-            print('mem: no folder for global memories: set the plugin\'s "memories" option, '
-                  'or MEM_MEMORIES, or use a store made with "mem init".', file=sys.stderr)
+            print(
+                'mem: no folder for global memories: set the plugin\'s "memories" option, '
+                'or MEM_MEMORIES, or use a store made with "mem init".',
+                file=sys.stderr,
+            )
             return 2
         if _read_only_store(store, folder.resolve()):
             print(_READ_ONLY_MEMORIES, file=sys.stderr)
@@ -2292,8 +2969,10 @@ def cmd_remember(args: argparse.Namespace) -> int:
     else:
         project = records.project_root(Path.cwd(), os.environ)
         if project is None:
-            print("mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
-                  file=sys.stderr)
+            print(
+                "mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder.",
+                file=sys.stderr,
+            )
             return 2
         folder = records.project_dir(project)
         if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
@@ -2317,31 +2996,73 @@ def cmd_remember(args: argparse.Namespace) -> int:
     if _refuse_secret([args.claim, args.context or "", body, *args.source, args.short or ""]):
         return 4
     if args.is_global:
-        refused = _check_terms([args.claim, args.context or "", body, *args.source, records.slug_of(args.claim), args.short or ""],
-                               args.kind, args.owner_approved)
+        refused = _check_terms(
+            [
+                args.claim,
+                args.context or "",
+                body,
+                *args.source,
+                records.slug_of(args.claim),
+                args.short or "",
+            ],
+            args.kind,
+            args.owner_approved,
+        )
         if refused:
             return refused
     if getattr(args, "origin", None) == "transcript":
         for source in args.source:
-            if " ".join(source.split()).lower().startswith(records.SESSION_PREFIX) and records.sighting(source) is None:
-                print(f"mem: --source {source!r} is not a session entry: write 'session <id>' or "
-                      f"'session <id> project <{records.PROJECT_KEY_LEN} hex characters>'.", file=sys.stderr)
+            if (
+                " ".join(source.split()).lower().startswith(records.SESSION_PREFIX)
+                and records.sighting(source) is None
+            ):
+                print(
+                    f"mem: --source {source!r} is not a session entry: write 'session <id>' or "
+                    f"'session <id> project <{records.PROJECT_KEY_LEN} hex characters>'.",
+                    file=sys.stderr,
+                )
                 return 2
-    from_session = getattr(args, "origin", None) == "transcript" and any(map(records.session_key, args.source))
+    from_session = getattr(args, "origin", None) == "transcript" and any(
+        map(records.session_key, args.source)
+    )
     if getattr(args, "origin", None) == "transcript" and args.valid_until is not None:
-        draft = records.Memory(scope, folder, "", args.kind, args.claim, today, 1, "active", None, None,
-                               records.normalized_sources(args.source), "", None, origin="transcript",
-                               weight=getattr(args, "weight", None))
+        draft = records.Memory(
+            scope,
+            folder,
+            "",
+            args.kind,
+            args.claim,
+            today,
+            1,
+            "active",
+            None,
+            None,
+            records.normalized_sources(args.source),
+            "",
+            None,
+            origin="transcript",
+            weight=getattr(args, "weight", None),
+        )
         if records.standing(draft) != "established":
-            print(f"mem: --valid-until is refused: the life of a record from a transcript is "
-                  f"{records.UNCONFIRMED_DAYS} days from the last session that showed it.", file=sys.stderr)
+            print(
+                f"mem: --valid-until is refused: the life of a record from a transcript is "
+                f"{records.UNCONFIRMED_DAYS} days from the last session that showed it.",
+                file=sys.stderr,
+            )
             return 2
     claim_tokens = tokenize(args.claim)
     existing = records.load_memories(folder, scope)
     live = [m for m in existing if records.is_live(m, today)]
     if not args.force:
-        lapsed = [m for m in existing if from_session and m.error is None and m.status == "active"
-                  and m.origin == "transcript" and m not in live]
+        lapsed = [
+            m
+            for m in existing
+            if from_session
+            and m.error is None
+            and m.status == "active"
+            and m.origin == "transcript"
+            and m not in live
+        ]
         same = [m for m in live + lapsed if _same_claim(m.claim, args.claim)]
         if same:
             seen = _add_sightings(same, args, today, folder, project)
@@ -2349,8 +3070,11 @@ def cmd_remember(args: argparse.Namespace) -> int:
                 return 3
             for m in same:
                 print(f"m:{m.handle}\t{m.claim}", file=sys.stderr)
-            print(f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
-                  "or repeat with --force to write a new one.", file=sys.stderr)
+            print(
+                f'mem: a memory with the same claim exists; run "mem observe m:{same[0].handle}" if it is the same, '
+                "or repeat with --force to write a new one.",
+                file=sys.stderr,
+            )
             return 3
     related = records.match_memories(_readable(live, today), claim_tokens, today, tokenize=tokenize)
     exclude_failed = False
@@ -2360,13 +3084,25 @@ def cmd_remember(args: argparse.Namespace) -> int:
         except OSError:
             exclude_failed = True
     try:
-        m = records.write_memory(folder, scope, kind=args.kind, claim=args.claim, body=body, today=today,
-                                 context=args.context, valid_until=args.valid_until, sources=args.source,
-                                 origin=getattr(args, "origin", None), reach=getattr(args, "reach", None),
-                                 weight=getattr(args, "weight", None), short=args.short or None,
-                                 topic=args.topic or None,
-                                 short_by="model" if args.short and not getattr(args, "user_read", False) else None,
-                                 outcome=getattr(args, "outcome", None), on=getattr(args, "seen_on", None))
+        m = records.write_memory(
+            folder,
+            scope,
+            kind=args.kind,
+            claim=args.claim,
+            body=body,
+            today=today,
+            context=args.context,
+            valid_until=args.valid_until,
+            sources=args.source,
+            origin=getattr(args, "origin", None),
+            reach=getattr(args, "reach", None),
+            weight=getattr(args, "weight", None),
+            short=args.short or None,
+            topic=args.topic or None,
+            short_by="model" if args.short and not getattr(args, "user_read", False) else None,
+            outcome=getattr(args, "outcome", None),
+            on=getattr(args, "seen_on", None),
+        )
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -2374,15 +3110,26 @@ def cmd_remember(args: argparse.Namespace) -> int:
     rel = m.path.relative_to(project if project is not None else folder).as_posix()
     print(f"m:{m.handle}\t{rel}")
     if exclude_failed:
-        print("mem: could not add .memory/ to .git/info/exclude; the folder may appear in git status.", file=sys.stderr)
+        print(
+            "mem: could not add .memory/ to .git/info/exclude; the folder may appear in git status.",
+            file=sys.stderr,
+        )
     if related:
-        print('related memories (if one is the same, run "mem observe m:<handle>"; if one says the opposite, keep both):',
-              file=sys.stderr)
+        print(
+            'related memories (if one is the same, run "mem observe m:<handle>"; if one says the opposite, keep both):',
+            file=sys.stderr,
+        )
         for r in related:
-            print(f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
-                  file=sys.stderr)
+            print(
+                f"m:{r.handle}\t[{r.kind}, observed {r.observed}, {r.created.isoformat() if r.created else '?'}]\t{r.claim}",
+                file=sys.stderr,
+            )
     log_usage(store, {"cmd": "remember", "scope": scope, **_approval(args)})
-    if scope == "global" and getattr(args, "origin", None) != "pipeline" and not records.quarantined(m):
+    if (
+        scope == "global"
+        and getattr(args, "origin", None) != "pipeline"
+        and not records.quarantined(m)
+    ):
         settle_state.maybe_start(folder, store, os.environ, time.time(), today)
     return 0
 
@@ -2393,9 +3140,14 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
     A handle found in both scopes means the project one, as for any lookup; with several handles the scope is
     one that holds all of them, and handles that exist only in different scopes are refused."""
     project = records.project_root(Path.cwd(), os.environ)
-    folders = {"project": records.project_dir(project) if project else None,
-               "global": records.memories_root(os.environ, _optional_store(args))}
-    loaded = {scope: {m.handle: m for m in records.load_memories(folder, scope)} for scope, folder in folders.items()}
+    folders = {
+        "project": records.project_dir(project) if project else None,
+        "global": records.memories_root(os.environ, _optional_store(args)),
+    }
+    loaded = {
+        scope: {m.handle: m for m in records.load_memories(folder, scope)}
+        for scope, folder in folders.items()
+    }
     order = ("global",) if args.is_global else ("project", "global")
     names = [h.removeprefix("m:") for h in handles]
     for name, raw in zip(names, handles):
@@ -2407,8 +3159,10 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
             found = [loaded[scope][name] for name in names]
             break
     else:
-        print(f"mem: {' and '.join('m:' + n for n in names)} are in different scopes: both must be in the same one.",
-              file=sys.stderr)
+        print(
+            f"mem: {' and '.join('m:' + n for n in names)} are in different scopes: both must be in the same one.",
+            file=sys.stderr,
+        )
         return None
     store = _optional_store(args)
     for m in found:
@@ -2416,7 +3170,9 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
             print(f"mem: {m.path}: {m.error}", file=sys.stderr)
             return None
         if _read_only_store(store, m.path.resolve()):
-            print(_READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+            print(
+                _READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr
+            )
             return None
     return found
 
@@ -2424,7 +3180,9 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
 def _with_note(body: str, heading: str, text: str) -> str:
     """The body with a heading line and the text under it added at the end."""
     head = body.rstrip("\n")
-    return f"{head}\n\n{heading}\n{text.strip()}\n" if head.strip() else f"{heading}\n{text.strip()}\n"
+    return (
+        f"{head}\n\n{heading}\n{text.strip()}\n" if head.strip() else f"{heading}\n{text.strip()}\n"
+    )
 
 
 def _reason_allowed(memory: records.Memory, because: str | None, approved: bool) -> int:
@@ -2439,8 +3197,13 @@ def _reason_allowed(memory: records.Memory, because: str | None, approved: bool)
     return _check_terms([because], memory.kind, approved)
 
 
-def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list[records.Memory], datetime.date], list[str]],
-         name: str, because: str | None = None) -> int:
+def _act(
+    args: argparse.Namespace,
+    handles: Sequence[str],
+    apply: Callable[[list[records.Memory], datetime.date], list[str]],
+    name: str,
+    because: str | None = None,
+) -> int:
     found = _memory_of(args, handles)
     if found is None:
         return 2
@@ -2459,7 +3222,9 @@ def _act(args: argparse.Namespace, handles: Sequence[str], apply: Callable[[list
     return 0
 
 
-def _add_plain_source(memory: records.Memory, source: str, today: datetime.date, note: str | None) -> records.Memory:
+def _add_plain_source(
+    memory: records.Memory, source: str, today: datetime.date, note: str | None
+) -> records.Memory:
     """A source (URL, path or session) appended once to a memory that is not from a transcript, with the note."""
     changes: dict = {}
     if source not in memory.sources:
@@ -2494,50 +3259,77 @@ def cmd_confirm(args: argparse.Namespace) -> int:
                 raise ValueError("--by-owner stands alone: it takes no --source or --until")
             m = found[0]
             if m.origin != "transcript":
-                raise ValueError(f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
-                                 "lesson captured from one")
+                raise ValueError(
+                    f"m:{m.handle} is not from a transcript: the owner's confirmation applies to a "
+                    "lesson captured from one"
+                )
             if m.status != "active":
-                raise ValueError(f"m:{m.handle} is {m.status}: the owner confirms only an active memory")
+                raise ValueError(
+                    f"m:{m.handle} is {m.status}: the owner confirms only an active memory"
+                )
             if m.owner_confirmed:
                 repeated.append(True)
                 return [f"m:{m.handle}\talready confirmed by the owner: nothing changed"]
             records.log_before(m, "confirm")
             after = dataclasses.replace(m, owner_confirmed=today)
-            records.update(m, today, owner_confirmed=today, **records.standing_changes(m, after, today))
+            records.update(
+                m, today, owner_confirmed=today, **records.standing_changes(m, after, today)
+            )
             return [f"m:{m.handle}\tconfirmed by the owner"]
         if source is not None and not source.strip():
             raise ValueError("--source is empty")
         if source is not None and from_transcript and key is None:
             raise ValueError(f"--source takes a session ('session <id>'), not {source!r}")
         if until is not None and records.standing(found[0]) == "unconfirmed":
-            raise ValueError("a record from a transcript is confirmed only by another session showing it: "
-                             "use --source 'session <id>', not --until")
+            raise ValueError(
+                "a record from a transcript is confirmed only by another session showing it: "
+                "use --source 'session <id>', not --until"
+            )
         if source is not None and found[0].status != "active":
-            raise ValueError(f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory")
+            raise ValueError(
+                f"m:{found[0].handle} is {found[0].status}: a source is added only to an active memory"
+            )
         seen = {records.session_key(s) or s.strip() for s in found[0].sources}
-        already = records.counted(found[0], source) if from_transcript and source is not None else (
-            source is not None and (key or source.strip()) in seen)
-        outcome = getattr(args, "outcome", None) or "seen"   # `seen` is the default, resolved here so that
-        seen_on = getattr(args, "seen_on", None)          # a counted session gets a case only on request
+        already = (
+            records.counted(found[0], source)
+            if from_transcript and source is not None
+            else (source is not None and (key or source.strip()) in seen)
+        )
+        outcome = (
+            getattr(args, "outcome", None) or "seen"
+        )  # `seen` is the default, resolved here so that
+        seen_on = getattr(args, "seen_on", None)  # a counted session gets a case only on request
         if already:
             repeated.append(True)
-            if (from_transcript and key and getattr(args, "outcome", None)
-                    and not records.has_case(found[0], key, outcome)):
+            if (
+                from_transcript
+                and key
+                and getattr(args, "outcome", None)
+                and not records.has_case(found[0], key, outcome)
+            ):
                 records.log_before(found[0], "confirm")
                 found[0], _ = records.add_case(found[0], source, seen_on or today, outcome, today)
-                repeated.pop()   # a case was written: the call changed something
+                repeated.pop()  # a case was written: the call changed something
                 if until is None:
                     return [f"m:{found[0].handle}\tcase {outcome} added"]
                 records.update(found[0], today, valid_until=until)
-                return [f"m:{found[0].handle}\tcase {outcome} added; valid until {until.isoformat()}"]
+                return [
+                    f"m:{found[0].handle}\tcase {outcome} added; valid until {until.isoformat()}"
+                ]
             if until is None:
                 return [f"m:{found[0].handle}\t{source} is already a source: nothing changed"]
-            records.log_before(found[0], "confirm")  # the source is not counted again; the date is still set
+            records.log_before(
+                found[0], "confirm"
+            )  # the source is not counted again; the date is still set
             records.update(found[0], today, valid_until=until)
-            return [f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"]
+            return [
+                f"m:{found[0].handle}\t{source} is already a source; valid until {until.isoformat()}"
+            ]
         records.log_before(found[0], "confirm")
         if source is not None and from_transcript:
-            updated, _ = records.add_sighting(found[0], source, today, args.note, outcome=outcome, on=seen_on)
+            updated, _ = records.add_sighting(
+                found[0], source, today, args.note, outcome=outcome, on=seen_on
+            )
         else:
             updated = records.observe(found[0], today)
             if source is not None:
@@ -2545,12 +3337,19 @@ def cmd_confirm(args: argparse.Namespace) -> int:
         if until is not None:
             updated = records.update(updated, today, valid_until=until)
         return [f"m:{updated.handle}\tobserved {updated.observed}"]
+
     code = _act(args, [args.handle], apply, args.command, because=getattr(args, "note", None))
     return 3 if code == 0 and repeated else code
 
 
-def _text_change(found: list[records.Memory], key: str, heading: str, because: str | None, today: datetime.date,
-                 **extra) -> records.Memory:
+def _text_change(
+    found: list[records.Memory],
+    key: str,
+    heading: str,
+    because: str | None,
+    today: datetime.date,
+    **extra,
+) -> records.Memory:
     m = found[0]
     records.log_before(m, {"refuted": "refute", "forgotten": "forget"}[key])
     changes = {"status": key, key: today, **extra}
@@ -2563,13 +3362,17 @@ def cmd_refute(args: argparse.Namespace) -> int:
     def apply(found, today):
         _text_change(found, "refuted", "Refuted", args.because, today)
         return [f"m:{found[0].handle}\trefuted"]
+
     return _act(args, [args.handle], apply, "refute", args.because)
 
 
 def cmd_forget(args: argparse.Namespace) -> int:
     def apply(found, today):
-        _text_change(found, "forgotten", "Forgotten", args.because, today, triage=None, triage_reason=None)
+        _text_change(
+            found, "forgotten", "Forgotten", args.because, today, triage=None, triage_reason=None
+        )
         return [f"m:{found[0].handle}\tforgotten"]
+
     return _act(args, [args.handle], apply, "forget", args.because)
 
 
@@ -2585,23 +3388,33 @@ def _linked_project_records(handle: str) -> list[records.Memory]:
             try:  # os.listdir raises on a folder that cannot be read; Path.glob would return nothing
                 files = [folder / name for name in os.listdir(folder) if name.endswith(".md")]
             except OSError as exc:
-                raise ValueError(f"project memory folder {n} of {len(projects)} cannot be read ({exc})") from exc
+                raise ValueError(
+                    f"project memory folder {n} of {len(projects)} cannot be read ({exc})"
+                ) from exc
             for m in records.load_memories(folder, "project"):
                 if m.error is None:
                     if m.general == handle:
                         found.append(m)
-                elif m.path in files and named.search(m.path.read_text(encoding="utf-8", errors="replace")):
-                    raise ValueError(f"project record m:{m.handle} names it in `general` but cannot be parsed "
-                                     f"({m.error})")
+                elif m.path in files and named.search(
+                    m.path.read_text(encoding="utf-8", errors="replace")
+                ):
+                    raise ValueError(
+                        f"project record m:{m.handle} names it in `general` but cannot be parsed "
+                        f"({m.error})"
+                    )
     except (OSError, ValueError) as exc:
-        raise ValueError(f"reject stopped while looking for the project records that name it: {exc}; "
-                         "no change was made") from exc
+        raise ValueError(
+            f"reject stopped while looking for the project records that name it: {exc}; "
+            "no change was made"
+        ) from exc
     return found
 
 
 def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
     m = found[0]
-    linked = _linked_project_records(m.handle)  # before any change: a refusal leaves everything as it was
+    linked = _linked_project_records(
+        m.handle
+    )  # before any change: a refusal leaves everything as it was
     done: list[str] = []
     try:
         for record in linked:
@@ -2609,15 +3422,22 @@ def _reject(found: list[records.Memory], today: datetime.date) -> list[str]:
             records.update(record, today, promote="no", general=None)
             done.append(f"m:{record.handle}")
     except (OSError, ValueError, yaml.YAMLError) as exc:
-        raise ValueError(f"reject failed while unlinking the project records ({exc}); unlinked so far: "
-                         f"{', '.join(done) or 'none'}; the global record is still active") from exc
+        raise ValueError(
+            f"reject failed while unlinking the project records ({exc}); unlinked so far: "
+            f"{', '.join(done) or 'none'}; the global record is still active"
+        ) from exc
     try:
         _text_change(found, "forgotten", "Forgotten", None, today, triage=None, triage_reason=None)
     except (OSError, ValueError, yaml.YAMLError) as exc:
-        raise ValueError(f"reject failed while retiring m:{m.handle} ({exc}); the project records were already "
-                         f"unlinked: {', '.join(done) or 'none'}; the global record is still active") from exc
-    return [f"m:{m.handle}\trejected", f"unlinked {len(done)} project record{'' if len(done) == 1 else 's'}",
-            *(f"{h}\tunlinked" for h in done)]
+        raise ValueError(
+            f"reject failed while retiring m:{m.handle} ({exc}); the project records were already "
+            f"unlinked: {', '.join(done) or 'none'}; the global record is still active"
+        ) from exc
+    return [
+        f"m:{m.handle}\trejected",
+        f"unlinked {len(done)} project record{'' if len(done) == 1 else 's'}",
+        *(f"{h}\tunlinked" for h in done),
+    ]
 
 
 def cmd_triage(args: argparse.Namespace) -> int:
@@ -2628,38 +3448,49 @@ def cmd_triage(args: argparse.Namespace) -> int:
     if args.triage_command == "hold":
         because = " ".join((args.because or "").split())
         if not because or not records.valid_triage_reason(because):
-            print(f"mem: hold needs --because, one line of at most {records.TRIAGE_REASON_LIMIT} characters.",
-                  file=sys.stderr)
+            print(
+                f"mem: hold needs --because, one line of at most {records.TRIAGE_REASON_LIMIT} characters.",
+                file=sys.stderr,
+            )
             return 2
 
     def apply(found, today):
         m = found[0]
-        if getattr(args, "project_scope", False) and m.scope != "project":  # the lookup falls back to the global scope
+        if (
+            getattr(args, "project_scope", False) and m.scope != "project"
+        ):  # the lookup falls back to the global scope
             raise ValueError(f"no memory named m:{m.handle}")
         if args.triage_command == "hold":
             if m.status != "active":
                 raise ValueError(f"m:{m.handle} is {m.status}: only an active lesson can be held")
             if records.quarantined(m):
-                raise ValueError(f"m:{m.handle} is in quarantine: it is not shown anyway until corroborated")
+                raise ValueError(
+                    f"m:{m.handle} is in quarantine: it is not shown anyway until corroborated"
+                )
             records.log_before(m, "triage")
             records.update(m, today, triage="pending", triage_reason=because)
             return [f"m:{m.handle}\theld"]
         if m.status != "active":
-            raise ValueError(f"m:{m.handle} is {m.status}: only an active general lesson awaits triage")
+            raise ValueError(
+                f"m:{m.handle} is {m.status}: only an active general lesson awaits triage"
+            )
         if args.triage_command == "accept" and m.triage != "pending" and records.got_worse(m):
             records.log_before(m, "triage")
             records.update(m, today, reviewed=today)
             return [f"m:{m.handle}\tkept as worded"]
         if m.triage != "pending":
             if records.quarantined(m):
-                raise ValueError(f"m:{m.handle} is still in quarantine: it leaves quarantine when seen in a second "
-                                 "project or confirmed with mem confirm --by-owner")
+                raise ValueError(
+                    f"m:{m.handle} is still in quarantine: it leaves quarantine when seen in a second "
+                    "project or confirmed with mem confirm --by-owner"
+                )
             raise ValueError(f"m:{m.handle} was already accepted or never awaited triage")
         if args.triage_command == "accept":
             records.log_before(m, "triage")
             records.update(m, today, triage=None, triage_reason=None)
             return [f"m:{m.handle}\taccepted"]
         return _reject(found, today)
+
     return _act(args, [args.handle], apply, f"triage-{args.triage_command}", because)
 
 
@@ -2679,15 +3510,25 @@ def _supersede_pair(old: records.Memory, new: records.Memory, today: datetime.da
 def cmd_supersede(args: argparse.Namespace) -> int:
     def apply(found, today):
         return _supersede_pair(*found, today)
+
     return _two(args, args.old, args.new, "supersede", apply)
 
 
 def _reword_failed(args: argparse.Namespace) -> int:
     """`mem memory edit <h> --reword-failed`: note the version the automatic rewording gave up on; nothing else changes."""
     others = (args.claim, args.context, args.body_file, args.short, args.topic)
-    if (any(o is not None for o in others) or args.no_load or args.load or args.index_only or args.reworded
-            or args.user_read):
-        print("mem: --reword-failed stands alone: it changes no other part of the lesson.", file=sys.stderr)
+    if (
+        any(o is not None for o in others)
+        or args.no_load
+        or args.load
+        or args.index_only
+        or args.reworded
+        or args.user_read
+    ):
+        print(
+            "mem: --reword-failed stands alone: it changes no other part of the lesson.",
+            file=sys.stderr,
+        )
         return 2
     found = _memory_of(args, [args.handle])
     if found is None:
@@ -2705,7 +3546,11 @@ def _reword_failed(args: argparse.Namespace) -> int:
         records.log_before(m, "edit")
         updating = True
         records.update(m, datetime.date.today(), reword_failed=versions[-1][0])
-    except (OSError, ValueError, yaml.YAMLError) as exc:  # any failure leaves the memory and its log as they were
+    except (
+        OSError,
+        ValueError,
+        yaml.YAMLError,
+    ) as exc:  # any failure leaves the memory and its log as they were
         if updating and m.path.read_bytes() != original:
             _swap_file(m.path, original)
         if log_before is None:
@@ -2715,7 +3560,10 @@ def _reword_failed(args: argparse.Namespace) -> int:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"m:{m.handle}\tedited reword failed")
-    log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    log_usage(
+        _optional_store(args),
+        {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)},
+    )
     return 0
 
 
@@ -2724,11 +3572,24 @@ def cmd_memory(args: argparse.Namespace) -> int:
     if args.reword_failed:
         return _reword_failed(args)
     if args.reworded and (not args.short or args.user_read):
-        print("mem: --reworded goes with a non-empty --short and without --user-read: it marks a model's rewording.", file=sys.stderr)
+        print(
+            "mem: --reworded goes with a non-empty --short and without --user-read: it marks a model's rewording.",
+            file=sys.stderr,
+        )
         return 2
-    if (args.claim is None and args.context is None and args.body_file is None and args.short is None
-            and args.topic is None and not args.no_load and not args.load and not args.index_only):
-        build_parser().error("memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load")
+    if (
+        args.claim is None
+        and args.context is None
+        and args.body_file is None
+        and args.short is None
+        and args.topic is None
+        and not args.no_load
+        and not args.load
+        and not args.index_only
+    ):
+        build_parser().error(
+            "memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load"
+        )
     claim = " ".join(args.claim.split()) if args.claim is not None else None
     context = " ".join(args.context.split()) if args.context is not None else None
     try:
@@ -2749,8 +3610,10 @@ def cmd_memory(args: argparse.Namespace) -> int:
         return 2
     m = found[0]
     if m.status != "active":
-        print(f"mem: m:{m.handle} is {m.status}: run mem restore m:{m.handle} to bring it back before editing it.",
-              file=sys.stderr)
+        print(
+            f"mem: m:{m.handle} is {m.status}: run mem restore m:{m.handle} to bring it back before editing it.",
+            file=sys.stderr,
+        )
         return 2
     if (refused := _check_short_claim(args, claim if claim is not None else m.claim)) is not None:
         return refused
@@ -2805,7 +3668,9 @@ def cmd_memory(args: argparse.Namespace) -> int:
         try:
             records.log_before(m, "edit")
             if m.path.read_bytes() != original:
-                raise ValueError(f"{m.path.name} changed since it was read, so nothing was written: run the command again")
+                raise ValueError(
+                    f"{m.path.name} changed since it was read, so nothing was written: run the command again"
+                )
             updating = True
             records.update(m, datetime.date.today(), **changes)
         except BaseException:  # any failure leaves the memory and its log as they were
@@ -2822,11 +3687,19 @@ def cmd_memory(args: argparse.Namespace) -> int:
     if m.scope == "project":
         _register_project(records.project_root(Path.cwd(), os.environ))
     if short_removed:
-        print("mem: the short form was removed with the old claim: write a new one with --short", file=sys.stderr)
+        print(
+            "mem: the short form was removed with the old claim: write a new one with --short",
+            file=sys.stderr,
+        )
     print(f"m:{m.handle}\tedited {', '.join(what)}")
-    log_usage(_optional_store(args), {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)})
+    log_usage(
+        _optional_store(args),
+        {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)},
+    )
     if m.scope == "global" and m.origin != "pipeline":
-        settle_state.maybe_start(m.path.parent, _optional_store(args), os.environ, time.time(), datetime.date.today())
+        settle_state.maybe_start(
+            m.path.parent, _optional_store(args), os.environ, time.time(), datetime.date.today()
+        )
     return 0
 
 
@@ -2836,15 +3709,24 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
     records.update(drop, today, status="superseded", superseded_by=keep.handle)
     changes: dict[str, Any] = {"observed": keep.observed + drop.observed}
     if drop.body.strip():
-        changes["body"] = _with_note(keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body)
-    if "transcript" in (keep.origin, drop.origin):  # a session must survive the merge, whichever record holds it
+        changes["body"] = _with_note(
+            keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body
+        )
+    if "transcript" in (
+        keep.origin,
+        drop.origin,
+    ):  # a session must survive the merge, whichever record holds it
         sources = records.normalized_sources([*keep.sources, *drop.sources])
         changes["sources"] = sources
         if keep.origin == "transcript":
             after = dataclasses.replace(keep, sources=sources)
             standing_changes = records.standing_changes(keep, after, today)
-            if records.standing(after) == "established" or len(records.sessions(after)) > len(records.sessions(keep)):
-                changes.update(standing_changes)  # enough evidence now, or a new session renews the 30 days
+            if records.standing(after) == "established" or len(records.sessions(after)) > len(
+                records.sessions(keep)
+            ):
+                changes.update(
+                    standing_changes
+                )  # enough evidence now, or a new session renews the 30 days
     log = records.merged_log(keep, drop)
     if log != keep.log:
         changes["log"] = log
@@ -2860,9 +3742,12 @@ def cmd_merge(args: argparse.Namespace) -> int:
         keep, drop = found
         flagged = records.flagged_words(keep.claim, drop.claim)
         if flagged and not args.force:
-            raise ValueError(f"these claims differ in {', '.join(flagged)}: they may be opposites or different "
-                             "versions; use --force to merge anyway.")
+            raise ValueError(
+                f"these claims differ in {', '.join(flagged)}: they may be opposites or different "
+                "versions; use --force to merge anyway."
+            )
         return _merge_pair(keep, drop, today)
+
     return _two(args, args.keep, args.drop, "merge", apply)
 
 
@@ -2881,15 +3766,17 @@ def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
         print("mem: distinct needs two different notes.", file=sys.stderr)
         return 2
     try:
-        names = {p: _handle(p.relative_to(root).as_posix()) for p in (first, second)}
+        names = {p: note_files._handle(p.relative_to(root).as_posix()) for p in (first, second)}
         originals, edits = {}, {}
         for path, other in ((first, second), (second, first)):
-            text = _read_text(path)
+            text = note_files._read_text(path)
             meta, _, _ = split_frontmatter(text)
             listed = meta.get("distinct_from") if isinstance(meta, dict) else None
             known = [h for h in listed if isinstance(h, str)] if isinstance(listed, list) else []
-            originals[path], edits[path] = path.read_bytes(), _set_field(text, "distinct_from",
-                                                                        sorted({*known, names[other]}))
+            originals[path], edits[path] = (
+                path.read_bytes(),
+                _set_field(text, "distinct_from", sorted({*known, names[other]})),
+            )
         for path, text in edits.items():
             safe_io.replace_file(path, text.encode("utf-8"))
         _log_group(root, originals, "distinct")
@@ -2913,8 +3800,10 @@ def cmd_distinct(args: argparse.Namespace) -> int:
     store = _optional_store(args)
     if store is not None and store.is_dir() and (done := _distinct_notes(args, store)) is not None:
         return done
+
     def apply(found, today):
         return _distinct_pair(*found, today)
+
     return _two(args, args.a, args.b, "distinct", apply)
 
 
@@ -2924,8 +3813,11 @@ def _writable_store(args: argparse.Namespace, command: str) -> Path | None:
         print(NO_STORE, file=sys.stderr)
         return None
     if not records.store_is_writable(root):
-        print(f"mem: {command} writes to the store, which is read-only: it has no mem-store.yaml "
-              '(create a store with "mem init").', file=sys.stderr)
+        print(
+            f"mem: {command} writes to the store, which is read-only: it has no mem-store.yaml "
+            '(create a store with "mem init").',
+            file=sys.stderr,
+        )
         return None
     return root
 
@@ -2942,8 +3834,14 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
     syn = syntheses.Synthesis(path, handle)
     entry = records.last_log_entry(syn)
     rel = f"{syntheses.SYNTHESES_DIR}/{path.name}"
-    group = records.last_log_entry(_StoreLog(root / "note", rel))  # a rename or remove logs its files as a group
-    if group is not None and group.get("group") and (entry is None or _sha(path.read_bytes()) == group.get("after")):
+    group = records.last_log_entry(
+        _StoreLog(root / "note", rel)
+    )  # a rename or remove logs its files as a group
+    if (
+        group is not None
+        and group.get("group")
+        and (entry is None or _sha(path.read_bytes()) == group.get("after"))
+    ):
         # the file is as the group's action left it (or has no own entry): the group is the newest change; when
         # the file differs, a change came after the group and its own entry is the one to undo
         return _restore_group(root, rel, group, f"s:{handle}")
@@ -2951,7 +3849,9 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
         print(f"mem: no logged text for s:{handle}: nothing to restore", file=sys.stderr)
         return 2
     if entry["skipped"]:
-        print(f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr)
+        print(
+            f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr
+        )
     try:
         records.restore(syn, entry)
     except OSError as exc:
@@ -2965,6 +3865,7 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
 @dataclass
 class _StoreLog:
     """A note's entry in the store-level `.curation-log` (the log sits beside `path`, the store's root)."""
+
     path: Path
     handle: str
 
@@ -2991,35 +3892,48 @@ def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) 
     members = [(n, e) for n, e in members if n not in undone]
 
     def current(e: dict) -> bool:
-        return (root / e["handle"]).is_file() and _sha((root / e["handle"]).read_bytes()) == e.get("after")
-    listing = {n: _is_index_readme(e["handle"]) for n, e in members}
+        return (root / e["handle"]).is_file() and _sha((root / e["handle"]).read_bytes()) == e.get(
+            "after"
+        )
+
+    listing = {n: check_rules._is_index_readme(e["handle"]) for n, e in members}
     moved = [e["handle"] for n, e in members if not listing[n] and not current(e)]
     if moved:
-        print(f"mem: {', '.join(moved)} changed since {entry.get('action')}, so nothing was restored: "
-              "restore or edit those files by hand", file=sys.stderr)
+        print(
+            f"mem: {', '.join(moved)} changed since {entry.get('action')}, so nothing was restored: "
+            "restore or edit those files by hand",
+            file=sys.stderr,
+        )
         return 2
     kept = [(n, e) for n, e in members if not listing[n] or current(e)]
     rebuild = not any(listing.values()) or len(kept) < len(members)
     members = kept
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     try:
         for number, e in members:
             target = root / e.get("from", e["handle"])
             safe_io.replace_file(target, e["before"].encode("utf-8"))
             if "from" in e:
                 (root / e["handle"]).unlink()
-                sources, was = root / SOURCES_DIR / Path(e["handle"]).stem, root / SOURCES_DIR / Path(e["from"]).stem
+                sources, was = (
+                    root / SOURCES_DIR / Path(e["handle"]).stem,
+                    root / SOURCES_DIR / Path(e["from"]).stem,
+                )
                 if sources.is_dir() and not was.exists():
                     sources.rename(was)
             marker = {"t": stamp, "action": "restore", "handle": e["handle"], "undone": number}
-            safe_io.append_text(root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
+            safe_io.append_text(
+                root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n"
+            )
         if rebuild:
             apply_index(root)
     except (OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{label or _handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
-          f"({len(members)} files)")
+    print(
+        f"{label or note_files._handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
+        f"({len(members)} files)"
+    )
     log_usage(root, {"cmd": "restore", "scope": "note"})
     return 0
 
@@ -3029,19 +3943,30 @@ def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
     log = _StoreLog(root / "note", rel)
     entry = records.last_log_entry(log)
     if entry is None:
-        print(f"mem: no logged text for {_handle(rel)}: nothing to restore", file=sys.stderr)
+        print(
+            f"mem: no logged text for {note_files._handle(rel)}: nothing to restore",
+            file=sys.stderr,
+        )
         return 2
     if entry.get("group"):
         return _restore_group(root, rel, entry)
     try:
         safe_io.replace_file(note, entry["before"].encode("utf-8"))
-        marker = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                  "action": "restore", "handle": rel, "undone": entry["line"]}
-        safe_io.append_text(root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n")
+        marker = {
+            "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "action": "restore",
+            "handle": rel,
+            "undone": entry["line"],
+        }
+        safe_io.append_text(
+            root / records.CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n"
+        )
     except OSError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{_handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}")
+    print(
+        f"{note_files._handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}"
+    )
     log_usage(root, {"cmd": "restore", "scope": "note"})
     return 0
 
@@ -3054,15 +3979,22 @@ def cmd_restore(args: argparse.Namespace) -> int:
         if store is not None and isinstance(found := resolve_note(store, args.handle), Path):
             root = _writable_store(args, "restore")
             return 2 if root is None else _restore_note(args, root, found)
+
     def apply(found, today):
         m = found[0]
         entry = records.last_log_entry(m)
         if entry is None:
             raise ValueError(f"no logged text for m:{m.handle}: nothing to restore")
         if entry["skipped"]:
-            print(f"mem: skipped {entry['skipped']} unreadable lines in the curation log", file=sys.stderr)
+            print(
+                f"mem: skipped {entry['skipped']} unreadable lines in the curation log",
+                file=sys.stderr,
+            )
         records.restore(m, entry)
-        return [f"m:{m.handle}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}"]
+        return [
+            f"m:{m.handle}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}"
+        ]
+
     return _act(args, [args.handle], apply, "restore")
 
 
@@ -3074,8 +4006,12 @@ def cmd_promote(args: argparse.Namespace) -> int:
     target = None
     if args.to:
         target = args.to.removeprefix("m:")
-        if not any(m.handle == target and m.error is None
-                   for m in records.load_memories(records.memories_root(os.environ, _optional_store(args)), "global")):
+        if not any(
+            m.handle == target and m.error is None
+            for m in records.load_memories(
+                records.memories_root(os.environ, _optional_store(args)), "global"
+            )
+        ):
             print(f"mem: --to names no global memory: {args.to}", file=sys.stderr)
             return 2
     if args.no or args.done:
@@ -3086,6 +4022,7 @@ def cmd_promote(args: argparse.Namespace) -> int:
             records.log_before(found[0], "promote")
             records.update(found[0], today, promote=value, **extra)
             return [f"m:{found[0].handle}\t{text}"]
+
         for handle in args.handles:
             if _act(args, [handle], apply, "promote") != 0:
                 return 2
@@ -3101,12 +4038,16 @@ def cmd_promote(args: argparse.Namespace) -> int:
         print(f"m:{m.handle}\t{' '.join(m.claim.split())}")
         if m.context:
             print(f"  context: {' '.join(m.context.split())}")
-    print("Rewrite the claim in general terms, with no name of a project, system, client or person, "
-          "before you run it; then run: mem promote --done <h>")
+    print(
+        "Rewrite the claim in general terms, with no name of a project, system, client or person, "
+        "before you run it; then run: mem promote --done <h>"
+    )
     return 0
 
 
-def _loaded(folders: Sequence[tuple[str, Path | None]]) -> list[tuple[str, Path | None, list[records.Memory]]]:
+def _loaded(
+    folders: Sequence[tuple[str, Path | None]],
+) -> list[tuple[str, Path | None, list[records.Memory]]]:
     out = []
     for scope, folder in folders:
         loaded = records.load_memories(folder, scope)
@@ -3129,26 +4070,38 @@ def cmd_memories(args: argparse.Namespace) -> int:
             return 2
         folder = _named_folder(args.project)
         if folder is not None and not folder.is_dir():
-            print(f"mem: the memory folder of project {args.project} was not found: {folder} (moved or deleted?)",
-                  file=sys.stderr)
+            print(
+                f"mem: the memory folder of project {args.project} was not found: {folder} (moved or deleted?)",
+                file=sys.stderr,
+            )
             return 2
         folders = [("project", folder)]
     else:
         folders = _memory_folders(args)
         if not args.all:
             folders = [f for f in folders if (f[0] == "global") == args.is_global]
-    shown = [m for _, _, loaded in _loaded(folders) for m in loaded
-             if m.error is None and (args.kind is None or m.kind == args.kind)
-             and (args.dead or records.is_live(m, today)
-                  or (args.quarantine and m.status == "active"))  # a lapsed lesson in quarantine is still listed
-             and records.quarantined(m) == args.quarantine]
-    shown.sort(key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle))
+    shown = [
+        m
+        for _, _, loaded in _loaded(folders)
+        for m in loaded
+        if m.error is None
+        and (args.kind is None or m.kind == args.kind)
+        and (
+            args.dead or records.is_live(m, today) or (args.quarantine and m.status == "active")
+        )  # a lapsed lesson in quarantine is still listed
+        and records.quarantined(m) == args.quarantine
+    ]
+    shown.sort(
+        key=lambda m: (m.kind != "state", -(m.created or datetime.date.min).toordinal(), m.handle)
+    )
     for m in shown:
         dead = _memory_status(m, today)
         created = m.created.isoformat() if m.created else "undated"
-        print(f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
-              f"{', quarantine' if args.quarantine else ''}"
-              f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}")
+        print(
+            f"m:{m.handle}\t[{m.kind}, observed {m.observed}, {created}{_unconfirmed(m)}"
+            f"{', quarantine' if args.quarantine else ''}"
+            f"{', ' + dead if dead else ''}]\t{_flat(m.claim)}"
+        )
     return 0
 
 
@@ -3161,10 +4114,11 @@ def _rules_layout(arg: str | None = None) -> str:
     return arg or (env if env in ("grouped", "digest") else "flat")
 
 
-def _rules_digest(global_lessons: list[records.Memory], today: datetime.date) -> tuple[dict | None, dict | None]:
+def _rules_digest(
+    global_lessons: list[records.Memory], today: datetime.date
+) -> tuple[dict | None, dict | None]:
     """The digest file and the topics it may speak for, (None, None) when either cannot be read: callers then print without it."""
     try:
-        import digest
         data = digest.read(data_dir(os.environ))
         return (data, digest.topics_of(global_lessons, today)) if data["topics"] else (None, None)
     except Exception:
@@ -3181,7 +4135,12 @@ def _rules_unread(args: argparse.Namespace, today: datetime.date) -> int:
         print("mem: --unread and --read cannot be used together.", file=sys.stderr)
         return 2
     scopes = _loaded(_memory_folders(args))
-    pool = [m for _, _, loaded in scopes for m in loaded if m.error is None and records.is_live(m, today)]
+    pool = [
+        m
+        for _, _, loaded in scopes
+        for m in loaded
+        if m.error is None and records.is_live(m, today)
+    ]
     unread = [m for m in pool if m.short_by == "model" and m.short]
     if args.unread:
         for m in unread:
@@ -3195,7 +4154,9 @@ def _rules_unread(args: argparse.Namespace, today: datetime.date) -> int:
         targets = []
         for raw in args.read:
             name = raw.removeprefix("m:")
-            hit = next((m for m in pool if m.handle == name), None)  # project first: the order of the scopes
+            hit = next(
+                (m for m in pool if m.handle == name), None
+            )  # project first: the order of the scopes
             if hit is None:
                 print(f"mem: no live memory named {raw}", file=sys.stderr)
                 return 2
@@ -3203,7 +4164,9 @@ def _rules_unread(args: argparse.Namespace, today: datetime.date) -> int:
     store = _optional_store(args)
     for m in targets:
         if _read_only_store(store, m.path.resolve()):
-            print(_READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+            print(
+                _READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr
+            )
             return 2
     for m in targets:
         if m.short_by:
@@ -3223,36 +4186,56 @@ def cmd_rules(args: argparse.Namespace) -> int:
         root = records.project_root(Path.cwd(), os.environ)
     except OSError:
         root = None
-    project = records.mark_repository(project, records.tracked_memories(root) if root else frozenset())
+    project = records.mark_repository(
+        project, records.tracked_memories(root) if root else frozenset()
+    )
     choice = rules.choose(project, global_, today)
     if _rules_off():
         print(RULES_OFF_NOTICE)
     unready = f"{choice.unready} established lesson{' has' if choice.unready == 1 else 's have'} no short form yet"
     # the pass skips the fill while the loaded rules are off (`cmd_auto` of mem-corroborate)
     attempts = _fill_attempts(os.environ)
-    stuck = 0 if _rules_off() else sum(
-        1 for m in choice.unready_lessons if (root is not None or m.scope != "project")
-        and corroborate.fill_wont_write(m, root if m.scope == "project" else None, attempts, today))
+    stuck = (
+        0
+        if _rules_off()
+        else sum(
+            1
+            for m in choice.unready_lessons
+            if (root is not None or m.scope != "project")
+            and corroborate.fill_wont_write(
+                m, root if m.scope == "project" else None, attempts, today
+            )
+        )
+    )
     if _rules_off():
         unready += "."
     elif stuck == choice.unready:
-        unready += (": the automatic fill will not write "
-                    f"{'it, so it needs' if stuck == 1 else 'them, so they need'} curation (mem curate).")
+        unready += (
+            ": the automatic fill will not write "
+            f"{'it, so it needs' if stuck == 1 else 'them, so they need'} curation (mem curate)."
+        )
     elif stuck:
-        unready += (f": {stuck} need{'s' if stuck == 1 else ''} curation (mem curate), the background pass writes the "
-                    f"{'other' if choice.unready - stuck == 1 else 'others'} when auto_capture is on (mem-corroborate status shows the last one).")
+        unready += (
+            f": {stuck} need{'s' if stuck == 1 else ''} curation (mem curate), the background pass writes the "
+            f"{'other' if choice.unready - stuck == 1 else 'others'} when auto_capture is on (mem-corroborate status shows the last one)."
+        )
     else:
         unready += ": the background pass writes them when auto_capture is on (mem-corroborate status shows the last one)."
     if args.more is not None:
         topic = None if args.more is True else args.more
-        shown = [(m, why) for m, why in choice.left
-                 if topic is None or (m.topic or "other") == topic or (topic == "other" and not m.topic)]
+        shown = [
+            (m, why)
+            for m, why in choice.left
+            if topic is None or (m.topic or "other") == topic or (topic == "other" and not m.topic)
+        ]
         order = [t for t, _ in rules.topic_counts(choice)] + [None]
         for group in order:
             for m, why in (x for x in shown if x[0].topic == group):
                 claim = _flat(m.claim)
                 claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
-                print(f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}\t{records.mark_words(m) or '-'}")
+                print(
+                    f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}\t{records.mark_words(m) or '-'}"
+                )
         if shown:
             print("mem show m:<handle> prints a whole lesson.")
         else:
@@ -3268,8 +4251,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print("\n".join(index))
     if not lines and choice.unready:
         print(unready)
-    failed = [(m, words) for m in [*choice.loaded, *(m for m, why in choice.left if why == rules.OVER)]
-              if (words := records.mark_words(m))]
+    failed = [
+        (m, words)
+        for m in [*choice.loaded, *(m for m, why in choice.left if why == rules.OVER)]
+        if (words := records.mark_words(m))
+    ]
     if failed:
         print("Failed after it loaded:")
         for m, words in failed:
@@ -3279,7 +4265,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
 
 _STALE_DAYS = 90
 _FREQUENT = 3
-_STANDING_KINDS = ("constraint", "decision", "state")  # no date makes them stale: only a refutation retires them
+_STANDING_KINDS = (
+    "constraint",
+    "decision",
+    "state",
+)  # no date makes them stale: only a refutation retires them
 
 
 def _passes_file(env: Mapping[str, str]) -> Path | None:
@@ -3314,8 +4304,11 @@ def _marks_file(env: Mapping[str, str]) -> Path | None:
 
 def _parse_marks(text: str) -> dict[str, frozenset[str]]:
     try:
-        return {k: frozenset(v) for k, v in json.loads(text).items()
-                if isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v)}
+        return {
+            k: frozenset(v)
+            for k, v in json.loads(text).items()
+            if isinstance(k, str) and isinstance(v, list) and all(isinstance(x, str) for x in v)
+        }
     except (ValueError, AttributeError, TypeError):
         return {}
 
@@ -3356,21 +4349,30 @@ def _differ_in(a: str, b: str) -> str:
 
 
 PAIR_WORK = 150_000  # claim comparisons the session start line may spend on pair searches, both folders together
-_DECISION_LABELS = {"refuted": "refuted again", "pair": "same or opposite", "state": "newer state",
-                    "expired": "expired", "seen": "seen often", "stale": f"not confirmed in {_STALE_DAYS} days",
-                    "nofill": "no short form"}
+_DECISION_LABELS = {
+    "refuted": "refuted again",
+    "pair": "same or opposite",
+    "state": "newer state",
+    "expired": "expired",
+    "seen": "seen often",
+    "stale": f"not confirmed in {_STALE_DAYS} days",
+    "nofill": "no short form",
+}
 
 
 @dataclass(frozen=True)
 class Decisions:
     """The decision items of one folder's curation queue (C98): `mem curate` prints them, the count counts them."""
+
     refuted: list[tuple[records.Memory, records.Memory]]  # (live, refuted)
     same: list[tuple[records.Memory, records.Memory]]
     state: list[tuple[records.Memory, records.Memory]]  # (old, new)
     expired: list[records.Memory]
     seen: list[records.Memory]
     stale: list[records.Memory]
-    nofill: list[records.Memory]  # established lessons the automatic short-form fill will not write (`fill_wont_write`)
+    nofill: list[
+        records.Memory
+    ]  # established lessons the automatic short-form fill will not write (`fill_wont_write`)
     pairs_checked: bool
 
     def keys(self) -> dict[str, str]:
@@ -3382,8 +4384,12 @@ class Decisions:
             found[f"pair:{'|'.join(sorted((a.handle, b.handle)))}"] = _DECISION_LABELS["pair"]
         for old, new in self.state:
             found[f"state:{old.handle}|{new.handle}"] = _DECISION_LABELS["state"]
-        for name, items in (("expired", self.expired), ("seen", self.seen), ("stale", self.stale),
-                             ("nofill", self.nofill)):
+        for name, items in (
+            ("expired", self.expired),
+            ("seen", self.seen),
+            ("stale", self.stale),
+            ("nofill", self.nofill),
+        ):
             for m in items:
                 found[f"{name}:{m.handle}"] = _DECISION_LABELS[name]
         return found
@@ -3405,8 +4411,12 @@ def _changed_since(live: Sequence[records.Memory], since: datetime.date) -> list
             written = None
         if m.created is not None and written is not None and m.created < since and written < since:
             continue
-        found.append((max(m.created, written) if m.created is not None and written is not None else datetime.date.max,
-                      m.handle))
+        found.append((
+            max(m.created, written)
+            if m.created is not None and written is not None
+            else datetime.date.max,
+            m.handle,
+        ))
     found.sort(key=lambda t: (-t[0].toordinal(), t[1]))
     return [h for _, h in found]
 
@@ -3415,13 +4425,24 @@ def _fill_attempts(env: Mapping[str, str]) -> dict:
     """The automatic short-form fill's attempts (`fill_key` -> entry), read defensively: a missing, unreadable or
     malformed state reads as no attempts, so curation never fails on it."""
     data = data_dir(env)
-    lessons = auto_state.read_json(data / "corroborate" / "fill-attempts.json").get("lessons") if data else None
+    lessons = (
+        auto_state.read_json(data / "corroborate" / "fill-attempts.json").get("lessons")
+        if data
+        else None
+    )
     return lessons if isinstance(lessons, dict) else {}
 
 
-def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since: datetime.date | None = None,
-               budget: records.Budget | None = None, attempts: Mapping | None = None,
-               root: Path | None = None, tracked: frozenset[str] | None = frozenset()) -> Decisions:
+def _decisions(
+    loaded: Sequence[records.Memory],
+    today: datetime.date,
+    *,
+    since: datetime.date | None = None,
+    budget: records.Budget | None = None,
+    attempts: Mapping | None = None,
+    root: Path | None = None,
+    tracked: frozenset[str] | None = frozenset(),
+) -> Decisions:
     """The decision items of one folder from what `records.load_memories` returned: superseded memories and
     unreadable files are left out. With `since` the pair kinds compare only pairs with a memory changed since then;
     `budget` is spent by those comparisons. `attempts` (`_fill_attempts`) turns on the "no short form" kind; `root` is
@@ -3429,25 +4450,51 @@ def _decisions(loaded: Sequence[records.Memory], today: datetime.date, *, since:
     kept = [m for m in loaded if m.error is None and m.superseded_by is None]
     live = [m for m in kept if records.is_live(m, today)]
     among = _changed_since(live, since) if since is not None else None
-    again = [(a, r) for a, r, _ in records.refuted_pairs(kept, today, tokenize=tokenize, among=among, budget=budget)]
+    again = [
+        (a, r)
+        for a, r, _ in records.refuted_pairs(
+            kept, today, tokenize=tokenize, among=among, budget=budget
+        )
+    ]
     same: list[tuple[records.Memory, records.Memory]] = []
     state: list[tuple[records.Memory, records.Memory]] = []
     for a, b, _ in records.pairs(kept, today, tokenize=tokenize, among=among, budget=budget):
-        if a.kind == "state" and b.kind == "state" and a.scope == b.scope == "project":  # C103: a project matter
+        if (
+            a.kind == "state" and b.kind == "state" and a.scope == b.scope == "project"
+        ):  # C103: a project matter
             old, new = sorted((a, b), key=lambda m: (m.created or datetime.date.min, m.handle))
             state.append((old, new))
         else:
             same.append((a, b))
     unconfirmed = _unconfirmed_handles(kept)
-    expired = [m for m in kept if m.status == "active" and m.valid_until is not None and m.valid_until < today
-               and m.handle not in unconfirmed]
-    seen = [m for m in live if m.scope == "project" and m.observed >= _FREQUENT and not m.promote]  # a global one cannot be promoted
+    expired = [
+        m
+        for m in kept
+        if m.status == "active"
+        and m.valid_until is not None
+        and m.valid_until < today
+        and m.handle not in unconfirmed
+    ]
+    seen = [
+        m for m in live if m.scope == "project" and m.observed >= _FREQUENT and not m.promote
+    ]  # a global one cannot be promoted
     cutoff = today - datetime.timedelta(days=_STALE_DAYS)
-    stale = [m for m in live if m.kind not in _STANDING_KINDS and m.created is not None and m.handle not in unconfirmed
-             and max(m.created, m.last_observed or m.created) <= cutoff]
-    nofill = [m for m in (records.mark_repository(kept, tracked) if root else kept)
-              if attempts is not None and corroborate.fill_wont_write(m, root, attempts, today)]
-    return Decisions(again, same, state, expired, seen, stale, nofill, budget is None or not budget.exhausted)
+    stale = [
+        m
+        for m in live
+        if m.kind not in _STANDING_KINDS
+        and m.created is not None
+        and m.handle not in unconfirmed
+        and max(m.created, m.last_observed or m.created) <= cutoff
+    ]
+    nofill = [
+        m
+        for m in (records.mark_repository(kept, tracked) if root else kept)
+        if attempts is not None and corroborate.fill_wont_write(m, root, attempts, today)
+    ]
+    return Decisions(
+        again, same, state, expired, seen, stale, nofill, budget is None or not budget.exhausted
+    )
 
 
 def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> list[str]:
@@ -3471,7 +4518,11 @@ def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> li
             else:
                 rest.append((a, b))
                 continue
-            lines.append((other.handle, f"  {_tagged(other)}", f"      {_differ_in(head.claim, other.claim)}"))
+            lines.append((
+                other.handle,
+                f"  {_tagged(other)}",
+                f"      {_differ_in(head.claim, other.claim)}",
+            ))
         out.append(_tagged(head))
         for _, line, differ in sorted(lines):
             out += [line, differ]
@@ -3484,14 +4535,16 @@ TOPIC_LOOSE = 5  # of them, knowledge notes not yet part of any synthesis
 
 
 def _note_line(note: Note) -> str:
-    return (f"  {_handle(note.rel)}  [{note.meta.get('confidence', '')}, {note.meta.get('updated', '')}]  "
-            f"{_flat(str(note.meta.get('claim', '')))}")
+    return (
+        f"  {note_files._handle(note.rel)}  [{note.meta.get('confidence', '')}, {note.meta.get('updated', '')}]  "
+        f"{_flat(str(note.meta.get('claim', '')))}"
+    )
 
 
 def _note_pairs(notes: Sequence[Note]) -> list[tuple[Note, Note]]:
     """Pairs of notes that share a topic and whose claims contain each other with at least `records.STRONG`,
     unless one names the other in `distinct_from`; the closest pair first."""
-    notes = sorted(notes, key=lambda n: _handle(n.rel))
+    notes = sorted(notes, key=lambda n: note_files._handle(n.rel))
     tokens = [set(tokenize(str(n.meta.get("claim", "")))) for n in notes]
     found = []
     for i, a in enumerate(notes):
@@ -3499,12 +4552,16 @@ def _note_pairs(notes: Sequence[Note]) -> list[tuple[Note, Note]]:
             b = notes[j]
             if not set(a.meta.get("topics") or []) & set(b.meta.get("topics") or []):
                 continue
-            if _handle(b.rel) in (a.meta.get("distinct_from") or []) or _handle(a.rel) in (b.meta.get("distinct_from") or []):
+            if note_files._handle(b.rel) in (
+                a.meta.get("distinct_from") or []
+            ) or note_files._handle(a.rel) in (b.meta.get("distinct_from") or []):
                 continue
-            score = max(records.containment(tokens[i], tokens[j]), records.containment(tokens[j], tokens[i]))
+            score = max(
+                records.containment(tokens[i], tokens[j]), records.containment(tokens[j], tokens[i])
+            )
             if score >= records.STRONG:
                 found.append((score, a, b))
-    found.sort(key=lambda t: (-t[0], _handle(t[1].rel), _handle(t[2].rel)))
+    found.sort(key=lambda t: (-t[0], note_files._handle(t[1].rel), note_files._handle(t[2].rel)))
     return [(a, b) for _, a, b in found]
 
 
@@ -3522,48 +4579,70 @@ def _curate_notes(args: argparse.Namespace) -> int:
     for note in discover_notes(root):
         if note.type != "knowledge" or note.error is not None or not isinstance(note.meta, dict):
             continue
-        if _disputed(note.meta.get("disputed")) is None:
-            disputed.append(f"  {_handle(note.rel)}  {_flat(str(note.meta.get('claim', '')))}  "
-                            f"(source: {note.meta['disputed'][0]['source']})")
+        if check_rules._disputed(note.meta.get("disputed")) is None:
+            disputed.append(
+                f"  {note_files._handle(note.rel)}  {_flat(str(note.meta.get('claim', '')))}  "
+                f"(source: {note.meta['disputed'][0]['source']})"
+            )
         part = note.meta.get("part_of")
-        name = _handle(note.rel)
+        name = note_files._handle(note.rel)
         if not isinstance(part, str):
             topics = [t for t in note.meta.get("topics", []) if isinstance(t, str)]
             own = set(_own_topics(known, topics))
             covering = [x for x in synths if own & set(x.topics)]
             if covering:
-                unattached.append(f"  {name}  \u2192  {', '.join('s:' + x.handle for x in covering)}  "
-                                  f"{_flat(str(note.meta.get('claim', '')))}")
+                unattached.append(
+                    f"  {name}  \u2192  {', '.join('s:' + x.handle for x in covering)}  "
+                    f"{_flat(str(note.meta.get('claim', '')))}"
+                )
             continue
         handle, _, section = part.partition("#")
         syn = next((x for x in synths if x.handle == handle), None)
         sec = next((x for x in syn.sections if x.handle == section), None) if syn else None
-        if sec is not None and not syntheses.is_current(note.meta.get("part_of_hash"), sec.text, _note_target(note.rel)):
+        if sec is not None and not syntheses.is_current(
+            note.meta.get("part_of_hash"), sec.text, _note_target(note.rel)
+        ):
             stale.append(f"  {name}  s:{handle}#{section}")
     out = []
     if disputed:
-        out.append("notes disputed by a source (decide: correct the note with mem note edit, "
-                   "or mem note dispute <note> --clear)")
+        out.append(
+            "notes disputed by a source (decide: correct the note with mem note edit, "
+            "or mem note dispute <note> --clear)"
+        )
         out += disputed
     if unattached:
-        out.append("notes on a topic that has a synthesis, not yet part of it (add what the note says to a part with "
-                   "mem synthesis append or add, then: mem synthesis attach <note> s:<h>#<section>)")
+        out.append(
+            "notes on a topic that has a synthesis, not yet part of it (add what the note says to a part with "
+            "mem synthesis append or add, then: mem synthesis attach <note> s:<h>#<section>)"
+        )
         out += unattached
     if stale:
-        out.append("notes older than their section (rewrite the note from the section: mem show s:<h>#<section>)")
+        out.append(
+            "notes older than their section (rewrite the note from the section: mem show s:<h>#<section>)"
+        )
         out += stale
-    live = [n for n in discover_notes(root) if n.error is None and isinstance(n.meta, dict)
-            and n.meta.get("superseded_by") is None]
+    live = [
+        n
+        for n in discover_notes(root)
+        if n.error is None and isinstance(n.meta, dict) and n.meta.get("superseded_by") is None
+    ]
     same = _note_pairs([n for n in live if n.type == "knowledge"])
     if same:
-        out.append("notes that say the same or the opposite? (decide: mem unify <keep> <other> --body-file \u2026, "
-                   "mem distinct <a> <b>, or leave)")
+        out.append(
+            "notes that say the same or the opposite? (decide: mem unify <keep> <other> --body-file \u2026, "
+            "mem distinct <a> <b>, or leave)"
+        )
         for a, b in same:
-            out += [_note_line(a), _note_line(b),
-                    f"  {_differ_in(str(a.meta.get('claim', '')), str(b.meta.get('claim', '')))}"]
+            out += [
+                _note_line(a),
+                _note_line(b),
+                f"  {_differ_in(str(a.meta.get('claim', '')), str(b.meta.get('claim', '')))}",
+            ]
     covered = {t for x in synths for t in x.topics}
     counts: collections.Counter = collections.Counter()
-    loose: collections.Counter = collections.Counter()  # knowledge notes that are part of no synthesis
+    loose: collections.Counter = (
+        collections.Counter()
+    )  # knowledge notes that are part of no synthesis
     for n in live:
         if n.type in ("knowledge", "literature"):
             own = _own_topics(known, [t for t in n.meta.get("topics", []) if isinstance(t, str)])
@@ -3571,9 +4650,14 @@ def _curate_notes(args: argparse.Namespace) -> int:
             if n.type == "knowledge" and not n.meta.get("part_of"):
                 loose.update(own)
     # A topic whose notes already sit in other syntheses is not worth a document of its own.
-    crowded = sorted(((t, c) for t, c in counts.items()
-                      if c >= TOPIC_CROWD and t not in covered and loose[t] >= TOPIC_LOOSE),
-                     key=lambda tc: (-tc[1], tc[0]))
+    crowded = sorted(
+        (
+            (t, c)
+            for t, c in counts.items()
+            if c >= TOPIC_CROWD and t not in covered and loose[t] >= TOPIC_LOOSE
+        ),
+        key=lambda tc: (-tc[1], tc[0]),
+    )
     if crowded:
         out.append(f"topics with {TOPIC_CROWD} notes or more and no synthesis (mem synthesis new)")
         out += [f"  {t}  {c} notes" for t, c in crowded]
@@ -3585,8 +4669,9 @@ def _curate_notes(args: argparse.Namespace) -> int:
 _PROJECT_SYNTHESIS_MIN_MEMORIES = 5
 
 
-def _curate_project_syntheses(scopes: Sequence[tuple[str, Path | None, list[records.Memory]]],
-                              today: datetime.date) -> list[str]:
+def _curate_project_syntheses(
+    scopes: Sequence[tuple[str, Path | None, list[records.Memory]]], today: datetime.date
+) -> list[str]:
     """The two project synthesis blocks of `mem curate`: parts possibly stale, and none written yet."""
     context = _project_synthesis_context_quiet()
     if context is None:
@@ -3597,17 +4682,32 @@ def _curate_project_syntheses(scopes: Sequence[tuple[str, Path | None, list[reco
     if broken:
         out.append("-- project syntheses: unreadable --")
         out += [f"{path}\t{error}" for path, error in broken]
-    states = [(name, part, project_syntheses.freshness(tree, part.stamp)) for name, parts in found.items()
-              for part in parts]
-    stale = [(name, part, state) for name, part, state in states if state != project_syntheses.FRESH]
+    states = [
+        (name, part, project_syntheses.freshness(tree, part.stamp))
+        for name, parts in found.items()
+        for part in parts
+    ]
+    stale = [
+        (name, part, state) for name, part, state in states if state != project_syntheses.FRESH
+    ]
     if stale:
         out.append("-- project syntheses: possibly stale --")
-        out += [f"p:{name}#{part.handle}\t{project_syntheses.describe(state)}" for name, part, state in stale]
-    active = sum(1 for scope, _, loaded in scopes if scope == "project"
-                 for m in loaded if m.error is None and records.is_live(m, today))
+        out += [
+            f"p:{name}#{part.handle}\t{project_syntheses.describe(state)}"
+            for name, part, state in stale
+        ]
+    active = sum(
+        1
+        for scope, _, loaded in scopes
+        if scope == "project"
+        for m in loaded
+        if m.error is None and records.is_live(m, today)
+    )
     if not found and not broken and active >= _PROJECT_SYNTHESIS_MIN_MEMORIES:
-        out += ["-- project syntheses: none yet --",
-                f"{active} active memories and no project synthesis: organize them (see the memory-curation skill)."]
+        out += [
+            "-- project syntheses: none yet --",
+            f"{active} active memories and no project synthesis: organize them (see the memory-curation skill).",
+        ]
     return out
 
 
@@ -3686,7 +4786,7 @@ def _safe_attach(args: argparse.Namespace, note: str, target: str) -> str | None
         return "no such note"
     try:
         syn, sec = _section_ref(root, target)
-        part = split_frontmatter(_read_text(found))[0].get("part_of")
+        part = split_frontmatter(note_files._read_text(found))[0].get("part_of")
     except (ValueError, OSError, FrontmatterError) as exc:
         return str(exc)
     if part:
@@ -3707,7 +4807,11 @@ def _curate_apply(args: argparse.Namespace) -> int:
         print("mem: curate apply runs only with --safe: there is no unsafe mode.", file=sys.stderr)
         return 2
     try:
-        text = sys.stdin.read() if args.from_file in (None, "-") else Path(args.from_file).read_text(encoding="utf-8")
+        text = (
+            sys.stdin.read()
+            if args.from_file in (None, "-")
+            else Path(args.from_file).read_text(encoding="utf-8")
+        )
         actions = _parse_actions(text)
     except (OSError, UnicodeDecodeError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
@@ -3736,15 +4840,25 @@ def _curate_new_since(args: argparse.Namespace) -> int:
     The trigger of `mem-auto`."""
     store = args.root
     cutoff = float(args.new_since)
-    memories = records.memories_root(os.environ, store if store is not None and store.is_dir() else None)
+    memories = records.memories_root(
+        os.environ, store if store is not None and store.is_dir() else None
+    )
     paths: list[Path] = []
     if memories is not None and memories.is_dir():
         last = read_passes(os.environ).get(str(memories.resolve()))
         if last is not None:
-            cutoff = max(cutoff, datetime.datetime.combine(last + datetime.timedelta(days=1), datetime.time.min).timestamp())
+            cutoff = max(
+                cutoff,
+                datetime.datetime.combine(
+                    last + datetime.timedelta(days=1), datetime.time.min
+                ).timestamp(),
+            )
         today = datetime.date.today()
-        paths += [m.path for m in records.load_memories(memories, "global") if m.error is None and records.is_live(m, today)
-                  and m.origin is None]  # a pipeline's own writes must not start the next run
+        paths += [
+            m.path
+            for m in records.load_memories(memories, "global")
+            if m.error is None and records.is_live(m, today) and m.origin is None
+        ]  # a pipeline's own writes must not start the next run
     if store is not None and store.is_dir():
         paths += [store / n.rel for n in discover_notes(store) if n.error is None]
     count = 0
@@ -3780,16 +4894,28 @@ def cmd_curate(args: argparse.Namespace) -> int:
             if folder is None or not folder.is_dir():
                 continue
             if _read_only_store(store, folder.resolve()):
-                print(_READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr)
+                print(
+                    _READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES,
+                    file=sys.stderr,
+                )
                 return 2
             covered.append(folder)
             root = folder.parent if scope == "project" else None
-            keys[folder] = set(_decisions(records.load_memories(folder, scope), today, attempts=attempts, root=root,
-                                          tracked=records.tracked_memories(root) if root else frozenset()).keys())
+            keys[folder] = set(
+                _decisions(
+                    records.load_memories(folder, scope),
+                    today,
+                    attempts=attempts,
+                    root=root,
+                    tracked=records.tracked_memories(root) if root else frozenset(),
+                ).keys()
+            )
             labels[folder] = scope
         if covered:
             try:
-                _write_marks(os.environ, keys)  # first: a failed write leaves the pass date where it was
+                _write_marks(
+                    os.environ, keys
+                )  # first: a failed write leaves the pass date where it was
                 _write_passes(os.environ, covered, today)
             except OSError as exc:
                 print(f"mem: {exc}", file=sys.stderr)
@@ -3798,7 +4924,9 @@ def cmd_curate(args: argparse.Namespace) -> int:
                 n = len(keys[folder])
                 print(f"recorded {n} {'item' if n == 1 else 'items'} ({labels[folder]})")
         if store is not None and store_git.is_repo(store):
-            _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
+            _, failed = _commit_points(
+                store, lambda n: f"curation pass {today.isoformat()}: {n} files"
+            )
             # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
             # to them, and under the commit lock so a commit never sees a half-written log.
             if not failed and not auto_state.run_lock_held(data_dir(os.environ), store):
@@ -3808,58 +4936,93 @@ def cmd_curate(args: argparse.Namespace) -> int:
     every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
     live = [m for m in every if records.is_live(m, today)]
     out: list[str] = []
-    roots = [folder.parent if scope == "project" and folder else None for scope, folder, _ in scopes]
-    found = [_decisions(loaded, today, attempts=attempts, root=root,
-                        tracked=records.tracked_memories(root) if root else frozenset())
-             for root, (_, _, loaded) in zip(roots, scopes)]
+    roots = [
+        folder.parent if scope == "project" and folder else None for scope, folder, _ in scopes
+    ]
+    found = [
+        _decisions(
+            loaded,
+            today,
+            attempts=attempts,
+            root=root,
+            tracked=records.tracked_memories(root) if root else frozenset(),
+        )
+        for root, (_, _, loaded) in zip(roots, scopes)
+    ]
     nofill = [m for d in found for m in d.nofill]  # `found` is reused below
     unconfirmed = _unconfirmed_handles(every)  # their own category below
     again = [pair for d in found for pair in d.refuted]
     if again:
-        out.append("written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
-                   "different claim)")
+        out.append(
+            "written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
+            "different claim)"
+        )
         for a, r in again:
             out += [_tagged(a), _tagged(r, ", refuted")]
     same = [pair for d in found for pair in d.same]
     if same:
-        out.append("same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)")
+        out.append(
+            "same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)"
+        )
         out += _grouped_pairs(same)
     state = [pair for d in found for pair in d.state]
     if state:
-        out.append("newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)")
+        out.append(
+            "newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)"
+        )
         for old, new in state:
             out += [_tagged(old), f"    -> {_tagged(new).lstrip()}"]
     expired = [m for d in found for m in d.expired]
     if expired:
-        out.append("expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)")
-        out += [f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}" for m in expired]
+        out.append(
+            "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)"
+        )
+        out += [
+            f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}"
+            for m in expired
+        ]
     frequent = [m for d in found for m in d.seen]
     if frequent:
-        out.append(f"seen {_FREQUENT} times or more: general enough for a global lesson? (mem promote <h>)")
+        out.append(
+            f"seen {_FREQUENT} times or more: general enough for a global lesson? (mem promote <h>)"
+        )
         out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
     stale = [m for d in found for m in d.stale]
     if stale:
-        out.append(f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)")
+        out.append(
+            f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)"
+        )
         out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
     awaiting = [m for m in live if m.triage == "pending"]
     if awaiting:
-        out.append("general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
-                   "reject <h>, or reword it with mem memory edit <h> --global and then accept)")
+        out.append(
+            "general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
+            "reject <h>, or reword it with mem memory edit <h> --global and then accept)"
+        )
         for m in awaiting:
             n, p = len(records.sessions(m)), len(records.projects(m))
-            out.append(f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
-                       f"{_flat(m.claim)}")
+            out.append(
+                f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
+                f"{_flat(m.claim)}"
+            )
             if m.triage_reason:
                 out.append(f"    held: {m.triage_reason}")
     asked = {scope for scope, _, _ in scopes}
-    for scope, folder in _memory_folders(args):  # the scope not asked for still counts toward the cap; loaded quietly
+    for scope, folder in _memory_folders(
+        args
+    ):  # the scope not asked for still counts toward the cap; loaded quietly
         if scope not in raw:
             raw[scope] = records.load_memories(folder, scope)
-    worse = [(m, loaded) for m, loaded in _got_worse(raw.get("project", []), raw.get("global", []), today)
-             if m.scope in asked and m.superseded_by is None]
+    worse = [
+        (m, loaded)
+        for m, loaded in _got_worse(raw.get("project", []), raw.get("global", []), today)
+        if m.scope in asked and m.superseded_by is None
+    ]
     if worse:
-        out.append("balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
-                   "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)")
+        out.append(
+            "balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
+            "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)"
+        )
         for m, loaded in worse:
             state = "rules off" if _rules_off() else "loaded" if loaded else "left out by the cap"
             note = records.reword_note(m)
@@ -3867,25 +5030,35 @@ def cmd_curate(args: argparse.Namespace) -> int:
             found = records.tallies(m)[-2:]
             ends = [t.since for t in found[1:]] + [today]
             out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends)]
-    held = sum(1 for m in every if m.status == "active" and records.quarantined(m))  # a lapsed one is still stored
+    held = sum(
+        1 for m in every if m.status == "active" and records.quarantined(m)
+    )  # a lapsed one is still stored
     if held:
-        out.append(f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
-                   "(mem memories --global --quarantine)")
+        out.append(
+            f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
+            "(mem memories --global --quarantine)"
+        )
     waiting = [m for m in live if m.handle in unconfirmed and not records.quarantined(m)]
     if waiting:
-        out.append("from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
-                   "when another session shows it)")
+        out.append(
+            "from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
+            "when another session shows it)"
+        )
         for m in waiting:
             n = len(records.sessions(m))
-            out.append(f"  m:{m.handle}  {m.weight or 'medium'}, {n} session{'' if n == 1 else 's'}  {_flat(m.claim)}")
+            out.append(
+                f"  m:{m.handle}  {m.weight or 'medium'}, {n} session{'' if n == 1 else 's'}  {_flat(m.claim)}"
+            )
     unread = [m for m in live if m.short_by == "model" and m.short]
     if unread:
         out.append(f"short forms nobody read: {len(unread)} (mem rules --unread)")
     if nofill:
-        out.append("established, but the automatic fill will not write its short form (it gave up, or never "
-                   f"tries a repository-tracked or strong unconfirmed project lesson); write one of at most "
-                   f"{records.SHORT_LIMIT} characters and pick a topic: mem memory edit m:<h> --short '<text>' "
-                   "--topic <t>, with --global for a global lesson; add --user-read only when the owner wrote or read the text)")
+        out.append(
+            "established, but the automatic fill will not write its short form (it gave up, or never "
+            f"tries a repository-tracked or strong unconfirmed project lesson); write one of at most "
+            f"{records.SHORT_LIMIT} characters and pick a topic: mem memory edit m:<h> --short '<text>' "
+            "--topic <t>, with --global for a global lesson; add --user-read only when the owner wrote or read the text)"
+        )
         out += [f"  m:{m.handle}  {_flat(m.claim)}" for m in nofill]
     if not args.is_global:
         out += _curate_project_syntheses(scopes, today)
@@ -3928,15 +5101,21 @@ def cmd_settle(args: argparse.Namespace) -> int:
         if command == "pending":
             with settle.locked(folder):
                 state = settle.load_state(folder)
-                found = settle.pending(records.load_memories(folder, "global"), state, today, tokenize=tokenize)
+                found = settle.pending(
+                    records.load_memories(folder, "global"), state, today, tokenize=tokenize
+                )
                 settle.offer(folder, state, found, time.time())
             if args.json:
                 print(json.dumps(found, ensure_ascii=False, indent=1))
             else:
                 for p in found:
-                    flagged = f"  flagged: {', '.join(p['flagged_words'])}" if p["flagged_words"] else ""
-                    print(f"pair {p['pair']}  newer: m:{p['newer']}{flagged}\n  m:{p['a']}\t{p['claim_a']}\n  "
-                          f"m:{p['b']}\t{p['claim_b']}")
+                    flagged = (
+                        f"  flagged: {', '.join(p['flagged_words'])}" if p["flagged_words"] else ""
+                    )
+                    print(
+                        f"pair {p['pair']}  newer: m:{p['newer']}{flagged}\n  m:{p['a']}\t{p['claim_a']}\n  "
+                        f"m:{p['b']}\t{p['claim_b']}"
+                    )
             return 0
         if command == "apply":
             try:
@@ -3946,9 +5125,16 @@ def cmd_settle(args: argparse.Namespace) -> int:
                 return 2
             try:
                 with settle.locked(folder):
-                    lines = settle.apply_verdicts(folder, records.load_memories(folder, "global"), rows, today,
-                                                  time.time(), actions=_settle_actions(),
-                                                  reason_ok=_settle_reason_ok, tokenize=tokenize)
+                    lines = settle.apply_verdicts(
+                        folder,
+                        records.load_memories(folder, "global"),
+                        rows,
+                        today,
+                        time.time(),
+                        actions=_settle_actions(),
+                        reason_ok=_settle_reason_ok,
+                        tokenize=tokenize,
+                    )
             except settle.NoListing as exc:
                 print("\n".join(exc.lines))
                 print(f"mem: {exc}", file=sys.stderr)
@@ -3982,7 +5168,9 @@ def cmd_init(args: argparse.Namespace) -> int:
     if args.folder is None:
         default = records.default_store(os.environ)
         if default is None:
-            print("mem: no folder given and neither XDG_DATA_HOME nor HOME is set.", file=sys.stderr)
+            print(
+                "mem: no folder given and neither XDG_DATA_HOME nor HOME is set.", file=sys.stderr
+            )
             return 2
         args.folder = str(default)
     code = _init_store(Path(args.folder).expanduser())
@@ -3997,13 +5185,21 @@ def cmd_init(args: argparse.Namespace) -> int:
 def _history_store(args: argparse.Namespace) -> Path | None:
     root = resolve_root(args.root, os.environ)
     if root is None or not root.is_dir():
-        print(NO_STORE if root is None else f"mem: the store folder does not exist: {root}", file=sys.stderr)
+        print(
+            NO_STORE if root is None else f"mem: the store folder does not exist: {root}",
+            file=sys.stderr,
+        )
         return None
     return root
 
 
-def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: bool = False,
-                   held: list[str] | None = None) -> tuple[str | None, bool]:
+def _commit_points(
+    store: Path,
+    message: str | Callable[[int], str],
+    *,
+    quiet: bool = False,
+    held: list[str] | None = None,
+) -> tuple[str | None, bool]:
     """Commit the store; (commit id or None, whether git failed). The failure is reported and logged.
 
     `held` receives the paths this run held back, so a caller never reads an older run's list."""
@@ -4015,14 +5211,21 @@ def _commit_points(store: Path, message: str | Callable[[int], str], *, quiet: b
             print(f"mem: history: {reason}", file=sys.stderr)
         log_usage(store, {"cmd": "history", "error": reason})
 
-    def warn(reason: str) -> None:  # not a git failure: it must not make `mem history commit` exit 1
+    def warn(
+        reason: str,
+    ) -> None:  # not a git failure: it must not make `mem history commit` exit 1
         if not quiet:
             print(f"mem: history: {reason}", file=sys.stderr)
         log_usage(store, {"cmd": "history", "warning": reason})
 
-    commit = store_git.commit_if_changed(store, message, report=report, warn=warn,
-                                         validate=invalid_changed(store),
-                                         on_held=lambda paths: held is not None and held.extend(paths))
+    commit = store_git.commit_if_changed(
+        store,
+        message,
+        report=report,
+        warn=warn,
+        validate=invalid_changed(store),
+        on_held=lambda paths: held is not None and held.extend(paths),
+    )
     return commit, bool(failed)
 
 
@@ -4030,7 +5233,9 @@ def cmd_history(args: argparse.Namespace) -> int:
     started = time.monotonic()
     hook = args.history_command == "commit" and args.hook
     if args.history_command == "init":
-        folder = Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
+        folder = (
+            Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
+        )
         if folder is None:
             print(NO_STORE, file=sys.stderr)
             return 2
@@ -4038,8 +5243,10 @@ def cmd_history(args: argparse.Namespace) -> int:
             print(f"mem: the store folder does not exist: {folder}", file=sys.stderr)
             return 2
         if not records.store_is_writable(folder):
-            print(f"mem: {folder} is read-only: it has no mem-store.yaml (create a store with \"mem init\").",
-                  file=sys.stderr)
+            print(
+                f'mem: {folder} is read-only: it has no mem-store.yaml (create a store with "mem init").',
+                file=sys.stderr,
+            )
             return 2
         if store_git.is_repo(folder):
             print(f"mem: {folder} is a git repository already", file=sys.stderr)
@@ -4055,7 +5262,7 @@ def cmd_history(args: argparse.Namespace) -> int:
         return 0 if hook else 2
     if not store_git.is_repo(store):
         if not hook:
-            print(f"mem: {store} is not a git repository (run \"mem history init\")", file=sys.stderr)
+            print(f'mem: {store} is not a git repository (run "mem history init")', file=sys.stderr)
         return 0 if hook else 2
     if args.history_command == "commit":
         detached = hook and args.detached
@@ -4063,23 +5270,35 @@ def cmd_history(args: argparse.Namespace) -> int:
             _log_hook({"hook": "session-end", "phase": "started"})
         if hook and auto_state.run_lock_held(data_dir(os.environ), store):
             if detached:
-                _log_hook({"hook": "session-end", "phase": "done", "ms": int((time.monotonic() - started) * 1000),
-                           "committed": False, "failed": False})
+                _log_hook({
+                    "hook": "session-end",
+                    "phase": "done",
+                    "ms": int((time.monotonic() - started) * 1000),
+                    "committed": False,
+                    "failed": False,
+                })
             return 0  # an automatic run holds the store: it commits its own work
         now = datetime.datetime.now()
         if args.message:
             message: str | Callable[[int], str] = args.message
         else:
             label = "session end" if hook else "manual commit"
-            message = lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"  # noqa: E731
+            message = lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"
         held: list[str] = []
-        commit, failed = _commit_points(store, message, quiet=hook, held=held)  # the hook is silent; a failure is in the usage log
+        commit, failed = _commit_points(
+            store, message, quiet=hook, held=held
+        )  # the hook is silent; a failure is in the usage log
         if hook:
-            _log_hook({"hook": "session-end", **({"phase": "done"} if detached else {}),
-                       "ms": int((time.monotonic() - started) * 1000), "committed": commit is not None, "failed": failed})
+            _log_hook({
+                "hook": "session-end",
+                **({"phase": "done"} if detached else {}),
+                "ms": int((time.monotonic() - started) * 1000),
+                "committed": commit is not None,
+                "failed": failed,
+            })
             return 0
         print(commit or "nothing to commit")
-        for path in ([] if failed else held):
+        for path in [] if failed else held:
             print(f"held back: {path}", file=sys.stderr)
         return 1 if failed else 0
     try:
@@ -4101,17 +5320,28 @@ def _init_store(folder: Path) -> int:
         print(folder)
         return 0
     if any((folder / n).exists() for n in ("literature", "knowledge", "research", "topics.yaml")):
-        print(f"mem: {folder} already holds a store without mem-store.yaml; it stays read-only "
-              "(add the file by hand only if you own it and mean to write to it).", file=sys.stderr)
+        print(
+            f"mem: {folder} already holds a store without mem-store.yaml; it stays read-only "
+            "(add the file by hand only if you own it and mean to write to it).",
+            file=sys.stderr,
+        )
         return 2
     try:
         folder.mkdir(parents=True, exist_ok=True)
-        for name in ("literature", "knowledge", "research", records.GLOBAL_DIR, syntheses.SYNTHESES_DIR):
+        for name in (
+            "literature",
+            "knowledge",
+            "research",
+            records.GLOBAL_DIR,
+            syntheses.SYNTHESES_DIR,
+        ):
             (folder / name).mkdir(exist_ok=True)
         if not (folder / "templates").exists():
             shutil.copytree(_TEMPLATES, folder / "templates")
-        for name, text in ((records.STORE_MARKER, "format: 1\n"),
-                           ("topics.yaml", "notes: {description: General notes}\n")):
+        for name, text in (
+            (records.STORE_MARKER, "format: 1\n"),
+            ("topics.yaml", "notes: {description: General notes}\n"),
+        ):
             if not (folder / name).exists():
                 safe_io.replace_file(folder / name, text.encode("utf-8"))
     except OSError as exc:
@@ -4128,7 +5358,10 @@ def _term_class(term: records.Term) -> str:
 def cmd_projects(args: argparse.Namespace) -> int:
     data = data_dir(os.environ)
     if data is None:
-        print("mem: no data folder is set (MEM_DATA, XDG_STATE_HOME or HOME), so there is no registry.", file=sys.stderr)
+        print(
+            "mem: no data folder is set (MEM_DATA, XDG_STATE_HOME or HOME), so there is no registry.",
+            file=sys.stderr,
+        )
         return 2
     try:
         if args.projects_command == "list":
@@ -4138,8 +5371,11 @@ def cmd_projects(args: argparse.Namespace) -> int:
                 if not path.is_dir():
                     print(f"{name}\tmissing\t{path}")
                     continue
-                live = [m for m in records.load_memories(records.project_dir(path), "project")
-                        if records.is_live(m, today)]
+                live = [
+                    m
+                    for m in records.load_memories(records.project_dir(path), "project")
+                    if records.is_live(m, today)
+                ]
                 print(f"{name}\t{len(live)} memories\t{path}")
         elif args.projects_command == "add":
             path = Path(args.path).expanduser().resolve()
@@ -4160,7 +5396,10 @@ def cmd_projects(args: argparse.Namespace) -> int:
 def cmd_terms(args: argparse.Namespace) -> int:
     path = records.forbidden_file(os.environ)
     if path is None:
-        print("mem: neither XDG_CONFIG_HOME nor HOME is set: the term list has no place.", file=sys.stderr)
+        print(
+            "mem: neither XDG_CONFIG_HOME nor HOME is set: the term list has no place.",
+            file=sys.stderr,
+        )
         return 2
     try:
         terms = records.read_terms(os.environ)
@@ -4173,9 +5412,17 @@ def cmd_terms(args: argparse.Namespace) -> int:
             if args.kind and not args.soft:
                 build_parser().error("--kind needs --soft")
             if not text or text.startswith("#") or records.parse_term(text).soft:
-                print("mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr)
+                print(
+                    "mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr
+                )
                 return 2
-            line = f"soft[{args.kind}]: {text}" if args.soft and args.kind else f"soft: {text}" if args.soft else text
+            line = (
+                f"soft[{args.kind}]: {text}"
+                if args.soft and args.kind
+                else f"soft: {text}"
+                if args.soft
+                else text
+            )
             new = records.parse_term(line)
             if any((t.text, t.soft, t.kind) == (new.text, new.soft, new.kind) for t in terms):
                 print("already listed")
@@ -4210,13 +5457,15 @@ def _read_body(source: str) -> str:
                 raise NewNoteError("--body-file - needs the body on standard input, not a terminal")
             body = sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
         else:
-            body = _read_text(Path(source))
+            body = note_files._read_text(Path(source))
     except (OSError, UnicodeDecodeError, FrontmatterError) as exc:
         raise NewNoteError(f"cannot read the body: {exc}") from exc
     if not body.strip():
         raise NewNoteError("the body is empty")
     if body.split("\n", 1)[0].strip() == "---":
-        raise NewNoteError("the body starts with a frontmatter fence: pass the text after the frontmatter")
+        raise NewNoteError(
+            "the body starts with a frontmatter fence: pass the text after the frontmatter"
+        )
     return body if body.endswith("\n") else body + "\n"
 
 
@@ -4231,8 +5480,11 @@ def _synthesis_text(source: str | None) -> str | None:
 def _long_note(handle: str, path: Path, section: str) -> None:
     sec = next((x for x in syntheses.load_one(path).sections if x.handle == section), None)
     if sec is not None and (n := syntheses.word_count(sec.text)) > syntheses.LONG_SECTION_WORDS:
-        print(f"mem: s:{handle}#{section} has {n} words: consider splitting it into two parts "
-              "(mem synthesis add).", file=sys.stderr)
+        print(
+            f"mem: s:{handle}#{section} has {n} words: consider splitting it into two parts "
+            "(mem synthesis add).",
+            file=sys.stderr,
+        )
 
 
 def _own_topics(known: dict, topics: Sequence[str]) -> list[str]:
@@ -4247,7 +5499,11 @@ def _covering(root: Path, topics: Sequence[str]) -> list[syntheses.Synthesis]:
     except FrontmatterError:
         known = {}
     own = set(_own_topics(known, topics))
-    return [x for x in syntheses.load(root / syntheses.SYNTHESES_DIR) if x.error is None and own & set(x.topics)]
+    return [
+        x
+        for x in syntheses.load(root / syntheses.SYNTHESES_DIR)
+        if x.error is None and own & set(x.topics)
+    ]
 
 
 def _section_ref(root: Path, ref: str) -> tuple[syntheses.Synthesis, syntheses.Section]:
@@ -4255,7 +5511,9 @@ def _section_ref(root: Path, ref: str) -> tuple[syntheses.Synthesis, syntheses.S
     handle, section = syntheses.split_ref(ref)
     path = syntheses.path_of(root / syntheses.SYNTHESES_DIR, handle)
     if section is None or path is None or not path.is_file():
-        raise ValueError(f"{ref} must name an existing synthesis section: s:<handle>#<section handle>")
+        raise ValueError(
+            f"{ref} must name an existing synthesis section: s:<handle>#<section handle>"
+        )
     syn = syntheses.load_one(path)
     if syn.error:
         raise ValueError(f"{path.name}: {syn.error}")
@@ -4267,8 +5525,12 @@ def _section_ref(root: Path, ref: str) -> tuple[syntheses.Synthesis, syntheses.S
 
 def _log_note(root: Path, path: Path, rel: str, action: str) -> None:
     """The note's current text, appended to the store's `.curation-log` before a curation action changes it."""
-    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "action": action,
-             "handle": rel, "before": path.read_bytes().decode("utf-8")}
+    entry = {
+        "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "action": action,
+        "handle": rel,
+        "before": path.read_bytes().decode("utf-8"),
+    }
     safe_io.append_text(root / records.CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n")
 
 
@@ -4278,12 +5540,20 @@ def _note_target(rel: str) -> str:
 
 
 def _set_part_of(text: str, part_of: str, digest: str) -> str:
-    m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
+    m = re.match(r"---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.DOTALL)
     if m is None:
         raise ValueError("the note has no frontmatter")
     kept = [ln for ln in m.group(1).split("\n") if not re.match(r"part_of(_hash)?:", ln)]
-    head = "---\n" + "\n".join([*kept, f"part_of: {json.dumps(part_of)}", f"part_of_hash: {json.dumps(digest)}"]) + "\n---\n"
-    return head + text[m.end():]
+    head = (
+        "---\n"
+        + "\n".join([
+            *kept,
+            f"part_of: {json.dumps(part_of)}",
+            f"part_of_hash: {json.dumps(digest)}",
+        ])
+        + "\n---\n"
+    )
+    return head + text[m.end() :]
 
 
 def _attach(args: argparse.Namespace) -> int:
@@ -4297,17 +5567,27 @@ def _attach(args: argparse.Namespace) -> int:
         return 2
     rel = found.relative_to(root.resolve()).as_posix()
     if not rel.startswith("knowledge/"):
-        print(f"mem: {rel} is not a knowledge note: only knowledge notes are part of a synthesis", file=sys.stderr)
+        print(
+            f"mem: {rel} is not a knowledge note: only knowledge notes are part of a synthesis",
+            file=sys.stderr,
+        )
         return 2
     try:
         syn, sec = _section_ref(root, args.target)
-        text = _read_text(found)
+        text = note_files._read_text(found)
         _log_note(root, found, rel, "attach")
-        safe_io.replace_file(found, _set_part_of(text, f"{syn.handle}#{sec.handle}", syntheses.note_fingerprint(sec.text, _note_target(rel))).encode("utf-8"))
+        safe_io.replace_file(
+            found,
+            _set_part_of(
+                text,
+                f"{syn.handle}#{sec.handle}",
+                syntheses.note_fingerprint(sec.text, _note_target(rel)),
+            ).encode("utf-8"),
+        )
     except (ValueError, OSError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{_handle(rel)}\tpart of s:{syn.handle}#{sec.handle}")
+    print(f"{note_files._handle(rel)}\tpart of s:{syn.handle}#{sec.handle}")
     log_usage(root, {"cmd": "synthesis", "action": "attach"})
     return 0
 
@@ -4315,7 +5595,7 @@ def _attach(args: argparse.Namespace) -> int:
 def _part_of_notes(root: Path, ref: str) -> list[tuple[Path, str]]:
     """(path, text) of each note whose `part_of` is `ref` (`<synthesis>#<section>`), sorted by path."""
     found = []
-    for _, path in _note_files(root):
+    for _, path in note_files._note_files(root):
         try:
             text = path.read_bytes().decode("utf-8")
             meta = split_frontmatter(text)[0]
@@ -4329,14 +5609,30 @@ def _part_of_notes(root: Path, ref: str) -> list[tuple[Path, str]]:
 def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], action: str) -> None:
     """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes."""
     group = uuid.uuid4().hex
-    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    safe_io.append_text(root / records.CURATION_LOG, "".join(
-        json.dumps({"t": stamp, "action": action, "handle": path.relative_to(root).as_posix(), "group": group,
-                    "before": old.decode("utf-8"), "after": _sha(new)}, ensure_ascii=False) + "\n"
-        for path, (old, new) in changes.items()))
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    safe_io.append_text(
+        root / records.CURATION_LOG,
+        "".join(
+            json.dumps(
+                {
+                    "t": stamp,
+                    "action": action,
+                    "handle": path.relative_to(root).as_posix(),
+                    "group": group,
+                    "before": old.decode("utf-8"),
+                    "after": _sha(new),
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+            for path, (old, new) in changes.items()
+        ),
+    )
 
 
-def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]) -> None:
+def _write_logged_changes(
+    changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]
+) -> None:
     """Log the undo with `write_log`, then swap each file from its old bytes to its new ones; a file that is not as
     it was read, or any failure, puts every file and `log` back as they were."""
     log_before = log.read_bytes() if log.exists() else None
@@ -4345,7 +5641,9 @@ def _write_logged_changes(changes: Mapping[Path, tuple[bytes, bytes]], log: Path
     try:
         for path, (old, _) in changes.items():
             if path.read_bytes() != old:
-                raise ValueError(f"{path.name} changed since it was read, so nothing was written: run the command again")
+                raise ValueError(
+                    f"{path.name} changed since it was read, so nothing was written: run the command again"
+                )
         for path, (_, new) in changes.items():
             _swap_file(path, new)
             swapped.append(path)
@@ -4368,7 +5666,11 @@ def _structure(args: argparse.Namespace) -> int:
     try:
         if action == "rename" and _refuse_secret([args.heading]):
             return 4
-        if action == "rename" and (refused := _check_terms([args.heading], "synthesis", getattr(args, "owner_approved", False))):
+        if action == "rename" and (
+            refused := _check_terms(
+                [args.heading], "synthesis", getattr(args, "owner_approved", False)
+            )
+        ):
             return refused
         changes: dict[Path, tuple[bytes, bytes]] = {}
         lines: list[str] = []
@@ -4377,7 +5679,7 @@ def _structure(args: argparse.Namespace) -> int:
             if isinstance(found, list):
                 _ambiguous(args.note, found)
                 return 2
-            if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+            if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
                 raise ValueError(f"no note {args.note}")
             rel = found.relative_to(root).as_posix()
             original = found.read_bytes()
@@ -4385,11 +5687,11 @@ def _structure(args: argparse.Namespace) -> int:
             meta = split_frontmatter(text)[0]
             part = meta.get("part_of") if isinstance(meta, dict) else None
             if not isinstance(part, str):
-                raise ValueError(f"{_handle(rel)} is not part of a synthesis")
+                raise ValueError(f"{note_files._handle(rel)} is not part of a synthesis")
             changes[found] = (original, _detached(text, rel).encode("utf-8"))
-            lines.append(f"{_handle(rel)}\tdetached from s:{part}")
+            lines.append(f"{note_files._handle(rel)}\tdetached from s:{part}")
             log = root / records.CURATION_LOG
-            write_log = lambda: _log_note(root, found, rel, "detach")  # noqa: E731
+            write_log = lambda: _log_note(root, found, rel, "detach")
         else:
             handle, section = syntheses.split_ref(args.target)
             path = syntheses.path_of(folder, handle)
@@ -4400,40 +5702,61 @@ def _structure(args: argparse.Namespace) -> int:
             if action != "topics" and section is None:
                 raise ValueError(f"{action} takes s:<handle>#<section handle>")
             if action == "topics":
-                topics = list(dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip()))
+                topics = list(
+                    dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip())
+                )
                 known = load_topics(root)
                 if not topics:
                     raise ValueError("at least one topic is required")
                 for t in topics:
                     if t not in known:
-                        raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+                        raise ValueError(
+                            f"unknown topic '{t}': use an id from topics.yaml or add it there"
+                        )
                 for other in syntheses.load(folder):
-                    if other.error is None and other.handle != handle and (clash := [t for t in topics if t in other.topics]):
+                    if (
+                        other.error is None
+                        and other.handle != handle
+                        and (clash := [t for t in topics if t in other.topics])
+                    ):
                         raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}")
                 old, new = syntheses.with_topics(path, topics, today)
                 changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
                 lines.append(f"s:{handle}\ttopics {', '.join(topics)}")
                 log = folder / records.CURATION_LOG
-                write_log = lambda: records.log_before(syntheses.Synthesis(path, handle), "topics")  # noqa: E731
+                write_log = lambda: records.log_before(syntheses.Synthesis(path, handle), "topics")
             else:
                 ref = f"{handle}#{section}"
                 notes = _part_of_notes(root, ref)
                 if action == "rename":
-                    old, new, new_section = syntheses.renamed_section(path, section, args.heading, today)
+                    old, new, new_section = syntheses.renamed_section(
+                        path, section, args.heading, today
+                    )
                     lines.append(f"s:{handle}#{new_section}\trenamed from {section}")
-                    edit = lambda text, rel: _renamed_part_of(text, rel, f"{handle}#{new_section}")  # noqa: E731
-                    lines += [f"{_handle(p.relative_to(root).as_posix())}\tpart of s:{handle}#{new_section}" for p, _ in notes]
+                    edit = lambda text, rel: _renamed_part_of(text, rel, f"{handle}#{new_section}")
+                    lines += [
+                        f"{note_files._handle(p.relative_to(root).as_posix())}\tpart of s:{handle}#{new_section}"
+                        for p, _ in notes
+                    ]
                 else:
                     old, new = syntheses.without_section(path, section, today)
                     lines.append(f"s:{handle}#{section}\tremoved")
-                    edit = _detached  # noqa: E731
-                    lines += [f"{_handle(p.relative_to(root).as_posix())}\tdetached from s:{ref}" for p, _ in notes]
+                    edit = _detached
+                    lines += [
+                        f"{note_files._handle(p.relative_to(root).as_posix())}\tdetached from s:{ref}"
+                        for p, _ in notes
+                    ]
                 changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
                 for note, text in notes:
-                    changes[note] = (text.encode("utf-8"), edit(text, note.relative_to(root).as_posix()).encode("utf-8"))
+                    changes[note] = (
+                        text.encode("utf-8"),
+                        edit(text, note.relative_to(root).as_posix()).encode("utf-8"),
+                    )
                 log = root / records.CURATION_LOG
-                write_log = lambda: _log_group_ahead(root, changes, action)  # noqa: E731
-        locked = [p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)]
+                write_log = lambda: _log_group_ahead(root, changes, action)
+        locked = [
+            p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)
+        ]
         if locked:
             raise ValueError(f"not writable: {', '.join(locked)}")
         _write_logged_changes(changes, log, write_log)
@@ -4471,7 +5794,9 @@ def _refs(args: argparse.Namespace) -> int:
         file_text = original.decode("utf-8")
         _lf(file_text, path.name)
         refused: list[str] = []
-        by_part: dict[str, list[tuple[str, int, str, str]]] = {}  # section -> (line, unit, op, target)
+        by_part: dict[
+            str, list[tuple[str, int, str, str]]
+        ] = {}  # section -> (line, unit, op, target)
         read = 0
         for line in raw.splitlines():
             if not line.strip() or line.lstrip().startswith("#"):
@@ -4479,10 +5804,22 @@ def _refs(args: argparse.Namespace) -> int:
             read += 1
             cells = [c.strip() for c in line.split("|", 2)]
             action = cells[2].split(None, 1) if len(cells) == 3 else []
-            if not (len(cells) == 3 and cells[1].isdigit() and len(action) == 2 and action[0] in ("add", "remove")):
-                refused.append(f"refused: {line.strip()}: not `<section> | <unit> | add|remove <target>`")
+            if not (
+                len(cells) == 3
+                and cells[1].isdigit()
+                and len(action) == 2
+                and action[0] in ("add", "remove")
+            ):
+                refused.append(
+                    f"refused: {line.strip()}: not `<section> | <unit> | add|remove <target>`"
+                )
                 continue
-            by_part.setdefault(cells[0], []).append((line.strip(), int(cells[1]), action[0], action[1].strip()))
+            by_part.setdefault(cells[0], []).append((
+                line.strip(),
+                int(cells[1]),
+                action[0],
+                action[1].strip(),
+            ))
         if not read:
             print("mem: the file holds no proposal", file=sys.stderr)
             return 1
@@ -4504,13 +5841,19 @@ def _refs(args: argparse.Namespace) -> int:
             if why:
                 refused += [f"refused: {line}: {why}" for line, *_ in items]
                 continue
+
             def attempt(picked: list[int]) -> tuple[str, list[str | None], str | None]:
                 text, why_not = syntheses.change_references(
-                    part.text, folder, [(items[i][1], items[i][2], items[i][3]) for i in picked])
+                    part.text, folder, [(items[i][1], items[i][2], items[i][3]) for i in picked]
+                )
                 if text == part.text:
                     return text, why_not, None
                 if syntheses.without_references(text) != syntheses.without_references(part.text):
-                    return text, why_not, "the command would change a word of the part (a bug: nothing of it was written)"
+                    return (
+                        text,
+                        why_not,
+                        "the command would change a word of the part (a bug: nothing of it was written)",
+                    )
                 if found := syntheses.validate_section(text, root):
                     return text, why_not, "the part would fail its checks: " + "; ".join(found)
                 return text, why_not, None
@@ -4529,10 +5872,16 @@ def _refs(args: argparse.Namespace) -> int:
                         kept.append(i)
                 new = attempt(kept)[0]
             added = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "add")
-            removed = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "remove")
-            failed = [f"refused: {line}: {r}" for (line, *_), r in zip(items, reasons) if r is not None]
+            removed = sum(
+                1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "remove"
+            )
+            failed = [
+                f"refused: {line}: {r}" for (line, *_), r in zip(items, reasons) if r is not None
+            ]
             refused += failed
-            counts.append(f"s:{handle}#{name}: added {added}, removed {removed}, refused {len(failed)}")
+            counts.append(
+                f"s:{handle}#{name}: added {added}, removed {removed}, refused {len(failed)}"
+            )
             total_added, total_removed = total_added + added, total_removed + removed
             if new is not None and new != part.text:
                 new_file = syntheses.apply_part_text(new_file, name, new)
@@ -4540,19 +5889,38 @@ def _refs(args: argparse.Namespace) -> int:
                     stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
                     rel = note.relative_to(root).as_posix()
                     new_fp = syntheses.note_fingerprint(new, _note_target(rel))
-                    if syntheses.is_current(stored, part.text, _note_target(rel)) and stored != new_fp:
-                        notes[note] = (text.encode("utf-8"), _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"))
+                    if (
+                        syntheses.is_current(stored, part.text, _note_target(rel))
+                        and stored != new_fp
+                    ):
+                        notes[note] = (
+                            text.encode("utf-8"),
+                            _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"),
+                        )
         if total_added or total_removed:
             changes = {path: (original, syntheses.bumped(new_file, today).encode("utf-8")), **notes}
-            locked = [p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)]
+            locked = [
+                p.name
+                for p in changes
+                if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)
+            ]
             if locked:
                 raise ValueError(f"not writable: {', '.join(locked)}")
-            _write_logged_changes(changes, root / records.CURATION_LOG, lambda: _log_group_ahead(root, changes, "refs"))
+            _write_logged_changes(
+                changes,
+                root / records.CURATION_LOG,
+                lambda: _log_group_ahead(root, changes, "refs"),
+            )
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print("\n".join([*counts, *refused, f"s:{handle}: added {total_added}, removed {total_removed}, "
-                     f"refused {len(refused)}"]))
+    print(
+        "\n".join([
+            *counts,
+            *refused,
+            f"s:{handle}: added {total_added}, removed {total_removed}, refused {len(refused)}",
+        ])
+    )
     if total_added or total_removed:
         log_usage(root, {"cmd": "synthesis", "action": "refs"})
     return 0
@@ -4574,16 +5942,23 @@ def _lf(text: str, rel: str) -> str:
     return text
 
 
-def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str, body: str,
-                   today: datetime.date) -> str:
+def _add_with_note(
+    args: argparse.Namespace, root: Path, path: Path, handle: str, body: str, today: datetime.date
+) -> str:
     """The section and the knowledge note that summarizes it, both or neither; returns the note's path."""
     syn = syntheses.load_one(path)
     note_body = _read_body(args.note_body_file)
     section_handle, _, cleaned = syntheses.prepare_add(path, args.section, body, today)
     kinds = syntheses.source_kinds(cleaned)
-    origin = args.origin or ("literature" if kinds & {"literature", "url"} else
-                             "research" if "research" in kinds else
-                             "experience" if "experience" in kinds else "literature")
+    origin = args.origin or (
+        "literature"
+        if kinds & {"literature", "url"}
+        else "research"
+        if "research" in kinds
+        else "experience"
+        if "experience" in kinds
+        else "literature"
+    )
     undo = syntheses.snapshot(path)
     syntheses.add_section(path, args.section, body, today)
     target = None
@@ -4591,15 +5966,33 @@ def _add_with_note(args: argparse.Namespace, root: Path, path: Path, handle: str
         known = load_topics(root)
         domain = root_of(known, syn.topics[0]) if syn.topics and syn.topics[0] in known else None
         created = not (root / "knowledge" / str(domain)).exists()
-        target = new_note(root, "knowledge", slug=args.note_slug, topics=list(syn.topics), today=today, body=note_body,
-                          claim=args.note_claim, confidence=args.confidence, level=args.level, origin=origin,
-                          part_of=f"{handle}#{section_handle}", part_of_hash=syntheses.fingerprint(cleaned))
+        target = new_note(
+            root,
+            "knowledge",
+            slug=args.note_slug,
+            topics=list(syn.topics),
+            today=today,
+            body=note_body,
+            claim=args.note_claim,
+            confidence=args.confidence,
+            level=args.level,
+            origin=origin,
+            part_of=f"{handle}#{section_handle}",
+            part_of_hash=syntheses.fingerprint(cleaned),
+        )
         rel = target.relative_to(root).as_posix()
-        if (stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))) != syntheses.fingerprint(cleaned):
-            safe_io.replace_file(target, _set_field(_read_text(target), "part_of_hash", stamp).encode("utf-8"))
+        if (
+            stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))
+        ) != syntheses.fingerprint(cleaned):
+            safe_io.replace_file(
+                target,
+                _set_field(note_files._read_text(target), "part_of_hash", stamp).encode("utf-8"),
+            )
         if found := [p for p in check(root) if p.path == rel]:
-            raise NewNoteError(f"the note has {len(found)} problems, so nothing was written: "
-                               + "; ".join(str(p) for p in found))
+            raise NewNoteError(
+                f"the note has {len(found)} problems, so nothing was written: "
+                + "; ".join(str(p) for p in found)
+            )
     except Exception:
         if target is not None:
             target.unlink(missing_ok=True)
@@ -4639,11 +6032,16 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return _structure(args)
     if action == "refs":
         return _refs(args)
-    note_group = [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level] \
-        if action == "add" else []
+    note_group = (
+        [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level]
+        if action == "add"
+        else []
+    )
     one_call = any(note_group)
     if one_call and not all(note_group):
-        build_parser().error("--note-slug, --note-claim, --note-body-file, --confidence and --level go together")
+        build_parser().error(
+            "--note-slug, --note-claim, --note-body-file, --confidence and --level go together"
+        )
     try:
         if action == "new":
             topics = [t.strip() for t in args.topics.split(",") if t.strip()]
@@ -4652,10 +6050,14 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                 raise ValueError("at least one topic is required")
             for t in topics:
                 if t not in known:
-                    raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+                    raise ValueError(
+                        f"unknown topic '{t}': use an id from topics.yaml or add it there"
+                    )
             for other in syntheses.load(folder):
                 if other.error is None and (clash := [t for t in topics if t in other.topics]):
-                    raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}; add a part to it.")
+                    raise ValueError(
+                        f"s:{other.handle} already covers the topic {clash[0]}; add a part to it."
+                    )
             summary = _synthesis_text(args.summary_file)
             if summary is None:
                 return 1
@@ -4663,8 +6065,13 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                 return 4
             if refused := _check_terms([args.title, args.slug, summary], "synthesis", approved):
                 return refused
-            text = syntheses.render_new((_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
-                                        title=args.title, topics=topics, summary=summary, today=today)
+            text = syntheses.render_new(
+                (_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
+                title=args.title,
+                topics=topics,
+                summary=summary,
+                today=today,
+            )
             path = syntheses.create(folder, args.slug, text)
             print(f"s:{path.stem}\t{path.relative_to(root).as_posix()}")
         else:
@@ -4683,9 +6090,13 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                     return 1
             if _refuse_secret([getattr(args, "section", None) or "", body, *note_texts]):
                 return 4
-            if refused := _check_terms([getattr(args, "section", None) or "", body], "synthesis", approved):
+            if refused := _check_terms(
+                [getattr(args, "section", None) or "", body], "synthesis", approved
+            ):
                 return refused
-            if note_texts and (refused := _check_terms([*note_texts, args.note_slug], "note", approved)):
+            if note_texts and (
+                refused := _check_terms([*note_texts, args.note_slug], "note", approved)
+            ):
                 return refused
             if action == "add":
                 if section is not None:
@@ -4708,12 +6119,21 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                     syntheses.append_section(path, section, body, today, store=root)
                     print(f"s:{handle}#{section}\tappended")
                 else:
-                    problems = (syntheses.validate_section(body, root)
-                                if section != syntheses.SUMMARY and body.strip() else [])
+                    problems = (
+                        syntheses.validate_section(body, root)
+                        if section != syntheses.SUMMARY and body.strip()
+                        else []
+                    )
                     if problems:
                         raise ValueError("; ".join(problems))
-                    syntheses.edit_section(path, section, body, today, shrink=args.shrink,
-                                           drop_references=args.drop_references)
+                    syntheses.edit_section(
+                        path,
+                        section,
+                        body,
+                        today,
+                        shrink=args.shrink,
+                        drop_references=args.drop_references,
+                    )
                     print(f"s:{handle}#{section}\tedited")
             _long_note(handle, path, new_handle if action == "add" else section)
     except (ValueError, OSError, FrontmatterError, yaml.YAMLError, NewNoteError) as exc:
@@ -4730,19 +6150,37 @@ def cmd_new(args: argparse.Namespace) -> int:
         body = _read_body(args.body_file) if args.body_file else None
         if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
             return 4
-        texts = [str(fields[k]) for k in ("title", "claim", "url", "question", "author", "slug") if k in fields]
-        if refused := _check_terms([*texts, args.slug, body or ""], "note", getattr(args, "owner_approved", False)):
+        texts = [
+            str(fields[k])
+            for k in ("title", "claim", "url", "question", "author", "slug")
+            if k in fields
+        ]
+        if refused := _check_terms(
+            [*texts, args.slug, body or ""], "note", getattr(args, "owner_approved", False)
+        ):
             return refused
         if getattr(args, "part_of", None):
             syn, sec = _section_ref(args.root, args.part_of)
             fields["part_of"] = f"{syn.handle}#{sec.handle}"
             fields["part_of_hash"] = syntheses.fingerprint(sec.text)
-        path = new_note(args.root, args.type, slug=args.slug, topics=topics,
-                        today=datetime.date.today(), body=body, **fields)
+        path = new_note(
+            args.root,
+            args.type,
+            slug=args.slug,
+            topics=topics,
+            today=datetime.date.today(),
+            body=body,
+            **fields,
+        )
         if "part_of_hash" in fields:
-            stamp = syntheses.note_fingerprint(sec.text, _note_target(path.relative_to(args.root).as_posix()))
+            stamp = syntheses.note_fingerprint(
+                sec.text, _note_target(path.relative_to(args.root).as_posix())
+            )
             if stamp != fields["part_of_hash"]:
-                safe_io.replace_file(path, _set_field(_read_text(path), "part_of_hash", stamp).encode("utf-8"))
+                safe_io.replace_file(
+                    path,
+                    _set_field(note_files._read_text(path), "part_of_hash", stamp).encode("utf-8"),
+                )
     except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
@@ -4750,8 +6188,11 @@ def cmd_new(args: argparse.Namespace) -> int:
     print(rel)
     if args.type == "knowledge" and "part_of" not in fields:
         for syn in _covering(args.root, topics):
-            print(f"mem: s:{syn.handle} ({syn.title}) covers this topic; a curation pass can attach this note to it "
-                  "(mem curate --notes).", file=sys.stderr)
+            print(
+                f"mem: s:{syn.handle} ({syn.title}) covers this topic; a curation pass can attach this note to it "
+                "(mem curate --notes).",
+                file=sys.stderr,
+            )
     if body is not None and (found := [p for p in check(args.root) if p.path == rel]):
         print(f"check: {len(found)} problems in {rel}:", file=sys.stderr)
         for problem in found:
@@ -4763,15 +6204,20 @@ def cmd_new(args: argparse.Namespace) -> int:
         except (FrontmatterError, OSError):  # the note exists; the hint is optional
             similar = []
         if similar:
-            print("Similar notes exist: link them, or edit the existing note if it states the same claim.",
-                  file=sys.stderr)
+            print(
+                "Similar notes exist: link them, or edit the existing note if it states the same claim.",
+                file=sys.stderr,
+            )
             for other, score, title in similar[:SIMILAR_LIMIT]:
                 print(f"similar: {other}\t{score:.2f}\t{title}", file=sys.stderr)
     if args.type == "research":
         branch = f"research/{Path(rel).parent.name}"
-        print(f"An investigation with its own material lives on a branch (ADR 0006): before committing, "
-              f"git switch -c {branch} (uncommitted files move with you); add literature and knowledge "
-              "notes on main, then merge main into it.", file=sys.stderr)
+        print(
+            f"An investigation with its own material lives on a branch (ADR 0006): before committing, "
+            f"git switch -c {branch} (uncommitted files move with you); add literature and knowledge "
+            "notes on main, then merge main into it.",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -4782,12 +6228,15 @@ def cmd_unify(args: argparse.Namespace) -> int:
             return 4
         if refused := _check_terms([body], "note", getattr(args, "owner_approved", False)):
             return refused
-        keep, count, links = unify_notes(args.root, args.keep, args.others, body, drop=args.drop,
-                                         today=datetime.date.today())
+        keep, count, links = unify_notes(
+            args.root, args.keep, args.others, body, drop=args.drop, today=datetime.date.today()
+        )
     except (NewNoteError, OSError, ValueError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
-    print(f"{_handle(keep.relative_to(args.root.resolve()).as_posix())}\tunified from {count} notes, {links} links rewritten")
+    print(
+        f"{note_files._handle(keep.relative_to(args.root.resolve()).as_posix())}\tunified from {count} notes, {links} links rewritten"
+    )
     log_usage(args.root, {"cmd": "unify", "notes": count, "links": links, "drop": args.drop})
     return 0
 
@@ -4819,9 +6268,19 @@ def _section_span(text: str, heading: str) -> tuple[list[str], int, int]:
     return lines, heads[k][0], heads[k + 1][0] if k + 1 < len(heads) else len(lines)
 
 
-def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section: str | None, body: str | None,
-                      claim: str | None, topics: list[str] | None, shrink: bool,
-                      today: datetime.date) -> tuple[str, list[str]]:
+def _edited_note_text(
+    text: str,
+    path: Path,
+    meta: dict,
+    known: dict,
+    *,
+    section: str | None,
+    body: str | None,
+    claim: str | None,
+    topics: list[str] | None,
+    shrink: bool,
+    today: datetime.date,
+) -> tuple[str, list[str]]:
     """The note's text with the section text, the claim and the topics replaced (every other byte stays), and what
     changed; ValueError when a change is refused."""
     what = []
@@ -4832,8 +6291,8 @@ def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section
             raise ValueError("the section text is empty")
         syntheses._check_body(new)
         if not shrink:
-            syntheses._guard_shrink("\n".join(lines[head + 1:end]).strip("\n"), new)
-        lines[head + 1:end] = ["", *new.split("\n"), ""]
+            syntheses._guard_shrink("\n".join(lines[head + 1 : end]).strip("\n"), new)
+        lines[head + 1 : end] = ["", *new.split("\n"), ""]
         text = "\n".join(lines)
         what.append("section " + " ".join(section.removeprefix("## ").split()))
     if claim is not None:
@@ -4852,9 +6311,14 @@ def _edited_note_text(text: str, path: Path, meta: dict, known: dict, *, section
             if t not in known:
                 raise ValueError(f"unknown topic '{t}': use an id from topics.yaml")
             domain = path.parent.name
-            if path.parent.parent.name in ("literature", "knowledge") and root_of(known, t) != domain:
-                raise ValueError(f"topic '{t}' belongs to the domain {root_of(known, t)}, not to {domain}, "
-                                 "where the note lives")
+            if (
+                path.parent.parent.name in ("literature", "knowledge")
+                and root_of(known, t) != domain
+            ):
+                raise ValueError(
+                    f"topic '{t}' belongs to the domain {root_of(known, t)}, not to {domain}, "
+                    "where the note lives"
+                )
             if missing := [a for a in ancestors(known, t) if a not in topics]:
                 raise ValueError(f"topic '{t}' needs its ancestor '{missing[0]}' in the list too")
         text = _set_field(text, "topics", topics)
@@ -4868,21 +6332,30 @@ def _swap_file(path: Path, data: bytes) -> None:
     safe_io.replace_file(path, data)
 
 
-def _commit_note_edit(root: Path, found: Path, rel: str, original: bytes, text: str, new: str) -> None:
+def _commit_note_edit(
+    root: Path, found: Path, rel: str, original: bytes, text: str, new: str
+) -> None:
     """Write `new` over the note through the undo log; any failure leaves the note, the listings and the log as
     they were (`mem restore` undoes it)."""
     group = uuid.uuid4().hex
     listings = _index_files(root)
     log = root / records.CURATION_LOG
     log_before = log.read_bytes() if log.exists() else None
-    entry = {"t": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-             "action": "note-edit", "handle": rel, "group": group, "before": text,
-             "after": _sha(new.encode("utf-8"))}
+    entry = {
+        "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "action": "note-edit",
+        "handle": rel,
+        "group": group,
+        "before": text,
+        "after": _sha(new.encode("utf-8")),
+    }
     safe_io.append_text(log, json.dumps(entry, ensure_ascii=False) + "\n")
     swapped = False
     try:
         if found.read_bytes() != original:
-            raise ValueError(f"{rel} changed since it was read, so nothing was written: run the command again")
+            raise ValueError(
+                f"{rel} changed since it was read, so nothing was written: run the command again"
+            )
         _swap_file(found, new.encode("utf-8"))
         swapped = True
         apply_index(root)
@@ -4907,8 +6380,11 @@ def cmd_note(args: argparse.Namespace) -> int:
     if (args.section is None) != (args.body_file is None):
         build_parser().error("--section and --body-file go together")
     claim = " ".join(args.claim.split()) if args.claim is not None else None
-    topics = list(dict.fromkeys(t.strip() for t in args.topics.split(",") if t.strip())) \
-        if args.topics is not None else None
+    topics = (
+        list(dict.fromkeys(t.strip() for t in args.topics.split(",") if t.strip()))
+        if args.topics is not None
+        else None
+    )
     try:
         body = _read_body(args.body_file) if args.body_file else None
         texts = [args.section or "", body or "", claim or "", *(topics or [])]
@@ -4920,7 +6396,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         if isinstance(found, list):
             _ambiguous(args.note, found)
             return 2
-        if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+        if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
             raise ValueError(f"no note {args.note}")
         rel = found.relative_to(root).as_posix()
         original = found.read_bytes()
@@ -4931,13 +6407,23 @@ def cmd_note(args: argparse.Namespace) -> int:
         if not isinstance(meta, dict):
             raise ValueError(f"{rel} has no frontmatter mapping")
         today = datetime.date.today()
-        new, what = _edited_note_text(text, found, meta, load_topics(root), section=args.section, body=body,
-                                      claim=claim, topics=topics, shrink=args.shrink, today=today)
+        new, what = _edited_note_text(
+            text,
+            found,
+            meta,
+            load_topics(root),
+            section=args.section,
+            body=body,
+            claim=claim,
+            topics=topics,
+            shrink=args.shrink,
+            today=today,
+        )
         _commit_note_edit(root, found, rel, original, text, new)
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{_handle(rel)}\tedited {', '.join(what)}")
+    print(f"{note_files._handle(rel)}\tedited {', '.join(what)}")
     log_usage(root, {"cmd": "note", "action": "edit"})
     return 0
 
@@ -4948,14 +6434,18 @@ def _source_mark(fact: str, source: str, quote: str) -> tuple[str, str, str]:
     if not fact or not quote:
         raise ValueError("the fact and the quote must not be empty")
     parts = urllib.parse.urlsplit(source)
-    if parts.scheme not in ("http", "https") or not parts.netloc or _url(source) is not None:
+    if (
+        parts.scheme not in ("http", "https")
+        or not parts.netloc
+        or check_rules._url(source) is not None
+    ):
         raise ValueError("the source must be an http(s) URL")
     return fact, source, quote
 
 
 def _evidence_line(text: str, line: str) -> str:
     """`text` with `line` appended to its `## Evidence` section (added at the end when the note has none)."""
-    if not re.search(r"^## Evidence[ \t]*$", text, re.M):
+    if not re.search(r"^## Evidence[ \t]*$", text, re.MULTILINE):
         return text.rstrip("\n") + f"\n\n## Evidence\n\n{line}\n"
     lines, head, end = _section_span(text, "Evidence")
     last = max((i for i in range(head + 1, end) if lines[i].strip()), default=head)
@@ -4974,7 +6464,10 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
     if clear and any(v is not None for v in given):
         build_parser().error("--clear goes alone")
     if not clear and any(v is None for v in given):
-        build_parser().error(f"note {action} needs --fact, --source and --quote" + (" (or --clear)" if action == "dispute" else ""))
+        build_parser().error(
+            f"note {action} needs --fact, --source and --quote"
+            + (" (or --clear)" if action == "dispute" else "")
+        )
     try:
         if not clear:
             fact, source, quote = _source_mark(*given)
@@ -4986,11 +6479,13 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
         if isinstance(found, list):
             _ambiguous(args.note, found)
             return 2
-        if found is None or found not in {p.resolve() for _, p in _note_files(root)}:
+        if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
             raise ValueError(f"no note {args.note}")
         rel = found.relative_to(root).as_posix()
         if not rel.startswith("knowledge/"):
-            raise ValueError(f"{rel} is not a knowledge note: only a knowledge note carries evidence and can be disputed")
+            raise ValueError(
+                f"{rel} is not a knowledge note: only a knowledge note carries evidence and can be disputed"
+            )
         original = found.read_bytes()
         text = original.decode("utf-8")
         if "\r" in text:
@@ -5001,21 +6496,29 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
         today = datetime.date.today().isoformat()
         if action == "confirm":
             host = urllib.parse.urlsplit(source).netloc
-            new = _evidence_line(text, f'- {today} confirmed: {fact} "{quote}" ([{host}]({source}))')
+            new = _evidence_line(
+                text, f'- {today} confirmed: {fact} "{quote}" ([{host}]({source}))'
+            )
         elif clear:
             if not meta.get("disputed"):
                 raise ValueError(f"{rel} is not disputed")
             new = _set_field(text, "disputed", None)
         else:
             entry = {"date": today, "fact": fact, "source": source, "quote": quote}
-            new = _set_field(text, "disputed", [*(meta.get("disputed") if isinstance(meta.get("disputed"), list) else []), entry])
+            new = _set_field(
+                text,
+                "disputed",
+                [*(meta.get("disputed") if isinstance(meta.get("disputed"), list) else []), entry],
+            )
         if "updated" in meta:
             new = _set_field(new, "updated", today)
         _commit_note_edit(root, found, rel, original, text, new)
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(f"{_handle(rel)}\t{'cleared the dispute' if clear else action + ('ed' if action == 'confirm' else 'd')}")
+    print(
+        f"{note_files._handle(rel)}\t{'cleared the dispute' if clear else action + ('ed' if action == 'confirm' else 'd')}"
+    )
     log_usage(root, {"cmd": "note", "action": action})
     return 0
 
@@ -5025,8 +6528,9 @@ _IMPORT_FOLDERS = ("literature", "knowledge", "research")
 _IMPORT_DOCUMENTS = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
 
 
-def _import_files(src: Path, with_sources: bool, research_data: bool = False,
-                  skipped: list[str] | None = None) -> list[str]:
+def _import_files(
+    src: Path, with_sources: bool, research_data: bool = False, skipped: list[str] | None = None
+) -> list[str]:
     """Source-relative paths to import, sorted. The source is only listed and read, never written.
     A symlink, or anything under one, is never listed: its source-relative path goes to `skipped`."""
     skipped = skipped if skipped is not None else []
@@ -5056,10 +6560,18 @@ def _import_files(src: Path, with_sources: bool, research_data: bool = False,
                 if top != ".sources" and name.startswith("."):
                     continue
                 # An investigation's data and code stay where the experiments live; its documents are the memory.
-                if top == "research" and not research_data and Path(name).suffix.lower() not in _IMPORT_DOCUMENTS:
+                if (
+                    top == "research"
+                    and not research_data
+                    and Path(name).suffix.lower() not in _IMPORT_DOCUMENTS
+                ):
                     continue
                 # the generated listings: folder/README.md and, for literature and knowledge, folder/topic/README.md
-                if name == "README.md" and top != ".sources" and len(rel.parts) in ((2,) if top == "research" else (2, 3)):
+                if (
+                    name == "README.md"
+                    and top != ".sources"
+                    and len(rel.parts) in ((2,) if top == "research" else (2, 3))
+                ):
                     continue
                 found.append(rel.as_posix())
     return sorted(found)
@@ -5067,7 +6579,12 @@ def _import_files(src: Path, with_sources: bool, research_data: bool = False,
 
 def _note_kind(rel: str) -> str | None:
     parts = rel.split("/")
-    if parts[0] in ("literature", "knowledge") and len(parts) == 3 and parts[2].endswith(".md") and parts[2] != "README.md":
+    if (
+        parts[0] in ("literature", "knowledge")
+        and len(parts) == 3
+        and parts[2].endswith(".md")
+        and parts[2] != "README.md"
+    ):
         return parts[0]
     if parts[0] == "research" and len(parts) == 3 and parts[2] == "README.md":
         return "research"
@@ -5086,13 +6603,15 @@ def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
             raw = (src / rel).read_bytes()
         except OSError:
             continue
-        if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):   # a BOM-marked UTF-16 file holds NULs but is text
+        if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):  # a BOM-marked UTF-16 file holds NULs but is text
             text = raw.decode("utf-16", errors="ignore")
         elif b"\x00" in raw:
             continue
         else:
             text = raw.decode("utf-8", errors="ignore")
-        if records.secret_in([text]) is not None or (terms and any(not t.soft for t in records.term_hits([text], os.environ))):
+        if records.secret_in([text]) is not None or (
+            terms and any(not t.soft for t in records.term_hits([text], os.environ))
+        ):
             flagged.append(rel)
     return flagged
 
@@ -5103,7 +6622,7 @@ def _union_topics(src: Path, dest: Path) -> tuple[list[str], list[str], str]:
     if path.is_symlink() or not path.is_file():
         return [], [], ""
     try:
-        theirs = load_yaml(_read_text(path))
+        theirs = load_yaml(note_files._read_text(path))
     except (yaml.YAMLError, FrontmatterError) as exc:
         raise FrontmatterError(f"the source's topics.yaml is unusable ({exc})") from exc
     if theirs is None:
@@ -5114,8 +6633,13 @@ def _union_topics(src: Path, dest: Path) -> tuple[list[str], list[str], str]:
     added = [t for t in theirs if t not in mine]
     kept = [t for t in theirs if t in mine and theirs[t] != mine[t]]
     # one `id: {flow entry}` line each: the flow dump of {id: entry} without its outer braces
-    lines = "".join(yaml.safe_dump({t: theirs[t]}, default_flow_style=True, width=10**6, allow_unicode=True)
-                    .strip()[1:-1] + "\n" for t in added)
+    lines = "".join(
+        yaml.safe_dump(
+            {t: theirs[t]}, default_flow_style=True, width=10**6, allow_unicode=True
+        ).strip()[1:-1]
+        + "\n"
+        for t in added
+    )
     return [str(t) for t in added], [str(t) for t in kept], lines
 
 
@@ -5127,7 +6651,10 @@ def cmd_import(args: argparse.Namespace) -> int:
         return 2
     src = src.resolve()
     if records.inside(src, dest) or records.inside(dest, src):
-        print("mem: the source and the store must be separate folders, neither inside the other.", file=sys.stderr)
+        print(
+            "mem: the source and the store must be separate folders, neither inside the other.",
+            file=sys.stderr,
+        )
         return 2
     try:
         added, kept, topic_text = _union_topics(src, dest)
@@ -5176,8 +6703,12 @@ def cmd_import(args: argparse.Namespace) -> int:
                 safe_io.replace_file(target, f.read())
         if topic_text:
             current = (root / "topics.yaml").read_text(encoding="utf-8")
-            safe_io.replace_file(root / "topics.yaml", (current + ("" if current.endswith("\n") or not current else "\n")
-                                                        + topic_text).encode("utf-8"))
+            safe_io.replace_file(
+                root / "topics.yaml",
+                (
+                    current + ("" if current.endswith("\n") or not current else "\n") + topic_text
+                ).encode("utf-8"),
+            )
         if originals:
             _log_group(root, originals, "import")
         apply_index(root)
@@ -5197,13 +6728,20 @@ def cmd_import(args: argparse.Namespace) -> int:
         return 2
     print(f"source: {src}")
     print(f"destination: {dest}")
-    print(f"notes: {kinds['literature']} literature, {kinds['knowledge']} knowledge, {kinds['research']} research")
+    print(
+        f"notes: {kinds['literature']} literature, {kinds['knowledge']} knowledge, {kinds['research']} research"
+    )
     print(f"files: {len(todo)} copied, {same} identical, {len(conflicts)} conflicts")
     print(f"topics: {len(added)} added, {len(kept)} kept as they were")
     print(f"check: {len(problems)} problems")
     print(f"flagged: {len(flagged)} files")
-    for header, items in (("skipped symlinks:", sorted(skipped)), ("conflicts:", conflicts), ("topics kept:", kept),
-                          ("check problems (first 20):", [str(p) for p in problems[:20]]), ("flagged:", flagged)):
+    for header, items in (
+        ("skipped symlinks:", sorted(skipped)),
+        ("conflicts:", conflicts),
+        ("topics kept:", kept),
+        ("check problems (first 20):", [str(p) for p in problems[:20]]),
+        ("flagged:", flagged),
+    ):
         if items:
             print(header)
             for item in items:
@@ -5241,17 +6779,26 @@ def cmd_stats(args: argparse.Namespace) -> int:
         lines += [f"{kind}/{domain}: {domains[domain]}" for domain in sorted(domains)]
     synths = [s for s in syntheses.load(root / syntheses.SYNTHESES_DIR) if s.error is None]
     if synths:
-        lines.insert(len(INDEX_FOLDERS) + 1, f"syntheses: {len(synths)} ({sum(len(s.parts) for s in synths)} parts)")
+        lines.insert(
+            len(INDEX_FOLDERS) + 1,
+            f"syntheses: {len(synths)} ({sum(len(s.parts) for s in synths)} parts)",
+        )
     today = datetime.date.today()
     counts = [records.load_memories(folder, scope) for scope, folder in _memory_folders(args)]
     if any(counts):
         counts = [[m for m in group if not records.quarantined(m)] for group in counts]
         live = sum(records.is_live(m, today) for group in counts for m in group)
-        lines.insert(1, f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)")
+        lines.insert(
+            1, f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)"
+        )
     script = Path(__file__).resolve().read_text(encoding="utf-8")
     lines.append(f"orphans: {len(orphan_notes(root))}")
-    lines += [f"topics: {topic_count}", f"characters: {chars}", f"tokens: {chars // 4}",
-              f"mem.py lines: {len(script.splitlines())}"]
+    lines += [
+        f"topics: {topic_count}",
+        f"characters: {chars}",
+        f"tokens: {chars // 4}",
+        f"mem.py lines: {len(script.splitlines())}",
+    ]
     log_path = _usage_log(os.environ)
     try:
         entries = 0 if log_path is None else log_path.read_bytes().count(b"\n")
@@ -5265,9 +6812,19 @@ def cmd_stats(args: argparse.Namespace) -> int:
 def _deeper_hit(args: argparse.Namespace, query: str, printed: int) -> bool:
     """True when a --deep search would print more note lines than the default one did (`printed`)."""
     try:
-        full = build_corpus(args.root, topic=args.topic, kind=args.kind, status=args.status,
-                            confidence=args.confidence, level=args.level, superseded=args.superseded)
-        return len(rank(full, query, limit=len(full.notes))[args.offset:args.offset + args.limit]) > printed
+        full = build_corpus(
+            args.root,
+            topic=args.topic,
+            kind=args.kind,
+            status=args.status,
+            confidence=args.confidence,
+            level=args.level,
+            superseded=args.superseded,
+        )
+        return (
+            len(rank(full, query, limit=len(full.notes))[args.offset : args.offset + args.limit])
+            > printed
+        )
     except (FrontmatterError, OSError):
         return False
 
@@ -5278,21 +6835,37 @@ def cmd_search(args: argparse.Namespace) -> int:
         build_parser().error("query has no searchable words: use letters or digits")
     if args.links and args.offset:
         build_parser().error("--offset cannot be used with --links")
-    others = _other_projects(args.project, args.all_projects) if args.project or args.all_projects else []
+    others = (
+        _other_projects(args.project, args.all_projects)
+        if args.project or args.all_projects
+        else []
+    )
     if others is None:
         return 2
     with_notes = args.scope != "memories"
-    filters = {k: getattr(args, k) for k in ("type", "topic", "kind", "status", "confidence", "level")
-               if getattr(args, k) is not None}
+    filters = {
+        k: getattr(args, k)
+        for k in ("type", "topic", "kind", "status", "confidence", "level")
+        if getattr(args, k) is not None
+    }
     corpus = None
     default_type = None if args.deep or args.type else "knowledge"
     if with_notes:
         try:
-            corpus = build_corpus(args.root, type=args.type or default_type, topic=args.topic, kind=args.kind,
-                                  status=args.status, confidence=args.confidence, level=args.level,
-                                  superseded=args.superseded)
+            corpus = build_corpus(
+                args.root,
+                type=args.type or default_type,
+                topic=args.topic,
+                kind=args.kind,
+                status=args.status,
+                confidence=args.confidence,
+                level=args.level,
+                superseded=args.superseded,
+            )
             ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
-            linkeds = [linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks]
+            linkeds = [
+                linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks
+            ]
         except (FrontmatterError, OSError) as exc:
             print(f"mem: cannot search: {exc}", file=sys.stderr)
             return 1
@@ -5302,7 +6875,12 @@ def cmd_search(args: argparse.Namespace) -> int:
     # memories stay out of any narrowed, paged or path-only note listing, unless they are all that was asked for
     memories: list[tuple[str, list[records.Memory]]] = []
     other_memories: list[tuple[str, list[records.Memory]]] = []
-    if args.scope != "notes" and not args.offset and not filters and (args.detail != "paths" or not with_notes):
+    if (
+        args.scope != "notes"
+        and not args.offset
+        and not filters
+        and (args.detail != "paths" or not with_notes)
+    ):
         today = datetime.date.today()
         for scope, folder in [*_memory_folders(args), *((f"project: {n}", f) for n, f in others)]:
             loaded = records.load_memories(folder, scope.split(":")[0])
@@ -5312,19 +6890,32 @@ def cmd_search(args: argparse.Namespace) -> int:
             loaded = [m for m in loaded if not records.quarantined(m)]
             (other_memories if ":" in scope else memories).append((scope, loaded))
     # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
-    all_syntheses = (syntheses.load(args.root / syntheses.SYNTHESES_DIR)
-                     if args.deep and args.scope == "all" and args.root is not None and not args.offset and not filters
-                     and args.detail != "paths" else [])
+    all_syntheses = (
+        syntheses.load(args.root / syntheses.SYNTHESES_DIR)
+        if args.deep
+        and args.scope == "all"
+        and args.root is not None
+        and not args.offset
+        and not filters
+        and args.detail != "paths"
+        else []
+    )
     more = False
     for query, ranked, linked in zip(queries, ranks, linkeds):
-        result = ranked[args.offset:args.offset + args.limit]
+        result = ranked[args.offset : args.offset + args.limit]
         if args.also:
             print(f"== {query} ==")
         printed: list[str] = []
         from_others = False
         for scope, loaded in [*memories, *other_memories]:
-            hits = records.match_memories(loaded, tokenize(query), today, tokenize=tokenize, limit=3,
-                                          include_dead=args.all_memories)
+            hits = records.match_memories(
+                loaded,
+                tokenize(query),
+                today,
+                tokenize=tokenize,
+                limit=3,
+                include_dead=args.all_memories,
+            )
             if not hits:
                 continue
             if args.detail == "paths":
@@ -5343,13 +6934,33 @@ def cmd_search(args: argparse.Namespace) -> int:
         terms = tokenize(query)
         weights = term_idf(corpus, terms) if corpus is not None else {}
         for note, score in result:
-            print("\n".join(format_hit(note, args.detail, score=score, terms=terms, weights=weights,
-                                            name=names.get(note.rel))))
+            print(
+                "\n".join(
+                    format_hit(
+                        note,
+                        args.detail,
+                        score=score,
+                        terms=terms,
+                        weights=weights,
+                        name=names.get(note.rel),
+                    )
+                )
+            )
         if linked and args.detail != "paths":
             print("-- linked to the results above --")
         for note, score in linked:
-            print("\n".join(format_hit(note, args.detail, score=score, terms=terms, weights=weights,
-                                            name=names.get(note.rel))))
+            print(
+                "\n".join(
+                    format_hit(
+                        note,
+                        args.detail,
+                        score=score,
+                        terms=terms,
+                        weights=weights,
+                        name=names.get(note.rel),
+                    )
+                )
+            )
         sections = syntheses.match_sections(all_syntheses, tokenize(query), tokenize=tokenize)
         if sections:
             print("-- syntheses (extended versions) --")
@@ -5357,7 +6968,9 @@ def cmd_search(args: argparse.Namespace) -> int:
                 print(f"s:{syn.handle}#{sec.handle}\t{syn.title}: {sec.heading}")
         if default_type and with_notes and len(result) < 3 and not more:
             more = _deeper_hit(args, query, len(result))
-        if not args.also and with_notes:  # a footer names --offset, which applies to every query at once
+        if (
+            not args.also and with_notes
+        ):  # a footer names --offset, which applies to every query at once
             _page_footer(args.offset, len(result), len(ranked))
         extra = {"links": True, "linked": [note.rel for note, _ in linked]} if args.links else {}
         if printed:
@@ -5368,9 +6981,18 @@ def cmd_search(args: argparse.Namespace) -> int:
             extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in sections]
         if args.deep:
             extra["deep"] = True
-        log_usage(args.root, {"cmd": "search", "query": query, "limit": args.limit,
-                              "detail": args.detail, "filters": filters,
-                              "results": [note.rel for note, _ in result], **extra})
+        log_usage(
+            args.root,
+            {
+                "cmd": "search",
+                "query": query,
+                "limit": args.limit,
+                "detail": args.detail,
+                "filters": filters,
+                "results": [note.rel for note, _ in result],
+                **extra,
+            },
+        )
     if more:
         print("mem: more in sources and syntheses: repeat with --deep.", file=sys.stderr)
     return 0
@@ -5391,20 +7013,39 @@ def cmd_passages(args: argparse.Namespace) -> int:
     rel = path.relative_to(args.root.resolve()).as_posix() if path else args.path
     source = source_text(args.root, rel) if rel in notes else None
     if source is None:
-        print(f"mem: no source text for {args.path}: looked for a .txt in "
-              f"{SOURCES_DIR}/{Path(rel).stem}/ (needs a literature note path); `mem fetch-sources {args.path}` "
-              "downloads the source when it has a url, and writes a .txt only for a plain-text response "
-              "or a PDF with pdftotext installed", file=sys.stderr)
+        print(
+            f"mem: no source text for {args.path}: looked for a .txt in "
+            f"{SOURCES_DIR}/{Path(rel).stem}/ (needs a literature note path); `mem fetch-sources {args.path}` "
+            "downloads the source when it has a url, and writes a .txt only for a plain-text response "
+            "or a PDF with pdftotext installed",
+            file=sys.stderr,
+        )
         return 1
-    total, found = passages(source.read_text(encoding="utf-8", errors="replace"), args.query,
-                            count=args.count, words=args.words)
+    total, found = passages(
+        source.read_text(encoding="utf-8", errors="replace"),
+        args.query,
+        count=args.count,
+        words=args.words,
+    )
     if not found:
-        print(f"no matching passage in {source.relative_to(args.root).as_posix()} ({total} words)", file=sys.stderr)
+        print(
+            f"no matching passage in {source.relative_to(args.root).as_posix()} ({total} words)",
+            file=sys.stderr,
+        )
     else:
         print(f"source: {source.relative_to(args.root).as_posix()} ({total} words)")
         print("\n\n".join(f"== words {a}-{b} of {total} ==\n{t}" for a, b, t in found))
-    log_usage(args.root, {"cmd": "passages", "path": rel, "query": args.query, "count": args.count,
-                          "words": args.words, "hits": len(found)})
+    log_usage(
+        args.root,
+        {
+            "cmd": "passages",
+            "path": rel,
+            "query": args.query,
+            "count": args.count,
+            "words": args.words,
+            "hits": len(found),
+        },
+    )
     return 0
 
 
@@ -5431,7 +7072,10 @@ def cmd_related(args: argparse.Namespace) -> int:
         for other in notes:
             first, *rest = format_hit(other, args.detail, terms=terms, weights=weights)
             print("\n".join([f"{relation}\t{first}", *rest]))
-    print(" · ".join(f"{relation}: {len(notes)}" for relation, notes in groups.items()), file=sys.stderr)
+    print(
+        " · ".join(f"{relation}: {len(notes)}" for relation, notes in groups.items()),
+        file=sys.stderr,
+    )
     return 0
 
 
@@ -5454,15 +7098,22 @@ def cmd_search_eval(args: argparse.Namespace) -> int:
     if args.min is not None:
         return 1 if recall < args.min else 0
     if recall < RECALL_TRIGGER or mrr < MRR_TRIGGER:
-        print(f"search-eval: below the revisit trigger (recall@10 {RECALL_TRIGGER:.2f}, MRR@10 {MRR_TRIGGER:.3f}): "
-              "see C-6 in docs/requirements.md", file=sys.stderr)
+        print(
+            f"search-eval: below the revisit trigger (recall@10 {RECALL_TRIGGER:.2f}, MRR@10 {MRR_TRIGGER:.3f}): "
+            "see C-6 in docs/requirements.md",
+            file=sys.stderr,
+        )
         return 1
     return 0
 
 
 def cmd_review(args: argparse.Namespace) -> int:
     today = args.today or datetime.date.today()
-    for line in due_requirements(args.root, today) + due_retests(args.root, today) + due_rereads(args.root, today):
+    for line in (
+        due_requirements(args.root, today)
+        + due_retests(args.root, today)
+        + due_rereads(args.root, today)
+    ):
         print(line)
     return 0
 
@@ -5477,7 +7128,7 @@ def cmd_fetch_sources(args: argparse.Namespace) -> int:
 
 
 def _today(value: str) -> datetime.date:
-    if (date := _iso_date(value)) is None:
+    if (date := check_rules._iso_date(value)) is None:
         raise argparse.ArgumentTypeError("use a real date as YYYY-MM-DD")
     return date
 
@@ -5509,16 +7160,24 @@ _NEW_FIELDS = {
 _OWNER_APPROVED = "the owner agreed to a write that mentions a soft term: never add it on your own"
 
 
-_USER_READ = ("with --short: the owner read this text, so it skips the code check and carries no mark; "
-              "without it the short form is checked against the claim and marked as written by a model")
+_USER_READ = (
+    "with --short: the owner read this text, so it skips the code check and carries no mark; "
+    "without it the short form is checked against the claim and marked as written by a model"
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="mem", description="Memory engine: search and read a store of notes.")
-    parser.add_argument("--root", default=None, help="store folder (default: $MEM_STORE, then the config file)")
+    parser = argparse.ArgumentParser(
+        prog="mem", description="Memory engine: search and read a store of notes."
+    )
+    parser.add_argument(
+        "--root", default=None, help="store folder (default: $MEM_STORE, then the config file)"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
     check_parser = sub.add_parser("check", help="validate the hub rules")
-    check_parser.add_argument("paths", nargs="*", metavar="PATH", help="print only problems in these notes or folders")
+    check_parser.add_argument(
+        "paths", nargs="*", metavar="PATH", help="print only problems in these notes or folders"
+    )
     check_parser.set_defaults(func=cmd_check)
     index_parser = sub.add_parser("index", help="regenerate the index blocks in the folder READMEs")
     index_parser.set_defaults(func=cmd_index)
@@ -5526,22 +7185,50 @@ def build_parser() -> argparse.ArgumentParser:
     search_parser = sub.add_parser("search", help="rank notes by BM25 relevance to a query")
     search_parser.add_argument("query")
     search_parser.add_argument("--limit", type=_limit, default=10)
-    search_parser.add_argument("--offset", type=_offset, default=0, help="skip the first N results (default: 0)")
-    search_parser.add_argument("--also", action="append", default=[], metavar="QUERY",
-                               help="another query over the same corpus (repeatable); each list is headed `== <query> ==`")
-    search_parser.add_argument("--links", action="store_true",
-                               help="also list up to 10 notes linked to or from the first 10 printed results")
-    search_parser.add_argument("--scope", choices=("all", "notes", "memories"), default="all",
-                               help="what to search: notes and memories (default), only notes, only memories")
-    search_parser.add_argument("--deep", action="store_true",
-                               help="also rank source notes and investigations, and list syntheses "
-                                    "(default: knowledge notes and memories)")
-    search_parser.add_argument("--all-memories", action="store_true",
-                               help="also match refuted, superseded and expired memories")
-    search_parser.add_argument("--project", action="append", default=[], metavar="NAME",
-                               help="also search this registered project's memories (repeatable; see mem projects list)")
-    search_parser.add_argument("--all-projects", action="store_true",
-                               help="also search the memories of every registered project but the current one")
+    search_parser.add_argument(
+        "--offset", type=_offset, default=0, help="skip the first N results (default: 0)"
+    )
+    search_parser.add_argument(
+        "--also",
+        action="append",
+        default=[],
+        metavar="QUERY",
+        help="another query over the same corpus (repeatable); each list is headed `== <query> ==`",
+    )
+    search_parser.add_argument(
+        "--links",
+        action="store_true",
+        help="also list up to 10 notes linked to or from the first 10 printed results",
+    )
+    search_parser.add_argument(
+        "--scope",
+        choices=("all", "notes", "memories"),
+        default="all",
+        help="what to search: notes and memories (default), only notes, only memories",
+    )
+    search_parser.add_argument(
+        "--deep",
+        action="store_true",
+        help="also rank source notes and investigations, and list syntheses "
+        "(default: knowledge notes and memories)",
+    )
+    search_parser.add_argument(
+        "--all-memories",
+        action="store_true",
+        help="also match refuted, superseded and expired memories",
+    )
+    search_parser.add_argument(
+        "--project",
+        action="append",
+        default=[],
+        metavar="NAME",
+        help="also search this registered project's memories (repeatable; see mem projects list)",
+    )
+    search_parser.add_argument(
+        "--all-projects",
+        action="store_true",
+        help="also search the memories of every registered project but the current one",
+    )
     search_parser.set_defaults(func=cmd_search)
     for filtered in (find_parser, search_parser):
         filtered.add_argument("--type", choices=INDEX_FOLDERS)
@@ -5550,324 +7237,704 @@ def build_parser() -> argparse.ArgumentParser:
         filtered.add_argument("--status", choices=("idea", "active", "paused", "done", "abandoned"))
         filtered.add_argument("--confidence", choices=_CONFIDENCE)
         filtered.add_argument("--level", choices=LEVELS)
-        filtered.add_argument("--superseded", action="store_true",
-                              help="also list notes that a unified note replaced")
-        filtered.add_argument("--handles", action="store_true",
-                              help="print a short handle in place of each path (accepted wherever a note is named)")
-        filtered.add_argument("--detail", choices=DETAILS, default="titles",
-                              help="per result: path only, title, key facts, a matching line, or the lead section")
-    find_parser.add_argument("--limit", type=_limit, default=50, help="print at most N notes (default: 50)")
-    find_parser.add_argument("--offset", type=_offset, default=0, help="skip the first N notes (default: 0)")
+        filtered.add_argument(
+            "--superseded", action="store_true", help="also list notes that a unified note replaced"
+        )
+        filtered.add_argument(
+            "--handles",
+            action="store_true",
+            help="print a short handle in place of each path (accepted wherever a note is named)",
+        )
+        filtered.add_argument(
+            "--detail",
+            choices=DETAILS,
+            default="titles",
+            help="per result: path only, title, key facts, a matching line, or the lead section",
+        )
+    find_parser.add_argument(
+        "--limit", type=_limit, default=50, help="print at most N notes (default: 50)"
+    )
+    find_parser.add_argument(
+        "--offset", type=_offset, default=0, help="skip the first N notes (default: 0)"
+    )
     find_parser.set_defaults(func=cmd_find)
-    passages_parser = sub.add_parser("passages", help="print the passages of a note's local source that best match")
+    passages_parser = sub.add_parser(
+        "passages", help="print the passages of a note's local source that best match"
+    )
     passages_parser.add_argument("path", metavar="PATH")
     passages_parser.add_argument("query")
-    passages_parser.add_argument("--count", type=_limit, default=5, help="passages to print (default: 5)")
-    passages_parser.add_argument("--words", type=_limit, default=500, help="words per passage (default: 500)")
+    passages_parser.add_argument(
+        "--count", type=_limit, default=5, help="passages to print (default: 5)"
+    )
+    passages_parser.add_argument(
+        "--words", type=_limit, default=500, help="words per passage (default: 500)"
+    )
     passages_parser.set_defaults(func=cmd_passages)
-    related_parser = sub.add_parser("related", help="list a note's links, backlinks and most similar notes")
+    related_parser = sub.add_parser(
+        "related", help="list a note's links, backlinks and most similar notes"
+    )
     related_parser.add_argument("path", metavar="PATH")
-    related_parser.add_argument("--limit", type=_limit, default=5, help="print at most N similar notes (default: 5)")
-    related_parser.add_argument("--detail", choices=DETAILS, default="titles",
-                                help="per result: path only, title, key facts, a matching line, or the lead section")
-    related_parser.add_argument("--superseded", action="store_true",
-                                help="also list notes that a unified note replaced")
-    related_parser.add_argument("--unlinked-mentions", action="store_true",
-                                help="print only the notes that name this one in their text without linking to it")
+    related_parser.add_argument(
+        "--limit", type=_limit, default=5, help="print at most N similar notes (default: 5)"
+    )
+    related_parser.add_argument(
+        "--detail",
+        choices=DETAILS,
+        default="titles",
+        help="per result: path only, title, key facts, a matching line, or the lead section",
+    )
+    related_parser.add_argument(
+        "--superseded", action="store_true", help="also list notes that a unified note replaced"
+    )
+    related_parser.add_argument(
+        "--unlinked-mentions",
+        action="store_true",
+        help="print only the notes that name this one in their text without linking to it",
+    )
     related_parser.set_defaults(func=cmd_related)
     show_parser = sub.add_parser("show", aliases=["read"], help="print chosen sections of notes")
     show_parser.add_argument("paths", nargs="+", metavar="PATH")
-    show_parser.add_argument("--section", action="append", help="a `## ` section to print (repeatable)")
-    show_parser.add_argument("--outline", action="store_true", help="list headings with line numbers")
-    show_parser.add_argument("--ranges", action="store_true",
-                             help="with --outline: print start-end lines and word count per heading")
-    show_parser.add_argument("--all", action="store_true", help="a synthesis: print the whole file, not its outline")
-    show_parser.add_argument("--project", metavar="NAME", help="read a memory of this registered project")
-    show_parser.add_argument("--stored", action="store_true",
-                             help="a synthesis: print each reference as stored, not as `[n]`, the place of its note on the `Sources:` line")
+    show_parser.add_argument(
+        "--section", action="append", help="a `## ` section to print (repeatable)"
+    )
+    show_parser.add_argument(
+        "--outline", action="store_true", help="list headings with line numbers"
+    )
+    show_parser.add_argument(
+        "--ranges",
+        action="store_true",
+        help="with --outline: print start-end lines and word count per heading",
+    )
+    show_parser.add_argument(
+        "--all", action="store_true", help="a synthesis: print the whole file, not its outline"
+    )
+    show_parser.add_argument(
+        "--project", metavar="NAME", help="read a memory of this registered project"
+    )
+    show_parser.add_argument(
+        "--stored",
+        action="store_true",
+        help="a synthesis: print each reference as stored, not as `[n]`, the place of its note on the `Sources:` line",
+    )
     show_parser.set_defaults(func=cmd_show)
     topics_parser = sub.add_parser("topics", help="print the topic tree with note counts")
-    topics_parser.add_argument("topic", nargs="?", metavar="ID", help="print only this topic's subtree")
+    topics_parser.add_argument(
+        "topic", nargs="?", metavar="ID", help="print only this topic's subtree"
+    )
     topics_parser.set_defaults(func=cmd_topics)
     stats_parser = sub.add_parser("stats", help="print note, topic and size counts")
-    stats_parser.add_argument("--orphans", action="store_true", help="list notes no other file links to")
-    stats_parser.add_argument("paths", nargs="*", metavar="PATH", help="with --orphans: only these notes or folders")
+    stats_parser.add_argument(
+        "--orphans", action="store_true", help="list notes no other file links to"
+    )
+    stats_parser.add_argument(
+        "paths", nargs="*", metavar="PATH", help="with --orphans: only these notes or folders"
+    )
     stats_parser.set_defaults(func=cmd_stats)
-    review_parser = sub.add_parser("review", help="list concrete requirements due for review and notes due for re-testing or re-reading")
-    review_parser.add_argument("--today", type=_today, default=None, help="YYYY-MM-DD (default: today)")
+    review_parser = sub.add_parser(
+        "review",
+        help="list concrete requirements due for review and notes due for re-testing or re-reading",
+    )
+    review_parser.add_argument(
+        "--today", type=_today, default=None, help="YYYY-MM-DD (default: today)"
+    )
     review_parser.set_defaults(func=cmd_review)
-    fetch_parser = sub.add_parser("fetch-sources", help="download literature note urls into .sources/")
+    fetch_parser = sub.add_parser(
+        "fetch-sources", help="download literature note urls into .sources/"
+    )
     fetch_parser.add_argument("paths", nargs="*", metavar="PATH")
     fetch_parser.add_argument("--force", action="store_true", help="refetch notes already cached")
-    fetch_parser.add_argument("--text-only", action="store_true",
-                              help="no download: write source.txt in cached folders that hold no .txt")
+    fetch_parser.add_argument(
+        "--text-only",
+        action="store_true",
+        help="no download: write source.txt in cached folders that hold no .txt",
+    )
     fetch_parser.set_defaults(func=cmd_fetch_sources)
     eval_parser = sub.add_parser("search-eval", help="measure search recall on docs/search-eval.md")
-    eval_parser.add_argument("--min", type=float, help="exit 1 when recall@10 is below this (replaces the default revisit triggers)")
+    eval_parser.add_argument(
+        "--min",
+        type=float,
+        help="exit 1 when recall@10 is below this (replaces the default revisit triggers)",
+    )
     eval_parser.set_defaults(func=cmd_search_eval)
-    rename_parser = sub.add_parser("rename", help="rename a note in its folder and rewrite the links to it")
+    rename_parser = sub.add_parser(
+        "rename", help="rename a note in its folder and rewrite the links to it"
+    )
     rename_parser.add_argument("note", metavar="NOTE")
     rename_parser.add_argument("new_stem", metavar="NEW-STEM", help="the new file name without .md")
     rename_parser.set_defaults(func=cmd_rename)
-    note_parser = sub.add_parser("note", help="change a note through mem, never by editing its file")
+    note_parser = sub.add_parser(
+        "note", help="change a note through mem, never by editing its file"
+    )
     note_sub = note_parser.add_subparsers(dest="note_command", required=True)
-    note_edit = note_sub.add_parser("edit", help="replace the text of one section, the claim or the topics of a note")
+    note_edit = note_sub.add_parser(
+        "edit", help="replace the text of one section, the claim or the topics of a note"
+    )
     note_edit.add_argument("note", metavar="NOTE", help="a path or a handle, as in mem show")
-    note_edit.add_argument("--section", metavar="HEADING", help="the `## ` heading whose text is replaced")
-    note_edit.add_argument("--body-file", metavar="PATH", help="the new section text; - reads standard input")
-    note_edit.add_argument("--claim", metavar="TEXT", help="the new frontmatter claim (one sentence)")
-    note_edit.add_argument("--topics", metavar="A,B", help="the new topic ids: in topics.yaml, in the note's domain")
-    note_edit.add_argument("--shrink", action="store_true",
-                           help="accept a text that drops over 20%% of the words, a sentence or a link")
+    note_edit.add_argument(
+        "--section", metavar="HEADING", help="the `## ` heading whose text is replaced"
+    )
+    note_edit.add_argument(
+        "--body-file", metavar="PATH", help="the new section text; - reads standard input"
+    )
+    note_edit.add_argument(
+        "--claim", metavar="TEXT", help="the new frontmatter claim (one sentence)"
+    )
+    note_edit.add_argument(
+        "--topics", metavar="A,B", help="the new topic ids: in topics.yaml, in the note's domain"
+    )
+    note_edit.add_argument(
+        "--shrink",
+        action="store_true",
+        help="accept a text that drops over 20%% of the words, a sentence or a link",
+    )
     note_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     note_parser.set_defaults(func=cmd_note)
-    for verb, what in (("confirm", "append a source-confirmed line to the note's Evidence section"),
-                       ("dispute", "mark the note as contradicted by a source (the claim stays as it is)")):
+    for verb, what in (
+        ("confirm", "append a source-confirmed line to the note's Evidence section"),
+        ("dispute", "mark the note as contradicted by a source (the claim stays as it is)"),
+    ):
         marked = note_sub.add_parser(verb, help=what)
-        marked.add_argument("note", metavar="NOTE", help="a path or a handle of a knowledge note, as in mem show")
+        marked.add_argument(
+            "note", metavar="NOTE", help="a path or a handle of a knowledge note, as in mem show"
+        )
         marked.add_argument("--fact", metavar="TEXT", help="what the source says about the claim")
         marked.add_argument("--source", metavar="URL", help="the http(s) URL of the page")
         marked.add_argument("--quote", metavar="TEXT", help="the words of the page that show it")
         if verb == "dispute":
-            marked.add_argument("--clear", action="store_true", help="remove the mark: the owner settled it")
+            marked.add_argument(
+                "--clear", action="store_true", help="remove the mark: the owner settled it"
+            )
         marked.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
         marked.set_defaults(func=cmd_note_mark)
-    import_parser = sub.add_parser("import", help="copy the notes of another folder of notes into the store; the source is never changed")
-    import_parser.add_argument("source", metavar="SOURCE", help="the folder to read (literature/, knowledge/, research/, topics.yaml)")
-    import_parser.add_argument("--dry-run", action="store_true", help="change nothing; print the report a real run would")
-    import_parser.add_argument("--overwrite", action="store_true", help="replace files that differ (the old text goes to the curation log)")
-    import_parser.add_argument("--with-sources", action="store_true", help="also copy the source's .sources/ folder")
-    import_parser.add_argument("--research-data", action="store_true",
-                               help="also copy the data and code under research/ (by default only its Markdown files)")
+    import_parser = sub.add_parser(
+        "import",
+        help="copy the notes of another folder of notes into the store; the source is never changed",
+    )
+    import_parser.add_argument(
+        "source",
+        metavar="SOURCE",
+        help="the folder to read (literature/, knowledge/, research/, topics.yaml)",
+    )
+    import_parser.add_argument(
+        "--dry-run", action="store_true", help="change nothing; print the report a real run would"
+    )
+    import_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="replace files that differ (the old text goes to the curation log)",
+    )
+    import_parser.add_argument(
+        "--with-sources", action="store_true", help="also copy the source's .sources/ folder"
+    )
+    import_parser.add_argument(
+        "--research-data",
+        action="store_true",
+        help="also copy the data and code under research/ (by default only its Markdown files)",
+    )
     import_parser.set_defaults(func=cmd_import)
-    unify_parser = sub.add_parser("unify", help="replace several notes of one type with one, keeping the others as "
-                                                 "superseded files and pointing their links at it")
+    unify_parser = sub.add_parser(
+        "unify",
+        help="replace several notes of one type with one, keeping the others as "
+        "superseded files and pointing their links at it",
+    )
     unify_parser.add_argument("keep", metavar="KEEP", help="the note that takes the unified text")
     unify_parser.add_argument("others", nargs="+", metavar="OTHER", help="notes that KEEP replaces")
-    unify_parser.add_argument("--body-file", required=True, metavar="PATH",
-                              help="the unified body (after the frontmatter); - reads standard input")
+    unify_parser.add_argument(
+        "--body-file",
+        required=True,
+        metavar="PATH",
+        help="the unified body (after the frontmatter); - reads standard input",
+    )
     unify_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
-    unify_parser.add_argument("--drop", action="store_true",
-                              help="accept a unified text that lacks a link the notes had")
+    unify_parser.add_argument(
+        "--drop", action="store_true", help="accept a unified text that lacks a link the notes had"
+    )
     unify_parser.set_defaults(func=cmd_unify)
     new_parser = sub.add_parser("new", help="create a note from its template")
     new_sub = new_parser.add_subparsers(dest="type", required=True)
     for note_type, flags in {
-        "literature": {"title": {}, "author": {}, "year": {"type": int}, "kind": {"choices": _KINDS},
-                       "level": {"choices": LEVELS},
-                       "url": {}, "topics": {}, "slug": {}},
-        "knowledge": {"slug": {}, "claim": {}, "topics": {}, "confidence": {"choices": _CONFIDENCE},
-                      "level": {"choices": LEVELS},
-                      "origin": {"choices": _ORIGINS}},
+        "literature": {
+            "title": {},
+            "author": {},
+            "year": {"type": int},
+            "kind": {"choices": _KINDS},
+            "level": {"choices": LEVELS},
+            "url": {},
+            "topics": {},
+            "slug": {},
+        },
+        "knowledge": {
+            "slug": {},
+            "claim": {},
+            "topics": {},
+            "confidence": {"choices": _CONFIDENCE},
+            "level": {"choices": LEVELS},
+            "origin": {"choices": _ORIGINS},
+        },
         "research": {"slug": {}, "title": {}, "question": {}, "topics": {}},
     }.items():
         type_parser = new_sub.add_parser(note_type)
-        type_parser.add_argument("--body-file", metavar="PATH",
-                                 help="text (or - for standard input) that replaces the template body")
+        type_parser.add_argument(
+            "--body-file",
+            metavar="PATH",
+            help="text (or - for standard input) that replaces the template body",
+        )
         for flag, opts in flags.items():
             type_parser.add_argument(f"--{flag}", required=True, **opts)
         if note_type == "knowledge":
-            type_parser.add_argument("--part-of", metavar="s:HANDLE#SECTION",
-                                     help="the synthesis section this note summarizes")
+            type_parser.add_argument(
+                "--part-of",
+                metavar="s:HANDLE#SECTION",
+                help="the synthesis section this note summarizes",
+            )
         type_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
         type_parser.set_defaults(func=cmd_new)
-    remember_parser = sub.add_parser("remember", help="write a memory in the project or, with --global, in the global folder")
+    remember_parser = sub.add_parser(
+        "remember", help="write a memory in the project or, with --global, in the global folder"
+    )
     remember_parser.add_argument("--kind", required=True, choices=records.KINDS)
     remember_parser.add_argument("--claim", required=True)
-    remember_parser.add_argument("--body-file", metavar="PATH", help="text (or - for standard input); may be empty")
+    remember_parser.add_argument(
+        "--body-file", metavar="PATH", help="text (or - for standard input); may be empty"
+    )
     remember_parser.add_argument("--context")
-    remember_parser.add_argument("--short", metavar="TEXT", help="the claim as one line of at most 120 characters, loaded at session start")
+    remember_parser.add_argument(
+        "--short",
+        metavar="TEXT",
+        help="the claim as one line of at most 120 characters, loaded at session start",
+    )
     remember_parser.add_argument("--user-read", action="store_true", help=_USER_READ)
-    remember_parser.add_argument("--topic", metavar="TEXT", help="one or two lowercase words that group rules")
+    remember_parser.add_argument(
+        "--topic", metavar="TEXT", help="one or two lowercase words that group rules"
+    )
     remember_parser.add_argument("--valid-until", type=_today, default=None, metavar="YYYY-MM-DD")
     remember_parser.add_argument("--source", action="append", default=[], metavar="URL_OR_PATH")
-    remember_parser.add_argument("--origin", choices=records.ORIGINS,
-                                 help="where the claim came from when not a session: web (a finding), pipeline (a pipeline's write) "
-                                      "or transcript (a lesson captured from a session transcript)")
-    remember_parser.add_argument("--reach", choices=records.REACHES, help="how far the lesson reaches")
-    remember_parser.add_argument("--weight", choices=records.WEIGHTS,
-                                 help="how much it weighs: light needs 1 session to be established, medium 2, strong 3")
-    remember_parser.add_argument("--outcome", choices=records.OUTCOMES,
-                                 help="what the session showed about the lesson; recorded as a case of its log")
-    remember_parser.add_argument("--seen-on", type=_today, default=None, metavar="YYYY-MM-DD",
-                                 help="the day of the session, when it is not today")
+    remember_parser.add_argument(
+        "--origin",
+        choices=records.ORIGINS,
+        help="where the claim came from when not a session: web (a finding), pipeline (a pipeline's write) "
+        "or transcript (a lesson captured from a session transcript)",
+    )
+    remember_parser.add_argument(
+        "--reach", choices=records.REACHES, help="how far the lesson reaches"
+    )
+    remember_parser.add_argument(
+        "--weight",
+        choices=records.WEIGHTS,
+        help="how much it weighs: light needs 1 session to be established, medium 2, strong 3",
+    )
+    remember_parser.add_argument(
+        "--outcome",
+        choices=records.OUTCOMES,
+        help="what the session showed about the lesson; recorded as a case of its log",
+    )
+    remember_parser.add_argument(
+        "--seen-on",
+        type=_today,
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="the day of the session, when it is not today",
+    )
     remember_parser.add_argument("--global", dest="is_global", action="store_true")
-    remember_parser.add_argument("--force", action="store_true", help="write even when a memory has the same claim")
+    remember_parser.add_argument(
+        "--force", action="store_true", help="write even when a memory has the same claim"
+    )
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     remember_parser.set_defaults(func=cmd_remember)
-    index_cmd = sub.add_parser("session-index", help="print the text that opens a session: usage rules and counts")
-    index_cmd.add_argument("--hook", action="store_true",
-                           help="read the hook's JSON from standard input (its cwd locates the project) and log the call")
-    index_cmd.add_argument("--list", type=int, default=0, metavar="N",
-                           help="also list up to N of the project's newest memories")
+    index_cmd = sub.add_parser(
+        "session-index", help="print the text that opens a session: usage rules and counts"
+    )
+    index_cmd.add_argument(
+        "--hook",
+        action="store_true",
+        help="read the hook's JSON from standard input (its cwd locates the project) and log the call",
+    )
+    index_cmd.add_argument(
+        "--list",
+        type=int,
+        default=0,
+        metavar="N",
+        help="also list up to N of the project's newest memories",
+    )
     index_cmd.set_defaults(func=cmd_session_index)
-    compact_cmd = sub.add_parser("compact-log", help="check the handoff block of a compaction summary and log counts")
-    compact_cmd.add_argument("--hook", action="store_true", help="read the hook's JSON from standard input")
+    compact_cmd = sub.add_parser(
+        "compact-log", help="check the handoff block of a compaction summary and log counts"
+    )
+    compact_cmd.add_argument(
+        "--hook", action="store_true", help="read the hook's JSON from standard input"
+    )
     compact_cmd.set_defaults(func=cmd_compact_log)
-    signal_cmd = sub.add_parser("signal", help="print the records related to a brief read from standard input")
-    signal_cmd.add_argument("--hook", action="store_true",
-                            help="read a PreToolUse hook's JSON from standard input and print the brief with the signal appended")
+    signal_cmd = sub.add_parser(
+        "signal", help="print the records related to a brief read from standard input"
+    )
+    signal_cmd.add_argument(
+        "--hook",
+        action="store_true",
+        help="read a PreToolUse hook's JSON from standard input and print the brief with the signal appended",
+    )
     signal_cmd.set_defaults(func=cmd_signal)
+
     def memory_command(name: str, help_text: str, *handles: str, because: bool = False):
         cmd = sub.add_parser(name, help=help_text)
         for h in handles:
             cmd.add_argument(h, metavar="m:HANDLE")
         if because:
-            cmd.add_argument("--because", metavar="TEXT", help="the reason, appended to the memory's body")
+            cmd.add_argument(
+                "--because", metavar="TEXT", help="the reason, appended to the memory's body"
+            )
             cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
-        cmd.add_argument("--global", dest="is_global", action="store_true",
-                         help="act on the global memory when the handle exists in both scopes")
+        cmd.add_argument(
+            "--global",
+            dest="is_global",
+            action="store_true",
+            help="act on the global memory when the handle exists in both scopes",
+        )
         return cmd
 
-    for name, text in (("confirm", "count one more observation of a memory"),
-                       ("observe", "alias of confirm")):
+    for name, text in (
+        ("confirm", "count one more observation of a memory"),
+        ("observe", "alias of confirm"),
+    ):
         confirm_parser = memory_command(name, text, "handle")
-        confirm_parser.add_argument("--until", metavar="YYYY-MM-DD", help="also set valid_until to this date")
-        confirm_parser.add_argument("--source", metavar="'session ID'",
-                                    help="another session shows it: add it as a source (exit 3 when already one)")
-        confirm_parser.add_argument("--note", metavar="TEXT", help="with --source: a line added to the body")
-        confirm_parser.add_argument("--outcome", choices=records.OUTCOMES,
-                                    help="with --source: what that session showed about the lesson (default seen)")
-        confirm_parser.add_argument("--seen-on", type=_today, default=None, metavar="YYYY-MM-DD",
-                                    help="with --source: the day of that session (default today)")
-        confirm_parser.add_argument("--by-owner", action="store_true",
-                                    help="the owner vouches for a transcript lesson: it is established (exit 3 when already)")
+        confirm_parser.add_argument(
+            "--until", metavar="YYYY-MM-DD", help="also set valid_until to this date"
+        )
+        confirm_parser.add_argument(
+            "--source",
+            metavar="'session ID'",
+            help="another session shows it: add it as a source (exit 3 when already one)",
+        )
+        confirm_parser.add_argument(
+            "--note", metavar="TEXT", help="with --source: a line added to the body"
+        )
+        confirm_parser.add_argument(
+            "--outcome",
+            choices=records.OUTCOMES,
+            help="with --source: what that session showed about the lesson (default seen)",
+        )
+        confirm_parser.add_argument(
+            "--seen-on",
+            type=_today,
+            default=None,
+            metavar="YYYY-MM-DD",
+            help="with --source: the day of that session (default today)",
+        )
+        confirm_parser.add_argument(
+            "--by-owner",
+            action="store_true",
+            help="the owner vouches for a transcript lesson: it is established (exit 3 when already)",
+        )
         confirm_parser.set_defaults(func=cmd_confirm)
-    memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(func=cmd_refute)
-    memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(func=cmd_forget)
+    memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(
+        func=cmd_refute
+    )
+    memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(
+        func=cmd_forget
+    )
     triage_parser = sub.add_parser(
-        "triage", help="decide what a corroborated general lesson becomes",
+        "triage",
+        help="decide what a corroborated general lesson becomes",
         description="Triage is deciding what a corroborated general lesson becomes: one seen in two projects leaves "
-                    "quarantine and waits here (mem curate --global lists it).")
+        "quarantine and waits here (mem curate --global lists it).",
+    )
     triage_sub = triage_parser.add_subparsers(dest="triage_command", required=True)
     triage_hold = triage_sub.add_parser(
-        "hold", help="keep a general lesson out of the rules until the owner decides",
-        description="Hold: a global lesson is set to await triage, with the reason, and stops loading as a rule.")
+        "hold",
+        help="keep a general lesson out of the rules until the owner decides",
+        description="Hold: a global lesson is set to await triage, with the reason, and stops loading as a rule.",
+    )
     triage_hold.add_argument("handle", metavar="m:HANDLE")
-    triage_hold.add_argument("--because", metavar="TEXT", help="why it is held (one line, at most 200 characters)")
-    for verb, text in (("accept", "a general lesson that awaits triage stays a general lesson every project may read"),
-                       ("reject", "a general lesson that awaits triage is retired (mem restore brings it back), and "
-                                  "its project records are marked so they are not promoted again")):
-        triage_verb = triage_sub.add_parser(verb, help=text, description=f"{verb.capitalize()}: {text}.")
+    triage_hold.add_argument(
+        "--because", metavar="TEXT", help="why it is held (one line, at most 200 characters)"
+    )
+    for verb, text in (
+        (
+            "accept",
+            "a general lesson that awaits triage stays a general lesson every project may read",
+        ),
+        (
+            "reject",
+            "a general lesson that awaits triage is retired (mem restore brings it back), and "
+            "its project records are marked so they are not promoted again",
+        ),
+    ):
+        triage_verb = triage_sub.add_parser(
+            verb, help=text, description=f"{verb.capitalize()}: {text}."
+        )
         triage_verb.add_argument("handle", metavar="m:HANDLE")
         if verb == "accept":
-            triage_verb.add_argument("--project-scope", dest="project_scope", action="store_true",
-                                     help="keep the wording of a project lesson that got worse")
+            triage_verb.add_argument(
+                "--project-scope",
+                dest="project_scope",
+                action="store_true",
+                help="keep the wording of a project lesson that got worse",
+            )
     triage_parser.set_defaults(func=cmd_triage)
-    memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(func=cmd_supersede)
-    merge_parser = memory_command("merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop")
-    merge_parser.add_argument("--force", action="store_true", help="merge although the claims differ by a negation or a number")
+    memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(
+        func=cmd_supersede
+    )
+    merge_parser = memory_command(
+        "merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop"
+    )
+    merge_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="merge although the claims differ by a negation or a number",
+    )
     merge_parser.set_defaults(func=cmd_merge)
-    memory_command("distinct", "record that two memories are different claims: the queue stops pairing them",
-                   "a", "b").set_defaults(func=cmd_distinct)
-    memory_command("restore", "put back the text a memory had before its last curation action",
-                   "handle").set_defaults(func=cmd_restore)
-    promote_parser = sub.add_parser("promote", help="print a draft of a global memory from project memories")
-    promote_parser.add_argument("--no", action="store_true", help="record that the memory is not for a global note")
-    promote_parser.add_argument("--done", action="store_true", help="record that the memory was promoted")
-    promote_parser.add_argument("--to", metavar="m:HANDLE", help="with --done: the global memory it was promoted to")
+    memory_command(
+        "distinct",
+        "record that two memories are different claims: the queue stops pairing them",
+        "a",
+        "b",
+    ).set_defaults(func=cmd_distinct)
+    memory_command(
+        "restore", "put back the text a memory had before its last curation action", "handle"
+    ).set_defaults(func=cmd_restore)
+    promote_parser = sub.add_parser(
+        "promote", help="print a draft of a global memory from project memories"
+    )
+    promote_parser.add_argument(
+        "--no", action="store_true", help="record that the memory is not for a global note"
+    )
+    promote_parser.add_argument(
+        "--done", action="store_true", help="record that the memory was promoted"
+    )
+    promote_parser.add_argument(
+        "--to", metavar="m:HANDLE", help="with --done: the global memory it was promoted to"
+    )
     promote_parser.add_argument("handles", nargs="+", metavar="m:HANDLE")
     promote_parser.set_defaults(func=cmd_promote)
     memories_parser = sub.add_parser("memories", help="list memories, newest first")
-    curate_parser = sub.add_parser("curate", help="list what needs a decision: pairs, expired, frequent, unconfirmed")
+    curate_parser = sub.add_parser(
+        "curate", help="list what needs a decision: pairs, expired, frequent, unconfirmed"
+    )
     scope_group = memories_parser.add_mutually_exclusive_group()
-    scope_group.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
+    scope_group.add_argument(
+        "--global", dest="is_global", action="store_true", help="the global memories only"
+    )
     scope_group.add_argument("--all", action="store_true", help="project and global memories")
-    scope_group.add_argument("--project", metavar="NAME", help="the memories of this registered project")
+    scope_group.add_argument(
+        "--project", metavar="NAME", help="the memories of this registered project"
+    )
     curate_scope = curate_parser.add_mutually_exclusive_group()
-    curate_scope.add_argument("--project", dest="is_project", action="store_true", help="the project's memories only")
-    curate_scope.add_argument("--global", dest="is_global", action="store_true", help="the global memories only")
+    curate_scope.add_argument(
+        "--project", dest="is_project", action="store_true", help="the project's memories only"
+    )
+    curate_scope.add_argument(
+        "--global", dest="is_global", action="store_true", help="the global memories only"
+    )
     memories_parser.add_argument("--kind", choices=records.KINDS)
-    memories_parser.add_argument("--quarantine", action="store_true",
-                                 help="only the global lessons in quarantine (not shown anywhere else until corroborated)")
-    memories_parser.add_argument("--dead", action="store_true", help="also list refuted, superseded, forgotten and expired")
+    memories_parser.add_argument(
+        "--quarantine",
+        action="store_true",
+        help="only the global lessons in quarantine (not shown anywhere else until corroborated)",
+    )
+    memories_parser.add_argument(
+        "--dead", action="store_true", help="also list refuted, superseded, forgotten and expired"
+    )
     memories_parser.set_defaults(func=cmd_memories)
-    rules_parser = sub.add_parser("rules", help="print the rules that load at session start; --more lists the rest")
-    rules_parser.add_argument("--more", nargs="?", const=True, default=None, metavar="TOPIC",
-                              help="the lessons left out, grouped by topic; with TOPIC only that group (other: no topic)")
-    rules_parser.add_argument("--layout", choices=rules.LAYOUTS,
-                              help="print the lessons flat or under a heading per topic (default: MEM_RULES_LAYOUT, else flat)")
-    rules_parser.add_argument("--unread", action="store_true",
-                              help="list the short forms a model wrote that nobody read, with their claims")
-    rules_parser.add_argument("--read", nargs="+", metavar="HANDLE",
-                              help="mark short forms as read: the handles, or all of those --unread lists")
+    rules_parser = sub.add_parser(
+        "rules", help="print the rules that load at session start; --more lists the rest"
+    )
+    rules_parser.add_argument(
+        "--more",
+        nargs="?",
+        const=True,
+        default=None,
+        metavar="TOPIC",
+        help="the lessons left out, grouped by topic; with TOPIC only that group (other: no topic)",
+    )
+    rules_parser.add_argument(
+        "--layout",
+        choices=rules.LAYOUTS,
+        help="print the lessons flat or under a heading per topic (default: MEM_RULES_LAYOUT, else flat)",
+    )
+    rules_parser.add_argument(
+        "--unread",
+        action="store_true",
+        help="list the short forms a model wrote that nobody read, with their claims",
+    )
+    rules_parser.add_argument(
+        "--read",
+        nargs="+",
+        metavar="HANDLE",
+        help="mark short forms as read: the handles, or all of those --unread lists",
+    )
     rules_parser.set_defaults(func=cmd_rules)
-    curate_parser.add_argument("--notes", action="store_true",
-                               help="list notes to attach to a synthesis part, and notes older than their part")
-    curate_parser.add_argument("--done", action="store_true", help="record today as the date of the last pass over the scopes covered")
-    curate_parser.add_argument("--new-since", type=float, metavar="EPOCH",
-                               help="print the number of global memories and notes written since EPOCH seconds (and since the last pass)")
-    curate_parser.add_argument("action", nargs="?", choices=["apply"],
-                               help="apply: carry out the safe actions read from --from FILE or stdin (needs --safe)")
-    curate_parser.add_argument("--safe", action="store_true", help="with apply: only merges of equal claims and attaches the part's Sources line backs")
-    curate_parser.add_argument("--from", dest="from_file", metavar="FILE", help="with apply: the action lines (default or -: stdin)")
+    curate_parser.add_argument(
+        "--notes",
+        action="store_true",
+        help="list notes to attach to a synthesis part, and notes older than their part",
+    )
+    curate_parser.add_argument(
+        "--done",
+        action="store_true",
+        help="record today as the date of the last pass over the scopes covered",
+    )
+    curate_parser.add_argument(
+        "--new-since",
+        type=float,
+        metavar="EPOCH",
+        help="print the number of global memories and notes written since EPOCH seconds (and since the last pass)",
+    )
+    curate_parser.add_argument(
+        "action",
+        nargs="?",
+        choices=["apply"],
+        help="apply: carry out the safe actions read from --from FILE or stdin (needs --safe)",
+    )
+    curate_parser.add_argument(
+        "--safe",
+        action="store_true",
+        help="with apply: only merges of equal claims and attaches the part's Sources line backs",
+    )
+    curate_parser.add_argument(
+        "--from",
+        dest="from_file",
+        metavar="FILE",
+        help="with apply: the action lines (default or -: stdin)",
+    )
     curate_parser.set_defaults(func=cmd_curate)
-    settle_parser = sub.add_parser("settle", help="settle new global memories against their look-alikes (verdicts from a file)")
+    settle_parser = sub.add_parser(
+        "settle", help="settle new global memories against their look-alikes (verdicts from a file)"
+    )
     settle_sub = settle_parser.add_subparsers(dest="settle_command", required=True)
-    settle_pending = settle_sub.add_parser("pending", help="list the look-alike pairs with a not yet judged side")
-    settle_pending.add_argument("--json", action="store_true", help="a JSON list: pair, a, b, claim_a, claim_b, newer, flagged_words")
-    settle_apply = settle_sub.add_parser("apply", help="carry out the verdicts the rules allow; refused rows are printed")
-    settle_apply.add_argument("--verdicts", required=True, metavar="FILE",
-                              help='JSON list of {"a", "b", "decision": merge|supersede|distinct|nothing, "reason"}')
+    settle_pending = settle_sub.add_parser(
+        "pending", help="list the look-alike pairs with a not yet judged side"
+    )
+    settle_pending.add_argument(
+        "--json",
+        action="store_true",
+        help="a JSON list: pair, a, b, claim_a, claim_b, newer, flagged_words",
+    )
+    settle_apply = settle_sub.add_parser(
+        "apply", help="carry out the verdicts the rules allow; refused rows are printed"
+    )
+    settle_apply.add_argument(
+        "--verdicts",
+        required=True,
+        metavar="FILE",
+        help='JSON list of {"a", "b", "decision": merge|supersede|distinct|nothing, "reason"}',
+    )
     settle_log = settle_sub.add_parser("log", help="list the settlings not yet acknowledged")
-    settle_log.add_argument("--all", action="store_true", help="every settling, acknowledged and undone ones too")
+    settle_log.add_argument(
+        "--all", action="store_true", help="every settling, acknowledged and undone ones too"
+    )
     settle_sub.add_parser("ack", help="mark every settling acknowledged")
-    settle_undo = settle_sub.add_parser("undo", help="undo settling N: both records back as they were")
+    settle_undo = settle_sub.add_parser(
+        "undo", help="undo settling N: both records back as they were"
+    )
     settle_undo.add_argument("number", type=int, metavar="N")
-    settle_due = settle_sub.add_parser("due", help="exit 0 and print the count when new memories wait and the last apply is older than M minutes")
+    settle_due = settle_sub.add_parser(
+        "due",
+        help="exit 0 and print the count when new memories wait and the last apply is older than M minutes",
+    )
     settle_due.add_argument("--minutes", type=float, required=True, metavar="M")
     settle_parser.set_defaults(func=cmd_settle)
-    ps_parser = sub.add_parser("project-synthesis", help="write, confirm and list the stamped parts of a project's syntheses")
+    ps_parser = sub.add_parser(
+        "project-synthesis",
+        help="write, confirm and list the stamped parts of a project's syntheses",
+    )
     ps_sub = ps_parser.add_subparsers(dest="ps_command", required=True)
-    ps_add = ps_sub.add_parser("add", help="write a part, or replace the one with the same heading; prints p:NAME#HANDLE")
-    ps_add.add_argument("name", metavar="NAME", help="one of: " + ", ".join(project_syntheses.NAMES))
+    ps_add = ps_sub.add_parser(
+        "add", help="write a part, or replace the one with the same heading; prints p:NAME#HANDLE"
+    )
+    ps_add.add_argument(
+        "name", metavar="NAME", help="one of: " + ", ".join(project_syntheses.NAMES)
+    )
     ps_add.add_argument("heading")
-    ps_add.add_argument("--paths", required=True, metavar="A,B", help="the project files or folders the part covers")
-    ps_add.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
+    ps_add.add_argument(
+        "--paths", required=True, metavar="A,B", help="the project files or folders the part covers"
+    )
+    ps_add.add_argument(
+        "--body-file", required=True, metavar="PATH", help="the text (or - for standard input)"
+    )
     ps_confirm = ps_sub.add_parser("confirm", help="stamp a part as checked today, text unchanged")
     ps_confirm.add_argument("part", metavar="p:NAME#HANDLE")
     ps_sub.add_parser("list", help="one line per part: handle, freshness, heading")
     ps_parser.set_defaults(func=cmd_project_synthesis)
-    synthesis_parser = sub.add_parser("synthesis", help="create and extend syntheses, the long documents behind notes")
+    synthesis_parser = sub.add_parser(
+        "synthesis", help="create and extend syntheses, the long documents behind notes"
+    )
     synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
     syn_new = synthesis_sub.add_parser("new", help="create syntheses/<slug>.md with its summary")
     syn_new.add_argument("--title", required=True)
     syn_new.add_argument("--topics", required=True, help="comma-separated topic ids")
     syn_new.add_argument("--slug", required=True)
-    syn_new.add_argument("--summary-file", metavar="PATH", help="the summary (or - for standard input)")
-    syn_add = synthesis_sub.add_parser("add", help="append one section; its text must end with a `Sources:` line")
+    syn_new.add_argument(
+        "--summary-file", metavar="PATH", help="the summary (or - for standard input)"
+    )
+    syn_add = synthesis_sub.add_parser(
+        "add", help="append one section; its text must end with a `Sources:` line"
+    )
     syn_add.add_argument("target", metavar="s:HANDLE")
     syn_add.add_argument("--section", required=True, metavar="HEADING")
-    syn_add.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
-    syn_add.add_argument("--note-slug", metavar="SLUG", help="also write a knowledge note that summarizes the section")
+    syn_add.add_argument(
+        "--body-file", required=True, metavar="PATH", help="the text (or - for standard input)"
+    )
+    syn_add.add_argument(
+        "--note-slug",
+        metavar="SLUG",
+        help="also write a knowledge note that summarizes the section",
+    )
     syn_add.add_argument("--note-claim", metavar="TEXT")
-    syn_add.add_argument("--note-body-file", metavar="PATH", help="the note's body (or - for standard input)")
+    syn_add.add_argument(
+        "--note-body-file", metavar="PATH", help="the note's body (or - for standard input)"
+    )
     syn_add.add_argument("--confidence", choices=_CONFIDENCE)
     syn_add.add_argument("--level", choices=LEVELS)
-    syn_add.add_argument("--origin", choices=_ORIGINS, help="default: taken from the section's Sources line")
-    syn_edit = synthesis_sub.add_parser("edit", help="replace the text of one section; the rest of the file stays")
+    syn_add.add_argument(
+        "--origin", choices=_ORIGINS, help="default: taken from the section's Sources line"
+    )
+    syn_edit = synthesis_sub.add_parser(
+        "edit", help="replace the text of one section; the rest of the file stays"
+    )
     syn_edit.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_edit.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
-    syn_edit.add_argument("--shrink", action="store_true", help="allow a text with fewer words or links than before")
-    syn_edit.add_argument("--drop-references", action="store_true",
-                          help="allow a sentence kept unchanged to lose a reference (a note link in its body)")
-    syn_append = synthesis_sub.add_parser("append", help="add text at the end of a section, before its Sources line")
+    syn_edit.add_argument(
+        "--body-file", required=True, metavar="PATH", help="the text (or - for standard input)"
+    )
+    syn_edit.add_argument(
+        "--shrink", action="store_true", help="allow a text with fewer words or links than before"
+    )
+    syn_edit.add_argument(
+        "--drop-references",
+        action="store_true",
+        help="allow a sentence kept unchanged to lose a reference (a note link in its body)",
+    )
+    syn_append = synthesis_sub.add_parser(
+        "append", help="add text at the end of a section, before its Sources line"
+    )
     syn_append.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_append.add_argument("--body-file", required=True, metavar="PATH", help="the text (or - for standard input)")
-    syn_attach = synthesis_sub.add_parser("attach", help="make a knowledge note the short recall of a section")
+    syn_append.add_argument(
+        "--body-file", required=True, metavar="PATH", help="the text (or - for standard input)"
+    )
+    syn_attach = synthesis_sub.add_parser(
+        "attach", help="make a knowledge note the short recall of a section"
+    )
     syn_attach.add_argument("note", metavar="NOTE")
     syn_attach.add_argument("target", metavar="s:HANDLE#SECTION")
-    syn_rename = synthesis_sub.add_parser("rename", help="rename a section's heading; its notes follow")
+    syn_rename = synthesis_sub.add_parser(
+        "rename", help="rename a section's heading; its notes follow"
+    )
     syn_rename.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_rename.add_argument("heading", metavar="NEW_HEADING")
-    syn_remove = synthesis_sub.add_parser("remove", help="take a section out; its notes lose part_of")
+    syn_remove = synthesis_sub.add_parser(
+        "remove", help="take a section out; its notes lose part_of"
+    )
     syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
     syn_detach.add_argument("note", metavar="NOTE")
-    syn_refs = synthesis_sub.add_parser("refs", help="add or remove inline note references from a file of proposals")
+    syn_refs = synthesis_sub.add_parser(
+        "refs", help="add or remove inline note references from a file of proposals"
+    )
     syn_refs.add_argument("target", metavar="s:HANDLE")
-    syn_refs.add_argument("--file", required=True, metavar="PATH",
-                          help="one proposal per line: SECTION | UNIT | add TARGET  or  SECTION | UNIT | remove TARGET")
+    syn_refs.add_argument(
+        "--file",
+        required=True,
+        metavar="PATH",
+        help="one proposal per line: SECTION | UNIT | add TARGET  or  SECTION | UNIT | remove TARGET",
+    )
     syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
     syn_topics.add_argument("target", metavar="s:HANDLE")
     syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")
@@ -5876,64 +7943,124 @@ def build_parser() -> argparse.ArgumentParser:
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
     synthesis_parser.set_defaults(func=cmd_synthesis)
-    terms_parser = sub.add_parser("terms", help="manage the terms that must not reach the global scope")
+    terms_parser = sub.add_parser(
+        "terms", help="manage the terms that must not reach the global scope"
+    )
     terms_sub = terms_parser.add_subparsers(dest="terms_command", required=True)
     terms_sub.add_parser("list", help="print hard<TAB>term and soft<TAB>term lines")
     terms_add = terms_sub.add_parser("add", help="add a term to the list")
     terms_add.add_argument("term")
-    terms_add.add_argument("--soft", action="store_true", help="a soft term: the owner must approve a write that holds it")
-    terms_add.add_argument("--kind", choices=records.TERM_KINDS, help="with --soft: only for this kind of memory, or note or synthesis")
-    terms_remove = terms_sub.add_parser("remove", help="remove every line that holds exactly this term")
+    terms_add.add_argument(
+        "--soft",
+        action="store_true",
+        help="a soft term: the owner must approve a write that holds it",
+    )
+    terms_add.add_argument(
+        "--kind",
+        choices=records.TERM_KINDS,
+        help="with --soft: only for this kind of memory, or note or synthesis",
+    )
+    terms_remove = terms_sub.add_parser(
+        "remove", help="remove every line that holds exactly this term"
+    )
     terms_remove.add_argument("term")
     terms_parser.set_defaults(func=cmd_terms)
-    projects_parser = sub.add_parser("projects", help="the local registry of projects whose memories can be searched")
+    projects_parser = sub.add_parser(
+        "projects", help="the local registry of projects whose memories can be searched"
+    )
     projects_sub = projects_parser.add_subparsers(dest="projects_command", required=True)
     projects_sub.add_parser("list", help="one line per project: name, live memories, path")
     projects_add = projects_sub.add_parser("add", help="register a project by hand")
     projects_add.add_argument("path")
     projects_add.add_argument("--name")
-    projects_remove = projects_sub.add_parser("remove", help="forget a project; its files are not touched")
+    projects_remove = projects_sub.add_parser(
+        "remove", help="forget a project; its files are not touched"
+    )
     projects_remove.add_argument("name")
     projects_parser.set_defaults(func=cmd_projects)
-    init_parser = sub.add_parser("init", help="make a folder a writable store (default: the default store)")
+    init_parser = sub.add_parser(
+        "init", help="make a folder a writable store (default: the default store)"
+    )
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)
     history_parser = sub.add_parser("history", help="the store's git history: list, init, commit")
-    history_parser.add_argument("-n", type=int, default=10, metavar="N", help="how many commits to list")
+    history_parser.add_argument(
+        "-n", type=int, default=10, metavar="N", help="how many commits to list"
+    )
     history_sub = history_parser.add_subparsers(dest="history_command")
     history_init = history_sub.add_parser("init", help="make a writable store a git repository")
     history_init.add_argument("folder", metavar="STORE", nargs="?")
     history_commit = history_sub.add_parser("commit", help="commit what changed in the store")
     history_commit.add_argument("-m", dest="message", metavar="TEXT", help="the commit message")
-    history_commit.add_argument("--hook", action="store_true",
-                                help="the SessionEnd hook: a `session end` message, silent, always exit 0, log the call")
-    history_commit.add_argument("--detached", action="store_true",
-                                help="with --hook: also log a `started` record before and a `done` one after, so a killed run shows")
+    history_commit.add_argument(
+        "--hook",
+        action="store_true",
+        help="the SessionEnd hook: a `session end` message, silent, always exit 0, log the call",
+    )
+    history_commit.add_argument(
+        "--detached",
+        action="store_true",
+        help="with --hook: also log a `started` record before and a `done` one after, so a killed run shows",
+    )
     history_parser.set_defaults(func=cmd_history)
-    memory_parser = sub.add_parser("memory", help="change a memory through mem, never by editing its file")
+    memory_parser = sub.add_parser(
+        "memory", help="change a memory through mem, never by editing its file"
+    )
     memory_sub = memory_parser.add_subparsers(dest="memory_command", required=True)
-    memory_edit = memory_sub.add_parser("edit", help="replace the claim, the context or the body of a memory")
+    memory_edit = memory_sub.add_parser(
+        "edit", help="replace the claim, the context or the body of a memory"
+    )
     memory_edit.add_argument("handle", metavar="m:HANDLE")
     memory_edit.add_argument("--claim", metavar="TEXT", help="the new claim (one sentence)")
-    memory_edit.add_argument("--context", metavar="TEXT", help="the new context; an empty text removes it")
-    memory_edit.add_argument("--body-file", metavar="PATH", help="the new body; - reads standard input")
-    memory_edit.add_argument("--short", metavar="TEXT", help="the one-line rule loaded at session start; an empty text removes it")
+    memory_edit.add_argument(
+        "--context", metavar="TEXT", help="the new context; an empty text removes it"
+    )
+    memory_edit.add_argument(
+        "--body-file", metavar="PATH", help="the new body; - reads standard input"
+    )
+    memory_edit.add_argument(
+        "--short",
+        metavar="TEXT",
+        help="the one-line rule loaded at session start; an empty text removes it",
+    )
     memory_edit.add_argument("--user-read", action="store_true", help=_USER_READ)
-    memory_edit.add_argument("--reworded", action="store_true",
-                             help="with --short: the automatic step wrote this text; marks the lesson as reworded")
-    memory_edit.add_argument("--reword-failed", action="store_true",
-                             help="alone: note that the automatic rewording gave up on the last version")
-    memory_edit.add_argument("--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it")
+    memory_edit.add_argument(
+        "--reworded",
+        action="store_true",
+        help="with --short: the automatic step wrote this text; marks the lesson as reworded",
+    )
+    memory_edit.add_argument(
+        "--reword-failed",
+        action="store_true",
+        help="alone: note that the automatic rewording gave up on the last version",
+    )
+    memory_edit.add_argument(
+        "--topic", metavar="TEXT", help="one or two lowercase words; an empty text removes it"
+    )
     load_switch = memory_edit.add_mutually_exclusive_group()
-    load_switch.add_argument("--no-load", action="store_true", help="never load this lesson as a rule")
-    load_switch.add_argument("--index-only", action="store_true",
-                             help="never load this lesson as a rule, but count it in the index line by topic")
-    load_switch.add_argument("--load", action="store_true", help="remove --no-load and --index-only")
-    memory_edit.add_argument("--shrink", action="store_true",
-                             help="accept a text that drops over 20%% of the words, a sentence or a link")
+    load_switch.add_argument(
+        "--no-load", action="store_true", help="never load this lesson as a rule"
+    )
+    load_switch.add_argument(
+        "--index-only",
+        action="store_true",
+        help="never load this lesson as a rule, but count it in the index line by topic",
+    )
+    load_switch.add_argument(
+        "--load", action="store_true", help="remove --no-load and --index-only"
+    )
+    memory_edit.add_argument(
+        "--shrink",
+        action="store_true",
+        help="accept a text that drops over 20%% of the words, a sentence or a link",
+    )
     memory_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
-    memory_edit.add_argument("--global", dest="is_global", action="store_true",
-                             help="edit the global memory when the handle exists in both scopes")
+    memory_edit.add_argument(
+        "--global",
+        dest="is_global",
+        action="store_true",
+        help="edit the global memory when the handle exists in both scopes",
+    )
     memory_parser.set_defaults(func=cmd_memory)
     return parser
 
@@ -5953,17 +8080,31 @@ def _dispatch(argv: list[str] | None) -> int:
     if refusal := safe_io.sandbox_refusal(args.command, vars(args)):
         print(f"mem: {refusal}", file=sys.stderr)
         return 2
-    if args.command in ("init", "terms", "history"):  # history finds its own store: `history init` may name one
+    if args.command in (
+        "init",
+        "terms",
+        "history",
+    ):  # history finds its own store: `history init` may name one
         return args.func(args)
-    if args.command in _NO_STORE_NEEDED:  # a project memory needs no store; a missing one is an error only where used
+    if (
+        args.command in _NO_STORE_NEEDED
+    ):  # a project memory needs no store; a missing one is an error only where used
         root = resolve_root(args.root, os.environ)
         args.root = root
         return args.func(args)
     root = resolve_root(args.root, os.environ)
-    if args.command == "search" and args.scope == "memories" and (root is None or not root.is_dir()):
+    if (
+        args.command == "search"
+        and args.scope == "memories"
+        and (root is None or not root.is_dir())
+    ):
         args.root = None  # memories need no store; only a project or a global folder
         return args.func(args)
-    if args.command == "show" and all(a.startswith(("m:", "p:")) or _find_memory(args, a) for a in args.paths) and (root is None or not root.is_dir()):
+    if (
+        args.command == "show"
+        and all(a.startswith(("m:", "p:")) or _find_memory(args, a) for a in args.paths)
+        and (root is None or not root.is_dir())
+    ):
         args.root = None
         return args.func(args)
     if root is None:
@@ -5975,10 +8116,15 @@ def _dispatch(argv: list[str] | None) -> int:
     if not root.is_dir():
         print(f"mem: the store folder does not exist: {root}", file=sys.stderr)
         return 2
-    writes = args.command in _WRITE_COMMANDS or (args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES)
+    writes = args.command in _WRITE_COMMANDS or (
+        args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES
+    )
     if writes and not records.store_is_writable(root):
-        print(f"mem: {args.command} writes to the store, which is read-only: it has no mem-store.yaml "
-              '(create a store with "mem init").', file=sys.stderr)
+        print(
+            f"mem: {args.command} writes to the store, which is read-only: it has no mem-store.yaml "
+            '(create a store with "mem init").',
+            file=sys.stderr,
+        )
         return 2
     args.root_source = store_source(args.root, os.environ)
     args.root = root
