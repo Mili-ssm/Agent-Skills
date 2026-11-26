@@ -11,7 +11,7 @@ import os
 import shutil
 from pathlib import Path
 
-import safe_io
+from core import safe_io
 
 STALE_RUNNING_SECONDS = 3600  # a `running` status older than this is a run that was killed
 LOCK_NAME = "run.lock"

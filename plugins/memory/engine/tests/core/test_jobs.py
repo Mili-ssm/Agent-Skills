@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-import jobs
+from core import jobs
 
 
 def test_a_held_lock_reads_true_and_a_released_one_false(tmp_path: Path):

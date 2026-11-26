@@ -6,8 +6,8 @@ import sys
 import time
 from pathlib import Path
 
-import jobs
 from capture import state as capture_state
+from core import jobs
 
 OFFSET = 42
 PRIVATE_FILE = 0o600

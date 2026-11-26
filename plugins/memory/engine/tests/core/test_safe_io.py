@@ -3,12 +3,11 @@ import os
 import stat
 from pathlib import Path
 
-import jobs
 import mem
 import project_syntheses as ps
 import pytest
 import records
-import safe_io
+from core import jobs, safe_io
 from settle import verdicts as settle_verdicts
 
 TODAY = datetime.date(2026, 11, 24)
@@ -303,9 +302,13 @@ def test_append_text_closes_the_fd_when_fdopen_fails(tmp_path, monkeypatch):
 
 
 def test_no_predictable_temp_names_remain():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[3]
     files = [
-        *root.joinpath("engine").glob("*.py"),
+        *(
+            p
+            for p in root.joinpath("engine").rglob("*.py")
+            if "tests" not in p.relative_to(root).parts
+        ),
         *(p for p in root.joinpath("bin").iterdir() if p.is_file()),
     ]
     assert files

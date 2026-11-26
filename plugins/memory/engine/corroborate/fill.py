@@ -15,10 +15,10 @@ import time
 from pathlib import Path
 from typing import NamedTuple
 
-import jobs
 import records
 import rules
 import shortcheck
+from core import jobs
 
 from corroborate import decide as corroborate_decide
 from corroborate import run as corroborate_run

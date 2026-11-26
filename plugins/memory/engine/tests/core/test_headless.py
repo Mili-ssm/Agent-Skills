@@ -4,9 +4,9 @@ import re
 import subprocess
 from pathlib import Path
 
-import headless
 import pytest
-from headless import Raw, Session
+from core import headless
+from core.headless import Raw, Session
 
 BANNED = ("override", "batched", "TypeAliasType")
 

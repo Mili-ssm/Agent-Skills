@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict, Unpack
 
-import safe_io
+from core import safe_io
 
 if TYPE_CHECKING:
     from collections.abc import Callable

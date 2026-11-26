@@ -196,7 +196,7 @@ PLANNED_PACKAGES = {
 
 
 def test_packages_are_planned_and_edges_frozen():
-    """Packages import each other only along FROZEN_EDGES; `core` and `store` import no feature package."""
+    """Packages import each other only along FROZEN_EDGES (any package may import `core`); `core` imports no other package."""
     assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     new_edges = sorted(
@@ -205,28 +205,24 @@ def test_packages_are_planned_and_edges_frozen():
         if (own := name.split(".")[0]) in PACKAGES
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
-        and target != own
+        and target not in {own, "core"}
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
 
 
 # Engine modules a package may import besides its own and stdlib: its low-level dependencies and the
-# frozen edges to other features, named by today's root modules (they move into `core/`, `store/` and the
-# feature packages in later tasks of backlog A14, which rename them here).
+# frozen edges to other features, named by today's root modules (they move into `store/` in a later task of
+# backlog A14, which renames them here; `core` imports only itself and the standard library).
 PACKAGE_DEPENDENCIES = {
-    "corroborate": {
-        "records", "jobs", "safe_io", "headless", "rules", "shortcheck",
-        "capture", "digest", "synthesize",
-    },
-    "capture": {"records", "jobs"},
-    "settle": {"records", "jobs", "safe_io", "store_git"},
+    "core": set(),
+    "corroborate": {"core", "records", "rules", "shortcheck", "capture", "digest", "synthesize"},
+    "capture": {"core", "records"},
+    "settle": {"core", "records", "store_git"},
     "digest": {"records", "rules", "shortcheck", "digest_text"},
     "session": {"check", "store_git"},
-    "research": {
-        "records", "config", "jobs", "safe_io", "headless", "notes", "synthesize", "mem",
-    },
-}  # fmt: skip
+    "research": {"core", "records", "notes", "synthesize", "mem"},
+}
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
     "corroborate": {"mem"},

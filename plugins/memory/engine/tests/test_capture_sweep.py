@@ -8,9 +8,9 @@ import sys
 import time
 from pathlib import Path
 
-import jobs
 import pytest
 from capture import state as capture_state
+from core import jobs
 from test_capture_auto import (
     CAPTURE,
     SPEC,

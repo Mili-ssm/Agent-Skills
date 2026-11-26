@@ -13,15 +13,14 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-import auto_state
-import jobs
 import pytest
+from core import auto_state, jobs
 from corroborate import state as corroborate_state
 from research import pipeline as research_pipeline
 from settle import state as settle_state
 from synthesize import run as sr
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 DAY = 86400
 NOW = 1_700_100_000.0
 FAILED_AT = 1_700_049_600  # 2023-11-15 12:00 UTC: the same date in every time zone

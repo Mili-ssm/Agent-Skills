@@ -11,8 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-import jobs
-import safe_io
+from core import jobs, safe_io
 
 DEFAULT_BUDGET = 0.25  # USD per session
 

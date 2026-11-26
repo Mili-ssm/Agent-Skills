@@ -11,15 +11,15 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-import headless
 import pytest
+from core import headless
 from corroborate import run as corroborate_run
 from research import pipeline as research_pipeline
 from synthesize import pipeline as synth_pipeline
 from synthesize import references as backfill
 from synthesize import run as sr
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 BUDGET = 0.25
 PROMPT = "the prompt"
 CLAUDE = "claude"

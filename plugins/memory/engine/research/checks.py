@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, TypedDict, TypeGuard, Unpack
 
 import records
-import safe_io
+from core import safe_io
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence

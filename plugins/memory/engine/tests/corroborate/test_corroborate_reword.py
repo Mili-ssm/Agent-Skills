@@ -5,9 +5,9 @@ import json
 import os
 import subprocess
 
-import jobs
 import pytest
 import records
+from core import jobs
 from corroborate import reword as corroborate_reword
 from corroborate import run as corroborate_run
 from corroborate_world import (

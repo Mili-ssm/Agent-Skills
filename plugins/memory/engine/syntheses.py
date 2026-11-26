@@ -20,8 +20,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
 import records
-import safe_io
 import yaml
+from core import safe_io
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

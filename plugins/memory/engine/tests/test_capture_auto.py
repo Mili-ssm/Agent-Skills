@@ -12,10 +12,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import jobs
 import pytest
 from capture import extract as capture_extract
 from capture import state as capture_state
+from core import jobs
 from test_mem_capture import FAKE, GOOD, OWNER, entry
 
 PLUGIN = Path(__file__).resolve().parents[2]
