@@ -360,29 +360,60 @@ class NoteFilters(TypedDict, total=False):
     superseded: bool
 
 
-def _matching_notes(
-    root: Path,
-    *,
-    type: str | None = None,
-    topic: str | None = None,
-    kind: str | None = None,
-    status: str | None = None,
-    confidence: str | None = None,
-    level: str | None = None,
-    superseded: bool = False,
-) -> list[Note]:
-    """Parsable typed notes matching every filter; unparsable ones are skipped with a warning.
-
-    A note with `superseded_by` is left out unless `superseded`."""
-    wanted = {"kind": kind, "status": status, "confidence": confidence, "level": level}
-    types = {type} if type else set(INDEX_FOLDERS)
+def _search_types(wanted: dict[str, str | None], type_filter: str | None) -> set[str]:
+    """The note types left after the type filter and the type each other filter implies."""
+    types: set[str] = {type_filter} if type_filter else set(INDEX_FOLDERS)
     for key, value in wanted.items():
         if value is not None:
             types &= set(_FIND_TYPES[key]) if key in _FIND_TYPES else {_FIND_ONLY_TYPE[key]}
+    return types
+
+
+def _search_in_scope(meta: dict, scope: set[str] | None) -> bool:
+    """Whether a note lists a topic of `scope`; every note is in scope when there is none."""
+    if scope is None:
+        return True
+    listed = meta.get("topics")
+    return isinstance(listed, list) and bool(
+        scope.intersection(t for t in listed if isinstance(t, str))
+    )
+
+
+def _search_matches(
+    note: Note,
+    types: set[str],
+    wanted: dict[str, str | None],
+    scope: set[str] | None,
+    superseded: bool,
+) -> bool:
+    """Whether a parsed note passes the type, superseded, field and topic filters."""
+    meta = note.meta
+    if note.type not in types:
+        return False
+    if not superseded and meta.get("superseded_by") is not None:
+        return False
+    if any(v is not None and meta.get(k) != v for k, v in wanted.items()):
+        return False
+    return _search_in_scope(meta, scope)
+
+
+def _matching_notes(root: Path, **filters: Unpack[NoteFilters]) -> list[Note]:
+    """Parsable typed notes matching every filter; unparsable ones are skipped with a warning.
+
+    A note with `superseded_by` is left out unless `superseded`."""
+    wanted = {
+        "kind": filters.get("kind"),
+        "status": filters.get("status"),
+        "confidence": filters.get("confidence"),
+        "level": filters.get("level"),
+    }
+    types = _search_types(wanted, filters.get("type"))
+    topic = filters.get("topic")
     known = load_topics(root)
     if topic and topic not in known:
         raise FrontmatterError(_unknown_topic_message(topic, known))
     scope = descendants(known, topic) if topic else None
+    superseded = filters.get("superseded") or False
     result = []
     for note in discover_notes(root):
         if note.error is not None or not isinstance(note.meta, dict):
@@ -391,20 +422,8 @@ def _matching_notes(
                 file=sys.stderr,
             )
             continue
-        meta = note.meta
-        if note.type not in types:
-            continue
-        if not superseded and meta.get("superseded_by") is not None:
-            continue
-        if any(v is not None and meta.get(k) != v for k, v in wanted.items()):
-            continue
-        if scope is not None:
-            listed = meta.get("topics")
-            if not isinstance(listed, list) or not scope.intersection(
-                t for t in listed if isinstance(t, str)
-            ):
-                continue
-        result.append(note)
+        if _search_matches(note, types, wanted, scope, superseded):
+            result.append(note)
     return result
 
 
@@ -771,36 +790,59 @@ def snippet(
     return text if len(text) <= width else text[: width - 1] + "\u2026"
 
 
-def format_hit(
-    note: Note,
-    detail: str,
-    *,
-    score: float | None = None,
-    terms: Sequence[str] = (),
-    weights: Mapping[str, float] | None = None,
-    name: str | None = None,
-) -> list[str]:
+class HitOptions(TypedDict, total=False):
+    """The keyword options of `format_hit`."""
+
+    score: float | None
+    terms: Sequence[str]
+    weights: Mapping[str, float] | None
+    name: str | None
+
+
+def _hit_summary(note: Note) -> list[str]:
+    """The lead section of a note, indented, for the `summary` detail."""
+    body = note.body.splitlines()
+    lead = _LEAD_SECTION.get(note.type) or next(
+        (line[2:].strip() for _, level, line in _headings(body) if level == _SECTION_LEVEL),
+        None,
+    )
+    if lead is None:
+        return []
+    return ["  " + line for line in _sections(body, [lead])[1:] if line.strip()]
+
+
+def _hit_disputed(note: Note) -> bool:
+    return (
+        note.type == "knowledge" and isinstance(note.meta, dict) and bool(note.meta.get("disputed"))
+    )
+
+
+def _hit_body_lines(note: Note, detail: str, options: HitOptions) -> list[str]:
+    """The lines under a hit for the `snippet` and `summary` details; none for the others."""
+    if detail == "summary":
+        return _hit_summary(note)
+    if detail == "snippet" and (
+        text := snippet(note, options.get("terms", ()), weights=options.get("weights"))
+    ):
+        return ["  " + text]
+    return []
+
+
+def format_hit(note: Note, detail: str, **options: Unpack[HitOptions]) -> list[str]:
     """Output lines for one note at a `DETAILS` level; `score` is omitted from the line when None and
     `name` (a short handle) replaces the path."""
+    name = options.get("name")
+    score = options.get("score")
     if detail == "paths":
         return [name or note.rel]
     lines = [(name or note.rel) + ("" if score is None else f"\t{score:.2f}") + f"\t{_title(note)}"]
     if detail == "titles":
-        if note.type == "knowledge" and isinstance(note.meta, dict) and note.meta.get("disputed"):
+        if _hit_disputed(note):
             lines[0] += "  [disputed]"
         return lines
     if (facts := _key_facts(note.type, note.meta)) is not None:
         lines.append("  " + facts)
-    if detail == "snippet" and (text := snippet(note, terms, weights=weights)):
-        lines.append("  " + text)
-    if detail == "summary":
-        body = note.body.splitlines()
-        lead = _LEAD_SECTION.get(note.type) or next(
-            (line[2:].strip() for _, level, line in _headings(body) if level == _SECTION_LEVEL),
-            None,
-        )
-        if lead is not None:
-            lines.extend("  " + line for line in _sections(body, [lead])[1:] if line.strip())
+    lines.extend(_hit_body_lines(note, detail, options))
     return lines
 
 
@@ -889,6 +931,66 @@ def _outline_ranges(lines: list[str], body_line: int) -> list[str]:
     return rows
 
 
+@dataclass(frozen=True)
+class _ShowMode:
+    """How `show` renders a body: whole, as an outline (with line ranges) or as chosen sections."""
+
+    sections: list[str] | None
+    outline: bool
+    ranges: bool
+
+
+def _show_unresolved(arg: str, found: list[str] | None) -> str:
+    """The block for an argument that names no single note; prints the ambiguity to stderr."""
+    if found is None:
+        return f"== {arg}\n(not found)"
+    _ambiguous(arg, found)
+    return f"== {arg}\n(ambiguous: {len(found)} notes match)"
+
+
+def _show_header(note_type: str, meta: Any) -> list[str]:
+    """The lines before the body: what supersedes the note, its key facts and its synthesis."""
+    out = []
+    if isinstance(meta, dict) and isinstance(meta.get("superseded_by"), str):
+        out.append(f"superseded by: {meta['superseded_by']}")
+    if facts := _key_facts(note_type, meta):
+        out.append(facts)
+    if isinstance(meta, dict) and isinstance(meta.get("part_of"), str):
+        ref = "s:" + meta["part_of"]
+        out.append(f"part of: {ref} (extended version: mem show {ref})")
+    return out
+
+
+def _show_body(note_type: str, body: str, body_line: int, mode: _ShowMode) -> list[str]:
+    lines = body.split("\n")
+    if mode.outline and mode.ranges:
+        return _outline_ranges(lines, body_line)
+    if mode.outline:
+        return [f"{body_line + i}: {line}" for i, _, line in _headings(lines)]
+    if mode.sections:
+        return _sections(lines, _expand_conclusion(note_type, lines, mode.sections))
+    return lines
+
+
+def _show_note(path: Path, rel: str, mode: _ShowMode) -> tuple[str, bool]:
+    """The output block of one note and whether its file could be read."""
+    note_type = rel.split("/", 1)[0]
+    try:
+        text = note_files._read_text(path)
+    except FrontmatterError as exc:
+        return f"== {rel}\n({exc})", False
+    try:
+        meta, body, body_line = split_frontmatter(text)
+    except FrontmatterError:
+        meta, body, body_line = None, text, 1
+    out = [
+        f"== {rel}",
+        *_show_header(note_type, meta),
+        *_show_body(note_type, body, body_line, mode),
+    ]
+    return "\n".join(out).rstrip("\n"), True
+
+
 def show(
     root: Path,
     paths: list[str],
@@ -898,51 +1000,21 @@ def show(
     ranges: bool = False,
 ) -> tuple[list[str], list[str], bool]:
     """Blocks of output, one per path; the resolved paths shown; whether every path was found."""
+    mode = _ShowMode(sections, outline, ranges)
     blocks: list[str] = []
     shown: list[str] = []
     ok = True
     for arg in paths:
         path = resolve_note(root, arg)
-        if isinstance(path, list):
-            _ambiguous(arg, path)
-            blocks.append(f"== {arg}\n(ambiguous: {len(path)} notes match)")
-            ok = False
-            continue
-        if path is None:
-            blocks.append(f"== {arg}\n(not found)")
+        if not isinstance(path, Path):
+            blocks.append(_show_unresolved(arg, path))
             ok = False
             continue
         rel = path.relative_to(root.resolve()).as_posix()
         shown.append(rel)
-        out = [f"== {rel}"]
-        note_type = rel.split("/", 1)[0]
-        try:
-            text = note_files._read_text(path)
-        except FrontmatterError as exc:
-            blocks.append(f"== {rel}\n({exc})")
-            ok = False
-            continue
-        try:
-            meta, body, body_line = split_frontmatter(text)
-        except FrontmatterError:
-            meta, body, body_line = None, text, 1
-        if isinstance(meta, dict) and isinstance(meta.get("superseded_by"), str):
-            out.append(f"superseded by: {meta['superseded_by']}")
-        if facts := _key_facts(note_type, meta):
-            out.append(facts)
-        if isinstance(meta, dict) and isinstance(meta.get("part_of"), str):
-            ref = "s:" + meta["part_of"]
-            out.append(f"part of: {ref} (extended version: mem show {ref})")
-        lines = body.split("\n")
-        if outline and ranges:
-            out.extend(_outline_ranges(lines, body_line))
-        elif outline:
-            out.extend(f"{body_line + i}: {line}" for i, _, line in _headings(lines))
-        elif sections:
-            out.extend(_sections(lines, _expand_conclusion(note_type, lines, sections)))
-        else:
-            out.extend(lines)
-        blocks.append("\n".join(out).rstrip("\n"))
+        block, readable = _show_note(path, rel, mode)
+        blocks.append(block)
+        ok = ok and readable
     return blocks, shown, ok
 
 
@@ -963,26 +1035,19 @@ def _knowledge_name_problem(stem: str) -> str | None:
     return None
 
 
-def new_note(
-    root: Path,
-    note_type: str,
-    *,
-    slug: str,
-    topics: list[str],
-    today: datetime.date,
-    body: str | None = None,
-    **fields: Any,
-) -> Path:
-    """Create a note from its template (or with `body` in place of the template body), refusing
-    bad slugs, unknown topics and existing paths."""
-    if note_type not in SCHEMAS:
-        raise NewNoteError(f"unknown note type '{note_type}'")
+def _note_template_and_topics(root: Path, note_type: str) -> tuple[str, dict]:
+    """The template body of a note type and the known topics, from the hub."""
     template = root / "templates" / f"{note_type}.md"
     try:
         _, template_body, _ = split_frontmatter(note_files._read_text(template))
         known = load_topics(root)
     except FrontmatterError as exc:
         raise NewNoteError(f"cannot read template or topics: {exc}") from exc
+    return template_body, known
+
+
+def _note_domain_and_topics(known: dict, topics: list[str]) -> tuple[str, list[str]]:
+    """The root topic (the folder) of the first topic, and every topic with its ancestors."""
     if not topics:
         raise NewNoteError("at least one topic is required")
     for t in topics:
@@ -997,47 +1062,64 @@ def new_note(
     all_topics = list(topics)
     for t in topics:
         all_topics += [a for a in ancestors(known, t) if a not in all_topics]
+    return domain, all_topics
 
-    meta: dict[str, Any] = dict(fields)
-    if note_type == "literature":
-        author = meta.pop("author", "")
-        names = (
-            [a.strip() for a in author.split(",") if a.strip()] if isinstance(author, str) else []
+
+def _note_literature_target(
+    root: Path, domain: str, slug: str, meta: dict[str, Any], today: datetime.date
+) -> tuple[Path, str]:
+    """Fill the literature fields of `meta`; return the target path and the name to check."""
+    author = meta.pop("author", "")
+    names = [a.strip() for a in author.split(",") if a.strip()] if isinstance(author, str) else []
+    meta["authors"] = names
+    first = slugify(names[0]) if names else ""
+    if not first:
+        raise NewNoteError(
+            "author must contain at least one ASCII letter or digit to form the filename"
         )
-        meta["authors"] = names
-        first = slugify(names[0]) if names else ""
-        if not first:
-            raise NewNoteError(
-                "author must contain at least one ASCII letter or digit to form the filename"
-            )
-        if check_rules._starts_with_author(slug.split("-"), first):
-            raise NewNoteError(
-                f"slug '{slug}' repeats the first author '{first}', which the "
-                f"filename already holds: drop '{first}-' from --slug"
-            )
-        if slug.split("-", maxsplit=1)[0] == str(meta.get("year")):
-            raise NewNoteError(
-                f"slug '{slug}' repeats the year; `new` adds '<year>-<author>-' "
-                "itself: pass only the descriptive part as --slug"
-            )
-        name = f"{meta.get('year')}-{first}-{slug}.md"
-        meta["added"] = today.isoformat()
-        target = root / "literature" / domain / name
-        pattern_name = name
-    elif note_type == "knowledge":
-        if problem := _knowledge_name_problem(slug):
-            raise NewNoteError(problem)
-        meta["updated"] = today.isoformat()
-        pattern_name = f"{slug}.md"
-        target = root / "knowledge" / domain / pattern_name
-    else:
-        meta.update(status="idea", started=f"{today:%Y-%m}")
-        pattern_name = f"{today:%Y-%m}-{slug}"
-        target = root / "research" / pattern_name / "README.md"
-    meta["topics"] = all_topics
+    if check_rules._starts_with_author(slug.split("-"), first):
+        raise NewNoteError(
+            f"slug '{slug}' repeats the first author '{first}', which the "
+            f"filename already holds: drop '{first}-' from --slug"
+        )
+    if slug.split("-", maxsplit=1)[0] == str(meta.get("year")):
+        raise NewNoteError(
+            f"slug '{slug}' repeats the year; `new` adds '<year>-<author>-' "
+            "itself: pass only the descriptive part as --slug"
+        )
+    name = f"{meta.get('year')}-{first}-{slug}.md"
+    meta["added"] = today.isoformat()
+    return root / "literature" / domain / name, name
 
-    if not NAME_PATTERNS[note_type].fullmatch(pattern_name):
-        raise NewNoteError(f"invalid name '{pattern_name}': {check_rules._NAME_FIX[note_type]}")
+
+def _note_knowledge_target(
+    root: Path, domain: str, slug: str, meta: dict[str, Any], today: datetime.date
+) -> tuple[Path, str]:
+    """Fill the knowledge fields of `meta`; return the target path and the name to check."""
+    if problem := _knowledge_name_problem(slug):
+        raise NewNoteError(problem)
+    meta["updated"] = today.isoformat()
+    pattern_name = f"{slug}.md"
+    return root / "knowledge" / domain / pattern_name, pattern_name
+
+
+def _note_research_target(
+    root: Path, domain: str, slug: str, meta: dict[str, Any], today: datetime.date
+) -> tuple[Path, str]:
+    """Fill the research fields of `meta`; return the target path and the name to check."""
+    meta.update(status="idea", started=f"{today:%Y-%m}")
+    pattern_name = f"{today:%Y-%m}-{slug}"
+    return root / "research" / pattern_name / "README.md", pattern_name
+
+
+_NOTE_TARGETS = {
+    "literature": _note_literature_target,
+    "knowledge": _note_knowledge_target,
+}
+
+
+def _note_ordered_fields(note_type: str, meta: dict[str, Any]) -> dict[str, Any]:
+    """`meta` in schema order, every value validated; raises on a missing, invalid or extra field."""
     ordered = {}
     for field, validator in SCHEMAS[note_type].items():
         if field not in meta and field in OPTIONAL_FIELDS:
@@ -1050,6 +1132,10 @@ def new_note(
     extra = set(meta) - set(ordered)
     if extra:
         raise NewNoteError(f"unexpected fields for {note_type}: {', '.join(sorted(extra))}")
+    return ordered
+
+
+def _note_refuse_existing(root: Path, note_type: str, target: Path) -> None:
     if note_type == "research" and target.parent.exists():
         raise NewNoteError(
             f"folder {target.parent.relative_to(root).as_posix()} already exists: "
@@ -1057,6 +1143,34 @@ def new_note(
         )
     if target.exists():
         raise NewNoteError(f"{target.relative_to(root).as_posix()} already exists")
+
+
+def new_note(
+    root: Path,
+    note_type: str,
+    *,
+    slug: str,
+    topics: list[str],
+    today: datetime.date,
+    **fields: Any,
+) -> Path:
+    """Create a note from its template (or with the `body` field in place of the template body),
+    refusing bad slugs, unknown topics and existing paths."""
+    if note_type not in SCHEMAS:
+        raise NewNoteError(f"unknown note type '{note_type}'")
+    body = fields.pop("body", None)
+    template_body, known = _note_template_and_topics(root, note_type)
+    domain, all_topics = _note_domain_and_topics(known, topics)
+
+    meta: dict[str, Any] = dict(fields)
+    plan_target = _NOTE_TARGETS.get(note_type, _note_research_target)
+    target, pattern_name = plan_target(root, domain, slug, meta, today)
+    meta["topics"] = all_topics
+
+    if not NAME_PATTERNS[note_type].fullmatch(pattern_name):
+        raise NewNoteError(f"invalid name '{pattern_name}': {check_rules._NAME_FIX[note_type]}")
+    ordered = _note_ordered_fields(note_type, meta)
+    _note_refuse_existing(root, note_type, target)
 
     target.parent.mkdir(parents=True, exist_ok=True)
     safe_io.replace_file(
@@ -1074,6 +1188,16 @@ def new_note(
 
 
 # --- rename --------------------------------------------------------------------
+
+
+def _link_points_at(base: Path, target: str, raw: str, old: Path) -> bool:
+    """Whether the link `target` (`raw` is its path part) in the file `base` points at the file `old`."""
+    if target.startswith(("#", "mailto:")) or check_rules._SCHEME.match(target) or not raw:
+        return False
+    try:
+        return (base.parent / urllib.parse.unquote(raw)).resolve() == old
+    except (OSError, ValueError):
+        return False
 
 
 def _link_edits(
@@ -1099,12 +1223,7 @@ def _link_edits(
         for start, end in reversed(check_rules._target_spans(line, True)):
             target = line[start:end]
             raw = target.split("#", 1)[0]
-            if target.startswith(("#", "mailto:")) or check_rules._SCHEME.match(target) or not raw:
-                continue
-            try:
-                hit = (base.parent / urllib.parse.unquote(raw)).resolve() == old
-            except (OSError, ValueError):
-                continue
+            hit = _link_points_at(base, target, raw, old)
             if hit and new_path is not None:
                 lines[i] = (
                     lines[i][:start]
@@ -1168,12 +1287,8 @@ def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
     return text, count
 
 
-def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
-    """Rename a literature or knowledge note in its folder; return (new path, links rewritten, files changed).
-
-    Every edit is computed before anything is written, so a refusal leaves the hub untouched.
-    """
-    root = root.resolve()
+def _rename_source(root: Path, arg: str) -> Path:
+    """The literature or knowledge note `arg` names exactly, else a refusal."""
     old = resolve_note(root, arg, prefix=False)
     if isinstance(old, list):
         raise NewNoteError(f"ambiguous: {arg} matches {len(old)} notes: {', '.join(old[:10])}")
@@ -1189,37 +1304,47 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
             f"{arg} is not a literature or knowledge note: give its path or exact handle "
             "(no prefix; investigations are not renamed)"
         )
-    kind, stem = parts[0], new_stem.removesuffix(".md")
-    name, new = f"{stem}.md", old.with_name(f"{stem}.md")
+    return old
+
+
+def _rename_keep_literature_prefix(root: Path, old: Path, stem: str) -> None:
+    """Refuse a new literature name that drops the `<year>-<author>-` prefix or repeats it after it."""
+    meta = note_files._read_note("literature", old, root).meta
+    authors = meta.get("authors") if isinstance(meta, dict) else None
+    year, *tokens = old.stem.split("-")
+    slug = (
+        slugify(cast("list[str]", authors)[0])  # `_authors` found a valid list
+        if check_rules._authors(authors) is None
+        else tokens[0]
+    )  # as rule_consistency: may span tokens
+    n = next((k for k in range(1, len(tokens)) if "".join(tokens[:k]) == slug), 1)
+    new_year, *new_tokens = stem.split("-")
+    if new_year != year or tokens[:n] != new_tokens[:n]:
+        raise NewNoteError(f"the name must keep the prefix {'-'.join([year, *tokens[:n]])}-")
+    if (rest := new_tokens[n:]) and (
+        check_rules._starts_with_author(rest, slug) or rest[0] == year
+    ):
+        raise NewNoteError("the name repeats the author or the year after the prefix")
+
+
+def _rename_check_name(root: Path, old: Path, kind: str, stem: str) -> None:
+    """Refuse a new name that breaks the naming rules of the kind or is taken by another note."""
+    name = f"{stem}.md"
     if not NAME_PATTERNS[kind].fullmatch(name):
         raise NewNoteError(f"invalid name '{name}': {check_rules._NAME_FIX[kind]}")
     if kind == "knowledge" and (problem := _knowledge_name_problem(stem)):
         raise NewNoteError(problem)
     if kind == "literature":
-        meta = note_files._read_note(kind, old, root).meta
-        authors = meta.get("authors") if isinstance(meta, dict) else None
-        year, *tokens = old.stem.split("-")
-        slug = (
-            slugify(cast("list[str]", authors)[0])  # `_authors` found a valid list
-            if check_rules._authors(authors) is None
-            else tokens[0]
-        )  # as rule_consistency: may span tokens
-        n = next((k for k in range(1, len(tokens)) if "".join(tokens[:k]) == slug), 1)
-        new_year, *new_tokens = stem.split("-")
-        if new_year != year or tokens[:n] != new_tokens[:n]:
-            raise NewNoteError(f"the name must keep the prefix {'-'.join([year, *tokens[:n]])}-")
-        if (rest := new_tokens[n:]) and (
-            check_rules._starts_with_author(rest, slug) or rest[0] == year
-        ):
-            raise NewNoteError("the name repeats the author or the year after the prefix")
-    if new.exists() or any(
+        _rename_keep_literature_prefix(root, old, stem)
+    if old.with_name(name).exists() or any(
         note_files._handle(p.relative_to(root).as_posix()) == stem
         for _, p in note_files._note_files(root)
     ):
         raise NewNoteError(f"a note named '{stem}' already exists")
-    sources, new_sources = root / SOURCES_DIR / old.stem, root / SOURCES_DIR / stem
-    if new_sources.exists():
-        raise NewNoteError(f"{SOURCES_DIR}/{stem} already exists")
+
+
+def _rename_link_edits(root: Path, old: Path, stem: str) -> tuple[dict[Path, str], int]:
+    """The new text of every markdown file that links to, or names the handle or copy of, `old`; and the count."""
     edits: dict[Path, str] = {}
     links = 0
     copy = f"{SOURCES_DIR}/{old.stem}/"
@@ -1231,21 +1356,40 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
                 f"cannot read {path.relative_to(root).as_posix()} to rewrite its links ({exc}): "
                 "fix it, then rename"
             ) from exc
-        edited, count = _link_edits(text, path, old, name)
+        edited, count = _link_edits(text, path, old, f"{stem}.md")
         count += edited.count(copy)  # a note's text naming its local copy
         edited, named = _rename_handle_fields(edited, old.stem, stem)
         count += named
         if count:
             edits[path], links = edited.replace(copy, f"{SOURCES_DIR}/{stem}/"), links + count
-    locked = [
-        p
-        for p in (*edits, old, old.parent, *((sources, sources.parent) if sources.is_dir() else ()))
-        if not os.access(p, os.W_OK)
-    ]
+    return edits, links
+
+
+def _rename_refuse_locked(root: Path, paths: list[Path]) -> None:
+    locked = [p for p in paths if not os.access(p, os.W_OK)]
     if locked:
         raise NewNoteError(
             f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}"
         )
+
+
+def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
+    """Rename a literature or knowledge note in its folder; return (new path, links rewritten, files changed).
+
+    Every edit is computed before anything is written, so a refusal leaves the hub untouched.
+    """
+    root = root.resolve()
+    old = _rename_source(root, arg)
+    stem = new_stem.removesuffix(".md")
+    new = old.with_name(f"{stem}.md")
+    _rename_check_name(root, old, old.relative_to(root).parts[0], stem)
+    sources, new_sources = root / SOURCES_DIR / old.stem, root / SOURCES_DIR / stem
+    if new_sources.exists():
+        raise NewNoteError(f"{SOURCES_DIR}/{stem} already exists")
+    edits, links = _rename_link_edits(root, old, stem)
+    _rename_refuse_locked(
+        root, [*edits, old, old.parent, *((sources, sources.parent) if sources.is_dir() else ())]
+    )
     originals = {(new if p == old else p): p.read_bytes() for p in (*edits, old)}
     listings = _index_files(root)
     for path, text in edits.items():
@@ -1332,22 +1476,17 @@ def _resolve_notes(root: Path, args: Sequence[str]) -> list[Path]:
     return found
 
 
-def unify_notes(
-    root: Path,
-    keep_arg: str,
-    other_args: Sequence[str],
-    body: str,
-    *,
-    drop: bool,
-    today: datetime.date,
-) -> tuple[Path, int, int]:
-    """Make `keep_arg` the unified note of itself and `other_args`; return (keep path, notes unified, links rewritten).
+@dataclass(frozen=True)
+class UnifyRequest:
+    """What the owner asked `unify_notes` to write: the unified text, whether dropped links are meant, the date."""
 
-    The kept note takes `body`, the union of the topics and the lowest confidence; each other note gets
-    `superseded_by` and stays as a file; every link to an other note in the store points at the kept note.
-    The result must pass `check`, else every file is put back and the problems are raised."""
-    root = root.resolve()
-    paths = _resolve_notes(root, [keep_arg, *other_args])
+    body: str
+    drop: bool
+    today: datetime.date
+
+
+def _unify_readable_notes(root: Path, paths: list[Path]) -> list[Note]:
+    """The parsed notes of `paths`, refusing the same note twice, an unreadable one and mixed types."""
     if len(set(paths)) != len(paths):
         raise NewNoteError("the same note is named twice: unify needs different notes")
     notes = [note_files._read_note(p.relative_to(root).parts[0], p, root) for p in paths]
@@ -1358,7 +1497,11 @@ def unify_notes(
             )
     if len({n.type for n in notes}) > 1:
         raise NewNoteError("the notes are of different types: unify joins notes of one type")
-    keep, others = notes[0], notes[1:]
+    return notes
+
+
+def _unify_refuse_superseded(root: Path, notes: list[Note]) -> None:
+    """Refuse a note already superseded, and any note in the store that a note to unify supersedes."""
     for note in notes:
         if note.meta.get("superseded_by") is not None:
             raise NewNoteError(f"{note.rel} is already superseded by {note.meta['superseded_by']}")
@@ -1369,21 +1512,29 @@ def unify_notes(
                 f"{note.rel} is already superseded by {note.meta['superseded_by']}: unify into the "
                 "note that replaced it, or leave it"
             )
+
+
+def _unify_refuse_lost_links(root: Path, notes: list[Note], body: str, drop: bool) -> None:
+    """Refuse a unified text that drops links of the notes, unless the owner passed `--drop`."""
     unified = {n.rel for n in notes}
     had = set().union(*(_link_targets(root, n) for n in notes))
-    lost = sorted(had - _link_targets(root, dataclasses.replace(keep, body=body)) - unified)
+    lost = sorted(had - _link_targets(root, dataclasses.replace(notes[0], body=body)) - unified)
     if lost and not drop:
         raise NewNoteError(
             f"the unified text drops the links {', '.join(lost)}; use --drop if that is meant."
         )
 
+
+def _unify_keep_text(notes: list[Note], request: UnifyRequest) -> str:
+    """The text of the kept note: the new body, the union of the topics, the lowest confidence."""
+    keep, others = notes[0], notes[1:]
     keep_text = note_files._read_text(keep.path)
     m = _split_frontmatter_block(keep_text)
     if m is None:
         raise NewNoteError(f"{keep.rel} has no frontmatter")
     union = list(keep.meta.get("topics") or [])
     union += [t for o in others for t in (o.meta.get("topics") or []) if t not in union]
-    new_text = _set_field(keep_text[: m.end()] + body, "topics", union)
+    new_text = _set_field(keep_text[: m.end()] + request.body, "topics", union)
     if "confidence" in SCHEMAS[keep.type]:
         ranks = [
             _CONFIDENCE_ORDER.index(n.meta["confidence"])
@@ -1393,12 +1544,28 @@ def unify_notes(
         if ranks:
             new_text = _set_field(new_text, "confidence", _CONFIDENCE_ORDER[min(ranks)])
     if keep.type == "knowledge":
-        new_text = _set_field(new_text, "updated", today.isoformat())
-    edits: dict[Path, str] = {keep.path: new_text}
-    for o in others:
-        edits[o.path] = _set_field(
-            note_files._read_text(o.path), "superseded_by", note_files._handle(keep.rel)
-        )
+        new_text = _set_field(new_text, "updated", request.today.isoformat())
+    return new_text
+
+
+def _unify_current_text(root: Path, path: Path, edits: dict[Path, str]) -> str:
+    """The text of a file as it stands with the edits so far."""
+    original = edits.get(path.resolve())
+    if original is not None:
+        return original
+    try:
+        return note_files._read_text(path)
+    except FrontmatterError as exc:
+        raise NewNoteError(
+            f"cannot read {path.relative_to(root).as_posix()} to rewrite its links ({exc}): "
+            "fix it, then unify"
+        ) from exc
+
+
+def _unify_rewrite_links(
+    root: Path, edits: dict[Path, str], others: list[Note], keep_path: Path
+) -> int:
+    """Point every link to an other note at the kept note, adding the files to `edits`; the count."""
     links = 0
     skip = {o.path for o in others}
     for path in check_rules._markdown_files(root):
@@ -1406,54 +1573,83 @@ def unify_notes(
         if path.resolve() in skip or check_rules._is_index_readme(rel):
             continue
         resolved = path.resolve()
-        original = edits.get(resolved)
-        if original is None:
-            try:
-                original = note_files._read_text(path)
-            except FrontmatterError as exc:
-                raise NewNoteError(
-                    f"cannot read {rel} to rewrite its links ({exc}): fix it, then unify"
-                ) from exc
+        original = _unify_current_text(root, path, edits)
         text = original
         for o in others:
-            text, count = _link_edits(text, resolved, o.path, "", keep.path)
+            text, count = _link_edits(text, resolved, o.path, "", keep_path)
             links += count
         if text != original:
             edits[resolved] = text
-    locked = [p for p in edits if not os.access(p, os.W_OK)]
-    if locked:
-        raise NewNoteError(
-            f"not writable: {', '.join(p.relative_to(root).as_posix() for p in locked)}"
-        )
+    return links
 
-    # Line numbers move with the edit, so a problem is known by its file and message: the store may hold
-    # problems older than this change (an imported note that links a document left behind), and they do not block it.
-    before = collections.Counter((p.path, p.message) for p in check(root))
-    originals = {p: p.read_bytes() for p in edits}
-    listings = _index_files(root)
+
+def _unify_write(root: Path, edits: dict[Path, str]) -> None:
     for path in edits:  # a note resolved outside the store raises ValueError here, before any write
         path.relative_to(root)
     for path, text in edits.items():
         safe_io.replace_file(path, text.encode("utf-8"))
-    problems: list[Problem] = []
+
+
+def _unify_new_problems(
+    root: Path, keep_rel: str, before: collections.Counter[tuple[str, str]]
+) -> list[Problem]:
+    """The `check` problems the edits introduced; an index that cannot be updated is one."""
     try:
         apply_index(root)
         after = check(root)
         more = (
             collections.Counter((p.path, p.message) for p in after) - before
         )  # counted: a second copy is new
-        problems = [p for p in after if (p.path, p.message) in more]
+        return [p for p in after if (p.path, p.message) in more]
     except FrontmatterError as exc:
-        problems = [Problem(keep.rel, 1, f"the index was not updated ({exc})")]
-    if problems:
-        for path, data in originals.items():
-            safe_io.replace_file(path, data)
-        with contextlib.suppress(FrontmatterError, OSError):
-            apply_index(root)
-        raise NewNoteError(
-            f"the unified notes have {len(problems)} problems, so nothing was written:\n"
-            + "\n".join(str(p) for p in problems)
+        return [Problem(keep_rel, 1, f"the index was not updated ({exc})")]
+
+
+def _unify_undo_on_problems(
+    root: Path, originals: dict[Path, bytes], problems: list[Problem]
+) -> None:
+    """With problems, put every file back and raise them; with none, do nothing."""
+    if not problems:
+        return
+    for path, data in originals.items():
+        safe_io.replace_file(path, data)
+    with contextlib.suppress(FrontmatterError, OSError):
+        apply_index(root)
+    raise NewNoteError(
+        f"the unified notes have {len(problems)} problems, so nothing was written:\n"
+        + "\n".join(str(p) for p in problems)
+    )
+
+
+def unify_notes(
+    root: Path, keep_arg: str, other_args: Sequence[str], request: UnifyRequest
+) -> tuple[Path, int, int]:
+    """Make `keep_arg` the unified note of itself and `other_args`; return (keep path, notes unified, links rewritten).
+
+    The kept note takes the request's body, the union of the topics and the lowest confidence; each other note
+    gets `superseded_by` and stays as a file; every link to an other note in the store points at the kept note.
+    The result must pass `check`, else every file is put back and the problems are raised."""
+    root = root.resolve()
+    notes = _unify_readable_notes(root, _resolve_notes(root, [keep_arg, *other_args]))
+    keep, others = notes[0], notes[1:]
+    _unify_refuse_superseded(root, notes)
+    _unify_refuse_lost_links(root, notes, request.body, request.drop)
+
+    edits: dict[Path, str] = {keep.path: _unify_keep_text(notes, request)}
+    for o in others:
+        edits[o.path] = _set_field(
+            note_files._read_text(o.path), "superseded_by", note_files._handle(keep.rel)
         )
+    links = _unify_rewrite_links(root, edits, others, keep.path)
+    _rename_refuse_locked(root, list(edits))
+
+    # Line numbers move with the edit, so a problem is known by its file and message: the store may hold
+    # problems older than this change (an imported note that links a document left behind), and they do not block it.
+    before = collections.Counter((p.path, p.message) for p in check(root))
+    originals = {p: p.read_bytes() for p in edits}
+    listings = _index_files(root)
+    _unify_write(root, edits)
+    _unify_undo_on_problems(root, originals, _unify_new_problems(root, keep.rel, before))
     _log_group(root, _with_changed_listings(originals, listings), "unify")
     return keep.path, len(notes), links
 
@@ -1599,26 +1795,23 @@ def _txt_files(folder: Path) -> list[Path]:
     return [p for p in folder.iterdir() if p.suffix.lower() == ".txt"]
 
 
-def _write_text_copy(folder: Path) -> str | None:
-    """Write `source.txt` from the folder's largest HTML copy, else its largest PDF; None when written, else the reason."""
+def _largest_copy(folder: Path, *patterns: str) -> Path | None:
+    """The largest regular file of the folder matching a pattern (ties by name), symlinks left out."""
+    found = [p for pat in patterns for p in folder.glob(pat) if p.is_file() and not p.is_symlink()]
+    return max(found, key=lambda p: (p.stat().st_size, p.name), default=None)
 
-    def largest(*patterns: str) -> Path | None:
-        found = [
-            p for pat in patterns for p in folder.glob(pat) if p.is_file() and not p.is_symlink()
-        ]
-        return max(found, key=lambda p: (p.stat().st_size, p.name), default=None)
 
-    if _txt_files(folder):
-        return "the folder already holds a .txt"
-    reason = "no HTML or PDF copy"
-    if (page := largest("*.html", "*.htm")) is not None:
-        text = html_to_text(page.read_bytes())
-        if len(text.split()) >= MIN_TEXT_WORDS:
-            safe_io.replace_file(folder / "source.txt", text.encode("utf-8"))
-            return None
-        reason = f"page has under {MIN_TEXT_WORDS} words of text"
-    if (pdf := largest("*.pdf")) is None:
-        return reason
+def _text_from_page(folder: Path, page: Path) -> str | None:
+    """Write `source.txt` from an HTML copy: None when written, else the reason it is too short."""
+    text = html_to_text(page.read_bytes())
+    if len(text.split()) >= MIN_TEXT_WORDS:
+        safe_io.replace_file(folder / "source.txt", text.encode("utf-8"))
+        return None
+    return f"page has under {MIN_TEXT_WORDS} words of text"
+
+
+def _text_from_pdf(folder: Path, pdf: Path) -> str | None:
+    """Write `source.txt` from a PDF copy with `pdftotext`: None when written, else the reason."""
     if not shutil.which("pdftotext"):
         return "pdftotext is not installed"
     try:
@@ -1636,6 +1829,33 @@ def _write_text_copy(folder: Path) -> str | None:
     return f"pdftotext failed with exit {done.returncode}"
 
 
+def _write_text_copy(folder: Path) -> str | None:
+    """Write `source.txt` from the folder's largest HTML copy, else its largest PDF; None when written, else the reason."""
+    if _txt_files(folder):
+        return "the folder already holds a .txt"
+    reason = "no HTML or PDF copy"
+    if (page := _largest_copy(folder, "*.html", "*.htm")) is not None:
+        reason = _text_from_page(folder, page)
+        if reason is None:
+            return None
+    if (pdf := _largest_copy(folder, "*.pdf")) is None:
+        return reason
+    return _text_from_pdf(folder, pdf)
+
+
+def _folder_text_status(folder: Path) -> tuple[str | None, int] | None:
+    """(reason it has no text, words of its text) for a source folder after trying to build `source.txt`;
+    None when the folder already held a `.txt`."""
+    if folder.is_symlink():
+        return f"{SOURCES_DIR}/{folder.name} is a symlink", 0
+    if _txt_files(folder):
+        return None
+    reason = _write_text_copy(folder)
+    if reason is not None:
+        return reason, 0
+    return None, len((folder / "source.txt").read_text(encoding="utf-8").split())
+
+
 def build_missing_texts(root: Path, paths: list[str] | None = None) -> tuple[list[str], bool]:
     """`fetch-sources --text-only`: write `source.txt` in each `.sources/<stem>/` folder that holds no `.txt`.
 
@@ -1648,17 +1868,14 @@ def build_missing_texts(root: Path, paths: list[str] | None = None) -> tuple[lis
         folder = root / SOURCES_DIR / note.path.stem
         if not folder.is_dir():
             continue
-        words = 0
         try:
-            if folder.is_symlink():
-                reason = f"{SOURCES_DIR}/{folder.name} is a symlink"
-            elif _txt_files(folder):
-                had += 1
-                continue
-            elif (reason := _write_text_copy(folder)) is None:
-                words = len((folder / "source.txt").read_text(encoding="utf-8").split())
+            status = _folder_text_status(folder)
         except OSError as exc:
-            reason = str(exc)
+            status = (str(exc), 0)
+        if status is None:
+            had += 1
+            continue
+        reason, words = status
         if reason is None:
             lines.append(f"text {note.rel} ({words} words)")
             written += 1
@@ -1669,6 +1886,82 @@ def build_missing_texts(root: Path, paths: list[str] | None = None) -> tuple[lis
     return lines, not bad
 
 
+@dataclass(frozen=True)
+class _FetchOutcome:
+    """What `fetch_sources` did with one note: the counter to bump, the output line, whether it hit the network."""
+
+    counter: str
+    line: str
+    requested: bool
+
+
+def _fetch_refusal(note: Note, folder: Path, force: bool) -> tuple[str, str] | None:
+    """(counter, output line) when a note's folder rules out a download: a symlink or a cached copy."""
+    if folder.is_symlink():
+        return "failed", f"failed {note.rel}: {SOURCES_DIR}/{folder.name} is a symlink"
+    if not force and folder.is_dir() and any(not p.is_symlink() for p in folder.iterdir()):
+        return "skipped", f"skipped {note.rel} (already cached)"
+    return None
+
+
+def _http_url(note: Note) -> str | None:
+    """The note's `url` when it is a string starting with http:// or https://."""
+    url = note.meta.get("url") if isinstance(note.meta, dict) else None
+    if isinstance(url, str) and urllib.parse.urlparse(url).scheme in {"http", "https"}:
+        return url
+    return None
+
+
+def _download_source(folder: Path, url: str) -> str:
+    """Download `url` into `folder` as `source.<ext>`, dropping other copies of `source.*`; the extension."""
+    data, content_type = _download(url)
+    ext = _source_extension(url, content_type)
+    folder.mkdir(parents=True, exist_ok=True)
+    if ext == "txt" and any(p.name != "source.txt" for p in _txt_files(folder)):
+        raise ValueError("the folder already holds a .txt")
+    for old in folder.glob("source.*"):  # --force: drop copies of another type or a stale text
+        old.unlink()
+    safe_io.replace_file(folder / f"source.{ext}", data)
+    return ext
+
+
+def _fetched_line(note: Note, folder: Path, ext: str) -> str:
+    """The output line of a fetched note; an HTML copy is converted to text, and a failure noted."""
+    if ext == "pdf" and shutil.which("pdftotext") and not _txt_files(folder):
+        with contextlib.suppress(OSError, subprocess.SubprocessError):
+            subprocess.run(
+                ["pdftotext", str(folder / "source.pdf"), str(folder / "source.txt")],
+                check=False,
+                timeout=60,
+                capture_output=True,
+            )
+    line = f"fetched {note.rel}"
+    if ext != "html":
+        return line
+    try:
+        reason = _write_text_copy(folder)
+    except OSError as exc:
+        reason = str(exc)
+    return line if reason is None else f"{line} (no text: {reason})"
+
+
+def _fetch_one(note: Note, folder: Path, force: bool, pause: bool) -> _FetchOutcome:
+    """Download one note's source, sleeping first when `pause` (a request went out before)."""
+    if (refusal := _fetch_refusal(note, folder, force)) is not None:
+        return _FetchOutcome(*refusal, requested=False)
+    url = _http_url(note)
+    if url is None:
+        line = f"failed {note.rel}: url must start with http:// or https://"
+        return _FetchOutcome("failed", line, requested=False)
+    if pause:
+        time.sleep(FETCH_PAUSE)
+    try:
+        ext = _download_source(folder, url)
+    except (OSError, ValueError, http.client.HTTPException) as exc:
+        return _FetchOutcome("failed", f"failed {note.rel}: {exc}", requested=True)
+    return _FetchOutcome("fetched", _fetched_line(note, folder, ext), requested=True)
+
+
 def fetch_sources(
     root: Path, paths: list[str] | None = None, *, force: bool = False
 ) -> tuple[list[str], bool]:
@@ -1677,56 +1970,10 @@ def fetch_sources(
     counts = {"fetched": 0, "skipped": 0, "failed": len(lines)}
     requested = False
     for note in notes:
-        folder = root / SOURCES_DIR / note.path.stem
-        url = note.meta.get("url") if isinstance(note.meta, dict) else None
-        if folder.is_symlink():
-            lines.append(f"failed {note.rel}: {SOURCES_DIR}/{folder.name} is a symlink")
-            counts["failed"] += 1
-            continue
-        if not force and folder.is_dir() and any(not p.is_symlink() for p in folder.iterdir()):
-            lines.append(f"skipped {note.rel} (already cached)")
-            counts["skipped"] += 1
-            continue
-        if not isinstance(url, str) or urllib.parse.urlparse(url).scheme not in {"http", "https"}:
-            lines.append(f"failed {note.rel}: url must start with http:// or https://")
-            counts["failed"] += 1
-            continue
-        if requested:
-            time.sleep(FETCH_PAUSE)
-        requested = True
-        try:
-            data, content_type = _download(url)
-            ext = _source_extension(url, content_type)
-            folder.mkdir(parents=True, exist_ok=True)
-            if ext == "txt" and any(p.name != "source.txt" for p in _txt_files(folder)):
-                raise ValueError("the folder already holds a .txt")
-            for old in folder.glob(
-                "source.*"
-            ):  # --force: drop copies of another type or a stale text
-                old.unlink()
-            safe_io.replace_file(folder / f"source.{ext}", data)
-        except (OSError, ValueError, http.client.HTTPException) as exc:
-            lines.append(f"failed {note.rel}: {exc}")
-            counts["failed"] += 1
-            continue
-        if ext == "pdf" and shutil.which("pdftotext") and not _txt_files(folder):
-            with contextlib.suppress(OSError, subprocess.SubprocessError):
-                subprocess.run(
-                    ["pdftotext", str(folder / "source.pdf"), str(folder / "source.txt")],
-                    check=False,
-                    timeout=60,
-                    capture_output=True,
-                )
-        note_line = f"fetched {note.rel}"
-        if ext == "html":
-            try:
-                reason = _write_text_copy(folder)
-            except OSError as exc:
-                reason = str(exc)
-            if reason is not None:
-                note_line += f" (no text: {reason})"
-        lines.append(note_line)
-        counts["fetched"] += 1
+        outcome = _fetch_one(note, root / SOURCES_DIR / note.path.stem, force, requested)
+        lines.append(outcome.line)
+        counts[outcome.counter] += 1
+        requested = requested or outcome.requested
     lines.append(
         f"fetched {counts['fetched']}, skipped {counts['skipped']}, failed {counts['failed']}"
     )
@@ -1913,6 +2160,28 @@ def _is_outside(root: Path, cwd: Path | None) -> bool:
         return True
 
 
+def _append_usage(
+    root: Path | None, entry: dict[str, Any], env: Mapping[str, str], cwd: Path | None
+) -> None:
+    """Write one usage entry as a line of the log file, unless the log would sit inside the store."""
+    log_path = _usage_log(env)
+    if root is not None:
+        entry["outside"] = _is_outside(root, cwd)
+        # the store is never written by the log
+        if log_path is not None and log_path.resolve().is_relative_to(root.resolve()):
+            return
+    if log_path is None:
+        return
+    # ASCII escapes keep one entry on one line and survive argv that is not valid UTF-8
+    line = (json.dumps(entry) + "\n").encode("ascii")
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, line)  # one write: parallel processes cannot interleave lines
+    finally:
+        os.close(fd)
+
+
 def log_usage(
     root: Path | None,
     entry: dict[str, Any],
@@ -1925,25 +2194,8 @@ def log_usage(
     if env.get("MEM_USAGE_LOG") == "0":
         return
     entry = {"t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
-    try:
-        log_path = _usage_log(env)
-        if root is not None:
-            entry["outside"] = _is_outside(root, cwd)
-            # the store is never written by the log
-            if log_path is not None and log_path.resolve().is_relative_to(root.resolve()):
-                return
-        if log_path is None:
-            return
-        # ASCII escapes keep one entry on one line and survive argv that is not valid UTF-8
-        line = (json.dumps(entry) + "\n").encode("ascii")
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-        try:
-            os.write(fd, line)  # one write: parallel processes cannot interleave lines
-        finally:
-            os.close(fd)
-    except (OSError, ValueError, TypeError):
-        pass
+    with contextlib.suppress(OSError, ValueError, TypeError):
+        _append_usage(root, entry, env, cwd)
 
 
 def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
@@ -2036,34 +2288,53 @@ def _tally_line(tally: records.Tally, until: datetime.date) -> str:
     )
 
 
-def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
+def _memory_facts(m: records.Memory) -> str:
     facts = f"kind: {m.kind} \u00b7 observed {m.observed} \u00b7 status {m.status} \u00b7 created {m.created.isoformat() if m.created else 'undated'}"
     if m.valid_until:
         facts += f" \u00b7 valid until {m.valid_until.isoformat()}"
     if m.context:
         facts += f" \u00b7 context: {m.context}"
-    out = [f"== m:{m.handle} ({m.scope})", facts]
+    return facts
+
+
+def _memory_source_lines(m: records.Memory) -> list[str]:
+    out = []
     if m.sources:
         out.append(f"sources: {', '.join(m.sources)}")
     if m.short:
         out.append(f"short: {m.short}")
-    found = records.tallies(m)
-    ends = [t.since for t in found[1:]] + [datetime.date.today()]
-    out += [_tally_line(t, end) for t, end in zip(found, ends, strict=False)]
-    if m.short_by:
-        out.append(f"short_by: {m.short_by}")
-    if m.triage_reason:
-        out.append(f"held at triage: {m.triage_reason}")
-    if m.topic:
-        out.append(f"topic: {m.topic}")
-    if m.load:
-        out.append(f"load: {m.load}")
-    out += ["", "## Claim", " ".join(m.claim.split())]
+    return out
+
+
+def _memory_tail_lines(m: records.Memory) -> list[str]:
+    """The optional fields after the versions: what shortened it, why triage held it, its topic and load."""
+    fields = (
+        ("short_by", m.short_by),
+        ("held at triage", m.triage_reason),
+        ("topic", m.topic),
+        ("load", m.load),
+    )
+    return [f"{label}: {value}" for label, value in fields if value]
+
+
+def _memory_claim_lines(m: records.Memory, sections: list[str] | None) -> list[str]:
+    """The claim, and the body unless the sections asked for are only the conclusion."""
+    out = ["", "## Claim", " ".join(m.claim.split())]
     if (
         not (sections and any(s.strip().casefold() == "conclusion" for s in sections))
         and m.body.strip()
     ):
         out += ["", m.body.rstrip("\n")]
+    return out
+
+
+def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
+    out = [f"== m:{m.handle} ({m.scope})", _memory_facts(m), *_memory_source_lines(m)]
+    found = records.tallies(m)
+    ends = [t.since for t in found[1:]] + [datetime.date.today()]
+    out += [_tally_line(t, end) for t, end in zip(found, ends, strict=False)]
+    out += _memory_tail_lines(m)
+    out += _memory_claim_lines(m, sections)
     return "\n".join(out)
 
 
@@ -2077,6 +2348,36 @@ def _is_memory_arg(args: argparse.Namespace, arg: str) -> bool:
     if root is not None and resolve_note(root, arg) is not None:
         return False
     return _find_memory(args, arg) is not None
+
+
+def _synthesis_section_block(
+    syn: syntheses.Synthesis, handle: str, section: str, lines: list[str]
+) -> str | None:
+    """The text of one section of a synthesis; None after a message when it has no such section."""
+    found = [s for s in syn.sections if s.handle == section]
+    if not found:
+        print(f"mem: no section {section} in s:{handle}", file=sys.stderr)
+        return None
+    start = found[0].line - 1
+    stop = next((x.line - 1 for x in syn.sections if x.line > found[0].line), len(lines))
+    return "\n".join([f"== s:{handle}#{section}", *lines[start:stop]]).rstrip("\n")
+
+
+def _synthesis_body_lines(args: argparse.Namespace, text: str, lines: list[str]) -> list[str]:
+    """The lines of a whole synthesis `mem show` prints: its outline, the chosen sections or the file."""
+    frontmatter = cast(
+        "re.Match[str]", syntheses._FRONTMATTER.match(text)
+    )  # `syn` parsed this text
+    first = text[: frontmatter.end()].count("\n")
+    body = lines[first:]
+    if args.outline and not args.ranges:
+        return [f"{first + 1 + i}: {line}" for i, _, line in _headings(body)]
+    if args.section and not args.outline:
+        return _sections(body, args.section)
+    if args.all and not args.outline:
+        return lines
+    # a synthesis is long: the outline with ranges is the default, `--all` prints the file
+    return _outline_ranges(body, first + 1)
 
 
 def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
@@ -2095,27 +2396,8 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
         text = syntheses.shown_file(text)
     lines = text.split("\n")
     if section is not None:
-        found = [s for s in syn.sections if s.handle == section]
-        if not found:
-            print(f"mem: no section {section} in s:{handle}", file=sys.stderr)
-            return None
-        start = found[0].line - 1
-        stop = next((x.line - 1 for x in syn.sections if x.line > found[0].line), len(lines))
-        return "\n".join([f"== s:{handle}#{section}", *lines[start:stop]]).rstrip("\n")
-    out = [f"== s:{handle}"]
-    frontmatter = cast(
-        "re.Match[str]", syntheses._FRONTMATTER.match(text)
-    )  # `syn` parsed this text
-    first = text[: frontmatter.end()].count("\n")
-    body = lines[first:]
-    if args.outline and not args.ranges:
-        out.extend(f"{first + 1 + i}: {line}" for i, _, line in _headings(body))
-    elif args.section and not args.outline:
-        out.extend(_sections(body, args.section))
-    elif args.all and not args.outline:
-        out.extend(lines)
-    else:  # a synthesis is long: the outline with ranges is the default, `--all` prints the file
-        out.extend(_outline_ranges(body, first + 1))
+        return _synthesis_section_block(syn, handle, section, lines)
+    out = [f"== s:{handle}", *_synthesis_body_lines(args, text, lines)]
     return "\n".join(out).rstrip("\n")
 
 
@@ -2186,58 +2468,73 @@ def _warn_uncommitted(ref: str) -> None:
     )
 
 
+def _ps_list(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
+    found, broken = project_syntheses.load_each(memory_dir)
+    for name, parts in found.items():
+        for part in parts:
+            print(_part_line(name, part, tree))
+    for path, error in broken:
+        print(f"mem: skipped {path}: {error}", file=sys.stderr)
+    return 1 if broken else 0
+
+
+def _ps_check_name(name: str) -> None:
+    if name not in project_syntheses.NAMES:
+        raise project_syntheses.ProjectSynthesisError(
+            f"unknown project synthesis {name!r}; use one of: {', '.join(project_syntheses.NAMES)}"
+        )
+
+
+def _ps_add(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
+    try:
+        body = _memory_body(args.body_file)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"mem: cannot read the body: {exc}", file=sys.stderr)
+        return 2
+    _ps_check_name(args.name)
+    paths = [p for p in (item.strip() for item in args.paths.split(",")) if p]
+    project_syntheses._check_paths(
+        tree, paths
+    )  # before the secret scan, so a bad path is not reported as a secret
+    if _refuse_secret([args.heading, body]):
+        return 4
+    handle = project_syntheses.write_part(
+        memory_dir, tree, args.name, args.heading, body, paths, datetime.date.today()
+    )
+    ref = f"p:{args.name}#{handle}"
+    print(ref)
+    if project_syntheses.covers_uncommitted(tree, paths):
+        _warn_uncommitted(ref)
+    return 0
+
+
+def _ps_confirm(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
+    name, handle = _split_part_ref(args.part)
+    found = _load_project_syntheses(memory_dir, name)
+    if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
+        raise project_syntheses.Unavailable(
+            f"no part {args.part!r}; parts that exist: {_existing_parts(found)}"
+        )
+    project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
+    print(
+        f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}"
+    )
+    part = next(p for p in found[name] if p.handle == handle)
+    if project_syntheses.covers_uncommitted(tree, part.stamp.paths):
+        _warn_uncommitted(f"p:{name}#{handle}")
+    return 0
+
+
+_PS_HANDLERS = {"list": _ps_list, "add": _ps_add}
+
+
 def cmd_project_synthesis(args: argparse.Namespace) -> int:
     context = _project_synthesis_context()
     if context is None:
         return 2
     memory_dir, tree, _ = context
     try:
-        if args.ps_command == "list":
-            found, broken = project_syntheses.load_each(memory_dir)
-            for name, parts in found.items():
-                for part in parts:
-                    print(_part_line(name, part, tree))
-            for path, error in broken:
-                print(f"mem: skipped {path}: {error}", file=sys.stderr)
-            return 1 if broken else 0
-        if args.ps_command == "add":
-            try:
-                body = _memory_body(args.body_file)
-            except (OSError, UnicodeDecodeError) as exc:
-                print(f"mem: cannot read the body: {exc}", file=sys.stderr)
-                return 2
-            if args.name not in project_syntheses.NAMES:
-                raise project_syntheses.ProjectSynthesisError(
-                    f"unknown project synthesis {args.name!r}; use one of: {', '.join(project_syntheses.NAMES)}"
-                )
-            paths = [p for p in (item.strip() for item in args.paths.split(",")) if p]
-            project_syntheses._check_paths(
-                tree, paths
-            )  # before the secret scan, so a bad path is not reported as a secret
-            if _refuse_secret([args.heading, body]):
-                return 4
-            handle = project_syntheses.write_part(
-                memory_dir, tree, args.name, args.heading, body, paths, datetime.date.today()
-            )
-            ref = f"p:{args.name}#{handle}"
-            print(ref)
-            if project_syntheses.covers_uncommitted(tree, paths):
-                _warn_uncommitted(ref)
-            return 0
-        name, handle = _split_part_ref(args.part)
-        found = _load_project_syntheses(memory_dir, name)
-        if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
-            raise project_syntheses.Unavailable(
-                f"no part {args.part!r}; parts that exist: {_existing_parts(found)}"
-            )
-        project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
-        print(
-            f"p:{name}#{handle}\tconfirmed at {project_syntheses.head_commit(tree) or project_syntheses.NO_COMMIT}"
-        )
-        part = next(p for p in found[name] if p.handle == handle)
-        if project_syntheses.covers_uncommitted(tree, part.stamp.paths):
-            _warn_uncommitted(f"p:{name}#{handle}")
-        return 0
+        return _PS_HANDLERS.get(args.ps_command, _ps_confirm)(args, memory_dir, tree)
     except project_syntheses.ProjectSynthesisError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1 if isinstance(exc, project_syntheses.Unavailable) else 2
@@ -6860,7 +7157,10 @@ def cmd_unify(args: argparse.Namespace) -> int:
         if refused := _check_terms([body], "note", getattr(args, "owner_approved", False)):
             return refused
         keep, count, links = unify_notes(
-            args.root, args.keep, args.others, body, drop=args.drop, today=datetime.date.today()
+            args.root,
+            args.keep,
+            args.others,
+            UnifyRequest(body, args.drop, datetime.date.today()),
         )
     except (NewNoteError, OSError, ValueError, FrontmatterError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
