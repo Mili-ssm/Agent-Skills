@@ -17,6 +17,7 @@ import html.parser
 import http.client
 import io
 import json
+import logging
 import math
 import os
 import re
@@ -92,12 +93,23 @@ if TYPE_CHECKING:
         Note,
     )
 
-# Names that moved out of mem.py into check, notes and index; callers still use `mem.<name>`.
+# Names that live in check, notes and index; callers may still read them from `mem`.
 _MOVED = frozenset({
+    "BASELINE_HEADING",
+    "EXPERIMENT_DIRS",
     "HubLoader",
     "INDEX_END",
     "INDEX_START",
+    "IndexTarget",
     "MAX_FILE_BYTES",
+    "MODEL_SPECIFIC_ROOT",
+    "Note",
+    "REQUIRED_HEADINGS",
+    "REREAD_DAYS",
+    "RESERVED_TOPIC",
+    "RETEST_DAYS",
+    "RULES",
+    "Validator",
     "_BACKTICKS",
     "_BaseLoader",
     "_CODE_SPAN",
@@ -167,7 +179,26 @@ _MOVED = frozenset({
     "_with_index",
     "_yaml_problem",
     "_year",
+    "key_line",
     "leaf_topics",
+    "render_domain_index",
+    "render_index",
+    "rule_consistency",
+    "rule_domain",
+    "rule_file_size",
+    "rule_flat",
+    "rule_handles",
+    "rule_index_fresh",
+    "rule_links",
+    "rule_names",
+    "rule_placeholders",
+    "rule_requirements",
+    "rule_schema",
+    "rule_supersession",
+    "rule_syntheses",
+    "rule_topics_file",
+    "rule_topics_used",
+    "safe_load",
 })
 
 
@@ -177,6 +208,19 @@ def __getattr__(name: str) -> object:
             if hasattr(module, name):
                 return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+logger = logging.getLogger(__name__)
+
+_KEY_VALUE_CELLS = 2  # a two-cell table row: name and value
+_MIN_TITLE_WORDS = 4  # a title shorter than this is too generic to match as a phrase
+_SECTION_LEVEL = 2  # the heading level of a `## ` section
+_NOTE_PATH_PARTS = 3  # `<folder>/<domain>/<file>.md`
+_CLAIM_PREVIEW_CHARS = 160  # a claim longer than this is cut in a listing
+_CURATE_LINE_WORDS = 3  # `merge m:<keep> m:<drop>` and `attach <note> s:<h>#<section>`
+_SETTLE_LOG_CELLS = 3  # `<section> | <unit> | add|remove <target>`
+_SETTLE_ACTION_WORDS = 2  # `add|remove <target>`
+_SPARSE_HITS = 3  # fewer hits than this makes a search look for more
 
 
 _WRITE_COMMANDS = ("new", "note", "rename", "unify", "index", "fetch-sources", "import")
@@ -381,7 +425,7 @@ def _fields(note: Note) -> dict[str, str]:
         for f in ("topics", "authors")
         if isinstance(meta.get(f), list)
     ]
-    return {"title": _title(note), "body": "\n".join(extra + [note.body])}
+    return {"title": _title(note), "body": "\n".join([*extra, note.body])}
 
 
 @dataclass(frozen=True)
@@ -421,7 +465,7 @@ def rank(corpus: Corpus, query: str, *, limit: int = 10) -> list[tuple[Note, flo
     terms = list(dict.fromkeys(tokenize(query)))
     idf = term_idf(corpus, terms)
     scored = []
-    for note, fields, length in zip(corpus.notes, corpus.counts, corpus.lengths):
+    for note, fields, length in zip(corpus.notes, corpus.counts, corpus.lengths, strict=False):
         score = 0.0
         for term in terms:
             tf = sum(
@@ -499,7 +543,12 @@ def eval_rows(root: Path) -> list[tuple[int, str, list[str]]] | None:
         if cells[:1] == ["Query"]:
             in_table = True
             continue
-        if not in_table or len(cells) != 2 or not cells[0] or set(cells[0]) <= set("-: "):
+        if (
+            not in_table
+            or len(cells) != _KEY_VALUE_CELLS
+            or not cells[0]
+            or set(cells[0]) <= set("-: ")
+        ):
             continue
         wanted = [
             os.path.normpath(f"docs/{m.split('#')[0]}").replace(os.sep, "/")
@@ -551,7 +600,11 @@ def _mention_pattern(note: Note) -> re.Pattern[str] | None:
     """Regex for text that names `note` without linking it: its title as a phrase (4+ words), and for a
     literature note also `Surname ... YEAR` (first author's last word, case-sensitive, within 40 characters)."""
     words = re.findall(r"\w+", _title(note))
-    parts = [r"(?i:\b" + r"\W+".join(map(re.escape, words)) + r"\b)"] if len(words) >= 4 else []
+    parts = (
+        [r"(?i:\b" + r"\W+".join(map(re.escape, words)) + r"\b)"]
+        if len(words) >= _MIN_TITLE_WORDS
+        else []
+    )
     authors = note.meta.get("authors")
     if (
         note.type == "literature"
@@ -614,6 +667,10 @@ class NewNoteError(Exception):
     pass
 
 
+class NoteFormatError(ValueError):
+    """A note file that a command cannot edit as it is."""
+
+
 _HEADING = re.compile(r"^(#{1,4})[ \t]+\S")
 
 
@@ -621,14 +678,18 @@ def _headings(lines: list[str]) -> list[tuple[int, int, str]]:
     """(0-based index, level, text) of each Markdown heading outside fenced code."""
     return [
         (i, len(h.group(1)), line)
-        for i, (line, fenced) in enumerate(zip(lines, check_rules._in_fence(lines)))
+        for i, (line, fenced) in enumerate(zip(lines, check_rules._in_fence(lines), strict=False))
         if not fenced and (h := _HEADING.match(line))
     ]
 
 
 def _sections(lines: list[str], wanted: list[str]) -> list[str]:
     """Requested `## ` sections in the note's order, then a message per absent one."""
-    h2 = [(i, line[2:].strip().casefold()) for i, level, line in _headings(lines) if level == 2]
+    h2 = [
+        (i, line[2:].strip().casefold())
+        for i, level, line in _headings(lines)
+        if level == _SECTION_LEVEL
+    ]
     keys = {w.strip().casefold() for w in wanted}
     out: list[str] = []
     seen: set[str] = set()
@@ -637,9 +698,7 @@ def _sections(lines: list[str], wanted: list[str]) -> list[str]:
             seen.add(key)
             end = h2[n + 1][0] if n + 1 < len(h2) else len(lines)
             out.extend(lines[start:end])
-    for w in wanted:
-        if w.strip().casefold() not in seen:
-            out.append(f'(no section "{w}")')
+    out.extend(f'(no section "{w}")' for w in wanted if w.strip().casefold() not in seen)
     return out
 
 
@@ -683,7 +742,7 @@ def snippet(
     fenced = check_rules._in_fence(body)
     lines = [
         line
-        for line, inside in zip(body, fenced)
+        for line, inside in zip(body, fenced, strict=False)
         if not inside
         and line.strip()
         and not line.lstrip().startswith("#")
@@ -725,7 +784,8 @@ def format_hit(
     if detail == "summary":
         body = note.body.splitlines()
         lead = _LEAD_SECTION.get(note.type) or next(
-            (line[2:].strip() for _, level, line in _headings(body) if level == 2), None
+            (line[2:].strip() for _, level, line in _headings(body) if level == _SECTION_LEVEL),
+            None,
         )
         if lead is not None:
             lines.extend("  " + line for line in _sections(body, [lead])[1:] if line.strip())
@@ -793,7 +853,7 @@ _CONCLUSION = {
 
 def _expand_conclusion(note_type: str, lines: list[str], sections: list[str]) -> list[str]:
     """Replace `conclusion` by the note type's lead sections that exist; other kinds get their first `## `."""
-    present = [line[2:].strip() for _, level, line in _headings(lines) if level == 2]
+    present = [line[2:].strip() for _, level, line in _headings(lines) if level == _SECTION_LEVEL]
     lead = [
         n
         for n in _CONCLUSION.get(note_type, present[:1])
@@ -1017,7 +1077,10 @@ def _link_edits(
     lines = text.split("\n")
     masked = check_rules._CODE_SPAN.sub(
         lambda m: re.sub(r"[^\n]", " ", m.group(0)),
-        "\n".join(" " * len(l) if f else l for l, f in zip(lines, check_rules._in_fence(lines))),
+        "\n".join(
+            " " * len(l) if f else l
+            for l, f in zip(lines, check_rules._in_fence(lines), strict=False)
+        ),
     )
     count = 0
     for i, line in enumerate(masked.split("\n")):
@@ -1104,8 +1167,8 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
         raise NewNoteError(f"ambiguous: {arg} matches {len(old)} notes: {', '.join(old[:10])}")
     parts = old.relative_to(root).parts if old else ()
     if (
-        len(parts) != 3
-        or parts[0] not in ("literature", "knowledge")
+        len(parts) != _NOTE_PATH_PARTS
+        or parts[0] not in {"literature", "knowledge"}
         or old.name == "README.md"
         or note_files._is_hidden(old, root)
     ):
@@ -1353,7 +1416,6 @@ def unify_notes(
     before = collections.Counter((p.path, p.message) for p in check(root))
     originals = {p: p.read_bytes() for p in edits}
     listings = _index_files(root)
-    changed = {p.relative_to(root).as_posix() for p in edits}
     for path, text in edits.items():
         safe_io.replace_file(path, text.encode("utf-8"))
     problems: list[Problem] = []
@@ -1369,10 +1431,8 @@ def unify_notes(
     if problems:
         for path, data in originals.items():
             safe_io.replace_file(path, data)
-        try:
+        with contextlib.suppress(FrontmatterError, OSError):
             apply_index(root)
-        except (FrontmatterError, OSError):
-            pass
         raise NewNoteError(
             f"the unified notes have {len(problems)} problems, so nothing was written:\n"
             + "\n".join(str(p) for p in problems)
@@ -1469,14 +1529,14 @@ class _TextExtractor(html.parser.HTMLParser):
         self.main = 0  # open article/main elements: a header inside one is part of the text
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
-        self.main += tag in ("article", "main")
+        self.main += tag in {"article", "main"}
         if tag in _SKIP_TAGS and not (tag == "header" and self.main):
             self.skip.append(tag)
         if tag in _BLOCK_TAGS:
             self.out.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
-        self.main = max(0, self.main - (tag in ("article", "main")))
+        self.main = max(0, self.main - (tag in {"article", "main"}))
         if tag in self.skip:
             del self.skip[len(self.skip) - 1 - self.skip[::-1].index(tag) :]
         if tag in _BLOCK_TAGS:
@@ -1610,7 +1670,7 @@ def fetch_sources(
             lines.append(f"skipped {note.rel} (already cached)")
             counts["skipped"] += 1
             continue
-        if not isinstance(url, str) or urllib.parse.urlparse(url).scheme not in ("http", "https"):
+        if not isinstance(url, str) or urllib.parse.urlparse(url).scheme not in {"http", "https"}:
             lines.append(f"failed {note.rel}: url must start with http:// or https://")
             counts["failed"] += 1
             continue
@@ -1633,15 +1693,13 @@ def fetch_sources(
             counts["failed"] += 1
             continue
         if ext == "pdf" and shutil.which("pdftotext") and not _txt_files(folder):
-            try:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
                 subprocess.run(
                     ["pdftotext", str(folder / "source.pdf"), str(folder / "source.txt")],
                     check=False,
                     timeout=60,
                     capture_output=True,
                 )
-            except (OSError, subprocess.SubprocessError):
-                pass
         note_line = f"fetched {note.rel}"
         if ext == "html":
             try:
@@ -1696,7 +1754,7 @@ def passages(
         n = sum(1 for c in counts if term in c)
         idf[term] = math.log(1 + (len(wins) - n + 0.5) / (n + 0.5))
     scored = []
-    for i, (c, length) in enumerate(zip(counts, lengths)):
+    for i, (c, length) in enumerate(zip(counts, lengths, strict=False)):
         score = sum(
             idf[t] * c[t] * 2.2 / (c[t] + 1.2 * (1 - 0.75 + 0.75 * length / average))
             for t in idf
@@ -1725,7 +1783,7 @@ def _scopes(root: Path, paths: list[str]) -> list[str]:
 
 
 def _in_scopes(rel: str, scopes: list[str]) -> bool:
-    return not scopes or any(s == "." or rel == s or rel.startswith(s + "/") for s in scopes)
+    return not scopes or any(s in {".", rel} or rel.startswith(s + "/") for s in scopes)
 
 
 def _page_footer(offset: int, shown: int, total: int) -> None:
@@ -1889,7 +1947,7 @@ def _register_project(project: Path | None) -> None:
     try:
         records.register_project(data_dir(os.environ), project, datetime.date.today())
     except Exception:
-        pass
+        logger.debug("registering the project failed", exc_info=True)
 
 
 def _named_folder(name: str) -> Path | None:
@@ -1974,7 +2032,7 @@ def _memory_block(m: records.Memory, sections: list[str] | None) -> str:
         out.append(f"short: {m.short}")
     found = records.tallies(m)
     ends = [t.since for t in found[1:]] + [datetime.date.today()]
-    out += [_tally_line(t, end) for t, end in zip(found, ends)]
+    out += [_tally_line(t, end) for t, end in zip(found, ends, strict=False)]
     if m.short_by:
         out.append(f"short_by: {m.short_by}")
     if m.triage_reason:
@@ -2426,6 +2484,7 @@ def session_index(
                     due[label] = due.get(label, 0) + 1
             complete = complete and found.pairs_checked
         except Exception:
+            logger.debug("counting a store folder failed", exc_info=True)
             complete = False  # this folder stays out of the count, so the line says "at least"; the rest prints
 
     if has_store:
@@ -2470,6 +2529,7 @@ def session_index(
         try:
             choice = rules.choose(loaded_project, loaded_global, today)
         except Exception:
+            logger.debug("loading the rules failed", exc_info=True)
             choice = None
     if (
         choice is not None
@@ -2486,8 +2546,8 @@ def session_index(
                     "(mem curate)."
                 )
         except Exception:
-            pass
-    lines = [" ".join(head)] + _INDEX_RULES.split("\n")[1:]
+            logger.debug("the session start usage tally failed", exc_info=True)
+    lines = [" ".join(head), *_INDEX_RULES.split("\n")[1:]]
     if any(m.kind == "state" for m in mine):
         lines.append(_STATUS_LINE)
     if notice:
@@ -2506,6 +2566,7 @@ def session_index(
                 extra = rules.block(choice, layout, digest=digest, topics=topics)
                 extra += rules.index_lines(choice, digest=digest, topics=topics)
             except Exception:  # a failure in the digest leaves the block without it
+                logger.debug("the rules digest failed", exc_info=True)
                 extra = rules.block(choice, "grouped" if layout == "digest" else layout)
                 more = rules.more_line(choice)
                 if more:
@@ -2517,6 +2578,7 @@ def session_index(
                     rules_chars=len("\n".join(extra)),
                 )
         except Exception:
+            logger.debug("the rules block failed", exc_info=True)
             extra = []
     if mine and limit > 0:
         rows = []
@@ -2629,6 +2691,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             try:
                 found = make()
             except Exception:
+                logger.debug("a session start notice failed", exc_info=True)
                 found = None
             if found:
                 notices.append(found)
@@ -2646,6 +2709,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
             tracked=records.tracked_memories(project) if project else frozenset(),
         )
     except Exception:
+        logger.debug("building the session start text failed", exc_info=True)
         text = _INDEX_RULES
         stats.clear()
     print(text)
@@ -2688,7 +2752,9 @@ def cmd_compact_log(args: argparse.Namespace) -> int:
         if args.hook:
             _log_hook({
                 "hook": "post-compact",
-                "trigger": trigger if trigger in ("manual", "auto") else None,
+                "trigger": trigger
+                if isinstance(trigger, str) and trigger in {"manual", "auto"}
+                else None,
                 "session": session
                 if isinstance(session, str) and _SESSION_ID.fullmatch(session)
                 else None,
@@ -2701,7 +2767,7 @@ def cmd_compact_log(args: argparse.Namespace) -> int:
                 "ms": int((time.monotonic() - started) * 1000),
             })
     except Exception:
-        pass
+        logger.debug("logging the compact summary failed", exc_info=True)
     return 0
 
 
@@ -2720,10 +2786,14 @@ def signal_text(strong: Sequence[records.Related], possible: Sequence[records.Re
     def render(items: list[str]) -> str:
         return "\n".join([
             f"[memory] For information: memories related to this task exist (not read yet): {' '.join(items)}",
-            f"{len(strong)} strong, {len(possible)} possibly related. Read one with: mem show m:<handle> "
-            "(they are files in .memory/).",
-            "They are experience, not fact: where one conflicts with this brief, the brief wins and you report "
-            "the conflict.",
+            (
+                f"{len(strong)} strong, {len(possible)} possibly related. Read one with: mem show m:<handle> "
+                "(they are files in .memory/)."
+            ),
+            (
+                "They are experience, not fact: where one conflicts with this brief, the brief wins and you report "
+                "the conflict."
+            ),
         ])
 
     text = render(shown)
@@ -2787,7 +2857,7 @@ def cmd_signal(args: argparse.Namespace) -> int:
         else:
             print(text)
     except Exception:
-        pass
+        logger.debug("the signal hook failed", exc_info=True)
     return 0
 
 
@@ -2985,7 +3055,7 @@ def cmd_remember(args: argparse.Namespace) -> int:
         print("mem: --seen-on cannot be later than today.", file=sys.stderr)
         return 2
     scope = "global" if args.is_global else "project"
-    if args.kind in ("finding", "document") and not args.source:
+    if args.kind in {"finding", "document"} and not args.source:
         print(f"mem: a {args.kind} needs at least one --source.", file=sys.stderr)
         return 2
     try:
@@ -3150,7 +3220,7 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
     }
     order = ("global",) if args.is_global else ("project", "global")
     names = [h.removeprefix("m:") for h in handles]
-    for name, raw in zip(names, handles):
+    for name, raw in zip(names, handles, strict=False):
         if not any(name in loaded[scope] for scope in order):
             print(f"mem: no memory named {raw}", file=sys.stderr)
             return None
@@ -3617,9 +3687,12 @@ def cmd_memory(args: argparse.Namespace) -> int:
         return 2
     if (refused := _check_short_claim(args, claim if claim is not None else m.claim)) is not None:
         return refused
-    if m.scope == "global" and texts:
-        if refused := _check_terms(texts, m.kind, getattr(args, "owner_approved", False)):
-            return refused
+    if (
+        m.scope == "global"
+        and texts
+        and (refused := _check_terms(texts, m.kind, getattr(args, "owner_approved", False)))
+    ):
+        return refused
     log = m.path.parent / records.CURATION_LOG
     log_before = log.read_bytes() if log.exists() else None
     try:
@@ -3712,10 +3785,10 @@ def _merge_pair(keep: records.Memory, drop: records.Memory, today: datetime.date
         changes["body"] = _with_note(
             keep.body, f"Merged from m:{drop.handle} on {today.isoformat()}:", drop.body
         )
-    if "transcript" in (
+    if "transcript" in {
         keep.origin,
         drop.origin,
-    ):  # a session must survive the merge, whichever record holds it
+    }:  # a session must survive the merge, whichever record holds it
         sources = records.normalized_sources([*keep.sources, *drop.sources])
         changes["sources"] = sources
         if keep.origin == "transcript":
@@ -4111,7 +4184,7 @@ RULES_OFF_NOTICE = "Loaded rules are switched off (plugin option loaded_rules): 
 def _rules_layout(arg: str | None = None) -> str:
     """`--layout` wins, then MEM_RULES_LAYOUT (set by the hooks from the option rules_layout); only `grouped` and `digest` switch."""
     env = os.environ.get("MEM_RULES_LAYOUT")
-    return arg or (env if env in ("grouped", "digest") else "flat")
+    return arg or (env if env in {"grouped", "digest"} else "flat")
 
 
 def _rules_digest(
@@ -4122,6 +4195,7 @@ def _rules_digest(
         data = digest.read(data_dir(os.environ))
         return (data, digest.topics_of(global_lessons, today)) if data["topics"] else (None, None)
     except Exception:
+        logger.debug("reading the rules digest failed", exc_info=True)
         return None, None
 
 
@@ -4232,7 +4306,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
         for group in order:
             for m, why in (x for x in shown if x[0].topic == group):
                 claim = _flat(m.claim)
-                claim = claim if len(claim) <= 160 else claim[:159] + "\u2026"
+                claim = (
+                    claim
+                    if len(claim) <= _CLAIM_PREVIEW_CHARS
+                    else claim[: _CLAIM_PREVIEW_CHARS - 1] + "\u2026"
+                )
                 print(
                     f"m:{m.handle}\t{m.scope}\t{why}\t{rules.standing_words(m)}\t{m.topic or '-'}\t{claim}\t{records.mark_words(m) or '-'}"
                 )
@@ -4644,7 +4722,7 @@ def _curate_notes(args: argparse.Namespace) -> int:
         collections.Counter()
     )  # knowledge notes that are part of no synthesis
     for n in live:
-        if n.type in ("knowledge", "literature"):
+        if n.type in {"knowledge", "literature"}:
             own = _own_topics(known, [t for t in n.meta.get("topics", []) if isinstance(t, str)])
             counts.update(own)
             if n.type == "knowledge" and not n.meta.get("part_of"):
@@ -4736,9 +4814,9 @@ def _parse_actions(text: str) -> list[tuple[str, list[str]]]:
         if not line or line.startswith("#"):
             continue
         words = line.split()
-        if words[0] == "merge" and len(words) != 3:
+        if words[0] == "merge" and len(words) != _CURATE_LINE_WORDS:
             raise ValueError(f"malformed line (merge m:<keep> m:<drop>): {line}")
-        if words[0] == "attach" and len(words) != 3:
+        if words[0] == "attach" and len(words) != _CURATE_LINE_WORDS:
             raise ValueError(f"malformed line (attach <note> s:<h>#<section>): {line}")
         out.append((" ".join(words), words))
     return out
@@ -4809,7 +4887,7 @@ def _curate_apply(args: argparse.Namespace) -> int:
     try:
         text = (
             sys.stdin.read()
-            if args.from_file in (None, "-")
+            if args.from_file in {None, "-"}
             else Path(args.from_file).read_text(encoding="utf-8")
         )
         actions = _parse_actions(text)
@@ -4947,7 +5025,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
             root=root,
             tracked=records.tracked_memories(root) if root else frozenset(),
         )
-        for root, (_, _, loaded) in zip(roots, scopes)
+        for root, (_, _, loaded) in zip(roots, scopes, strict=False)
     ]
     nofill = [m for d in found for m in d.nofill]  # `found` is reused below
     unconfirmed = _unconfirmed_handles(every)  # their own category below
@@ -5029,7 +5107,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
             out.append(f"  m:{m.handle}  {state}{'; ' + note if note else ''}  {_flat(m.claim)}")
             found = records.tallies(m)[-2:]
             ends = [t.since for t in found[1:]] + [today]
-            out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends)]
+            out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends, strict=False)]
     held = sum(
         1 for m in every if m.status == "active" and records.quarantined(m)
     )  # a lapsed one is still stored
@@ -5083,7 +5161,7 @@ def cmd_settle(args: argparse.Namespace) -> int:
     if folder is None or not folder.is_dir():
         if command == "due":
             return 1
-        if command in ("pending", "log"):
+        if command in {"pending", "log"}:
             return 0
         print("mem: there is no global memories folder.", file=sys.stderr)
         return 2
@@ -5175,10 +5253,9 @@ def cmd_init(args: argparse.Namespace) -> int:
         args.folder = str(default)
     code = _init_store(Path(args.folder).expanduser())
     if code == 0:
-        try:
+        # the list is made again by the first global write
+        with contextlib.suppress(OSError):
             records.ensure_terms_file(os.environ)
-        except OSError:
-            pass  # the list is made again by the first global write
     return code
 
 
@@ -5803,12 +5880,12 @@ def _refs(args: argparse.Namespace) -> int:
                 continue
             read += 1
             cells = [c.strip() for c in line.split("|", 2)]
-            action = cells[2].split(None, 1) if len(cells) == 3 else []
+            action = cells[2].split(None, 1) if len(cells) == _SETTLE_LOG_CELLS else []
             if not (
-                len(cells) == 3
+                len(cells) == _SETTLE_LOG_CELLS
                 and cells[1].isdigit()
-                and len(action) == 2
-                and action[0] in ("add", "remove")
+                and len(action) == _SETTLE_ACTION_WORDS
+                and action[0] in {"add", "remove"}
             ):
                 refused.append(
                     f"refused: {line.strip()}: not `<section> | <unit> | add|remove <target>`"
@@ -5842,7 +5919,9 @@ def _refs(args: argparse.Namespace) -> int:
                 refused += [f"refused: {line}: {why}" for line, *_ in items]
                 continue
 
-            def attempt(picked: list[int]) -> tuple[str, list[str | None], str | None]:
+            def attempt(
+                picked: list[int], part=part, items=items
+            ) -> tuple[str, list[str | None], str | None]:
                 text, why_not = syntheses.change_references(
                     part.text, folder, [(items[i][1], items[i][2], items[i][3]) for i in picked]
                 )
@@ -5871,12 +5950,20 @@ def _refs(args: argparse.Namespace) -> int:
                     else:
                         kept.append(i)
                 new = attempt(kept)[0]
-            added = sum(1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "add")
+            added = sum(
+                1
+                for (_, _, op, _), r in zip(items, reasons, strict=False)
+                if r is None and op == "add"
+            )
             removed = sum(
-                1 for (_, _, op, _), r in zip(items, reasons) if r is None and op == "remove"
+                1
+                for (_, _, op, _), r in zip(items, reasons, strict=False)
+                if r is None and op == "remove"
             )
             failed = [
-                f"refused: {line}: {r}" for (line, *_), r in zip(items, reasons) if r is not None
+                f"refused: {line}: {r}"
+                for (line, *_), r in zip(items, reasons, strict=False)
+                if r is not None
             ]
             refused += failed
             counts.append(
@@ -5998,10 +6085,8 @@ def _add_with_note(
             target.unlink(missing_ok=True)
             if created:
                 shutil.rmtree(target.parent, ignore_errors=True)
-            try:
+            with contextlib.suppress(FrontmatterError, OSError):
                 apply_index(root)
-            except (FrontmatterError, OSError):
-                pass
         undo()
         raise
     return rel
@@ -6028,7 +6113,7 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return 0
     if action == "attach":
         return _attach(args)
-    if action in ("rename", "remove", "detach", "topics"):
+    if action in {"rename", "remove", "detach", "topics"}:
         return _structure(args)
     if action == "refs":
         return _refs(args)
@@ -6312,7 +6397,7 @@ def _edited_note_text(
                 raise ValueError(f"unknown topic '{t}': use an id from topics.yaml")
             domain = path.parent.name
             if (
-                path.parent.parent.name in ("literature", "knowledge")
+                path.parent.parent.name in {"literature", "knowledge"}
                 and root_of(known, t) != domain
             ):
                 raise ValueError(
@@ -6405,7 +6490,7 @@ def cmd_note(args: argparse.Namespace) -> int:
             raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
         meta = split_frontmatter(text)[0]
         if not isinstance(meta, dict):
-            raise ValueError(f"{rel} has no frontmatter mapping")
+            raise NoteFormatError(f"{rel} has no frontmatter mapping")
         today = datetime.date.today()
         new, what = _edited_note_text(
             text,
@@ -6435,7 +6520,7 @@ def _source_mark(fact: str, source: str, quote: str) -> tuple[str, str, str]:
         raise ValueError("the fact and the quote must not be empty")
     parts = urllib.parse.urlsplit(source)
     if (
-        parts.scheme not in ("http", "https")
+        parts.scheme not in {"http", "https"}
         or not parts.netloc
         or check_rules._url(source) is not None
     ):
@@ -6492,7 +6577,7 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
             raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
         meta = split_frontmatter(text)[0]
         if not isinstance(meta, dict):
-            raise ValueError(f"{rel} has no frontmatter mapping")
+            raise NoteFormatError(f"{rel} has no frontmatter mapping")
         today = datetime.date.today().isoformat()
         if action == "confirm":
             host = urllib.parse.urlsplit(source).netloc
@@ -6580,13 +6665,13 @@ def _import_files(
 def _note_kind(rel: str) -> str | None:
     parts = rel.split("/")
     if (
-        parts[0] in ("literature", "knowledge")
-        and len(parts) == 3
+        parts[0] in {"literature", "knowledge"}
+        and len(parts) == _NOTE_PATH_PARTS
         and parts[2].endswith(".md")
         and parts[2] != "README.md"
     ):
         return parts[0]
-    if parts[0] == "research" and len(parts) == 3 and parts[2] == "README.md":
+    if parts[0] == "research" and len(parts) == _NOTE_PATH_PARTS and parts[2] == "README.md":
         return "research"
     return None
 
@@ -6603,7 +6688,7 @@ def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
             raw = (src / rel).read_bytes()
         except OSError:
             continue
-        if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):  # a BOM-marked UTF-16 file holds NULs but is text
+        if raw[:2] in {b"\xff\xfe", b"\xfe\xff"}:  # a BOM-marked UTF-16 file holds NULs but is text
             text = raw.decode("utf-16", errors="ignore")
         elif b"\x00" in raw:
             continue
@@ -6901,7 +6986,7 @@ def cmd_search(args: argparse.Namespace) -> int:
         else []
     )
     more = False
-    for query, ranked, linked in zip(queries, ranks, linkeds):
+    for query, ranked, linked in zip(queries, ranks, linkeds, strict=False):
         result = ranked[args.offset : args.offset + args.limit]
         if args.also:
             print(f"== {query} ==")
@@ -6966,7 +7051,7 @@ def cmd_search(args: argparse.Namespace) -> int:
             print("-- syntheses (extended versions) --")
             for syn, sec in sections:
                 print(f"s:{syn.handle}#{sec.handle}\t{syn.title}: {sec.heading}")
-        if default_type and with_notes and len(result) < 3 and not more:
+        if default_type and with_notes and len(result) < _SPARSE_HITS and not more:
             more = _deeper_hit(args, query, len(result))
         if (
             not args.also and with_notes
@@ -7654,8 +7739,10 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         (
             "reject",
-            "a general lesson that awaits triage is retired (mem restore brings it back), and "
-            "its project records are marked so they are not promoted again",
+            (
+                "a general lesson that awaits triage is retired (mem restore brings it back), and "
+                "its project records are marked so they are not promoted again"
+            ),
         ),
     ):
         triage_verb = triage_sub.add_parser(
@@ -8080,11 +8167,11 @@ def _dispatch(argv: list[str] | None) -> int:
     if refusal := safe_io.sandbox_refusal(args.command, vars(args)):
         print(f"mem: {refusal}", file=sys.stderr)
         return 2
-    if args.command in (
+    if args.command in {
         "init",
         "terms",
         "history",
-    ):  # history finds its own store: `history init` may name one
+    }:  # history finds its own store: `history init` may name one
         return args.func(args)
     if (
         args.command in _NO_STORE_NEEDED
