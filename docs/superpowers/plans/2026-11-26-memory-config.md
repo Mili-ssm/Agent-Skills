@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: planned, pre-mortem amendments applied · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
+Status: implemented on the branch, not merged; § Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
 
 **Goal:** one pure module, `engine/config.py`, decides where the note store and the config files are, every Python entry point and every hook uses it, and the two owner rulings of 2026-11-26 hold everywhere.
 
@@ -61,40 +61,50 @@ Suite at base: 2,288 passed, 5 skipped.
 **Interfaces:**
 - Produces: `CASES`, a list of `(case_id, setup, expected)` rows and one parametrized test per entry point: `mem.store_source` and `mem.resolve_root` (with and without a `--root`), `records.global_memories_root`, `research_pipeline.default_store`, and `default_store` of `bin/mem-synthesize` loaded the way the existing tests load bin scripts (find that pattern with `grep -rn "spec_from_file_location\|SourceFileLoader" plugins/memory/engine/tests`). Cases cover: `--root` only; `MEM_STORE` set and set to `""`; config file only; config file whose first line is blank; default store with marker; default folder without marker; nothing; `MEM_STORE` with `~`; no `HOME` and no `XDG_*`. Each row records today's answer, including where entry points disagree. Rows without `HOME` set `HOME` to `""` in the environment and `monkeypatch.setattr(Path, "home", …)` to a `tmp_path` folder, so no row depends on the machine.
 
-- [ ] **Step 1:** Write the test with today's answers (build each case in `tmp_path`, set the environment with `monkeypatch`; the functions that read `os.environ` get it through `monkeypatch.setenv`/`delenv`).
-- [ ] **Step 2:** Run it. Expected: PASS on the base code. Mark in a comment beside each row that Task 6 will flip, with its reason: ruling 1 (config file honoured: `research_pipeline`, `mem-synthesize`, `records.global_memories_root`), ruling 2 (unmarked default folder: `mem.store_source`/`resolve_root`; not `global_memories_root`, whose `memories_root` already ignores an unmarked store), or the HOME-less ruling of Global Constraints.
-- [ ] **Step 2b:** List every other test that builds a default store folder without `mem-store.yaml` and expects it used: `grep -rn "agent-memory" plugins/memory/engine/tests | grep -v mem-store.yaml` and read the hits; known one: `test_store.py` `test_default_store_is_the_last_resort_and_only_when_it_exists`. Name them in the commit message; Task 6 updates exactly those.
-- [ ] **Step 3:** Gate: the file is clean; full suite passes. Commit.
+- [x] **Step 1:** Write the test with today's answers (build each case in `tmp_path`, set the environment with `monkeypatch`; the functions that read `os.environ` get it through `monkeypatch.setenv`/`delenv`).
+- [x] **Step 2:** Run it. Expected: PASS on the base code. Mark in a comment beside each row that Task 6 will flip, with its reason: ruling 1 (config file honoured: `research_pipeline`, `mem-synthesize`, `records.global_memories_root`), ruling 2 (unmarked default folder: `mem.store_source`/`resolve_root`; not `global_memories_root`, whose `memories_root` already ignores an unmarked store), or the HOME-less ruling of Global Constraints.
+- [x] **Step 2b:** List every other test that builds a default store folder without `mem-store.yaml` and expects it used: `grep -rn "agent-memory" plugins/memory/engine/tests | grep -v mem-store.yaml` and read the hits; known one: `test_store.py` `test_default_store_is_the_last_resort_and_only_when_it_exists`. Name them in the commit message; Task 6 updates exactly those.
+- [x] **Step 3:** Gate: the file is clean; full suite passes. Commit.
 
 ### Task 2: `records.py` format and small rules
 
 **Files:** Modify: `plugins/memory/engine/records.py`
 
-- [ ] **Step 1:** `uvx ruff@0.17.6 format` and safe fixes; run the suite.
-- [ ] **Step 2:** Fix every non-structural Ruff finding and every basedpyright error with the recipes; run the suite.
-- [ ] **Step 3:** Gate: only structural findings left; suite passes. Commit with `SKIP=ruff-check,basedpyright`.
+- [x] **Step 1:** `uvx ruff@0.17.6 format` and safe fixes; run the suite.
+- [x] **Step 2:** Fix every non-structural Ruff finding and every basedpyright error with the recipes; run the suite.
+- [x] **Step 3:** Gate: only structural findings left; suite passes. Commit with `SKIP=ruff-check,basedpyright`.
 
 ### Task 3: `records.py` structural findings, file clean
 
 **Files:** Modify: `plugins/memory/engine/records.py`
 
-- [ ] **Step 1:** Decompose each function with a structural finding, running the suite after each.
-- [ ] **Step 2:** Gate: `records.py` clean; suite passes. Commit, all hooks on.
+- [x] **Step 1:** Decompose each function with a structural finding, running the suite after each.
+- [x] **Step 2:** Gate: `records.py` clean; suite passes. Commit, all hooks on.
 
 ### Task 4: `research_pipeline.py` clean
 
 **Files:** Modify: `plugins/memory/engine/research_pipeline.py`
 
-- [ ] **Step 1:** Format, small rules, types, then structural findings, running `pytest plugins/memory/engine/tests -q -k "research or fetch or synth"` after each function and the suite at the end.
-- [ ] **Step 2:** Gate: file clean; suite passes. Commit, all hooks on.
+- [x] **Step 1:** Format, small rules, types, then structural findings, running `pytest plugins/memory/engine/tests -q -k "research or fetch or synth"` after each function and the suite at the end.
+- [x] **Step 2:** Gate: file clean; suite passes. Commit, all hooks on.
 
 ### Task 5: `bin/mem-synthesize` clean
 
 **Files:** Modify: `plugins/memory/bin/mem-synthesize`
 
-- [ ] **Step 1:** List its top-level names used elsewhere: `grep -rn "ms\.\|mem_synthesize\|mem-synthesize" plugins/memory`. None of them changes name or signature.
-- [ ] **Step 2:** Format, small rules, types, then structural findings; run `plugins/memory/bin/mem-synthesize --help`, `plugins/memory/bin/mem-settle --help`, `plugins/memory/bin/mem-auto --help` and any `--self-check` the scripts offer, plus the suite.
-- [ ] **Step 3:** Gate: file clean; the commands above behave as before; suite passes. Commit, all hooks on.
+- [x] **Step 1:** List its top-level names used elsewhere: `grep -rn "ms\.\|mem_synthesize\|mem-synthesize" plugins/memory`. None of them changes name or signature.
+- [x] **Step 2:** Format, small rules, types, then structural findings; run `plugins/memory/bin/mem-synthesize --help`, `plugins/memory/bin/mem-settle --help`, `plugins/memory/bin/mem-auto --help` and any `--self-check` the scripts offer, plus the suite.
+- [x] **Step 3:** Gate: file clean; the commands above behave as before; suite passes. Commit, all hooks on.
+
+### Task 5b: `evals/synthesis/run_trials.py` clean (owner ruling 2026-11-26)
+
+Task 5 moved `add_references` past its fifth parameter to `**options`; the synthesis trial harness called it with eight positionals (`run_trials.py`, `reference_backfill`), and no test covered that path. Owner, 2026-11-26: fix the call and make the whole file clean (ADR 0031, no exception).
+
+**Files:** Modify: `plugins/memory/evals/synthesis/run_trials.py`; `plugins/memory/bin/mem-synthesize` (review fixes: `encoding="utf-8"` on every remaining text read and write; `_unit_text` builds its part index once per call)
+
+- [x] **Step 1:** The `add_references` call passes `settings`, `log` and the budget by keyword; a smoke check imports the harness and calls `reference_backfill` with `add_references` stubbed, asserting the keywords it receives.
+- [x] **Step 2:** Format, small rules, types, structural findings (2,162 lines, 226 Ruff, 41 basedpyright at start), across several dispatches that hand over an uncommitted tree; one commit at the end with all hooks on.
+- [x] **Step 3:** Gate: file clean; `python3 plugins/memory/evals/synthesis/run_trials.py --help` (or its documented dry entry) runs; suite passes.
 
 ### Task 6: `config.py`, every Python copy points at it, rulings applied
 
@@ -111,11 +121,11 @@ Suite at base: 2,288 passed, 5 skipped.
   - `store_source(arg: str | None, env: Mapping[str, str]) -> Literal["--root", "MEM_STORE", "config file", "default"] | None` and `resolve_store(arg: str | None, env: Mapping[str, str]) -> Path | None`, the ruled precedence; the config file is its first line, stripped, as `mem.py` reads it today; `~` expanded as today.
 - `mem.store_source`, `mem.resolve_root`, `records.default_store` (returns `config.default_store_path`, for `mem init`), `records.global_memories_root` (store from `config.resolve_store(None, env)`), `research_pipeline.default_store()` and `bin/mem-synthesize`'s `default_store()` (both `config.resolve_store(None, os.environ)`) become thin delegates; `records.memories_root` reads its file through `config.config_lines`; `records.forbidden_file` builds on `config.config_dir`; `records.global_memories_root` keeps its `is_dir()` guard. `mem.NO_STORE` keeps its text, and when the default folder exists without `mem-store.yaml` `mem` adds one line after it: `mem: <folder> has no mem-store.yaml, so it is not used; add the file by hand only if you own that folder and mean to write to it.` (test it). Remove the copies they replace (`mem._config_file`, `mem._config_store`, `mem._default_store`, `records._config_base`) after grepping that nothing else uses them.
 
-- [ ] **Step 1:** Write `test_config.py` for each `config` function (the cases of Task 1 plus marker present/absent). Run: FAIL (no module).
-- [ ] **Step 2:** Write `config.py`; run `test_config.py`. Expected: PASS.
-- [ ] **Step 3:** Point the copies at it. Run `test_store_precedence.py`: exactly the rows marked in Task 1 fail. Update those rows, and the `test_store.py` assertions Task 1 step 2b named, to the ruled answers, nothing else; run the suite.
-- [ ] **Step 4:** `CHANGELOG.md` under `## [Unreleased]`, `### Changed`, written for users: background commands and `mem-research`/`mem-synthesize` now use the store named in the config file when `MEM_STORE` is unset, as `mem` does; the default store counts only with its `mem-store.yaml` marker (an unmarked folder there is no longer used; `mem` says how to adopt it); with no `HOME` and no `XDG_DATA_HOME`, no entry point uses a default store; `signal.sh` (parked) now falls back to the default store like the other hooks (from Task 7). README "Store (notes)" row: state the precedence in one line.
-- [ ] **Step 5:** Gate: every touched Python file clean; `test_import_graph.py` passes; suite passes. Commit, all hooks on.
+- [x] **Step 1:** Write `test_config.py` for each `config` function (the cases of Task 1 plus marker present/absent). Run: FAIL (no module).
+- [x] **Step 2:** Write `config.py`; run `test_config.py`. Expected: PASS.
+- [x] **Step 3:** Point the copies at it. Run `test_store_precedence.py`: exactly the rows marked in Task 1 fail. Update those rows, and the `test_store.py` assertions Task 1 step 2b named, to the ruled answers, nothing else; run the suite.
+- [x] **Step 4:** `CHANGELOG.md` under `## [Unreleased]`, `### Changed`, written for users: background commands and `mem-research`/`mem-synthesize` now use the store named in the config file when `MEM_STORE` is unset, as `mem` does; the default store counts only with its `mem-store.yaml` marker (an unmarked folder there is no longer used; `mem` says how to adopt it); with no `HOME` and no `XDG_DATA_HOME`, no entry point uses a default store; `signal.sh` (parked) now falls back to the default store like the other hooks (from Task 7). README "Store (notes)" row: state the precedence in one line.
+- [x] **Step 5:** Gate: every touched Python file clean; `test_import_graph.py` passes; suite passes. Commit, all hooks on.
 
 ### Task 7: Hooks source one store file
 
@@ -126,15 +136,22 @@ Suite at base: 2,288 passed, 5 skipped.
 **Interfaces:**
 - `store-env.sh`, sourced like `find-claude.sh`, defines `default_store_dir` (echoes the default store folder when it holds `mem-store.yaml`, else nothing) and `export_store_env` (exports `MEM_STORE` from `CLAUDE_PLUGIN_OPTION_STORE`, else from `default_store_dir`; exports `MEM_MEMORIES` from `CLAUDE_PLUGIN_OPTION_MEMORIES`). The four hooks that duplicate the snippet call `export_store_env`; `session-env.sh` uses `default_store_dir` in its `default_store` bootstrap and its settle block. Each hook computes `$here` before the store lines and calls it as `. "$here/store-env.sh" 2>/dev/null; type export_store_env >/dev/null 2>&1 && export_store_env`, so a missing file prints nothing (hook tests assert empty stderr, `test_plugin_shell.py`) and the hook still exits 0.
 
-- [ ] **Step 1:** Write or extend the hook test for the cases of Review Focus 4; run it on the current hooks: PASS.
-- [ ] **Step 2:** Create `store-env.sh` and switch the hooks; run the hook test and the suite.
-- [ ] **Step 3:** `bash -n` every changed hook; `claude plugin validate plugins/memory`. Commit.
+- [x] **Step 1:** Write or extend the hook test for the cases of Review Focus 4; run it on the current hooks: PASS.
+- [x] **Step 2:** Create `store-env.sh` and switch the hooks; run the hook test and the suite.
+- [x] **Step 3:** `bash -n` every changed hook; `claude plugin validate plugins/memory`. Commit.
 
 ### Task 8: Docs
 
 **Files:** Modify: `docs/superpowers/plans/2026-11-23-memory-refactor.md` (Config task), `docs/backlog.md` (A1 row, dates), `docs/studies/2026-11-23-memory-plugin-structure.md` (finding 2: the `MEM_RULES_LAYOUT` harm it names is already fixed, `conftest.py` clears every `MEM_*` and `CLAUDE_PLUGIN_OPTION_*`), this plan's Status line
 
-- [ ] **Step 1:** Config task ticked with a link to this plan and what stays for A3 (data folder); backlog A1 row closed the way A7's was; study note; Status. `python3 scripts/validate.py`. Commit.
+- [x] **Step 1:** Config task ticked with a link to this plan and what stays for A3 (data folder); backlog A1 row closed the way A7's was; study note; Status. `python3 scripts/validate.py`. Commit.
+
+## Deferred findings
+
+- `**options` keys are type-checked only: an unknown key passed to `records.write_memory`, `add_sighting`, `match_memories`, `research_pipeline` steps or `mem-synthesize`'s `run`/`run_backfill` is ignored at runtime (PEP 692 trade-off; callers are type-checked).
+- `bin/mem-synthesize --self-check` fails on its last assertion (`mem history commit` makes no "after one, two" commit); it fails the same at `65e901a`, before this plan.
+- Split reviews due (owner rule: code files over 1,000 lines): `bin/mem-synthesize` grew 564 → 1,339 lines (about 400 from formatting, 24 → 81 functions) and belongs to A4 (logic into the engine); `evals/synthesis/run_trials.py` grew 2,162 → about 3,700 lines.
+- Low review notes: `records._parse` special-cases `FieldTypeError`'s name to keep stored error text; formatter-placed comments inside `Memory` fields; `research_pipeline.budget_of` raises `TypeError` for a non-string (argparse never passes one); `run_trials.one_row` raises `ValueError` before the budget call when arm M has no control; single-use helpers in `mem-synthesize`; `mem --root` help omits the default store (pre-existing).
 
 ## Kill criteria
 
