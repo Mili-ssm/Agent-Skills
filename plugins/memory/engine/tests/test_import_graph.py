@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 ENGINE = Path(__file__).resolve().parent.parent
+MODULES = {path.stem for path in ENGINE.glob("*.py")}
 
 
 @pytest.mark.parametrize("module", ["notes", "index", "check", "session_notices"])
@@ -55,9 +56,6 @@ def test_session_notices_does_not_import_mem():
     assert "mem" not in imported
 
 
-MODULES = {path.stem for path in ENGINE.glob("*.py")}
-
-
 def _trees() -> dict[str, ast.Module]:
     return {
         name: ast.parse((ENGINE / f"{name}.py").read_text(encoding="utf-8"))
@@ -102,26 +100,21 @@ def test_engine_modules_import_no_cycle():
     assert not cycles, "import cycles among engine modules:\n" + "\n".join(cycles)
 
 
-def _dynamic_engine_import(node: ast.AST) -> str | None:
-    """`import_module("x")` or `__import__("x")` naming an engine module, as its call text."""
-    if not isinstance(node, ast.Call) or not node.args:
+def _dynamic_import(node: ast.AST) -> str | None:
+    """Call text of `importlib.import_module(...)`, `import_module(...)` or `__import__(...)`, any argument."""
+    if not isinstance(node, ast.Call):
         return None
     func = node.func
     called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-    first = node.args[0]
-    if called not in {"import_module", "__import__"} or not isinstance(first, ast.Constant):
-        return None
-    target = first.value
-    if isinstance(target, str) and target.split(".")[0] in MODULES:
-        return f"{called}({target!r})"
-    return None
+    return f"{called}(...)" if called in {"import_module", "__import__"} else None
 
 
-def test_engine_modules_import_engine_modules_statically():
+def test_engine_modules_use_no_dynamic_import():
+    """A dynamic import hides an edge from the graph above, so no engine module may make one."""
     dynamic = [
         f"{name}.py:{getattr(node, 'lineno', 0)} {call}"
         for name, tree in _trees().items()
         for node in ast.walk(tree)
-        if (call := _dynamic_engine_import(node))
+        if (call := _dynamic_import(node))
     ]
-    assert not dynamic, "dynamic imports of engine modules:\n" + "\n".join(dynamic)
+    assert not dynamic, "dynamic imports in engine modules:\n" + "\n".join(dynamic)

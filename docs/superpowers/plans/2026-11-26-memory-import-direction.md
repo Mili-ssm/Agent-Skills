@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: done on the branch, not merged · Branch: `refactor/memory-a7-a1-a3` · Base: `65e901a` · Date: 2026-11-26
+Status: implemented on the branch, not merged; § Deferred findings stays open · Branch: `refactor/memory-a7-a1-a3` · Base: `65e901a` · Date: 2026-11-26
 
 **Goal:** the memory engine has no import cycle, and every Python file this change touches passes the ADR 0031 gate with no finding; behavior unchanged.
 
@@ -10,7 +10,7 @@ Status: done on the branch, not merged · Branch: `refactor/memory-a7-a1-a3` · 
 
 **Tech Stack:** Python 3.12, Ruff 0.17.6 (`ruff.toml`, preview on, complexity 6), basedpyright 1.40.2 (`standard`), pytest with xdist, pre-commit.
 
-**Spec:** review item A7 in [the project review](../../studies/2026-11-24-project-review.md) and the "Import direction" task of [the refactor plan](2026-11-23-memory-refactor.md); [ADR 0031](../../adr/0031-a-touched-python-file-passes-ruff-and-basedpyright.md). Owner decisions 2026-11-26: backlog order (quick fixes, then refactor tasks A1–A3); lint cleanup only for the files each change touches.
+**Spec:** review item A7 in [the project review](../../studies/2026-11-24-project-review.md) and the "Import direction" task of [the refactor plan](2026-11-23-memory-refactor.md); [ADR 0031](../../adr/0031-a-touched-python-file-passes-ruff-and-basedpyright.md). Owner decisions 2026-11-26: backlog order (quick fixes, then refactor tasks A1–A3); lint cleanup only for the files each change touches; the owner approved this plan, including moving session_env to A2, on 2026-11-26.
 
 ## Out of scope, with reasons
 
@@ -122,6 +122,8 @@ Suite at start: 2,284 passed, 5 skipped.
 - `plan_commands` raises `TypeError` on a non-string `quote` from verdicts JSON (pre-existing, unhashable key).
 - `fetch_raw` and `apply` options are only type-checked: an unknown key is ignored at runtime (PEP 692 trade-off, ruled).
 - Naming and comment-placement nits in `research_checks.py` and `digest.py`: `_shaped`, `_call`, `_RowCheck`, the `Work` docstring still names `given_up`, `DigestFormatError` placement.
+- `apply` and `fetch_raw` options are now keyword-only (a positional 5th argument to `apply` raises TypeError; every caller passes keywords).
+- No CHANGELOG line: pure refactor, the renamed exception classes are engine-internal (no caller outside plugins/memory/engine).
 
 ## Kill criteria
 

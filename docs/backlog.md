@@ -73,7 +73,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | A1 | Refactor: pure `config.py` | Not started |
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers | Not started |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle | Not started |
-| medium | A7 | Refactor: import direction | Done on branch refactor/memory-a7-a1-a3 except session_env (moved to A2) |
+| medium | A7 | Refactor: import direction | Open: only session_env, moved into A2 (tokenize and both cycles done on branch refactor/memory-a7-a1-a3) |
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | Not started |
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
