@@ -56,3 +56,25 @@ Known weakness: in `pipe-status` a session that does nothing also leaves `HEAD` 
 ## Result
 
 Pilot of 2026-11-27 (3 runs, 24 sessions, 1.46 USD): both arms avoided the failure in 3 of 3 runs of every scenario, so all four have no headroom and the pilot says nothing about the lessons; mean cost 0.055 USD without the block and 0.060 USD with it. Table and what follows from it: [the plan's results](../../../../docs/superpowers/plans/2026-11-26-memory-effect-measurement.md#results).
+
+## Replay of real failures (part A built, part B not)
+
+Design: the plan's section "Replay of real failures (task 8)". A real transcript is copied up to the entry before a known failing assistant message; part B will resume the copy headless in two arms (R0: the session's own lessons block printed again at the cut; R: the same block plus one lesson line) and score the next message. `replay.py` is part A, which needs no model: the copy, the arm files, the worktree, the per-point checks and the code scorer. The paid run loop, the wire capture and the judge are part B and are not built yet.
+
+| Command | Does |
+| --- | --- |
+| `python3 plugins/memory/evals/lessons_effect/replay.py check POINTS_FILE [--max-context 900000]` | Per point: builds the copy (under `~/.claude/projects/<slug>/`) and a detached worktree under `target/lessons-replay/`, runs the checks, cleans up. One line per point: name, context tokens, `ok` or its problems. Exit 0 when every point is ok, 2 otherwise |
+| `... --self-check` | Synthetic transcript in a temp folder: cut walks back to the message's first entry, `cost-state` dropped, session id and working folder rewritten, R differs from R0 by one line, code rule fails the original and passes the compliant message, a marker in the block and a compaction before the cut are reported |
+
+Checks per point: no marker word (whole word, any case) in any SessionStart block of the copy; no `compact_boundary` before the cut; context at most `--max-context`; for a `code` rule the original failing message fails it and `compliant` passes it (a `judge` rule prints `judge controls: pending part B`); the lesson line is in R's block and not in R0's.
+
+Points file: a private JSON list under `target/lessons-replay/` (git-ignored, never tracked: transcripts are private). A malformed point is an error naming the point and the field.
+
+| Field | Meaning |
+| --- | --- |
+| `name`, `question` | Label (also the worktree folder name); the yes/no question for the scorer |
+| `transcript`, `cut_line` | Path; 0-based line of any entry of the failing assistant message (a message split across entries shares its `message.id`) |
+| `markers`, `lesson_line`, `topic` | Words that identify the lesson; the one-line lesson text; the heading it goes under (`null`: appended under `other:`) |
+| `rule` | `{"kind": "judge"}` or `{"kind": "code", "pass_when": "any" or "none", "patterns": [{"field": "tool" or "command" or "text" or "input", "regex": "..."}]}`: `tool` matches a tool name, `command` the Bash `command` input, `input` the JSON of any tool input, `text` the message's text blocks; `any` passes when a pattern matches, `none` when none does |
+| `compliant` | A hand-written passing message: `{"text": "...", "tools": [{"name": "...", "input": {...}}]}` |
+| `commit` | Optional git commit for the worktree; default: last `origin/dev` commit before the cut's timestamp |
