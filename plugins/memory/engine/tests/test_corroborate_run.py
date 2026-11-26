@@ -1,23 +1,64 @@
 """`bin/mem-corroborate`: the run, journal, undo and status of the pass."""
+
 import datetime
 import json
 import os
 import stat
 import subprocess
 from pathlib import Path
-
-import pytest
+from typing import cast
 
 import auto_state
 import capture_state
 import corroborate
 import corroborate_state
+import pytest
 import records
-from corroborate_world import BRIEF, BRIEF2, MEM, OPTION, PLUGIN, TODAY, calls, fake_plugin, glob, globals_, group, ident, lesson, lessons, log_lines, model, project_records, run, snapshot, status, two_projects, verdict, w
+from corroborate_world import (
+    BRIEF,
+    BRIEF2,
+    MEM,
+    OPTION,
+    PLUGIN,
+    TODAY,
+    calls,
+    fake_plugin,
+    glob,
+    globals_,
+    group,
+    ident,
+    lesson,
+    lessons,
+    log_lines,
+    model,
+    project_records,
+    run,
+    snapshot,
+    status,
+    two_projects,
+    verdict,
+    w,
+)
+
+__all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
+
+CALLS_PER_PASS = 2  # one model call to group, one to verify
+CALLS_TWO_PASSES = 4
+CALLS_THREE_PASSES = 6
+PAIR_SIZE = 2  # a group of two lessons: two projects, two refused marks, two links
+EXIT_USAGE = 2
+PRIVATE_FILE_MODE = 0o600
+
+
+def model_with(w, groups, verdicts: object):
+    """`model` for verdicts that are None, a list or a string: its signature types them as the default "all"."""
+    model(w, groups, cast("str", verdicts))
 
 
 def test_state_module_keeps_the_curation_log_name_of_records():
-    assert corroborate_state.CURATION_LOG == records.CURATION_LOG   # a local copy that must not drift
+    assert (
+        corroborate_state.CURATION_LOG == records.CURATION_LOG
+    )  # a local copy that must not drift
 
 
 def test_two_projects_make_one_established_global_record(w):
@@ -27,16 +68,20 @@ def test_two_projects_make_one_established_global_record(w):
     assert done.returncode == 0, done.stderr
     (g,) = globals_(w)
     assert g.claim.startswith("Hand a subagent the check")
-    assert sorted(g.sources) == sorted([f"session s1 project {records.project_key(w.pa)}",
-                                         f"session s2 project {records.project_key(w.pb)}"])
-    assert records.standing(g) == "established" and g.released and g.triage is None   # a light lesson waits for nobody
+    assert sorted(g.sources) == sorted([
+        f"session s1 project {records.project_key(w.pa)}",
+        f"session s2 project {records.project_key(w.pb)}",
+    ])
+    assert (
+        records.standing(g) == "established" and g.released and g.triage is None
+    )  # a light lesson waits for nobody
     for project in (w.pa, w.pb):
         (m,) = project_records(project).values()
         assert m.promote == "done" and m.general == g.handle
     assert status(w)["state"] == "ok"
     line = log_lines(w)[-1]
     assert (line["written"], line["links"], line["verified"], line["failed"]) == (1, 2, 1, None)
-    assert calls(w) == 2
+    assert calls(w) == CALLS_PER_PASS
 
 
 def test_one_project_makes_a_quarantined_record(w):
@@ -46,20 +91,31 @@ def test_one_project_makes_a_quarantined_record(w):
     assert run(w).returncode == 0
     (g,) = globals_(w)
     assert records.standing(g) == "unconfirmed" and records.quarantined(g)
-    assert g.body.strip() == "Written by the corroboration pass; its sightings are the sessions and projects in `sources`."
-    found = subprocess.run([str(MEM), "search", "acceptance"], capture_output=True, text=True,
-                           env={k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}, cwd=w.tmp)
+    assert (
+        g.body.strip()
+        == "Written by the corroboration pass; its sightings are the sessions and projects in `sources`."
+    )
+    found = subprocess.run(
+        [str(MEM), "search", "acceptance"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={k: v for k, v in os.environ.items() if k != "MEM_PROJECT"},
+        cwd=w.tmp,
+    )
     assert g.handle not in found.stdout
 
 
 def test_rerun_after_a_stop_joins_the_record(w):
-    g = glob(w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",))
+    g = glob(
+        w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",)
+    )
     lesson(w, w.pa, BRIEF, ("s1",))
     lesson(w, w.pb, BRIEF2, ("s2",))
     model(w, [group(f"g:{g.handle}", ident(w, "Brief the subagent"), ident(w, "Give a subagent"))])
     assert run(w).returncode == 0
     (only,) = globals_(w)
-    assert only.handle == g.handle and len(records.projects(only)) == 2
+    assert only.handle == g.handle and len(records.projects(only)) == PAIR_SIZE
     for project in (w.pa, w.pb):
         (m,) = project_records(project).values()
         assert m.general == g.handle and m.promote == "done"
@@ -67,9 +123,18 @@ def test_rerun_after_a_stop_joins_the_record(w):
 
 
 def test_two_global_records_of_one_lesson_are_merged(w):
-    old = glob(w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",),
-               created=TODAY - datetime.timedelta(days=3))
-    new = glob(w, "Give a subagent the check that tells it the task is done before it starts.", ("s2",), project=w.pb)
+    old = glob(
+        w,
+        "Hand a subagent the check that tells it the task is done before it starts.",
+        ("s1",),
+        created=TODAY - datetime.timedelta(days=3),
+    )
+    new = glob(
+        w,
+        "Give a subagent the check that tells it the task is done before it starts.",
+        ("s2",),
+        project=w.pb,
+    )
     model(w, [group(f"g:{old.handle}", f"g:{new.handle}")])
     assert run(w).returncode == 0
     kept = {m.handle: m for m in records.load_memories(w.gmem, "global")}
@@ -90,7 +155,7 @@ def test_nothing_new_starts_no_model(w):
 
 def test_bad_model_file_writes_nothing(w):
     two_projects(w)
-    model(w, "this is not json", verdicts=None)
+    model_with(w, "this is not json", verdicts=None)
     before = snapshot(w)
     assert run(w).returncode == 0
     assert status(w)["state"] == "ok" and log_lines(w)[-1]["dropped"] > 0
@@ -99,39 +164,52 @@ def test_bad_model_file_writes_nothing(w):
 
 def test_unverified_group_is_not_applied(w):
     a, b = two_projects(w)
-    model(w, [group(a, b)], [verdict(1, same=False)])
+    model_with(w, [group(a, b)], [verdict(1, same=False)])
     before = snapshot(w)
     assert run(w).returncode == 0
     assert snapshot(w) == before
     seen = json.loads((w.cdir / "seen.json").read_text())
-    assert len(seen["refused"]) == 2
+    assert len(seen["refused"]) == PAIR_SIZE
     assert log_lines(w)[-1]["verified"] == 0
 
 
 def test_a_group_refused_only_for_its_rewording_is_not_applied_and_not_marked(w):
     a, b = two_projects(w)
-    model(w, [group(a, b)], [verdict(1, faithful=False)])
+    model_with(w, [group(a, b)], [verdict(1, faithful=False)])
     before = snapshot(w)
     assert run(w).returncode == 0
     assert snapshot(w) == before
-    assert not json.loads((w.cdir / "seen.json").read_text()).get("refused")  # the next run rewords it again
+    assert not json.loads((w.cdir / "seen.json").read_text()).get(
+        "refused"
+    )  # the next run rewords it again
     assert log_lines(w)[-1]["verified"] == 0
 
 
 @pytest.mark.parametrize("verdicts", [None, "garbage"])
 def test_missing_verdicts_apply_nothing(w, verdicts):
     a, b = two_projects(w)
-    model(w, [group(a, b)], verdicts)
+    model_with(w, [group(a, b)], verdicts)
     before = snapshot(w)
     assert run(w).returncode == 0
-    assert snapshot(w) == before and calls(w) == 2
+    assert snapshot(w) == before and calls(w) == CALLS_PER_PASS
     assert log_lines(w)[-1]["verified"] == 0
 
 
 def test_existing_global_claim_is_never_rewritten(w):
-    g = glob(w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",))
+    g = glob(
+        w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",)
+    )
     lesson(w, w.pb, BRIEF2, ("s2",))
-    model(w, [group(f"g:{g.handle}", ident(w, "Give a subagent"), claim="A completely different wording of it all.")])
+    model(
+        w,
+        [
+            group(
+                f"g:{g.handle}",
+                ident(w, "Give a subagent"),
+                claim="A completely different wording of it all.",
+            )
+        ],
+    )
     assert run(w).returncode == 0
     (after,) = globals_(w)
     assert after.claim == g.claim and "different wording" not in after.path.read_text()
@@ -165,28 +243,56 @@ def test_same_project_duplicates_are_merged(w):
 
 
 def test_refused_merge_is_counted_not_forced(w):
-    one = lesson(w, w.pa, "Run the whole suite 2 times before a release to catch flaky tests.", ("s1",),
-                 created=TODAY - datetime.timedelta(days=1))
-    two = lesson(w, w.pa, "Run the whole suite 3 times before a release to catch flaky tests.", ("s2",))
+    one = lesson(
+        w,
+        w.pa,
+        "Run the whole suite 2 times before a release to catch flaky tests.",
+        ("s1",),
+        created=TODAY - datetime.timedelta(days=1),
+    )
+    two = lesson(
+        w, w.pa, "Run the whole suite 3 times before a release to catch flaky tests.", ("s2",)
+    )
     model(w, [group(ident(w, "suite 2 times"), ident(w, "suite 3 times"))])
     assert run(w).returncode == 0
     line = log_lines(w)[-1]
     assert line["merges"] == 0 and line["refused"] == 1
     found = project_records(w.pa)
     assert found[one.handle].status == found[two.handle].status == "active"
-    assert globals_(w) == [] and len(json.loads((w.cdir / "seen.json").read_text())["refused"]) == 2
+    assert (
+        globals_(w) == []
+        and len(json.loads((w.cdir / "seen.json").read_text())["refused"]) == PAIR_SIZE
+    )
 
 
 def full_run(w):
     """A run with a write, a sighting, a link and a merge."""
-    g = glob(w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",), project=w.pb)
+    g = glob(
+        w,
+        "Hand a subagent the check that tells it the task is done before it starts.",
+        ("s1",),
+        project=w.pb,
+    )
     lesson(w, w.pb, BRIEF2, ("s2",))
-    lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often in the last lines.",
-           ("s3",), created=TODAY - datetime.timedelta(days=1))
-    lesson(w, w.pa, "Read the test output to the end before you change code: the last lines often hold the cause.", ("s4",))
+    lesson(
+        w,
+        w.pa,
+        "Read the failing test output to the end before changing code, because the cause is often in the last lines.",
+        ("s3",),
+        created=TODAY - datetime.timedelta(days=1),
+    )
+    lesson(
+        w,
+        w.pa,
+        "Read the test output to the end before you change code: the last lines often hold the cause.",
+        ("s4",),
+    )
     first = group(f"g:{g.handle}", ident(w, "Give a subagent"))
-    second = group(ident(w, "Read the failing test"), ident(w, "Read the test output"),
-                   claim="Read a failing test's whole output before changing code; the cause may be in its last lines.")
+    second = group(
+        ident(w, "Read the failing test"),
+        ident(w, "Read the test output"),
+        claim="Read a failing test's whole output before changing code; the cause may be in its last lines.",
+    )
     model(w, [first, second])
     before = snapshot(w)
     assert run(w).returncode == 0
@@ -233,22 +339,23 @@ def test_dry_run_writes_only_the_out_file(w):
     assert done.returncode == 0, done.stderr
     plan = json.loads(out.read_text())
     assert plan["plan"][0]["actions"][0]["kind"] == "write_global" and plan["verdicts"]["verdicts"]
-    assert snapshot(w) == before and calls(w) == 2 and not w.cdir.exists()
+    assert snapshot(w) == before and calls(w) == CALLS_PER_PASS and not w.cdir.exists()
 
 
 def test_auto_does_nothing_without_the_option(w):
     two_projects(w)
     done = run(w, cmd="auto")
-    assert done.returncode == 0 and done.stdout == "" and done.stderr == "" and not w.cdir.exists()
+    assert done.returncode == 0 and not done.stdout and not done.stderr and not w.cdir.exists()
     a, b = ident(w, "Brief the subagent"), ident(w, "Give a subagent")
     model(w, [group(a, b)])
     done = run(w, cmd="auto", env={OPTION: "true"})
-    assert done.returncode == 0 and done.stdout == "" and done.stderr == "" and len(globals_(w)) == 1
+    assert done.returncode == 0 and not done.stdout and not done.stderr and len(globals_(w)) == 1
 
 
 def test_lock_held_skips(w):
     two_projects(w)
     held = auto_state.take_run_lock(w.cdir)
+    assert held is not None
     try:
         done = run(w, mode="never")
     finally:
@@ -271,8 +378,11 @@ def test_no_project_name_or_path_in_log_and_lessons_file(w):
     model(w, [group(a, b)])
     assert run(w).returncode == 0
     run_dir = Path(status(w)["log"])
-    texts = [(w.cdir / "log.jsonl").read_text(), (run_dir / "lessons.txt").read_text(),
-             (run_dir / "verify" / "groups.txt").read_text()]
+    texts = [
+        (w.cdir / "log.jsonl").read_text(),
+        (run_dir / "lessons.txt").read_text(),
+        (run_dir / "verify" / "groups.txt").read_text(),
+    ]
     for text in texts:
         assert "alpha" not in text and "beta" not in text and str(w.tmp) not in text
     assert oct(run_dir.stat().st_mode & 0o777) == "0o700"
@@ -280,13 +390,25 @@ def test_no_project_name_or_path_in_log_and_lessons_file(w):
 
 def test_promote_done_to_names_an_existing_global_record(w):
     m = lesson(w, w.pa, BRIEF, ("s1",))
-    g = glob(w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",))
+    g = glob(
+        w, "Hand a subagent the check that tells it the task is done before it starts.", ("s1",)
+    )
     env = {**os.environ, "MEM_PROJECT": str(w.pa)}
-    bad = subprocess.run([str(MEM), "promote", "--done", f"m:{m.handle}", "--to", "m:nope"], env=env,
-                         capture_output=True, text=True)
-    assert bad.returncode == 2 and project_records(w.pa)[m.handle].general is None
-    good = subprocess.run([str(MEM), "promote", "--done", f"m:{m.handle}", "--to", f"m:{g.handle}"], env=env,
-                          capture_output=True, text=True)
+    bad = subprocess.run(
+        [str(MEM), "promote", "--done", f"m:{m.handle}", "--to", "m:nope"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert bad.returncode == EXIT_USAGE and project_records(w.pa)[m.handle].general is None
+    good = subprocess.run(
+        [str(MEM), "promote", "--done", f"m:{m.handle}", "--to", f"m:{g.handle}"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert good.returncode == 0 and project_records(w.pa)[m.handle].general == g.handle
 
 
@@ -295,21 +417,29 @@ def seen(w):
 
 
 def key_of(x):
-    return f"{records.project_key(x.project)}:{x.memory.handle}" if x.project is not None else f"g:{x.memory.handle}"
+    return (
+        f"{records.project_key(x.project)}:{x.memory.handle}"
+        if x.project is not None
+        else f"g:{x.memory.handle}"
+    )
 
 
 def test_a_failing_mem_call_is_a_failure_not_a_refusal(w):
     a, b = two_projects(w)
     model(w, [group(a, b)])
     flag = w.tmp / "flag"
-    broken = fake_plugin(w, f'if [ "$1" = promote ] && [ ! -e {flag} ]; then touch {flag}; echo boom >&2; exit 2; fi')
+    broken = fake_plugin(
+        w, f'if [ "$1" = promote ] && [ ! -e {flag} ]; then touch {flag}; echo boom >&2; exit 2; fi'
+    )
     assert run(w, corr=broken).returncode == 0
     line = log_lines(w)[-1]
     assert (line["written"], line["links"], line["refused"], line["failed_actions"]) == (1, 0, 0, 1)
     assert "fingerprint" not in seen(w) and not seen(w).get("refused")
     assert run(w).returncode == 0
     line = log_lines(w)[-1]
-    assert line["links"] == 2 and line["failed_actions"] == 0 and calls(w) == 4
+    assert (
+        line["links"] == PAIR_SIZE and line["failed_actions"] == 0 and calls(w) == CALLS_TWO_PASSES
+    )
     for project in (w.pa, w.pb):
         (m,) = project_records(project).values()
         assert m.promote == "done"
@@ -318,7 +448,7 @@ def test_a_failing_mem_call_is_a_failure_not_a_refusal(w):
 @pytest.mark.parametrize("missing", ["groups", "verdicts"])
 def test_a_session_that_leaves_no_file_saves_no_fingerprint(w, missing):
     a, b = two_projects(w)
-    model(w, [group(a, b)], None if missing == "verdicts" else "all")
+    model_with(w, [group(a, b)], None if missing == "verdicts" else "all")
     if missing == "groups":
         os.environ.pop("FAKE_GROUPS")
     assert run(w).returncode == 0
@@ -336,8 +466,17 @@ def merged_then_refused(w):
     terms.write_text("zebra\n")
     lesson(w, w.pa, BRIEF, ("s1",), created=TODAY - datetime.timedelta(days=2))
     lesson(w, w.pa, BRIEF2, ("s2",))
-    lesson(w, w.pb, "Hand over the acceptance check before the subagent starts, so it knows when it is done.", ("s3",))
-    ids = [ident(w, "Brief the subagent"), ident(w, "Give a subagent"), ident(w, "Hand over the acceptance")]
+    lesson(
+        w,
+        w.pb,
+        "Hand over the acceptance check before the subagent starts, so it knows when it is done.",
+        ("s3",),
+    )
+    ids = [
+        ident(w, "Brief the subagent"),
+        ident(w, "Give a subagent"),
+        ident(w, "Hand over the acceptance"),
+    ]
     model(w, [group(*ids, claim="Hand a subagent the check first, as the zebra team found.")])
     before = snapshot(w)
     assert run(w).returncode == 0
@@ -361,18 +500,32 @@ def test_a_refused_group_is_not_applied_again_until_a_lesson_changes(w):
     model(w, [group(a, b, claim="Hand a subagent the check first, as the zebra team found.")])
     assert run(w).returncode == 0 and log_lines(w)[-1]["refused"] == 1
     terms.unlink()
-    lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often there.")
+    lesson(
+        w,
+        w.pa,
+        "Read the failing test output to the end before changing code, because the cause is often there.",
+    )
     a, b = ident(w, "Brief the subagent"), ident(w, "Give a subagent")
     model(w, [group(a, b)])
     first = calls(w)
     assert run(w).returncode == 0
     line = log_lines(w)[-1]
-    assert calls(w) == first + 1 and line["skipped"] is None and (line["written"], line["refused"]) == (0, 0)
+    assert (
+        calls(w) == first + 1
+        and line["skipped"] is None
+        and (line["written"], line["refused"]) == (0, 0)
+    )
     assert globals_(w) == []
     env = {**os.environ, "MEM_PROJECT": str(w.pa)}
     handle = ident(w, "Brief the subagent").split(":")[-1]
-    done = subprocess.run([str(MEM), "confirm", f"m:{handle}", "--source=session s9"], env=env, capture_output=True,
-                          text=True, cwd=w.tmp)
+    done = subprocess.run(
+        [str(MEM), "confirm", f"m:{handle}", "--source=session s9"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=w.tmp,
+    )
     assert done.returncode == 0, done.stderr
     assert run(w).returncode == 0 and len(globals_(w)) == 1
 
@@ -395,9 +548,14 @@ def test_undo_can_be_repeated_after_an_interruption(w):
 
 def test_undo_restores_the_curation_log_too(w):
     seeded = records.project_dir(w.pa) / records.CURATION_LOG
-    seeded.write_text(json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "none", "before": ""}) + "\n")
+    seeded.write_text(
+        json.dumps({"t": "2020-01-01T00:00:00Z", "action": "x", "handle": "none", "before": ""})
+        + "\n"
+    )
     before, _ = full_run(w)
-    logs = [p for p in list(records.project_dir(w.pa).glob(".curation-log")) + list(w.gmem.glob(".curation-log"))]
+    logs = list(records.project_dir(w.pa).glob(".curation-log")) + list(
+        w.gmem.glob(".curation-log")
+    )
     assert seeded.read_bytes() != before[str(seeded)]
     done = run(w, Path(status(w)["log"]).name, cmd="undo", claude=False)
     assert done.returncode == 0, done.stderr
@@ -416,13 +574,14 @@ def test_undo_clears_the_fingerprint_and_the_marks_of_the_run(w):
 
 def test_restored_files_are_private(w):
     full_run(w)
-    for p in list(records.project_dir(w.pa).glob("*.md")) + list(records.project_dir(w.pb).glob("*.md")):
+    for p in list(records.project_dir(w.pa).glob("*.md")) + list(
+        records.project_dir(w.pb).glob("*.md")
+    ):
         p.chmod(0o644)
-    before = {p: p.read_bytes() for p in records.project_dir(w.pa).glob("*.md")}
     done = run(w, Path(status(w)["log"]).name, cmd="undo", claude=False)
     assert done.returncode == 0, done.stderr
     for p in records.project_dir(w.pa).glob("*.md"):
-        assert stat.S_IMODE(p.stat().st_mode) == 0o600
+        assert stat.S_IMODE(p.stat().st_mode) == PRIVATE_FILE_MODE
 
 
 def runs_of(w):
@@ -438,8 +597,13 @@ def test_a_run_that_skips_leaves_no_run_folder(w):
     for _ in range(3):
         assert run(w, cmd="auto", env=env, mode="never").returncode == 0
     held = auto_state.take_run_lock(w.cdir)
+    assert held is not None
     try:
-        lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often there.")
+        lesson(
+            w,
+            w.pa,
+            "Read the failing test output to the end before changing code, because the cause is often there.",
+        )
         assert run(w, mode="never").returncode == 0
     finally:
         os.close(held)
@@ -488,7 +652,11 @@ def test_dry_run_out_inside_a_repository_is_refused(w):
     repo = w.tmp / "repo"
     (repo / ".git").mkdir(parents=True)
     done = run(w, "--dry-run", "--out", str(repo / "plan.json"), mode="never")
-    assert done.returncode == 2 and "repository" in done.stderr and not (repo / "plan.json").exists()
+    assert (
+        done.returncode == EXIT_USAGE
+        and "repository" in done.stderr
+        and not (repo / "plan.json").exists()
+    )
     assert calls(w) == 0
 
 
@@ -499,7 +667,9 @@ def test_dry_run_out_is_private_even_when_it_exists(w):
     out.write_text("old")
     out.chmod(0o644)
     assert run(w, "--dry-run", "--out", str(out)).returncode == 0
-    assert stat.S_IMODE(out.stat().st_mode) == 0o600 and "plan" in json.loads(out.read_text())
+    assert stat.S_IMODE(out.stat().st_mode) == PRIVATE_FILE_MODE and "plan" in json.loads(
+        out.read_text()
+    )
 
 
 def test_the_log_line_holds_a_fixed_reason_only(w):
@@ -524,10 +694,11 @@ def test_undecodable_mem_output_is_not_a_failure(w):
 
 # ---- second fix round: error text stays private, bounded retries, groups without a verdict -------------------------
 
+
 def test_the_status_keeps_a_fixed_reason_and_the_detail_stays_in_the_run_log(w):
     two_projects(w)
     data = w.tmp / "quokka-data"
-    (data / "projects.json").mkdir(parents=True)   # unreadable: the OSError names this path
+    (data / "projects.json").mkdir(parents=True)  # unreadable: the OSError names this path
     assert run(w, env={"MEM_DATA": str(data)}).returncode == 1
     cdir = data / "corroborate"
     failure = auto_state.read_json(cdir / "status.json")["failure"]
@@ -545,16 +716,16 @@ def test_repeated_failures_give_up_until_a_lesson_changes(w):
     a, b = two_projects(w)
     model(w, [group(a, b)])
     broken = always_failing_promote(w)
-    assert run(w, corr=broken).returncode == 0 and calls(w) == 2
+    assert run(w, corr=broken).returncode == 0 and calls(w) == CALLS_PER_PASS
     assert seen(w)["retry"]["count"] == 1 and "fingerprint" not in seen(w)
-    assert run(w, corr=broken).returncode == 1 and calls(w) == 4
+    assert run(w, corr=broken).returncode == 1 and calls(w) == CALLS_TWO_PASSES
     assert status(w)["failure"]["reason"] == "gave up after repeated failures"
     assert log_lines(w)[-1]["failed"] == "gave up after repeated failures"
     assert "fingerprint" in seen(w) and "retry" not in seen(w)
-    assert run(w, mode="never", corr=broken).returncode == 0 and calls(w) == 4
+    assert run(w, mode="never", corr=broken).returncode == 0 and calls(w) == CALLS_TWO_PASSES
     assert log_lines(w)[-1]["skipped"] == "nothing new"
-    lesson(w, w.pa, BRIEF, ("s1", "s3"))   # a new sighting changes the lesson
-    assert run(w, corr=broken).returncode == 0 and calls(w) == 6
+    lesson(w, w.pa, BRIEF, ("s1", "s3"))  # a new sighting changes the lesson
+    assert run(w, corr=broken).returncode == 0 and calls(w) == CALLS_THREE_PASSES
 
 
 def test_a_clean_run_or_other_lessons_clear_the_retry(w):
@@ -568,11 +739,29 @@ def test_a_clean_run_or_other_lessons_clear_the_retry(w):
 
 def test_a_group_without_a_verdict_makes_the_run_incomplete(w):
     a, b = two_projects(w)
-    lesson(w, w.pa, "Read the failing test output to the end before changing code, because the cause is often there.")
-    lesson(w, w.pb, "Read the whole failing test output before you change any code, since the cause is often there.",
-               ("s2",))
-    model(w, [group(a, b), group(ident(w, "Read the failing"), ident(w, "Read the whole"), claim="Read the whole failing test output before changing code.")],
-          [verdict(1)])
+    lesson(
+        w,
+        w.pa,
+        "Read the failing test output to the end before changing code, because the cause is often there.",
+    )
+    lesson(
+        w,
+        w.pb,
+        "Read the whole failing test output before you change any code, since the cause is often there.",
+        ("s2",),
+    )
+    model_with(
+        w,
+        [
+            group(a, b),
+            group(
+                ident(w, "Read the failing"),
+                ident(w, "Read the whole"),
+                claim="Read the whole failing test output before changing code.",
+            ),
+        ],
+        [verdict(1)],
+    )
     assert run(w).returncode == 0
     assert "fingerprint" not in seen(w) and seen(w)["retry"]["count"] == 1
     first = calls(w)
