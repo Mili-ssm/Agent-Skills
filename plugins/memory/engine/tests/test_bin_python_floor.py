@@ -62,7 +62,10 @@ def _edges(path: Path) -> set[Path]:
     names: set[str] = set().union(*(_names(node) for node in ast.walk(tree)))
     found: set[Path] = set()
     for name in names:
-        module = ENGINE / f"{name.replace('.', '/')}.py"
+        base = ENGINE / name.replace(".", "/")
+        module = (
+            base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+        )  # a package is its `__init__.py`
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", name) and module.is_file():
             found.add(module)
         elif re.fullmatch(r"mem-[a-z]+", name) and (BIN / name).is_file() and name not in EXCLUDED:

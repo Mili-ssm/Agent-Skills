@@ -9,10 +9,22 @@ import pytest
 
 ENGINE = Path(__file__).resolve().parent.parent
 PACKAGE = "synthesize"
-# Package modules are named by their dotted path (`synthesize.pipeline`); the package's own `__init__` is left out.
-MODULES = {path.stem for path in ENGINE.glob("*.py")} | {
-    f"{PACKAGE}.{path.stem}" for path in (ENGINE / PACKAGE).glob("*.py") if path.stem != "__init__"
-}
+# Package modules are named by their dotted path (`synthesize.pipeline`); the package itself is `synthesize` (its `__init__.py`).
+MODULES = (
+    {path.stem for path in ENGINE.glob("*.py")}
+    | {
+        f"{PACKAGE}.{path.stem}"
+        for path in (ENGINE / PACKAGE).glob("*.py")
+        if path.stem != "__init__"
+    }
+    | {PACKAGE}
+)
+
+
+def _source(name: str) -> Path:
+    """The file of a module name: `a.b` is `a/b.py`, a package is its `__init__.py`."""
+    path = ENGINE / name.replace(".", "/")
+    return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
 @pytest.mark.parametrize("module", ["notes", "index", "check", "session_notices"])
@@ -61,10 +73,7 @@ def test_session_notices_does_not_import_mem():
 
 
 def _trees() -> dict[str, ast.Module]:
-    return {
-        name: ast.parse((ENGINE / f"{name.replace('.', '/')}.py").read_text(encoding="utf-8"))
-        for name in sorted(MODULES)
-    }
+    return {name: ast.parse(_source(name).read_text(encoding="utf-8")) for name in sorted(MODULES)}
 
 
 def _imported_engine_modules(tree: ast.Module, own: str) -> set[str]:
