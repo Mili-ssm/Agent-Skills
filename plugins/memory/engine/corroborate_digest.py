@@ -142,8 +142,8 @@ def _digest_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     reasons: dict[str, str] = {}
     try:
         corroborate_state.write_private(scratch / "settings.json", json.dumps({"disableAllHooks": True}))
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", corroborate_run.PROPOSE_MODEL, budget, corroborate_run.DIGEST_BRIEF, dg.blocks(works), "topics",
-                                 DIGEST_WRITER_OUT)
+        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, budget), corroborate_run.AskJob(corroborate_run.DIGEST_BRIEF, dg.blocks(works), "topics",
+                                 DIGEST_WRITER_OUT))
         result["cost"] += cost
         try:
             proposed = dg.validate(payload, works) if ok else None
@@ -154,8 +154,8 @@ def _digest_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
         pairs = dg.pairs(works, proposed)
         verdicts: dict = {}
         if pairs:
-            payload, cost, ok = corroborate_run._ask(claude, scratch, "check", corroborate_run.CHECK_MODEL, budget, corroborate_run.DIGEST_CHECK_BRIEF, _digest_pair_text(pairs),
-                                     "pairs", DIGEST_CHECK_OUT)
+            payload, cost, ok = corroborate_run._ask(claude, scratch, "check", corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, budget), corroborate_run.AskJob(corroborate_run.DIGEST_CHECK_BRIEF, _digest_pair_text(pairs),
+                                     "pairs", DIGEST_CHECK_OUT))
             result["cost"] += cost
             checked = _digest_verdicts(payload) if ok else None
             if checked is None:

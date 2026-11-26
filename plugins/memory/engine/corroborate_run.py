@@ -12,7 +12,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, NamedTuple
 
 import auto_state as au
 import capture_state as cs
@@ -186,10 +186,28 @@ One entry per block. Write nothing else and use no other tool.
 """
 
 
-def session_cmd(claude: str, work: Path, brief: str, settings: Path, /, *limits: Any) -> list[str]:
+class SessionLimits(NamedTuple):
+    """The model name and the maximum budget in USD of one session."""
+
+    model: str
+    max_budget: float
+
+
+class AskJob(NamedTuple):
+    """What `_ask` runs: the brief template, the text for the session, the template's key for that text and the
+    output file name."""
+
+    template: str
+    text: str
+    text_key: str
+    out_name: str
+
+
+def session_cmd(
+    claude: str, work: Path, brief: str, settings: Path, limits: SessionLimits
+) -> list[str]:
     """One session. Only Read and Write exist (`--tools`, no MCP server) and the rules allow them inside `work`
-    only; no Bash, no web, hooks disabled by `settings`. `limits` is the model name and the maximum budget in USD
-    (callers pass them positionally, so the signature stays within the argument limit with them variadic)."""
+    only; no Bash, no web, hooks disabled by `settings`."""
     model, max_budget = limits
     return [
         claude,
@@ -491,8 +509,9 @@ class Applier:
 
     def refuse(self) -> bool:
         self.counts["refused"] += 1
-        if self.current is not None:
-            self.refused_ids.update(self.current.ids)
+        if self.current is None:  # only `apply` reaches here, with the group set by `_apply_groups`
+            raise AttributeError("refuse() needs the group being applied")
+        self.refused_ids.update(self.current.ids)
         return False
 
     def fail(self) -> bool:
@@ -662,7 +681,14 @@ def _start_run(ctx: _Run) -> Path:
 def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> None:
     """One session of a stage ("propose" or "verify"): its cost goes to the line, a failed one stops the run."""
     done = run_session(
-        session_cmd(ctx.claude, work, brief, work.parent / "settings.json", model, ctx.budget), work
+        session_cmd(
+            ctx.claude,
+            work,
+            brief,
+            work.parent / "settings.json",
+            SessionLimits(model, ctx.budget),
+        ),
+        work,
     )
     ctx.line["cost"] += done["cost"] if done["has_result"] else 0.0
     ctx.log(
@@ -1025,11 +1051,10 @@ def _cell(text: object) -> str:
 
 
 def _ask(
-    claude: str, scratch: Path, name: str, model: str, budget: float, /, *job: str
+    claude: str, scratch: Path, name: str, limits: SessionLimits, job: AskJob
 ) -> tuple[object, float, bool]:
     """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error).
-    `job` is the brief template, the text for the session, the template's key for that text and the output file name
-    (callers pass them positionally after `budget`, in that order; `name` stays third)."""
+    Callers pass `claude`, `scratch` and `name` positionally (`name` stays third: a test wraps the call)."""
     template, text, text_key, out_name = job
     work = scratch / name
     work.mkdir(mode=0o700)
@@ -1038,7 +1063,7 @@ def _ask(
     brief = template.format(**{text_key: work / "input.txt"}, out=out)
     try:
         done = run_session(
-            session_cmd(claude, work, brief, scratch / "settings.json", model, budget), work
+            session_cmd(claude, work, brief, scratch / "settings.json", limits), work
         )
     except OSError:  # a binary that is missing or cannot run is a failed session
         return None, 0.0, False

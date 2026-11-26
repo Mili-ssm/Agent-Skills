@@ -166,8 +166,8 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
     reasons: dict[str, str] = {}
     try:
         corroborate_state.write_private(scratch / "settings.json", json.dumps({"disableAllHooks": True}))
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", corroborate_run.PROPOSE_MODEL, budget, corroborate_run.REWORD_BRIEF,
-                                 corroborate.reword_blocks(candidates), "lessons", REWORD_WRITER_OUT)
+        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, budget), corroborate_run.AskJob(corroborate_run.REWORD_BRIEF,
+                                 corroborate.reword_blocks(candidates), "lessons", REWORD_WRITER_OUT))
         result["cost"] += cost
         try:
             proposed = corroborate.validate_reword(payload, candidates) if ok else None
@@ -179,8 +179,8 @@ def _reword_locked(claude: str | None, budget: float, cdir: Path, result: dict, 
         accepted: set[str] = set()
         if kept:
             text = corroborate.check_lines([(i, m.claim, m.context, short) for i, m, short in kept])
-            payload, cost, ok = corroborate_run._ask(claude, scratch, "check", corroborate_run.CHECK_MODEL, budget, corroborate_run.CHECK_BRIEF, text, "pairs",
-                                     REWORD_CHECK_OUT)
+            payload, cost, ok = corroborate_run._ask(claude, scratch, "check", corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, budget), corroborate_run.AskJob(corroborate_run.CHECK_BRIEF, text, "pairs",
+                                     REWORD_CHECK_OUT))
             result["cost"] += cost
             checked = corroborate.validate_check(payload, [i for i, _m, _s in kept]) if ok else None
             if checked is None:

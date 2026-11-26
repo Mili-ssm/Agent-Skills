@@ -63,7 +63,7 @@ def fill_dry_run(args) -> int:
             corroborate_state.write_private(work / "lessons.txt", corroborate.fill_lines(candidates))
             out = work / "fill.json"
             brief = corroborate_run.FILL_BRIEF.format(lessons=work / "lessons.txt", out=out)
-            done = corroborate_run.run_session(corroborate_run.session_cmd(args.claude, work, brief, settings, corroborate_run.PROPOSE_MODEL, args.budget), work)
+            done = corroborate_run.run_session(corroborate_run.session_cmd(args.claude, work, brief, settings, corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, args.budget)), work)
             cost = done["cost"] if done["has_result"] else 0.0
             if not done["has_result"] or done["error"]:
                 print("mem-corroborate: the session failed; nothing was written", file=sys.stderr)
@@ -274,8 +274,8 @@ def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) ->
     scratch = Path(tempfile.mkdtemp(prefix="mem-corroborate-fill-"))
     try:
         corroborate_state.write_private(scratch / "settings.json", json.dumps({"disableAllHooks": True}))
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", corroborate_run.PROPOSE_MODEL, budget, corroborate_run.FILL_BRIEF,
-                                 corroborate.fill_lines(candidates), "lessons", "fill.json")
+        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, budget), corroborate_run.AskJob(corroborate_run.FILL_BRIEF,
+                                 corroborate.fill_lines(candidates), "lessons", "fill.json"))
         result["cost"] += cost
         if not (ok and isinstance(payload, dict) and isinstance(payload.get("items"), list)):
             return failed_session("the writer session gave no usable answer")
@@ -296,8 +296,8 @@ def _fill_locked(claude: str | None, budget: float, cdir: Path, result: dict) ->
         faithful: dict[str, bool] = {}
         if passed:
             text = corroborate.check_lines([(i, by_id[i].claim, by_id[i].context, item["short"]) for i, item in passed])
-            payload, cost, ok = corroborate_run._ask(claude, scratch, "check", corroborate_run.CHECK_MODEL, budget, corroborate_run.CHECK_BRIEF, text, "pairs",
-                                     "verdicts.json")
+            payload, cost, ok = corroborate_run._ask(claude, scratch, "check", corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, budget), corroborate_run.AskJob(corroborate_run.CHECK_BRIEF, text, "pairs",
+                                     "verdicts.json"))
             result["cost"] += cost
             checked = corroborate.validate_check(payload, [i for i, _x in passed]) if ok else None
             if checked is None:

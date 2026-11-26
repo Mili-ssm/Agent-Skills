@@ -152,7 +152,7 @@ def self_check() -> int:
         assert held is not None and au.take_run_lock(cdir) is None
         assert (cdir.stat().st_mode & 0o777) == 0o700, oct(cdir.stat().st_mode)
         os.close(held)
-        cmd = corroborate_run.session_cmd("claude", tmp / "w", "brief", tmp / "s.json", "haiku", 0.25)
+        cmd = corroborate_run.session_cmd("claude", tmp / "w", "brief", tmp / "s.json", corroborate_run.SessionLimits("haiku", 0.25))
         allowed = cmd[cmd.index("--allowedTools") + 1:cmd.index("--disallowedTools")]
         assert not any(t.startswith("Bash") for t in allowed) and "Bash" in cmd[cmd.index("--disallowedTools") + 1:]
         assert all(t.startswith(("Read(", "Write(", "Edit(")) and f"{tmp}/w" in t for t in allowed), allowed
