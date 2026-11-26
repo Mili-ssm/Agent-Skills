@@ -1,19 +1,18 @@
 """`bin/mem-corroborate`: the pass that matches lessons by meaning, with a fake `claude` and invented lessons."""
+
 import datetime
 import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
-
-import pytest
+from typing import TypedDict, Unpack
 
 import auto_state
 import corroborate
 import corroborate_reword
+import pytest
 import records
-import mem  # noqa: E402
-
 
 PLUGIN = Path(__file__).resolve().parents[2]
 CORR = PLUGIN / "bin" / "mem-corroborate"
@@ -44,15 +43,27 @@ if src and os.path.exists(src):
 print(json.dumps({"type": "result", "is_error": False, "result": "done", "total_cost_usd": 0.03}))
 """
 
-BRIEF = "Brief the subagent with the acceptance check before it starts, so it can tell when it is done."
+BRIEF = (
+    "Brief the subagent with the acceptance check before it starts, so it can tell when it is done."
+)
 BRIEF2 = "Give a subagent the acceptance check first: with it the subagent can tell by itself when it is done."
 
 
-@pytest.fixture
-def w(tmp_path, monkeypatch):
-    class World:
-        pass
+class World:
+    """What a test needs: the temp dir, the fake `claude`, the data and memory folders, two projects."""
 
+    tmp: Path
+    fake: Path
+    calls_file: Path
+    gmem: Path
+    data: Path
+    cdir: Path
+    pa: Path
+    pb: Path
+
+
+@pytest.fixture
+def w(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> World:
     w = World()
     w.tmp = tmp_path
     w.fake = tmp_path / "fake-claude"
@@ -67,8 +78,9 @@ def w(tmp_path, monkeypatch):
     for p in (w.pa, w.pb):
         records.project_dir(p).mkdir(parents=True)
     w.data.mkdir(parents=True)
-    (w.data / "projects.json").write_text(json.dumps(
-        {p.name: {"path": str(p), "seen": TODAY.isoformat()} for p in (w.pa, w.pb)}))
+    (w.data / "projects.json").write_text(
+        json.dumps({p.name: {"path": str(p), "seen": TODAY.isoformat()} for p in (w.pa, w.pb)})
+    )
     monkeypatch.setenv("MEM_COUNT_TEMP_PROJECTS", "1")
     monkeypatch.setenv("MEM_MEMORIES", str(w.gmem))
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -80,16 +92,39 @@ def w(tmp_path, monkeypatch):
     return w
 
 
-def lesson(w, project, claim, sessions=("s1",), created=TODAY, weight="light", scope="project"):
+class LessonOptions(TypedDict, total=False):
+    created: datetime.date
+    weight: str
+    scope: str
+
+
+def lesson(w, project, claim, sessions=("s1",), **options: Unpack[LessonOptions]):
+    created = options.get("created", TODAY)
+    weight = options.get("weight", "light")
+    scope = options.get("scope", "project")
     folder = records.project_dir(project) if scope == "project" else w.gmem
-    sources = [f"session {s}" if scope == "project" else f"session {s} project {records.project_key(project)}"
-               for s in sessions]
-    return records.write_memory(folder, scope, kind="lesson", claim=claim, body="b\n", today=created, sources=sources,
-                                origin="transcript", reach="general", weight=weight)
+    sources = [
+        f"session {s}"
+        if scope == "project"
+        else f"session {s} project {records.project_key(project)}"
+        for s in sessions
+    ]
+    return records.write_memory(
+        folder,
+        scope,
+        kind="lesson",
+        claim=claim,
+        body="b\n",
+        today=created,
+        sources=sources,
+        origin="transcript",
+        reach="general",
+        weight=weight,
+    )
 
 
 def glob(w, claim, sessions, project=None, created=TODAY):
-    return lesson(w, project or w.pa, claim, sessions, created, scope="global")
+    return lesson(w, project or w.pa, claim, sessions, created=created, scope="global")
 
 
 def lessons(w):
@@ -103,34 +138,61 @@ def ident(w, snippet):
     return found[0]
 
 
-def group(*ids, claim="Hand a subagent the check that tells it the task is done before it starts, and see whether it helps.",
-          context="when briefing a subagent"):
+def group(
+    *ids,
+    claim="Hand a subagent the check that tells it the task is done before it starts, and see whether it helps.",
+    context="when briefing a subagent",
+):
     return {"ids": list(ids), "claim": claim, "context": context}
 
 
 def verdict(n, **override):
-    return {"group": n, "reason": "both ask for the same", "same": True, "faithful": True, "general": True, **override}
+    return {
+        "group": n,
+        "reason": "both ask for the same",
+        "same": True,
+        "faithful": True,
+        "general": True,
+        **override,
+    }
 
 
 def model(w, groups, verdicts="all"):
     """The fake writes these files as the model's answers; `verdicts` "all" approves every group, None writes none."""
-    (w.tmp / "groups.json").write_text(groups if isinstance(groups, str) else json.dumps({"groups": groups}))
+    (w.tmp / "groups.json").write_text(
+        groups if isinstance(groups, str) else json.dumps({"groups": groups})
+    )
     os.environ["FAKE_GROUPS"] = str(w.tmp / "groups.json")
     if verdicts is None:
         os.environ.pop("FAKE_VERDICTS", None)
         return
     if verdicts == "all":
         verdicts = [verdict(n) for n in range(1, len(groups) + 1)]
-    (w.tmp / "verdicts.json").write_text(verdicts if isinstance(verdicts, str) else json.dumps({"verdicts": verdicts}))
+    (w.tmp / "verdicts.json").write_text(
+        verdicts if isinstance(verdicts, str) else json.dumps({"verdicts": verdicts})
+    )
     os.environ["FAKE_VERDICTS"] = str(w.tmp / "verdicts.json")
 
 
-def run(w, *args, mode="good", cmd="run", env=None, claude=True, corr=None):
+class RunOptions(TypedDict, total=False):
+    mode: str
+    cmd: str
+    env: dict[str, str] | None
+    claude: bool
+    corr: Path | None
+
+
+def run(w, *args, **options: Unpack[RunOptions]):
+    mode = options.get("mode", "good")
+    cmd = options.get("cmd", "run")
+    env = options.get("env")
+    claude = options.get("claude", True)
+    corr = options.get("corr")
     full = {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     full["FAKE_MODE"] = mode
     full.update(env or {})
     argv = [str(corr or CORR), cmd, *(["--claude", str(w.fake)] if claude else []), *args]
-    return subprocess.run(argv, env=full, capture_output=True, text=True, timeout=300)
+    return subprocess.run(argv, env=full, capture_output=True, text=True, timeout=300, check=False)
 
 
 def status(w):
@@ -171,6 +233,7 @@ def two_projects(w):
 
 # ---- fix round: failures against refusals, silent non-work, repeatable undo, process ----------------------------
 
+
 def fake_plugin(w, shell):
     """A copy of the command beside a `mem` wrapper: `shell` runs first, then the real `mem` (REAL is its path)."""
     plug = w.tmp / "plug"
@@ -206,7 +269,9 @@ def by_claim(w, claim):
 # ---- reword_auto: the pass rewords a loaded lesson whose present wording got worse ----------------------------------
 
 OLD_WORDING = "Running the narrowest covering test before the whole suite may save time."
-NEW_WORDING = "Before the whole suite, running the narrowest test that covers a change may save time."
+NEW_WORDING = (
+    "Before the whole suite, running the narrowest test that covers a change may save time."
+)
 
 
 def ago(n):
@@ -215,18 +280,35 @@ def ago(n):
 
 def worse_one(w, claim=NARROW, scope="project", failed=(5, 4), worked=()):
     """A loaded lesson whose only wording (10 days old) failed twice since: the step's candidate."""
-    if scope == "global":   # as `fill_world` makes it: seen in two projects, released from triage
-        m = records.write_memory(w.gmem, "global", kind="lesson", claim=claim, body="b\n", today=TODAY, origin="transcript",
-                                 reach="general", weight="light",
-                                 sources=[f"session s5 project {records.project_key(w.pa)}",
-                                          f"session s6 project {records.project_key(w.pb)}"])
+    if scope == "global":  # as `fill_world` makes it: seen in two projects, released from triage
+        m = records.write_memory(
+            w.gmem,
+            "global",
+            kind="lesson",
+            claim=claim,
+            body="b\n",
+            today=TODAY,
+            origin="transcript",
+            reach="general",
+            weight="light",
+            sources=[
+                f"session s5 project {records.project_key(w.pa)}",
+                f"session s6 project {records.project_key(w.pb)}",
+            ],
+        )
         m = records.update(m, TODAY, triage=None)
     else:
         m = lesson(w, w.pa, claim, ("s7", "s8"))
     log = [records.case_entry(ago(n), f"session z{n}", "failed") for n in failed]
     log += [records.case_entry(ago(n), f"session y{n}", "worked") for n in worked]
-    return records.update(m, TODAY, short=OLD_WORDING, short_by="model",
-                          versions=[records.version_entry(ago(10), OLD_WORDING)], log=log)
+    return records.update(
+        m,
+        TODAY,
+        short=OLD_WORDING,
+        short_by="model",
+        versions=[records.version_entry(ago(10), OLD_WORDING)],
+        log=log,
+    )
 
 
 def reword_answers(w, mp, shorts=None, writer="ok", checker=True):
@@ -236,14 +318,22 @@ def reword_answers(w, mp, shorts=None, writer="ok", checker=True):
     mp.delenv("FAKE_REWORD_CHECK", raising=False)
     found = candidate_ids(w)
     if writer == "ok":
-        items = [{"id": i, "short": (shorts or {}).get(c, NEW_WORDING)} for c, ids in found.items() for i in ids]
+        items = [
+            {"id": i, "short": (shorts or {}).get(c, NEW_WORDING)}
+            for c, ids in found.items()
+            for i in ids
+        ]
         writer = json.dumps({"items": items})
     if writer != "none":
         (w.tmp / "reword-answer.json").write_text(writer)
         mp.setenv("FAKE_REWORD", str(w.tmp / "reword-answer.json"))
-    if checker in (True, False):
+    if checker is True or checker is False:
         every = [i for ids in found.values() for i in ids]
-        checker = json.dumps({"verdicts": [{"id": i, "reason": "the checker's reason", "faithful": checker} for i in every]})
+        checker = json.dumps({
+            "verdicts": [
+                {"id": i, "reason": "the checker's reason", "faithful": checker} for i in every
+            ]
+        })
     if checker != "none":
         (w.tmp / "reword-check-answer.json").write_text(checker)
         mp.setenv("FAKE_REWORD_CHECK", str(w.tmp / "reword-check-answer.json"))
