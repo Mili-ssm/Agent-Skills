@@ -80,6 +80,8 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 
 | Finding | Ruling |
 |---|---|
+| `mem.py` ends at 1,403 lines, over the ≤ 1,350 target (Task 9) | accepted: the parser alone is 948 lines and stays in `mem.py` (owner); ADR 0028 revisits at a 1,200-line parser |
+| `sources` imported eagerly, about 18 ms per run (Task 5) | accepted: Ruff forbids the local import (ADR 0028) |
 | Untouched tests that read `mem.X` through `__getattr__` are typed `object` (`mem.check`, `mem.split_frontmatter` and others) | basedpyright errors when such a test file is next touched: retarget it to the defining module then (done for the files Task 9 touched) |
 | `notes/search.py` prints a skip warning on stderr for an unreadable note | Documented in its module docstring (pure means no subprocess, no `os.environ`, no file writes) |
 
