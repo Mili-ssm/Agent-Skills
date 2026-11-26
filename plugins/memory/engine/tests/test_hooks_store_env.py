@@ -171,3 +171,35 @@ def test_session_env_ignores_an_unmarked_default_folder(tmp_path):
     r, exported = _env_file_run(tmp_path)
     assert r.returncode == 0 and not r.stderr
     assert "MEM_STORE" not in exported
+
+
+def _logging_mem(root, tmp_path):
+    """Replace the stub `mem` with one that records each call's arguments."""
+    calls = tmp_path / "mem-calls.txt"
+    (root / "bin" / "mem").write_text(f'#!/bin/sh\necho "$@" >> "{calls}"\n')
+    return calls
+
+
+def test_session_env_runs_no_init_without_a_data_folder(tmp_path):
+    root = _plugin(tmp_path)
+    calls = _logging_mem(root, tmp_path)
+    envfile = tmp_path / "envfile"
+    envfile.write_text("")
+    env = _env(tmp_path, CLAUDE_ENV_FILE=str(envfile))
+    del env["HOME"], env["XDG_DATA_HOME"]
+    r = _run(root, "session-env.sh", env)
+    assert r.returncode == 0 and not r.stderr
+    assert not calls.exists()
+    assert "MEM_STORE" not in envfile.read_text()
+
+
+def test_session_env_without_its_helper_starts_no_init(tmp_path):
+    root = _plugin(tmp_path)
+    (root / "hooks" / "store-env.sh").unlink()
+    calls = _logging_mem(root, tmp_path)
+    _default_store(tmp_path, marked=True)
+    envfile = tmp_path / "envfile"
+    envfile.write_text("")
+    r = _run(root, "session-env.sh", _env(tmp_path, CLAUDE_ENV_FILE=str(envfile)))
+    assert r.returncode == 0 and not r.stderr
+    assert not calls.exists() or "init" not in calls.read_text()

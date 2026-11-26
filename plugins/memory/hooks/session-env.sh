@@ -6,7 +6,8 @@
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 . "$here/store-env.sh" 2>/dev/null
-type default_store_dir >/dev/null 2>&1 || default_store_dir() { :; }   # the helper is missing: no default store, never a failure
+store_helper=1
+type default_store_dir >/dev/null 2>&1 || { store_helper=""; default_store_dir() { :; }; }   # helper missing: no default store, never a failure
 export_var() { # <variable> <value>
   if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
     { printf 'export %s=%q\n' "$1" "$2" >> "$CLAUDE_ENV_FILE"; } 2>/dev/null
@@ -23,6 +24,8 @@ handle() { # <option value> <config file name> <variable>
   export_var "$3" "$1"
 }
 default_store() {
+  [ -n "$store_helper" ] || return 0
+  [ -n "${XDG_DATA_HOME:-${HOME:-}}" ] || return 0   # no data folder: `mem init` could only fail
   # The marker, not the folder: an init cut short by the time limit is finished on the next start.
   if [ -z "$(default_store_dir)" ] && [ -n "$here" ]; then
     if command -v timeout >/dev/null 2>&1; then
