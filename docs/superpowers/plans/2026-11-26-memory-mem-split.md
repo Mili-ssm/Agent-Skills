@@ -56,7 +56,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] Verbatim moves; `_MOVED` entries; ceiling lowered. Check: suite, goldens, help goldens, graph rules.
 
 ### Task 3: `notes/search.py` and `commands/read.py`
-- [ ] As Task 2; `build_corpus` patches retargeted.
+- [x] As Task 2; `build_corpus` patches retargeted.
 
 ### Task 4: `commands/edit.py`
 - [ ] As Task 2; patches `_swap_file`, `_edited_note_text`, `_index_files`, `apply_index`, `invalid_changed` retargeted.

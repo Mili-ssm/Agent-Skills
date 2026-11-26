@@ -8,6 +8,7 @@ SRC = "Sources: [attention](../knowledge/computing/attention-replaces-recurrence
 SYN = "syntheses/attention.md"
 NOTES = ("one-note", "two-note")
 EXIT_REFUSED = 2  # mem's exit code for a refused or invalid command
+SECOND_WRITE = 2  # the second swap of a two-file command fails: the first must roll back
 EXIT_FORBIDDEN_TERM = 4  # mem's exit code when a text holds a secret or forbidden term
 
 
@@ -414,7 +415,7 @@ def test_a_failed_write_leaves_files_and_log_as_they_were(run, made, monkeypatch
 
     def failing(path, data):
         calls.append(path)
-        if len(calls) == EXIT_REFUSED or argv[0] in {"detach", "topics"}:
+        if len(calls) == SECOND_WRITE or argv[0] in {"detach", "topics"}:
             raise OSError("disk full")
         real(path, data)
 
