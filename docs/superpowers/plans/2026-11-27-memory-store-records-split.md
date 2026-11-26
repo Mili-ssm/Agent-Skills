@@ -88,19 +88,25 @@ Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is g
 - Kill: after the last step `grep -rnE "from store|\"store\.|'store'|store/" plugins/memory --include=*.py` and in `bin/` finds anything outside fixtures; a guard stays green when violated; collected count or a golden changes; `mem.<name>` for a `_MOVED` name raises.
 
 ### Task 4: Split reviews and gate
-- [ ] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) along their sections (proposed cut, outline 2026-11-27; the pre-mortem measures it against the call graph). No facade: each has few importers (`check`: mem.py, session/notices.py; `syntheses`: mem.py, synthesize/*, project_syntheses, check, evals), so importers and `monkeypatch` targets move to the defining module.
+- [ ] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) by cohesion. Owner 2026-11-27: size is a review trigger, not a cap (a cohesive 1k–3k file can be right); group by function. Pre-mortem 2026-11-27 measured the first cut (check stayed ~771 lines; a `syntheses` ↔ `units` cycle; `synthesis_*`/`*_rules` prefixes in a 12-module `notes/`), so the syntheses go to their own base package. Layering: `notes → syntheses → memories → core` (syntheses import only core and memories today).
 
 | Module | Holds | From |
 |---|---|---|
-| `notes/fields.py` | `Problem`, field validators (`_string` … `_disputed`), the field schemas, `instruction_word` | check.py |
-| `notes/links.py` | `rule_index_fresh`, `rule_links`, `orphan_notes` and their helpers (code stripping, relative links) | check.py |
-| `notes/due.py` | `rule_requirements`, `due_retests`, `due_rereads`, `due_counts`, `due_requirements` and helpers | check.py |
-| `notes/check.py` | structure, schema, topic, size, handle, synthesis and supersession rules, the rule list, `check`, `invalid_changed` | stays |
-| `notes/syntheses.py` | `Section`, `Synthesis`, load, validate, source numbering, `shown`, `source_kinds` | stays |
-| `notes/units.py` | `Unit`, `_Ref`, `_Line`, `_Parser`, `units`, `without_references`, `fingerprint*`, `is_current`, `word_count`, `first_paragraph` | syntheses.py |
-| `notes/synthesis_edit.py` | `snapshot`, `create`, `add_section`, `edit_section`, `_RefEditor`, `change_references`, guards, `append_section`, `renamed_section`, `without_section`, `with_topics`, `match_sections` | syntheses.py |
+| `notes/fields.py` | `Problem`, `Validator`, `_DATE`, `_MONTH`, `_IMPERATIVES`, `_INSTRUCTION_FIX`, `instruction_word`, `_string` … `_disputed`, `_PART_OF`, `_DISPUTE_KEYS`, `LEVELS`, `OPTIONAL_FIELDS`, `SCHEMAS` | check.py |
+| `notes/links.py` | `rule_index_fresh` … `orphan_notes` with their own `_FENCE`, `_CODE_SPAN`, `_LINK`, `_REFDEF`, `_SCHEME` | check.py |
+| `notes/due.py` | `_REQUIREMENTS` … `due_requirements`, `RETEST_DAYS`, `REREAD_DAYS`, `MODEL_SPECIFIC_ROOT` | check.py |
+| `notes/check.py` | the rule catalog (names, flat, domain, schema, consistency, topics, placeholders, size, handles, syntheses, supersession), `RULES`, `check`, `invalid_changed` (~770 lines, cohesive) | stays |
+| `syntheses/document.py` | `Section`, `Synthesis`, load, validate, source numbering, `shown`, `source_kinds` | notes/syntheses.py |
+| `syntheses/units.py` | `Unit`, `_Ref`, `_Line`, `_Parser`, `units`, `without_references`, `fingerprint*`, `is_current`, `word_count`, `first_paragraph`, plus the leaves that break the cycle: `_FENCE`, `_SCHEME`, `_next_fence`, `_relative`, `_file_part`, `_note_key`, `NOTE_FOLDERS`, `MIN_NOTE_PARTS` | notes/syntheses.py |
+| `syntheses/edit.py` | `snapshot` … `match_sections` | notes/syntheses.py |
+| `syntheses/project.py` | all of `notes/project_syntheses.py` | moved |
 
-Check: each module ≤ 600 lines, acyclic, suite count unchanged, goldens, patches proven per the patch rule. Full matrix; docs (ADR 0034 `## Review`, backlog A6/A14, resume state, this plan).
+- Part A (check) before part B (syntheses); one module per commit; collected count checked after each.
+- Before moving code: the AST purity check (`test_check_stays_pure`) and the parametrize lists (`test_import_graph.py` module list, `test_syntheses.py` no-`import mem` list) cover the new modules; `mem.__getattr__` searches the new modules; a test asserts every `_MOVED` name resolves through `mem`.
+- `_LINK`/`_FENCE`/`_SCHEME` exist in both files and the two `_LINK` patterns differ: retarget each reference to its defining module (check family → `links`, syntheses family → `units`).
+- Locals named `fields`, `due`, `links`, `units` in importers: import those modules under an alias where a local would clash.
+- Eval answer key `synthesis-shrink` (`_guard_shrink`) → `syntheses/edit.py`: a location change only, recorded as such.
+- Kill: a cycle only TYPE_CHECKING fixes; the `_MOVED` test fails; collected count or a golden changes.
 
 ## Deferred findings
 
@@ -109,4 +115,4 @@ Check: each module ≤ 600 lines, acyclic, suite count unchanged, goldens, patch
 
 ## Kill criteria
 
-- A golden changes; a cycle; a patch stops reaching its code; the collected count changes across a move; a module over 600 lines; the facade needs logic.
+- A golden changes; a cycle; a patch stops reaching its code; the collected count changes across a move; a records module over 600 lines (Task 3 only; Task 4 splits by cohesion); the facade needs logic.
