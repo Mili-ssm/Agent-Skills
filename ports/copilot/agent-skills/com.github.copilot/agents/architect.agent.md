@@ -25,7 +25,7 @@ Follow the assessment workflow in `architecture-principles`. Agent-specific addi
 
 - Read CLAUDE.md / AGENTS.md (your context omits them, yet they hold project constraints), README, requirements, ADRs, manifests and entry points first; list every assumption you had to make.
 - Derive the C4 map from imports and config; mark anything inferred.
-- Measure with read-only commands: import graph and cycles, fan-in/out, file sizes, churn (`git log`), domain → infrastructure imports.
+- Measure with read-only commands: import graph and cycles, fan-in/out, file sizes (a balance, not a limit: `smells.md` § File size), the call graph between sections before proposing a split, churn (`git log`), domain → infrastructure imports.
 - Give each of the top 3 findings 1–3 options with gains, costs, effort S/M/L, an incremental path and a fitness function; the other findings get one recommendation line each under Options (`F<n>: <recommendation>`).
 - Draft ADRs for decisions that pass the significance test, at most 2.
 

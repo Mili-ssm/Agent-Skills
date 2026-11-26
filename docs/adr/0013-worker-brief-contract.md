@@ -65,3 +65,7 @@ The prompt-authoring text that `docs-principles` held moved to `prompt-engineeri
 ## Review 2026-11-15
 
 Inside the Superpowers plan loop (ADR 0019) the brief points to the task brief file that the loop cuts from the plan and adds the six parts. It also asks for a local commit and a report file, because the loop builds its review package from them.
+
+## Review 2026-11-27
+
+Lessons from the memory engine restructure (ADR 0034) land in prompt bodies, unmeasured: the `implementer` gains one rule for moves, renames, splits and merges (list duplicate top-level names before a merge; prove each string-named guard still fails on a temporary violation; patch every binding after a split), and `architecture-principles/references/smells.md` gains § File size (a balance, not a limit, with measured norms), which the `architect` reads when it measures file sizes. No `description` changed, so no trigger case moves; the `offload-implementer*` cases cover the implementer's dispatch, not this rule. Kill criteria: an implementer trace that edits a file outside its brief to run a guard check, or an architect report that flags a cohesive file as a god module by size alone, reverts the line concerned.

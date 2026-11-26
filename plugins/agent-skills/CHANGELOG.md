@@ -7,6 +7,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Changed
 
 - `architecture-principles`: the smell catalog names flat sprawl (many modules in one folder, a shared filename prefix in place of packages) and its remedy, grouping by feature.
+- `architecture-principles`: § File size treats size as a balance, not a limit (split by cohesion and expected growth, merge small parts that rarely change; measured norms from CPython and rustc); the flat-sprawl row adds package `__init__` docstrings as module maps. The `architect` points to it when it measures file sizes and measures the call graph before proposing a split.
+- `implementer`: on a move, rename, split or merge it checks for duplicate top-level names, proves that guards naming the old module by string still fail, and patches every binding; unproven guards go under Open questions / risks. Unmeasured (ADR 0013, Review 2026-11-27).
 
 ## [1.2.0] - 2026-11-26
 
