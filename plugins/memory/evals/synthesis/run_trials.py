@@ -62,7 +62,7 @@ from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import trial_env
-from store import syntheses
+from notes import syntheses
 from synthesize import pipeline as sp
 from synthesize import topics as synthesize_topics
 from synthesize.pipeline import (

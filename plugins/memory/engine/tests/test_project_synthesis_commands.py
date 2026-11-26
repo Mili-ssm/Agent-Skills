@@ -3,7 +3,7 @@ import subprocess
 
 import mem
 import pytest
-from store import project_syntheses as ps
+from notes import project_syntheses as ps
 
 USAGE_ERROR = 2
 SECRET_REFUSED = 4

@@ -81,7 +81,7 @@ CANDIDATES = [
         "name": "synthesis-shrink",
         "question": "`mem synthesis edit` rechaza un texto nuevo que borra demasiado de la sección que se reescribe. "
         "¿En qué archivo está la regla que decide cuánto texto se puede perder?",
-        "expect": "memory/engine/store/syntheses.py",
+        "expect": "memory/engine/notes/syntheses.py",
         # mem.py cmd_synthesis edit (syntheses.edit_section(..., shrink=args.shrink), mem.py ~4332) -> syntheses.edit_section
         # -> _guard_shrink, which compares word counts with SHRINK_RATIO = 0.8.
     },
@@ -89,7 +89,7 @@ CANDIDATES = [
         "name": "git-wait",
         "question": "Al comprobar si una parte de una síntesis de proyecto sigue vigente se llama a git. ¿En qué archivo "
         "se fija cuántos segundos se espera como máximo a esa llamada?",
-        "expect": "memory/engine/store/project_syntheses.py",
+        "expect": "memory/engine/notes/project_syntheses.py",
         # mem.py _part_line / _project_synthesis_block call project_syntheses.freshness -> _git(), whose subprocess.run
         # passes timeout=GIT_TIMEOUT (= 2) defined at the top of project_syntheses.py.
     },

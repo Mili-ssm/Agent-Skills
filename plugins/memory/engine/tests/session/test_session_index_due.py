@@ -4,8 +4,8 @@ from pathlib import Path
 
 import mem
 from memories import records
+from notes import check
 from session import notices as session_notices
-from store import check
 
 TODAY = datetime.date(2026, 11, 23)
 HELD = "History: 1 changed note held back from the last commit: run mem check."

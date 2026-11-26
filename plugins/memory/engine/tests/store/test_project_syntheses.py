@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from store import project_syntheses as ps
+from notes import project_syntheses as ps
 
 TODAY = datetime.date(2026, 11, 17)
 GIT_TIMEOUT = 2

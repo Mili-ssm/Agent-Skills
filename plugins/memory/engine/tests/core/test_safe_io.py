@@ -7,8 +7,8 @@ import mem
 import pytest
 from core import jobs, safe_io
 from memories import records
+from notes import project_syntheses as ps
 from settle import verdicts as settle_verdicts
-from store import project_syntheses as ps
 
 TODAY = datetime.date(2026, 11, 24)
 MODE_GROUP_READABLE = 0o644

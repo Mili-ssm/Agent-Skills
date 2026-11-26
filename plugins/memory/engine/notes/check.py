@@ -11,11 +11,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-from store import index as index_mod
-from store import notes as notes_mod
-from store import syntheses
-from store.index import INDEX_FOLDERS, INDEX_START, index_targets
-from store.notes import (
+from notes import index as index_mod
+from notes import note as notes_mod
+from notes import syntheses
+from notes.index import INDEX_FOLDERS, INDEX_START, index_targets
+from notes.note import (
     FrontmatterError,
     ancestors,
     descendants,
@@ -30,8 +30,8 @@ from store.notes import (
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from store.notes import Note
-    from store.syntheses import Section, Synthesis
+    from notes.note import Note
+    from notes.syntheses import Section, Synthesis
 
 
 class Problem(NamedTuple):

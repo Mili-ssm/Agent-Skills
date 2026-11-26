@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 
-from store import syntheses
+from notes import syntheses
 
 from synthesize import pipeline as sp
 from synthesize import references as bf

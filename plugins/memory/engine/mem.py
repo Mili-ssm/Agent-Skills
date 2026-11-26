@@ -39,16 +39,11 @@ from corroborate import decide as corroborate_decide
 from digest import lessons as digest_lessons
 from memories import records, rules, shortcheck
 from memories.records import tokenize
-from research import checks as research_checks
-from session import handoff
-from session import notices as session_notices
-from settle import state as settle_state
-from settle import verdicts as settle_verdicts
-from store import check as check_rules
-from store import index as index_files
-from store import notes as note_files
-from store import project_syntheses, syntheses
-from store.check import (
+from notes import check as check_rules
+from notes import index as index_files
+from notes import note as note_files
+from notes import project_syntheses, syntheses
+from notes.check import (
     LEVELS,
     MAX_KNOWLEDGE_NAME,
     NAME_PATTERNS,
@@ -63,12 +58,12 @@ from store.check import (
     invalid_changed,
     orphan_notes,
 )
-from store.index import (
+from notes.index import (
     INDEX_FOLDERS,
     apply_index,
     index_targets,
 )
-from store.notes import (
+from notes.note import (
     FrontmatterError,
     ancestors,
     descendants,
@@ -80,11 +75,16 @@ from store.notes import (
     slugify,
     split_frontmatter,
 )
+from research import checks as research_checks
+from session import handoff
+from session import notices as session_notices
+from settle import state as settle_state
+from settle import verdicts as settle_verdicts
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
-    from store.notes import (
+    from notes.note import (
         Note,
     )
 

@@ -14,7 +14,7 @@ import time
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
 from core import headless
-from store import syntheses
+from notes import syntheses
 
 from synthesize import pipeline as sp
 

@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 
 from core import safe_io
 
-from store import notes as notes_mod
-from store.notes import (
+from notes import note as notes_mod
+from notes.note import (
     FrontmatterError,
     discover_notes,
     leaf_topics,
@@ -19,7 +19,7 @@ from store.notes import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from store.notes import Note
+    from notes.note import Note
 
 
 INDEX_START = "<!-- hub:index:start -->"

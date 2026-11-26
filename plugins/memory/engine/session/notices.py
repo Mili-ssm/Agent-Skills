@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core import store_git
-from store import check
+from notes import check
 
 if TYPE_CHECKING:
     import datetime

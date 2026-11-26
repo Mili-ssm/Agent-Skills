@@ -34,7 +34,7 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", ["store.notes", "store.index", "store.check", "session.notices"])
+@pytest.mark.parametrize("module", ["notes.note", "notes.index", "notes.check", "session.notices"])
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
@@ -45,9 +45,9 @@ def test_module_imports_without_mem(module):
 
 def test_notes_imports_no_other_engine_module():
     code = (
-        "import sys; before = set(sys.modules); from store import notes; "
+        "import sys; before = set(sys.modules); from notes import note; "
         f"engine = {sorted(MODULES)!r}; "
-        "loaded = (set(sys.modules) - before) & set(engine) - {'store', 'store.notes', 'core', 'core.yaml_load'}; assert not loaded, loaded"
+        "loaded = (set(sys.modules) - before) & set(engine) - {'notes', 'notes.note', 'core', 'core.yaml_load'}; assert not loaded, loaded"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
@@ -57,7 +57,7 @@ def test_notes_imports_no_other_engine_module():
 
 def test_check_stays_pure():
     """check.py itself imports no git or subprocess code (a library it loads may use subprocess)."""
-    tree = ast.parse((ENGINE / "store" / "check.py").read_text(encoding="utf-8"))
+    tree = ast.parse((ENGINE / "notes" / "check.py").read_text(encoding="utf-8"))
     imported = {
         a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
     }
@@ -71,7 +71,7 @@ def test_check_stays_pure():
         for a in n.names
     }
     assert not {"store_git", "core.store_git", "subprocess"} & imported
-    code = "import sys; from store import check; assert 'core.store_git' not in sys.modules"
+    code = "import sys; from notes import check; assert 'core.store_git' not in sys.modules"
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
     )
@@ -159,7 +159,7 @@ def test_engine_modules_use_no_dynamic_import():
 
 STORE_MODULES = tuple(
     f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints")
-) + tuple(f"store.{name}" for name in ("syntheses", "project_syntheses", "index", "notes", "check"))
+) + tuple(f"notes.{name}" for name in ("syntheses", "project_syntheses", "index", "note", "check"))
 
 
 def test_store_modules_never_import_synthesize():
@@ -189,12 +189,12 @@ FROZEN_EDGES = {
     ("research", "mem"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "memories", "synthesize",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "memories", "notes", "synthesize",
 }  # fmt: skip
 
 
 def test_packages_are_planned_and_edges_frozen():
-    """Packages import each other only along FROZEN_EDGES (any package may import `core` or `store`, the base layers); `core` imports no other package."""
+    """Packages import each other only along FROZEN_EDGES (any package may import the base layers `core`, `memories` and `notes`); `core` imports no other package."""
     assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     new_edges = sorted(
@@ -203,26 +203,28 @@ def test_packages_are_planned_and_edges_frozen():
         if (own := name.split(".")[0]) in PACKAGES
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
-        # itself and the base layers (`core`, `store`) are not cross-package edges
-        and target not in {own, "core", "store", "memories"}
+        # itself and the base layers (`core`, `memories`, `notes`) are not cross-package edges
+        and target not in {own, "core", "store", "memories", "notes"}
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
 
 
 # Engine modules a package may import besides its own and stdlib: its low-level dependencies and the
-# frozen edges to other features. `core` and `store` are base layers that any package may import: `core`
-# imports only itself and the standard library, `store` only those and `core`.
+# frozen edges to other features. `core`, `memories` and `notes` are base layers that any package may import:
+# `core` imports only itself and the standard library, `memories` only those and `core`, `notes` those and
+# `memories`; `memories` never imports `notes` (the owner ruling that split the old `store`).
 PACKAGE_DEPENDENCIES = {
     "core": set(),
     "memories": {"core"},
-    "store": {"core", "memories"},
-    "corroborate": {"core", "store", "memories", "capture", "digest", "synthesize"},
-    "capture": {"core", "store", "memories"},
-    "settle": {"core", "store", "memories"},
-    "digest": {"store", "memories"},
-    "session": {"core", "store", "memories"},
-    "research": {"core", "store", "memories", "synthesize", "mem"},
+    "notes": {"core", "memories"},
+    "store": {"core"},
+    "corroborate": {"core", "memories", "capture", "digest", "synthesize"},
+    "capture": {"core", "memories"},
+    "settle": {"core", "memories"},
+    "digest": {"memories"},
+    "session": {"core", "notes"},
+    "research": {"core", "memories", "notes", "synthesize", "mem"},
 }
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
@@ -294,7 +296,7 @@ def test_store_modules_import_the_defining_module_not_the_records_facade():
     extra = sorted(
         name
         for name, deps in graph.items()
-        if name.startswith(("store.", "memories."))
+        if name.startswith("memories.")
         and name != "memories.records"
         and "memories.records" in deps
     )
