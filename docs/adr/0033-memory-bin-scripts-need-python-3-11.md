@@ -25,7 +25,7 @@ The `bin/` python scripts and the engine modules they import need Python 3.11 or
 
 - A system whose `python3` is 3.10 (Ubuntu 22.04) can no longer run the background passes; `mem` itself is unaffected (it uses `uv`).
 - The 3.10 workaround in `bin/mem-corroborate` (`timezone.utc`) is gone; `datetime.UTC` is allowed.
-- The floor test, not Ruff, catches 3.12 syntax and the three names it lists in code `bin/` imports; any other newer API still needs a review or a 3.11 run.
+- The floor test, not Ruff, catches 3.12 syntax and the three names it lists in code `bin/` imports, with one gap: `ast.parse(feature_version=...)` is best effort and accepts 3.12 f-strings (PEP 701, e.g. nested same-kind quotes). Ruff's py311 target catches those in `bin/*` and `headless.py` only; in other engine modules, they and any other newer API need a review or a 3.11 run.
 
 ## Revisit if
 
