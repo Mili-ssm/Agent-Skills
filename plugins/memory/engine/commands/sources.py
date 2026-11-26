@@ -1,7 +1,7 @@
 """The `fetch-sources` and `import` handlers (A5, ADR 0028): downloads, HTML and PDF text extraction, and the store import.
 
-`mem.py` imports this module lazily, inside its dispatch functions, so `http.client` and `html.parser` load only when
-one of the two commands runs."""
+`mem.py` imports it at start-up like every command module (a local import is forbidden by Ruff; ADR 0028), so
+`http.client` and `html.parser` load on every run, about 18 ms."""
 
 from __future__ import annotations
 
