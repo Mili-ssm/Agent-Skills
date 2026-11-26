@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mem
 from memories import records
-from notes import check
+from notes import due
 from session import notices as session_notices
 
 TODAY = datetime.date(2026, 11, 23)
@@ -98,9 +98,9 @@ def test_due_counts_are_cached_per_day_and_store(hub_root, tmp_path):
 
 def test_due_counts_agree_with_the_line_lists(hub_root):
     web_note(hub_root, "2026-old-page.md", TODAY - datetime.timedelta(days=200))
-    assert check.due_counts(hub_root, TODAY) == (
-        len(check.due_retests(hub_root, TODAY)),
-        len(check.due_rereads(hub_root, TODAY)),
+    assert due.due_counts(hub_root, TODAY) == (
+        len(due.due_retests(hub_root, TODAY)),
+        len(due.due_rereads(hub_root, TODAY)),
     )
 
 

@@ -1,6 +1,6 @@
 """The store lines of the session index: notes held back from history commits and notes due for re-reading.
 
-Keeps the day's due count in the data folder. Imports check and store_git, never mem."""
+Keeps the day's due count in the data folder. Imports notes.due and store_git, never mem."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from core import store_git
-from notes import check
+from notes import due
 
 if TYPE_CHECKING:
     import datetime
@@ -66,16 +66,16 @@ def _store(cache: Path, key: str, today: str, counts: tuple[int, int]) -> None:
 def cached_due_counts(
     root: Path, today: datetime.date, cache_dir: Path | None = None
 ) -> tuple[int, int]:
-    """`check.due_counts`, kept per store and day in `cache_dir` when given.
+    """`due.due_counts`, kept per store and day in `cache_dir` when given.
 
     The count refreshes once a day: a note edited or re-read later the same day shows from the next day."""
     if cache_dir is None:
-        return check.due_counts(root, today)
+        return due.due_counts(root, today)
     cache = cache_dir / DUE_CACHE_NAME
     key, day = str(root.resolve()), today.isoformat()
     counts = _cached(cache, key, day)
     if counts is None:
-        counts = check.due_counts(root, today)
+        counts = due.due_counts(root, today)
         with contextlib.suppress(OSError):
             _store(cache, key, day, counts)
     return counts

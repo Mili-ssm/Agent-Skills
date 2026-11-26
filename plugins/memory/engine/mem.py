@@ -40,6 +40,7 @@ from digest import lessons as digest_lessons
 from memories import records, rules, shortcheck
 from memories.records import tokenize
 from notes import check as check_rules
+from notes import due as due_queries
 from notes import fields as note_fields
 from notes import index as index_files
 from notes import links as link_rules
@@ -49,11 +50,9 @@ from notes.check import (
     MAX_KNOWLEDGE_NAME,
     NAME_PATTERNS,
     check,
-    due_requirements,
-    due_rereads,
-    due_retests,
     invalid_changed,
 )
+from notes.due import due_requirements, due_rereads, due_retests
 from notes.fields import (
     LEVELS,
     OPTIONAL_FIELDS,
@@ -92,7 +91,7 @@ if TYPE_CHECKING:
         Note,
     )
 
-# Names that live in check, fields, links, notes and index; callers may still read them from `mem`.
+# Names that live in check, fields, links, due, notes and index; callers may still read them from `mem`.
 _MOVED = frozenset({
     "BASELINE_HEADING",
     "EXPERIMENT_DIRS",
@@ -200,7 +199,7 @@ _MOVED = frozenset({
 
 def __getattr__(name: str) -> object:
     if name in _MOVED:
-        for module in (check_rules, note_fields, link_rules, note_files, index_files):
+        for module in (check_rules, note_fields, link_rules, due_queries, note_files, index_files):
             if hasattr(module, name):
                 return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -9390,7 +9389,7 @@ def cmd_fetch_sources(args: argparse.Namespace) -> int:
 
 
 def _today(value: str) -> datetime.date:
-    if (date := check_rules._iso_date(value)) is None:
+    if (date := due_queries._iso_date(value)) is None:
         raise argparse.ArgumentTypeError("use a real date as YYYY-MM-DD")
     return date
 
