@@ -1,6 +1,6 @@
 # 0034 The memory engine is organized in feature packages
 
-Status: accepted · Date: 2026-11-26
+Status: accepted · Date: 2026-11-26 · Amends 0033
 
 ## Context
 

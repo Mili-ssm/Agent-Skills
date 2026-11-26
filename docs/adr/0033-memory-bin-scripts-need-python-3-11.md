@@ -1,6 +1,6 @@
 # 0033 The memory plugin's `bin/` scripts need Python 3.11
 
-Status: accepted · Date: 2026-11-26
+Status: accepted · Date: 2026-11-26 · Amended by 0034 (paths)
 
 ## Context
 
@@ -31,3 +31,7 @@ The `bin/` python scripts and the engine modules they import need Python 3.11 or
 
 - A user reports a system `python3` older than 3.11.
 - `bin/` scripts run through `uv`: the floor then follows `mem.py`, and this ADR is superseded.
+
+## Review 2026-11-26
+
+ADR 0034 moved the engine into feature packages, so the files Ruff targets at `py311` changed: `engine/headless.py` and `engine/jobs.py` are now `engine/core/*`, and every package a `bin/` script reaches is targeted too (`capture/`, `core/`, `corroborate/`, `digest/`, `settle/`, `synthesize/`; `ruff.toml` `[per-file-target-version]`). The Decision stands; read "`bin/*` and `engine/headless.py`" as "`bin/*` and the packages listed there". `test_bin_python_floor.py` still follows each script's imports, now through package names.
