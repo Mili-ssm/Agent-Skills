@@ -16,15 +16,142 @@ import tempfile
 import unicodedata
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Protocol, Required, TypedDict, Unpack
+from typing import TYPE_CHECKING, NamedTuple, Required, TypedDict, Unpack
 
 import yaml
 from core import config, safe_io
 
+from store.journal import (
+    CURATION_LOG,
+    Logged,
+    last_log_entry,
+    log_before,
+    restore,
+)
 from store.notes import safe_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
+
+__all__ = [
+    "CURATION_LOG",
+    "FAILED_TO_LIST",
+    "GLOBAL_DIR",
+    "GLOBAL_MIN_PROJECTS",
+    "KINDS",
+    "MAX_SESSION_ID",
+    "MIN_TERMS",
+    "OPPOSITES",
+    "ORIGINS",
+    "OUTCOMES",
+    "POSSIBLE",
+    "PROJECT_DIR",
+    "PROJECT_KEY_LEN",
+    "REACHES",
+    "REGISTRY_FILE",
+    "SECRET_PATTERNS",
+    "SESSION_PREFIX",
+    "SHORT_DATE_LEN",
+    "SHORT_LIMIT",
+    "SIGHTINGS_NEEDED",
+    "STATUSES",
+    "STOPWORDS",
+    "STORE_MARKER",
+    "STRONG",
+    "TERMS_HEADER",
+    "TERM_KINDS",
+    "TOPIC_LIMIT",
+    "TRIAGES",
+    "TRIAGE_REASON_LIMIT",
+    "UNCONFIRMED_DAYS",
+    "WEIGHTS",
+    "Budget",
+    "Case",
+    "FieldTypeError",
+    "ForbiddenListError",
+    "Logged",
+    "MatchOptions",
+    "Memory",
+    "Path",
+    "Related",
+    "SightingOptions",
+    "Tally",
+    "Term",
+    "WriteOptions",
+    "_main_worktree",
+    "_parse",
+    "add_case",
+    "add_sighting",
+    "case",
+    "case_entry",
+    "cases",
+    "containment",
+    "counted",
+    "datetime",
+    "default_store",
+    "differing_words",
+    "ensure_excluded",
+    "ensure_terms_file",
+    "flagged_words",
+    "forbidden_file",
+    "forbidden_line",
+    "forget_project",
+    "global_memories_root",
+    "got_worse",
+    "has_case",
+    "inside",
+    "is_live",
+    "last_log_entry",
+    "load_memories",
+    "log_before",
+    "logger",
+    "mark_repository",
+    "mark_words",
+    "match_memories",
+    "memories_root",
+    "merged_log",
+    "merged_versions",
+    "normalized_sources",
+    "observe",
+    "pairs",
+    "parse_term",
+    "project_dir",
+    "project_key",
+    "project_root",
+    "projects",
+    "quarantined",
+    "read_registry",
+    "read_terms",
+    "refuted_pairs",
+    "register_project",
+    "related_records",
+    "replace",
+    "restore",
+    "reword_note",
+    "safe_load",
+    "secret_in",
+    "session_key",
+    "sessions",
+    "sighting",
+    "sighting_entry",
+    "similarity",
+    "slug_of",
+    "standing",
+    "standing_changes",
+    "store_is_writable",
+    "tallies",
+    "term_hits",
+    "tokenize",
+    "tracked_memories",
+    "under_temp",
+    "update",
+    "valid_short",
+    "valid_topic",
+    "valid_triage_reason",
+    "version_entry",
+    "version_list",
+    "write_memory",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +175,6 @@ STATUSES = ("active", "refuted", "superseded", "forgotten")
 PROJECT_DIR = ".memory"
 GLOBAL_DIR = "memories"
 STORE_MARKER = "mem-store.yaml"
-CURATION_LOG = ".curation-log"
 
 
 @dataclass
@@ -1439,84 +1565,6 @@ def flagged_words(a: str, b: str) -> list[str]:
             ):
                 flagged.add(w)
     return sorted(flagged)
-
-
-class Logged(Protocol):
-    """What the curation log needs of a record: a file and a handle (a memory or a synthesis)."""
-
-    path: Path
-    handle: str
-
-
-def log_before(memory: Logged, action: str) -> None:
-    """Append the file's whole current text to the `.curation-log` beside it, before an action changes the file."""
-    entry = {
-        "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "action": action,
-        "handle": memory.handle,
-        "before": memory.path.read_bytes().decode("utf-8"),
-    }
-    safe_io.append_text(
-        memory.path.parent / CURATION_LOG, json.dumps(entry, ensure_ascii=False) + "\n"
-    )
-
-
-def _log_lines(memory: Logged) -> list[str] | None:
-    try:
-        # split on "\n" only: splitlines() would also cut at U+0085 or U+2028 inside a JSON string
-        return (memory.path.parent / CURATION_LOG).read_text(encoding="utf-8").split("\n")
-    except OSError:
-        return None
-
-
-def _parsed_log(lines: Sequence[str], handle: str) -> tuple[list[dict | None], int]:
-    """The entries of the memory's handle, None for every other line, and the count of unreadable lines."""
-    parsed: list[dict | None] = []
-    skipped = 0
-    for line in lines:
-        entry = None
-        if line.strip():
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                skipped += 1
-        parsed.append(entry if isinstance(entry, dict) and entry.get("handle") == handle else None)
-    return parsed, skipped
-
-
-def last_log_entry(memory: Logged) -> dict | None:
-    """The newest `.curation-log` entry for the memory's handle that no restore has used yet, or None.
-
-    Undo is a stack over an append-only log: a restore appends a marker naming the entry (by line number) it used.
-    The entry returned gains `line` (its number) and `skipped` (the unreadable lines of the log)."""
-    lines = _log_lines(memory)
-    if lines is None:
-        return None
-    parsed, skipped = _parsed_log(lines, memory.handle)
-    undone = {
-        e["undone"]
-        for e in parsed
-        if e and e.get("action") == "restore" and isinstance(e.get("undone"), int)
-    }
-    for number in range(len(parsed) - 1, -1, -1):
-        entry = parsed[number]
-        if entry and isinstance(entry.get("before"), str) and number not in undone:
-            return {**entry, "line": number, "skipped": skipped}
-    return None
-
-
-def restore(memory: Logged, entry: dict) -> None:
-    """Put back the text a log entry holds, byte for byte, through a temporary file, then log that it was used."""
-    safe_io.replace_file(memory.path, entry["before"].encode("utf-8"))
-    marker = {
-        "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "action": "restore",
-        "handle": memory.handle,
-        "undone": entry["line"],
-    }
-    safe_io.append_text(
-        memory.path.parent / CURATION_LOG, json.dumps(marker, ensure_ascii=False) + "\n"
-    )
 
 
 def ensure_excluded(project: Path) -> bool:
