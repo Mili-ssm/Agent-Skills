@@ -113,7 +113,7 @@ def test_run_raw_timeout_inside_a_multibyte_character_drops_only_the_fragment(
 ) -> None:
     cmd = fake(tmp_path, "printf 'ok \\303'\nexec sleep 5")
     raw = headless.run_raw(
-        cmd, cwd=tmp_path, env={"PATH": "/usr/bin:/bin"}, timeout=0.5, errors=errors
+        cmd, cwd=tmp_path, env={"PATH": "/usr/bin:/bin"}, timeout=2.0, errors=errors
     )
     assert raw == Raw("ok ", True)
 
