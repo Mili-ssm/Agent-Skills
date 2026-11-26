@@ -12,9 +12,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import auto_state
 import capture
 import capture_state
+import jobs
 import pytest
 from test_mem_capture import FAKE, GOOD, OWNER, entry
 
@@ -169,13 +169,13 @@ def failure(w) -> str:
 
 
 def held_lock(w) -> int:
-    fd = auto_state.take_run_lock(w.cdir)
+    fd = jobs.take_run_lock(w.cdir)
     assert fd is not None
     return fd
 
 
 def status(w):
-    return auto_state.read_json(w.cdir / "status.json")
+    return jobs.read_json(w.cdir / "status.json")
 
 
 def log_lines(w):
@@ -555,8 +555,8 @@ def test_a_path_stays_out_of_the_log_line(world):
 
 
 def stale_status(world, age, state="running"):
-    auto_state.private_dir(world.cdir)
-    auto_state.write_json(
+    jobs.private_dir(world.cdir)
+    jobs.write_json(
         world.cdir / "status.json",
         {"state": state, "started": time.time() - age, "log": "somewhere"},
     )
@@ -574,7 +574,7 @@ def ack(world):
 
 
 def test_ack_clears_a_run_that_did_not_finish(world):
-    stale_status(world, auto_state.STALE_RUNNING_SECONDS + 60)
+    stale_status(world, jobs.STALE_RUNNING_SECONDS + 60)
     assert "did not finish" in failure(world)
     ack(world)
     assert capture_state.failure_line(world.data, time.time()) is None
@@ -593,7 +593,7 @@ def test_ack_without_a_status_creates_nothing(world):
 
 
 def test_an_unexpected_error_leaves_a_log_line(world):
-    auto_state.private_dir(world.cdir)
+    jobs.private_dir(world.cdir)
     (world.cdir / "runs").write_text("a file where the run folders go")
     assert auto(world).returncode == 0
     assert status(world)["state"] == "failed" and status(world)["failure"]["reason"]
@@ -716,7 +716,7 @@ def test_the_pass_starts_after_the_lock_is_released(world, monkeypatch):
 
 
 def au_lock_free(world):
-    fd = auto_state.take_run_lock(world.cdir)
+    fd = jobs.take_run_lock(world.cdir)
     if fd is None:
         return False
     os.close(fd)

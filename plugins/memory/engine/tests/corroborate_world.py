@@ -8,9 +8,9 @@ import subprocess
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import auto_state
 import corroborate
 import corroborate_reword
+import jobs
 import pytest
 import records
 
@@ -196,7 +196,7 @@ def run(w, *args, **options: Unpack[RunOptions]):
 
 
 def status(w):
-    return auto_state.read_json(w.cdir / "status.json")
+    return jobs.read_json(w.cdir / "status.json")
 
 
 def log_lines(w):

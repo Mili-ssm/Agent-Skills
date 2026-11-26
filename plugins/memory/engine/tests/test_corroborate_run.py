@@ -7,10 +7,10 @@ import stat
 import subprocess
 from pathlib import Path
 
-import auto_state
 import capture_state
 import corroborate
 import corroborate_state
+import jobs
 import pytest
 import records
 from corroborate_world import (
@@ -348,7 +348,7 @@ def test_auto_does_nothing_without_the_option(w):
 
 def test_lock_held_skips(w):
     two_projects(w)
-    held = auto_state.take_run_lock(w.cdir)
+    held = jobs.take_run_lock(w.cdir)
     assert held is not None
     try:
         done = run(w, mode="never")
@@ -361,10 +361,10 @@ def test_model_failure_leaves_a_failure_line_until_ack(w):
     two_projects(w)
     done = run(w, mode="exit1")
     assert done.returncode == 1
-    assert status(w)["state"] == "failed" and auto_state.failure(status(w), 0)
-    assert "fingerprint" not in auto_state.read_json(w.cdir / "seen.json")
+    assert status(w)["state"] == "failed" and jobs.failure(status(w), 0)
+    assert "fingerprint" not in jobs.read_json(w.cdir / "seen.json")
     assert run(w, cmd="ack", claude=False).returncode == 0
-    assert auto_state.failure(status(w), 0) is None
+    assert jobs.failure(status(w), 0) is None
 
 
 def test_no_project_name_or_path_in_log_and_lessons_file(w):
@@ -407,7 +407,7 @@ def test_promote_done_to_names_an_existing_global_record(w):
 
 
 def seen(w):
-    return auto_state.read_json(w.cdir / "seen.json")
+    return jobs.read_json(w.cdir / "seen.json")
 
 
 def key_of(x):
@@ -590,7 +590,7 @@ def test_a_run_that_skips_leaves_no_run_folder(w):
     assert len(runs_of(w)) == 1
     for _ in range(3):
         assert run(w, cmd="auto", env=env, mode="never").returncode == 0
-    held = auto_state.take_run_lock(w.cdir)
+    held = jobs.take_run_lock(w.cdir)
     assert held is not None
     try:
         lesson(
@@ -622,12 +622,12 @@ def test_old_run_folders_are_pruned_after_a_failure(w):
 def test_a_failure_stays_until_ack(w):
     a, b = two_projects(w)
     assert run(w, mode="exit1").returncode == 1
-    assert auto_state.failure(status(w), 0)
+    assert jobs.failure(status(w), 0)
     model(w, [group(a, b)])
     assert run(w).returncode == 0 and status(w)["state"] == "ok"
-    assert auto_state.failure(status(w), 0)
+    assert jobs.failure(status(w), 0)
     assert run(w, cmd="ack", claude=False).returncode == 0
-    assert auto_state.failure(status(w), 0) is None
+    assert jobs.failure(status(w), 0) is None
 
 
 def test_the_session_has_only_read_and_write_and_no_mem(w):
@@ -695,7 +695,7 @@ def test_the_status_keeps_a_fixed_reason_and_the_detail_stays_in_the_run_log(w):
     (data / "projects.json").mkdir(parents=True)  # unreadable: the OSError names this path
     assert run(w, env={"MEM_DATA": str(data)}).returncode == 1
     cdir = data / "corroborate"
-    failure = auto_state.read_json(cdir / "status.json")["failure"]
+    failure = jobs.read_json(cdir / "status.json")["failure"]
     assert failure["reason"] == "registry unreadable"
     assert "quokka" not in (cdir / "status.json").read_text().replace(failure["log"], "")
     assert "quokka" not in (cdir / "log.jsonl").read_text()

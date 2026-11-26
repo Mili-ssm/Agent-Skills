@@ -3,7 +3,7 @@ import os
 import stat
 from pathlib import Path
 
-import auto_state
+import jobs
 import mem
 import project_syntheses as ps
 import pytest
@@ -176,11 +176,11 @@ def test_note_restore_does_not_follow_a_planted_temp_symlink(hub_root, tmp_path,
 
 def test_state_files_stay_private(tmp_path):
     path = tmp_path / "state.json"
-    auto_state.write_json(path, {"a": 1})
+    jobs.write_json(path, {"a": 1})
     assert stat.S_IMODE(path.stat().st_mode) == MODE_PRIVATE
-    auto_state.write_json(path, {"a": 2})
+    jobs.write_json(path, {"a": 2})
     assert stat.S_IMODE(path.stat().st_mode) == MODE_PRIVATE
-    assert auto_state.read_json(path) == {"a": 2}
+    assert jobs.read_json(path) == {"a": 2}
 
 
 def test_write_json_does_not_follow_a_planted_old_temp_name(tmp_path):
@@ -188,9 +188,9 @@ def test_write_json_does_not_follow_a_planted_old_temp_name(tmp_path):
     victim.write_text("precious")
     path = tmp_path / "state.json"
     (tmp_path / "state.json.tmp").symlink_to(victim)
-    auto_state.write_json(path, {"a": 1})
+    jobs.write_json(path, {"a": 1})
     assert victim.read_text() == "precious"
-    assert auto_state.read_json(path) == {"a": 1}
+    assert jobs.read_json(path) == {"a": 1}
 
 
 def test_note_edit_log_append_refuses_a_symlinked_curation_log(hub_root, tmp_path, capsys):

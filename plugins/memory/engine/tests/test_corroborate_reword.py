@@ -5,9 +5,9 @@ import json
 import os
 import subprocess
 
-import auto_state
 import corroborate_reword
 import corroborate_run
+import jobs
 import pytest
 import records
 from corroborate_world import (
@@ -179,7 +179,7 @@ def test_a_checker_that_gives_no_usable_answer_is_a_failed_session(w, monkeypatc
 def test_undo_still_does_not_bring_a_second_rewording(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    auto_state.private_dir(w.cdir)
+    jobs.private_dir(w.cdir)
     seen_file = w.cdir / "seen.json"
     seen_file.write_text(json.dumps({"fingerprint": "kept", "refused": {}}))
     assert reword(w)["written"] == 1
@@ -273,7 +273,7 @@ def test_every_and_limit_pass_through(w, monkeypatch):
 def test_reword_respects_the_lock(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    lock = auto_state.take_run_lock(w.cdir)
+    lock = jobs.take_run_lock(w.cdir)
     assert lock is not None
     try:
         result = reword(w)
@@ -471,7 +471,7 @@ def test_every_needs_dry_run(w, monkeypatch):
     ],
 )
 def test_a_broken_state_file_reads_as_empty(w, content):
-    auto_state.private_dir(w.cdir)
+    jobs.private_dir(w.cdir)
     (w.cdir / "reword-attempts.json").write_text(content)
     got = corroborate_reword._reword_state(w.cdir)
     assert (

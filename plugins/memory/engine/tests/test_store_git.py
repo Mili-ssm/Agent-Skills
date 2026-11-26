@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 import auto_state
+import jobs
 import mem
 import pytest
 import store_git
@@ -472,7 +473,7 @@ def test_curate_done_skips_trimming_while_a_run_holds_the_lock(repo, tmp_path, m
     mem.main(["forget", HANDLE, "--global", "--because", "x"])
     aged(log, [0])
     before = log.read_text(encoding="utf-8")
-    fd = auto_state.take_run_lock(auto_state.auto_dir(Path(os.environ["MEM_DATA"]), repo))
+    fd = jobs.take_run_lock(auto_state.auto_dir(Path(os.environ["MEM_DATA"]), repo))
     assert fd is not None
     try:
         assert mem.main(["curate", "--done"]) == 0

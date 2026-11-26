@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import auto_state
 import corroborate_digest
 import digest
+import jobs
 import mem
 import records
 from corroborate_world import TODAY, calls, globals_, run, snapshot, w
@@ -291,7 +291,7 @@ def test_digest_dry_run_writes_the_sheet_and_nothing_else(w, monkeypatch):
 def test_digest_respects_the_lock(w, monkeypatch):
     digest_world(w)
     digest_answers(w, monkeypatch)
-    lock = auto_state.take_run_lock(w.cdir)
+    lock = jobs.take_run_lock(w.cdir)
     assert lock is not None
     try:
         result = do_digest(w)

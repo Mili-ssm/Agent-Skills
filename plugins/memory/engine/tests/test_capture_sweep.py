@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 import capture_state
+import jobs
 import pytest
 from test_capture_auto import (
     CAPTURE,
@@ -279,7 +280,7 @@ def test_a_valid_cwd_after_the_first_200_lines_is_not_looked_for(world, mod):
 def test_a_skipped_run_does_not_use_up_the_day(world, mod, monkeypatch):
     make(world, "idle")
     monkeypatch.setenv("MEM_CAPTURE_LOCK_WAIT", "0")
-    fd = capture_state.auto_state.take_run_lock(world.cdir)
+    fd = jobs.take_run_lock(world.cdir)
     assert fd is not None
     try:
         start(mod, world, monkeypatch)
@@ -390,7 +391,7 @@ def test_r5_a_held_lock_ends_the_sweep_soon_and_settles_nothing(world, mod, monk
         make(world, f"s{n}", age=DAY * (1 + n / 10))
     monkeypatch.delenv("MEM_CAPTURE_LOCK_WAIT", raising=False)
     monkeypatch.setattr(capture_state, "SWEEP_LOCK_WAIT_SECONDS", SHORT_LOCK_WAIT)
-    fd = capture_state.auto_state.take_run_lock(world.cdir)
+    fd = jobs.take_run_lock(world.cdir)
     assert fd is not None
     began = time.time()
     try:

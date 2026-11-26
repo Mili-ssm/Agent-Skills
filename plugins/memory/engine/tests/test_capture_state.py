@@ -6,8 +6,8 @@ import sys
 import time
 from pathlib import Path
 
-import auto_state
 import capture_state
+import jobs
 
 OFFSET = 42
 PRIVATE_FILE = 0o600
@@ -37,9 +37,9 @@ def test_failure_line(tmp_path):
     now = time.time()
     assert capture_state.failure_line(None, now) is None
     assert capture_state.failure_line(tmp_path, now) is None
-    status = capture_state.capture_dir(tmp_path) / auto_state.STATUS_NAME
-    auto_state.private_dir(status.parent)
-    auto_state.write_json(
+    status = capture_state.capture_dir(tmp_path) / jobs.STATUS_NAME
+    jobs.private_dir(status.parent)
+    jobs.write_json(
         status, {"failure": {"at": now, "reason": "no claude binary", "log": "/x/y.log"}}
     )
     line = capture_state.failure_line(tmp_path, now)
@@ -49,8 +49,8 @@ def test_failure_line(tmp_path):
         and "no claude binary; log: /x/y.log" in line
     )
     assert line.endswith("(mem-capture ack clears this).")
-    started = now - auto_state.STALE_RUNNING_SECONDS - 10
-    auto_state.write_json(status, {"state": "running", "started": started})
+    started = now - jobs.STALE_RUNNING_SECONDS - 10
+    jobs.write_json(status, {"state": "running", "started": started})
     running = capture_state.failure_line(tmp_path, now)
     assert running is not None
     assert "the run did not finish" in running
@@ -108,16 +108,14 @@ def test_prune_runs_ignores_symlinks_and_files(tmp_path):
 def test_read_session_accepts_only_non_negative_ints(tmp_path):
     for bad in (True, -1, "5", [3], 2.5):
         capture_state.save_session(tmp_path, "s", 1, 1)
-        auto_state.write_json(
-            capture_state.session_path(tmp_path, "s"), {"offset": bad, "attempts": bad}
-        )
+        jobs.write_json(capture_state.session_path(tmp_path, "s"), {"offset": bad, "attempts": bad})
         assert capture_state.read_session(tmp_path, "s") == {"offset": 0, "attempts": 0}, bad
 
 
 def test_failure_line_survives_a_malformed_at(tmp_path):
-    status = capture_state.capture_dir(tmp_path) / auto_state.STATUS_NAME
-    auto_state.private_dir(status.parent)
-    auto_state.write_json(status, {"failure": {"at": "x", "reason": "r"}})
+    status = capture_state.capture_dir(tmp_path) / jobs.STATUS_NAME
+    jobs.private_dir(status.parent)
+    jobs.write_json(status, {"failure": {"at": "x", "reason": "r"}})
     now = time.time()
     line = capture_state.failure_line(tmp_path, now)
     assert line is not None
