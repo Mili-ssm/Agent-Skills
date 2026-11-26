@@ -19,7 +19,7 @@ from synthesize import pipeline as synth_pipeline
 from synthesize import references as backfill
 from synthesize import run as sr
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 BUDGET = 0.25
 PROMPT = "the prompt"
 CLAUDE = "claude"
