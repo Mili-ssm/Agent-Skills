@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: planned · Branches: one per task, stacked (`refactor/memory-pkg-<name>`, first from `dev` ae8bae3) · Date: 2026-11-26
+Status: planned, pre-mortem 2026-11-26 applied · Branches: one per task, stacked (`refactor/memory-pkg-<name>`, first from `dev` ae8bae3) · Date: 2026-11-26
 
 **Goal:** every engine module except the entry points lives in a feature package under `plugins/memory/engine/`, with tests beside it and an import rule per package; behavior unchanged ([ADR 0034](../../adr/0034-memory-engine-is-organized-in-feature-packages.md)).
 
@@ -14,10 +14,10 @@ Status: planned · Branches: one per task, stacked (`refactor/memory-pkg-<name>`
 | `research/` | `research_checks` → `checks`, `research_pipeline` → `pipeline` |
 | `capture/` | `capture` → `extract`, `capture_state` → `state` |
 | `settle/` | `settle` → `verdicts`, `settle_state` → `state` |
-| `digest/` | `digest` → `lessons`, `digest_text` → `text` |
+| `digest/` | `digest` → `lessons` |
 | `session/` | `handoff`, `session_notices` → `notices` |
 | `core/` | `config`, `safe_io`, `headless`, `jobs`, `auto_state` (infrastructure of the background jobs; imports stdlib and `core` only) |
-| `store/` | `records`, `syntheses`, `project_syntheses`, `store_git`, `index`, `notes`, `check`, `rules`, `shortcheck` |
+| `store/` | `records`, `syntheses`, `project_syntheses`, `store_git`, `index`, `notes`, `check`, `rules`, `shortcheck`, `digest_text` → `fingerprints` (both `rules` and `digest` import it; in `digest/` it would make a store↔digest cycle) |
 | root | `mem.py` (entry point; A5 splits it), `run.py` (the `bin/mem` launcher) |
 
 Order (fewest importers first; each task is one pull request on the previous branch): corroborate, research, the four small packages, core, store. `store/` goes last because `records` has 56 importers; A6 then splits `records` inside it.
@@ -28,12 +28,18 @@ Order (fewest importers first; each task is one pull request on the previous bra
 
 ## Global Constraints
 
+- Import convention (pre-mortem): import a moved module under its old name as alias, `from capture import state as capture_state`, `from corroborate import run as corroborate_run`, so call sites and alias-based patches stay unchanged and two `state` modules never rebind one name; bare role names (`state`, `run`, `cli`, `text`, `digest`, `lessons`) are not used as import names.
+- Base edges between the planned packages (AST, 2026-11-26), frozen as the only allowed cross-package edges: corroborate → capture (`capture_state`), corroborate → digest, corroborate → synthesize, research → synthesize, research → root `mem` (`mem.tokenize`; A5 removes it), digest → store, session → store; core → core only; store → core, store only. Every other package edge is new and fails its rule.
+
 - Behavior unchanged: CLI text, output, exit codes, files, log lines; `mem session-index` output.
-- Each task first measures every file it will touch (ADR 0031: a renamed file is touched) and cleans the unclean ones, one commit each, before any move. Known at plan base: `corroborate.py` 20 Ruff + unformatted + 7 basedpyright; `capture.py` 17 + unformatted + 4; `check.py` 35 + unformatted + 3; `syntheses.py` 46 + unformatted + 13. Over ~40 findings: own dispatch.
-- Moves keep content except import lines and `__file__`-relative paths (one level deeper: `parents[n+1]`); grep every `Path(__file__)` in moved modules.
+- Each task first measures every file it will touch with `ruff check --no-fix` (ruff.toml sets `fix = true`; a plain `check` rewrites files) and cleans the unclean ones before any move, test files in their own dispatch. Measured after safe fixes (pre-mortem): about 560 findings in the test files these moves touch (test_remember 34, test_case_log 27, test_settle 26, …), plus `project_syntheses` 10, `safe_io` 9, `store_git` 8, `index` 5, `session_notices` 4, `shortcheck` 1, `evals/rules_layout/run_trial.py` 16, `evals/signal/score.py` 1, `bin/mem-research` (format, RUF100). Known at plan base: `corroborate.py` 20 Ruff + unformatted + 7 basedpyright; `capture.py` 17 + unformatted + 4; `check.py` 35 + unformatted + 3; `syntheses.py` 46 + unformatted + 13. Over ~40 findings: own dispatch.
+- Moves keep content except import lines and `__file__`-relative paths: grep `__file__` in every moved module and moved test (`.parent.parent` too, not only `parents[`); known: `corroborate_run.py` `MEM` (`.parent.parent/"bin"/"mem"`), `settle_state.py` `parents[1]`.
+- String references, retargeted by name in their task and each given a positive control (the blocked or patched name is really used when not blocked): `bin/mem-capture` `importlib.import_module("capture")` (a stale name would import the empty package without error), `test_capture_state.py` `sys.modules['capture']` block, `test_import_graph.py` hardcoded names and `STORE_MODULES`, `mem.py`/`corroborate_digest.py` `import digest`.
+- Evals are importers too (`signal/score.py`, `research/run_trial.py`, `rules_layout/run_trial.py` (lazy), `synthesis/audit_refs.py`, `synthesis/run_trials.py`, `settle/run_trial.py`), and `evals/project_syntheses/run_trials.py` answer keys name `memory/engine/records.py`, `syntheses.py`, `project_syntheses.py`: retarget in the owning task; run each harness's `--self-check` or `--help`.
 - `monkeypatch` targets: a module object patched through an alias keeps working; string targets (`"corroborate_run.x"`), `sys.modules` keys and `importlib.import_module("name")` strings change; every changed patch is proven by removing it in a scratch copy.
 - `ruff.toml` `[per-file-target-version]` entries follow moved files (`engine/headless.py`, `engine/jobs.py` → `engine/core/...`; packages that `bin/` imports at `py311`).
 - `test_import_graph.py` gets one rule per package as it lands: `core` imports only stdlib and `core`; `store` imports only stdlib, `core` and `store`; a feature package imports no other feature package except edges present at base (listed in the task's commit, then frozen). Each rule proven by a temporary violating import.
+- Test placement: a test file moves into `tests/<package>/` only when it imports no other test file (pytest prepend mode puts only its own folder on `sys.path`); shared helpers that tests import from other test files (`test_find_new`, `test_rules_session`, `test_check`, `test_curation`, `test_search_stats`, `test_show`, `test_mem_capture`, `test_capture_auto`, `test_case_log`, `test_store_git`) move first into helper modules at `tests/` root, like `corroborate_world.py`; basenames stay unique. Check: every moved test file passes alone.
 - Tests: `uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto` (2,663 passed, 5 skipped at base) on default Python and `--python 3.12.0`; collected count unchanged by moves; self-checks of `mem-auto`, `mem-settle`, `mem-corroborate`, `mem-synthesize`, `mem-capture` (if it has one) on 3.11.15 and default.
 - No CHANGELOG line (pure refactor). Commits pass every hook; no `SKIP`.
 
@@ -48,10 +54,10 @@ Order (fewest importers first; each task is one pull request on the previous bra
 ---
 
 ### Task 1: `corroborate/`
-- [ ] Clean `corroborate.py`; move the seven modules; importers, patches, `ruff.toml`, tests to `tests/corroborate/`; rule. Check: suite, goldens of `mem-corroborate` (`tests/test_corroborate_cli.py` and the self-check), collected count.
+- [ ] First commit: `test_import_graph.py` builds MODULES from every `engine/**/*.py` outside tests (dotted names, packages by `__init__.py`) and asserts its size equals the file count; `test_notes_imports_no_other_engine_module` uses the same set; the frozen edge list above becomes a test. Then clean `corroborate.py`; move the seven modules; importers, patches, `ruff.toml`, tests to `tests/corroborate/`; rule. Check: suite, goldens of `mem-corroborate` (`tests/test_corroborate_cli.py` and the self-check), collected count.
 
 ### Task 2: `research/`
-- [ ] Move `research_checks`, `research_pipeline`; importers (`bin/mem-research`), tests to `tests/research/`; rule. Check: suite; `bin/mem-research --help` byte-identical.
+- [ ] Move `research_checks`, `research_pipeline`; a rule that no package except `research` (frozen, until A5) imports root `mem` or `run`; importers (`bin/mem-research`), tests to `tests/research/`; rule. Check: suite; `bin/mem-research --help` byte-identical.
 
 ### Task 3: `capture/`, `settle/`, `digest/`, `session/`
 - [ ] Clean `capture.py`; one commit per package; tests beside each; rules. Check: suite; `mem session-index` output on a fixture store byte-identical (a golden first if none exists).
@@ -77,3 +83,7 @@ Order (fewest importers first; each task is one pull request on the previous bra
 - A collected-test count changes across a move.
 - A patch stops reaching its code.
 - A file to touch is unclean and over ~60 findings in one dispatch: split the cleanup.
+- A task's touched files exceed ~150 Ruff findings: the cleanup becomes its own pull request first.
+- The MODULES count in `test_import_graph.py` falls after a move.
+- A moved test passes only in the full run, not alone.
+- An old module name still resolves (to a package `__init__`) anywhere: grep before merge.
