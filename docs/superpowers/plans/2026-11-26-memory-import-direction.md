@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: planned, pre-mortem amendments applied · Branch: `refactor/memory-a7-a1-a3` · Base: `65e901a` · Date: 2026-11-26
+Status: done on the branch, not merged · Branch: `refactor/memory-a7-a1-a3` · Base: `65e901a` · Date: 2026-11-26
 
 **Goal:** the memory engine has no import cycle, and every Python file this change touches passes the ADR 0031 gate with no finding; behavior unchanged.
 
@@ -69,11 +69,11 @@ Suite at start: 2,284 passed, 5 skipped.
 **Interfaces:**
 - Produces: `research_checks` no longer imports `mem`. Exceptions renamed for `N818`: `FetchRefused` → `FetchRefusedError`, `FetchFailed` → `FetchFailedError`, `NotChecked` → `NotCheckedError`, no alias for the old names (callers verified: only the two test files). `FetchError` keeps its name (`mem.py` catches it).
 
-- [ ] **Step 1:** Replace the six `mem.tokenize(` calls (lines 469, 478, 575 twice, 577, 578 at the base) with `records.tokenize(` and delete `import mem`. Run the suite. Expected: 2,284 passed.
-- [ ] **Step 2:** `uvx ruff@0.17.6 format` the three files and apply the safe fixes; run the suite.
-- [ ] **Step 3:** Rename the three exception classes and every use; run the suite.
-- [ ] **Step 4:** Fix every non-structural finding in `research_checks.py` (all but `C901`, `PLR0912`–`PLR0917`, `PLW0717`) with the recipes; make both test files fully clean. Run the suite.
-- [ ] **Step 5:** Gate: both test files clean; `research_checks.py` shows only structural findings; `ruff format --check` passes on all three; full suite passes; `cd plugins/memory/engine && python3 -c "import research_checks, mem"` works. Commit with `SKIP=ruff-check,basedpyright`.
+- [x] **Step 1:** Replace the six `mem.tokenize(` calls (lines 469, 478, 575 twice, 577, 578 at the base) with `records.tokenize(` and delete `import mem`. Run the suite. Expected: 2,284 passed.
+- [x] **Step 2:** `uvx ruff@0.17.6 format` the three files and apply the safe fixes; run the suite.
+- [x] **Step 3:** Rename the three exception classes and every use; run the suite.
+- [x] **Step 4:** Fix every non-structural finding in `research_checks.py` (all but `C901`, `PLR0912`–`PLR0917`, `PLW0717`) with the recipes; make both test files fully clean. Run the suite.
+- [x] **Step 5:** Gate: both test files clean; `research_checks.py` shows only structural findings; `ruff format --check` passes on all three; full suite passes; `cd plugins/memory/engine && python3 -c "import research_checks, mem"` works. Commit with `SKIP=ruff-check,basedpyright`.
 
 ### Task 2: `research_checks` structural findings, file clean
 
@@ -84,10 +84,10 @@ Suite at start: 2,284 passed, 5 skipped.
 - Consumes: Task 1's file.
 - Produces: `FetchOptions` and `ApplyOptions` (`TypedDict`, `total=False`); signatures `fetch_raw(url, limit_for, **options: Unpack[FetchOptions])` and `apply(verdicts, entries, pages, sent, **options: Unpack[ApplyOptions])`; every call site unchanged.
 
-- [ ] **Step 1:** Write `test_fetch_raw_omitted_options_match_defaults` and `test_apply_omitted_options_match_defaults`: with the network and the `mem` command stubbed as the existing tests do, a call with no keyword options and a call passing each old default explicitly give equal results and equal recorded calls. Run them on Task 1's code. Expected: PASS (they pin current behavior).
-- [ ] **Step 2:** Apply the `Unpack` recipe to `fetch_raw` and `apply`; run the two new tests, `test_fetch_sources.py` and the suite.
-- [ ] **Step 3:** Decompose the structural findings one function at a time (`fetch_raw`, `plan_commands`, `check_rows`, `web_input`, `fetch_text`, `select_passages`), running `pytest plugins/memory/engine/tests/test_research_checks.py plugins/memory/engine/tests/test_fetch_sources.py -q` after each.
-- [ ] **Step 4:** Gate: `research_checks.py` and `test_research_checks.py` clean; full suite passes; `git diff --color-moved=zebra -w` of `fetch_raw` shows its address checks in the old order. Commit with all hooks on.
+- [x] **Step 1:** Write `test_fetch_raw_omitted_options_match_defaults` and `test_apply_omitted_options_match_defaults`: with the network and the `mem` command stubbed as the existing tests do, a call with no keyword options and a call passing each old default explicitly give equal results and equal recorded calls. Run them on Task 1's code. Expected: PASS (they pin current behavior).
+- [x] **Step 2:** Apply the `Unpack` recipe to `fetch_raw` and `apply`; run the two new tests, `test_fetch_sources.py` and the suite.
+- [x] **Step 3:** Decompose the structural findings one function at a time (`fetch_raw`, `plan_commands`, `check_rows`, `web_input`, `fetch_text`, `select_passages`), running `pytest plugins/memory/engine/tests/test_research_checks.py plugins/memory/engine/tests/test_fetch_sources.py -q` after each.
+- [x] **Step 4:** Gate: `research_checks.py` and `test_research_checks.py` clean; full suite passes; `git diff --color-moved=zebra -w` of `fetch_raw` shows its address checks in the old order. Commit with all hooks on.
 
 ### Task 3: digest lookups in their own module; `rules` imports at the top
 
@@ -100,10 +100,10 @@ Suite at start: 2,284 passed, 5 skipped.
 - `digest.py` re-exports the four public names with `from digest_text import heading, heading_print, line, line_print` plus an `__all__` listing them with `digest.py`'s other public names (never `import x as x`: Ruff 0.17.6 flags it as `PLC0414` outside `__init__.py`). `digest.py` still imports `rules` for `topics_of`.
 - `rules.py` imports `digest_text` at the top and drops both function-level `import digest as store`; `store.heading`/`store.line` become `digest_text.heading`/`digest_text.line`. `rules` imports neither `digest` nor anything that imports it.
 
-- [ ] **Step 1:** Create `digest_text.py` with the moved functions; add the re-export and `__all__` to `digest.py`; update `rules.py`. Run the suite. Expected: 2,284 passed plus Task 2's new tests; `test_digest.py` unchanged.
-- [ ] **Step 2:** Identity: `cd plugins/memory/engine && python3 -c "import digest, digest_text; assert all(getattr(digest, n) is getattr(digest_text, n) for n in ('heading','line','heading_print','line_print'))"`.
-- [ ] **Step 3:** Format and fix every finding in the three files with the recipes; run the suite after each function.
-- [ ] **Step 4:** Gate: the three files clean; full suite passes, including `test_mem_corroborate.py`'s digest tests. Commit.
+- [x] **Step 1:** Create `digest_text.py` with the moved functions; add the re-export and `__all__` to `digest.py`; update `rules.py`. Run the suite. Expected: 2,284 passed plus Task 2's new tests; `test_digest.py` unchanged.
+- [x] **Step 2:** Identity: `cd plugins/memory/engine && python3 -c "import digest, digest_text; assert all(getattr(digest, n) is getattr(digest_text, n) for n in ('heading','line','heading_print','line_print'))"`.
+- [x] **Step 3:** Format and fix every finding in the three files with the recipes; run the suite after each function.
+- [x] **Step 4:** Gate: the three files clean; full suite passes, including `test_mem_corroborate.py`'s digest tests. Commit.
 
 ### Task 4: Import-graph test, plan and backlog updated
 
@@ -111,10 +111,17 @@ Suite at start: 2,284 passed, 5 skipped.
 - Create: `plugins/memory/engine/tests/test_import_graph.py`
 - Modify: `docs/superpowers/plans/2026-11-23-memory-refactor.md` (the "Import direction" task), `docs/backlog.md` (A7 row, `Updated`/`Expires` dates), this plan's Status line
 
-- [ ] **Step 1:** Write `test_engine_modules_import_no_cycle`: parse every `plugins/memory/engine/*.py` with `ast`; collect each `import x` and `from x import …` (level 0, at any depth, including inside functions and `TYPE_CHECKING` blocks) whose first name part is another engine module; assert no cycle, the failure message listing each cycle as `a -> b -> a`. Write `test_engine_modules_import_engine_modules_statically`: no `importlib.import_module(` or `__import__(` call whose argument names an engine module, so a cycle cannot hide behind a dynamic import.
-- [ ] **Step 2:** Prove it bites: `git worktree add` the base commit `65e901a` in the scratch directory, copy the test file in, run it there. Expected: the cycle test FAILS naming both cycles. Remove the worktree.
-- [ ] **Step 3:** Run it on the branch. Expected: PASS; the test file clean.
-- [ ] **Step 4:** Docs: the refactor plan's "Import direction" task becomes done for `tokenize` and both cycles, with `session_env` moved into the headless task (A2); the backlog A7 row says the same; bump the backlog dates; this plan's Status becomes done. Run `python3 scripts/validate.py`. Commit.
+- [x] **Step 1:** Write `test_engine_modules_import_no_cycle`: parse every `plugins/memory/engine/*.py` with `ast`; collect each `import x` and `from x import …` (level 0, at any depth, including inside functions and `TYPE_CHECKING` blocks) whose first name part is another engine module; assert no cycle, the failure message listing each cycle as `a -> b -> a`. Write `test_engine_modules_import_engine_modules_statically`: no `importlib.import_module(` or `__import__(` call whose argument names an engine module, so a cycle cannot hide behind a dynamic import.
+- [x] **Step 2:** Prove it bites: `git worktree add` the base commit `65e901a` in the scratch directory, copy the test file in, run it there. Expected: the cycle test FAILS naming both cycles. Remove the worktree.
+- [x] **Step 3:** Run it on the branch. Expected: PASS; the test file clean.
+- [x] **Step 4:** Docs: the refactor plan's "Import direction" task becomes done for `tokenize` and both cycles, with `session_env` moved into the headless task (A2); the backlog A7 row says the same; bump the backlog dates; this plan's Status becomes done. Run `python3 scripts/validate.py`. Commit.
+
+## Deferred findings
+
+- The TLS branch of `_connection` (`PinnedHTTPS`) has no test (pre-existing).
+- `plan_commands` raises `TypeError` on a non-string `quote` from verdicts JSON (pre-existing, unhashable key).
+- `fetch_raw` and `apply` options are only type-checked: an unknown key is ignored at runtime (PEP 692 trade-off, ruled).
+- Naming and comment-placement nits in `research_checks.py` and `digest.py`: `_shaped`, `_call`, `_RowCheck`, the `Work` docstring still names `given_up`, `DigestFormatError` placement.
 
 ## Kill criteria
 
