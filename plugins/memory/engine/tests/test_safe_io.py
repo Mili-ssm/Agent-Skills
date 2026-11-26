@@ -3,20 +3,24 @@ import os
 import stat
 from pathlib import Path
 
-import pytest
-
-import project_syntheses as ps
-import records
 import auto_state
 import mem
+import project_syntheses as ps
+import pytest
+import records
 import safe_io
 import settle
 
 TODAY = datetime.date(2026, 11, 24)
+MODE_GROUP_READABLE = 0o644
+MODE_PRIVATE = 0o600
+EXIT_REFUSED = 2
 
 
 def memory(folder, claim="Keep the cache warm."):
-    return records.write_memory(folder, "project", kind="lesson", claim=claim, body="Body.", today=TODAY)
+    return records.write_memory(
+        folder, "project", kind="lesson", claim=claim, body="Body.", today=TODAY
+    )
 
 
 def test_update_does_not_follow_a_planted_temp_symlink(tmp_path):
@@ -47,9 +51,9 @@ def test_replace_file_keeps_the_mode(tmp_path):
     f.write_text("x")
     f.chmod(0o644)
     safe_io.replace_file(f, b"y")
-    assert stat.S_IMODE(f.stat().st_mode) == 0o644
+    assert stat.S_IMODE(f.stat().st_mode) == MODE_GROUP_READABLE
     safe_io.replace_file(f, b"z", mode=0o600)
-    assert stat.S_IMODE(f.stat().st_mode) == 0o600
+    assert stat.S_IMODE(f.stat().st_mode) == MODE_PRIVATE
     assert [p.name for p in tmp_path.iterdir()] == ["a.md"]
 
 
@@ -68,7 +72,9 @@ def test_project_memories_skip_symlinked_files(tmp_path):
     memory(folder)
     other = memory(tmp_path / "elsewhere", "Another claim here.")
     (folder / "planted.md").symlink_to(other.path)
-    assert [m.handle for m in records.load_memories(folder, "project")] == [records.slug_of("Keep the cache warm.")]
+    assert [m.handle for m in records.load_memories(folder, "project")] == [
+        records.slug_of("Keep the cache warm.")
+    ]
 
 
 def test_a_symlinked_project_folder_loads_nothing_and_refuses_writes(tmp_path):
@@ -148,8 +154,18 @@ def test_note_restore_does_not_follow_a_planted_temp_symlink(hub_root, tmp_path,
     rel = "knowledge/computing/attention-replaces-recurrence.md"
     handle = "attention-replaces-recurrence"
     note = hub_root / rel
-    assert mem.main(["--root", str(hub_root), "note", "edit", handle, "--claim",
-                     "Self-attention can replace recurrence for sequence modelling"]) == 0
+    assert (
+        mem.main([
+            "--root",
+            str(hub_root),
+            "note",
+            "edit",
+            handle,
+            "--claim",
+            "Self-attention can replace recurrence for sequence modelling",
+        ])
+        == 0
+    )
     victim = tmp_path / "victim.txt"
     victim.write_text("precious")
     (note.parent / f".{note.name}.tmp").symlink_to(victim)
@@ -161,9 +177,9 @@ def test_note_restore_does_not_follow_a_planted_temp_symlink(hub_root, tmp_path,
 def test_state_files_stay_private(tmp_path):
     path = tmp_path / "state.json"
     auto_state.write_json(path, {"a": 1})
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(path.stat().st_mode) == MODE_PRIVATE
     auto_state.write_json(path, {"a": 2})
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(path.stat().st_mode) == MODE_PRIVATE
     assert auto_state.read_json(path) == {"a": 2}
 
 
@@ -181,8 +197,15 @@ def test_note_edit_log_append_refuses_a_symlinked_curation_log(hub_root, tmp_pat
     victim = tmp_path / "victim.txt"
     victim.write_text("precious")
     (hub_root / records.CURATION_LOG).symlink_to(victim)
-    mem.main(["--root", str(hub_root), "note", "edit", "attention-replaces-recurrence", "--claim",
-              "Self-attention can replace recurrence for sequence modelling"])
+    mem.main([
+        "--root",
+        str(hub_root),
+        "note",
+        "edit",
+        "attention-replaces-recurrence",
+        "--claim",
+        "Self-attention can replace recurrence for sequence modelling",
+    ])
     capsys.readouterr()
     assert victim.read_text() == "precious"
 
@@ -190,7 +213,11 @@ def test_note_edit_log_append_refuses_a_symlinked_curation_log(hub_root, tmp_pat
 def test_index_update_replaces_a_symlinked_readme_not_its_target(hub_root, tmp_path):
     readme = hub_root / "knowledge/computing/README.md"
     victim = tmp_path / "victim.md"
-    victim.write_text(readme.read_text().replace("| medium | intermediate | llm |", "| low | intermediate | llm |"))
+    victim.write_text(
+        readme.read_text().replace(
+            "| medium | intermediate | llm |", "| low | intermediate | llm |"
+        )
+    )
     before = victim.read_text()
     readme.unlink()
     readme.symlink_to(victim)
@@ -204,8 +231,24 @@ def test_new_note_does_not_write_through_a_dangling_link(hub_root, tmp_path, cap
     folder = hub_root / "knowledge/biology"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "body-note.md").symlink_to(victim)
-    mem.main(["--root", str(hub_root), "new", "knowledge", "--slug", "body-note", "--claim", "A claim about bodies.",
-              "--topics", "biology", "--confidence", "low", "--level", "beginner", "--origin", "research"])
+    mem.main([
+        "--root",
+        str(hub_root),
+        "new",
+        "knowledge",
+        "--slug",
+        "body-note",
+        "--claim",
+        "A claim about bodies.",
+        "--topics",
+        "biology",
+        "--confidence",
+        "low",
+        "--level",
+        "beginner",
+        "--origin",
+        "research",
+    ])
     capsys.readouterr()
     assert not victim.exists()
 
@@ -255,10 +298,17 @@ def test_append_text_closes_the_fd_when_fdopen_fails(tmp_path, monkeypatch):
 
 def test_no_predictable_temp_names_remain():
     root = Path(__file__).resolve().parents[2]
-    files = [*root.joinpath("engine").glob("*.py"), *(p for p in root.joinpath("bin").iterdir() if p.is_file())]
+    files = [
+        *root.joinpath("engine").glob("*.py"),
+        *(p for p in root.joinpath("bin").iterdir() if p.is_file()),
+    ]
     assert files
-    bad = [f"{f.name}: {needle}" for f in files for needle in ('with_name(f".{', '+ ".tmp"')
-           if needle in f.read_text(encoding="utf-8")]
+    bad = [
+        f"{f.name}: {needle}"
+        for f in files
+        for needle in ('with_name(f".{', '+ ".tmp"')
+        if needle in f.read_text(encoding="utf-8")
+    ]
     assert bad == []
 
 
@@ -273,7 +323,21 @@ def test_unsafe_path_from_a_command_is_a_refusal_not_a_traceback(tmp_path, monke
     monkeypatch.chdir(root)
     body = tmp_path / "body.txt"
     body.write_text("Text.")
-    code = mem.main(["project-synthesis", "add", "organization", "Heading", "--paths", "src/", "--body-file", str(body)])
+    code = mem.main([
+        "project-synthesis",
+        "add",
+        "organization",
+        "Heading",
+        "--paths",
+        "src/",
+        "--body-file",
+        str(body),
+    ])
     err = capsys.readouterr().err
-    assert code == 2 and err.startswith("mem: refused: ") and "symlink" in err and "Traceback" not in err
+    assert (
+        code == EXIT_REFUSED
+        and err.startswith("mem: refused: ")
+        and "symlink" in err
+        and "Traceback" not in err
+    )
     assert list(target.iterdir()) == []
