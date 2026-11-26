@@ -971,7 +971,7 @@ def auto_run(
     `lock_wait` is the seconds to wait for the capture lock (`MEM_CAPTURE_LOCK_WAIT` overrides it);
     `MEM_CAPTURE_LOCK_POLL` overrides the seconds between attempts.
     After a run that wrote a record and did not fail, and once the capture lock is released, it starts the
-    corroboration pass. Returns the run's log line, or None when the engine could not load. In it `windows` counts
+    corroboration pass. Returns the run's log line. In it `windows` counts
     the windows read (0 when nothing was read: lock held, no memory folder) and `modeled` is true when a model
     session was started in any of them, even one that failed; `cost` is not that signal (a killed session has none)."""
     job = AutoRun(trigger, transcript, cwd, claude)
@@ -1044,7 +1044,7 @@ def _sweep_cwd(store: Path, item: Path) -> Path | None:
 def _note_sweep_run(store: Path, now: float, item: Path, size: int, run: dict | None) -> bool:
     """Record what a sweep run settled; whether it started a model session."""
     if run is None or not run["windows"]:
-        return False  # nothing was read (lock held, engine missing): a later start may
+        return False  # nothing was read (lock held, no memory folder): a later start may
     if run["modeled"]:
         cs.note_sweep(store, now)
     if not run["failed"] and not run["more"]:
