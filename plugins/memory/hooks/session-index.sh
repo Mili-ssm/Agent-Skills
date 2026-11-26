@@ -3,15 +3,10 @@
 # goes to `mem`, which finds the project from its `cwd`. Hook processes do not get the variables that
 # session-env.sh exports for shell commands, so the options are passed on here.
 # Silent and always exit 0, also when uv or mem fail: a failing hook would disturb every session.
-[ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ] && export MEM_STORE="$CLAUDE_PLUGIN_OPTION_STORE"
-if [ -z "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then # no option: the default store, made by session-env.sh
-  data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
-  [ -n "$data" ] && [ -f "$data/agent-memory/store/mem-store.yaml" ] && export MEM_STORE="$data/agent-memory/store"
-fi
-[ -n "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" ] && export MEM_MEMORIES="$CLAUDE_PLUGIN_OPTION_MEMORIES"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+. "$here/store-env.sh" 2>/dev/null; type export_store_env >/dev/null 2>&1 && export_store_env
 [ "${CLAUDE_PLUGIN_OPTION_LOADED_RULES:-}" = "false" ] && export MEM_LOADED_RULES=off   # option loaded_rules, default on
 case "${CLAUDE_PLUGIN_OPTION_RULES_LAYOUT:-}" in grouped|digest) export MEM_RULES_LAYOUT="$CLAUDE_PLUGIN_OPTION_RULES_LAYOUT" ;; esac   # option rules_layout, default flat
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 if command -v timeout >/dev/null 2>&1; then input=$(timeout 2 cat 2>/dev/null); else input=$(cat 2>/dev/null); fi   # read once, never wait on an input left open
 # Sweep (option auto_capture, exactly "true"): start mem-capture sweep detached, as session-end.sh starts `auto`. It
 # captures sessions of this folder that were left open and never ended; nothing here waits on it.

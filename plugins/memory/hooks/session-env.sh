@@ -5,6 +5,8 @@
 # Silent and always exit 0: a failing hook would disturb every session.
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+. "$here/store-env.sh" 2>/dev/null
+type default_store_dir >/dev/null 2>&1 || default_store_dir() { :; }   # the helper is missing: no default store, never a failure
 export_var() { # <variable> <value>
   if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
     { printf 'export %s=%q\n' "$1" "$2" >> "$CLAUDE_ENV_FILE"; } 2>/dev/null
@@ -21,18 +23,17 @@ handle() { # <option value> <config file name> <variable>
   export_var "$3" "$1"
 }
 default_store() {
-  local data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
-  [ -n "$data" ] || return 0
-  local dir="$data/agent-memory/store"
   # The marker, not the folder: an init cut short by the time limit is finished on the next start.
-  if [ ! -f "$dir/mem-store.yaml" ] && [ -n "$here" ]; then
+  if [ -z "$(default_store_dir)" ] && [ -n "$here" ]; then
     if command -v timeout >/dev/null 2>&1; then
       timeout 4 "$here/../bin/mem" init >/dev/null 2>&1 || true   # bounded: a cold cache without network must not hold the session
     else
       "$here/../bin/mem" init >/dev/null 2>&1 || true
     fi
   fi
-  [ -f "$dir/mem-store.yaml" ] && export_var MEM_STORE "$dir"
+  local dir
+  dir="$(default_store_dir)"
+  [ -n "$dir" ] && export_var MEM_STORE "$dir"
   return 0
 }
 if [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then
@@ -67,10 +68,7 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ]; then
   # `settle log` creates the settle state when it is missing and records the memories that exist as judged, so the
   # first write after the option is turned on is not taken as already judged.
   store="${CLAUDE_PLUGIN_OPTION_STORE:-}"
-  if [ -z "$store" ]; then
-    data="${XDG_DATA_HOME:-${HOME:+$HOME/.local/share}}"
-    [ -n "$data" ] && [ -f "$data/agent-memory/store/mem-store.yaml" ] && store="$data/agent-memory/store"
-  fi
+  [ -n "$store" ] || store="$(default_store_dir)"
   if [ -n "$here" ] && [ -n "$store" ]; then
     if command -v timeout >/dev/null 2>&1; then
       MEM_STORE="$store" MEM_MEMORIES="${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" timeout 3 "$here/../bin/mem" settle log </dev/null >/dev/null 2>&1

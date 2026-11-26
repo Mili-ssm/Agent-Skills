@@ -658,7 +658,7 @@ def _stub_plugin(tmp_path, commit_sleep):
     root = tmp_path / "plug"
     (root / "hooks").mkdir(parents=True)
     (root / "bin").mkdir()
-    for name in ("session-end.sh", "find-claude.sh"):
+    for name in ("session-end.sh", "find-claude.sh", "store-env.sh"):
         shutil.copy(HOOKS / name, root / "hooks" / name)
     order = tmp_path / "order.txt"
     stubs = {
