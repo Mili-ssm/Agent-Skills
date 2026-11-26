@@ -90,11 +90,11 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 
 ### Task 2: Move the engine modules into the package
 
-- [ ] `git mv` `synth_pipeline.py` → `synthesize/pipeline.py`, `backfill.py` → `synthesize/references.py`, `synth_briefs/` → `synthesize/briefs/`; every importer and patch retargeted; `BRIEFS` path follows. Suite, goldens, self-checks pass. Commit `refactor(memory): synthesis pipeline and reference backfill in engine/synthesize/`.
+- [x] `git mv` `synth_pipeline.py` → `synthesize/pipeline.py`, `backfill.py` → `synthesize/references.py`, `synth_briefs/` → `synthesize/briefs/`; every importer and patch retargeted; `BRIEFS` path follows. Suite, goldens, self-checks pass. Commit `refactor(memory): synthesis pipeline and reference backfill in engine/synthesize/`.
 
 ### Task 3: Split `bin/mem-synthesize` into the package
 
-- [ ] 3a `synthesize/run.py`, `backfill.py`, `topics.py`, `cli.py` by verbatim moves plus the named changes; the launcher is the docstring, `sys.path` setup and `sys.exit(cli.main(__doc__))`; py311 line. Commit `refactor(memory): mem-synthesize logic in engine/synthesize/`.
+- [x] 3a `synthesize/run.py`, `backfill.py`, `topics.py`, `cli.py` by verbatim moves plus the named changes; the launcher is the docstring, `sys.path` setup and `sys.exit(cli.main(__doc__))`; py311 line. Commit `refactor(memory): mem-synthesize logic in engine/synthesize/`.
 - [ ] 3b `mem-auto` and `mem-settle` import `synthesize.run`/`synthesize.topics` and drop the `SourceFileLoader` block. Commit.
 - [ ] 3c Tests and `run_trials.py` import the package instead of loading the script; the `ms` fixture of `test_backfill.py` becomes module imports; patches retargeted and each proven. One commit per batch.
 
@@ -111,6 +111,10 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 | Finding | Ruling |
 |---|---|
 | Task 1 review: the dry-run goldens build their fixture with `mem.py`, so they run on 3.12+ only; the `--help`, bad-argument and broken-engine goldens run on 3.11 too | Accepted: the 3.11 floor is covered by the self-checks |
+| Task 2 review: `test_bin_python_floor.py` and `test_import_graph.py` skip `synthesize/__init__.py` (an import added there would escape both) | Fix in Task 4 |
+| Task 3a: the `backfill_one` patch in `test_a_failing_mem_check_with_no_reference_written_is_not_blamed_on_the_step` cannot be proven (the test passes without it; already so at base) | Open, low: the test does not prove what it names |
+| Eval cleanups review: `test_settle_trial_grading.py` asserts one of three verdicts and no threshold boundary; `evals/research/run_trial.py` grew to 954 lines | Open, low |
+| `evals/synthesis/frozen-main/README.md` names `engine/synth_briefs/` | Accepted: it describes a frozen `main` snapshot |
 | Pre-mortem: `bin/` scripts already need PyYAML at import time through `synth_pipeline`/`backfill` → `syntheses`; the lazy `_syntheses()` did nothing | Recorded; the import becomes top-level (Global Constraints) |
 
 ## Kill criteria
