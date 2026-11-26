@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import stat
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -39,6 +40,7 @@ def load_bin(name: str) -> ModuleType:
     spec = importlib.util.spec_from_loader(loader.name, loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     loader.exec_module(module)
     return module
 

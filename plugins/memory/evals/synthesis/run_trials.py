@@ -575,6 +575,9 @@ def load_synthesize() -> ModuleType:
         if spec is None or spec.loader is None:
             raise ImportError(path)
         module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = (
+            module  # before 3.13, @dataclass looks its module up in sys.modules
+        )
         spec.loader.exec_module(module)
         _SYNTHESIZE.append(module)
     return _SYNTHESIZE[0]

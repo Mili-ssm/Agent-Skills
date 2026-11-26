@@ -644,6 +644,7 @@ def load_capture(monkeypatch, world, started):
     spec = importlib.util.spec_from_loader("mem_capture_pass", loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, spec.name, module)
     loader.exec_module(module)
     fake = world.tmp / "fake-corroborate"
     fake.write_text(f'#!/bin/sh\necho "$@" >> {started}\n')

@@ -7,6 +7,7 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -508,6 +509,7 @@ def _auto_module():
     spec = importlib.util.spec_from_loader("mem_auto_under_test", loader)
     assert spec is not None
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     loader.exec_module(mod)
     return mod
 
