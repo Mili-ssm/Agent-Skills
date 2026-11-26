@@ -248,6 +248,31 @@ def test_a_dripping_server_hits_the_total_deadline(server, fetch_local, monkeypa
     assert time.monotonic() - started < DRIP_BUDGET
 
 
+def test_fetch_raw_omitted_options_match_defaults(public_name):
+    base, lookups = public_name
+
+    def run(**options):
+        limits = []
+        lookups.clear()
+
+        def limit_for(ctype):
+            limits.append(ctype)
+            return rc.MAX_BYTES
+
+        result = rc.fetch_raw(f"{base}/redir-page", limit_for, **options)
+        return result, limits, list(lookups)
+
+    explicit = {
+        "over": "truncate",
+        "headers": None,
+        "deadline": None,
+        "max_redirects": rc.MAX_REDIRECTS,
+        "allow_hosts": (),
+        "timeout": rc.TIMEOUT,
+    }
+    assert run() == run(**explicit)
+
+
 @pytest.mark.parametrize(
     "address",
     [
@@ -813,3 +838,27 @@ def test_apply_runs_without_a_shell(mem_env, monkeypatch, tmp_path):
     )
     args, kw = seen[0]
     assert kw["shell"] is False and args[-1] == evil and not (tmp_path / "pwned").exists()
+
+
+def test_apply_omitted_options_match_defaults(monkeypatch):
+    calls = []
+
+    def run(args, **kw):
+        calls.append((args, kw))
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    monkeypatch.setattr(rc.subprocess, "run", run)
+    verdicts = {"notes": [note_row()]}
+    omitted = rc.apply(verdicts, ENTRIES, PAGES_FETCHED, [HANDLE])
+    explicit = rc.apply(
+        verdicts,
+        ENTRIES,
+        PAGES_FETCHED,
+        [HANDLE],
+        mem_cmd=rc.MEM_ENTRY,
+        root=None,
+        timeout=120,
+        env=None,
+    )
+    assert omitted == explicit and omitted["applied"]
+    assert len(calls) == 2 * len(omitted["applied"]) and calls[0] == calls[1]
