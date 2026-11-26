@@ -69,6 +69,12 @@
       "default": 0.25,
       "description": "Upper limit of what one capture window (one model session) may spend. Default 0.25."
     },
+    "offload_table": {
+      "type": "boolean",
+      "title": "Offload table",
+      "default": true,
+      "description": "Load the table that says which work to hand to subagents (about 520 tokens) at session start and after a compaction. Turn it off when your own CLAUDE.md or account instructions already hold the table."
+    },
     "research_depth": {
       "type": "string",
       "title": "Research depth",
