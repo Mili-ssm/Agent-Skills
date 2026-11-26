@@ -198,18 +198,18 @@ FROZEN_EDGES = {
     ("research", "synthesize"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize", "entry",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize", "entry", "commands",
 }  # fmt: skip
 
 
 def test_packages_are_planned_and_edges_frozen():
-    """Packages import each other only along FROZEN_EDGES (any package may import the base layers `core`, `memories`, `syntheses` and `notes`; `entry` may import any package); `core` imports no other package."""
+    """Packages import each other only along FROZEN_EDGES (any package may import the base layers `core`, `memories`, `syntheses` and `notes`; `entry` and `commands`, the top layers, may import any package); `core` imports no other package."""
     assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     new_edges = sorted(
         f"{name} -> {dep}"
         for name, deps in graph.items()
-        if (own := name.split(".")[0]) in PACKAGES and own != ENTRY_PACKAGE
+        if (own := name.split(".")[0]) in PACKAGES and own not in TOP_LAYERS
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
         # itself and the base layers (`core`, `memories`, `syntheses`, `notes`) are not cross-package edges
@@ -225,6 +225,10 @@ def test_packages_are_planned_and_edges_frozen():
 # and `memories`, `notes` those and `syntheses`; `memories` never imports `syntheses` or `notes`, and `syntheses`
 # never imports `notes` (the owner ruling that split the old `store`, ADR 0034).
 ENTRY_PACKAGE = "entry"
+COMMANDS_PACKAGE = (
+    "commands"  # the `mem` command handlers (A5, ADR 0028): a top layer, imported only by `mem`
+)
+TOP_LAYERS = {ENTRY_PACKAGE, COMMANDS_PACKAGE}
 PACKAGE_DEPENDENCIES = {
     "core": set(),
     "memories": {"core"},
@@ -237,6 +241,7 @@ PACKAGE_DEPENDENCIES = {
     "session": {"core", "notes"},
     "research": {"core", "memories", "notes", "synthesize"},
     "entry": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize"},
+    "commands": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize"},
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
@@ -247,6 +252,7 @@ PACKAGE_IMPORTERS = {
     "digest": {"mem", "corroborate"},
     "session": {"mem"},
     "entry": {"run"},
+    "commands": {"mem"},
 }
 
 
@@ -266,10 +272,13 @@ def test_package_imports_only_its_dependencies():
 def test_package_is_imported_only_by_its_importers():
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     for package, allowed in PACKAGE_IMPORTERS.items():
+        exempt = (
+            set() if package == COMMANDS_PACKAGE else {ENTRY_PACKAGE}
+        )  # `entry` never imports `commands`
         extra = sorted(
             name
             for name, deps in graph.items()
-            if name.split(".")[0] not in allowed | {package, ENTRY_PACKAGE}
+            if name.split(".")[0] not in allowed | {package} | exempt
             and any(dep.split(".")[0] == package for dep in deps)
         )
         assert not extra, f"modules importing {package} that may not: {extra}"
