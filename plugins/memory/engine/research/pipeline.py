@@ -27,8 +27,8 @@ import time
 from pathlib import Path
 from typing import Any, Required, TypedDict, Unpack
 
-import mem
 from core import config, headless, jobs
+from memories.records import tokenize
 from notes.note import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
 
@@ -338,7 +338,7 @@ def _search_texts(value: object) -> list[str]:
     searches: list[str] = []
     for item in value if isinstance(value, list) else []:
         text = " ".join(item.split())[:200] if isinstance(item, str) else ""
-        if text and mem.tokenize(text) and text not in searches:
+        if text and tokenize(text) and text not in searches:
             searches.append(text)
     return searches
 

@@ -190,13 +190,12 @@ def test_memory_and_note_modules_never_import_synthesize():
 
 # Every cross-package edge allowed in the engine, as (importer, imported), frozen at the base of backlog A14
 # (docs/superpowers/plans/2026-11-26-memory-engine-packages.md). Each package task adds its package to the
-# engine; an edge not listed here is new and fails. The list only shrinks (A5 removes research -> mem).
+# engine; an edge not listed here is new and fails. The list only shrinks.
 FROZEN_EDGES = {
     ("corroborate", "capture"),
     ("corroborate", "digest"),
     ("corroborate", "synthesize"),
     ("research", "synthesize"),
-    ("research", "mem"),
 }
 PLANNED_PACKAGES = {
     "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize", "entry",
@@ -236,7 +235,7 @@ PACKAGE_DEPENDENCIES = {
     "settle": {"core", "memories"},
     "digest": {"memories"},
     "session": {"core", "notes"},
-    "research": {"core", "memories", "notes", "synthesize", "mem"},
+    "research": {"core", "memories", "notes", "synthesize"},
     "entry": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize"},
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
@@ -276,19 +275,17 @@ def test_package_is_imported_only_by_its_importers():
         assert not extra, f"modules importing {package} that may not: {extra}"
 
 
-# Root modules: the entry points `mem` and `run`. Only `research` may import them (frozen edge, until A5 splits
-# `mem.py` and `research` stops using `mem.tokenize`); a package that imports an entry point couples a feature
-# to the launcher.
+# Root modules: the entry points `mem` and `run`. No package may import them: a package that imports an entry
+# point couples a feature to the launcher.
 ENTRY_MODULES = {"mem", "run"}
-ENTRY_IMPORTERS = {"research"}
 
 
-def test_only_research_imports_the_entry_modules():
+def test_no_package_imports_the_entry_modules():
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     extra = sorted(
         f"{name} -> {dep}"
         for name, deps in graph.items()
-        if (own := name.split(".")[0]) in PACKAGES and own not in ENTRY_IMPORTERS
+        if name.split(".")[0] in PACKAGES
         for dep in deps & ENTRY_MODULES
     )
     assert not extra, f"packages importing `mem` or `run`: {extra}"
