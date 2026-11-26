@@ -1,13 +1,16 @@
 import datetime
 import json
 import os
+import shutil
 from pathlib import Path
 
+import mem
 import pytest
+import records
 from conftest import usage_log_path
 
-import mem
-import records
+USAGE_EXIT = 2
+PATH_LINES = 2
 
 
 def registry():
@@ -41,10 +44,14 @@ def two(tmp_path, monkeypatch, capsys):
 def test_remember_registers_the_project_with_name_path_and_date(tmp_path, monkeypatch, capsys):
     root = tmp_path / "alpha"
     assert remember_in(monkeypatch, root, "A lesson about kilns", capsys) == 0
-    assert registry() == {"alpha": {"path": str(root.resolve()), "seen": datetime.date.today().isoformat()}}
+    assert registry() == {
+        "alpha": {"path": str(root.resolve()), "seen": datetime.date.today().isoformat()}
+    }
 
 
-def test_a_taken_name_gets_a_numeric_suffix_and_the_same_path_keeps_its_name(tmp_path, monkeypatch, capsys):
+def test_a_taken_name_gets_a_numeric_suffix_and_the_same_path_keeps_its_name(
+    tmp_path, monkeypatch, capsys
+):
     one, two_ = tmp_path / "x" / "app", tmp_path / "y" / "app"
     assert remember_in(monkeypatch, one, "First lesson here", capsys) == 0
     assert remember_in(monkeypatch, two_, "Second lesson here", capsys) == 0
@@ -88,7 +95,7 @@ def test_no_data_folder_registers_nothing(tmp_path, monkeypatch, capsys):
 
 def test_a_failed_remember_registers_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("MEM_PROJECT", str(tmp_path / "alpha"))
-    assert mem.main(["remember", "--kind", "finding", "--claim", "No source given"]) == 2
+    assert mem.main(["remember", "--kind", "finding", "--claim", "No source given"]) == USAGE_EXIT
     assert not (Path(os.environ["MEM_DATA"]) / "projects.json").exists()
 
 
@@ -96,19 +103,24 @@ def test_projects_list_add_remove(tmp_path, monkeypatch, two, capsys):
     alpha, beta = two
     code, out, _ = run(capsys, "projects", "list")
     assert code == 0
-    assert out.splitlines() == [f"alpha\t1 memories\t{alpha.resolve()}", f"beta\t1 memories\t{beta.resolve()}"]
+    assert out.splitlines() == [
+        f"alpha\t1 memories\t{alpha.resolve()}",
+        f"beta\t1 memories\t{beta.resolve()}",
+    ]
     gamma = tmp_path / "gamma"
     gamma.mkdir()
     code, out, _ = run(capsys, "projects", "add", str(gamma), "--name", "g")
     assert code == 0 and registry()["g"]["path"] == str(gamma.resolve())
-    assert run(capsys, "projects", "add", str(tmp_path / "beta"), "--name", "g")[0] == 2   # name taken by another path
-    code, out, _ = run(capsys, "projects", "add", str(gamma))                                # same path: refreshed
+    assert (
+        run(capsys, "projects", "add", str(tmp_path / "beta"), "--name", "g")[0] == USAGE_EXIT
+    )  # name taken by another path
+    code, out, _ = run(capsys, "projects", "add", str(gamma))  # same path: refreshed
     assert code == 0 and sorted(registry()) == ["alpha", "beta", "g"]
     gamma.rmdir()
     assert f"g\tmissing\t{gamma.resolve()}" in run(capsys, "projects", "list")[1].splitlines()
     assert run(capsys, "projects", "remove", "g")[0] == 0 and "g" not in registry()
     code, _, err = run(capsys, "projects", "remove", "nope")
-    assert code == 2 and "nope" in err
+    assert code == USAGE_EXIT and "nope" in err
     assert (beta / ".memory").is_dir()  # the project's files are never touched
 
 
@@ -117,21 +129,27 @@ def test_projects_need_no_store(capsys):
 
 
 def test_search_project_adds_a_section_after_the_current_ones(two, hub_root, capsys):
-    code, out, err = run(capsys, "--root", str(hub_root), "search", "pottery glaze", "--project", "beta")
+    code, out, err = run(
+        capsys, "--root", str(hub_root), "search", "pottery glaze", "--project", "beta"
+    )
     assert code == 0, err
     lines = out.splitlines()
     assert lines.index("-- memories (project) --") < lines.index("-- memories (project: beta) --")
-    tail = lines[lines.index("-- memories (project: beta) --") + 1:]
+    tail = lines[lines.index("-- memories (project: beta) --") + 1 :]
     assert len(tail) == 1 and tail[0].startswith("m:") and "slow cooling ramp" in tail[0]
 
 
 def test_search_does_not_repeat_the_current_project_under_its_name(two, capsys):
-    code, out, _ = run(capsys, "search", "--scope", "memories", "pottery glaze", "--project", "alpha")
+    code, out, _ = run(
+        capsys, "search", "--scope", "memories", "pottery glaze", "--project", "alpha"
+    )
     assert code == 0 and "(project: alpha)" not in out and "cracks in alpha" in out
 
 
 def test_search_all_projects_names_every_other_one(tmp_path, monkeypatch, two, capsys):
-    remember_in(monkeypatch, tmp_path / "gamma", "Pottery glaze is food safe only when fired", capsys)
+    remember_in(
+        monkeypatch, tmp_path / "gamma", "Pottery glaze is food safe only when fired", capsys
+    )
     monkeypatch.setenv("MEM_PROJECT", str(two[0]))
     code, out, _ = run(capsys, "search", "--scope", "memories", "pottery glaze", "--all-projects")
     assert code == 0
@@ -140,13 +158,24 @@ def test_search_all_projects_names_every_other_one(tmp_path, monkeypatch, two, c
 
 
 def test_search_unknown_project_exits_2_and_prints_nothing(two, hub_root, capsys):
-    code, out, err = run(capsys, "--root", str(hub_root), "search", "pottery glaze", "--project", "beta",
-                         "--project", "nope")
-    assert code == 2 and out == ""
+    code, out, err = run(
+        capsys,
+        "--root",
+        str(hub_root),
+        "search",
+        "pottery glaze",
+        "--project",
+        "beta",
+        "--project",
+        "nope",
+    )
+    assert code == USAGE_EXIT and not out
     assert err.strip() == "mem: no project named nope (see mem projects list)"
 
 
-def test_search_without_options_is_byte_identical_with_another_project_present(tmp_path, monkeypatch, hub_root, capsys):
+def test_search_without_options_is_byte_identical_with_another_project_present(
+    tmp_path, monkeypatch, hub_root, capsys
+):
     alpha = tmp_path / "alpha"
     remember_in(monkeypatch, alpha, "Pottery glaze cracks in alpha kilns", capsys)
     before = run(capsys, "--root", str(hub_root), "search", "pottery glaze")
@@ -162,8 +191,18 @@ def test_other_projects_follow_the_rules_of_the_memory_sections(two, hub_root, c
     for extra in (["--offset", "1"], ["--kind", "paper"], ["--detail", "paths"]):
         out = run(capsys, *root, "search", "pottery glaze", "--project", "beta", *extra)[1]
         assert "slow cooling" not in out and "(project: beta)" not in out, extra
-    out = run(capsys, "search", "--scope", "memories", "pottery glaze", "--project", "beta", "--detail", "paths")[1]
-    assert len(out.splitlines()) == 2
+    out = run(
+        capsys,
+        "search",
+        "--scope",
+        "memories",
+        "pottery glaze",
+        "--project",
+        "beta",
+        "--detail",
+        "paths",
+    )[1]
+    assert len(out.splitlines()) == PATH_LINES
 
 
 def test_the_usage_log_counts_projects_and_never_names_them(two, hub_root, capsys):
@@ -176,7 +215,7 @@ def test_the_usage_log_counts_projects_and_never_names_them(two, hub_root, capsy
 
 
 def test_show_and_memories_read_a_named_project_only_on_request(two, capsys):
-    alpha, beta = two
+    _, beta = two
     handle = records.load_memories(beta / ".memory", "project")[0].handle
     code, out, _ = run(capsys, "show", f"m:{handle}", "--project", "beta")
     assert code == 0 and "slow cooling ramp" in out
@@ -184,28 +223,29 @@ def test_show_and_memories_read_a_named_project_only_on_request(two, capsys):
     code, out, _ = run(capsys, "memories", "--project", "beta")
     assert code == 0 and "slow cooling ramp" in out and "cracks in alpha" not in out
     assert "slow cooling" not in run(capsys, "memories")[1]
-    assert run(capsys, "memories", "--project", "nope")[0] == 2
-    assert run(capsys, "show", f"m:{handle}", "--project", "nope")[0] == 2
+    assert run(capsys, "memories", "--project", "nope")[0] == USAGE_EXIT
+    assert run(capsys, "show", f"m:{handle}", "--project", "nope")[0] == USAGE_EXIT
 
 
 def test_memories_of_a_project_whose_folder_moved_say_so(two, tmp_path, capsys):
-    alpha, beta = two
+    _, beta = two
     beta.rename(tmp_path / "beta-moved")
     code, out, err = run(capsys, "memories", "--project", "beta")
-    assert code == 2 and out == ""
+    assert code == USAGE_EXIT and not out
     assert "beta" in err and str(beta.resolve()) in err and "not found" in err
 
 
 def test_writing_commands_take_no_project_option(two):
-    for argv in (["remember", "--kind", "lesson", "--claim", "x y", "--project", "beta"],
-                 ["confirm", "m:x", "--project", "beta"]):
+    for argv in (
+        ["remember", "--kind", "lesson", "--claim", "x y", "--project", "beta"],
+        ["confirm", "m:x", "--project", "beta"],
+    ):
         with pytest.raises(SystemExit):
             mem.main(argv)
 
 
 def test_memories_of_a_project_without_its_memory_folder_is_an_error(two, capsys):
-    import shutil
     _, beta = two
     shutil.rmtree(beta / ".memory")  # the root stays, its memory folder is gone
     code, out, err = run(capsys, "memories", "--project", "beta")
-    assert code == 2 and out == "" and ".memory" in err and "beta" in err
+    assert code == USAGE_EXIT and not out and ".memory" in err and "beta" in err
