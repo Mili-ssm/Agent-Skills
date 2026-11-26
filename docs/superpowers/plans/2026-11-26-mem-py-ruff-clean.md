@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: amended after the pre-mortem of 2026-11-26, waiting for the owner's confirmation · Branch: `fix/prompt-review-2026-11-26` · Date: 2026-11-26
+Status: confirmed by the owner on 2026-11-26 (debug-logging recipe included), in progress · Branch: `fix/prompt-review-2026-11-26` · Date: 2026-11-26
 
 **Goal:** `plugins/memory/engine/mem.py` and `plugins/memory/engine/tests/test_curation.py` pass the commit gate of ADR 0031 with no finding, behavior unchanged, so the one-sentence change to the session start text can be committed.
 
@@ -32,7 +32,7 @@ Complexity of the 64 functions over the limit of 6: 12 above 20 (`cmd_curate` 36
 - No change to a test's assertions. A failing test means the step changed behavior: revert the step and take a smaller one.
 - Gate commands, from the repository root:
   - Recipes for behavior-sensitive rules, the same in every task:
-  - `BLE001`, `S110` (broad `except Exception`, some on the session start path, which must print its text whatever a record holds): keep the broad handler and log the exception, `logger.debug("<what failed>", exc_info=True)`, with one module-level `logger = logging.getLogger(__name__)`. Nothing is printed, because no handler is configured below WARNING. Never narrow the exception type. Owner to confirm (§ Decisions).
+  - `BLE001`, `S110` (broad `except Exception`, some on the session start path, which must print its text whatever a record holds): keep the broad handler and log the exception, `logger.debug("<what failed>", exc_info=True)`, with one module-level `logger = logging.getLogger(__name__)`. Nothing is printed, because no handler is configured below WARNING. Never narrow the exception type. Confirmed by the owner, 2026-11-26.
   - `PLW0717` (too many statements in a `try`): never move a statement out of the `try`; extract the whole body into a helper and call it as the only statement inside.
   - `TRY004`: raise `NoteFormatError`, a new `class NoteFormatError(ValueError)`, with the same message, so the handlers that catch `ValueError` still catch it.
   - `B905`: always `strict=False`.
@@ -68,11 +68,11 @@ Complexity of the 64 functions over the limit of 6: 12 above 20 (`cmd_curate` 36
 **Interfaces:**
 - Produces: `golden.sh <engine-dir> <out-dir>`, which copies a fixture store to a fresh temp directory, runs a fixed list of `mem` subcommands against it with the engine at `<engine-dir>`, and writes one file per command holding stdout, stderr and the exit code; and `<out-dir>/dev/`, the outputs of the engine at `dev`.
 
-- [ ] **Step 1:** Read `plugins/memory/bin/mem` and `plugins/memory/engine/tests/conftest.py` to learn how the store and the project root are passed (`MEM_STORE`, `MEM_MEMORIES`, working directory) and how tests build a store.
-- [ ] **Step 2:** Build the fixture: a copy of the owner's real store and of this repository's `.memory/` folder (read-only use of the originals). Every command runs on fresh copies with `MEM_STORE`, `MEM_MEMORIES`, `MEM_DATA`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` pointing into the copy, `COLUMNS=100` and the same interpreter on both sides, because `log_usage` and the due cache otherwise write to the owner's real data folder and change the next run.
-- [ ] **Step 3:** Write `golden.sh` with this command list, each run from a copy of the repository's `.memory/` parent: `search` (three queries, one with `--deep`, one with `--handles`), `show` (two memory handles, one note), `memories`, `rules`, `rules --unread`, `curate`, `curate --notes`, `stats`, `check`, `history list`, `projects`, `terms`, `related` (one note), `session-index`, `synthesis list`, `note --help`, `--help`. Then write scenarios, each on its own copy, comparing stdout and `diff -r` of the store and data copies afterwards: `remember`, `memory edit` (`--claim` with `--short`), `confirm`, `curate --done`, `curate apply --safe`, `note edit`, `import` (one file), `synthesis add`, a note rename and a unify. Mask only temp paths and timestamps through `sed`; never mask a count. Also run `session-index --hook` on a copy with one record truncated mid-frontmatter: it must print its text and no traceback.
-- [ ] **Step 4:** Run it twice against a worktree of `dev` and diff the two output folders. Expected: no difference; a difference is run-dependent text, so add its mask and repeat.
-- [ ] **Step 5:** Run it against the working tree. Expected: one difference, the session start sentence.
+- [x] **Step 1:** Read `plugins/memory/bin/mem` and `plugins/memory/engine/tests/conftest.py` to learn how the store and the project root are passed (`MEM_STORE`, `MEM_MEMORIES`, working directory) and how tests build a store.
+- [x] **Step 2:** Build the fixture: a copy of the owner's real store and of this repository's `.memory/` folder (read-only use of the originals). Every command runs on fresh copies with `MEM_STORE`, `MEM_MEMORIES`, `MEM_DATA`, `XDG_STATE_HOME`, `XDG_CONFIG_HOME` and `XDG_DATA_HOME` pointing into the copy, `COLUMNS=100` and the same interpreter on both sides, because `log_usage` and the due cache otherwise write to the owner's real data folder and change the next run.
+- [x] **Step 3:** Write `golden.sh` with this command list, each run from a copy of the repository's `.memory/` parent: `search` (three queries, one with `--deep`, one with `--handles`), `show` (two memory handles, one note), `memories`, `rules`, `rules --unread`, `curate`, `curate --notes`, `stats`, `check`, `history list`, `projects`, `terms`, `related` (one note), `session-index`, `synthesis list`, `note --help`, `--help`. Then write scenarios, each on its own copy, comparing stdout and `diff -r` of the store and data copies afterwards: `remember`, `memory edit` (`--claim` with `--short`), `confirm`, `curate --done`, `curate apply --safe`, `note edit`, `import` (one file), `synthesis add`, a note rename and a unify. Mask only temp paths and timestamps through `sed`; never mask a count. Also run `session-index --hook` on a copy with one record truncated mid-frontmatter: it must print its text and no traceback.
+- [x] **Step 4:** Run it twice against a worktree of `dev` and diff the two output folders. Expected: no difference; a difference is run-dependent text, so add its mask and repeat.
+- [x] **Step 5:** Run it against the working tree. Expected: one difference, the session start sentence.
 
 ### Task 1: Format, imports and re-exported names
 
@@ -82,11 +82,11 @@ Complexity of the 64 functions over the limit of 6: 12 above 20 (`cmd_curate` 36
 **Interfaces:**
 - Produces: a formatted `mem.py` whose import block no later task edits; `mem.<name>` still resolves for the 69 names that moved to `check`, `notes` and `index`.
 
-- [ ] **Step 1:** `uvx ruff@0.17.6 format plugins/memory/engine/mem.py`; run the tests. Expected: pass.
-- [ ] **Step 2:** Replace the three `from check|notes|index import (_NAME, …)` re-export blocks. Import the three modules under aliases no local name shadows, `import check as check_rules`, `import notes as note_files`, `import index as index_files` (never `import check`: `mem.check` is a function tests call, and `notes` is a local variable in 15 functions). Inside `mem.py`, a use of a moved private name becomes `check_rules._NAME` and so on; public names keep their `from … import`. For `mem._NAME` from outside, add a module `__getattr__(name: str) -> object` (PEP 562) that looks the name up in a tuple of the three modules, in the order `check`, `notes`, `index`, only for names in a frozenset `_MOVED` listing exactly the 69 names, and raises `AttributeError` otherwise. One comment line says why: the names moved out and callers still use `mem.<name>`.
-- [ ] **Step 3:** Test first: add nothing to the repository; run `grep -rhow 'mem\._[A-Za-z_0-9]*' plugins/memory/engine/tests plugins/memory/bin plugins/memory/evals | sort -u` and check each name resolves with `python3 -c` from `plugins/memory/engine`. Expected: every name resolves.
-- [ ] **Step 4:** Fix the import findings: `TC003`, `TC002` (move to an `if TYPE_CHECKING:` block), `PLC0415` (`digest`: move to the top, its own imports are already loaded; `research_checks`: it imports `mem` back, so move it to the top only if `python3 -c "import research_checks"` and `python3 -c "import mem"` both still work from `plugins/memory/engine`, else keep it deferred through `importlib.import_module`), `EXE001` (the file mode or the shebang, whichever `git ls-files -s` shows is wrong).
-- [ ] **Step 5:** Gate: tests pass; `ruff check --no-fix --select PLC2701,TC,PLC0415,EXE,I,F401` reports nothing for `mem.py`; `ruff format --check` passes. Commit.
+- [x] **Step 1:** `uvx ruff@0.17.6 format plugins/memory/engine/mem.py`; run the tests. Expected: pass.
+- [x] **Step 2:** Replace the three `from check|notes|index import (_NAME, …)` re-export blocks. Import the three modules under aliases no local name shadows, `import check as check_rules`, `import notes as note_files`, `import index as index_files` (never `import check`: `mem.check` is a function tests call, and `notes` is a local variable in 15 functions). Inside `mem.py`, a use of a moved private name becomes `check_rules._NAME` and so on; public names keep their `from … import`. For `mem._NAME` from outside, add a module `__getattr__(name: str) -> object` (PEP 562) that looks the name up in a tuple of the three modules, in the order `check`, `notes`, `index`, only for names in a frozenset `_MOVED` listing exactly the 69 names, and raises `AttributeError` otherwise. One comment line says why: the names moved out and callers still use `mem.<name>`.
+- [x] **Step 3:** Test first: add nothing to the repository; run `grep -rhow 'mem\._[A-Za-z_0-9]*' plugins/memory/engine/tests plugins/memory/bin plugins/memory/evals | sort -u` and check each name resolves with `python3 -c` from `plugins/memory/engine`. Expected: every name resolves.
+- [x] **Step 4:** Fix the import findings: `TC003`, `TC002` (move to an `if TYPE_CHECKING:` block), `PLC0415` (`digest`: move to the top, its own imports are already loaded; `research_checks`: it imports `mem` back, so move it to the top only if `python3 -c "import research_checks"` and `python3 -c "import mem"` both still work from `plugins/memory/engine`, else keep it deferred through `importlib.import_module`), `EXE001` (the file mode or the shebang, whichever `git ls-files -s` shows is wrong).
+- [x] **Step 5:** Gate: tests pass; `ruff check --no-fix --select PLC2701,TC,PLC0415,EXE,I,F401` reports nothing for `mem.py`; `ruff format --check` passes. Commit.
 
 ### Task 2: Small-rule findings in `mem.py`
 
@@ -97,8 +97,8 @@ Complexity of the 64 functions over the limit of 6: 12 above 20 (`cmd_curate` 36
 - Consumes: Task 1's formatted file.
 - Produces: `mem.py` with only structural findings left (`C901`, `PLR0911`–`PLR0917`, `PLW0717`).
 
-- [ ] **Step 1:** Fix by rule, running the tests after each rule: `PLR6201` (tuple to set literal in `in` tests of hashable constants), `PLR2004` (a named module constant per magic value, named for its meaning, reused where the same meaning recurs), `B905` (Review Focus 5), `B023` (bind the loop variable as a default argument or move the closure out), `SIM105` (`contextlib.suppress`), `S110` and `BLE001` (Review Focus 4), `ISC004`, `RUF005`, `TRY004`, `A002` (rename the parameter only if no caller passes it by keyword; else stop and report), `SIM102`, `PERF401`, `PLR1714`, `F841`.
-- [ ] **Step 2:** Gate: tests pass; `ruff check --no-fix` on `mem.py` lists only the structural rules named above; `ruff format --check` passes; golden comparison shows only the session start sentence. Commit.
+- [x] **Step 1:** Fix by rule, running the tests after each rule: `PLR6201` (tuple to set literal in `in` tests of hashable constants), `PLR2004` (a named module constant per magic value, named for its meaning, reused where the same meaning recurs), `B905` (Review Focus 5), `B023` (bind the loop variable as a default argument or move the closure out), `SIM105` (`contextlib.suppress`), `S110` and `BLE001` (Review Focus 4), `ISC004`, `RUF005`, `TRY004`, `A002` (rename the parameter only if no caller passes it by keyword; else stop and report), `SIM102`, `PERF401`, `PLR1714`, `F841`.
+- [x] **Step 2:** Gate: tests pass; `ruff check --no-fix` on `mem.py` lists only the structural rules named above; `ruff format --check` passes; golden comparison shows only the session start sentence. Commit.
 
 ### Task 3: Type errors in `mem.py`
 
@@ -109,8 +109,8 @@ Complexity of the 64 functions over the limit of 6: 12 above 20 (`cmd_curate` 36
 - Consumes: Task 2's file.
 - Produces: `mem.py` with 0 basedpyright errors and warnings.
 
-- [ ] **Step 1:** Run the type gate and group the 62 errors by kind. Fix each with a real narrowing (`if x is None: return …` where the old code would have raised anyway is a behavior change: keep the old failure by raising the same exception type explicitly), an annotation, or a `typing.cast` only where the value's type is fixed by a file format the checker cannot see.
-- [ ] **Step 2:** Gate: type gate reports `0 errors, 0 warnings`; tests pass; Ruff shows no new finding outside the structural rules; golden comparison unchanged. Commit.
+- [x] **Step 1:** Run the type gate and group the 62 errors by kind. Fix each with a real narrowing (`if x is None: return …` where the old code would have raised anyway is a behavior change: keep the old failure by raising the same exception type explicitly), an annotation, or a `typing.cast` only where the value's type is fixed by a file format the checker cannot see.
+- [x] **Step 2:** Gate: type gate reports `0 errors, 0 warnings`; tests pass; Ruff shows no new finding outside the structural rules; golden comparison unchanged. Commit.
 
 ### Task 4: `test_curation.py` clean
 
@@ -120,9 +120,9 @@ Complexity of the 64 functions over the limit of 6: 12 above 20 (`cmd_curate` 36
 **Interfaces:**
 - Consumes: Task 3's `mem.py` (its types feed this file's type check), so it runs after Task 3, in the same tree.
 
-- [ ] **Step 1:** Fix the 50 findings: `PLR2004` (26: a named constant at the top of the file or of the test, named for what the number means in that test), `PLC0415` (imports to the top), `PLC1901`, `PLR0913`/`PLR0917` (the helper `put`, 9 parameters and about 158 calls: `put(folder, handle, claim, **fields: Unpack[PutFields])`, so no call changes), `RUF059`, `SIM118`, `FURB113`, `F841`, `RUF005`, `PIE810`. No assertion changes its expected value.
-- [ ] **Step 2:** Fix its 3 type errors (`None` narrowing before `.read_text`/`.write_text`).
-- [ ] **Step 3:** Gate: `ruff check --no-fix`, `ruff format --check` and the type gate report nothing for the file; `pytest plugins/memory/engine/tests/test_curation.py -q` passes with the same test count as before. Commit with every hook on: the file is clean on its own.
+- [x] **Step 1:** Fix the 50 findings: `PLR2004` (26: a named constant at the top of the file or of the test, named for what the number means in that test), `PLC0415` (imports to the top), `PLC1901`, `PLR0913`/`PLR0917` (the helper `put`, 9 parameters and about 158 calls: `put(folder, handle, claim, **fields: Unpack[PutFields])`, so no call changes), `RUF059`, `SIM118`, `FURB113`, `F841`, `RUF005`, `PIE810`. No assertion changes its expected value.
+- [x] **Step 2:** Fix its 3 type errors (`None` narrowing before `.read_text`/`.write_text`).
+- [x] **Step 3:** Gate: `ruff check --no-fix`, `ruff format --check` and the type gate report nothing for the file; `pytest plugins/memory/engine/tests/test_curation.py -q` passes with the same test count as before. Commit with every hook on: the file is clean on its own.
 
 ### Tasks 5–10: Structural findings, one group of functions each
 
