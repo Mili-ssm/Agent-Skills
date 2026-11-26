@@ -5,6 +5,7 @@ It imports no plugin module."""
 
 from __future__ import annotations
 
+import codecs
 import os
 import subprocess
 from dataclasses import dataclass
@@ -102,7 +103,9 @@ def run_raw(
     except subprocess.TimeoutExpired as exc:
         partial = exc.stdout
         if isinstance(partial, bytes):
-            partial = partial.decode() if errors is None else partial.decode(errors=errors)
+            # A cut inside a multibyte character drops that fragment only; other invalid bytes keep `errors`.
+            decoder = codecs.getincrementaldecoder("utf-8")(errors=errors or "strict")
+            partial = decoder.decode(partial, final=False)
         return Raw(partial or "", True)
     return Raw(done.stdout, False)
 

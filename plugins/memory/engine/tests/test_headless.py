@@ -107,6 +107,17 @@ def test_run_raw_timeout_keeps_partial_output(tmp_path: Path, errors: str | None
     assert raw.stdout == "partial\n"
 
 
+@pytest.mark.parametrize("errors", [None, "replace"])
+def test_run_raw_timeout_inside_a_multibyte_character_drops_only_the_fragment(
+    tmp_path: Path, errors: str | None
+) -> None:
+    cmd = fake(tmp_path, "printf 'ok \\303'\nexec sleep 5")
+    raw = headless.run_raw(
+        cmd, cwd=tmp_path, env={"PATH": "/usr/bin:/bin"}, timeout=0.5, errors=errors
+    )
+    assert raw == Raw("ok ", True)
+
+
 def test_run_raw_missing_binary_raises(tmp_path: Path) -> None:
     with pytest.raises(OSError):
         headless.run_raw([str(tmp_path / "nope")], cwd=tmp_path, env={}, timeout=5)
@@ -147,6 +158,8 @@ def test_run_raw_passes_errors_only_when_given(
     [
         (b"ab\xffcd", "replace", "ab�cd"),
         (b"ok", None, "ok"),
+        ("caf\u00e9 \u20ac".encode()[:-1], None, "caf\u00e9 "),
+        (b"ok \xc3", "replace", "ok "),
         ("text", None, "text"),
         (None, None, ""),
     ],
