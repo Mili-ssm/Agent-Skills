@@ -662,6 +662,8 @@ def test_plan_commands_for_each_verdict():
         ([note_row(quote="A sentence that the page does not carry")], "not on the fetched page"),
         ([note_row(quote=Q[:19])], "not on the fetched page"),
         ([note_row(quote=None)], "not on the fetched page"),
+        ([note_row(quote=["a list"])], "not on the fetched page"),
+        ([note_row(quote={"a": "dict"})], "not on the fetched page"),
         ([note_row(fact="--force")], "starts with"),
         ([note_row(fact="")], "fact"),
         ([note_row(verdict="maybe")], "verdict"),

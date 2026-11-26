@@ -875,18 +875,20 @@ class _Planner:
         self.entries, self.pages, self.sent = entries, pages, set(sent)
         self.commands: list[list[str]] = []
         self.refused: list[dict[str, Any]] = []
-        self.found: dict[tuple[str, Any], bool] = {}
+        self.found: dict[tuple[str, str], bool] = {}
         self.normalized: dict[str, str] = {}  # url -> its page, normalized once
 
     def refuse(self, row: Any, reason: str) -> None:
         self.refused.append({"row": row, "reason": reason})
 
     def on_page(self, quote: Any, url: str) -> TypeGuard[str]:
+        if not isinstance(quote, str):  # also unhashable as a lookup key
+            return False
         key = (url, quote)
         if key not in self.found:
             if url not in self.normalized:
                 self.normalized[url] = normalize(self.pages.get(url, ""))
-            wanted = normalize(quote) if isinstance(quote, str) else ""
+            wanted = normalize(quote)
             self.found[key] = len(wanted) >= MIN_QUOTE and wanted in self.normalized[url]
         return self.found[key]
 
