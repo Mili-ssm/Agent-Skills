@@ -25,10 +25,12 @@ small model); the owner reads and edits FILE, and `--items FILE` applies it thro
 `undo STAMP` puts the records back). Each item also carries `load`: `yes` (a rule), `index` (only counted by topic)
 or `no` (never loaded); the owner may change it. `seen.json` and the status of the pass are not touched.
 """
+
 from __future__ import annotations
 
 import argparse
 import datetime
+import logging
 import os
 import shutil
 import sys
@@ -37,15 +39,17 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
-import capture_state as cs  # noqa: E402
-import corroborate_state  # noqa: E402
+import capture_state as cs
+import corroborate_state
 
-try:   # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
-    import corroborate_cli  # noqa: E402
+try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
+    import corroborate_cli
+
     IMPORT_ERROR: Exception | None = None
-except Exception as _exc:   # noqa: BLE001
+except Exception as _exc:
     corroborate_cli = None
     IMPORT_ERROR = _exc
+    logging.getLogger(__name__).debug("the engine cannot be loaded", exc_info=True)
 
 
 def _no_engine(_args) -> int:
@@ -53,23 +57,31 @@ def _no_engine(_args) -> int:
     return 1
 
 
-def _auto_without_engine(args) -> int:
+def _failed_status_for_auto() -> None:
+    if os.environ.get(cs.OPTION) != "true":
+        return
+    start = time.time()
+    stamp = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
+    reason = "engine import error"
+    failure = {"at": time.time(), "reason": reason, "log": ""}
+    corroborate_state.save_status(cdir, state="failed", finished=time.time(), failure=failure)
+    counts = dict.fromkeys(("lessons", "groups", "proposed", "verified", "dropped", "written"), 0)
+    counts |= dict.fromkeys(
+        ("sightings", "links", "merges", "refused", "failed_actions", "cases"), 0
+    )
+    ms = int((time.time() - start) * 1000)
+    line = {"t": stamp, **counts, "skipped": None, "cost": 0.0, "failed": reason, "ms": ms}
+    corroborate_state.append_log(cdir, line)
+
+
+def _auto_without_engine(_args) -> int:
     """`auto` when the engine cannot load: the failed status and the log line `execute` wrote for it, nothing else;
     never raises and never prints."""
     try:
-        if os.environ.get(cs.OPTION) != "true":
-            return 0
-        start = time.time()
-        cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
-        line: dict = {"t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), "lessons": 0,
-                      "groups": 0, "proposed": 0, "verified": 0, "dropped": 0, "written": 0, "sightings": 0, "links": 0,
-                      "merges": 0, "refused": 0, "failed_actions": 0, "cases": 0, "skipped": None, "cost": 0.0, "failed": None, "ms": 0}
-        line["failed"] = "engine import error"
-        corroborate_state.save_status(cdir, state="failed", finished=time.time(), failure={"at": time.time(), "reason": line["failed"], "log": ""})
-        line["ms"] = int((time.time() - start) * 1000)
-        corroborate_state.append_log(cdir, line)
-    except BaseException:   # noqa: BLE001
-        pass
+        _failed_status_for_auto()
+    except BaseException:
+        logging.getLogger(__name__).debug("auto: the failed status was not written", exc_info=True)
     return 0
 
 
@@ -79,46 +91,116 @@ def _command(name: str, without_engine=_no_engine):
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--self-check", action="store_true", help="no model: prove the briefs, gates, lock and undo")
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    parser.add_argument(
+        "--self-check", action="store_true", help="no model: prove the briefs, gates, lock and undo"
+    )
     commands = parser.add_subparsers(dest="command")
     default_claude = os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
-    run = commands.add_parser("run", help="match the lessons by meaning and apply the verified groups")
+    run = commands.add_parser(
+        "run", help="match the lessons by meaning and apply the verified groups"
+    )
     run.add_argument("--claude", default=default_claude)
-    run.add_argument("--budget", type=corroborate_state.budget_of, default=corroborate_state.DEFAULT_BUDGET, help=f"USD per session (default {corroborate_state.DEFAULT_BUDGET})")
-    run.add_argument("--dry-run", action="store_true", help="run both sessions; write the plan to --out and change nothing else")
-    run.add_argument("--out", help="with --dry-run: the file for the proposal, the verdicts and the planned actions")
-    run.add_argument("--groups", help="apply a reviewed file in the model's format; starts no model session")
+    run.add_argument(
+        "--budget",
+        type=corroborate_state.budget_of,
+        default=corroborate_state.DEFAULT_BUDGET,
+        help=f"USD per session (default {corroborate_state.DEFAULT_BUDGET})",
+    )
+    run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run both sessions; write the plan to --out and change nothing else",
+    )
+    run.add_argument(
+        "--out",
+        help="with --dry-run: the file for the proposal, the verdicts and the planned actions",
+    )
+    run.add_argument(
+        "--groups", help="apply a reviewed file in the model's format; starts no model session"
+    )
     run.set_defaults(func=_command("cmd_run"))
-    fill = commands.add_parser("fill", help="propose the short form and topic of lessons for the owner to read, or apply that file")
+    fill = commands.add_parser(
+        "fill",
+        help="propose the short form and topic of lessons for the owner to read, or apply that file",
+    )
     fill.add_argument("--claude", default=default_claude)
-    fill.add_argument("--budget", type=corroborate_state.budget_of, default=corroborate_state.DEFAULT_BUDGET, help=f"USD for the session (default {corroborate_state.DEFAULT_BUDGET})")
-    fill.add_argument("--dry-run", action="store_true", help="one session; write the proposal to --out and change no record")
+    fill.add_argument(
+        "--budget",
+        type=corroborate_state.budget_of,
+        default=corroborate_state.DEFAULT_BUDGET,
+        help=f"USD for the session (default {corroborate_state.DEFAULT_BUDGET})",
+    )
+    fill.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="one session; write the proposal to --out and change no record",
+    )
     fill.add_argument("--out", help="with --dry-run: the file for the proposal")
-    fill.add_argument("--items", help="apply a proposal file, as read and edited by the owner; starts no model session")
+    fill.add_argument(
+        "--items",
+        help="apply a proposal file, as read and edited by the owner; starts no model session",
+    )
     fill.set_defaults(func=_command("cmd_fill"))
-    reword = commands.add_parser("reword", help="write a new short form for loaded lessons that got worse, as the pass does")
+    reword = commands.add_parser(
+        "reword", help="write a new short form for loaded lessons that got worse, as the pass does"
+    )
     reword.add_argument("--claude", default=default_claude)
-    reword.add_argument("--budget", type=corroborate_state.budget_of, default=corroborate_state.DEFAULT_BUDGET, help=f"USD per session (default {corroborate_state.DEFAULT_BUDGET})")
-    reword.add_argument("--every", action="store_true", help="take loaded lessons that did not get worse too")
-    reword.add_argument("--limit", type=int, default=30, help="with --every: at most this many lessons (default 30)")
-    reword.add_argument("--dry-run", action="store_true", help="run both sessions; change no record and save no state")
-    reword.add_argument("--sheet", help="write a Markdown table of every candidate and its outcome to this file")
+    reword.add_argument(
+        "--budget",
+        type=corroborate_state.budget_of,
+        default=corroborate_state.DEFAULT_BUDGET,
+        help=f"USD per session (default {corroborate_state.DEFAULT_BUDGET})",
+    )
+    reword.add_argument(
+        "--every", action="store_true", help="take loaded lessons that did not get worse too"
+    )
+    reword.add_argument(
+        "--limit", type=int, default=30, help="with --every: at most this many lessons (default 30)"
+    )
+    reword.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run both sessions; change no record and save no state",
+    )
+    reword.add_argument(
+        "--sheet", help="write a Markdown table of every candidate and its outcome to this file"
+    )
     reword.set_defaults(func=_command("cmd_reword"))
-    digest_cmd = commands.add_parser("digest", help="write the heading and the lines of the loaded lessons' digest, as the pass does")
+    digest_cmd = commands.add_parser(
+        "digest",
+        help="write the heading and the lines of the loaded lessons' digest, as the pass does",
+    )
     digest_cmd.add_argument("--claude", default=default_claude)
-    digest_cmd.add_argument("--budget", type=corroborate_state.budget_of, default=corroborate_state.DEFAULT_BUDGET, help=f"USD per session (default {corroborate_state.DEFAULT_BUDGET})")
-    digest_cmd.add_argument("--dry-run", action="store_true", help="run both sessions; write no digest and save no state")
-    digest_cmd.add_argument("--sheet", help="write a Markdown table of every line judged and its outcome to this file")
+    digest_cmd.add_argument(
+        "--budget",
+        type=corroborate_state.budget_of,
+        default=corroborate_state.DEFAULT_BUDGET,
+        help=f"USD per session (default {corroborate_state.DEFAULT_BUDGET})",
+    )
+    digest_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="run both sessions; write no digest and save no state",
+    )
+    digest_cmd.add_argument(
+        "--sheet", help="write a Markdown table of every line judged and its outcome to this file"
+    )
     digest_cmd.set_defaults(func=_command("cmd_digest"))
-    auto = commands.add_parser("auto", help="what a hook starts: one run when the option is on; silent")
+    auto = commands.add_parser(
+        "auto", help="what a hook starts: one run when the option is on; silent"
+    )
     auto.add_argument("--claude", default=default_claude)
     auto.set_defaults(func=_command("cmd_auto", _auto_without_engine))
     undo = commands.add_parser("undo", help="put back the files a run changed")
     undo.add_argument("stamp")
     undo.set_defaults(func=corroborate_state.cmd_undo)
-    commands.add_parser("status", help="the last run").set_defaults(func=lambda _a: corroborate_state.cmd_status())
-    commands.add_parser("ack", help="clear the failure line").set_defaults(func=lambda _a: corroborate_state.cmd_ack())
+    commands.add_parser("status", help="the last run").set_defaults(
+        func=lambda _a: corroborate_state.cmd_status()
+    )
+    commands.add_parser("ack", help="clear the failure line").set_defaults(
+        func=lambda _a: corroborate_state.cmd_ack()
+    )
     args = parser.parse_args()
     if args.self_check:
         return _no_engine(args) if corroborate_cli is None else corroborate_cli.self_check()
