@@ -95,7 +95,7 @@ def test_state_folder_of_every_copy(monkeypatch, mem_capture, mem_synthesize, en
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
-    # Task 2 only: cross-check of the four copies
+    # the four modules bind jobs.state_dir
     copies = [
         mem_capture.data_dir,
         corroborate_state.data_dir,
@@ -112,7 +112,7 @@ LOG_TEXT = '{"a": 1, "b": "é"}\n{"c": [1, 2]}\n'
 
 
 def test_json_lines_log_content_and_mode(tmp_path, mem_capture):
-    # Task 2 only: cross-check of the two copies
+    # both modules bind jobs.append_log
     for index, append in enumerate([mem_capture.append_log, corroborate_state.append_log]):
         folder = tmp_path / f"c{index}"
         append(folder, {"a": 1, "b": "é"})

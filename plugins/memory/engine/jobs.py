@@ -4,19 +4,26 @@ library and `safe_io` only (the bin scripts run it without uv)."""
 
 from __future__ import annotations
 
+import datetime
 import fcntl
 import json
 import os
-from typing import TYPE_CHECKING
+import shutil
+from pathlib import Path
 
 import safe_io
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 STALE_RUNNING_SECONDS = 3600  # a `running` status older than this is a run that was killed
 LOCK_NAME = "run.lock"
 STATUS_NAME = "status.json"
+
+
+def state_dir() -> Path:
+    """The data folder: MEM_DATA, else `$XDG_STATE_HOME/agent-memory` (default `~/.local/state`); empty values count as unset."""
+    if os.environ.get("MEM_DATA"):
+        return Path(os.environ["MEM_DATA"])
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "agent-memory"
 
 
 def private_dir(path: Path) -> None:
@@ -88,3 +95,36 @@ def failure(status: dict, now: float) -> dict | None:
     ):
         return {"at": started, "reason": "the run did not finish", "log": status.get("log", "")}
     return None
+
+
+def append_log(cdir: Path, line: dict) -> None:
+    """Append `line` as one JSON line to `cdir/log.jsonl` (private folder, file mode 0600)."""
+    private_dir(cdir)
+    fd = os.open(cdir / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def prune_runs_older(runs: Path, now: float, keep_seconds: float) -> None:
+    """Remove the entries of `runs` last modified more than `keep_seconds` before `now`; no folder is made."""
+    if not runs.is_dir():
+        return
+    for folder in runs.iterdir():
+        try:
+            if now - folder.stat().st_mtime > keep_seconds:
+                shutil.rmtree(folder, ignore_errors=True)
+        except OSError:
+            continue
+
+
+def failure_line(folder: Path, kind: str, ack: str, now: float) -> str | None:
+    """The one line `mem session-index` adds after a failed `kind` run of the job whose status is in `folder`."""
+    found = failure(read_json(folder / STATUS_NAME), now)
+    if found is None:
+        return None
+    when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
+    reason = " ".join(str(found["reason"]).split())[:200]
+    return (
+        f"Automatic {kind} failed on {when}: {reason}; log: {found.get('log') or '(none)'} "
+        f"({ack} ack clears this)."
+    )

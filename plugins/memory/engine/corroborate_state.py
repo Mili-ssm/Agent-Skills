@@ -24,11 +24,7 @@ STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
 CURATION_LOG = ".curation-log"
 
 
-def data_dir() -> Path:
-    if os.environ.get("MEM_DATA"):
-        return Path(os.environ["MEM_DATA"])
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "agent-memory"
+data_dir = jobs.state_dir
 
 
 def corroborate_dir(data: Path) -> Path:
@@ -52,11 +48,7 @@ def save_status(cdir: Path, **changes) -> dict:
     return data
 
 
-def append_log(cdir: Path, line: dict) -> None:
-    jobs.private_dir(cdir)
-    fd = os.open(cdir / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    with os.fdopen(fd, "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+append_log = jobs.append_log
 
 
 def write_private(path: Path, text: str) -> None:

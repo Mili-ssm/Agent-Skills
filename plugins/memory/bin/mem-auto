@@ -137,15 +137,7 @@ def topics_due(state: State, env: dict) -> list[str]:
 
 
 def prune(state: State, now: float) -> None:
-    runs = state.dir / "runs"
-    if not runs.is_dir():
-        return
-    for folder in runs.iterdir():
-        try:
-            if now - folder.stat().st_mtime > KEEP_SECONDS:
-                shutil.rmtree(folder, ignore_errors=True)
-        except OSError:
-            continue
+    jobs.prune_runs_older(state.dir / "runs", now, KEEP_SECONDS)
 
 
 class RunContext(NamedTuple):

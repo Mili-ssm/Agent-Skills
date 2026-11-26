@@ -4,7 +4,6 @@ session start swallows its errors, because it must never fail what it rides on."
 
 from __future__ import annotations
 
-import datetime
 import hashlib
 import logging
 import subprocess
@@ -16,6 +15,7 @@ import jobs
 import settle
 
 if TYPE_CHECKING:
+    import datetime
     from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
@@ -46,15 +46,7 @@ def minutes_of(value: object) -> float:
 def failure_line(data: Path | None, store: Path | None, now: float) -> str | None:
     if data is None or store is None:
         return None
-    found = jobs.failure(jobs.read_json(settle_dir(data, store) / jobs.STATUS_NAME), now)
-    if found is None:
-        return None
-    when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
-    reason = " ".join(str(found["reason"]).split())[:200]
-    return (
-        f"Automatic settling failed on {when}: {reason}; log: {found.get('log') or '(none)'} "
-        "(mem-settle ack clears this)."
-    )
+    return jobs.failure_line(settle_dir(data, store), "settling", "mem-settle", now)
 
 
 _WORDS = {"merge": "merged", "supersede": "superseded", "distinct": "kept distinct", "left": "left"}

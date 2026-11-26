@@ -6,7 +6,6 @@ transcripts, kept 30 days)."""
 
 from __future__ import annotations
 
-import datetime
 import hashlib
 from pathlib import Path
 
@@ -28,12 +27,4 @@ def failure_line(data: Path | None, store: Path | None, now: float) -> str | Non
     """The one line `mem session-index` adds after a failed run; None when there is nothing to show."""
     if data is None or store is None:
         return None
-    found = jobs.failure(jobs.read_json(auto_dir(data, store) / jobs.STATUS_NAME), now)
-    if found is None:
-        return None
-    when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
-    reason = " ".join(str(found["reason"]).split())[:200]
-    return (
-        f"Automatic curation failed on {when}: {reason}; log: {found.get('log') or '(none)'} "
-        "(mem-auto ack clears this)."
-    )
+    return jobs.failure_line(auto_dir(data, store), "curation", "mem-auto", now)

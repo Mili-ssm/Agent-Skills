@@ -90,11 +90,7 @@ class StepOptions(TypedDict, total=False):
 # ---- places and environments ----
 
 
-def state_dir() -> Path:
-    if os.environ.get("MEM_DATA"):
-        return Path(os.environ["MEM_DATA"])
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "agent-memory"
+state_dir = jobs.state_dir
 
 
 def default_store() -> Path | None:
