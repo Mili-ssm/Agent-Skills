@@ -8,6 +8,8 @@ Status: implemented — Tasks 1–7 committed; branch not yet pushed · Branch: 
 
 **Architecture:** the 1,873-line script holds the state folder, model sessions, journal and undo, the applier, the run (`execute`), three jobs (fill, reword, digest) and the commands. They move, verbatim first, into six engine modules ordered so no cycle exists: `corroborate_state.py` (stdlib, `auto_state`, `safe_io` and `capture_state` only, no `yaml`: `data_dir`, `corroborate_dir`, `budget_of`, `save_status`, `append_log`, `write_private`, `write_private_bytes`, `Journal`, `undo_run`, `forget_run`, and the constants these use), `corroborate_run.py` (sessions, `_ask`, shared job helpers `_fill_world` and `_cell`, the briefs, `*_MODEL`, `SETTLE_*`, `MEM`, `Applier`, `execute`, `read_object`, `digest`, `read_bytes`), `corroborate_fill.py`, `corroborate_reword.py`, `corroborate_digest.py` (each imports `corroborate_run`; never each other), and `corroborate_cli.py` (the `cmd_*` functions, `self_check`, `main`; imports the rest). `engine/corroborate.py` (pure decisions) is unchanged. The launcher imports `corroborate_state` (and `auto_state`, `safe_io`, `capture_state`) unguarded and `corroborate_cli` guarded: when the engine cannot load, `auto` still writes its failed status and log line through `corroborate_state` exactly as `execute`'s `IMPORT_ERROR` branch does today, and `status`, `ack`, `undo`, `--help` and `--self-check` keep working, as at base.
 
+**As built (differs from the paragraph above):** `digest`, `read_bytes` and `cmd_status`, `cmd_ack`, `cmd_undo` live in `corroborate_state.py`, so they run without `yaml`; `main` stays in the launcher (it must dispatch when the engine cannot load); `corroborate_state.py` imports `auto_state` and `safe_io`, not `capture_state`; the launcher imports `capture_state` and `corroborate_state` unguarded (no longer `auto_state` or `safe_io` directly).
+
 **Tech Stack:** Python 3.12, Ruff 0.17.6, basedpyright 1.40.2, pytest with xdist, pre-commit.
 
 **Spec:** "`bin/` holds launchers only" task of [the refactor plan](2026-11-23-memory-refactor.md) (review A4, Q8); owner rulings 2026-11-26: split before A2; [ADR 0031](../../adr/0031-a-touched-python-file-passes-ruff-and-basedpyright.md). **One-time exception (owner, 2026-11-26), not a project rule:** for this plan only, commits may skip the `ruff-check`, `ruff-format` and `basedpyright` hooks by name until the plan is finished; the last task and the pre-push gate run every hook on the whole range.
@@ -81,16 +83,18 @@ Status: implemented — Tasks 1–7 committed; branch not yet pushed · Branch: 
 
 ## Deferred findings
 
-Low findings of the task reviews, ruled on 2026-11-26 (none changes observable behavior):
+Low findings of the task reviews, ruled on 2026-11-26 (none changes the result of a valid call):
 
 | Finding | Ruling |
 |---|---|
 | `fill`, `reword`, `digest`: a failed session now saves its state after the scratch folder is removed (base: before) | Accepted: the scratch folder is a private temporary folder; nothing reads it after the session |
-| `reword_auto` and `digest_auto` take `**options: Unpack[...]`, so an unknown keyword is ignored at run time (base: `TypeError`) | Accepted: the agreed recipe for the argument limit; basedpyright rejects unknown keys in every clean caller |
+| `reword_auto` takes `**options: Unpack[...]`, so an unknown keyword is ignored at run time (base: `TypeError`) | Accepted: the agreed recipe for the argument limit; basedpyright rejects unknown keys in every clean caller |
 | `_finish` repeated in `corroborate_fill`, `corroborate_reword`, `corroborate_digest` | Open: candidate for `corroborate_run` with the shared job runner (rest of A4) |
 | `_Filler._log` reaches the run folder through `applier.cwd` | Open: store the run folder if the class changes again |
 | `ruff format` moved some trailing comments after closing brackets | Cosmetic; move above the statement when touched |
 | A test of two fill runs in the same second passes without its `time.strftime` patch (already at base) | Open: the test does not prove what it names (Q9) |
+| `_digest_sheet` and `_reword_sheet` share their body; `_ask`, `_cell`, `_fill_world` are underscore names used by three modules | Open: with the shared job runner (rest of A4) |
+| The engine (`corroborate_run`, `_fill`, `_cli`) uses `datetime.UTC` | Accepted: the engine requires Python 3.12 (`mem.py` header) and the launcher imports it guarded, so on 3.10 the engine-cannot-load path runs |
 
 The review of Task 5 found one regression, fixed in bdadfbc: the launcher used `datetime.UTC` (Python 3.11+), but `bin/` runs on the system `python3` (`ruff.toml` targets it at 3.10), and the error would have been swallowed silently.
 

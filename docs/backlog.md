@@ -84,7 +84,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | Stage 4 | Kill read into ADR 0023 `## Review` | Around 2026-12-01 |
 | medium | Q5 | Remove `sleep` negatives and wall-clock asserts: lock waits done in #193; left: `test_auto_curation` negative windows (1.5–2 s) are only 1.1–1.5× its hook latency under load (1.31 s; `test_settle_run` has about 3×), a synchronous "decided not to start" record in `mem-auto` would give a real signal ([plan](superpowers/plans/2026-11-25-faster-tests.md)) | Partly done |
 | medium | Q7 | One mutation run on `records.py` and `check.py` | Open |
-| low | Q8, Q9 | Split large test files; small test gaps | Open (`test_mem_corroborate.py` split by job with A4) |
+| low | Q8, Q9 | Split large test files; small test gaps | Open (Q8: `test_mem_corroborate.py` done with A4 on branch refactor/memory-corroborate-split; other large files and Q9 open) |
 | medium | P6 | `subagent-start.sh` skips `memory-synthesizer` | Open |
 | medium | P7 | One home for curation rules (agent or skill) | Open |
 | medium | D6 | Split `plugins/memory/README.md` | Open |
