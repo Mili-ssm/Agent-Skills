@@ -12,10 +12,10 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Memory plugin plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state | Memory stages, owner order, small items, ideas to investigate |
 | [Memory refactor plan](superpowers/plans/2026-11-23-memory-refactor.md) | Refactor tasks |
 | [Memory seamless plan](superpowers/plans/2026-11-17-memory-seamless.md) | Seamless stages 3–5 |
-| [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g, 4b, 4d; its item 6 is memory stage 4 |
+| [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g and 4b; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 
-Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); Q4 is done (#193: suite 287 s → about 30 s); D1 is done (owner chose a `validate.py` check, 2026-11-25). P4 is done: the policy names the cap; its closing line stays, so the rule keeps three homes (ADR 0017 Measurement 2026-11-26). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
+Item 4d is closed: the offload tables load from session start hooks (ADR 0032). Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); Q4 is done (#193: suite 287 s → about 30 s); D1 is done (owner chose a `validate.py` check, 2026-11-25). P4 is done: the policy names the cap; its closing line stays, so the rule keeps three homes (ADR 0017 Measurement 2026-11-26). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
 
 ## Next, in order
 
@@ -43,7 +43,6 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 |---|---|---|---|
 | medium | G13 | Trial: `implementer` fix rounds on Haiku | Deferred (owner, 2026-11-25) |
 | medium | G14 | Trial: `pre-mortem` on Sonnet at high effort against Opus (now Opus medium) | Deferred (owner, 2026-11-25) |
-| low | 4d | Offload policy from a session-start hook instead of the pasted block (owner: plan it, 2026-11-25) | Plan pending; needs an ADR amending 0021 and the with-policy cases |
 
 ## Plugin `agent-skills`
 

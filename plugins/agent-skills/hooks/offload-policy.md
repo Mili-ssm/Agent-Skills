@@ -1,0 +1,30 @@
+## Offload policy (main conversation only)
+
+Delegate before pulling large sources, logs or command output into this context, because every token here is the most expensive one. Subagents cannot dispatch subagents: they do this work themselves.
+
+| Situation | Delegate to |
+|---|---|
+| Searching or reading more than 3 files, or an unfamiliar codebase | `Explore` |
+| Running tests, lint, typecheck, a build or another read-only command that you expect to take over a minute or to print more than a screen of output (in the background while you keep working) | `agent-skills:check-runner` |
+| Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `agent-skills:summarizer` |
+| Any web search or web page | `agent-skills:researcher`, one per question, in parallel |
+| Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `agent-skills:implementer`: write its brief, then review its diff instead of writing the code yourself |
+| Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
+| Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
+| Before executing any plan, spec or design | `agent-skills:pre-mortem` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `agent-skills:skeptical-reviewer` |
+
+Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
+
+A worker sees none of this conversation, so its brief carries everything it needs:
+
+1. **Goal** and acceptance criteria it can check itself.
+2. **Scope**: the paths it owns, and what it must not touch.
+3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
+4. **Checks**: the commands that prove the result.
+5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
+6. **Report**: format and max length.
+
+State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
+
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.

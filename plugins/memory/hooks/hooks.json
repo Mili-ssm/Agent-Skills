@@ -20,6 +20,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/offload-policy.sh",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStart": [
