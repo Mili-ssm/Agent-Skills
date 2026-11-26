@@ -1,0 +1,472 @@
+{
+ "error memory edit no flags": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load\n",
+  "stdout": ""
+ },
+ "error note confirm no fact": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: note confirm needs --fact, --source and --quote\n",
+  "stdout": ""
+ },
+ "error note dispute --clear with fact": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: --clear goes alone\n",
+  "stdout": ""
+ },
+ "error note edit --section alone": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: --section and --body-file go together\n",
+  "stdout": ""
+ },
+ "error note edit no option": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: note edit needs --section, --claim or --topics\n",
+  "stdout": ""
+ },
+ "error passages no words": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: query has no searchable words: use letters or digits\n",
+  "stdout": ""
+ },
+ "error search --links --offset": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: --offset cannot be used with --links\n",
+  "stdout": ""
+ },
+ "error search no words": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: query has no searchable words: use letters or digits\n",
+  "stdout": ""
+ },
+ "error show --ranges": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: --ranges needs --outline\n",
+  "stdout": ""
+ },
+ "error stats PATH": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: PATH needs --orphans\n",
+  "stdout": ""
+ },
+ "error synthesis add one call": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: --note-slug, --note-claim, --note-body-file, --confidence and --level go together\n",
+  "stdout": ""
+ },
+ "error terms add --kind": {
+  "code": 2,
+  "stderr": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\nmem: error: --kind needs --soft\n",
+  "stdout": ""
+ },
+ "help ": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem [-h] [--root ROOT]\n           {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory} ...\n\nMemory engine: search and read a store of notes.\n\npositional arguments:\n  {check,index,find,search,passages,related,show,read,topics,stats,review,fetch-sources,search-eval,rename,note,import,unify,new,remember,session-index,compact-log,signal,confirm,observe,refute,forget,triage,supersede,merge,distinct,restore,promote,memories,curate,rules,settle,project-synthesis,synthesis,terms,projects,init,history,memory}\n    check               validate the hub rules\n    index               regenerate the index blocks in the folder READMEs\n    find                list notes matching all filters\n    search              rank notes by BM25 relevance to a query\n    passages            print the passages of a note's local source that best\n                        match\n    related             list a note's links, backlinks and most similar notes\n    show (read)         print chosen sections of notes\n    topics              print the topic tree with note counts\n    stats               print note, topic and size counts\n    review              list concrete requirements due for review and notes\n                        due for re-testing or re-reading\n    fetch-sources       download literature note urls into .sources/\n    search-eval         measure search recall on docs/search-eval.md\n    rename              rename a note in its folder and rewrite the links to\n                        it\n    note                change a note through mem, never by editing its file\n    import              copy the notes of another folder of notes into the\n                        store; the source is never changed\n    unify               replace several notes of one type with one, keeping\n                        the others as superseded files and pointing their\n                        links at it\n    new                 create a note from its template\n    remember            write a memory in the project or, with --global, in\n                        the global folder\n    session-index       print the text that opens a session: usage rules and\n                        counts\n    compact-log         check the handoff block of a compaction summary and\n                        log counts\n    signal              print the records related to a brief read from\n                        standard input\n    confirm             count one more observation of a memory\n    observe             alias of confirm\n    refute              mark a memory refuted\n    forget              mark a memory forgotten\n    triage              decide what a corroborated general lesson becomes\n    supersede           mark OLD as superseded by NEW\n    merge               add DROP's count and body to KEEP and supersede DROP\n    distinct            record that two memories are different claims: the\n                        queue stops pairing them\n    restore             put back the text a memory had before its last\n                        curation action\n    promote             print a draft of a global memory from project memories\n    memories            list memories, newest first\n    curate              list what needs a decision: pairs, expired, frequent,\n                        unconfirmed\n    rules               print the rules that load at session start; --more\n                        lists the rest\n    settle              settle new global memories against their look-alikes\n                        (verdicts from a file)\n    project-synthesis   write, confirm and list the stamped parts of a\n                        project's syntheses\n    synthesis           create and extend syntheses, the long documents behind\n                        notes\n    terms               manage the terms that must not reach the global scope\n    projects            the local registry of projects whose memories can be\n                        searched\n    init                make a folder a writable store (default: the default\n                        store)\n    history             the store's git history: list, init, commit\n    memory              change a memory through mem, never by editing its file\n\noptions:\n  -h, --help            show this help message and exit\n  --root ROOT           store folder (default: $MEM_STORE, then the config\n                        file)\n"
+ },
+ "help check": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem check [-h] [PATH ...]\n\npositional arguments:\n  PATH        print only problems in these notes or folders\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help compact-log": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem compact-log [-h] [--hook]\n\noptions:\n  -h, --help  show this help message and exit\n  --hook      read the hook's JSON from standard input\n"
+ },
+ "help confirm": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem confirm [-h] [--global] [--until YYYY-MM-DD]\n                   [--source 'session ID'] [--note TEXT]\n                   [--outcome {worked,failed,seen}] [--seen-on YYYY-MM-DD]\n                   [--by-owner]\n                   m:HANDLE\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help            show this help message and exit\n  --global              act on the global memory when the handle exists in\n                        both scopes\n  --until YYYY-MM-DD    also set valid_until to this date\n  --source 'session ID'\n                        another session shows it: add it as a source (exit 3\n                        when already one)\n  --note TEXT           with --source: a line added to the body\n  --outcome {worked,failed,seen}\n                        with --source: what that session showed about the\n                        lesson (default seen)\n  --seen-on YYYY-MM-DD  with --source: the day of that session (default today)\n  --by-owner            the owner vouches for a transcript lesson: it is\n                        established (exit 3 when already)\n"
+ },
+ "help curate": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem curate [-h] [--project | --global] [--notes] [--done]\n                  [--new-since EPOCH] [--safe] [--from FILE]\n                  [{apply}]\n\npositional arguments:\n  {apply}            apply: carry out the safe actions read from --from FILE\n                     or stdin (needs --safe)\n\noptions:\n  -h, --help         show this help message and exit\n  --project          the project's memories only\n  --global           the global memories only\n  --notes            list notes to attach to a synthesis part, and notes older\n                     than their part\n  --done             record today as the date of the last pass over the scopes\n                     covered\n  --new-since EPOCH  print the number of global memories and notes written\n                     since EPOCH seconds (and since the last pass)\n  --safe             with apply: only merges of equal claims and attaches the\n                     part's Sources line backs\n  --from FILE        with apply: the action lines (default or -: stdin)\n"
+ },
+ "help distinct": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem distinct [-h] [--global] m:HANDLE m:HANDLE\n\npositional arguments:\n  m:HANDLE\n  m:HANDLE\n\noptions:\n  -h, --help  show this help message and exit\n  --global    act on the global memory when the handle exists in both scopes\n"
+ },
+ "help fetch-sources": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem fetch-sources [-h] [--force] [--text-only] [PATH ...]\n\npositional arguments:\n  PATH\n\noptions:\n  -h, --help   show this help message and exit\n  --force      refetch notes already cached\n  --text-only  no download: write source.txt in cached folders that hold no\n               .txt\n"
+ },
+ "help find": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem find [-h] [--type {literature,knowledge,research}] [--topic TOPIC]\n                [--kind {paper,book,article,web,talk,repo,dataset}]\n                [--status {idea,active,paused,done,abandoned}]\n                [--confidence {high,medium,low}]\n                [--level {basic,beginner,intermediate,advanced,expert,niche}]\n                [--superseded] [--handles]\n                [--detail {paths,titles,facts,snippet,summary}]\n                [--limit LIMIT] [--offset OFFSET]\n\noptions:\n  -h, --help            show this help message and exit\n  --type {literature,knowledge,research}\n  --topic TOPIC\n  --kind {paper,book,article,web,talk,repo,dataset}\n  --status {idea,active,paused,done,abandoned}\n  --confidence {high,medium,low}\n  --level {basic,beginner,intermediate,advanced,expert,niche}\n  --superseded          also list notes that a unified note replaced\n  --handles             print a short handle in place of each path (accepted\n                        wherever a note is named)\n  --detail {paths,titles,facts,snippet,summary}\n                        per result: path only, title, key facts, a matching\n                        line, or the lead section\n  --limit LIMIT         print at most N notes (default: 50)\n  --offset OFFSET       skip the first N notes (default: 0)\n"
+ },
+ "help forget": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem forget [-h] [--because TEXT] [--owner-approved] [--global] m:HANDLE\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help        show this help message and exit\n  --because TEXT    the reason, appended to the memory's body\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n  --global          act on the global memory when the handle exists in both\n                    scopes\n"
+ },
+ "help history": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem history [-h] [-n N] {init,commit} ...\n\npositional arguments:\n  {init,commit}\n    init         make a writable store a git repository\n    commit       commit what changed in the store\n\noptions:\n  -h, --help     show this help message and exit\n  -n N           how many commits to list\n"
+ },
+ "help history commit": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem history commit [-h] [-m TEXT] [--hook] [--detached]\n\noptions:\n  -h, --help  show this help message and exit\n  -m TEXT     the commit message\n  --hook      the SessionEnd hook: a `session end` message, silent, always\n              exit 0, log the call\n  --detached  with --hook: also log a `started` record before and a `done` one\n              after, so a killed run shows\n"
+ },
+ "help history init": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem history init [-h] [STORE]\n\npositional arguments:\n  STORE\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help import": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem import [-h] [--dry-run] [--overwrite] [--with-sources]\n                  [--research-data]\n                  SOURCE\n\npositional arguments:\n  SOURCE           the folder to read (literature/, knowledge/, research/,\n                   topics.yaml)\n\noptions:\n  -h, --help       show this help message and exit\n  --dry-run        change nothing; print the report a real run would\n  --overwrite      replace files that differ (the old text goes to the\n                   curation log)\n  --with-sources   also copy the source's .sources/ folder\n  --research-data  also copy the data and code under research/ (by default\n                   only its Markdown files)\n"
+ },
+ "help index": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem index [-h]\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help init": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem init [-h] [FOLDER]\n\npositional arguments:\n  FOLDER\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help memories": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem memories [-h] [--global | --all | --project NAME]\n                    [--kind {decision,constraint,pitfall,lesson,finding,document,state}]\n                    [--quarantine] [--dead]\n\noptions:\n  -h, --help            show this help message and exit\n  --global              the global memories only\n  --all                 project and global memories\n  --project NAME        the memories of this registered project\n  --kind {decision,constraint,pitfall,lesson,finding,document,state}\n  --quarantine          only the global lessons in quarantine (not shown\n                        anywhere else until corroborated)\n  --dead                also list refuted, superseded, forgotten and expired\n"
+ },
+ "help memory": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem memory [-h] {edit} ...\n\npositional arguments:\n  {edit}\n    edit      replace the claim, the context or the body of a memory\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help memory edit": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem memory edit [-h] [--claim TEXT] [--context TEXT] [--body-file PATH]\n                       [--short TEXT] [--user-read] [--reworded]\n                       [--reword-failed] [--topic TEXT] [--no-load |\n                       --index-only | --load] [--shrink] [--owner-approved]\n                       [--global]\n                       m:HANDLE\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help        show this help message and exit\n  --claim TEXT      the new claim (one sentence)\n  --context TEXT    the new context; an empty text removes it\n  --body-file PATH  the new body; - reads standard input\n  --short TEXT      the one-line rule loaded at session start; an empty text\n                    removes it\n  --user-read       with --short: the owner read this text, so it skips the\n                    code check and carries no mark; without it the short form\n                    is checked against the claim and marked as written by a\n                    model\n  --reworded        with --short: the automatic step wrote this text; marks\n                    the lesson as reworded\n  --reword-failed   alone: note that the automatic rewording gave up on the\n                    last version\n  --topic TEXT      one or two lowercase words; an empty text removes it\n  --no-load         never load this lesson as a rule\n  --index-only      never load this lesson as a rule, but count it in the\n                    index line by topic\n  --load            remove --no-load and --index-only\n  --shrink          accept a text that drops over 20% of the words, a sentence\n                    or a link\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n  --global          edit the global memory when the handle exists in both\n                    scopes\n"
+ },
+ "help merge": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem merge [-h] [--global] [--force] m:HANDLE m:HANDLE\n\npositional arguments:\n  m:HANDLE\n  m:HANDLE\n\noptions:\n  -h, --help  show this help message and exit\n  --global    act on the global memory when the handle exists in both scopes\n  --force     merge although the claims differ by a negation or a number\n"
+ },
+ "help new": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem new [-h] {literature,knowledge,research} ...\n\npositional arguments:\n  {literature,knowledge,research}\n\noptions:\n  -h, --help            show this help message and exit\n"
+ },
+ "help new knowledge": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem new knowledge [-h] [--body-file PATH] --slug SLUG --claim CLAIM\n                         --topics TOPICS --confidence {high,medium,low}\n                         --level {basic,beginner,intermediate,advanced,expert,niche}\n                         --origin {literature,research,experience}\n                         [--part-of s:HANDLE#SECTION] [--owner-approved]\n\noptions:\n  -h, --help            show this help message and exit\n  --body-file PATH      text (or - for standard input) that replaces the\n                        template body\n  --slug SLUG\n  --claim CLAIM\n  --topics TOPICS\n  --confidence {high,medium,low}\n  --level {basic,beginner,intermediate,advanced,expert,niche}\n  --origin {literature,research,experience}\n  --part-of s:HANDLE#SECTION\n                        the synthesis section this note summarizes\n  --owner-approved      the owner agreed to a write that mentions a soft term:\n                        never add it on your own\n"
+ },
+ "help new literature": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem new literature [-h] [--body-file PATH] --title TITLE\n                          --author AUTHOR --year YEAR\n                          --kind {paper,book,article,web,talk,repo,dataset}\n                          --level {basic,beginner,intermediate,advanced,expert,niche}\n                          --url URL --topics TOPICS --slug SLUG\n                          [--owner-approved]\n\noptions:\n  -h, --help            show this help message and exit\n  --body-file PATH      text (or - for standard input) that replaces the\n                        template body\n  --title TITLE\n  --author AUTHOR\n  --year YEAR\n  --kind {paper,book,article,web,talk,repo,dataset}\n  --level {basic,beginner,intermediate,advanced,expert,niche}\n  --url URL\n  --topics TOPICS\n  --slug SLUG\n  --owner-approved      the owner agreed to a write that mentions a soft term:\n                        never add it on your own\n"
+ },
+ "help new research": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem new research [-h] [--body-file PATH] --slug SLUG --title TITLE\n                        --question QUESTION --topics TOPICS [--owner-approved]\n\noptions:\n  -h, --help           show this help message and exit\n  --body-file PATH     text (or - for standard input) that replaces the\n                       template body\n  --slug SLUG\n  --title TITLE\n  --question QUESTION\n  --topics TOPICS\n  --owner-approved     the owner agreed to a write that mentions a soft term:\n                       never add it on your own\n"
+ },
+ "help note": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem note [-h] {edit,confirm,dispute} ...\n\npositional arguments:\n  {edit,confirm,dispute}\n    edit                replace the text of one section, the claim or the\n                        topics of a note\n    confirm             append a source-confirmed line to the note's Evidence\n                        section\n    dispute             mark the note as contradicted by a source (the claim\n                        stays as it is)\n\noptions:\n  -h, --help            show this help message and exit\n"
+ },
+ "help note confirm": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem note confirm [-h] [--fact TEXT] [--source URL] [--quote TEXT]\n                        [--owner-approved]\n                        NOTE\n\npositional arguments:\n  NOTE              a path or a handle of a knowledge note, as in mem show\n\noptions:\n  -h, --help        show this help message and exit\n  --fact TEXT       what the source says about the claim\n  --source URL      the http(s) URL of the page\n  --quote TEXT      the words of the page that show it\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n"
+ },
+ "help note dispute": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem note dispute [-h] [--fact TEXT] [--source URL] [--quote TEXT]\n                        [--clear] [--owner-approved]\n                        NOTE\n\npositional arguments:\n  NOTE              a path or a handle of a knowledge note, as in mem show\n\noptions:\n  -h, --help        show this help message and exit\n  --fact TEXT       what the source says about the claim\n  --source URL      the http(s) URL of the page\n  --quote TEXT      the words of the page that show it\n  --clear           remove the mark: the owner settled it\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n"
+ },
+ "help note edit": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem note edit [-h] [--section HEADING] [--body-file PATH]\n                     [--claim TEXT] [--topics A,B] [--shrink]\n                     [--owner-approved]\n                     NOTE\n\npositional arguments:\n  NOTE               a path or a handle, as in mem show\n\noptions:\n  -h, --help         show this help message and exit\n  --section HEADING  the `## ` heading whose text is replaced\n  --body-file PATH   the new section text; - reads standard input\n  --claim TEXT       the new frontmatter claim (one sentence)\n  --topics A,B       the new topic ids: in topics.yaml, in the note's domain\n  --shrink           accept a text that drops over 20% of the words, a\n                     sentence or a link\n  --owner-approved   the owner agreed to a write that mentions a soft term:\n                     never add it on your own\n"
+ },
+ "help observe": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem observe [-h] [--global] [--until YYYY-MM-DD]\n                   [--source 'session ID'] [--note TEXT]\n                   [--outcome {worked,failed,seen}] [--seen-on YYYY-MM-DD]\n                   [--by-owner]\n                   m:HANDLE\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help            show this help message and exit\n  --global              act on the global memory when the handle exists in\n                        both scopes\n  --until YYYY-MM-DD    also set valid_until to this date\n  --source 'session ID'\n                        another session shows it: add it as a source (exit 3\n                        when already one)\n  --note TEXT           with --source: a line added to the body\n  --outcome {worked,failed,seen}\n                        with --source: what that session showed about the\n                        lesson (default seen)\n  --seen-on YYYY-MM-DD  with --source: the day of that session (default today)\n  --by-owner            the owner vouches for a transcript lesson: it is\n                        established (exit 3 when already)\n"
+ },
+ "help passages": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem passages [-h] [--count COUNT] [--words WORDS] PATH query\n\npositional arguments:\n  PATH\n  query\n\noptions:\n  -h, --help     show this help message and exit\n  --count COUNT  passages to print (default: 5)\n  --words WORDS  words per passage (default: 500)\n"
+ },
+ "help project-synthesis": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem project-synthesis [-h] {add,confirm,list} ...\n\npositional arguments:\n  {add,confirm,list}\n    add               write a part, or replace the one with the same heading;\n                      prints p:NAME#HANDLE\n    confirm           stamp a part as checked today, text unchanged\n    list              one line per part: handle, freshness, heading\n\noptions:\n  -h, --help          show this help message and exit\n"
+ },
+ "help project-synthesis add": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem project-synthesis add [-h] --paths A,B --body-file PATH\n                                 NAME heading\n\npositional arguments:\n  NAME              one of: organization, plans, pending, conventions\n  heading\n\noptions:\n  -h, --help        show this help message and exit\n  --paths A,B       the project files or folders the part covers\n  --body-file PATH  the text (or - for standard input)\n"
+ },
+ "help project-synthesis confirm": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem project-synthesis confirm [-h] p:NAME#HANDLE\n\npositional arguments:\n  p:NAME#HANDLE\n\noptions:\n  -h, --help     show this help message and exit\n"
+ },
+ "help project-synthesis list": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem project-synthesis list [-h]\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help projects": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem projects [-h] {list,add,remove} ...\n\npositional arguments:\n  {list,add,remove}\n    list             one line per project: name, live memories, path\n    add              register a project by hand\n    remove           forget a project; its files are not touched\n\noptions:\n  -h, --help         show this help message and exit\n"
+ },
+ "help projects add": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem projects add [-h] [--name NAME] path\n\npositional arguments:\n  path\n\noptions:\n  -h, --help   show this help message and exit\n  --name NAME\n"
+ },
+ "help projects list": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem projects list [-h]\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help projects remove": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem projects remove [-h] name\n\npositional arguments:\n  name\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help promote": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem promote [-h] [--no] [--done] [--to m:HANDLE]\n                   m:HANDLE [m:HANDLE ...]\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help     show this help message and exit\n  --no           record that the memory is not for a global note\n  --done         record that the memory was promoted\n  --to m:HANDLE  with --done: the global memory it was promoted to\n"
+ },
+ "help read": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem show [-h] [--section SECTION] [--outline] [--ranges] [--all]\n                [--project NAME] [--stored]\n                PATH [PATH ...]\n\npositional arguments:\n  PATH\n\noptions:\n  -h, --help         show this help message and exit\n  --section SECTION  a `## ` section to print (repeatable)\n  --outline          list headings with line numbers\n  --ranges           with --outline: print start-end lines and word count per\n                     heading\n  --all              a synthesis: print the whole file, not its outline\n  --project NAME     read a memory of this registered project\n  --stored           a synthesis: print each reference as stored, not as\n                     `[n]`, the place of its note on the `Sources:` line\n"
+ },
+ "help refute": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem refute [-h] [--because TEXT] [--owner-approved] [--global] m:HANDLE\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help        show this help message and exit\n  --because TEXT    the reason, appended to the memory's body\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n  --global          act on the global memory when the handle exists in both\n                    scopes\n"
+ },
+ "help related": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem related [-h] [--limit LIMIT]\n                   [--detail {paths,titles,facts,snippet,summary}]\n                   [--superseded] [--unlinked-mentions]\n                   PATH\n\npositional arguments:\n  PATH\n\noptions:\n  -h, --help            show this help message and exit\n  --limit LIMIT         print at most N similar notes (default: 5)\n  --detail {paths,titles,facts,snippet,summary}\n                        per result: path only, title, key facts, a matching\n                        line, or the lead section\n  --superseded          also list notes that a unified note replaced\n  --unlinked-mentions   print only the notes that name this one in their text\n                        without linking to it\n"
+ },
+ "help remember": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem remember [-h]\n                    --kind {decision,constraint,pitfall,lesson,finding,document,state}\n                    --claim CLAIM [--body-file PATH] [--context CONTEXT]\n                    [--short TEXT] [--user-read] [--topic TEXT]\n                    [--valid-until YYYY-MM-DD] [--source URL_OR_PATH]\n                    [--origin {web,pipeline,transcript}]\n                    [--reach {project,general}]\n                    [--weight {light,medium,strong}]\n                    [--outcome {worked,failed,seen}] [--seen-on YYYY-MM-DD]\n                    [--global] [--force] [--owner-approved]\n\noptions:\n  -h, --help            show this help message and exit\n  --kind {decision,constraint,pitfall,lesson,finding,document,state}\n  --claim CLAIM\n  --body-file PATH      text (or - for standard input); may be empty\n  --context CONTEXT\n  --short TEXT          the claim as one line of at most 120 characters,\n                        loaded at session start\n  --user-read           with --short: the owner read this text, so it skips\n                        the code check and carries no mark; without it the\n                        short form is checked against the claim and marked as\n                        written by a model\n  --topic TEXT          one or two lowercase words that group rules\n  --valid-until YYYY-MM-DD\n  --source URL_OR_PATH\n  --origin {web,pipeline,transcript}\n                        where the claim came from when not a session: web (a\n                        finding), pipeline (a pipeline's write) or transcript\n                        (a lesson captured from a session transcript)\n  --reach {project,general}\n                        how far the lesson reaches\n  --weight {light,medium,strong}\n                        how much it weighs: light needs 1 session to be\n                        established, medium 2, strong 3\n  --outcome {worked,failed,seen}\n                        what the session showed about the lesson; recorded as\n                        a case of its log\n  --seen-on YYYY-MM-DD  the day of the session, when it is not today\n  --global\n  --force               write even when a memory has the same claim\n  --owner-approved      the owner agreed to a write that mentions a soft term:\n                        never add it on your own\n"
+ },
+ "help rename": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem rename [-h] NOTE NEW-STEM\n\npositional arguments:\n  NOTE\n  NEW-STEM    the new file name without .md\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help restore": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem restore [-h] [--global] m:HANDLE\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help  show this help message and exit\n  --global    act on the global memory when the handle exists in both scopes\n"
+ },
+ "help review": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem review [-h] [--today TODAY]\n\noptions:\n  -h, --help     show this help message and exit\n  --today TODAY  YYYY-MM-DD (default: today)\n"
+ },
+ "help rules": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem rules [-h] [--more [TOPIC]] [--layout {flat,grouped,digest}]\n                 [--unread] [--read HANDLE [HANDLE ...]]\n\noptions:\n  -h, --help            show this help message and exit\n  --more [TOPIC]        the lessons left out, grouped by topic; with TOPIC\n                        only that group (other: no topic)\n  --layout {flat,grouped,digest}\n                        print the lessons flat or under a heading per topic\n                        (default: MEM_RULES_LAYOUT, else flat)\n  --unread              list the short forms a model wrote that nobody read,\n                        with their claims\n  --read HANDLE [HANDLE ...]\n                        mark short forms as read: the handles, or all of those\n                        --unread lists\n"
+ },
+ "help search": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem search [-h] [--limit LIMIT] [--offset OFFSET] [--also QUERY]\n                  [--links] [--scope {all,notes,memories}] [--deep]\n                  [--all-memories] [--project NAME] [--all-projects]\n                  [--type {literature,knowledge,research}] [--topic TOPIC]\n                  [--kind {paper,book,article,web,talk,repo,dataset}]\n                  [--status {idea,active,paused,done,abandoned}]\n                  [--confidence {high,medium,low}]\n                  [--level {basic,beginner,intermediate,advanced,expert,niche}]\n                  [--superseded] [--handles]\n                  [--detail {paths,titles,facts,snippet,summary}]\n                  query\n\npositional arguments:\n  query\n\noptions:\n  -h, --help            show this help message and exit\n  --limit LIMIT\n  --offset OFFSET       skip the first N results (default: 0)\n  --also QUERY          another query over the same corpus (repeatable); each\n                        list is headed `== <query> ==`\n  --links               also list up to 10 notes linked to or from the first\n                        10 printed results\n  --scope {all,notes,memories}\n                        what to search: notes and memories (default), only\n                        notes, only memories\n  --deep                also rank source notes and investigations, and list\n                        syntheses (default: knowledge notes and memories)\n  --all-memories        also match refuted, superseded and expired memories\n  --project NAME        also search this registered project's memories\n                        (repeatable; see mem projects list)\n  --all-projects        also search the memories of every registered project\n                        but the current one\n  --type {literature,knowledge,research}\n  --topic TOPIC\n  --kind {paper,book,article,web,talk,repo,dataset}\n  --status {idea,active,paused,done,abandoned}\n  --confidence {high,medium,low}\n  --level {basic,beginner,intermediate,advanced,expert,niche}\n  --superseded          also list notes that a unified note replaced\n  --handles             print a short handle in place of each path (accepted\n                        wherever a note is named)\n  --detail {paths,titles,facts,snippet,summary}\n                        per result: path only, title, key facts, a matching\n                        line, or the lead section\n"
+ },
+ "help search-eval": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem search-eval [-h] [--min MIN]\n\noptions:\n  -h, --help  show this help message and exit\n  --min MIN   exit 1 when recall@10 is below this (replaces the default\n              revisit triggers)\n"
+ },
+ "help session-index": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem session-index [-h] [--hook] [--list N]\n\noptions:\n  -h, --help  show this help message and exit\n  --hook      read the hook's JSON from standard input (its cwd locates the\n              project) and log the call\n  --list N    also list up to N of the project's newest memories\n"
+ },
+ "help settle": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle [-h] {pending,apply,log,ack,undo,due} ...\n\npositional arguments:\n  {pending,apply,log,ack,undo,due}\n    pending             list the look-alike pairs with a not yet judged side\n    apply               carry out the verdicts the rules allow; refused rows\n                        are printed\n    log                 list the settlings not yet acknowledged\n    ack                 mark every settling acknowledged\n    undo                undo settling N: both records back as they were\n    due                 exit 0 and print the count when new memories wait and\n                        the last apply is older than M minutes\n\noptions:\n  -h, --help            show this help message and exit\n"
+ },
+ "help settle ack": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle ack [-h]\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help settle apply": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle apply [-h] --verdicts FILE\n\noptions:\n  -h, --help       show this help message and exit\n  --verdicts FILE  JSON list of {\"a\", \"b\", \"decision\":\n                   merge|supersede|distinct|nothing, \"reason\"}\n"
+ },
+ "help settle due": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle due [-h] --minutes M\n\noptions:\n  -h, --help   show this help message and exit\n  --minutes M\n"
+ },
+ "help settle log": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle log [-h] [--all]\n\noptions:\n  -h, --help  show this help message and exit\n  --all       every settling, acknowledged and undone ones too\n"
+ },
+ "help settle pending": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle pending [-h] [--json]\n\noptions:\n  -h, --help  show this help message and exit\n  --json      a JSON list: pair, a, b, claim_a, claim_b, newer, flagged_words\n"
+ },
+ "help settle undo": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem settle undo [-h] N\n\npositional arguments:\n  N\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help show": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem show [-h] [--section SECTION] [--outline] [--ranges] [--all]\n                [--project NAME] [--stored]\n                PATH [PATH ...]\n\npositional arguments:\n  PATH\n\noptions:\n  -h, --help         show this help message and exit\n  --section SECTION  a `## ` section to print (repeatable)\n  --outline          list headings with line numbers\n  --ranges           with --outline: print start-end lines and word count per\n                     heading\n  --all              a synthesis: print the whole file, not its outline\n  --project NAME     read a memory of this registered project\n  --stored           a synthesis: print each reference as stored, not as\n                     `[n]`, the place of its note on the `Sources:` line\n"
+ },
+ "help signal": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem signal [-h] [--hook]\n\noptions:\n  -h, --help  show this help message and exit\n  --hook      read a PreToolUse hook's JSON from standard input and print the\n              brief with the signal appended\n"
+ },
+ "help stats": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem stats [-h] [--orphans] [PATH ...]\n\npositional arguments:\n  PATH        with --orphans: only these notes or folders\n\noptions:\n  -h, --help  show this help message and exit\n  --orphans   list notes no other file links to\n"
+ },
+ "help supersede": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem supersede [-h] [--global] m:HANDLE m:HANDLE\n\npositional arguments:\n  m:HANDLE\n  m:HANDLE\n\noptions:\n  -h, --help  show this help message and exit\n  --global    act on the global memory when the handle exists in both scopes\n"
+ },
+ "help synthesis": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis [-h]\n                     {new,add,edit,append,attach,rename,remove,detach,refs,topics,list} ...\n\npositional arguments:\n  {new,add,edit,append,attach,rename,remove,detach,refs,topics,list}\n    new                 create syntheses/<slug>.md with its summary\n    add                 append one section; its text must end with a\n                        `Sources:` line\n    edit                replace the text of one section; the rest of the file\n                        stays\n    append              add text at the end of a section, before its Sources\n                        line\n    attach              make a knowledge note the short recall of a section\n    rename              rename a section's heading; its notes follow\n    remove              take a section out; its notes lose part_of\n    detach              remove a note's part_of\n    refs                add or remove inline note references from a file of\n                        proposals\n    topics              replace a synthesis's topics\n    list                one line per synthesis\n\noptions:\n  -h, --help            show this help message and exit\n"
+ },
+ "help synthesis add": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis add [-h] --section HEADING --body-file PATH\n                         [--note-slug SLUG] [--note-claim TEXT]\n                         [--note-body-file PATH]\n                         [--confidence {high,medium,low}]\n                         [--level {basic,beginner,intermediate,advanced,expert,niche}]\n                         [--origin {literature,research,experience}]\n                         [--owner-approved]\n                         s:HANDLE\n\npositional arguments:\n  s:HANDLE\n\noptions:\n  -h, --help            show this help message and exit\n  --section HEADING\n  --body-file PATH      the text (or - for standard input)\n  --note-slug SLUG      also write a knowledge note that summarizes the\n                        section\n  --note-claim TEXT\n  --note-body-file PATH\n                        the note's body (or - for standard input)\n  --confidence {high,medium,low}\n  --level {basic,beginner,intermediate,advanced,expert,niche}\n  --origin {literature,research,experience}\n                        default: taken from the section's Sources line\n  --owner-approved      the owner agreed to a write that mentions a soft term:\n                        never add it on your own\n"
+ },
+ "help synthesis append": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis append [-h] --body-file PATH [--owner-approved]\n                            s:HANDLE#SECTION\n\npositional arguments:\n  s:HANDLE#SECTION\n\noptions:\n  -h, --help        show this help message and exit\n  --body-file PATH  the text (or - for standard input)\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n"
+ },
+ "help synthesis attach": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis attach [-h] NOTE s:HANDLE#SECTION\n\npositional arguments:\n  NOTE\n  s:HANDLE#SECTION\n\noptions:\n  -h, --help        show this help message and exit\n"
+ },
+ "help synthesis detach": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis detach [-h] NOTE\n\npositional arguments:\n  NOTE\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help synthesis edit": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis edit [-h] --body-file PATH [--shrink] [--drop-references]\n                          [--owner-approved]\n                          s:HANDLE#SECTION\n\npositional arguments:\n  s:HANDLE#SECTION\n\noptions:\n  -h, --help         show this help message and exit\n  --body-file PATH   the text (or - for standard input)\n  --shrink           allow a text with fewer words or links than before\n  --drop-references  allow a sentence kept unchanged to lose a reference (a\n                     note link in its body)\n  --owner-approved   the owner agreed to a write that mentions a soft term:\n                     never add it on your own\n"
+ },
+ "help synthesis list": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis list [-h] [--topic TOPIC]\n\noptions:\n  -h, --help     show this help message and exit\n  --topic TOPIC\n"
+ },
+ "help synthesis new": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis new [-h] --title TITLE --topics TOPICS --slug SLUG\n                         [--summary-file PATH] [--owner-approved]\n\noptions:\n  -h, --help           show this help message and exit\n  --title TITLE\n  --topics TOPICS      comma-separated topic ids\n  --slug SLUG\n  --summary-file PATH  the summary (or - for standard input)\n  --owner-approved     the owner agreed to a write that mentions a soft term:\n                       never add it on your own\n"
+ },
+ "help synthesis refs": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis refs [-h] --file PATH s:HANDLE\n\npositional arguments:\n  s:HANDLE\n\noptions:\n  -h, --help   show this help message and exit\n  --file PATH  one proposal per line: SECTION | UNIT | add TARGET or SECTION |\n               UNIT | remove TARGET\n"
+ },
+ "help synthesis remove": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis remove [-h] s:HANDLE#SECTION\n\npositional arguments:\n  s:HANDLE#SECTION\n\noptions:\n  -h, --help        show this help message and exit\n"
+ },
+ "help synthesis rename": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis rename [-h] [--owner-approved]\n                            s:HANDLE#SECTION NEW_HEADING\n\npositional arguments:\n  s:HANDLE#SECTION\n  NEW_HEADING\n\noptions:\n  -h, --help        show this help message and exit\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n"
+ },
+ "help synthesis topics": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis topics [-h] s:HANDLE TOPICS\n\npositional arguments:\n  s:HANDLE\n  TOPICS      comma-separated topic ids\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help terms": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem terms [-h] {list,add,remove} ...\n\npositional arguments:\n  {list,add,remove}\n    list             print hard<TAB>term and soft<TAB>term lines\n    add              add a term to the list\n    remove           remove every line that holds exactly this term\n\noptions:\n  -h, --help         show this help message and exit\n"
+ },
+ "help terms add": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem terms add [-h] [--soft]\n                     [--kind {decision,constraint,pitfall,lesson,finding,document,state,note,synthesis}]\n                     term\n\npositional arguments:\n  term\n\noptions:\n  -h, --help            show this help message and exit\n  --soft                a soft term: the owner must approve a write that holds\n                        it\n  --kind {decision,constraint,pitfall,lesson,finding,document,state,note,synthesis}\n                        with --soft: only for this kind of memory, or note or\n                        synthesis\n"
+ },
+ "help terms list": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem terms list [-h]\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help terms remove": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem terms remove [-h] term\n\npositional arguments:\n  term\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help topics": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem topics [-h] [ID]\n\npositional arguments:\n  ID          print only this topic's subtree\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help triage": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem triage [-h] {hold,accept,reject} ...\n\nTriage is deciding what a corroborated general lesson becomes: one seen in two\nprojects leaves quarantine and waits here (mem curate --global lists it).\n\npositional arguments:\n  {hold,accept,reject}\n    hold                keep a general lesson out of the rules until the owner\n                        decides\n    accept              a general lesson that awaits triage stays a general\n                        lesson every project may read\n    reject              a general lesson that awaits triage is retired (mem\n                        restore brings it back), and its project records are\n                        marked so they are not promoted again\n\noptions:\n  -h, --help            show this help message and exit\n"
+ },
+ "help triage accept": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem triage accept [-h] [--project-scope] m:HANDLE\n\nAccept: a general lesson that awaits triage stays a general lesson every\nproject may read.\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help       show this help message and exit\n  --project-scope  keep the wording of a project lesson that got worse\n"
+ },
+ "help triage hold": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem triage hold [-h] [--because TEXT] m:HANDLE\n\nHold: a global lesson is set to await triage, with the reason, and stops\nloading as a rule.\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help      show this help message and exit\n  --because TEXT  why it is held (one line, at most 200 characters)\n"
+ },
+ "help triage reject": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem triage reject [-h] m:HANDLE\n\nReject: a general lesson that awaits triage is retired (mem restore brings it\nback), and its project records are marked so they are not promoted again.\n\npositional arguments:\n  m:HANDLE\n\noptions:\n  -h, --help  show this help message and exit\n"
+ },
+ "help unify": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem unify [-h] --body-file PATH [--owner-approved] [--drop]\n                 KEEP OTHER [OTHER ...]\n\npositional arguments:\n  KEEP              the note that takes the unified text\n  OTHER             notes that KEEP replaces\n\noptions:\n  -h, --help        show this help message and exit\n  --body-file PATH  the unified body (after the frontmatter); - reads standard\n                    input\n  --owner-approved  the owner agreed to a write that mentions a soft term:\n                    never add it on your own\n  --drop            accept a unified text that lacks a link the notes had\n"
+ }
+}

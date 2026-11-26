@@ -14,19 +14,19 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
-import mem
 from memories import records
 
 DATA = json.loads((Path(__file__).parent / "set.json").read_text())
 
 
 def scores(brief: str) -> dict[str, float]:
-    text = set(mem.tokenize(brief + "\n" + DATA["boilerplate"]))
+    text = set(records.tokenize(brief + "\n" + DATA["boilerplate"]))
     out = {
-        h: records.containment(mem.tokenize(claim), text) for h, claim in DATA["memories"].items()
+        h: records.containment(records.tokenize(claim), text)
+        for h, claim in DATA["memories"].items()
     }
     out.update({
-        stem: records.containment(mem.tokenize(stem.replace("-", " ")), text)
+        stem: records.containment(records.tokenize(stem.replace("-", " ")), text)
         for stem in DATA["notes"]
     })
     return out

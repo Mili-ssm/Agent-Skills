@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import mem
 import pytest
+from commands import read, sources
+from notes import note as notes_mod
 from research import checks as research_checks
 from test_find_new import write_note
 
@@ -32,9 +34,9 @@ def calls(monkeypatch):
             raise result
         return result
 
-    monkeypatch.setattr(mem, "_download", download)
-    monkeypatch.setattr(mem, "time", SimpleNamespace(sleep=lambda _: None))
-    monkeypatch.setattr(mem.shutil, "which", lambda _: None)
+    monkeypatch.setattr(sources, "_download", download)
+    monkeypatch.setattr(sources, "time", SimpleNamespace(sleep=lambda _: None))
+    monkeypatch.setattr(sources.shutil, "which", lambda _: None)
     log.responses = responses
     return log
 
@@ -54,9 +56,9 @@ def run(root, capsys, *args):
 
 
 def url_of(root, rel):
-    return mem.discover_notes(root)[[n.rel for n in mem.discover_notes(root)].index(rel)].meta[
-        "url"
-    ]
+    return notes_mod.discover_notes(root)[
+        [n.rel for n in notes_mod.discover_notes(root)].index(rel)
+    ].meta["url"]
 
 
 def test_extension_follows_content_type_then_url_suffix(hub_root, calls, capsys):
@@ -116,9 +118,9 @@ def test_only_given_paths_are_fetched(hub_root, calls, capsys):
 
 def test_pdftotext_runs_next_to_a_pdf_when_available(hub_root, calls, capsys, monkeypatch):
     calls.responses[url_of(hub_root, A)] = (b"%PDF", "application/pdf")
-    monkeypatch.setattr(mem.shutil, "which", lambda _: "/usr/bin/pdftotext")
+    monkeypatch.setattr(sources.shutil, "which", lambda _: "/usr/bin/pdftotext")
     ran = []
-    monkeypatch.setattr(mem.subprocess, "run", lambda cmd, **kw: ran.append((cmd, kw)))
+    monkeypatch.setattr(sources.subprocess, "run", lambda cmd, **kw: ran.append((cmd, kw)))
     run(hub_root, capsys)
     cmd, kw = ran[0]
     assert cmd[0] == "pdftotext" and cmd[-1].endswith("source.txt") and kw["check"] is False
@@ -187,14 +189,14 @@ def test_download_refuses_a_private_address(monkeypatch):
         lambda host, port, *a, **k: [(2, 1, 6, "", ("169.254.169.254", port))],
     )
     with pytest.raises(ValueError, match="non-public"):
-        mem._download("http://metadata.example/latest")
+        sources._download("http://metadata.example/latest")
 
 
 def test_download_refuses_a_redirect_to_localhost(wire):
     replies, _ = wire
     replies.append((302, {"Location": "http://127.0.0.1/admin"}, b""))
     with pytest.raises(ValueError, match="non-public"):
-        mem._download("https://x.org/a")
+        sources._download("https://x.org/a")
 
 
 def test_download_keeps_its_user_agent_and_ten_redirects(wire):
@@ -202,22 +204,24 @@ def test_download_keeps_its_user_agent_and_ten_redirects(wire):
     replies.extend(
         [(302, {"Location": "/n"}, b"")] * 10 + [(200, {"Content-Type": "Text/HTML"}, b"ok")]
     )
-    assert mem._download("https://x.org/a") == (b"ok", "text/html")
-    assert len(seen) == SEEN_REQUESTS and all(h["User-Agent"] == mem._USER_AGENT for _, h in seen)
+    assert sources._download("https://x.org/a") == (b"ok", "text/html")
+    assert len(seen) == SEEN_REQUESTS and all(
+        h["User-Agent"] == sources._USER_AGENT for _, h in seen
+    )
     replies.extend([(302, {"Location": "/n"}, b"")] * 11)
     with pytest.raises(ValueError, match="too many redirects"):
-        mem._download("https://x.org/a")
+        sources._download("https://x.org/a")
 
 
 def test_download_refuses_oversized_and_non_http_redirects(wire, monkeypatch):
     replies, _ = wire
-    monkeypatch.setattr(mem, "FETCH_MAX_BYTES", 100)
+    monkeypatch.setattr(sources, "FETCH_MAX_BYTES", 100)
     replies.append((200, {"Content-Type": "text/html"}, b"x" * 101))
     with pytest.raises(ValueError, match="larger than"):
-        mem._download("https://x.org/a")
+        sources._download("https://x.org/a")
     replies.append((302, {"Location": "ftp://x.org/a"}, b""))
     with pytest.raises(ValueError, match="only http"):
-        mem._download("https://x.org/a")
+        sources._download("https://x.org/a")
 
 
 def test_html_to_text_drops_chrome_decodes_and_collapses():
@@ -226,11 +230,11 @@ def test_html_to_text_drops_chrome_decodes_and_collapses():
         "<style>p{}</style><script>var x;</script></head><body><nav>menu <b>x</b></nav>"
         "<h1>Title</h1><p>caf\xe9  &amp;\n  tea</p><br><br><br><div>last<footer>foot</footer></div></body></html>"
     )
-    assert mem.html_to_text(page.encode("latin-1")) == "Title\n\ncaf\u00e9 & tea\n\nlast\n"
+    assert sources.html_to_text(page.encode("latin-1")) == "Title\n\ncaf\u00e9 & tea\n\nlast\n"
 
 
 def test_html_to_text_falls_back_to_latin1_on_bad_utf8():
-    assert mem.html_to_text(b"<p>caf\xe9</p>") == "caf\u00e9\n"
+    assert sources.html_to_text(b"<p>caf\xe9</p>") == "caf\u00e9\n"
 
 
 def test_fetch_writes_source_txt_for_html_and_flags_short_pages(hub_root, calls, capsys):
@@ -289,8 +293,8 @@ def test_text_only_runs_pdftotext_with_an_argument_list(hub_root, calls, capsys,
 
         return Done()
 
-    monkeypatch.setattr(mem.shutil, "which", lambda _: "/usr/bin/pdftotext")
-    monkeypatch.setattr(mem.subprocess, "run", fake_run)
+    monkeypatch.setattr(sources.shutil, "which", lambda _: "/usr/bin/pdftotext")
+    monkeypatch.setattr(sources.subprocess, "run", fake_run)
     make_folder(hub_root, "2017-vaswani-attention", source_pdf=b"%PDF")
     _code, out = run(hub_root, capsys, A, "--text-only")
     assert out[0] == f"text {A} (3 words)"
@@ -316,9 +320,9 @@ def test_text_only_rejects_a_path_that_is_not_a_literature_note(hub_root, calls,
 
 def test_source_text_falls_back_to_the_largest_markdown_only_without_txt(hub_root):
     folder = make_folder(hub_root, "2017-vaswani-attention", a_md=b"small", b_md=b"bigger one")
-    assert mem.source_text(hub_root, A) == folder / "b.md"
+    assert read.source_text(hub_root, A) == folder / "b.md"
     (folder / "x.txt").write_text("t")
-    assert mem.source_text(hub_root, A) == folder / "x.txt"
+    assert read.source_text(hub_root, A) == folder / "x.txt"
 
 
 def test_never_writes_source_txt_beside_another_txt(hub_root, calls, capsys):
@@ -363,7 +367,7 @@ def test_html_to_text_keeps_forms_and_headers_in_articles_and_drops_form_control
         b"<title>Tab</title><header>top</header><form><p>whole page</p><select><option>opt</option></select>"
         b"<button>go</button></form><article><header>kept head</header><p>body</p></article>"
     )
-    assert mem.html_to_text(page) == "whole page\n\nkept head\nbody\n"
+    assert sources.html_to_text(page) == "whole page\n\nkept head\nbody\n"
 
 
 def test_text_only_falls_back_to_the_pdf_and_captures_pdftotext_stderr(
@@ -380,8 +384,8 @@ def test_text_only_falls_back_to_the_pdf_and_captures_pdftotext_stderr(
 
         return Done()
 
-    monkeypatch.setattr(mem.shutil, "which", lambda _: "/usr/bin/pdftotext")
-    monkeypatch.setattr(mem.subprocess, "run", fake_run)
+    monkeypatch.setattr(sources.shutil, "which", lambda _: "/usr/bin/pdftotext")
+    monkeypatch.setattr(sources.subprocess, "run", fake_run)
     make_folder(hub_root, "2017-vaswani-attention", source_html=b"<p>tiny</p>", source_pdf=b"%PDF")
     _code, out = run(hub_root, capsys, "--text-only")
     assert out[0] == f"text {A} (3 words)" and seen[0]["capture_output"] is True
@@ -391,7 +395,7 @@ def test_text_only_reports_a_write_error(hub_root, calls, capsys, monkeypatch):
     def boom(folder):
         raise OSError("disk full")
 
-    monkeypatch.setattr(mem, "_write_text_copy", boom)
+    monkeypatch.setattr(sources, "_write_text_copy", boom)
     make_folder(hub_root, "2017-vaswani-attention", source_html=PAGE)
     code, out = run(hub_root, capsys, "--text-only")
     assert code == 0 and out[0] == f"no text {A}: disk full"
@@ -404,5 +408,5 @@ def test_download_keeps_its_socket_timeout_and_accepts_any_type(monkeypatch):
         "fetch_raw",
         lambda url, limit_for, **kw: seen.update(kw) or (b"x", "text/plain"),
     )
-    assert mem._download("https://x.org/a") == (b"x", "text/plain")
+    assert sources._download("https://x.org/a") == (b"x", "text/plain")
     assert seen["timeout"] == DOWNLOAD_TIMEOUT and seen["headers"]["Accept"] == "*/*"

@@ -21,7 +21,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. Quick fix: P1 (measured).
-3. Memory refactor: A1, A2, A3, A7 and the first part of A4 merged to dev on 2026-11-26 (PRs #198–#202); the fixes the owner put first merged (#204: the suite passes on Python 3.12.0 to 3.15); `mem-synthesize` into the `engine/synthesize/` package is done on `refactor/memory-synthesize-split` ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)), the pilot of the owner's ruling to group `engine/` into feature packages; next the other packages (one per pull request), `bin/` through `uv`, A5, A6, A8.
+3. Memory refactor: A1, A2, A3, A7 and the first part of A4 merged to dev on 2026-11-26 (PRs #198–#202); the fixes the owner put first merged (#204: the suite passes on Python 3.12.0 to 3.15); `mem-synthesize` into the `engine/synthesize/` package is done on `refactor/memory-synthesize-split` ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)), the pilot of the owner's ruling to group `engine/` into feature packages; next the other packages (one per pull request), `bin/` through `uv`, A8 (A5 and A6 done).
 4. Memory kill read, around 2026-12-01.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
@@ -77,7 +77,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean (PR #200) ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` into `engine/synthesize/` done on its branch ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)); `bin/` through `uv` and the shared corroborate job runner pending |
 | high | A14 | Refactor: `engine/` (35 flat modules) into feature packages (`corroborate/`, `research/`, `capture/`, `settle/`, `store/`, `core/`…), one package per pull request, each with an import-boundary test; owner ruling 2026-11-26, after the `synthesize/` pilot | Done: PRs #206–#214 ([plans](superpowers/plans/2026-11-26-memory-engine-packages.md), [store](superpowers/plans/2026-11-26-memory-store-records-split.md)); ADR 0034 § Review 2026-11-26 |
 | medium | A6 | Refactor: split `records.py` | Done: PR #214, nine modules behind a facade in `memories/` ([plan](superpowers/plans/2026-11-26-memory-store-records-split.md)); deferred findings in its table |
-| high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
+| high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Done (this PR series): `mem.py` 10,502 → 1,403 lines, nine modules in `engine/commands/` and `notes/search.py` ([plan](superpowers/plans/2026-11-26-memory-mem-split.md)) |
 | low | — | Refactor A7 deferred findings (untested TLS branch, `plan_commands` non-string `quote`, naming nits; [plan](superpowers/plans/2026-11-26-memory-import-direction.md) § Deferred findings) | Open |
 | low | — | Refactor: move the 56 importers of the `memories/records` facade to the defining modules (optional) | Not started |
 | low | — | Refactor: measure `find_claude` in the session-end hook | Not started |

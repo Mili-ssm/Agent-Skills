@@ -9,6 +9,7 @@ from pathlib import Path
 import mem
 import pytest
 from core import auto_state, jobs, store_git
+from notes import check as check_rules
 
 REAL_RUN = subprocess.run
 SHORT_LOCK_WAIT = 0.2
@@ -542,7 +543,7 @@ def tracked(store):
 def test_invalid_note_is_held_back(repo):
     good = note(repo, "good")
     bad = note(repo, "bad", valid=False)
-    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     assert good in tracked(repo) and bad not in tracked(repo)
     assert store_git.held_back(repo) == [bad]
     assert (repo / bad).exists()
@@ -550,25 +551,25 @@ def test_invalid_note_is_held_back(repo):
 
 def test_invalid_note_in_new_folder_is_held_back(repo):
     bad = note(repo, "bad", valid=False)  # knowledge/notes/ is untracked as a whole
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     assert bad not in tracked(repo) and store_git.held_back(repo) == [bad]
 
 
 def test_fixed_note_is_committed_next_time(repo):
     bad = note(repo, "bad", valid=False)
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     note(repo, "bad")
-    assert store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    assert store_git.commit_if_changed(repo, "m2", validate=check_rules.invalid_changed(repo))
     assert bad in tracked(repo) and store_git.held_back(repo) == []
     assert not (repo / ".git" / "mem-held-back").exists()
 
 
 def test_deleted_note_is_not_held_back(repo):
     gone = note(repo, "gone")
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     (repo / gone).unlink()
     assert mem.main(["index"]) == 0
-    assert store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    assert store_git.commit_if_changed(repo, "m2", validate=check_rules.invalid_changed(repo))
     assert gone not in tracked(repo) and store_git.held_back(repo) == []
 
 
@@ -594,7 +595,7 @@ def test_validator_exception_through_history_commit_exits_0(repo, monkeypatch, c
 
         return validate
 
-    monkeypatch.setattr(mem, "invalid_changed", broken)
+    monkeypatch.setattr(check_rules, "invalid_changed", broken)
     capsys.readouterr()
     assert mem.main(["history", "commit"]) == 0
     assert "boom" in capsys.readouterr().err and bad in tracked(repo)
@@ -638,7 +639,7 @@ def test_valid_note_linking_held_back_note_is_committed(repo):
         encoding="utf-8",
     )
     assert mem.main(["index"]) == 0
-    assert store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    assert store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     assert good in tracked(repo) and bad not in tracked(repo)
 
 
@@ -651,13 +652,13 @@ def test_history_commit_prints_held_back_paths(repo, capsys):
 
 def test_held_back_rename_keeps_old_note_in_history(repo):
     old = note(repo, "old")
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     git(repo, "mv", old, "knowledge/notes/new.md")
     (repo / "knowledge/notes/new.md").write_text(
         NOTE.format(claim="new", tail=""), encoding="utf-8"
     )
     assert mem.main(["index"]) == 0
-    store_git.commit_if_changed(repo, "m2", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m2", validate=check_rules.invalid_changed(repo))
     assert old in tracked(repo) and "knowledge/notes/new.md" not in tracked(repo)
     assert store_git.held_back(repo) == ["knowledge/notes/new.md"]
 
@@ -667,14 +668,14 @@ def test_note_in_stray_folder_is_held_back(repo):
     stray = repo / "knowledge" / "notes" / "stray"
     stray.mkdir()
     (stray / "deep.md").write_text(NOTE.format(claim="deep", tail=FULL_TAIL), encoding="utf-8")
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     assert "knowledge/notes/stray/deep.md" not in tracked(repo)
     assert store_git.held_back(repo) == ["knowledge/notes/stray/deep.md"]
 
 
 def test_lock_failure_prints_no_stale_held_paths(repo, capsys, monkeypatch):
     bad = note(repo, "bad", valid=False)
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     assert store_git.held_back(repo) == [bad]
     monkeypatch.setattr(store_git, "LOCK_WAIT", 0)
     fd = store_git._lock(repo)
@@ -692,7 +693,7 @@ def test_unwritable_held_list_still_commits(repo):
     (repo / ".git" / "mem-held-back").mkdir()  # a directory: writing the list fails
     warned = []
     assert store_git.commit_if_changed(
-        repo, "m", validate=mem.invalid_changed(repo), warn=warned.append
+        repo, "m", validate=check_rules.invalid_changed(repo), warn=warned.append
     )
     assert good in tracked(repo) and bad not in tracked(repo) and warned
 
@@ -700,14 +701,14 @@ def test_unwritable_held_list_still_commits(repo):
 def test_a_lock_loser_leaves_the_holders_list_unchanged(repo, monkeypatch):
     monkeypatch.setattr(store_git, "LOCK_WAIT", SHORT_LOCK_WAIT)
     bad = note(repo, "bad", valid=False)
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     before = (repo / ".git" / "mem-held-back").read_text(encoding="utf-8")
     note(repo, "other")
     fd = store_git._lock(repo)
     try:
         assert (
             store_git.commit_if_changed(
-                repo, "m2", report=lambda r: None, validate=mem.invalid_changed(repo)
+                repo, "m2", report=lambda r: None, validate=check_rules.invalid_changed(repo)
             )
             is None
         )
@@ -718,10 +719,10 @@ def test_a_lock_loser_leaves_the_holders_list_unchanged(repo, monkeypatch):
 
 def test_the_list_is_never_empty_or_partial_while_a_commit_runs(repo):
     first = note(repo, "bad1", valid=False)
-    store_git.commit_if_changed(repo, "m", validate=mem.invalid_changed(repo))
+    store_git.commit_if_changed(repo, "m", validate=check_rules.invalid_changed(repo))
     note(repo, "bad2", valid=False)
     seen = []
-    real = mem.invalid_changed(repo)
+    real = check_rules.invalid_changed(repo)
 
     def validate(paths):
         seen.append(store_git.held_back(repo))  # between the gate's start and the write

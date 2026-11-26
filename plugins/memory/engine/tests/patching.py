@@ -8,7 +8,7 @@ import pytest
 
 
 def patch_all(monkeypatch: pytest.MonkeyPatch, name: str, replacement: Callable) -> None:
-    """Replace `name` in `memories.records` and in every other `memories.*`, `syntheses.*` or `notes.*` module that holds it.
+    """Replace `name` in `memories.records` and in every other `memories.*`, `syntheses.*`, `notes.*` or `commands.*` module that holds it.
 
     A call through the facade (`records.update` in `mem.py`) looks the name up in `memories.records`; a call inside
     a `memories` or `notes` module (`add_sighting` -> `update`) looks it up in that module, so patching the facade alone misses it.
@@ -16,10 +16,10 @@ def patch_all(monkeypatch: pytest.MonkeyPatch, name: str, replacement: Callable)
     holders = [
         module
         for key, module in sys.modules.items()
-        if key.startswith(("memories.", "syntheses.", "notes."))
+        if key.startswith(("memories.", "syntheses.", "notes.", "commands."))
         and isinstance(module, ModuleType)
         and hasattr(module, name)
     ]
-    assert holders, f"no memories, syntheses or notes module holds {name}"
+    assert holders, f"no memories, syntheses, notes or commands module holds {name}"
     for module in holders:
         monkeypatch.setattr(module, name, replacement)

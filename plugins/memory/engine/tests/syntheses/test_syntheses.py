@@ -1,6 +1,7 @@
 import datetime
 import re
 import time
+from pathlib import Path
 
 import mem
 import pytest
@@ -384,7 +385,7 @@ def test_syntheses_and_records_import_nothing_from_mem():
         ("syntheses", "edit.py"),
         ("memories", "records.py"),
     ):
-        src = (mem.Path(__file__).resolve().parent.parent.parent / folder / name).read_text(
+        src = (Path(__file__).resolve().parent.parent.parent / folder / name).read_text(
             encoding="utf-8"
         )
         assert not re.search(r"^\s*(import|from) mem\b", src, re.MULTILINE)

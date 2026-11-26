@@ -53,9 +53,9 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
-import mem
 import trial_env
 from memories.records import memories_root
+from notes.note import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
 
 if TYPE_CHECKING:
@@ -125,7 +125,7 @@ def load_plan(path: Path) -> dict:
 
 
 def origin_of(path: Path) -> str | None:
-    meta = mem.split_frontmatter(path.read_text(encoding="utf-8"))[0]
+    meta = split_frontmatter(path.read_text(encoding="utf-8"))[0]
     return meta.get("origin") if isinstance(meta, dict) else None
 
 
@@ -151,7 +151,7 @@ def make_variants(store: Path, altered: list[dict]) -> list[str]:
 
 def plant_canary(store: Path, like: Path, token: str) -> Path:
     """A knowledge note whose claim holds `token`, in the folder of `like` with its topics and level."""
-    meta = mem.split_frontmatter(like.read_text(encoding="utf-8"))[0]
+    meta = split_frontmatter(like.read_text(encoding="utf-8"))[0]
     topics = (
         ", ".join(str(t) for t in meta.get("topics", []))
         if isinstance(meta.get("topics"), list)
@@ -169,7 +169,7 @@ def plant_canary(store: Path, like: Path, token: str) -> Path:
 
 
 def claim_of(path: Path) -> str:
-    return str(mem.split_frontmatter(path.read_text(encoding="utf-8"))[0].get("claim", "")).strip()
+    return str(split_frontmatter(path.read_text(encoding="utf-8"))[0].get("claim", "")).strip()
 
 
 # --- marks and grading --------------------------------------------------------------------------------------------
@@ -179,8 +179,8 @@ def marks(path: Path) -> tuple[int, int]:
     """(confirmed evidence lines, disputed entries) of a knowledge note."""
     text = path.read_text(encoding="utf-8")
     try:
-        disputed = mem.split_frontmatter(text)[0].get("disputed")
-    except (mem.FrontmatterError, AttributeError):
+        disputed = split_frontmatter(text)[0].get("disputed")
+    except (FrontmatterError, AttributeError):
         disputed = None
     return len(EVIDENCE_LINE.findall(text)), len(disputed) if isinstance(disputed, list) else 0
 
