@@ -22,7 +22,7 @@ from core import safe_io
 from core.yaml_load import safe_load
 from memories.model import PROJECT_DIR
 
-from syntheses import document
+from syntheses import document, edit
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -251,7 +251,7 @@ def _clean_part(heading: str, body: str) -> tuple[str, str, str]:
     handle = document.section_handle(heading)
     if not handle:
         raise ProjectSynthesisError("the heading has no letters or digits")
-    return heading, handle, _check_body(document._clean(body))
+    return heading, handle, _check_body(edit._clean(body))
 
 
 def _check_body(body: str) -> str:
@@ -282,7 +282,7 @@ def _merged(path: Path, handle: str, block: list[str], today: datetime.date) -> 
         while lines and not lines[-1].strip():
             lines.pop()
         lines += ["", *block, ""]
-    return document._bump("\n".join(lines), today)
+    return edit._bump("\n".join(lines), today)
 
 
 def write_part(memory_dir: Path, worktree: Path, part: NewPart, today: datetime.date) -> str:
@@ -329,7 +329,7 @@ def confirm_part(
     end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
     last = max(k for k in range(heads[n][0] + 1, end) if lines[k].strip())
     lines[last] = _render_stamp(part.stamp.paths, today, head_commit(worktree))
-    document._write(path, document._bump("\n".join(lines), today))
+    document._write(path, edit._bump("\n".join(lines), today))
 
 
 def _names(out: subprocess.CompletedProcess, status: bool) -> list[str]:

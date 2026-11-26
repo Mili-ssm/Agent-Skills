@@ -5,7 +5,7 @@ from pathlib import Path
 
 import mem
 import pytest
-from syntheses import document, units
+from syntheses import document, edit, units
 
 USAGE_EXIT = 2
 GAMMA_UNITS = 2
@@ -330,7 +330,7 @@ def test_remove_from_a_pair_separated_by_a_comma_leaves_no_comma(gone, left):
     pair = f" [a]({targets['a']}), [b]({targets['b']})"
     text = f"Alpha one.{pair} Alpha two.\n\nSources: [a]({targets['a']}), [b]({targets['b']})\n"
     base = Path("/store/syntheses")
-    new, reasons = document.change_references(text, base, [(1, "remove", targets[g]) for g in gone])
+    new, reasons = edit.change_references(text, base, [(1, "remove", targets[g]) for g in gone])
     assert reasons == [None] * len(gone)
     kept = "".join(f" [{k}]({targets[k]})" for k in left)
     assert new == text.replace(pair, kept, 1)

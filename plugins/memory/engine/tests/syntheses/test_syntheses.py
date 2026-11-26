@@ -381,6 +381,7 @@ def test_syntheses_and_records_import_nothing_from_mem():
     for folder, name in (
         ("syntheses", "document.py"),
         ("syntheses", "units.py"),
+        ("syntheses", "edit.py"),
         ("memories", "records.py"),
     ):
         src = (mem.Path(__file__).resolve().parent.parent.parent / folder / name).read_text(

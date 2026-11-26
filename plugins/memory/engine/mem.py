@@ -83,6 +83,7 @@ from session import notices as session_notices
 from settle import state as settle_state
 from settle import verdicts as settle_verdicts
 from syntheses import document, units
+from syntheses import edit as synthesis_edit
 from syntheses import project as project_syntheses
 
 if TYPE_CHECKING:
@@ -4504,7 +4505,7 @@ def _memory_edit_wording(
     """Add the claim, context and body changes to `changes`, refusing a shrink the guard stops."""
     if edit.claim is not None:
         if not args.shrink:
-            document._guard_shrink(m.claim, edit.claim, sentences=False)
+            synthesis_edit._guard_shrink(m.claim, edit.claim, sentences=False)
         changes["claim"] = edit.claim
         what.append("claim")
     if edit.context is not None:
@@ -4512,7 +4513,7 @@ def _memory_edit_wording(
         what.append("context")
     if edit.body is not None:
         if not args.shrink:
-            document._guard_shrink(m.body.strip("\n"), edit.body.strip("\n"))
+            synthesis_edit._guard_shrink(m.body.strip("\n"), edit.body.strip("\n"))
         changes["body"] = edit.body
         what.append("body")
 
@@ -7244,7 +7245,7 @@ def _structure_topics_plan(args: argparse.Namespace, target: _StructureTarget) -
         raise ValueError("topics takes s:<handle>")
     topics = _structure_topic_ids(args, target.root)
     _structure_topic_clash(target.root, target.handle, topics)
-    old, new = document.with_topics(target.path, topics, target.today)
+    old, new = synthesis_edit.with_topics(target.path, topics, target.today)
     return _StructurePlan(
         {target.path: (old.encode("utf-8"), new.encode("utf-8"))},
         [f"s:{target.handle}\ttopics {', '.join(topics)}"],
@@ -7257,7 +7258,7 @@ def _structure_rename_edit(
     args: argparse.Namespace, target: _StructureTarget, members: Sequence[tuple[Path, str]]
 ) -> _SectionEdit:
     section = cast("str", target.section)
-    old, new, new_section = document.renamed_section(
+    old, new, new_section = synthesis_edit.renamed_section(
         target.path, section, args.heading, target.today
     )
     return _SectionEdit(
@@ -7278,7 +7279,7 @@ def _structure_remove_edit(
     target: _StructureTarget, members: Sequence[tuple[Path, str]]
 ) -> _SectionEdit:
     section = cast("str", target.section)
-    old, new = document.without_section(target.path, section, target.today)
+    old, new = synthesis_edit.without_section(target.path, section, target.today)
     ref = f"{target.handle}#{section}"
     return _SectionEdit(
         old,
@@ -7491,7 +7492,7 @@ def _refs_attempt(unit: _RefsPart, picked: list[int]) -> tuple[str, list[str | N
     """The part's text with the picked proposals applied, the reason each was refused, and a problem with the
     result as a whole (None when it is sound)."""
     part = unit.part
-    text, why_not = document.change_references(
+    text, why_not = synthesis_edit.change_references(
         part.text,
         unit.folder,
         [(unit.items[i][1], unit.items[i][2], unit.items[i][3]) for i in picked],
@@ -7595,7 +7596,7 @@ def _refs_collect(
         outcome = _refs_part_outcome(syn.sections, handle, root, name, items)
         outcomes.append(outcome)
         if outcome.change is not None:
-            new_file = document.apply_part_text(new_file, name, outcome.change[1])
+            new_file = synthesis_edit.apply_part_text(new_file, name, outcome.change[1])
             notes.update(_refs_note_edits(root, handle, name, outcome.change))
     return _RefsOutcome(
         new_file,
@@ -7612,7 +7613,7 @@ def _refs_write(
 ) -> None:
     """Write the synthesis and the member notes as one logged group."""
     changes = {
-        path: (original, document.bumped(outcome.new_file, today).encode("utf-8")),
+        path: (original, synthesis_edit.bumped(outcome.new_file, today).encode("utf-8")),
         **outcome.notes,
     }
     _synthesis_require_writable(changes)
@@ -7762,7 +7763,7 @@ def _add_with_note(
     root = args.root
     syn = document.load_one(path)
     note_body = _read_body(args.note_body_file)
-    section_handle, _, cleaned = document.prepare_add(path, args.section, body, today)
+    section_handle, _, cleaned = synthesis_edit.prepare_add(path, args.section, body, today)
     note = _SectionNote(
         topics=list(syn.topics),
         origin=args.origin or _synthesis_note_origin(cleaned),
@@ -7770,8 +7771,8 @@ def _add_with_note(
         part_of=f"{handle}#{section_handle}",
         cleaned=cleaned,
     )
-    undo = document.snapshot(path)
-    document.add_section(path, args.section, body, today)
+    undo = synthesis_edit.snapshot(path)
+    synthesis_edit.add_section(path, args.section, body, today)
     target = None
     created = False
     try:
@@ -7858,14 +7859,14 @@ def _synthesis_create(args: argparse.Namespace) -> int:
     approved = getattr(args, "owner_approved", False)
     if refused := _check_terms([args.title, args.slug, summary], "synthesis", approved):
         return refused
-    text = document.render_new(
+    text = synthesis_edit.render_new(
         (_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
         title=args.title,
         topics=topics,
         summary=summary,
         today=datetime.date.today(),
     )
-    path = document.create(root / document.SYNTHESES_DIR, args.slug, text)
+    path = synthesis_edit.create(root / document.SYNTHESES_DIR, args.slug, text)
     print(f"s:{path.stem}\t{path.relative_to(root).as_posix()}")
     return 0
 
@@ -7928,7 +7929,7 @@ def _synthesis_add(args: argparse.Namespace, write: _SynthesisWrite) -> str:
         note_rel = _add_with_note(args, write.path, write.handle, write.body, today)
         new_handle = document.section_handle(args.section)
     else:
-        new_handle = document.add_section(write.path, args.section, write.body, today)
+        new_handle = synthesis_edit.add_section(write.path, args.section, write.body, today)
     print(f"s:{write.handle}#{new_handle}\tadded")
     if write.one_call:
         print(note_rel)
@@ -7938,7 +7939,9 @@ def _synthesis_add(args: argparse.Namespace, write: _SynthesisWrite) -> str:
 def _synthesis_append(args: argparse.Namespace, write: _SynthesisWrite) -> str:
     """`mem synthesis append`: text added to a section; returns the section's handle."""
     section = _synthesis_section_of(args, write)
-    document.append_section(write.path, section, write.body, datetime.date.today(), store=args.root)
+    synthesis_edit.append_section(
+        write.path, section, write.body, datetime.date.today(), store=args.root
+    )
     print(f"s:{write.handle}#{section}\tappended")
     return section
 
@@ -7948,7 +7951,7 @@ def _synthesis_edit(args: argparse.Namespace, write: _SynthesisWrite) -> str:
     section = _synthesis_section_of(args, write)
     if section != document.SUMMARY:
         _synthesis_require_valid_section(write.body, args.root)
-    document.edit_section(
+    synthesis_edit.edit_section(
         write.path,
         section,
         write.body,
@@ -8195,12 +8198,12 @@ class _NoteEditOptions(TypedDict):
 def _note_replace_section(text: str, section: str, body: str | None, shrink: bool) -> str:
     """The note's text with the text of the `## section` replaced; ValueError when it is empty or shrinks."""
     lines, head, end = _section_span(text, section)
-    new = document._clean(body or "")
+    new = synthesis_edit._clean(body or "")
     if not new:
         raise ValueError("the section text is empty")
-    document._check_body(new)
+    synthesis_edit._check_body(new)
     if not shrink:
-        document._guard_shrink("\n".join(lines[head + 1 : end]).strip("\n"), new)
+        synthesis_edit._guard_shrink("\n".join(lines[head + 1 : end]).strip("\n"), new)
     lines[head + 1 : end] = ["", *new.split("\n"), ""]
     return "\n".join(lines)
 
@@ -8212,7 +8215,7 @@ def _note_replace_claim(text: str, meta: dict, claim: str, shrink: bool) -> str:
     if not claim:
         raise ValueError("the claim is empty")
     if not shrink:
-        document._guard_shrink(meta["claim"], claim, sentences=False)
+        synthesis_edit._guard_shrink(meta["claim"], claim, sentences=False)
     return _set_field(text, "claim", claim)
 
 
@@ -9202,7 +9205,7 @@ def _search_one(
     if args.also:
         print(f"== {query} ==")
     printed, from_others = _search_memory_hits(ctx, query)
-    sections = document.match_sections(ctx.all_syntheses, tokenize(query), tokenize=tokenize)
+    sections = synthesis_edit.match_sections(ctx.all_syntheses, tokenize(query), tokenize=tokenize)
     hits = _QueryHits(result, linked, printed, sections)
     _search_print_query(ctx, query, hits, bool(printed or from_others))
     if ctx.default_type and ctx.with_notes and len(result) < _SPARSE_HITS and not more:

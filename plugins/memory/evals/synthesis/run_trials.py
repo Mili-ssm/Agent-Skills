@@ -62,7 +62,7 @@ from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import trial_env
-from syntheses import document
+from syntheses import document, edit
 from syntheses import units as synthesis_units
 from synthesize import pipeline as sp
 from synthesize import topics as synthesize_topics
@@ -219,7 +219,7 @@ def drop_unlisted_references(store: Path) -> int:
             bad = [r for r in every if document._resolved(base, r.target) not in listed]
             if bad:
                 new = synthesis_units._remove(part.text, 0, body_end, bad) + part.text[body_end:]
-                text, total = document.apply_part_text(text, part.handle, new), total + len(bad)
+                text, total = edit.apply_part_text(text, part.handle, new), total + len(bad)
         path.write_text(text)
     return total
 
@@ -285,7 +285,7 @@ def without_references_text(path: Path) -> str:
     """The synthesis file's text with the references of every part's body (Summary included) removed."""
     text = path.read_text(encoding="utf-8")
     for section in document.load_one(path).sections:
-        text = document.apply_part_text(
+        text = edit.apply_part_text(
             text, section.handle, synthesis_units.without_references(section.text)
         )
     return text
@@ -1264,7 +1264,7 @@ def plant_references(
             new = section.text
             for start, end, repl in sorted(edits[section.handle], reverse=True):
                 new = new[:start] + repl + new[end:]
-            text = document.apply_part_text(text, section.handle, new)
+            text = edit.apply_part_text(text, section.handle, new)
     return text, planted, planted_weak
 
 
