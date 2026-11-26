@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- The offload table (about 700 tokens) now loads from a `SessionStart` hook at session start, after `/clear` and after a compaction; new users paste only the routing text. Nothing to do if the table is pasted in `~/.claude/CLAUDE.md`: the hook sees it and stays silent. If the table reaches the session another way (an `@import`, a project `CLAUDE.md`, `CLAUDE.local.md`, account instructions, a file with CRLF line ends) the hook cannot see it and the table loads twice: turn the option off with `/plugin configure agent-skills@mili-ssm` (`offload_policy`). A stale pasted copy wins over the plugin's until you delete it. The cloud script turns it off unless `AGENT_SKILLS_OFFLOAD_HOOK=1`. Copilot and Codex users keep pasting. Decision and measurement: ADR 0032.
+
 ### Changed
 
 - Offload policy (`user-config/offload-policy.md`): the `skeptical-reviewer` row and the closing line now name the two-round limit ("re-run it once after fixing (round 2 is the last)"). Re-paste the file into your user-level `CLAUDE.md` to pick it up.

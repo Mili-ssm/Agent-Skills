@@ -1,6 +1,6 @@
 # 0021 `user-config/` is the single source of the owner's user-level rules
 
-Status: accepted · Date: 2026-11-15 · Amends 0012
+Status: accepted · Date: 2026-11-15 · Amends 0012 · Amended by 0032
 
 ## Context
 

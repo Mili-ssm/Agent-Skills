@@ -80,13 +80,13 @@ mkdir -p ~/.claude/agents && cp user-agents/Explore.md ~/.claude/agents/
 # add to ~/.claude/settings.json: "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}
 ```
 
-Then add the offload table to `~/.claude/CLAUDE.md`: copy it from [`user-config/offload-policy.md`](user-config/offload-policy.md) (single source, ADR 0012). In evals it raised `check-runner` and `summarizer` delegation from 0–2/3 to 3/3 (ADR 0010); without it, force a worker per task with `/agent-skills:offload <task>`.
+**Claude Code:** nothing to paste for the offload table. The plugin's `SessionStart` hook prints it at session start, after `/clear` and after a compaction (implemented, ADR 0032; measured on par with the pasted table in evals). It stays silent when the option `offload_policy` is `false` (`/plugin configure agent-skills@mili-ssm`) and when `~/.claude/CLAUDE.md` already holds the table, so users who pasted it need do nothing. Turn the option off if the table reaches the session another way (an `@import`, a project `CLAUDE.md`, account instructions), or it loads twice. Paste only the routing text from [`user-config/routing.md`](user-config/routing.md). **Copilot CLI and Codex:** no hook parity; paste both files (below). Without the table, force a worker per task with `/agent-skills:offload <task>` (the table raised `check-runner` and `summarizer` delegation from 0–2/3 to 3/3, ADR 0010).
 
-The cloud script can write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
+The cloud script turns the table hook off (`offload_policy: false`; `AGENT_SKILLS_OFFLOAD_HOOK=1` keeps it on), because the owner's account preferences already carry the table. It can also write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
 
 ## Recommended prompt
 
-Paste the block for your tool into your `CLAUDE.md`, `AGENTS.md` or Copilot instructions: it holds the offload table and the routing table (which skill, agent or command for which need). Sources: [`offload-policy.md`](user-config/offload-policy.md), [`routing.md`](user-config/routing.md).
+Paste the block for your tool into your `CLAUDE.md`, `AGENTS.md` or Copilot instructions (Claude Code users with the offload table hook on paste only the routing text, ADR 0032): it holds the offload table and the routing table (which skill, agent or command for which need). Sources: [`offload-policy.md`](user-config/offload-policy.md), [`routing.md`](user-config/routing.md).
 
 <!-- BEGIN generated: recommended-prompt -->
 
@@ -347,7 +347,7 @@ Each plugin has its own version and changelog (`plugins/<name>/CHANGELOG.md`); `
 |---|---|---|
 | Commands `/agent-skills:<name>` | You type one; they never auto-trigger | A specialist review or workflow when you decide |
 | Skills | Their description matches the task, a bonus that can stay silent; force one with its command | Methods and knowledge applied while you work |
-| Workers | The [offload policy](user-config/offload-policy.md) is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification, after-action review and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier`, `skeptical-reviewer` (plus user-scope `Explore`) |
+| Workers | The [offload policy](user-config/offload-policy.md) loads from the plugin's session start hook (ADR 0032) or is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification, after-action review and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier`, `skeptical-reviewer` (plus user-scope `Explore`) |
 | Superpowers | A row of the [routing table](user-config/routing.md) names its skill | Methods: brainstorming, plan writing, the plan loop, TDD, debugging, worktrees and branch finishing |
 
 ### Agents (fresh context, return a report)

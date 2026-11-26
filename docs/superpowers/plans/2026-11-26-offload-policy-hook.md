@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: amended after the pre-mortem of 2026-11-26 · Branch: `feat/offload-policy-hook` · Base: `dev`; rebase onto `dev` after `fix/prompt-review-2026-11-26` merges, before Task 5, because that branch changes the policy text and holds its latest measurement · Date: 2026-11-26 · Backlog item 4d
+Status: implemented, awaiting review and pull request · Branch: `feat/offload-policy-hook` · Base: `dev`; rebase onto `dev` after `fix/prompt-review-2026-11-26` merges, before Task 5, because that branch changes the policy text and holds its latest measurement · Date: 2026-11-26 · Backlog item 4d
 
 **Goal:** A user who installs `agent-skills` or `memory` gets that plugin's offload table at session start with nothing to paste or keep up to date; a plugin option turns it off for users who keep the table in their own instructions file.
 
@@ -80,10 +80,10 @@ Status: amended after the pre-mortem of 2026-11-26 · Branch: `feat/offload-poli
 **Files:**
 - Modify: `scripts/port.py`
 
-- [ ] **Step 1:** Record the start: `python3 scripts/port.py --check` (exit 0), `uv run --with pytest pytest scripts/tests -q` (count), `uvx ruff@0.17.6 check --no-fix scripts/port.py` (20 findings expected), `uvx --with pyyaml --with pytest basedpyright@1.40.2 --warnings scripts/port.py` (6 expected).
-- [ ] **Step 2:** Fix every finding with behavior unchanged: no suppression comment, no config edit, no other file. A function over the complexity limit is split along a real seam; every name `scripts/tests/` and `scripts/validate.py` import from `port` keeps its name and signature.
-- [ ] **Step 3:** Gate: both tools report nothing for the file; `ruff format --check` passes; `python3 scripts/port.py` leaves `git status` clean (it regenerates every output identically); `port.py --check`, `python3 scripts/validate.py` and the script tests pass with the same count.
-- [ ] **Step 4:** Commit `refactor(scripts): port.py clean under Ruff and basedpyright` with every hook on.
+- [x] **Step 1:** Record the start: `python3 scripts/port.py --check` (exit 0), `uv run --with pytest pytest scripts/tests -q` (count), `uvx ruff@0.17.6 check --no-fix scripts/port.py` (20 findings expected), `uvx --with pyyaml --with pytest basedpyright@1.40.2 --warnings scripts/port.py` (6 expected).
+- [x] **Step 2:** Fix every finding with behavior unchanged: no suppression comment, no config edit, no other file. A function over the complexity limit is split along a real seam; every name `scripts/tests/` and `scripts/validate.py` import from `port` keeps its name and signature.
+- [x] **Step 3:** Gate: both tools report nothing for the file; `ruff format --check` passes; `python3 scripts/port.py` leaves `git status` clean (it regenerates every output identically); `port.py --check`, `python3 scripts/validate.py` and the script tests pass with the same count.
+- [x] **Step 4:** Commit `refactor(scripts): port.py clean under Ruff and basedpyright` with every hook on.
 
 ### Task 2: `agent-skills` hook, option and generated copy
 
@@ -95,11 +95,11 @@ Status: amended after the pre-mortem of 2026-11-26 · Branch: `feat/offload-poli
 **Interfaces:**
 - Produces: option key `offload_policy` (boolean, default `true`, title "Offload table at session start", description saying what it loads, about 700 tokens, and to turn it off when the user's own `CLAUDE.md` holds the table). `offload-policy.sh` prints the file `offload-policy.md` next to it, unchanged, and nothing else. It prints nothing when `CLAUDE_PLUGIN_OPTION_OFFLOAD_POLICY` is exactly `false`, when `CLAUDE_CODE_EVAL_CONFINED` is set (any value) and `EVAL_OFFLOAD_HOOK` is not exactly `on`, or when `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md` holds the exact line `## Offload policy (main conversation only)`.
 
-- [ ] **Step 1: Write the failing tests** in `scripts/tests/test_offload_hook.py`, each running the script with `subprocess` and a clean environment (`HOME` and `CLAUDE_CONFIG_DIR` pointing at a temp folder): `test_prints_the_policy_verbatim` (stdout equals `user-config/offload-policy.md`), `test_option_false_prints_nothing`, `test_eval_marker_prints_nothing`, `test_eval_marker_with_switch_on_prints`, `test_eval_marker_with_other_switch_value_prints_nothing`, `test_skips_when_claude_md_holds_the_heading`, `test_prints_when_claude_md_lacks_the_heading`, `test_prints_without_home` (`HOME` and `CLAUDE_CONFIG_DIR` unset), `test_missing_policy_file_is_silent` (a copy of the script in a folder without the `.md`: empty output, exit 0), `test_generated_copy_matches_source`. Every test asserts exit code 0.
-- [ ] **Step 2:** Run `uv run --with pytest pytest scripts/tests/test_offload_hook.py -q`. Expected: fail, the script does not exist.
-- [ ] **Step 3:** Implement: the script; `hooks.json` with one `SessionStart` entry, matcher `startup|clear|compact`, command `"${CLAUDE_PLUGIN_ROOT}/hooks/offload-policy.sh"`, timeout 5; the `userConfig` block; in `port.py` a generation step that writes the copy and a `--check` comparison for it, following how the script already handles its other generated files.
-- [ ] **Step 4:** Run the tests, `python3 scripts/validate.py`, `claude plugin validate .`, `pre-commit run --files scripts/port.py scripts/tests/test_offload_hook.py plugins/agent-skills/hooks/offload-policy.sh`. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(agent-skills): offload table from a session start hook, with an option to turn it off`.
+- [x] **Step 1: Write the failing tests** in `scripts/tests/test_offload_hook.py`, each running the script with `subprocess` and a clean environment (`HOME` and `CLAUDE_CONFIG_DIR` pointing at a temp folder): `test_prints_the_policy_verbatim` (stdout equals `user-config/offload-policy.md`), `test_option_false_prints_nothing`, `test_eval_marker_prints_nothing`, `test_eval_marker_with_switch_on_prints`, `test_eval_marker_with_other_switch_value_prints_nothing`, `test_skips_when_claude_md_holds_the_heading`, `test_prints_when_claude_md_lacks_the_heading`, `test_prints_without_home` (`HOME` and `CLAUDE_CONFIG_DIR` unset), `test_missing_policy_file_is_silent` (a copy of the script in a folder without the `.md`: empty output, exit 0), `test_generated_copy_matches_source`. Every test asserts exit code 0.
+- [x] **Step 2:** Run `uv run --with pytest pytest scripts/tests/test_offload_hook.py -q`. Expected: fail, the script does not exist.
+- [x] **Step 3:** Implement: the script; `hooks.json` with one `SessionStart` entry, matcher `startup|clear|compact`, command `"${CLAUDE_PLUGIN_ROOT}/hooks/offload-policy.sh"`, timeout 5; the `userConfig` block; in `port.py` a generation step that writes the copy and a `--check` comparison for it, following how the script already handles its other generated files.
+- [x] **Step 4:** Run the tests, `python3 scripts/validate.py`, `claude plugin validate .`, `pre-commit run --files scripts/port.py scripts/tests/test_offload_hook.py plugins/agent-skills/hooks/offload-policy.sh`. Expected: all pass.
+- [x] **Step 5:** Commit `feat(agent-skills): offload table from a session start hook, with an option to turn it off`.
 
 ### Task 3: `memory` hook and option
 
@@ -111,26 +111,26 @@ Status: amended after the pre-mortem of 2026-11-26 · Branch: `feat/offload-poli
 **Interfaces:**
 - Produces: option key `offload_table` (boolean, default `true`). The script prints `plugins/memory/user-config/offload-policy.md` unchanged; silent for `CLAUDE_PLUGIN_OPTION_OFFLOAD_TABLE` exactly `false`, for `CLAUDE_CODE_EVAL_CONFINED` set without `EVAL_OFFLOAD_HOOK` exactly `on`, or for the exact line `### Offload policy: memory plugin (main conversation only)` in the user's `CLAUDE.md`. Its own `SessionStart` entry, matcher `startup|clear|compact`, placed after the `session-index.sh` entry; `session-index.sh` is not edited.
 
-- [ ] **Step 1:** Write the failing tests: the same cases as Task 2, with this plugin's file, option and heading (no generated-copy test: the file is read in place).
-- [ ] **Step 2:** Run them. Expected: fail.
-- [ ] **Step 3:** Implement the script, the hook entry and the option.
-- [ ] **Step 4:** Run the plugin's tests (`uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto`), `validate.py`, `claude plugin validate .`, `pre-commit run --files <the new test file>`. Expected: all pass.
-- [ ] **Step 5:** Commit `feat(memory): offload table from a session start hook, with an option to turn it off`.
+- [x] **Step 1:** Write the failing tests: the same cases as Task 2, with this plugin's file, option and heading (no generated-copy test: the file is read in place).
+- [x] **Step 2:** Run them. Expected: fail.
+- [x] **Step 3:** Implement the script, the hook entry and the option.
+- [x] **Step 4:** Run the plugin's tests (`uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto`), `validate.py`, `claude plugin validate .`, `pre-commit run --files <the new test file>`. Expected: all pass.
+- [x] **Step 5:** Commit `feat(memory): offload table from a session start hook, with an option to turn it off`.
 
 ### Task 4: The hook arm of the evals
 
 **Files:**
 - Create: `plugins/agent-skills/evals/offload/<worker>-with-hook/` for the six workers that have a `-with-policy` case (`check-runner`, `implementer`, `skeptical-reviewer`, `summarizer`, `summarizer-extract`, `ui-verifier`): a copy of the twin (graders and scaffold included) without `append_system_prompt`, with `execution.env: {EVAL_OFFLOAD_HOOK: "on"}` and `name: offload-<worker>-with-hook`
 
-- [ ] **Step 1:** Create the six cases. No existing case and no Python file changes.
-- [ ] **Step 2:** `python3 scripts/validate.py` (its `check_offload_policy` must accept a `-with-hook` case that embeds nothing; if it rejects one, stop and report the message: the fix would touch `validate.py`), `claude plugin validate .`.
-- [ ] **Step 3:** Commit `test(evals): hook arm for the offload table`.
+- [x] **Step 1:** Create the six cases. No existing case and no Python file changes.
+- [x] **Step 2:** `python3 scripts/validate.py` (its `check_offload_policy` must accept a `-with-hook` case that embeds nothing; if it rejects one, stop and report the message: the fix would touch `validate.py`), `claude plugin validate .`.
+- [x] **Step 3:** Commit `test(evals): hook arm for the offload table`.
 
 ### Task 5: Measure (controller, not an implementer)
 
-- [ ] **Step 1:** Canary: run `offload-summarizer` (bare) and `offload-summarizer-with-hook` at `--runs 2` with `--keep-temp`; confirm that the table is absent in the first and present in the second, by a grader added to a scratch copy of each case (an LLM grader asking whether the context holds the heading `## Offload policy (main conversation only)`), never by opening the sealed run folders.
-- [ ] **Step 2:** Run the six `offload-*-with-hook` cases and their six `-with-policy` twins the same day with the same flags at `--runs 2` (`--scaffold --allow-tools Bash Edit Write`, Sonnet). A hook case below its twin reruns at 6 runs on both sides. `ui-verifier` cannot launch its browser in the sandbox (2026-11-26), so its pair is recorded as not measurable, not as a failure.
-- [ ] **Step 3:** Apply the second kill criterion. Record the table in ADR 0032 `## Measurement 2026-11-26`.
+- [x] **Step 1:** Canary: run `offload-summarizer` (bare) and `offload-summarizer-with-hook` at `--runs 2` with `--keep-temp`; confirm that the table is absent in the first and present in the second, by a grader added to a scratch copy of each case (an LLM grader asking whether the context holds the heading `## Offload policy (main conversation only)`), never by opening the sealed run folders.
+- [x] **Step 2:** Run the six `offload-*-with-hook` cases and their six `-with-policy` twins the same day with the same flags at `--runs 2` (`--scaffold --allow-tools Bash Edit Write`, Sonnet). A hook case below its twin reruns at 6 runs on both sides. `ui-verifier` cannot launch its browser in the sandbox (2026-11-26), so its pair is recorded as not measurable, not as a failure.
+- [x] **Step 3:** Apply the second kill criterion. Record the table in ADR 0032 `## Measurement 2026-11-26`.
 
 ### Task 6: ADR, docs, cloud setup, changelogs
 
@@ -138,6 +138,6 @@ Status: amended after the pre-mortem of 2026-11-26 · Branch: `feat/offload-poli
 - Create: `docs/adr/0032-offload-tables-load-from-a-session-start-hook.md`
 - Modify: `docs/adr/0021-…md` and `docs/adr/0012-…md` (Status lines: `Amended by 0032`), `README.md` (outside the generated block: Claude Code users get the offload table from the plugin, paste only the routing text; how to turn the option off; Copilot and Codex users paste both), `plugins/memory/README.md` (the same for its table), `scripts/cloud-setup.sh` (see § Decisions; checked by running the step against a temp `HOME` with and without an existing `settings.json`), root `CLAUDE.md` (§ Generated files: `plugins/agent-skills/hooks/offload-policy.md`; the "Offload table" row of § Where a change goes; § Eval protocol: `user-config/offload-policy.md` → every `offload-*-with-policy` and `offload-*-with-hook`, after the canary of Task 5 step 1), `docs/platform-parity.md` (hook row), both `CHANGELOG.md` files under `[Unreleased]` (what loads now, about 700 and 520 tokens; the skip when the table is already pasted and its blind spots; the option and how to turn it off: `/plugin configure <plugin>@mili-ssm`), `docs/backlog.md` (item 4d closed; `Updated`, `Expires`).
 
-- [ ] **Step 1:** Load `decision-records`, `docs-principles` and `prompt-engineering` rules through the brief; write the ADR (Context, Decision, Alternatives, Consequences, Revisit if; the measurement of Task 5; kill criteria for the unmeasured parts: the skip check and the `memory` hook, which no eval covers).
-- [ ] **Step 2:** Update the files above; `python3 scripts/port.py`; `python3 scripts/validate.py`; `claude plugin validate .`.
-- [ ] **Step 3:** Commit `docs: ADR 0032 and the docs for offload tables loaded by a hook`.
+- [x] **Step 1:** Load `decision-records`, `docs-principles` and `prompt-engineering` rules through the brief; write the ADR (Context, Decision, Alternatives, Consequences, Revisit if; the measurement of Task 5; kill criteria for the unmeasured parts: the skip check and the `memory` hook, which no eval covers).
+- [x] **Step 2:** Update the files above; `python3 scripts/port.py`; `python3 scripts/validate.py`; `claude plugin validate .`.
+- [x] **Step 3:** Commit `docs: ADR 0032 and the docs for offload tables loaded by a hook`.

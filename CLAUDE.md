@@ -1,6 +1,6 @@
 # Agent-Skills: maintainer notes
 
-Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI mods and generated Copilot/Codex ports. Developed mostly by Claude sessions; this file holds only what the code does not show. The offload table and the routing text belong in the user-level `~/.claude/CLAUDE.md` (sources: `user-config/offload-policy.md` and `user-config/routing.md`, ADR 0012, 0021), never here, because a second copy loads twice.
+Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI mods and generated Copilot/Codex ports. Developed mostly by Claude sessions; this file holds only what the code does not show. The routing text belongs in the user-level `~/.claude/CLAUDE.md`, and so does the offload table for a user who turns the plugin hooks off (sources: `user-config/routing.md` and `user-config/offload-policy.md`, ADR 0012, 0021); the plugins' session start hooks load the offload tables (ADR 0032). Neither text goes here, because a second copy loads twice.
 
 ## Commands
 
@@ -18,7 +18,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 
 ## Generated files: never edit by hand
 
-`ports/**`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json`, `user-config/{offload-policy,routing}.{copilot,codex}.md`, the README block between the `recommended-prompt` markers, the rendered `<!-- shared:… -->` blocks in plugin files (edit the fragment, not the block), the `docs/ports.md` block between the `models` markers. Edit the Claude source, then run `scripts/port.py`.
+`ports/**`, `.github/plugin/marketplace.json`, `.agents/plugins/marketplace.json`, `user-config/{offload-policy,routing}.{copilot,codex}.md`, `plugins/agent-skills/hooks/offload-policy.md`, the README block between the `recommended-prompt` markers, the rendered `<!-- shared:… -->` blocks in plugin files (edit the fragment, not the block), the `docs/ports.md` block between the `models` markers. Edit the Claude source, then run `scripts/port.py`.
 
 ## Where a change goes
 
@@ -27,7 +27,7 @@ Marketplace `mili-ssm`: the `agent-skills` plugin, the `memory` plugin, two UI m
 | Skill, agent or command | `plugins/agent-skills/{skills,agents,commands}/` | `port.py`; the README catalog row (validate.py checks names, model and preloads); the eval case when a description changes |
 | Shared text (`shared/fragments/`) | the fragment | `python3 -m promptkit.fragments` from `scripts/` re-renders every `<!-- shared:… -->` block; `--check` verifies (validate.py runs it) |
 | Model facts (`shared/models.toml`) | the catalog | any edit: `python3 scripts/port.py`, the regenerated `docs/ports.md` models block must show in the diff; change `AGENT_PAIRS` in `scripts/tests/test_models.py` only on purpose; add a CHANGELOG line |
-| Offload table | `user-config/offload-policy.md` (single copy) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
+| Offload table | `user-config/offload-policy.md` (single copy; the `agent-skills` hook prints its generated copy, ADR 0032) | `port.py`; the `evals/offload/*-with-policy` cases embed it verbatim (validate.py checks) |
 | Routing, plan loop and review rules | `user-config/routing.md` (single copy, ADR 0021) | `port.py`; no eval embeds it, so the ADR carries a kill criterion (N6) |
 | Memory plugin | `plugins/memory/`; first read "Current state and where to resume" in `docs/superpowers/plans/2026-11-17-memory-plugin.md` | its tests (`uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto`); the stage plan's state table; no port (ADR 0023) |
 | UI mod | `plugins/<mod>/` and its README | `docs/mods-surfaces.md` for anything a surface did unexpectedly |
@@ -57,7 +57,7 @@ Run only the cases a change can move, because a full two-sided suite costs about
 | A skill `description` | that skill's `trigger/` case, plus every `neg-*` |
 | An agent `description` | trigger cases whose grader names it, its `offload-*` cases, plus every `neg-*` |
 | A worker's body | its `offload-*` cases |
-| `user-config/offload-policy.md` | every `offload-*-with-policy` |
+| `user-config/offload-policy.md` | every `offload-*-with-policy` and `offload-*-with-hook`; first rerun the canary (ADR 0032: `offload-summarizer` shows no table, `offload-summarizer-with-hook` shows it) |
 | Skill bodies, references, commands | no suite covers them: read one trace |
 | Only `scripts/port.py` or the ports, Claude files unchanged | no eval (owner, 2026-11): the Claude plugin is what the suites measure |
 

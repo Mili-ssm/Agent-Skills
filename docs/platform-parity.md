@@ -10,7 +10,7 @@ Verified 2026-11-23 from each vendor's documentation, read in full and fact-chec
 
 | Plugin | Codex CLI | Copilot CLI | Antigravity CLI |
 |---|---|---|---|
-| `agent-skills` (skills, commands, agents) | **Ported** (ADR 0015); tool limits are prose, agents install outside the plugin | **Ported** (ADR 0015); same Claude models | **Portable, not built**: skills as is except the two that use `${CLAUDE_SKILL_DIR}`; agents need a model-tier map; commands become user-only skills |
+| `agent-skills` (skills, commands, agents; its `SessionStart` hook that loads the offload table, ADR 0032, is not ported: these users paste the table) | **Ported** (ADR 0015); tool limits are prose, agents install outside the plugin | **Ported** (ADR 0015); same Claude models | **Portable, not built**: skills as is except the two that use `${CLAUDE_SKILL_DIR}`; agents need a model-tier map; commands become user-only skills |
 | `memory` (hooks, options, `bin/`, background `claude -p`, 4 agents, 3 skills) | **Portable with losses**: every hook event exists, but `PreCompact` ignores plain stdout (the handoff request needs another channel); no plugin options documented, `SessionEnd` capped at 3 s, hooks need the user's trust review | **Portable with losses**: no `PostCompact`, `preCompact` cannot steer the summary, no plugin options documented; how a plugin hook finds its folder is not documented | **Core only**: `SessionStart` is the only session hook (`Stop` can stand in for session end); no subagent, compaction or session-end hooks |
 | `tool-fold`, `plan-progress` (UI mods) | **Not portable**: no UI plugin API | **Not portable**; at most a status-line script (experimental) | **Not portable**; at most a status-line script |
 
