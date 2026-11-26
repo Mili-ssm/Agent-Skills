@@ -6,6 +6,7 @@ from pathlib import Path
 import mem
 import pytest
 from capture import extract as capture_extract
+from patching import patch_all
 from store import records, rules
 from test_rules_session import FIT, gfolder, pad, write
 
@@ -66,7 +67,7 @@ def test_add_sighting_records_the_case_of_a_new_session(tmp_path, monkeypatch):
     m = transcript(tmp_path)
     writes = []
     real = records.update
-    monkeypatch.setattr(records, "update", lambda *a, **k: writes.append(1) or real(*a, **k))
+    patch_all(monkeypatch, "update", lambda *a, **k: writes.append(1) or real(*a, **k))
     got, new = records.add_sighting(m, f"session s2 project {KEY}", D2, outcome="failed")
     assert new and len(writes) == 1
     assert got.sources == [f"session s1 project {KEY}", f"session s2 project {KEY}"]
@@ -1256,7 +1257,7 @@ def test_a_counted_session_that_gains_a_project_keeps_its_log(tmp_path, monkeypa
     m, _ = records.add_case(m, "session s1", D1, "failed", D1)
     writes = []
     real = records.update
-    monkeypatch.setattr(records, "update", lambda *a, **k: writes.append(1) or real(*a, **k))
+    patch_all(monkeypatch, "update", lambda *a, **k: writes.append(1) or real(*a, **k))
     got, new = records.add_sighting(m, f"session s1 project {KEY}", D2, outcome="failed")
     assert new and len(writes) == 1
     assert got.sources == [f"session s1 project {KEY}"] and got.log == [
