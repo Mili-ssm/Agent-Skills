@@ -6,6 +6,7 @@
 `index`: generated index READMEs and `apply_index`
 `links`: link rules: relative links resolve, `orphan_notes`; pure
 `note`: frontmatter, YAML loaders, `Note`, topics, handles
+`search`: BM25F ranking, filters, `find`/`search`, links, mentions and the search-eval table; pure
 
 A base layer like `core`: imports stdlib, `core`, `memories`, `syntheses` and `notes` only.
 """

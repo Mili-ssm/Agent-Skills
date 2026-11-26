@@ -4,4 +4,5 @@ Modules (the plan, docs/superpowers/plans/2026-11-26-memory-mem-split.md, adds o
 
 `common`: helpers shared by the handlers and the dispatch (store resolution, logs, note resolution, guards, `UsageError`)
 `admin`: `terms`, `projects`, `init`, `history`
+`read`: `check`, `index`, `find`, `topics`, `show`, `search`, `passages`, `related`, `search-eval`, `stats`, `review`
 """

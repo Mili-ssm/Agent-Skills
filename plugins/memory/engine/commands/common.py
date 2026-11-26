@@ -350,3 +350,100 @@ def _commit_points(
 
 def _swap_file(path: Path, data: bytes) -> None:
     safe_io.replace_file(path, data)
+
+
+SOURCES_DIR = ".sources"
+
+
+def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
+    try:
+        project = records.project_root(Path.cwd(), os.environ)
+    except OSError:
+        project = None
+    return [
+        ("project", records.project_dir(project) if project else None),
+        ("global", records.memories_root(os.environ, _optional_store(args))),
+    ]
+
+
+def _named_folder(name: str) -> Path | None:
+    """The memory folder of a registered project; None when the name is unknown or the registry unreadable."""
+    try:
+        entry = records.read_registry(data_dir(os.environ)).get(name)
+    except ValueError:
+        return None
+    return records.project_dir(Path(entry["path"])) if entry else None
+
+
+def _other_projects(names: Sequence[str], every: bool) -> list[tuple[str, Path]] | None:
+    """The folders of the projects asked for, without the current one; None after a message on stderr."""
+    try:
+        reg = records.read_registry(data_dir(os.environ))
+    except ValueError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return None
+    for name in names:
+        if name not in reg:
+            print(f"mem: no project named {name} (see mem projects list)", file=sys.stderr)
+            return None
+    try:
+        current = records.project_root(Path.cwd(), os.environ)
+        current = current.resolve() if current else None
+    except OSError:
+        current = None
+    chosen = list(dict.fromkeys([*(reg if every else ()), *names]))
+    return [
+        (n, records.project_dir(Path(reg[n]["path"])))
+        for n in chosen
+        if current is None or Path(reg[n]["path"]) != current
+    ]
+
+
+def _memory_status(m: records.Memory, today: datetime.date) -> str | None:
+    if m.status != "active":
+        return m.status
+    return "expired" if m.valid_until is not None and m.valid_until < today else None
+
+
+def _unconfirmed(m: records.Memory) -> str:
+    """A web finding is unchecked until a second source confirms it; a transcript memory until another session shows it."""
+    if m.origin == "transcript":
+        return (
+            ", from transcript, unconfirmed"
+            if records.standing(m) == "unconfirmed"
+            else ", from transcript"
+        )
+    return ", web, unconfirmed" if m.origin == "web" else ""
+
+
+def _tally_line(tally: records.Tally, until: datetime.date) -> str:
+    """The `mem show` line of one version; `until` is the date of the next version, or today for the last."""
+    days = (until - tally.since).days
+    return (
+        f"version {tally.number} since {tally.since.isoformat()} ({days} day{'' if days == 1 else 's'}): "
+        f"worked {tally.worked}, failed {tally.failed}: {tally.text}"
+    )
+
+
+def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None:
+    """An exact handle: the project scope wins over the global one."""
+    named = getattr(args, "project", None)
+    if named:  # an explicit, read-only look at another project
+        return next(
+            (
+                m
+                for m in records.load_memories(_named_folder(named), "project")
+                if m.handle == handle
+            ),
+            None,
+        )
+    project = records.project_root(Path.cwd(), os.environ)
+    folders = [
+        ("project", records.project_dir(project) if project else None),
+        ("global", records.memories_root(os.environ, _optional_store(args))),
+    ]
+    for scope, folder in folders:
+        for m in records.load_memories(folder, scope):
+            if m.handle == handle:
+                return m
+    return None

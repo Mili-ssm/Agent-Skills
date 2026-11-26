@@ -2,6 +2,9 @@ from pathlib import Path
 
 import mem
 import pytest
+from commands import read
+from notes import links as link_rules
+from notes import search as note_search
 from test_find_new import write_note
 
 LIMIT = 2  # the result limit these tests ask for
@@ -43,7 +46,7 @@ def test_stats_counts_on_fixture(hub_root, capsys):
 def test_search_ranks_title_above_body_mention(hub_root):
     body_only = add(hub_root, "body-only", "Something else entirely", "Zebra appears once here.")
     in_claim = add(hub_root, "in-claim", "Zebra crossings are safe", "Other text.")
-    result = mem.search(hub_root, "zebra")
+    result = note_search.search(hub_root, "zebra")
     assert paths(result) == [in_claim, body_only]
     assert result[0][1] > result[1][1] > 0
 
@@ -53,25 +56,25 @@ def test_search_rarer_term_scores_higher(hub_root):
     rare = add(hub_root, "rare", "Rare words", "omega")
     add(hub_root, "other", "Other", "alpha")
     add(hub_root, "another", "Another", "alpha")
-    assert paths(mem.search(hub_root, "alpha omega"))[0] == rare
-    assert common in paths(mem.search(hub_root, "alpha omega"))
+    assert paths(note_search.search(hub_root, "alpha omega"))[0] == rare
+    assert common in paths(note_search.search(hub_root, "alpha omega"))
 
 
 def test_search_filters_apply_before_scoring(hub_root):
     add(hub_root, "k", "Attention matters in knowledge")
-    assert paths(mem.search(hub_root, "attention", type="literature")) == [
+    assert paths(note_search.search(hub_root, "attention", type="literature")) == [
         "literature/computing/2017-vaswani-attention.md"
     ]
-    assert paths(mem.search(hub_root, "attention", confidence="medium")) == [
+    assert paths(note_search.search(hub_root, "attention", confidence="medium")) == [
         "knowledge/computing/attention-replaces-recurrence.md"
     ]
-    assert paths(mem.search(hub_root, "attention", topic="llm", type="research")) == []
+    assert paths(note_search.search(hub_root, "attention", topic="llm", type="research")) == []
 
 
 def test_search_limit(hub_root):
     for i in range(4):
         add(hub_root, f"n{i}", f"Quokka {i}")
-    assert len(mem.search(hub_root, "quokka", limit=LIMIT)) == LIMIT
+    assert len(note_search.search(hub_root, "quokka", limit=LIMIT)) == LIMIT
 
 
 def test_search_accents_and_authors(hub_root):
@@ -81,19 +84,23 @@ def test_search_accents_and_authors(hub_root):
         "---\ntitle: T\nauthors: [García]\nyear: 2024\nkind: paper\nurl: https://x.org\n"
         "topics: [computing]\nadded: 2026-11-07\n---\n",
     )
-    assert paths(mem.search(hub_root, "GARCÍA")) == ["literature/computing/2024-garcia-x.md"]
-    assert paths(mem.search(hub_root, "garcia"))[0] == "literature/computing/2024-garcia-x.md"
+    assert paths(note_search.search(hub_root, "GARCÍA")) == [
+        "literature/computing/2024-garcia-x.md"
+    ]
+    assert (
+        paths(note_search.search(hub_root, "garcia"))[0] == "literature/computing/2024-garcia-x.md"
+    )
 
 
 def test_search_query_terms_are_deduplicated(hub_root):
-    assert mem.search(hub_root, "attention") == mem.search(
+    assert note_search.search(hub_root, "attention") == note_search.search(
         hub_root, "attention attention Attention"
     )
 
 
 def test_search_skips_unparsable_note_with_warning(hub_root, capsys):
     write_note(hub_root, "knowledge/computing/bad.md", "no frontmatter attention\n")
-    assert "bad.md" not in " ".join(paths(mem.search(hub_root, "attention")))
+    assert "bad.md" not in " ".join(paths(note_search.search(hub_root, "attention")))
     assert "skipping knowledge/computing/bad.md" in capsys.readouterr().err
 
 
@@ -162,8 +169,8 @@ def test_snippet_collapses_whitespace_and_truncates(hub_root):
     write_note(
         hub_root, rel, KNOWLEDGE_FRONTMATTER + "\n## Evidence\n\n" + "zzzneedle\tword " * 60 + "\n"
     )
-    note = next(n for n in mem.build_corpus(hub_root).notes if n.rel == rel)
-    text = mem.snippet(note, ["zzzneedle"])
+    note = next(n for n in note_search.build_corpus(hub_root).notes if n.rel == rel)
+    text = read.snippet(note, ["zzzneedle"])
     assert (
         len(text) == SNIPPET_CHARS and text.endswith("…") and "\t" not in text and "  " not in text
     )
@@ -239,7 +246,7 @@ def test_orphans_unlinked_index_only_and_linked(hub_root, capsys):
     # the index READMEs list every note but do not count
     assert mem.main(["--root", str(hub_root), "index"]) == 0
     capsys.readouterr()
-    orphans = mem.orphan_notes(hub_root)
+    orphans = link_rules.orphan_notes(hub_root)
     assert lonely in orphans and linked not in orphans
     assert "knowledge/computing/linker.md" in orphans
     # fixture: the knowledge and research notes are linked from nowhere but index READMEs
@@ -256,7 +263,7 @@ def test_orphans_unlinked_index_only_and_linked(hub_root, capsys):
 
 
 def test_stats_orphans_prints_nothing_when_none(hub_root, capsys, monkeypatch):
-    monkeypatch.setattr(mem, "orphan_notes", lambda root: [])
+    monkeypatch.setattr(link_rules, "orphan_notes", lambda root: [])
     assert mem.main(["--root", str(hub_root), "stats", "--orphans"]) == 0
     assert not capsys.readouterr().out
 
@@ -274,7 +281,7 @@ def test_title_match_outranks_more_frequent_body_match(hub_root):
         "---\nclaim: Something else\ntopics: [computing]\nconfidence: low\nlevel: basic\norigin: experience\n"
         "updated: 2026-11-07\n---\n## Claim\n\nzebra zebra\n\n## Evidence\n\nx\n\n## Applies when\n\nx\n\n## Does not apply when\n\nx\n",
     )
-    ranked = [r[0] for r in mem.search(hub_root, "zebra")]
+    ranked = [r[0] for r in note_search.search(hub_root, "zebra")]
     assert ranked[:2] == [
         "knowledge/computing/zebra-in-title.md",
         "knowledge/computing/zebra-in-body.md",
@@ -288,21 +295,28 @@ def test_search_survives_a_note_with_an_empty_body(hub_root):
         "---\nclaim: Empty body claim\ntopics: [computing]\nconfidence: low\nlevel: basic\norigin: experience\n"
         "updated: 2026-11-07\n---\n",
     )
-    assert mem.search(hub_root, "empty body claim")[0][0] == "knowledge/computing/empty-body.md"
+    assert (
+        note_search.search(hub_root, "empty body claim")[0][0]
+        == "knowledge/computing/empty-body.md"
+    )
 
 
 def test_rank_matches_search(hub_root):
-    corpus = mem.build_corpus(hub_root)
-    ranked = [(n.rel, s, mem._title(n)) for n, s in mem.rank(corpus, "attention", limit=5)]
-    assert ranked == mem.search(hub_root, "attention", limit=5)
+    corpus = note_search.build_corpus(hub_root)
+    ranked = [
+        (n.rel, s, note_search._title(n)) for n, s in note_search.rank(corpus, "attention", limit=5)
+    ]
+    assert ranked == note_search.search(hub_root, "attention", limit=5)
 
 
 def test_search_eval_reads_notes_once(hub_root, monkeypatch):
     write_note(hub_root, "docs/search-eval.md", EVAL)
     calls = []
-    real = mem.build_corpus
-    monkeypatch.setattr(mem, "build_corpus", lambda *a, **k: calls.append(1) or real(*a, **k))
-    mem.search_eval(hub_root)
+    real = note_search.build_corpus
+    monkeypatch.setattr(
+        note_search, "build_corpus", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
+    note_search.search_eval(hub_root)
     assert len(calls) == 1
 
 
@@ -316,9 +330,9 @@ def test_related_groups(hub_root):
         b,
         KNOWLEDGE_FRONTMATTER + "\n## Evidence\n\n- [a](attention-replaces-recurrence.md): x\n",
     )
-    groups = mem.related(hub_root, a)
+    groups = note_search.related(hub_root, a)
     assert [n.rel for n in groups["linked-from"]] == [b]
-    assert [n.rel for n in mem.related(hub_root, b)["links-to"]] == [a]
+    assert [n.rel for n in note_search.related(hub_root, b)["links-to"]] == [a]
     assert a not in [n.rel for n in groups["similar"]] and b not in [
         n.rel for n in groups["similar"]
     ]
@@ -327,7 +341,7 @@ def test_related_groups(hub_root):
 def test_related_without_links_prints_only_similar_rows(hub_root, capsys):
     a = "knowledge/computing/zzz-isolated.md"
     write_note(hub_root, a, KNOWLEDGE_FRONTMATTER + "\n## Claim\n\nAttention needle.\n")
-    groups = mem.related(hub_root, a)
+    groups = note_search.related(hub_root, a)
     assert groups["links-to"] == [] and groups["linked-from"] == []
     assert mem.main(["--root", str(hub_root), "related", a]) == 0
     lines = capsys.readouterr().out.splitlines()
@@ -338,7 +352,7 @@ def test_cli_related_output_and_errors(hub_root, capsys):
     a = "knowledge/computing/attention-replaces-recurrence.md"
     assert mem.main(["--root", str(hub_root), "related", a, "--limit", "2"]) == 0
     lines = capsys.readouterr().out.splitlines()
-    assert lines and all(line.split("\t")[0] in mem.RELATIONS for line in lines)
+    assert lines and all(line.split("\t")[0] in note_search.RELATIONS for line in lines)
     assert sum(line.startswith("similar\t") for line in lines) <= SIMILAR_MAX
     assert mem.main(["--root", str(hub_root), "related", "knowledge/README.md"]) == 1
     assert capsys.readouterr().err == "mem: not a note: knowledge/README.md\n"
@@ -381,26 +395,28 @@ def test_snippet_never_picks_a_fenced_line(hub_root):
         "Zzzfenced note",
         "intro line\n\n```\nzzzfencedword inside code\n```\n\nplain closing line",
     )
-    note = next(n for n in mem.build_corpus(hub_root).notes if n.rel == rel)
-    text = mem.snippet(note, ["zzzfencedword"])
+    note = next(n for n in note_search.build_corpus(hub_root).notes if n.rel == rel)
+    text = read.snippet(note, ["zzzfencedword"])
     assert text and "zzzfencedword" not in text and "```" not in text
 
 
 def test_term_idf_matches_rank_weights(hub_root):
-    corpus = mem.build_corpus(hub_root)
-    idf = mem.term_idf(corpus, ["attention", "zzznowhere"])
+    corpus = note_search.build_corpus(hub_root)
+    idf = note_search.term_idf(corpus, ["attention", "zzznowhere"])
     assert idf["zzznowhere"] > idf["attention"] > 0
 
 
 def test_related_raises_value_error_for_a_non_note(hub_root):
     with pytest.raises(ValueError, match=r"not a note: knowledge/README\.md"):
-        mem.related(hub_root, "knowledge/README.md")
+        note_search.related(hub_root, "knowledge/README.md")
 
 
 def test_cli_related_builds_the_corpus_once(hub_root, monkeypatch):
     calls = []
-    real = mem.build_corpus
-    monkeypatch.setattr(mem, "build_corpus", lambda *a, **k: calls.append(1) or real(*a, **k))
+    real = note_search.build_corpus
+    monkeypatch.setattr(
+        note_search, "build_corpus", lambda *a, **k: calls.append(1) or real(*a, **k)
+    )
     assert (
         mem.main([
             "--root",
@@ -426,4 +442,4 @@ def test_search_eval_breach_on_mrr_alone(hub_root, capsys):
     captured = capsys.readouterr()
     assert "recall@10: 1.00 (1/1)" in captured.out and "below the revisit trigger" in captured.err
     mrr = float(captured.out.split("MRR@10: ")[1])
-    assert mrr < mem.MRR_TRIGGER
+    assert mrr < read.MRR_TRIGGER
