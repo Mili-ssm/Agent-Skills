@@ -42,6 +42,7 @@ from memories.records import tokenize
 from notes import check as check_rules
 from notes import fields as note_fields
 from notes import index as index_files
+from notes import links as link_rules
 from notes import note as note_files
 from notes import project_syntheses, syntheses
 from notes.check import (
@@ -52,7 +53,6 @@ from notes.check import (
     due_rereads,
     due_retests,
     invalid_changed,
-    orphan_notes,
 )
 from notes.fields import (
     LEVELS,
@@ -66,6 +66,7 @@ from notes.index import (
     apply_index,
     index_targets,
 )
+from notes.links import orphan_notes
 from notes.note import (
     FrontmatterError,
     ancestors,
@@ -91,7 +92,7 @@ if TYPE_CHECKING:
         Note,
     )
 
-# Names that live in check, fields, notes and index; callers may still read them from `mem`.
+# Names that live in check, fields, links, notes and index; callers may still read them from `mem`.
 _MOVED = frozenset({
     "BASELINE_HEADING",
     "EXPERIMENT_DIRS",
@@ -199,7 +200,7 @@ _MOVED = frozenset({
 
 def __getattr__(name: str) -> object:
     if name in _MOVED:
-        for module in (check_rules, note_fields, note_files, index_files):
+        for module in (check_rules, note_fields, link_rules, note_files, index_files):
             if hasattr(module, name):
                 return getattr(module, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -560,7 +561,7 @@ RELATIONS = ("links-to", "linked-from", "similar")
 def _link_targets(root: Path, note: Note) -> set[str]:
     """Hub-relative paths the note links to (a folder link means its README.md), as `orphan_notes` resolves them."""
     targets = set()
-    for _, _, file_part in check_rules._relative_links(note.body, refs=True):
+    for _, _, file_part in link_rules._relative_links(note.body, refs=True):
         target = os.path.normpath(root / Path(note.rel).parent / file_part)
         if Path(target).is_dir():
             target = os.path.join(target, "README.md")
@@ -630,7 +631,7 @@ def unlinked_mentions(root: Path, rel: str, corpus: Corpus) -> list[Note]:
             n
             for n in corpus.notes
             if n.rel != rel
-            and pattern.search(check_rules._LINK.sub("", n.body))
+            and pattern.search(link_rules._LINK.sub("", n.body))
             and rel not in _link_targets(root, n)
         ),
         key=lambda n: n.rel,
@@ -674,7 +675,7 @@ def _headings(lines: list[str]) -> list[tuple[int, int, str]]:
     """(0-based index, level, text) of each Markdown heading outside fenced code."""
     return [
         (i, len(h.group(1)), line)
-        for i, (line, fenced) in enumerate(zip(lines, check_rules._in_fence(lines), strict=False))
+        for i, (line, fenced) in enumerate(zip(lines, link_rules._in_fence(lines), strict=False))
         if not fenced and (h := _HEADING.match(line))
     ]
 
@@ -735,7 +736,7 @@ def snippet(
     total weight of its distinct `terms` (`weights`, else 1 each), earliest on ties; else the first such line.
     Whitespace is collapsed and text over `width` is cut with an ellipsis."""
     body = note.body.splitlines()
-    fenced = check_rules._in_fence(body)
+    fenced = link_rules._in_fence(body)
     lines = [
         line
         for line, inside in zip(body, fenced, strict=False)
@@ -1157,7 +1158,7 @@ def new_note(
 
 def _link_points_at(base: Path, target: str, raw: str, old: Path) -> bool:
     """Whether the link `target` (`raw` is its path part) in the file `base` points at the file `old`."""
-    if target.startswith(("#", "mailto:")) or check_rules._SCHEME.match(target) or not raw:
+    if target.startswith(("#", "mailto:")) or link_rules._SCHEME.match(target) or not raw:
         return False
     try:
         return (base.parent / urllib.parse.unquote(raw)).resolve() == old
@@ -1176,16 +1177,16 @@ def _link_edits(
     the note may sit in another folder.
     """
     lines = text.split("\n")
-    masked = check_rules._CODE_SPAN.sub(
+    masked = link_rules._CODE_SPAN.sub(
         lambda m: re.sub(r"[^\n]", " ", m.group(0)),
         "\n".join(
             " " * len(l) if f else l
-            for l, f in zip(lines, check_rules._in_fence(lines), strict=False)
+            for l, f in zip(lines, link_rules._in_fence(lines), strict=False)
         ),
     )
     count = 0
     for i, line in enumerate(masked.split("\n")):
-        for start, end in reversed(check_rules._target_spans(line, True)):
+        for start, end in reversed(link_rules._target_spans(line, True)):
             target = line[start:end]
             raw = target.split("#", 1)[0]
             hit = _link_points_at(base, target, raw, old)
@@ -1313,7 +1314,7 @@ def _rename_link_edits(root: Path, old: Path, stem: str) -> tuple[dict[Path, str
     edits: dict[Path, str] = {}
     links = 0
     copy = f"{SOURCES_DIR}/{old.stem}/"
-    for path in check_rules._markdown_files(root):
+    for path in link_rules._markdown_files(root):
         try:
             text = note_files._read_text(path)
         except FrontmatterError as exc:
@@ -1533,9 +1534,9 @@ def _unify_rewrite_links(
     """Point every link to an other note at the kept note, adding the files to `edits`; the count."""
     links = 0
     skip = {o.path for o in others}
-    for path in check_rules._markdown_files(root):
+    for path in link_rules._markdown_files(root):
         rel = path.relative_to(root).as_posix()
-        if path.resolve() in skip or check_rules._is_index_readme(rel):
+        if path.resolve() in skip or link_rules._is_index_readme(rel):
             continue
         resolved = path.resolve()
         original = _unify_current_text(root, path, edits)
@@ -4926,7 +4927,7 @@ def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) 
     A README listing that changed since is left alone (not a refusal) and rebuilt by `apply_index`; one that is
     as the action left it gets its exact previous bytes back."""
     members = _restore_group_members(root, entry)
-    listing = {n: check_rules._is_index_readme(e["handle"]) for n, e in members}
+    listing = {n: link_rules._is_index_readme(e["handle"]) for n, e in members}
     moved = [
         e["handle"] for n, e in members if not listing[n] and not _restore_file_current(root, e)
     ]

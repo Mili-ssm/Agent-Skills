@@ -24,7 +24,7 @@ PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.
 
 
 # The check family: pure rules and queries over a notes folder.
-PURE_CHECK_MODULES = ["notes.check", "notes.fields"]
+PURE_CHECK_MODULES = ["notes.check", "notes.fields", "notes.links"]
 NOTE_MODULES = ["notes.note", "notes.index", *PURE_CHECK_MODULES]
 
 
