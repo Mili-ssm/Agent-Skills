@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from notes import index as index_mod
 from notes import note as notes_mod
 from notes import syntheses
 from notes.due import rule_requirements
@@ -20,7 +21,8 @@ from notes.fields import (
     _authors,
     instruction_word,
 )
-from notes.links import rule_index_fresh, rule_links
+from notes.index import INDEX_START, index_targets
+from notes.links import rule_links
 from notes.note import (
     FrontmatterError,
     ancestors,
@@ -719,6 +721,37 @@ def rule_supersession(root: Path, notes: list[Note], topics: dict | None) -> lis
                     )
                 )
     return problems
+
+
+def rule_index_fresh(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
+    """Rule 9: generated index blocks are current."""
+    if topics is None:
+        return []
+    problems = []
+    for path, block, default in index_targets(root, notes, topics):
+        problem = _index_problem(path.relative_to(root).as_posix(), path, block, default)
+        if problem is not None:
+            problems.append(problem)
+    return problems
+
+
+def _index_start_line(text: str) -> int:
+    start = text.find(INDEX_START)
+    return text.count("\n", 0, start) + 1 if start >= 0 else 1
+
+
+def _index_problem(rel: str, path: Path, block: str, default: object) -> Problem | None:
+    if not path.is_file():
+        return Problem(rel, 1, "missing readme: run mem index") if default is not None else None
+    try:
+        text = notes_mod._read_text(path)
+    except FrontmatterError as exc:
+        return Problem(rel, 1, f"unreadable index README ({exc}): save it as UTF-8 text")
+    try:
+        current = index_mod._with_index(text, block) == text
+    except FrontmatterError as exc:
+        return Problem(rel, _index_start_line(text), str(exc))
+    return None if current else Problem(rel, _index_start_line(text), "index stale: run mem index")
 
 
 RULES = [
