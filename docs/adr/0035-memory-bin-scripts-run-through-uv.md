@@ -16,7 +16,7 @@ Status: accepted · Date: 2026-11-26 · Supersedes 0033
 ## Decision
 
 - Every `bin/` file is a bash launcher: it finds its folder through a `readlink` loop, checks `command -v uv` (exit 127 with `<name>: uv is not installed (https://docs.astral.sh/uv/)`), then `exec uv run --quiet --script engine/run.py --bin <name> "$@"`. `bin/mem` is the same without `--bin`.
-- `engine/run.py` is the only PEP 723 header (one environment) and dispatches `--bin <name>` with one static import per name. It rewrites `sys.argv` to `[name, *rest]` so `--help` stays identical.
+- `engine/run.py` is the PEP 723 header every launcher runs (one environment; `mem.py` keeps its own header, kept in step, for a direct `uv run --script engine/mem.py`) and dispatches `--bin <name>` with one static import per name. It rewrites `sys.argv` to `[name, *rest]` so `--help` stays identical.
 - The bodies of the old scripts live in `engine/entry/` (`auto`, `capture`, `corroborate`, `settle`; `research` and `synthesize` delegate to their packages). Only `run.py` imports that layer.
 - Launch sites execute the launcher with no interpreter prefix (`settle/state.py`, capture's corroborate start).
 - `hooks/session-index.sh` prints one notice line in its "mem did not answer" branch when `uv` is missing, so the silent failures are visible once per session.

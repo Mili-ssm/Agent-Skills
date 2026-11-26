@@ -53,3 +53,4 @@ The last revisit trigger fired: `store/` reached 19 modules in two families with
 ## Review 2026-11-26
 
 [ADR 0035](0035-memory-bin-scripts-run-through-uv.md) supersedes 0033: every `bin/` file is now a bash launcher and `engine/run.py` runs under `uv`, so the `bin/` scripts no longer run on the system `python3` and no `bin/` file inserts `engine/` into `sys.path`. The bodies of the old scripts live in `engine/entry/`, a layer above the feature packages. The Decision above stands.
+- `test_bin_python_floor.py` (named above) is gone with the 3.11 floor (ADR 0035): `tests/test_bin_launchers.py` checks that every `bin/` file is a launcher known to `engine/run.py`, and `tests/test_module_loaders.py` keeps its `exec_module` registration guard.
