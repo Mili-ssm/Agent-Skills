@@ -7713,95 +7713,140 @@ def _lf(text: str, rel: str) -> str:
     return text
 
 
+@dataclass(frozen=True)
+class _SectionNote:
+    """The knowledge note that summarizes a section just added: its topics, origin, text and `part_of` link, and the
+    section text its fingerprint stands for."""
+
+    topics: list[str]
+    origin: str
+    body: str | None
+    part_of: str
+    cleaned: str
+
+
+def _synthesis_note_origin(cleaned: str) -> str:
+    """The origin of the note that summarizes a section, from the kinds of source the section cites."""
+    kinds = syntheses.source_kinds(cleaned)
+    if kinds & {"literature", "url"}:
+        return "literature"
+    if "research" in kinds:
+        return "research"
+    return "experience" if "experience" in kinds else "literature"
+
+
+def _synthesis_note_new(
+    args: argparse.Namespace, root: Path, note: _SectionNote, today: datetime.date
+) -> tuple[Path, bool]:
+    """Create the note; (its path, whether its domain folder is new)."""
+    known = load_topics(root)
+    domain = root_of(known, note.topics[0]) if note.topics and note.topics[0] in known else None
+    created = not (root / "knowledge" / str(domain)).exists()
+    target = new_note(
+        root,
+        "knowledge",
+        slug=args.note_slug,
+        topics=note.topics,
+        today=today,
+        body=note.body,
+        claim=args.note_claim,
+        confidence=args.confidence,
+        level=args.level,
+        origin=note.origin,
+        part_of=note.part_of,
+        part_of_hash=syntheses.fingerprint(note.cleaned),
+    )
+    return target, created
+
+
+def _synthesis_note_checked(root: Path, target: Path, cleaned: str) -> str:
+    """Stamp the note's `part_of_hash` and require that it has no check problem; returns its path."""
+    rel = target.relative_to(root).as_posix()
+    if (stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))) != syntheses.fingerprint(
+        cleaned
+    ):
+        safe_io.replace_file(
+            target,
+            _set_field(note_files._read_text(target), "part_of_hash", stamp).encode("utf-8"),
+        )
+    if found := [p for p in check(root) if p.path == rel]:
+        raise NewNoteError(
+            f"the note has {len(found)} problems, so nothing was written: "
+            + "; ".join(str(p) for p in found)
+        )
+    return rel
+
+
+def _synthesis_note_discard(root: Path, target: Path, created: bool) -> None:
+    """Remove the note of a failed add, with its domain folder when the add created it, and refresh the listings."""
+    target.unlink(missing_ok=True)
+    if created:
+        shutil.rmtree(target.parent, ignore_errors=True)
+    with contextlib.suppress(FrontmatterError, OSError):
+        apply_index(root)
+
+
 def _add_with_note(
-    args: argparse.Namespace, root: Path, path: Path, handle: str, body: str, today: datetime.date
+    args: argparse.Namespace, path: Path, handle: str, body: str, today: datetime.date
 ) -> str:
     """The section and the knowledge note that summarizes it, both or neither; returns the note's path."""
+    root = args.root
     syn = syntheses.load_one(path)
     note_body = _read_body(args.note_body_file)
     section_handle, _, cleaned = syntheses.prepare_add(path, args.section, body, today)
-    kinds = syntheses.source_kinds(cleaned)
-    origin = args.origin or (
-        "literature"
-        if kinds & {"literature", "url"}
-        else "research"
-        if "research" in kinds
-        else "experience"
-        if "experience" in kinds
-        else "literature"
+    note = _SectionNote(
+        topics=list(syn.topics),
+        origin=args.origin or _synthesis_note_origin(cleaned),
+        body=note_body,
+        part_of=f"{handle}#{section_handle}",
+        cleaned=cleaned,
     )
     undo = syntheses.snapshot(path)
     syntheses.add_section(path, args.section, body, today)
     target = None
     created = False
     try:
-        known = load_topics(root)
-        domain = root_of(known, syn.topics[0]) if syn.topics and syn.topics[0] in known else None
-        created = not (root / "knowledge" / str(domain)).exists()
-        target = new_note(
-            root,
-            "knowledge",
-            slug=args.note_slug,
-            topics=list(syn.topics),
-            today=today,
-            body=note_body,
-            claim=args.note_claim,
-            confidence=args.confidence,
-            level=args.level,
-            origin=origin,
-            part_of=f"{handle}#{section_handle}",
-            part_of_hash=syntheses.fingerprint(cleaned),
-        )
-        rel = target.relative_to(root).as_posix()
-        if (
-            stamp := syntheses.note_fingerprint(cleaned, _note_target(rel))
-        ) != syntheses.fingerprint(cleaned):
-            safe_io.replace_file(
-                target,
-                _set_field(note_files._read_text(target), "part_of_hash", stamp).encode("utf-8"),
-            )
-        if found := [p for p in check(root) if p.path == rel]:
-            raise NewNoteError(
-                f"the note has {len(found)} problems, so nothing was written: "
-                + "; ".join(str(p) for p in found)
-            )
+        target, created = _synthesis_note_new(args, root, note, today)
+        rel = _synthesis_note_checked(root, target, cleaned)
     except Exception:
         if target is not None:
-            target.unlink(missing_ok=True)
-            if created:
-                shutil.rmtree(target.parent, ignore_errors=True)
-            with contextlib.suppress(FrontmatterError, OSError):
-                apply_index(root)
+            _synthesis_note_discard(root, target, created)
         undo()
         raise
     return rel
 
 
-def cmd_synthesis(args: argparse.Namespace) -> int:
-    root = args.root
-    folder = root / syntheses.SYNTHESES_DIR
-    today = datetime.date.today()
-    action = args.synthesis_command
-    approved = getattr(args, "owner_approved", False)
-    if action == "list":
-        listed = syntheses.load(folder)
-        try:
-            known = load_topics(root)
-        except FrontmatterError:
-            known = {}
-        wanted = {args.topic, *descendants(known, args.topic)} if args.topic else None
-        for syn in listed:
-            if syn.error:
-                print(f"mem: skipped {syn.path}: {syn.error}", file=sys.stderr)
-            elif wanted is None or wanted & set(syn.topics):
-                print(f"s:{syn.handle}\t{len(syn.parts)} parts, updated {syn.updated}\t{syn.title}")
-        return 0
-    if action == "attach":
-        return _attach(args)
-    if action in {"rename", "remove", "detach", "topics"}:
-        return _structure(args)
-    if action == "refs":
-        return _refs(args)
+def _synthesis_list(args: argparse.Namespace) -> int:
+    """`mem synthesis list`: one line per synthesis, those of `--topic` and its descendants only."""
+    listed = syntheses.load(args.root / syntheses.SYNTHESES_DIR)
+    try:
+        known = load_topics(args.root)
+    except FrontmatterError:
+        known = {}
+    wanted = {args.topic, *descendants(known, args.topic)} if args.topic else None
+    for syn in listed:
+        if syn.error:
+            print(f"mem: skipped {syn.path}: {syn.error}", file=sys.stderr)
+        elif wanted is None or wanted & set(syn.topics):
+            print(f"s:{syn.handle}\t{len(syn.parts)} parts, updated {syn.updated}\t{syn.title}")
+    return 0
+
+
+def _synthesis_handlers() -> dict[str, Callable[[argparse.Namespace], int]]:
+    """The subcommands that read or restructure; any other one writes a synthesis or one of its parts."""
+    return {
+        "list": _synthesis_list,
+        "attach": _attach,
+        "rename": _structure,
+        "remove": _structure,
+        "detach": _structure,
+        "topics": _structure,
+        "refs": _refs,
+    }
+
+
+def _synthesis_one_call(args: argparse.Namespace, action: str) -> bool:
+    """Whether `add` also writes the note that summarizes the section; the five options go together."""
     note_group = (
         [args.note_slug, args.note_claim, args.note_body_file, args.confidence, args.level]
         if action == "add"
@@ -7812,187 +7857,310 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         build_parser().error(
             "--note-slug, --note-claim, --note-body-file, --confidence and --level go together"
         )
-    try:
-        if action == "new":
-            topics = [t.strip() for t in args.topics.split(",") if t.strip()]
-            known = load_topics(root)
-            if not topics:
-                raise ValueError("at least one topic is required")
-            for t in topics:
-                if t not in known:
-                    raise ValueError(
-                        f"unknown topic '{t}': use an id from topics.yaml or add it there"
-                    )
-            for other in syntheses.load(folder):
-                if other.error is None and (clash := [t for t in topics if t in other.topics]):
-                    raise ValueError(
-                        f"s:{other.handle} already covers the topic {clash[0]}; add a part to it."
-                    )
-            summary = _synthesis_text(args.summary_file)
-            if summary is None:
-                return 1
-            if _refuse_secret([args.title, summary]):
-                return 4
-            if refused := _check_terms([args.title, args.slug, summary], "synthesis", approved):
-                return refused
-            text = syntheses.render_new(
-                (_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
-                title=args.title,
-                topics=topics,
-                summary=summary,
-                today=today,
+    return one_call
+
+
+def _synthesis_new_topics(args: argparse.Namespace, root: Path) -> list[str]:
+    """The topics of a new synthesis; ValueError when one is unknown, none is given or another synthesis covers one."""
+    topics = [t.strip() for t in args.topics.split(",") if t.strip()]
+    known = load_topics(root)
+    if not topics:
+        raise ValueError("at least one topic is required")
+    for t in topics:
+        if t not in known:
+            raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+    for other in syntheses.load(root / syntheses.SYNTHESES_DIR):
+        if other.error is None and (clash := [t for t in topics if t in other.topics]):
+            raise ValueError(
+                f"s:{other.handle} already covers the topic {clash[0]}; add a part to it."
             )
-            path = syntheses.create(folder, args.slug, text)
-            print(f"s:{path.stem}\t{path.relative_to(root).as_posix()}")
-        else:
-            ref = args.target
-            handle, section = syntheses.split_ref(ref)
-            path = syntheses.path_of(folder, handle)
-            if path is None or not path.is_file():
-                raise ValueError(f"no synthesis named {ref}")
-            body = _synthesis_text(args.body_file)
-            if body is None:
-                return 1
-            note_texts = []
-            if one_call:
-                note_texts = [args.note_claim, _synthesis_text(args.note_body_file)]
-                if note_texts[1] is None:
-                    return 1
-            if _refuse_secret([getattr(args, "section", None) or "", body, *note_texts]):
-                return 4
-            if refused := _check_terms(
-                [getattr(args, "section", None) or "", body], "synthesis", approved
-            ):
-                return refused
-            if note_texts and (
-                refused := _check_terms([*note_texts, args.note_slug], "note", approved)
-            ):
-                return refused
-            if action == "add":
-                if section is not None:
-                    raise ValueError("add takes s:<handle>, not a section")
-                problems = syntheses.validate_section(body, root) if body.strip() else []
-                if problems:
-                    raise ValueError("; ".join(problems))
-                note_rel = ""
-                if one_call:
-                    note_rel = _add_with_note(args, root, path, handle, body, today)
-                    new_handle = syntheses.section_handle(args.section)
-                else:
-                    new_handle = syntheses.add_section(path, args.section, body, today)
-                print(f"s:{handle}#{new_handle}\tadded")
-                shown = new_handle
-                if one_call:
-                    print(note_rel)
-            else:
-                if section is None:
-                    raise ValueError(f"{action} takes s:<handle>#<section handle>")
-                shown = section
-                if action == "append":
-                    syntheses.append_section(path, section, body, today, store=root)
-                    print(f"s:{handle}#{section}\tappended")
-                else:
-                    problems = (
-                        syntheses.validate_section(body, root)
-                        if section != syntheses.SUMMARY and body.strip()
-                        else []
-                    )
-                    if problems:
-                        raise ValueError("; ".join(problems))
-                    syntheses.edit_section(
-                        path,
-                        section,
-                        body,
-                        today,
-                        shrink=args.shrink,
-                        drop_references=args.drop_references,
-                    )
-                    print(f"s:{handle}#{section}\tedited")
-            _long_note(handle, path, shown)
+    return topics
+
+
+def _synthesis_create(args: argparse.Namespace) -> int:
+    """`mem synthesis new`: the file of a synthesis with its summary."""
+    root = args.root
+    topics = _synthesis_new_topics(args, root)
+    summary = _synthesis_text(args.summary_file)
+    if summary is None:
+        return 1
+    if _refuse_secret([args.title, summary]):
+        return 4
+    approved = getattr(args, "owner_approved", False)
+    if refused := _check_terms([args.title, args.slug, summary], "synthesis", approved):
+        return refused
+    text = syntheses.render_new(
+        (_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
+        title=args.title,
+        topics=topics,
+        summary=summary,
+        today=datetime.date.today(),
+    )
+    path = syntheses.create(root / syntheses.SYNTHESES_DIR, args.slug, text)
+    print(f"s:{path.stem}\t{path.relative_to(root).as_posix()}")
+    return 0
+
+
+@dataclass(frozen=True)
+class _SynthesisWrite:
+    """What a command that writes a part of a synthesis carries: the file, its handle, the part the reference names
+    (None for `add`), the text and whether `add` also writes a note."""
+
+    path: Path
+    handle: str
+    section: str | None
+    body: str
+    one_call: bool
+
+
+def _synthesis_note_texts(args: argparse.Namespace, one_call: bool) -> list[str] | None:
+    """The claim and the text of the note an `add` also writes ([] when it writes none); None when the text is unreadable."""
+    if not one_call:
+        return []
+    note_body = _synthesis_text(args.note_body_file)
+    return None if note_body is None else [args.note_claim, note_body]
+
+
+def _synthesis_refused(args: argparse.Namespace, body: str, note_texts: list[str]) -> int:
+    """0 when the texts may be written, else the exit code after a message on stderr."""
+    heading = getattr(args, "section", None) or ""
+    approved = getattr(args, "owner_approved", False)
+    if _refuse_secret([heading, body, *note_texts]):
+        return 4
+    if refused := _check_terms([heading, body], "synthesis", approved):
+        return refused
+    if note_texts:
+        return _check_terms([*note_texts, args.note_slug], "note", approved)
+    return 0
+
+
+def _synthesis_require_valid_section(body: str, root: Path) -> None:
+    """ValueError listing the problems of a section text; a blank text has none."""
+    problems = syntheses.validate_section(body, root) if body.strip() else []
+    if problems:
+        raise ValueError("; ".join(problems))
+
+
+def _synthesis_section_of(args: argparse.Namespace, write: _SynthesisWrite) -> str:
+    """The section the reference names; ValueError when `append` or `edit` got none."""
+    if write.section is None:
+        raise ValueError(f"{args.synthesis_command} takes s:<handle>#<section handle>")
+    return write.section
+
+
+def _synthesis_add(args: argparse.Namespace, write: _SynthesisWrite) -> str:
+    """`mem synthesis add`: a new section, with its note in one call; returns the new section's handle."""
+    if write.section is not None:
+        raise ValueError("add takes s:<handle>, not a section")
+    _synthesis_require_valid_section(write.body, args.root)
+    today = datetime.date.today()
+    note_rel = ""
+    if write.one_call:
+        note_rel = _add_with_note(args, write.path, write.handle, write.body, today)
+        new_handle = syntheses.section_handle(args.section)
+    else:
+        new_handle = syntheses.add_section(write.path, args.section, write.body, today)
+    print(f"s:{write.handle}#{new_handle}\tadded")
+    if write.one_call:
+        print(note_rel)
+    return new_handle
+
+
+def _synthesis_append(args: argparse.Namespace, write: _SynthesisWrite) -> str:
+    """`mem synthesis append`: text added to a section; returns the section's handle."""
+    section = _synthesis_section_of(args, write)
+    syntheses.append_section(
+        write.path, section, write.body, datetime.date.today(), store=args.root
+    )
+    print(f"s:{write.handle}#{section}\tappended")
+    return section
+
+
+def _synthesis_edit(args: argparse.Namespace, write: _SynthesisWrite) -> str:
+    """`mem synthesis edit`: a section's text replaced; returns the section's handle."""
+    section = _synthesis_section_of(args, write)
+    if section != syntheses.SUMMARY:
+        _synthesis_require_valid_section(write.body, args.root)
+    syntheses.edit_section(
+        write.path,
+        section,
+        write.body,
+        datetime.date.today(),
+        shrink=args.shrink,
+        drop_references=args.drop_references,
+    )
+    print(f"s:{write.handle}#{section}\tedited")
+    return section
+
+
+def _synthesis_part(args: argparse.Namespace, one_call: bool) -> int:
+    """`mem synthesis add | append | edit`: the text of one part, checked before anything is written."""
+    ref = args.target
+    handle, section = syntheses.split_ref(ref)
+    path = syntheses.path_of(args.root / syntheses.SYNTHESES_DIR, handle)
+    if path is None or not path.is_file():
+        raise ValueError(f"no synthesis named {ref}")
+    body = _synthesis_text(args.body_file)
+    note_texts = _synthesis_note_texts(args, one_call) if body is not None else None
+    if body is None or note_texts is None:
+        return 1
+    if refused := _synthesis_refused(args, body, note_texts):
+        return refused
+    write = _SynthesisWrite(path, handle, section, body, one_call)
+    writers = {"add": _synthesis_add, "append": _synthesis_append}
+    shown = writers.get(args.synthesis_command, _synthesis_edit)(args, write)
+    _long_note(handle, path, shown)
+    return 0
+
+
+def cmd_synthesis(args: argparse.Namespace) -> int:
+    handler = _synthesis_handlers().get(args.synthesis_command)
+    if handler is not None:
+        return handler(args)
+    action = args.synthesis_command
+    one_call = _synthesis_one_call(args, action)
+    try:
+        code = _synthesis_create(args) if action == "new" else _synthesis_part(args, one_call)
     except (ValueError, OSError, FrontmatterError, yaml.YAMLError, NewNoteError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
-    log_usage(root, {"cmd": "synthesis", "action": action})
+    if code != 0:
+        return code
+    log_usage(args.root, {"cmd": "synthesis", "action": action})
     return 0
+
+
+@dataclass(frozen=True)
+class _NoteWritten:
+    """A note `mem new` wrote and the text it was given (None when the command gave none)."""
+
+    path: Path
+    body: str | None
+
+
+def _new_link_part(args: argparse.Namespace, fields: dict[str, Any]) -> str | None:
+    """With `--part-of`, add the link to the section it names to `fields`; returns that section's text."""
+    if not getattr(args, "part_of", None):
+        return None
+    syn, sec = _section_ref(args.root, args.part_of)
+    fields["part_of"] = f"{syn.handle}#{sec.handle}"
+    fields["part_of_hash"] = syntheses.fingerprint(sec.text)
+    return sec.text
+
+
+def _new_write(
+    args: argparse.Namespace, fields: dict[str, Any], topics: list[str]
+) -> int | _NoteWritten:
+    """Write the note after the secret and term checks; the exit code of a refusal instead. `fields` gains the
+    `--part-of` link."""
+    body = _read_body(args.body_file) if args.body_file else None
+    if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
+        return 4
+    texts = [
+        str(fields[k])
+        for k in ("title", "claim", "url", "question", "author", "slug")
+        if k in fields
+    ]
+    if refused := _check_terms(
+        [*texts, args.slug, body or ""], "note", getattr(args, "owner_approved", False)
+    ):
+        return refused
+    part_text = _new_link_part(args, fields)  # the text of the section `--part-of` names
+    path = new_note(
+        args.root,
+        args.type,
+        slug=args.slug,
+        topics=topics,
+        today=datetime.date.today(),
+        body=body,
+        **fields,
+    )
+    if part_text is not None:
+        stamp = syntheses.note_fingerprint(
+            part_text, _note_target(path.relative_to(args.root).as_posix())
+        )
+        if stamp != fields["part_of_hash"]:
+            safe_io.replace_file(
+                path,
+                _set_field(note_files._read_text(path), "part_of_hash", stamp).encode("utf-8"),
+            )
+    return _NoteWritten(path, body)
+
+
+def _new_covering_hint(args: argparse.Namespace, fields: dict[str, Any], topics: list[str]) -> None:
+    """Name the syntheses that cover the topics of a knowledge note that is part of none."""
+    if args.type != "knowledge" or "part_of" in fields:
+        return
+    for syn in _covering(args.root, topics):
+        print(
+            f"mem: s:{syn.handle} ({syn.title}) covers this topic; a curation pass can attach this note to it "
+            "(mem curate --notes).",
+            file=sys.stderr,
+        )
+
+
+def _new_check_hint(root: Path, rel: str, body: str | None) -> None:
+    """List the check problems of the new note when the command gave it a text."""
+    if body is not None and (found := [p for p in check(root) if p.path == rel]):
+        print(f"check: {len(found)} problems in {rel}:", file=sys.stderr)
+        for problem in found:
+            print(problem, file=sys.stderr)
+
+
+def _new_similar_hint(args: argparse.Namespace, fields: dict[str, Any], rel: str) -> None:
+    """List the notes that look like the new one."""
+    query = fields.get("claim") or fields.get("title") if args.type != "research" else None
+    if not (query and tokenize(query)):
+        return
+    try:
+        similar = [r for r in search(args.root, query, limit=SIMILAR_LIMIT + 1) if r[0] != rel]
+    except (FrontmatterError, OSError):  # the note exists; the hint is optional
+        similar = []
+    if similar:
+        print(
+            "Similar notes exist: link them, or edit the existing note if it states the same claim.",
+            file=sys.stderr,
+        )
+        for other, score, title in similar[:SIMILAR_LIMIT]:
+            print(f"similar: {other}\t{score:.2f}\t{title}", file=sys.stderr)
+
+
+def _new_research_hint(args: argparse.Namespace, rel: str) -> None:
+    """Say that an investigation with its own material lives on a branch."""
+    if args.type != "research":
+        return
+    branch = f"research/{Path(rel).parent.name}"
+    print(
+        f"An investigation with its own material lives on a branch (ADR 0006): before committing, "
+        f"git switch -c {branch} (uncommitted files move with you); add literature and knowledge "
+        "notes on main, then merge main into it.",
+        file=sys.stderr,
+    )
+
+
+def _new_report(
+    args: argparse.Namespace, fields: dict[str, Any], topics: list[str], written: _NoteWritten
+) -> None:
+    """The new note's path, then the hints about syntheses, check problems, similar notes and branches."""
+    rel = written.path.relative_to(args.root).as_posix()
+    print(rel)
+    _new_covering_hint(args, fields, topics)
+    _new_check_hint(args.root, rel, written.body)
+    _new_similar_hint(args, fields, rel)
+    _new_research_hint(args, rel)
 
 
 def cmd_new(args: argparse.Namespace) -> int:
     fields = {k: getattr(args, k) for k in _NEW_FIELDS[args.type]}
     topics = [t.strip() for t in args.topics.split(",") if t.strip()]
-    part_text: str | None = None  # the text of the section `--part-of` names
     try:
-        body = _read_body(args.body_file) if args.body_file else None
-        if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
-            return 4
-        texts = [
-            str(fields[k])
-            for k in ("title", "claim", "url", "question", "author", "slug")
-            if k in fields
-        ]
-        if refused := _check_terms(
-            [*texts, args.slug, body or ""], "note", getattr(args, "owner_approved", False)
-        ):
-            return refused
-        if getattr(args, "part_of", None):
-            syn, sec = _section_ref(args.root, args.part_of)
-            fields["part_of"] = f"{syn.handle}#{sec.handle}"
-            fields["part_of_hash"] = syntheses.fingerprint(sec.text)
-            part_text = sec.text
-        path = new_note(
-            args.root,
-            args.type,
-            slug=args.slug,
-            topics=topics,
-            today=datetime.date.today(),
-            body=body,
-            **fields,
-        )
-        if part_text is not None:
-            stamp = syntheses.note_fingerprint(
-                part_text, _note_target(path.relative_to(args.root).as_posix())
-            )
-            if stamp != fields["part_of_hash"]:
-                safe_io.replace_file(
-                    path,
-                    _set_field(note_files._read_text(path), "part_of_hash", stamp).encode("utf-8"),
-                )
+        written = _new_write(args, fields, topics)
     except (NewNoteError, OSError, ValueError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
-    rel = path.relative_to(args.root).as_posix()
-    print(rel)
-    if args.type == "knowledge" and "part_of" not in fields:
-        for syn in _covering(args.root, topics):
-            print(
-                f"mem: s:{syn.handle} ({syn.title}) covers this topic; a curation pass can attach this note to it "
-                "(mem curate --notes).",
-                file=sys.stderr,
-            )
-    if body is not None and (found := [p for p in check(args.root) if p.path == rel]):
-        print(f"check: {len(found)} problems in {rel}:", file=sys.stderr)
-        for problem in found:
-            print(problem, file=sys.stderr)
-    query = fields.get("claim") or fields.get("title") if args.type != "research" else None
-    if query and tokenize(query):
-        try:
-            similar = [r for r in search(args.root, query, limit=SIMILAR_LIMIT + 1) if r[0] != rel]
-        except (FrontmatterError, OSError):  # the note exists; the hint is optional
-            similar = []
-        if similar:
-            print(
-                "Similar notes exist: link them, or edit the existing note if it states the same claim.",
-                file=sys.stderr,
-            )
-            for other, score, title in similar[:SIMILAR_LIMIT]:
-                print(f"similar: {other}\t{score:.2f}\t{title}", file=sys.stderr)
-    if args.type == "research":
-        branch = f"research/{Path(rel).parent.name}"
-        print(
-            f"An investigation with its own material lives on a branch (ADR 0006): before committing, "
-            f"git switch -c {branch} (uncommitted files move with you); add literature and knowledge "
-            "notes on main, then merge main into it.",
-            file=sys.stderr,
-        )
+    if isinstance(written, int):
+        return written
+    _new_report(args, fields, topics, written)
     return 0
 
 
@@ -8046,63 +8214,82 @@ def _section_span(text: str, heading: str) -> tuple[list[str], int, int]:
     return lines, heads[k][0], heads[k + 1][0] if k + 1 < len(heads) else len(lines)
 
 
+class _NoteEditOptions(TypedDict):
+    """The keyword part of `_edited_note_text`: what to replace and whether a shrinking edit is allowed."""
+
+    section: str | None
+    body: str | None
+    claim: str | None
+    topics: list[str] | None
+    shrink: bool
+    today: datetime.date
+
+
+def _note_replace_section(text: str, section: str, body: str | None, shrink: bool) -> str:
+    """The note's text with the text of the `## section` replaced; ValueError when it is empty or shrinks."""
+    lines, head, end = _section_span(text, section)
+    new = syntheses._clean(body or "")
+    if not new:
+        raise ValueError("the section text is empty")
+    syntheses._check_body(new)
+    if not shrink:
+        syntheses._guard_shrink("\n".join(lines[head + 1 : end]).strip("\n"), new)
+    lines[head + 1 : end] = ["", *new.split("\n"), ""]
+    return "\n".join(lines)
+
+
+def _note_replace_claim(text: str, meta: dict, claim: str, shrink: bool) -> str:
+    """The note's text with its claim replaced; ValueError when the note has none, the new one is empty or shrinks."""
+    if not isinstance(meta.get("claim"), str):
+        raise NoteFormatError("the note has no claim: only a knowledge note does")
+    if not claim:
+        raise ValueError("the claim is empty")
+    if not shrink:
+        syntheses._guard_shrink(meta["claim"], claim, sentences=False)
+    return _set_field(text, "claim", claim)
+
+
+def _note_require_topic(topic: str, topics: list[str], known: dict, path: Path) -> None:
+    """ValueError unless the topic exists, belongs to the domain of the note's folder and comes with its ancestors."""
+    if topic not in known:
+        raise ValueError(f"unknown topic '{topic}': use an id from topics.yaml")
+    domain = path.parent.name
+    if path.parent.parent.name in {"literature", "knowledge"} and root_of(known, topic) != domain:
+        raise ValueError(
+            f"topic '{topic}' belongs to the domain {root_of(known, topic)}, not to {domain}, "
+            "where the note lives"
+        )
+    if missing := [a for a in ancestors(known, topic) if a not in topics]:
+        raise ValueError(f"topic '{topic}' needs its ancestor '{missing[0]}' in the list too")
+
+
+def _note_replace_topics(text: str, path: Path, topics: list[str], known: dict) -> str:
+    """The note's text with its topics replaced; ValueError when the list is empty or a topic is refused."""
+    if not topics:
+        raise ValueError("at least one topic is required")
+    for t in topics:
+        _note_require_topic(t, topics, known, path)
+    return _set_field(text, "topics", topics)
+
+
 def _edited_note_text(
-    text: str,
-    path: Path,
-    meta: dict,
-    known: dict,
-    *,
-    section: str | None,
-    body: str | None,
-    claim: str | None,
-    topics: list[str] | None,
-    shrink: bool,
-    today: datetime.date,
+    text: str, path: Path, meta: dict, known: dict, **options: Unpack[_NoteEditOptions]
 ) -> tuple[str, list[str]]:
     """The note's text with the section text, the claim and the topics replaced (every other byte stays), and what
     changed; ValueError when a change is refused."""
     what = []
+    section, claim, topics = options["section"], options["claim"], options["topics"]
     if section is not None:
-        lines, head, end = _section_span(text, section)
-        new = syntheses._clean(body or "")
-        if not new:
-            raise ValueError("the section text is empty")
-        syntheses._check_body(new)
-        if not shrink:
-            syntheses._guard_shrink("\n".join(lines[head + 1 : end]).strip("\n"), new)
-        lines[head + 1 : end] = ["", *new.split("\n"), ""]
-        text = "\n".join(lines)
+        text = _note_replace_section(text, section, options["body"], options["shrink"])
         what.append("section " + " ".join(section.removeprefix("## ").split()))
     if claim is not None:
-        if not isinstance(meta.get("claim"), str):
-            raise ValueError("the note has no claim: only a knowledge note does")
-        if not claim:
-            raise ValueError("the claim is empty")
-        if not shrink:
-            syntheses._guard_shrink(meta["claim"], claim, sentences=False)
-        text = _set_field(text, "claim", claim)
+        text = _note_replace_claim(text, meta, claim, options["shrink"])
         what.append("claim")
     if topics is not None:
-        if not topics:
-            raise ValueError("at least one topic is required")
-        for t in topics:
-            if t not in known:
-                raise ValueError(f"unknown topic '{t}': use an id from topics.yaml")
-            domain = path.parent.name
-            if (
-                path.parent.parent.name in {"literature", "knowledge"}
-                and root_of(known, t) != domain
-            ):
-                raise ValueError(
-                    f"topic '{t}' belongs to the domain {root_of(known, t)}, not to {domain}, "
-                    "where the note lives"
-                )
-            if missing := [a for a in ancestors(known, t) if a not in topics]:
-                raise ValueError(f"topic '{t}' needs its ancestor '{missing[0]}' in the list too")
-        text = _set_field(text, "topics", topics)
+        text = _note_replace_topics(text, path, topics, known)
         what.append("topics")
     if "updated" in meta:
-        text = _set_field(text, "updated", today.isoformat())
+        text = _set_field(text, "updated", options["today"].isoformat())
     return text, what
 
 
@@ -8110,49 +8297,98 @@ def _swap_file(path: Path, data: bytes) -> None:
     safe_io.replace_file(path, data)
 
 
-def _commit_note_edit(
-    root: Path, found: Path, rel: str, original: bytes, text: str, new: str
-) -> None:
+@dataclass(frozen=True)
+class _NoteSnapshot:
+    """A note as it was read: its file, hub-relative path, bytes, text and frontmatter mapping."""
+
+    found: Path
+    rel: str
+    original: bytes
+    text: str
+    meta: dict
+
+
+def _note_snapshot(root: Path, found: Path) -> _NoteSnapshot:
+    """Read the note; ValueError when it has CRLF line ends, NoteFormatError when its frontmatter is no mapping."""
+    rel = found.relative_to(root).as_posix()
+    original = found.read_bytes()
+    text = _lf(original.decode("utf-8"), rel)
+    meta = split_frontmatter(text)[0]
+    if not isinstance(meta, dict):
+        raise NoteFormatError(f"{rel} has no frontmatter mapping")
+    return _NoteSnapshot(found, rel, original, text, meta)
+
+
+def _note_locate(root: Path, name: str) -> Path | int:
+    """The note file `name` names; 2 after listing the candidates when it is ambiguous, ValueError when it is none."""
+    found = resolve_note(root, name)
+    if isinstance(found, list):
+        _ambiguous(name, found)
+        return 2
+    if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
+        raise ValueError(f"no note {name}")
+    return found
+
+
+@dataclass(frozen=True)
+class _NoteEditBackup:
+    """What a note edit needs to put things back: the listings' bytes, the curation log and its bytes (None when
+    it did not exist)."""
+
+    listings: dict[Path, bytes]
+    log: Path
+    log_before: bytes | None
+
+
+def _note_edit_backup(root: Path) -> _NoteEditBackup:
+    log = root / records.CURATION_LOG
+    return _NoteEditBackup(_index_files(root), log, log.read_bytes() if log.exists() else None)
+
+
+def _note_edit_rollback(snap: _NoteSnapshot, backup: _NoteEditBackup, swapped: bool) -> None:
+    """Put the note (when it was swapped), the listings and the log back as they were."""
+    if swapped:
+        _swap_file(snap.found, snap.original)
+        for path, data in backup.listings.items():
+            if path.read_bytes() != data:
+                _swap_file(path, data)
+    if backup.log_before is None:
+        backup.log.unlink(missing_ok=True)
+    else:
+        safe_io.replace_file(backup.log, backup.log_before)
+
+
+def _commit_note_edit(root: Path, snap: _NoteSnapshot, new: str) -> None:
     """Write `new` over the note through the undo log; any failure leaves the note, the listings and the log as
     they were (`mem restore` undoes it)."""
     group = uuid.uuid4().hex
-    listings = _index_files(root)
-    log = root / records.CURATION_LOG
-    log_before = log.read_bytes() if log.exists() else None
+    backup = _note_edit_backup(root)
     entry = {
         "t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "action": "note-edit",
-        "handle": rel,
+        "handle": snap.rel,
         "group": group,
-        "before": text,
+        "before": snap.text,
         "after": _sha(new.encode("utf-8")),
     }
-    safe_io.append_text(log, json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(backup.log, json.dumps(entry, ensure_ascii=False) + "\n")
     swapped = False
     try:
-        if found.read_bytes() != original:
+        if snap.found.read_bytes() != snap.original:
             raise ValueError(
-                f"{rel} changed since it was read, so nothing was written: run the command again"
+                f"{snap.rel} changed since it was read, so nothing was written: run the command again"
             )
-        _swap_file(found, new.encode("utf-8"))
+        _swap_file(snap.found, new.encode("utf-8"))
         swapped = True
         apply_index(root)
     except BaseException:  # any failure leaves the note, the listings and the log as they were
-        if swapped:
-            _swap_file(found, original)
-            for path, data in listings.items():
-                if path.read_bytes() != data:
-                    _swap_file(path, data)
-        if log_before is None:
-            log.unlink(missing_ok=True)
-        else:
-            safe_io.replace_file(log, log_before)
+        _note_edit_rollback(snap, backup, swapped)
         raise
-    _log_group(root, _with_changed_listings({}, listings), "note-edit", group=group)
+    _log_group(root, _with_changed_listings({}, backup.listings), "note-edit", group=group)
 
 
-def cmd_note(args: argparse.Namespace) -> int:
-    root = args.root.resolve()
+def _note_edit_options(args: argparse.Namespace) -> tuple[str | None, list[str] | None]:
+    """The claim and the topics of `note edit`, normalized; the parser's error when the options do not fit."""
     if args.section is None and args.claim is None and args.topics is None:
         build_parser().error("note edit needs --section, --claim or --topics")
     if (args.section is None) != (args.body_file is None):
@@ -8163,44 +8399,50 @@ def cmd_note(args: argparse.Namespace) -> int:
         if args.topics is not None
         else None
     )
+    return claim, topics
+
+
+def _note_edit(
+    args: argparse.Namespace, root: Path, claim: str | None, topics: list[str] | None
+) -> int | tuple[str, list[str]]:
+    """Edit the note; (its hub-relative path, what changed), or the exit code of a refusal."""
+    body = _read_body(args.body_file) if args.body_file else None
+    texts = [args.section or "", body or "", claim or "", *(topics or [])]
+    if _refuse_secret(texts):
+        return 4
+    if refused := _check_terms(texts, "note", getattr(args, "owner_approved", False)):
+        return refused
+    found = _note_locate(root, args.note)
+    if isinstance(found, int):
+        return found
+    snap = _note_snapshot(root, found)
+    new, what = _edited_note_text(
+        snap.text,
+        found,
+        snap.meta,
+        load_topics(root),
+        section=args.section,
+        body=body,
+        claim=claim,
+        topics=topics,
+        shrink=args.shrink,
+        today=datetime.date.today(),
+    )
+    _commit_note_edit(root, snap, new)
+    return snap.rel, what
+
+
+def cmd_note(args: argparse.Namespace) -> int:
+    root = args.root.resolve()
+    claim, topics = _note_edit_options(args)
     try:
-        body = _read_body(args.body_file) if args.body_file else None
-        texts = [args.section or "", body or "", claim or "", *(topics or [])]
-        if _refuse_secret(texts):
-            return 4
-        if refused := _check_terms(texts, "note", getattr(args, "owner_approved", False)):
-            return refused
-        found = resolve_note(root, args.note)
-        if isinstance(found, list):
-            _ambiguous(args.note, found)
-            return 2
-        if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
-            raise ValueError(f"no note {args.note}")
-        rel = found.relative_to(root).as_posix()
-        original = found.read_bytes()
-        text = original.decode("utf-8")
-        if "\r" in text:
-            raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
-        meta = split_frontmatter(text)[0]
-        if not isinstance(meta, dict):
-            raise NoteFormatError(f"{rel} has no frontmatter mapping")
-        today = datetime.date.today()
-        new, what = _edited_note_text(
-            text,
-            found,
-            meta,
-            load_topics(root),
-            section=args.section,
-            body=body,
-            claim=claim,
-            topics=topics,
-            shrink=args.shrink,
-            today=today,
-        )
-        _commit_note_edit(root, found, rel, original, text, new)
+        edited = _note_edit(args, root, claim, topics)
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
+    if isinstance(edited, int):
+        return edited
+    rel, what = edited
     print(f"{note_files._handle(rel)}\tedited {', '.join(what)}")
     log_usage(root, {"cmd": "note", "action": "edit"})
     return 0
@@ -8233,70 +8475,96 @@ def _evidence_line(text: str, line: str) -> str:
     return "\n".join(lines)
 
 
-def cmd_note_mark(args: argparse.Namespace) -> int:
-    """`mem note confirm|dispute`: a source's verdict on a knowledge note, through the `note edit` write path."""
-    root = args.root.resolve()
-    action = args.note_command
-    clear = action == "dispute" and args.clear
+def _note_mark_require_options(args: argparse.Namespace, clear: bool) -> None:
+    """The parser's error when the options of `note confirm | dispute` do not fit."""
     given = [args.fact, args.source, args.quote]
     if clear and any(v is not None for v in given):
         build_parser().error("--clear goes alone")
     if not clear and any(v is None for v in given):
         build_parser().error(
-            f"note {action} needs --fact, --source and --quote"
-            + (" (or --clear)" if action == "dispute" else "")
+            f"note {args.note_command} needs --fact, --source and --quote"
+            + (" (or --clear)" if args.note_command == "dispute" else "")
         )
-    fact = source = quote = ""  # set below unless `--clear`, which does not read them
+
+
+def _note_mark_refused(marks: tuple[str, str, str], approved: bool) -> int:
+    """0 when the texts may be written, else the exit code after a message on stderr."""
+    if _refuse_secret(list(marks)):
+        return 4
+    return _check_terms(list(marks), "note", approved)
+
+
+def _note_require_knowledge(root: Path, found: Path) -> None:
+    """ValueError unless the note is a knowledge note."""
+    rel = found.relative_to(root).as_posix()
+    if not rel.startswith("knowledge/"):
+        raise ValueError(
+            f"{rel} is not a knowledge note: only a knowledge note carries evidence and can be disputed"
+        )
+
+
+def _note_mark_text(
+    snap: _NoteSnapshot, action: str, clear: bool, marks: tuple[str, str, str], today: str
+) -> str:
+    """The note's text with the evidence line of a confirm, the dispute of a dispute, or no dispute for `--clear`."""
+    fact, source, quote = marks
+    if action == "confirm":
+        host = urllib.parse.urlsplit(source).netloc
+        return _evidence_line(
+            snap.text, f'- {today} confirmed: {fact} "{quote}" ([{host}]({source}))'
+        )
+    if clear:
+        if not snap.meta.get("disputed"):
+            raise ValueError(f"{snap.rel} is not disputed")
+        return _set_field(snap.text, "disputed", None)
+    entry = {"date": today, "fact": fact, "source": source, "quote": quote}
+    disputed = snap.meta.get("disputed")
+    return _set_field(
+        snap.text, "disputed", [*(disputed if isinstance(disputed, list) else []), entry]
+    )
+
+
+def _note_mark_edit(args: argparse.Namespace, root: Path, clear: bool) -> int | str:
+    """Write the verdict; the note's hub-relative path, or the exit code of a refusal."""
+    marks = ("", "", "")  # not read with `--clear`
+    if not clear:
+        marks = _source_mark(args.fact, args.source, args.quote)
+        if refused := _note_mark_refused(marks, args.owner_approved):
+            return refused
+    found = _note_locate(root, args.note)
+    if isinstance(found, int):
+        return found
+    _note_require_knowledge(root, found)
+    snap = _note_snapshot(root, found)
+    today = datetime.date.today().isoformat()
+    new = _note_mark_text(snap, args.note_command, clear, marks, today)
+    if "updated" in snap.meta:
+        new = _set_field(new, "updated", today)
+    _commit_note_edit(root, snap, new)
+    return snap.rel
+
+
+def _note_mark_verdict(action: str, clear: bool) -> str:
+    """The past tense of the command, as the output line words it."""
+    if clear:
+        return "cleared the dispute"
+    return action + ("ed" if action == "confirm" else "d")
+
+
+def cmd_note_mark(args: argparse.Namespace) -> int:
+    """`mem note confirm|dispute`: a source's verdict on a knowledge note, through the `note edit` write path."""
+    root = args.root.resolve()
+    action = args.note_command
+    clear = action == "dispute" and args.clear
+    _note_mark_require_options(args, clear)
     try:
-        if not clear:
-            fact, source, quote = _source_mark(*given)
-            if _refuse_secret([fact, source, quote]):
-                return 4
-            if refused := _check_terms([fact, source, quote], "note", args.owner_approved):
-                return refused
-        found = resolve_note(root, args.note)
-        if isinstance(found, list):
-            _ambiguous(args.note, found)
-            return 2
-        if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
-            raise ValueError(f"no note {args.note}")
-        rel = found.relative_to(root).as_posix()
-        if not rel.startswith("knowledge/"):
-            raise ValueError(
-                f"{rel} is not a knowledge note: only a knowledge note carries evidence and can be disputed"
-            )
-        original = found.read_bytes()
-        text = original.decode("utf-8")
-        if "\r" in text:
-            raise ValueError(f"{rel} has CRLF line ends: convert it to LF first")
-        meta = split_frontmatter(text)[0]
-        if not isinstance(meta, dict):
-            raise NoteFormatError(f"{rel} has no frontmatter mapping")
-        today = datetime.date.today().isoformat()
-        if action == "confirm":
-            host = urllib.parse.urlsplit(source).netloc
-            new = _evidence_line(
-                text, f'- {today} confirmed: {fact} "{quote}" ([{host}]({source}))'
-            )
-        elif clear:
-            if not meta.get("disputed"):
-                raise ValueError(f"{rel} is not disputed")
-            new = _set_field(text, "disputed", None)
-        else:
-            entry = {"date": today, "fact": fact, "source": source, "quote": quote}
-            disputed = meta.get("disputed")
-            new = _set_field(
-                text, "disputed", [*(disputed if isinstance(disputed, list) else []), entry]
-            )
-        if "updated" in meta:
-            new = _set_field(new, "updated", today)
-        _commit_note_edit(root, found, rel, original, text, new)
+        marked = _note_mark_edit(args, root, clear)
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(
-        f"{note_files._handle(rel)}\t{'cleared the dispute' if clear else action + ('ed' if action == 'confirm' else 'd')}"
-    )
+    if isinstance(marked, int):
+        return marked
+    print(f"{note_files._handle(marked)}\t{_note_mark_verdict(action, clear)}")
     log_usage(root, {"cmd": "note", "action": action})
     return 0
 
@@ -8306,52 +8574,74 @@ _IMPORT_FOLDERS = ("literature", "knowledge", "research")
 _IMPORT_DOCUMENTS = {".md", ".png", ".jpg", ".jpeg", ".svg", ".gif", ".webp"}
 
 
+def _import_refused(src: Path, path: Path, skipped: list[str]) -> bool:
+    """Whether the path is a symlink or under one; its source-relative path then goes to `skipped`."""
+    try:
+        safe_io.refuse_symlink_chain(src, path)
+    except safe_io.UnsafePath:
+        skipped.append(path.relative_to(src).as_posix())
+        return True
+    return False
+
+
+def _import_subdirs(
+    src: Path, here: str, dirs: list[str], top: str, skipped: list[str]
+) -> list[str]:
+    """The folders of `here` an import descends into, sorted: no hidden one (but under `.sources`), no cache, no symlink."""
+    kept = sorted(d for d in dirs if d == d.lstrip(".") or top == ".sources")
+    return [
+        d for d in kept if d != "__pycache__" and not _import_refused(src, Path(here) / d, skipped)
+    ]
+
+
+def _import_keeps(rel: Path, top: str, research_data: bool) -> bool:
+    """Whether an import lists the file: not a hidden one (but under `.sources`), not an investigation's data or
+    code unless asked, not a generated listing."""
+    name = rel.name
+    if top != ".sources" and name.startswith("."):
+        return False
+    # An investigation's data and code stay where the experiments live; its documents are the memory.
+    if (
+        top == "research"
+        and not research_data
+        and Path(name).suffix.lower() not in _IMPORT_DOCUMENTS
+    ):
+        return False
+    # the generated listings: folder/README.md and, for literature and knowledge, folder/topic/README.md
+    return not (
+        name == "README.md"
+        and top != ".sources"
+        and len(rel.parts) in ((2,) if top == "research" else (2, 3))
+    )
+
+
+def _import_listed(src: Path, top: str, research_data: bool, skipped: list[str]) -> list[str]:
+    """The source-relative paths of one top folder an import lists."""
+    found: list[str] = []
+    for here, dirs, names in os.walk(src / top):
+        dirs[:] = _import_subdirs(src, here, dirs, top, skipped)
+        for name in names:
+            if _import_refused(src, Path(here) / name, skipped):
+                continue
+            rel = (Path(here) / name).relative_to(src)
+            if _import_keeps(rel, top, research_data):
+                found.append(rel.as_posix())
+    return found
+
+
 def _import_files(
     src: Path, with_sources: bool, research_data: bool = False, skipped: list[str] | None = None
 ) -> list[str]:
     """Source-relative paths to import, sorted. The source is only listed and read, never written.
     A symlink, or anything under one, is never listed: its source-relative path goes to `skipped`."""
     skipped = skipped if skipped is not None else []
-
-    def refused(path: Path) -> bool:
-        try:
-            safe_io.refuse_symlink_chain(src, path)
-        except safe_io.UnsafePath:
-            skipped.append(path.relative_to(src).as_posix())
-            return True
-        return False
-
     found: list[str] = []
     roots = [*_IMPORT_FOLDERS, *([".sources"] if with_sources else [])]
     for top in roots:
-        base = src / top
-        if base.is_symlink():
-            refused(base)
+        if (src / top).is_symlink():
+            _import_refused(src, src / top, skipped)
             continue
-        for here, dirs, names in os.walk(base):
-            dirs[:] = sorted(d for d in dirs if d == d.lstrip(".") or top == ".sources")
-            dirs[:] = [d for d in dirs if d != "__pycache__" and not refused(Path(here) / d)]
-            for name in names:
-                if refused(Path(here) / name):
-                    continue
-                rel = (Path(here) / name).relative_to(src)
-                if top != ".sources" and name.startswith("."):
-                    continue
-                # An investigation's data and code stay where the experiments live; its documents are the memory.
-                if (
-                    top == "research"
-                    and not research_data
-                    and Path(name).suffix.lower() not in _IMPORT_DOCUMENTS
-                ):
-                    continue
-                # the generated listings: folder/README.md and, for literature and knowledge, folder/topic/README.md
-                if (
-                    name == "README.md"
-                    and top != ".sources"
-                    and len(rel.parts) in ((2,) if top == "research" else (2, 3))
-                ):
-                    continue
-                found.append(rel.as_posix())
+        found += _import_listed(src, top, research_data, skipped)
     return sorted(found)
 
 
@@ -8369,24 +8659,35 @@ def _note_kind(rel: str) -> str | None:
     return None
 
 
+def _import_text(src: Path, rel: str) -> str | None:
+    """The text of an imported file; None when it cannot be read or is binary (a NUL byte)."""
+    try:
+        raw = (src / rel).read_bytes()
+    except OSError:
+        return None
+    if raw[:2] in {b"\xff\xfe", b"\xfe\xff"}:  # a BOM-marked UTF-16 file holds NULs but is text
+        return raw.decode("utf-16", errors="ignore")
+    if b"\x00" in raw:
+        return None
+    return raw.decode("utf-8", errors="ignore")
+
+
+def _import_hard_terms() -> list[records.Term]:
+    """The hard terms of the forbidden list; none when it cannot be read."""
+    try:
+        return [t for t in records.read_terms(os.environ) if not t.soft]
+    except records.ForbiddenListError:
+        return []
+
+
 def _flag_import(src: Path, files: Sequence[str]) -> list[str]:
     """Imported text files whose text matches a secret pattern or a hard term (a file with a NUL byte is binary: skipped)."""
-    try:
-        terms = [t for t in records.read_terms(os.environ) if not t.soft]
-    except records.ForbiddenListError:
-        terms = []
+    terms = _import_hard_terms()
     flagged = []
     for rel in files:
-        try:
-            raw = (src / rel).read_bytes()
-        except OSError:
+        text = _import_text(src, rel)
+        if text is None:
             continue
-        if raw[:2] in {b"\xff\xfe", b"\xfe\xff"}:  # a BOM-marked UTF-16 file holds NULs but is text
-            text = raw.decode("utf-16", errors="ignore")
-        elif b"\x00" in raw:
-            continue
-        else:
-            text = raw.decode("utf-8", errors="ignore")
         if records.secret_in([text]) is not None or (
             terms and any(not t.soft for t in records.term_hits([text], os.environ))
         ):
@@ -8421,8 +8722,26 @@ def _union_topics(src: Path, dest: Path) -> tuple[list[str], list[str], str]:
     return [str(t) for t in added], [str(t) for t in kept], lines
 
 
-def cmd_import(args: argparse.Namespace) -> int:
-    dest = args.root.resolve()
+@dataclass(frozen=True)
+class _ImportPlan:
+    """What an import does: the files it lists, those it copies, finds identical, finds in conflict and skips, the
+    notes by kind, and the topics it adds and keeps (with the text it appends to the destination's topics.yaml)."""
+
+    src: Path
+    dest: Path
+    files: list[str]
+    todo: list[str]
+    same: list[str]
+    conflicts: list[str]
+    skipped: list[str]
+    kinds: collections.Counter[str]
+    added: list[str]
+    kept: list[str]
+    topic_text: str
+
+
+def _import_source(args: argparse.Namespace, dest: Path) -> Path | int:
+    """The resolved source folder; 2 after a message on stderr when it is no folder or overlaps the store."""
     src = Path(args.source).expanduser()
     if not src.is_dir():
         print(f"mem: the source is not a folder: {src}", file=sys.stderr)
@@ -8434,89 +8753,121 @@ def cmd_import(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+    return src
+
+
+def _import_verdict(src: Path, dest: Path, rel: str, overwrite: bool) -> str:
+    """What an import does with one file: `skipped` (a symlink in the store), `same`, `conflict` or `copy`."""
+    target = dest / rel
     try:
-        added, kept, topic_text = _union_topics(src, dest)
-    except FrontmatterError as exc:
-        print(f"mem: {exc}", file=sys.stderr)
-        return 2
+        safe_io.refuse_symlink_chain(dest, target)
+    except safe_io.UnsafePath:
+        return "skipped"
+    data = (src / rel).read_bytes()
+    if target.is_file():
+        if target.read_bytes() == data:
+            return "same"
+        if not overwrite:
+            return "conflict"
+    return "copy"
+
+
+def _import_plan(
+    args: argparse.Namespace, src: Path, dest: Path, topics: tuple[list[str], list[str], str]
+) -> _ImportPlan:
+    """List the source and sort its files by what an import does with them."""
     skipped: list[str] = []
     if (src / "topics.yaml").is_symlink():
         skipped.append("topics.yaml")
     files = _import_files(src, args.with_sources, args.research_data, skipped)
-    kinds = collections.Counter(k for k in map(_note_kind, files) if k)
-    todo: list[str] = []
-    same, conflicts = 0, []
+    groups: dict[str, list[str]] = {"copy": [], "same": [], "conflict": [], "skipped": skipped}
     for rel in files:
-        target = dest / rel
-        try:
-            safe_io.refuse_symlink_chain(dest, target)
-        except safe_io.UnsafePath:
-            skipped.append(rel)
-            continue
-        data = (src / rel).read_bytes()
-        if target.is_file():
-            if target.read_bytes() == data:
-                same += 1
-                continue
-            if not args.overwrite:
-                conflicts.append(rel)
-                continue
-        todo.append(rel)
-    flagged = _flag_import(src, files)
-
-    def apply(root: Path, log: bool) -> None:
-        originals: dict[Path, bytes] = {}
-        for rel in todo:
-            if rel.startswith(".sources/") and root is not dest:
-                continue
-            target = root / rel
-            if log and target.is_file():
-                try:
-                    target.read_bytes().decode("utf-8")
-                    originals[target] = target.read_bytes()
-                except UnicodeDecodeError:
-                    pass  # not text: the log keeps text only
-            target.parent.mkdir(parents=True, exist_ok=True)
-            with (src / rel).open("rb") as f:
-                safe_io.replace_file(target, f.read())
-        if topic_text:
-            current = (root / "topics.yaml").read_text(encoding="utf-8")
-            safe_io.replace_file(
-                root / "topics.yaml",
-                (
-                    current + ("" if current.endswith("\n") or not current else "\n") + topic_text
-                ).encode("utf-8"),
-            )
-        if originals:
-            _log_group(root, originals, "import")
-        apply_index(root)
-
-    try:
-        if args.dry_run:
-            with tempfile.TemporaryDirectory() as tmp:
-                scratch = Path(tmp) / "store"
-                shutil.copytree(dest, scratch, ignore=shutil.ignore_patterns(".*"))
-                apply(scratch, False)
-                problems = check(scratch)
-        else:
-            apply(dest, True)
-            problems = check(dest)
-    except (FrontmatterError, OSError) as exc:
-        print(f"mem: import failed: {exc}", file=sys.stderr)
-        return 2
-    print(f"source: {src}")
-    print(f"destination: {dest}")
-    print(
-        f"notes: {kinds['literature']} literature, {kinds['knowledge']} knowledge, {kinds['research']} research"
+        groups[_import_verdict(src, dest, rel, args.overwrite)].append(rel)
+    kinds = collections.Counter(k for k in map(_note_kind, files) if k)
+    added, kept, topic_text = topics
+    return _ImportPlan(
+        src,
+        dest,
+        files,
+        groups["copy"],
+        groups["same"],
+        groups["conflict"],
+        skipped,
+        kinds,
+        added,
+        kept,
+        topic_text,
     )
-    print(f"files: {len(todo)} copied, {same} identical, {len(conflicts)} conflicts")
-    print(f"topics: {len(added)} added, {len(kept)} kept as they were")
+
+
+def _import_write_file(
+    src: Path, root: Path, rel: str, log: bool, originals: dict[Path, bytes]
+) -> None:
+    """Copy one file into `root`; with `log`, keep the bytes of the text file it replaces in `originals`."""
+    target = root / rel
+    if log and target.is_file():
+        try:
+            target.read_bytes().decode("utf-8")
+            originals[target] = target.read_bytes()
+        except UnicodeDecodeError:
+            pass  # not text: the log keeps text only
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with (src / rel).open("rb") as f:
+        safe_io.replace_file(target, f.read())
+
+
+def _import_append_topics(root: Path, topic_text: str) -> None:
+    current = (root / "topics.yaml").read_text(encoding="utf-8")
+    safe_io.replace_file(
+        root / "topics.yaml",
+        (current + ("" if current.endswith("\n") or not current else "\n") + topic_text).encode(
+            "utf-8"
+        ),
+    )
+
+
+def _import_apply(plan: _ImportPlan, root: Path, log: bool) -> None:
+    """Copy the files and the new topics into `root` (the store, or a scratch copy of it) and refresh the listings."""
+    originals: dict[Path, bytes] = {}
+    for rel in plan.todo:
+        if rel.startswith(".sources/") and root is not plan.dest:
+            continue
+        _import_write_file(plan.src, root, rel, log, originals)
+    if plan.topic_text:
+        _import_append_topics(root, plan.topic_text)
+    if originals:
+        _log_group(root, originals, "import")
+    apply_index(root)
+
+
+def _import_run(plan: _ImportPlan, dry_run: bool) -> list[Problem]:
+    """Apply the plan, or a dry run of it on a scratch copy of the store; returns the check problems afterwards."""
+    if dry_run:
+        with tempfile.TemporaryDirectory() as tmp:
+            scratch = Path(tmp) / "store"
+            shutil.copytree(plan.dest, scratch, ignore=shutil.ignore_patterns(".*"))
+            _import_apply(plan, scratch, False)
+            return check(scratch)
+    _import_apply(plan, plan.dest, True)
+    return check(plan.dest)
+
+
+def _import_report(plan: _ImportPlan, problems: list[Problem], flagged: list[str]) -> None:
+    print(f"source: {plan.src}")
+    print(f"destination: {plan.dest}")
+    print(
+        f"notes: {plan.kinds['literature']} literature, {plan.kinds['knowledge']} knowledge, {plan.kinds['research']} research"
+    )
+    print(
+        f"files: {len(plan.todo)} copied, {len(plan.same)} identical, {len(plan.conflicts)} conflicts"
+    )
+    print(f"topics: {len(plan.added)} added, {len(plan.kept)} kept as they were")
     print(f"check: {len(problems)} problems")
     print(f"flagged: {len(flagged)} files")
     for header, items in (
-        ("skipped symlinks:", sorted(skipped)),
-        ("conflicts:", conflicts),
-        ("topics kept:", kept),
+        ("skipped symlinks:", sorted(plan.skipped)),
+        ("conflicts:", plan.conflicts),
+        ("topics kept:", plan.kept),
         ("check problems (first 20):", [str(p) for p in problems[:20]]),
         ("flagged:", flagged),
     ):
@@ -8524,7 +8875,27 @@ def cmd_import(args: argparse.Namespace) -> int:
             print(header)
             for item in items:
                 print(f"  {item}")
-    log_usage(dest, {"cmd": "import", "copied": len(todo), "conflicts": len(conflicts)})
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    dest = args.root.resolve()
+    src = _import_source(args, dest)
+    if isinstance(src, int):
+        return src
+    try:
+        topics = _union_topics(src, dest)
+    except FrontmatterError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    plan = _import_plan(args, src, dest, topics)
+    flagged = _flag_import(src, plan.files)
+    try:
+        problems = _import_run(plan, args.dry_run)
+    except (FrontmatterError, OSError) as exc:
+        print(f"mem: import failed: {exc}", file=sys.stderr)
+        return 2
+    _import_report(plan, problems, flagged)
+    log_usage(dest, {"cmd": "import", "copied": len(plan.todo), "conflicts": len(plan.conflicts)})
     return 0
 
 
