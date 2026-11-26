@@ -10,6 +10,8 @@ import datetime
 from dataclasses import replace
 from pathlib import Path
 
+from core.yaml_load import safe_load
+
 from store.journal import (
     CURATION_LOG,
     Logged,
@@ -88,7 +90,6 @@ from store.memory_write import (
     update,
     write_memory,
 )
-from store.notes import safe_load
 from store.pairing import (
     OPPOSITES,
     Budget,

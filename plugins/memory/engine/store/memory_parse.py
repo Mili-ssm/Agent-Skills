@@ -8,6 +8,8 @@ import re
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from core.yaml_load import safe_load
+
 from store.memory_model import (
     KINDS,
     ORIGINS,
@@ -21,7 +23,6 @@ from store.memory_model import (
     valid_topic,
     valid_triage_reason,
 )
-from store.notes import safe_load
 from store.sightings import (
     _version,
     case,

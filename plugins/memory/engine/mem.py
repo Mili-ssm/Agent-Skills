@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 import yaml
 from capture import state as capture_state
-from core import auto_state, config, jobs, safe_io
+from core import auto_state, config, jobs, safe_io, store_git
 from corroborate import decide as corroborate_decide
 from digest import lessons as digest_lessons
 from research import checks as research_checks
@@ -45,7 +45,7 @@ from settle import verdicts as settle_verdicts
 from store import check as check_rules
 from store import index as index_files
 from store import notes as note_files
-from store import project_syntheses, records, rules, shortcheck, store_git, syntheses
+from store import project_syntheses, records, rules, shortcheck, syntheses
 from store.check import (
     LEVELS,
     MAX_KNOWLEDGE_NAME,
@@ -105,7 +105,6 @@ _MOVED = frozenset({
     "RULES",
     "Validator",
     "_BACKTICKS",
-    "_BaseLoader",
     "_CODE_SPAN",
     "_CONCRETE_ID",
     "_DATE",
@@ -192,7 +191,6 @@ _MOVED = frozenset({
     "rule_syntheses",
     "rule_topics_file",
     "rule_topics_used",
-    "safe_load",
 })
 
 

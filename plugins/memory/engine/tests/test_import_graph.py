@@ -47,7 +47,7 @@ def test_notes_imports_no_other_engine_module():
     code = (
         "import sys; before = set(sys.modules); from store import notes; "
         f"engine = {sorted(MODULES)!r}; "
-        "loaded = (set(sys.modules) - before) & set(engine) - {'store', 'store.notes'}; assert not loaded, loaded"
+        "loaded = (set(sys.modules) - before) & set(engine) - {'store', 'store.notes', 'core', 'core.yaml_load'}; assert not loaded, loaded"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
@@ -70,8 +70,8 @@ def test_check_stays_pure():
         if isinstance(n, ast.ImportFrom) and n.module
         for a in n.names
     }
-    assert not {"store_git", "store.store_git", "subprocess"} & imported
-    code = "import sys; from store import check; assert 'store.store_git' not in sys.modules"
+    assert not {"store_git", "core.store_git", "subprocess"} & imported
+    code = "import sys; from store import check; assert 'core.store_git' not in sys.modules"
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
     )
@@ -163,7 +163,6 @@ STORE_MODULES = tuple(
         "records",
         "syntheses",
         "project_syntheses",
-        "store_git",
         "index",
         "notes",
         "check",
@@ -232,7 +231,7 @@ PACKAGE_DEPENDENCIES = {
     "capture": {"core", "store"},
     "settle": {"core", "store"},
     "digest": {"store"},
-    "session": {"store"},
+    "session": {"core", "store"},
     "research": {"core", "store", "synthesize", "mem"},
 }
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
