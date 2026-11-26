@@ -4,7 +4,7 @@ import subprocess
 
 import mem
 import pytest
-import research_checks
+from research import checks as research_checks
 from safe_io import sandbox_refusal
 from synthesize import pipeline as sp
 

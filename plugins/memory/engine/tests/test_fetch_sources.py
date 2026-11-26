@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import mem
 import pytest
-import research_checks
+from research import checks as research_checks
 from test_find_new import write_note
 
 A = "literature/computing/2017-vaswani-attention.md"

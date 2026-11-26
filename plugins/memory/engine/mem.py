@@ -43,7 +43,6 @@ import jobs
 import notes as note_files
 import project_syntheses
 import records
-import research_checks
 import rules
 import safe_io
 import session_notices
@@ -87,6 +86,7 @@ from notes import (
     split_frontmatter,
 )
 from records import tokenize
+from research import checks as research_checks
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Mapping, Sequence

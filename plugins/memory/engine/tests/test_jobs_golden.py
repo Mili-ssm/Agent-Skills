@@ -16,9 +16,9 @@ from typing import Any
 import auto_state
 import jobs
 import pytest
-import research_pipeline
 import settle_state
 from corroborate import state as corroborate_state
+from research import pipeline as research_pipeline
 from synthesize import run as sr
 
 PLUGIN = Path(__file__).resolve().parents[2]

@@ -14,9 +14,9 @@ from pathlib import Path
 import mem
 import pytest
 import records
-import research_checks as rc
+from research import checks as rc
 
-ENGINE = Path(__file__).resolve().parent.parent
+ENGINE = Path(__file__).resolve().parents[2]
 HANDLE = "attention-replaces-recurrence"
 LONG = "The invented gadget survives ten thousand folding cycles"
 DRIP_BUDGET = 2.5  # seconds: far below the 100 s the drip would take

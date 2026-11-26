@@ -12,7 +12,7 @@ from pathlib import Path
 import mem
 import pytest
 import records
-import research_pipeline
+from research import pipeline as research_pipeline
 from synthesize import run as sr
 
 GLOBAL = records.GLOBAL_DIR
