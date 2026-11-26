@@ -27,7 +27,7 @@ The brief carries: what changed (paths or a diff), the intent of the action, the
 | File or folder layout | The project's conventions, files or modules in the wrong place or doing too much, naming that hides purpose |
 | Deletion | Remaining references (grep), orphaned tests, docs or config, removed behavior that something still needs |
 | Image description | Claims the image or its context does not support, missing elements, visual or UX/UI patterns it breaks |
-| Process (rules and steps with evidence) | A rule or step skipped, done out of order, or claimed with no command, output or file to show it; evidence that does not prove its step; evidence that a read-only command or a cited file contradicts. Re-check the steps that carry the most weight, not every one |
+| Process (rules and steps with evidence) | A rule or step skipped, done out of order, or claimed with no command, output or file to show it; evidence that does not prove its step; evidence that a read-only command or a cited file contradicts. Re-check the steps that carry the most weight; a doubt about a step you did not re-check goes in at confidence `low` (step 3) |
 
 3. Verify each suspicion with a tool (read, grep, a read-only command) before reporting. Unverified → drop it, or report it with confidence `low` and say what you did not check.
 4. Load at most one existing skill when the change is in its domain (`refactoring`, `docs-principles`, `qa-principles`, `security-principles`, `ux-principles`, `prompt-engineering`, `architecture-principles`).

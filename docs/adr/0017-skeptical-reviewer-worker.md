@@ -109,7 +109,7 @@ The offload policy's `skeptical-reviewer` row and closing line now name the two-
 
 ## Measurement 2026-11-26, P1
 
-P1 (project review 2026-11-24): the description no longer says "Not for … PR or diff review (code-review)", because `user-config/routing.md` § Reviews sends this agent the staged diff before a push or pull request. Sides: `dev` = `origin/dev` 5e837d9 in a worktree; P1 = dc1740d (description only, B1 not yet written). Sonnet main, `--scaffold --allow-tools Bash Edit Write` for the offload cases; cost 5.15 USD in all (owner cap 5 USD, overrun 0.15 by in-flight runs).
+P1 (project review 2026-11-24): the description no longer says "Not for … PR or diff review (code-review)", because `user-config/routing.md` § Reviews sends this agent the staged diff before a push or pull request. Sides: `dev` = `origin/dev` 5e837d9 in a worktree; P1 = dc1740d (description only, B1 not yet written). Sonnet main, `--scaffold --allow-tools Bash Edit Write` for the offload cases; eval cost 5.15 USD (owner cap 5 USD, overrun 0.15 by in-flight runs; the B1 trace below added 0.24 USD).
 
 | Case | Last record | P1, 2 runs | Rerun, 6 runs: `dev` | Rerun, 6 runs: P1 |
 |---|---|---|---|---|
