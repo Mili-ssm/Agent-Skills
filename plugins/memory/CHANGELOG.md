@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- `mem synthesis integrate FILE` joins loose knowledge notes to parts of a synthesis from a file of `note | s:<handle>#<section> | append|unit N | fingerprint` lines: `append` adds the note's own claim as a new sentence with its reference, `unit N` only references the note on an existing sentence. A row is refused when the note is already part of a synthesis, superseded, disputed or not a knowledge note, when its claim holds a secret or a forbidden term, or when the part changed since it was read. All rows of a file are written as one logged group: undo it with `mem restore s:<handle>` while it is the newest change of the synthesis. `mem synthesis integrate --candidates` prints as JSON the notes each synthesis could take, with its parts and their units.
+
 ### Changed
 
 - Settling (`mem-settle`, option `auto_settle`) now also finds a duplicate global memory written in other words: it compares a new memory with existing ones that share fewer words than before, and it can join two wordings of one fact that differ in a negation ("does not keep" against "drops") by superseding the older record. Expect more pairs in `mem settle pending`, more settlings in the session start line, and a model session in more runs (about 0.015 USD each); every settling is undone with `mem settle undo`. The curation queue you read is unchanged. A record that came from the web or from a pipeline is never the one kept.

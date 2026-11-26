@@ -11,4 +11,5 @@ Modules:
 `curate`: `curate`, and the session-start curation decisions (passes, marks, pair and note queues)
 `hooks`: `session-index`, `compact-log` and `signal`, with the session start text and the logic only they use
 `synthesis`: `synthesis` (list, new, add, append, edit, attach, rename, remove, detach, topics, refs) and `project-synthesis`, with the logic only they use
+`integrate`: `synthesis integrate`, which joins knowledge notes to parts of a synthesis (registered by `mem`, not by the synthesis dispatch, because it imports `synthesis`)
 """
