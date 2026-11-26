@@ -27,8 +27,14 @@ def test_reference_backfill_passes_the_options_by_keyword(tmp_path):
         seen["options"] = options
         return {"status": "ok", "proposed": 3, "applied": 2, "refused": 1, "none": 0, "cost": 0.25}
 
+    # The real declaration, read before the stub replaces the loader.
+    options_type = harness.load_synthesize().ReferenceOptions
     harness.load_synthesize = lambda: SimpleNamespace(add_references=add_references)
     row = harness.reference_backfill("claude", tmp_path, {"A": "b"}, "demo")
+
+    # The names sent are the ones add_references declares, and every required one is sent.
+    assert set(seen["options"]) <= set(options_type.__annotations__)
+    assert options_type.__required_keys__ <= set(seen["options"])
 
     assert seen["args"] == (
         "claude",
