@@ -102,7 +102,7 @@ def test_scripts_are_found() -> None:
         "mem-settle",
         "mem-synthesize",
     }
-    assert "mem-synthesize" in {p.name for p in _closure(BIN / "mem-settle")}
+    assert "run.py" in {p.name for p in _closure(BIN / "mem-settle")}
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)

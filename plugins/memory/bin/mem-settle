@@ -17,8 +17,6 @@ Usage: mem-settle run [--store PATH] [--claude PATH] [--budget USD] [--minutes M
 from __future__ import annotations
 
 import argparse
-import importlib.machinery
-import importlib.util
 import json
 import logging
 import math
@@ -38,14 +36,7 @@ import headless
 import jobs
 import settle_state as ss
 from synthesize import pipeline as sp
-
-_loader = importlib.machinery.SourceFileLoader("mem_synthesize", str(HERE / "mem-synthesize"))
-_spec = importlib.util.spec_from_loader("mem_synthesize", _loader)
-if _spec is None:
-    raise ImportError("mem-synthesize cannot be loaded")
-ms = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = ms  # before 3.15, @dataclass looks its module up in sys.modules
-_loader.exec_module(ms)
+from synthesize import run as synth_run
 
 DEFAULT_BUDGET = 0.25  # USD per run
 KEEP_SECONDS = 30 * 86400
@@ -85,7 +76,7 @@ class State:
 
     def __init__(self, store: Path):
         self.store = store
-        self.dir = ss.settle_dir(ms.state_dir(), store)
+        self.dir = ss.settle_dir(synth_run.state_dir(), store)
 
     def status(self) -> dict:
         return jobs.read_json(self.dir / jobs.STATUS_NAME)
@@ -99,7 +90,7 @@ class State:
 
 def run_env(store: Path) -> dict:
     """The `mem` calls and the session: aimed at `store`; a configured memories folder is kept."""
-    env = ms.session_env(store)
+    env = synth_run.session_env(store)
     if os.environ.get("MEM_MEMORIES"):
         env["MEM_MEMORIES"] = os.environ["MEM_MEMORIES"]
     return env
@@ -523,7 +514,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _requested_store(args: argparse.Namespace) -> Path | None:
-    return args.store.expanduser().resolve() if args.store else ms.default_store()
+    return args.store.expanduser().resolve() if args.store else synth_run.default_store()
 
 
 def _no_store(command: str, store: Path | None) -> int:
