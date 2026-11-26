@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import mem
 import pytest
 from commands import read, sources
+from notes import note as notes_mod
 from research import checks as research_checks
 from test_find_new import write_note
 
@@ -55,9 +56,9 @@ def run(root, capsys, *args):
 
 
 def url_of(root, rel):
-    return mem.discover_notes(root)[[n.rel for n in mem.discover_notes(root)].index(rel)].meta[
-        "url"
-    ]
+    return notes_mod.discover_notes(root)[
+        [n.rel for n in notes_mod.discover_notes(root)].index(rel)
+    ].meta["url"]
 
 
 def test_extension_follows_content_type_then_url_suffix(hub_root, calls, capsys):

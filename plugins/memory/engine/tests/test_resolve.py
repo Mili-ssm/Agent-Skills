@@ -1,7 +1,9 @@
 import json
 
 import mem
+from commands import common, read
 from conftest import usage_log_path
+from notes import check as check_rules
 from notes import note as notes_mod
 from test_find_new import write_note
 from test_search_stats import add
@@ -73,12 +75,14 @@ def test_not_found_as_before(hub_root, capsys):
 def test_resolve_note_contract(hub_root):
     add(hub_root, "foo-one", "One")
     add(hub_root, "foo-two", "Two")
-    assert mem.resolve_note(hub_root, "2017-vaswani") == (hub_root / LIT).resolve()
-    assert mem.resolve_note(hub_root, "foo") == [
+    assert common.resolve_note(hub_root, "2017-vaswani") == (hub_root / LIT).resolve()
+    assert common.resolve_note(hub_root, "foo") == [
         "knowledge/computing/foo-one.md",
         "knowledge/computing/foo-two.md",
     ]
-    assert mem.resolve_note(hub_root, "zzz") is None and mem.resolve_note(hub_root, "") is None
+    assert (
+        common.resolve_note(hub_root, "zzz") is None and common.resolve_note(hub_root, "") is None
+    )
 
 
 def test_related_and_passages_use_the_resolver(hub_root, capsys):
@@ -105,7 +109,7 @@ def test_check_rejects_shared_handle(hub_root):
         "knowledge/biology/2017-vaswani-attention.md",
         "---\nclaim: C\ntopics: [biology]\nconfidence: low\norigin: experience\nupdated: 2026-11-07\n---\n",
     )
-    problems = [p for p in mem.check(hub_root) if "handle" in p.message]
+    problems = [p for p in check_rules.check(hub_root) if "handle" in p.message]
     assert {p.path for p in problems} == {LIT, "knowledge/biology/2017-vaswani-attention.md"}
     assert all("also used by" in p.message for p in problems)
     assert LIT in next(p for p in problems if p.path != LIT).message
@@ -131,13 +135,13 @@ def test_conclusion_alias_mixed_and_other_kind(hub_root, capsys):
 def test_md_argument_matches_exactly_never_by_prefix(hub_root, capsys):
     code, out, _ = show(hub_root, capsys, "knowledge/computing/attention-replaces.md")
     assert code == 1 and out.strip().endswith("(not found)")
-    assert mem.resolve_note(hub_root, "attention-repl.md") is None
-    assert mem.resolve_note(hub_root, "attention-replaces-recurrence.md") is not None
+    assert common.resolve_note(hub_root, "attention-repl.md") is None
+    assert common.resolve_note(hub_root, "attention-replaces-recurrence.md") is not None
 
 
 def test_prefix_can_be_turned_off(hub_root):
-    assert mem.resolve_note(hub_root, "attention-repl", prefix=False) is None
-    assert mem.resolve_note(hub_root, "attention-replaces-recurrence", prefix=False) is not None
+    assert common.resolve_note(hub_root, "attention-repl", prefix=False) is None
+    assert common.resolve_note(hub_root, "attention-replaces-recurrence", prefix=False) is not None
 
 
 def test_handle_resolution_parses_no_note(hub_root, capsys, monkeypatch):
@@ -168,9 +172,9 @@ def test_handles_flag_prints_short_handles_that_show_resolves(hub_root, capsys):
     assert mem.main(["--root", str(hub_root), "find", "--type", "knowledge", "--handles"]) == 0
     names = [line.split("\t")[0] for line in capsys.readouterr().out.splitlines()]
     assert "foo-one" in names and "foo-two" in names and not any("/" in n for n in names)
-    shorts = mem.short_handles(hub_root)
+    shorts = read.short_handles(hub_root)
     assert len(set(shorts.values())) == len(shorts)
     for rel, name in shorts.items():
-        assert mem.resolve_note(hub_root, name) == (hub_root / rel).resolve()
+        assert common.resolve_note(hub_root, name) == (hub_root / rel).resolve()
     assert mem.main(["--root", str(hub_root), "search", "foo", "--handles"]) == 0
     assert capsys.readouterr().out.split("\t")[0] in {"foo-one", "foo-two"}
