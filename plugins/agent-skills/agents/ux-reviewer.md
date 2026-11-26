@@ -22,6 +22,7 @@ URL(s) of a running app or how to start it; screens/flows in scope; primary user
 
 Follow the review workflow in `ux-principles`. Agent-specific additions:
 
+- Read CLAUDE.md / AGENTS.md first (your context omits them, yet they hold project overrides such as the HTML/CSS-first default).
 - Run `ux_audit.py` per screen at mobile and desktop widths; script multi-step flows with Playwright.
 - Use the script path shown in the preloaded `ux-principles` text (the preload also states the skill's base directory); if only a placeholder appears, locate it with `find ~/.claude/plugins -path '*ux-principles/scripts/ux_audit.py' | head -1`, because Glob runs in the project and cannot reach plugin files.
 - Open the screenshots (Read renders images) to judge hierarchy, spacing, alignment and primary-action clarity.

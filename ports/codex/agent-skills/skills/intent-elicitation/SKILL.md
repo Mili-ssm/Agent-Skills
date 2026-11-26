@@ -19,6 +19,8 @@ Default from the request: no scope given → `project`; a diff or proposal menti
 
 ## Workflow
 
+Light path: one gap on one file or one decision: ask the owner that question directly and record the answer (step 4); skip steps 1–2 and the question rounds of step 3.
+
 Copy and tick (copy the step names as a checklist, tick each when it completes):
 
 1. **Evidence**: dispatch the `consistency-auditor` subagent (mode, scope) → findings plus candidate questions. The subagent keeps noisy scanning out of this context; long specs or transcripts go to `summarizer`. Unavailable → run its checks inline and keep only conclusions.

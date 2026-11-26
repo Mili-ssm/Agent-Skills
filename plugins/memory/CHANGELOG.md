@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- `memory-curator` proposes `--claim` together with `--short` when a lesson is wrong in a detail, so a reworded lesson keeps loading at session start; it now covers the "short forms nobody read" block of the queue, keeps the proposals it did not apply in apply mode, and returns a partial table by its 12th tool call.
+- `memory-synthesizer` and `memory-researcher` stop with a report before their turn limit; `memory-researcher` names the only commands it runs; `memory-recorder` no longer confirms a lesson marked `from transcript, unconfirmed`.
+- The `memory` skill says when to write memories inline (one) and when to hand them to `memory-recorder` (two or more, or raw material); `memory-curation` says the same `--short` rule for a lesson wrong in a detail.
+
 ### Changed
 
 - Contributors: the engine test suite runs in parallel (`pytest-xdist`, `-n auto`, and a shared uv cache: about 30 s instead of about 5 min on 20 cores, no network once the uv cache is warm); `bin/mem-capture` reads `MEM_CAPTURE_LOCK_POLL` (seconds between lock attempts, default 5; a test hook); the README command is updated. No change for users.

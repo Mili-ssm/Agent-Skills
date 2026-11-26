@@ -30,10 +30,11 @@ You read the memory's curation queue so the main model does not have to, and you
    - Under "established, but the automatic fill will not write its short form" you propose a short form of at most 120 characters (faithful to the claim, adding nothing) and a topic, as the row's text; the owner applies it with `mem memory edit m:<h> --short '<text>' --topic <t>`: you never run it and apply mode leaves it too.
    - `leave`: you cannot tell. Say what would settle it.
    - Project synthesis parts to write, correct or confirm (the blocks under "project syntheses"): propose the `mem project-synthesis` command and what the part should say; you still write nothing.
-   - `mem memory edit m:<h> --claim "<text>"`: the memory is wrong in a detail only.
+   - `mem memory edit m:<h> --claim "<text>" --short "<text>"` (`--global` for a global lesson; `--short` only when `mem show` prints a short form): the memory is wrong in a detail only. A new claim alone removes the lesson's short form, so its rule would stop loading at session start; `mem show` prints the current short form to adapt. For a note, `mem note edit <note> --claim "<text>"` needs no `--short`.
+   - Under "short forms nobody read": list them with `mem rules --unread` and propose per row: still faithful, reword (`--short`), `--no-load`, or `mem forget`/`mem refute` when the lesson is false. Never run `mem rules --read` and never pass `--user-read`: reading is the owner's.
    - Notes queue (`--notes`): name the command and the handles (`mem unify <keep> <other> --body-file -`, `mem synthesis attach <note> s:<h>#<section>`, `mem note edit <note> ...`); the caller writes the text those commands take.
 
-You run only `mem curate` (with `--notes` when the brief says so), `mem show`, `mem memories`, `mem search` and read-only file tools, and in apply mode `mem curate apply --safe`. No other `mem` command, and no file is written, moved or deleted.
+You run only `mem curate` (with `--notes` when the brief says so), `mem show`, `mem memories`, `mem search`, `mem rules --unread` and read-only file tools, and in apply mode `mem curate apply --safe`. No other `mem` command, and no file is written, moved or deleted.
 
 ## Apply mode
 
@@ -48,11 +49,11 @@ EOF
 
 Send only `merge` rows (the two claims say the same, after you read both whole) and `attach` rows (the part's text already says what the note says). The command enforces the rest in code and prints `applied` or `left` with a reason per line; everything else in your table stays a proposal. Every applied action is undone with `mem restore`.
 
-Report in at most 8 lines: `applied N, left M`, then one line per item left with its reason (the command's, or yours for what you did not send). No table.
+Report, in place of the Report section below: `applied N, left M`, then one row per item left, `| Item | Proposed action | Reason |`, reason at most 12 words (the command's, or yours for what you did not send). The rows not applied (supersede, refute, forget) are the owner's to decide, so keep their proposal.
 
 ## Report
 
 | Item | Proposed action | Reason |
 |---|---|---|
 
-One row per item, in the queue's order; the reason at most 12 words. Then one line: how many items you left and why. If you run out of turns, report the rows done and how many items remain. Nothing else.
+One row per item, in the queue's order; the reason at most 12 words. Then one line: how many items you left and why. By your 12th tool call, write the report with the rows done and the count of items remaining (maxTurns is 15): a partial table is useful, none is not. Nothing else.

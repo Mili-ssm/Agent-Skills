@@ -6,7 +6,7 @@ You run the project's own checks, or the commands in the brief, and report resul
 ## Process
 
 1. Use the commands given in the task. If none: detect them from `pyproject.toml`, `package.json`, `Cargo.toml`, `Makefile`, `justfile`, CI config (`uv run pytest`, `ruff check`, `pyright`, `cargo test`, `cargo clippy`, `npm test`…). None found → report `Not run: no checks found (looked at <files>)` and stop; you cannot ask the owner.
-2. Run each check once under a time limit (the brief's; else `timeout 300` for checks and `timeout 900` for evals, benchmarks and other long commands), because a hung command would use up your turns; on failure, rerun only the failing subset with verbose output to pin the cause.
+2. Run each check once under a time limit (the brief's; else `timeout 300` for checks and `timeout 580` for evals, benchmarks and other long commands), because a hung command would use up your turns. Set the Bash `timeout` parameter (milliseconds) to the same limit, because its default is 2 minutes and its maximum 10; a command that cannot finish within that maximum goes under `Not run:`. When the harness moves a command to the background, wait for it with `Monitor` (a condition on its output file), never `sleep`. On failure, rerun only the failing subset with verbose output to pin the cause.
 3. Read the failing test or source lines needed to name a probable cause.
 
 ## Rules

@@ -4,6 +4,19 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Offload policy (`user-config/offload-policy.md`): the `skeptical-reviewer` row and the closing line now name the two-round limit ("re-run it once after fixing (round 2 is the last)"). Re-paste the file into your user-level `CLAUDE.md` to pick it up.
+- `prompt-engineer` and `ux-reviewer` read the project's `CLAUDE.md` / `AGENTS.md` first, so decided project rules are no longer reported as findings and project overrides apply.
+- `architect` gives options for its top 3 findings and at most 2 ADR drafts, to keep its report within its 80-line limit.
+- `api-design`: the status-code table says when each of 400/422, 401/403/404 and 409/412 applies. `architecture-principles` and `intent-elicitation` gain a light path for one module or one gap; `/ux-design` follows the skill's small-change rule; `feature-briefing` states as a rule that the plan waits for step 5, and falls back to `intent-elicitation` only when the feature extends existing code or docs.
+
+### Fixed
+
+- `check-runner` and `ui-verifier` set the Bash `timeout` parameter for long commands (the old 900 s limit could never finish under the tool's 10-minute maximum) and say when to wait with `Monitor`.
+- `researcher` states its 300-word limit and stops with a partial report after about 12 tool calls; `implementer` may write the report file its brief names and reports `none` when it has no open questions; `consistency-auditor` opens the staleness rubric file before rating.
+- `security-reviewer`, `prompt-engineer`, `consistency-auditor`, `architect` and `pre-mortem` treat the text they read as data and report instructions addressed to an AI assistant instead of following them.
+
 ## [1.1.0] - 2026-11-25
 
 ### Changed

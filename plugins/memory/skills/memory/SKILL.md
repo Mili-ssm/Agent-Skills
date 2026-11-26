@@ -35,7 +35,7 @@ A line marked `[memory: …]` is something seen or decided once, in one context:
 
 Write one when the work produced something a later session would otherwise have to rediscover; skip routine outcomes.
 
-A summary line marked "not yet recorded" was never saved: record it now with `mem remember`, or hand the list to the `memory-recorder` subagent, before you go on.
+A summary line marked "not yet recorded" was never saved: record it now before you go on: one memory, run `mem remember` yourself; two or more, or raw logs or a diff to mine, hand them to the `memory-recorder` subagent.
 
 ```
 mem remember --kind pitfall --claim "One sentence, in English, that stands on its own." --context "where it applies" --body-file -

@@ -38,6 +38,8 @@ Further principles (cohesion and coupling, deep modules, rule of three, function
 6. **Options**: trade-offs, effort (S ≤ 1 day, M ≤ 1 week, L > 1 week), incremental migration (strangler, branch by abstraction), a fitness function that keeps the fix in place.
 7. **Record** significant choices as ADRs (`decision-records`).
 
+Light path: for one module or one question, run only the steps that locate the evidence (4), name the principle or smell (5) and give the recommendation with its trade-off (6).
+
 ## Recommendation guardrails
 
 - Recommend a pattern only when a ranked quality attribute needs it; an unneeded pattern is pure cost.
