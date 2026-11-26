@@ -1,11 +1,12 @@
 """Memories a repository commits carry no owner trust: `owner_confirmed` in a tracked file does not count (task 3a)."""
+
 import datetime
 import subprocess
 from pathlib import Path
 
-import pytest
-
+import corroborate
 import mem
+import pytest
 import records
 
 K1, K2 = "0123456789ab", "ba9876543210"
@@ -14,8 +15,11 @@ TODAY = datetime.date.today()
 
 
 def git(root, *args):
-    subprocess.run(["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+        check=True,
+        capture_output=True,
+    )
 
 
 @pytest.fixture
@@ -29,9 +33,22 @@ def repo(tmp_path, monkeypatch):
 
 
 def lesson(sessions=0, confirmed=True):
-    args = ["remember", "--kind", "lesson", "--claim", "Payment retries need idempotency keys.", "--origin", "transcript",
-            "--weight", "light", "--reach", "project", "--short", SHORT]
-    for name, key in list(zip("ab", (K1, K2)))[:sessions]:
+    args = [
+        "remember",
+        "--kind",
+        "lesson",
+        "--claim",
+        "Payment retries need idempotency keys.",
+        "--origin",
+        "transcript",
+        "--weight",
+        "light",
+        "--reach",
+        "project",
+        "--short",
+        SHORT,
+    ]
+    for name, key in list(zip("ab", (K1, K2), strict=True))[:sessions]:
         args += ["--source", f"session {name} project {key}"]
     assert mem.main(args) == 0
     folder = records.project_dir(Path(__import__("os").environ["MEM_PROJECT"]))
@@ -105,18 +122,32 @@ def test_uninitialized_submodule_gitlink_counts_as_tracked(repo, tmp_path):
 
 
 def test_corroboration_ignores_repository_lessons(repo, tmp_path):
-    import corroborate
     lesson(sessions=2, confirmed=False)
-    assert [x.id for x in corroborate.collect([repo], None, TODAY)] == ["p1:payment-retries-need-idempotency-keys"]
+    assert [x.id for x in corroborate.collect([repo], None, TODAY)] == [
+        "p1:payment-retries-need-idempotency-keys"
+    ]
     commit(repo)
     assert corroborate.collect([repo], None, TODAY) == []
 
 
 def test_fill_job_never_picks_a_tracked_lesson(repo):
-    import corroborate
-    mem.main(["remember", "--kind", "lesson", "--claim", "Payment retries need idempotency keys.", "--origin",
-              "transcript", "--weight", "light", "--reach", "project", "--source", f"session a project {K1}",
-              "--source", f"session b project {K2}"])
+    mem.main([
+        "remember",
+        "--kind",
+        "lesson",
+        "--claim",
+        "Payment retries need idempotency keys.",
+        "--origin",
+        "transcript",
+        "--weight",
+        "light",
+        "--reach",
+        "project",
+        "--source",
+        f"session a project {K1}",
+        "--source",
+        f"session b project {K2}",
+    ])
     before = corroborate.fill_candidates([repo], None, TODAY)
     commit(repo)
     assert before and corroborate.fill_candidates([repo], None, TODAY) == []
@@ -125,7 +156,6 @@ def test_fill_job_never_picks_a_tracked_lesson(repo):
 
 
 def test_reword_job_never_picks_a_tracked_lesson(repo):
-    import corroborate
     lesson(sessions=2, confirmed=False)
     before = corroborate.reword_candidates([repo], None, TODAY, {}, every=True)
     commit(repo)

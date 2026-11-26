@@ -3,35 +3,59 @@
 
 A git failure never fails a command: `commit_if_changed` reports one line and returns None.
 """
+
 from __future__ import annotations
 
 import datetime
 import fcntl
 import fnmatch
 import json
+import logging
 import os
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 import safe_io
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
+
 # Same values as mem.py (_LOCAL_DIRS, MAX_FILE_BYTES); mem.py cannot be imported from here (it imports this module, and `engine/run.py` runs it)
 # and a test keeps both copies equal.
-LOCAL_DIRS = frozenset({"__pycache__", ".venv", "target", "node_modules", ".pytest_cache", ".sources",
-                        ".playwright-mcp"})
+LOCAL_DIRS = frozenset({
+    "__pycache__",
+    ".venv",
+    "target",
+    "node_modules",
+    ".pytest_cache",
+    ".sources",
+    ".playwright-mcp",
+})
 MAX_FILE_BYTES = 5 * 1024 * 1024
 SETTLE_FILES = (".settle-log", ".settle-state.json", ".settle-lock")
-IGNORED_FILES = ("research/*/data/", ".*.tmp", ".curation-log", *SETTLE_FILES)  # logs: git holds every earlier state already; settle state is per machine
+IGNORED_FILES = (
+    "research/*/data/",
+    ".*.tmp",
+    ".curation-log",
+    *SETTLE_FILES,
+)  # logs: git holds every earlier state already; settle state is per machine
 
 TIMEOUT = 10
 LOCK_WAIT = 10
 STALE_LOCK_SECONDS = 600  # mem's own git calls time out at 10 s: a lock this old is left over
 LOCK_NAME = "mem-commit.lock"
-_GIT_FLAGS = ["-c", "commit.gpgsign=false", "-c", "core.hooksPath="]  # a user's signing or hooks cannot hang a commit
+_GIT_FLAGS = [
+    "-c",
+    "commit.gpgsign=false",
+    "-c",
+    "core.hooksPath=",
+]  # a user's signing or hooks cannot hang a commit
 
 
 class GitError(Exception):
@@ -41,7 +65,10 @@ class GitError(Exception):
 def _env() -> dict[str, str]:
     """The environment without any GIT_* variable that could redirect the repository, index or work tree."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
-    for keep in ("GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"):  # the user's config choice, as the plan keeps it
+    for keep in (
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+    ):  # the user's config choice, as the plan keeps it
         if keep in os.environ:
             env[keep] = os.environ[keep]
     return env
@@ -49,8 +76,14 @@ def _env() -> dict[str, str]:
 
 def _git(store: Path, *args: str) -> str:
     try:
-        done = subprocess.run(["git", "-C", str(store), *_GIT_FLAGS, *args], capture_output=True, text=True,
-                              check=False, timeout=TIMEOUT, env=_env())
+        done = subprocess.run(
+            ["git", "-C", str(store), *_GIT_FLAGS, *args],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=TIMEOUT,
+            env=_env(),
+        )
     except (OSError, subprocess.SubprocessError) as exc:
         raise GitError(f"git {args[0]}: {exc}") from exc
     if done.returncode != 0:
@@ -68,7 +101,11 @@ def _oversized(store: Path) -> list[str]:
     found = []
     for dirpath, dirnames, filenames in os.walk(store):
         in_research = Path(dirpath).parent == store / "research"
-        dirnames[:] = [d for d in dirnames if d != ".git" and d not in LOCAL_DIRS and not (in_research and d == "data")]
+        dirnames[:] = [
+            d
+            for d in dirnames
+            if d != ".git" and d not in LOCAL_DIRS and not (in_research and d == "data")
+        ]
         for name in filenames:
             if name == ".curation-log" or fnmatch.fnmatch(name, ".*.tmp"):
                 continue  # ignored already; git add fails when an exclude pathspec names an ignored file
@@ -91,7 +128,7 @@ def _lock(store: Path):
         except BlockingIOError:
             if time.monotonic() >= deadline:
                 os.close(fd)
-                raise GitError("the commit lock stayed busy for 10 s")
+                raise GitError("the commit lock stayed busy for 10 s") from None
             time.sleep(0.05)
 
 
@@ -116,21 +153,25 @@ def held_back(store: Path) -> list[str]:
     return [ln for ln in text.split("\n") if ln]
 
 
+def _replace_held(path: Path, held: list[str]) -> None:
+    if not held:
+        path.unlink(missing_ok=True)
+        return
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=HELD_NAME + ".")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write("".join(f"{p}\n" for p in held))
+        os.replace(tmp, path)
+    except OSError:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def _write_held(store: Path, held: list[str]) -> None:
     """Replace the list in one step: a reader sees the old list or the new one, never half of one."""
-    path = store / ".git" / HELD_NAME
-    tmp = None
     try:
-        if held:
-            fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=HELD_NAME + ".")
-            with os.fdopen(fd, "w", encoding="utf-8") as handle:
-                handle.write("".join(f"{p}\n" for p in held))
-            os.replace(tmp, path)
-        else:
-            path.unlink(missing_ok=True)
+        _replace_held(store / ".git" / HELD_NAME, held)
     except OSError as exc:
-        if tmp:
-            Path(tmp).unlink(missing_ok=True)
         raise GitError(f"held-back list: {exc}") from exc
 
 
@@ -155,14 +196,19 @@ def _rename_sources(store: Path, held: list[str]) -> list[str]:
     return sources
 
 
-def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Callable[[str], None]) -> list[str]:
+def _hold_back(
+    store: Path, validate: Callable[[list[str]], list[str]], warn: Callable[[str], None]
+) -> list[str]:
     """Unstage the changed files that fail `validate` (returned) and, silently, any that a writer changed while it ran."""
     paths = _staged_paths(store)
     if not paths:
         return []
     try:
         bad = list(validate(paths))
-    except Exception as exc:  # a broken validator must not stop history: commit everything and say so
+    except (
+        Exception
+    ) as exc:  # a broken validator must not stop history: commit everything and say so
+        logger.debug("validator raised", exc_info=True)
         warn(f"check failed, nothing held back: {exc}")
         return []
     # writers do not take the commit lock: a file that differs from the index now changed after it was staged
@@ -173,34 +219,57 @@ def _hold_back(store: Path, validate: Callable[[list[str]], list[str]], warn: Ca
     return sorted(set(bad))
 
 
-def _commit(store: Path, message: str | Callable[[int], str],
-            validate: Callable[[list[str]], list[str]] | None = None,
-            warn: Callable[[str], None] = lambda reason: None,
-            on_held: Callable[[list[str]], None] = lambda held: None) -> str | None:
+def _stage(
+    store: Path,
+    validate: Callable[[list[str]], list[str]] | None,
+    warn: Callable[[str], None],
+    on_held: Callable[[list[str]], None],
+) -> None:
+    _drop_stale_index_lock(store)
+    _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
+    if validate is None:
+        return
+    held = _hold_back(store, validate, warn)
+    on_held(held)
+    try:  # only after the gate ran, so a reader never sees a list this run has not decided yet
+        _write_held(store, held)
+    except GitError as exc:  # the list is a convenience: the commit must not be lost for it
+        warn(str(exc))
+
+
+def _commit_staged(store: Path, message: str | Callable[[int], str]) -> str | None:
+    staged = subprocess.run(
+        ["git", "-C", str(store), *_GIT_FLAGS, "diff", "--cached", "--quiet"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=TIMEOUT,
+        env=_env(),
+    )
+    if staged.returncode == 0:
+        return None
+    if staged.returncode != 1:
+        raise GitError("git diff failed: " + (staged.stderr.strip() or f"exit {staged.returncode}"))
+    if callable(message):
+        message = message(len(_git(store, "diff", "--cached", "--name-only").splitlines()))
+    _git(store, "commit", "-q", "-m", message)
+    return _git(store, "rev-parse", "--short", "HEAD").strip()
+
+
+def _commit(
+    store: Path,
+    message: str | Callable[[int], str],
+    validate: Callable[[list[str]], list[str]] | None = None,
+    warn: Callable[[str], None] = lambda reason: None,
+    on_held: Callable[[list[str]], None] = lambda held: None,
+) -> str | None:
     try:
         fd = _lock(store)
     except (OSError, GitError) as exc:
         raise (exc if isinstance(exc, GitError) else GitError(f"lock: {exc}")) from None
     try:
-        _drop_stale_index_lock(store)
-        _git(store, "add", "-A", "--", ".", *(f":(exclude,literal){rel}" for rel in _oversized(store)))
-        if validate is not None:
-            held = _hold_back(store, validate, warn)
-            on_held(held)
-            try:  # only after the gate ran, so a reader never sees a list this run has not decided yet
-                _write_held(store, held)
-            except GitError as exc:  # the list is a convenience: the commit must not be lost for it
-                warn(str(exc))
-        staged = subprocess.run(["git", "-C", str(store), *_GIT_FLAGS, "diff", "--cached", "--quiet"],
-                                capture_output=True, text=True, check=False, timeout=TIMEOUT, env=_env())
-        if staged.returncode == 0:
-            return None
-        if staged.returncode != 1:
-            raise GitError("git diff failed: " + (staged.stderr.strip() or f"exit {staged.returncode}"))
-        if callable(message):
-            message = message(len(_git(store, "diff", "--cached", "--name-only").splitlines()))
-        _git(store, "commit", "-q", "-m", message)
-        return _git(store, "rev-parse", "--short", "HEAD").strip()
+        _stage(store, validate, warn, on_held)
+        return _commit_staged(store, message)
     except (OSError, subprocess.SubprocessError) as exc:
         raise GitError(str(exc)) from exc
     finally:
@@ -211,20 +280,32 @@ def _print_reason(reason: str) -> None:
     print(f"mem: history: {reason}", file=sys.stderr)
 
 
-def commit_if_changed(store: Path, message: str | Callable[[int], str], *, report: Callable[[str], None] = _print_reason,
-                      warn: Callable[[str], None] = _print_reason,
-                      validate: Callable[[list[str]], list[str]] | None = None,
-                      on_held: Callable[[list[str]], None] = lambda held: None) -> str | None:
-    """Stage everything and commit; the short commit id, or None when nothing changed or git failed (reported).
+class _CommitOptions(TypedDict, total=False):
+    report: Callable[[str], None]
+    warn: Callable[[str], None]
+    validate: Callable[[list[str]], list[str]] | None
+    on_held: Callable[[list[str]], None]
+
+
+def commit_if_changed(
+    store: Path, message: str | Callable[[int], str], **options: Unpack[_CommitOptions]
+) -> str | None:
+    """Stage everything and commit (keyword options: `report`, `warn`, `validate`, `on_held`); the short commit id, or None when nothing changed or git failed (reported).
 
     `message` may be a function of the number of files the commit holds. `validate` gets the changed paths (deletions
     excluded) and returns those to hold back: they stay in the working tree, listed by `held_back`. When it raises,
     everything is committed and `warn` says so (it is not a git failure). `on_held` gets the paths this run held back
     for failing `validate` (not those a writer changed meanwhile), once the gate has run."""
     try:
-        return _commit(Path(store), message, validate, warn, on_held)
+        return _commit(
+            Path(store),
+            message,
+            options.get("validate"),
+            options.get("warn", _print_reason),
+            options.get("on_held", lambda held: None),
+        )
     except GitError as exc:
-        report(str(exc))
+        options.get("report", _print_reason)(str(exc))
         return None
 
 
@@ -260,7 +341,33 @@ def log(store: Path, count: int) -> list[str]:
 
 
 TRIM_DAYS = 30
-_LOG_FOLDERS = ("", "syntheses", "memories")  # the store's own curation logs; a project's .memory/ is never one of them
+_LOG_FOLDERS = (
+    "",
+    "syntheses",
+    "memories",
+)  # the store's own curation logs; a project's .memory/ is never one of them
+
+
+def _entry_time(line: str) -> datetime.datetime | None:
+    try:
+        if not line.strip():
+            return None
+        entry = json.loads(line)
+        return datetime.datetime.strptime(entry["t"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.UTC
+        )
+    except (ValueError, TypeError, KeyError):
+        return None  # unreadable or undated lines stay
+
+
+def _blank_old(lines: list[str], cutoff: datetime.datetime) -> int:
+    changed = 0
+    for number, line in enumerate(lines):
+        when = _entry_time(line)
+        if when is not None and when < cutoff:
+            lines[number] = ""
+            changed += 1
+    return changed
 
 
 def trim_logs(store: Path, now: datetime.datetime | None = None) -> int:
@@ -268,7 +375,7 @@ def trim_logs(store: Path, now: datetime.datetime | None = None) -> int:
 
     A removed entry becomes an empty line, not a missing one: `mem restore` marks an undone entry by its line number.
     Call it only for a store whose git history is intact."""
-    now = now or datetime.datetime.now(datetime.timezone.utc)
+    now = now or datetime.datetime.now(datetime.UTC)
     cutoff = now - datetime.timedelta(days=TRIM_DAYS)
     removed = 0
     for folder in _LOG_FOLDERS:
@@ -277,23 +384,14 @@ def trim_logs(store: Path, now: datetime.datetime | None = None) -> int:
             lines = path.read_text(encoding="utf-8").split("\n")
         except (OSError, UnicodeDecodeError):
             continue
-        changed = 0
-        for number, line in enumerate(lines):
-            try:
-                entry = json.loads(line) if line.strip() else None
-                when = datetime.datetime.strptime(entry["t"], "%Y-%m-%dT%H:%M:%SZ").replace(
-                    tzinfo=datetime.timezone.utc)
-            except (ValueError, TypeError, KeyError):
-                continue  # unreadable or undated lines stay
-            if when < cutoff:
-                lines[number] = ""
-                changed += 1
-        if changed:
-            try:
-                safe_io.replace_file(path, "\n".join(lines).encode("utf-8"))
-            except OSError:
-                continue
-            removed += changed
+        changed = _blank_old(lines, cutoff)
+        if not changed:
+            continue
+        try:
+            safe_io.replace_file(path, "\n".join(lines).encode("utf-8"))
+        except OSError:
+            continue
+        removed += changed
     return removed
 
 

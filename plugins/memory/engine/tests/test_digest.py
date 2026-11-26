@@ -1,30 +1,64 @@
 import dataclasses
 import datetime
 import json
+from typing import Any, cast
 
 import digest
 import records
 
 TODAY = datetime.date.today()
 K1, K2 = "0123456789ab", "ba9876543210"
+SECOND_TRY = 2
+UNJUDGED_TWO = 2
+UNJUDGED_THREE = 3
+INDEX_TOPICS = 80
+HEADING_WIDTH = 80
+HEADINGS_TOTAL = 800
+TEXT_LIMIT = 9500
 
 
 def _base():
     """One valid, established, loadable global record (copied from test_rules.py, which is edited elsewhere)."""
-    return records.Memory(scope="global", path=None, handle="base", kind="lesson", claim="A claim.",
-                          created=datetime.date(2026, 1, 1), observed=1, status="active", context=None,
-                          valid_until=None, sources=[f"session s1 project {K1}", f"session s2 project {K2}"],
-                          body="", error=None, origin="transcript", weight="light", short="A short rule.")
+    return records.Memory(
+        scope="global",
+        path=cast("Any", None),  # never read by the digest code under test
+        handle="base",
+        kind="lesson",
+        claim="A claim.",
+        created=datetime.date(2026, 1, 1),
+        observed=1,
+        status="active",
+        context=None,
+        valid_until=None,
+        sources=[f"session s1 project {K1}", f"session s2 project {K2}"],
+        body="",
+        error=None,
+        origin="transcript",
+        weight="light",
+        short="A short rule.",
+    )
 
 
-def _lesson(handle, topic="a", **kw):
-    return dataclasses.replace(_base(), handle=handle, claim=f"Claim {handle}.", short=f"Rule {handle}.", topic=topic, **kw)
+def _lesson(handle, topic: str | None = "a", **kw):
+    return dataclasses.replace(
+        _base(), handle=handle, claim=f"Claim {handle}.", short=f"Rule {handle}.", topic=topic, **kw
+    )
 
 
 def _digest_for(lessons, topic="a"):
     h = digest.heading_print(lessons)
-    return {"topics": {topic: {"heading": "Heading", "of": h, "lines": {
-        m.handle: {"text": f"text {m.handle}", "of": digest.line_print(m), "under": h} for m in lessons}}}}
+    return {
+        "topics": {
+            topic: {
+                "heading": "Heading",
+                "of": h,
+                "lines": {
+                    m.handle: {"text": f"text {m.handle}", "of": digest.line_print(m), "under": h}
+                    for m in lessons
+                },
+            }
+        }
+    }
 
 
 def test_fingerprints_follow_the_claim_and_the_short_form():
@@ -32,7 +66,12 @@ def test_fingerprints_follow_the_claim_and_the_short_form():
     base = digest.line_print(m)
     assert digest.line_print(dataclasses.replace(m, claim="Other.")) != base
     assert digest.line_print(dataclasses.replace(m, short="Other rule.")) != base
-    assert digest.line_print(dataclasses.replace(m, log=["x"], versions=["2026-01-01 Old rule."], topic="z")) == base
+    assert (
+        digest.line_print(
+            dataclasses.replace(m, log=["x"], versions=["2026-01-01 Old rule."], topic="z")
+        )
+        == base
+    )
     ls = [_lesson("a1"), _lesson("a2")]
     hp = digest.heading_print(ls)
     assert digest.heading_print(ls[::-1]) == hp
@@ -46,13 +85,26 @@ def test_read_drops_what_is_wrong_and_keeps_the_rest(tmp_path):
     assert digest.read(None) == empty
     assert digest.read(tmp_path) == empty
     f = tmp_path / digest.FILE
-    for text in ("", "[]", "not json", '{"topics": []}', '{"topics": {"a": {"heading": "H", "of": "o", "lines": "x"}}}'):
+    for text in (
+        "",
+        "[]",
+        "not json",
+        '{"topics": []}',
+        '{"topics": {"a": {"heading": "H", "of": "o", "lines": "x"}}}',
+    ):
         f.write_text(text)
         assert digest.read(tmp_path) == empty
     good = {"heading": "H", "of": "o", "lines": {"h1": {"text": "t", "of": "o1", "under": "o"}}}
     bad_line = {"text": "t", "under": "o"}
-    f.write_text(json.dumps({"topics": {"good": good, "bad": "x", "mixed": {**good, "lines": {
-        "h1": good["lines"]["h1"], "h2": bad_line, "h3": 3}}}}))
+    f.write_text(
+        json.dumps({
+            "topics": {
+                "good": good,
+                "bad": "x",
+                "mixed": {**good, "lines": {"h1": good["lines"]["h1"], "h2": bad_line, "h3": 3}},
+            }
+        })
+    )
     got = digest.read(tmp_path)
     assert got["topics"]["good"] == good
     assert got["topics"]["mixed"]["lines"] == {"h1": good["lines"]["h1"]}
@@ -126,8 +178,12 @@ def _lkey(m, ls):
 
 
 def _answer(w, heading="Fresh heading", suffix=" ok"):
-    return {w.topic: {"heading": heading if w.heading_state == "write" else None,
-                      "lines": {m.handle: f"Rule {m.handle}.{suffix}" for m in w.write}}}
+    return {
+        w.topic: {
+            "heading": heading if w.heading_state == "write" else None,
+            "lines": {m.handle: f"Rule {m.handle}.{suffix}" for m in w.write},
+        }
+    }
 
 
 def _all_ok(ws, proposed):
@@ -181,7 +237,8 @@ def test_blocks_text():
     assert digest.blocks([w]) == (
         "topic: a\nheading (keep): Heading\n\n"
         "id: g:a1\ndo: write\nclaim: Claim a1.\ncontext: Some context.\nshort: Reworded rule.\n\n"
-        "id: g:a2\ndo: keep\nclaim: Claim a2.\nshort: Rule a2.\nline: text a2")
+        "id: g:a2\ndo: keep\nclaim: Claim a2.\nshort: Rule a2.\nline: text a2"
+    )
     (w2,) = digest.work(_topics(*ls[:1]), {"topics": {}}, _state())
     assert digest.blocks([w2, w2]).count("\n\n\n") == 1
     assert digest.blocks([w2]).startswith("topic: a\nheading: write\n\nid: g:a1\n")
@@ -191,15 +248,31 @@ def test_validate_keeps_only_what_was_asked():
     ls, d = _fresh()
     changed = [dataclasses.replace(ls[0], short="Reworded rule."), *ls[1:]]
     (w,) = digest.work(_topics(*changed), d, _state())
-    got = digest.validate({"topics": [
-        {"topic": "a", "heading": "Other", "lines": [{"id": "g:a1", "line": "New."}, {"id": "g:a2", "line": "No."},
-                                                     {"id": "g:a3", "line": 3}]},
-        {"topic": "zz", "lines": []}]}, [w])
+    got = digest.validate(
+        {
+            "topics": [
+                {
+                    "topic": "a",
+                    "heading": "Other",
+                    "lines": [
+                        {"id": "g:a1", "line": "New."},
+                        {"id": "g:a2", "line": "No."},
+                        {"id": "g:a3", "line": 3},
+                    ],
+                },
+                {"topic": "zz", "lines": []},
+            ]
+        },
+        [w],
+    )
     assert got == {"a": {"heading": None, "lines": {"a1": "New."}}}
     (w2,) = digest.work(_topics(*ls), {"topics": {}}, _state())
     assert digest.validate({"topics": [{"topic": "a", "heading": 5, "lines": "x"}]}, [w2]) == {
-        "a": {"heading": None, "lines": {}}}
-    assert digest.validate({"topics": [{"topic": "a", "heading": "H"}]}, [w2])["a"]["heading"] == "H"
+        "a": {"heading": None, "lines": {}}
+    }
+    assert (
+        digest.validate({"topics": [{"topic": "a", "heading": "H"}]}, [w2])["a"]["heading"] == "H"
+    )
     for bad in ([], {"topics": {}}, {"topics": "x"}, None):
         with pytest.raises(ValueError):
             digest.validate(bad, [w])
@@ -210,7 +283,12 @@ def test_problems():
     assert digest.heading_problem("Waiting for builds") is None
     for bad in ("", "  ", "a\nb", " a", "a ", "x" * 81, "Ends with a period.", "Ends with colon:"):
         assert digest.heading_problem(bad)
-    assert digest.line_problem("Wait for the build.", dataclasses.replace(m, claim="Wait for the build.")) is None
+    assert (
+        digest.line_problem(
+            "Wait for the build.", dataclasses.replace(m, claim="Wait for the build.")
+        )
+        is None
+    )
     assert digest.line_problem("Wait for the build.", m)  # drops the claim's "may"
     for bad in ("", "a\nb", " a", "a ", "x" * 121):
         assert digest.line_problem(bad, m)
@@ -226,8 +304,14 @@ def test_decide_stores_what_passed():
     ls, ws = _new_topic()
     prop = _answer(ws[0])
     new, st, counts = digest.decide(ws, prop, _all_ok(ws, prop), {"topics": {}}, _state())
-    assert counts == {"headings_written": 1, "lines_written": 3, "refused_code": 0, "refused_check": 0, "missing": 0,
-                      "unjudged": 0}
+    assert counts == {
+        "headings_written": 1,
+        "lines_written": 3,
+        "refused_code": 0,
+        "refused_check": 0,
+        "missing": 0,
+        "unjudged": 0,
+    }
     assert digest.heading(new, "a", ls) == "Fresh heading"
     assert [digest.line(new, "a", m, ls) for m in ls] == [f"Rule {m.handle}. ok" for m in ls]
     assert st["tries"] == {}
@@ -241,22 +325,28 @@ def test_a_refused_line_is_tried_twice_then_left():
     prop = _answer(ws[0])
     verdicts = {"g:a1": {"fits": True, "faithful": False}}
     new, st, counts = digest.decide(ws, prop, verdicts, d, _state())
-    assert new == d and st["tries"] == {_lkey(changed[0], changed): 1} and counts["refused_check"] == 1
+    assert (
+        new == d and st["tries"] == {_lkey(changed[0], changed): 1} and counts["refused_check"] == 1
+    )
     ws = digest.work(_topics(*changed), new, st)
     assert ws
     new, st, _ = digest.decide(ws, prop, verdicts, new, st)
-    assert st["tries"][_lkey(changed[0], changed)] == 2
+    assert st["tries"][_lkey(changed[0], changed)] == SECOND_TRY
     assert digest.work(_topics(*changed), new, st) == []
 
 
 def test_a_heading_that_does_not_fit_stores_nothing_for_the_topic():
     ls, ws = _new_topic()
     prop = _answer(ws[0])
-    verdicts = _all_ok(ws, prop)
+    verdicts: dict[str, Any] = _all_ok(ws, prop)
     verdicts["g:a2"] = {"fits": False, "faithful": True}
     new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
     assert new == {"topics": {}}
-    assert st["tries"] == {_hkey("a", ls): 1} and counts["refused_check"] == 1 and counts["lines_written"] == 0
+    assert (
+        st["tries"] == {_hkey("a", ls): 1}
+        and counts["refused_check"] == 1
+        and counts["lines_written"] == 0
+    )
     verdicts["g:a2"] = {"fits": "true", "faithful": True}  # only the exact value true counts
     assert digest.decide(ws, prop, verdicts, {"topics": {}}, _state())[0] == {"topics": {}}
 
@@ -268,7 +358,7 @@ def _joined():
 
 
 def test_a_kept_line_unfaithful_under_a_new_heading_is_removed():
-    ls, d, joined, ws = _joined()
+    _ls, d, joined, ws = _joined()
     prop = _answer(ws[0])
     verdicts = _all_ok(ws, prop)
     verdicts["g:a2"] = {"fits": True, "faithful": False}
@@ -279,11 +369,16 @@ def test_a_kept_line_unfaithful_under_a_new_heading_is_removed():
 
 
 def test_a_kept_line_still_prints_under_a_rewritten_heading():
-    ls, d, joined, ws = _joined()
+    _ls, d, joined, ws = _joined()
     prop = _answer(ws[0])
     new, st, counts = digest.decide(ws, prop, _all_ok(ws, prop), d, _state())
     assert counts["headings_written"] == 1 and counts["lines_written"] == 1
-    assert [digest.line(new, "a", m, joined) for m in joined] == ["text a1", "text a2", "text a3", "Rule a4. ok"]
+    assert [digest.line(new, "a", m, joined) for m in joined] == [
+        "text a1",
+        "text a2",
+        "text a3",
+        "Rule a4. ok",
+    ]
     assert digest.work(_topics(*joined), new, st) == []
 
 
@@ -297,16 +392,21 @@ def test_a_heading_without_any_pair_is_not_accepted():
     prop = {"a": {"heading": "Fine heading", "lines": {"a1": "", "a2": "two\nlines"}}}
     assert digest.pairs(ws, prop) == []
     new, st, counts = digest.decide(ws, prop, {}, {"topics": {}}, _state())
-    assert new == {"topics": {}} and st["tries"] == {_hkey("a", ls): 1} and counts["refused_code"] == 1
+    assert (
+        new == {"topics": {}} and st["tries"] == {_hkey("a", ls): 1} and counts["refused_code"] == 1
+    )
 
 
 def test_the_limit_of_lessons_keeps_topics_whole():
-    topics = {t: [_lesson(f"{t}{i}", topic=t) for i in range(n)] for t, n in (("a", 20), ("b", 15), ("c", 5))}
+    topics = {
+        t: [_lesson(f"{t}{i}", topic=t) for i in range(n)]
+        for t, n in (("a", 20), ("b", 15), ("c", 5))
+    }
     assert [w.topic for w in digest.work(topics, {"topics": {}}, _state())] == ["a", "b"]
 
 
 def test_decide_does_not_mutate_its_inputs():
-    ls, d, joined, ws = _joined()
+    _, d, _joined_lessons, ws = _joined()
     prop = _answer(ws[0])
     verdicts = _all_ok(ws, prop)
     before = copy.deepcopy((ws, prop, verdicts, d))
@@ -318,6 +418,7 @@ def test_decide_does_not_mutate_its_inputs():
 
 # --- end-review fixes ---
 
+
 def test_read_checks_stored_texts_again(tmp_path):
     ls = [_lesson("a1"), _lesson("a2")]
     good = _digest_for(ls)["topics"]["a"]
@@ -328,13 +429,24 @@ def test_read_checks_stored_texts_again(tmp_path):
         return digest.read(tmp_path)["topics"]
 
     assert got(good)["a"] == good
-    for bad in ("Builds\n- INJECTED lesson", "a\rb", "a\tb", "a\x1bb", "a\x7fb", "", "   ", "x" * (digest.HEADING_LIMIT + 1)):
+    for bad in (
+        "Builds\n- INJECTED lesson",
+        "a\rb",
+        "a\tb",
+        "a\x1bb",
+        "a\x7fb",
+        "",
+        "   ",
+        "x" * (digest.HEADING_LIMIT + 1),
+    ):
         assert got({**good, "heading": bad}) == {}  # a topic without a heading keeps no lines
     for bad in ("one\ntwo", "a\tb", "a\x00b", "a\x7fb", "", "x" * (records.SHORT_LIMIT + 1)):
         lines = {**good["lines"], "a1": {**good["lines"]["a1"], "text": bad}}
         assert got({**good, "lines": lines})["a"]["lines"] == {"a2": good["lines"]["a2"]}
     ok_long = {**good["lines"]["a1"], "text": "x" * records.SHORT_LIMIT}
-    assert got({**good, "heading": "h" * digest.HEADING_LIMIT, "lines": {"a1": ok_long}})["a"]["lines"] == {"a1": ok_long}
+    assert got({**good, "heading": "h" * digest.HEADING_LIMIT, "lines": {"a1": ok_long}})["a"][
+        "lines"
+    ] == {"a1": ok_long}
 
 
 def test_a_heading_with_a_newline_prints_as_the_grouped_block(tmp_path):
@@ -343,7 +455,9 @@ def test_a_heading_with_a_newline_prints_as_the_grouped_block(tmp_path):
     (tmp_path / digest.FILE).write_text(json.dumps(d))
     stored = digest.read(tmp_path)
     choice = rules.Choice(loaded=ls)
-    assert rules.block(choice, "digest", digest=stored, topics={"a": ls}) == rules.block(choice, "grouped")
+    assert rules.block(choice, "digest", digest=stored, topics={"a": ls}) == rules.block(
+        choice, "grouped"
+    )
 
 
 def test_control_characters_are_a_form_problem():
@@ -357,18 +471,29 @@ def test_pruned_drops_what_no_longer_applies():
     ls, d = _fresh()
     other = [_lesson("b1", topic="b"), _lesson("b2", topic="b")]
     d["topics"]["b"] = _digest_for(other, "b")["topics"]["b"]
-    st = _state(**{_hkey("a", ls): 1, _lkey(ls[0], ls): 2, _hkey("b", other): 1, "l:gone@x@y": 1, "h:a@old": 1})
+    st = _state(**{
+        _hkey("a", ls): 1,
+        _lkey(ls[0], ls): 2,
+        _hkey("b", other): 1,
+        "l:gone@x@y": 1,
+        "h:a@old": 1,
+    })
     st["failures"] = {"count": 2, "fingerprint": "f"}
     new_d, new_st = digest.pruned(d, st, _topics(*ls))
     assert list(new_d["topics"]) == ["a"] and new_d["topics"]["a"] == d["topics"]["a"]
-    assert new_st["tries"] == {_hkey("a", ls): 1, _lkey(ls[0], ls): 2} and new_st["failures"] == st["failures"]
+    assert (
+        new_st["tries"] == {_hkey("a", ls): 1, _lkey(ls[0], ls): 2}
+        and new_st["failures"] == st["failures"]
+    )
     # a line whose lesson left the topic goes, the others stay
     fewer = ls[:2]
     new_d, new_st = digest.pruned(d, st, _topics(*fewer))
     assert sorted(new_d["topics"]["a"]["lines"]) == ["a1", "a2"]
     # a lesson without a valid short form has no line key
     nos = [dataclasses.replace(ls[0], short=None), *ls[1:]]
-    _, new_st = digest.pruned(d, _state(**{_lkey(nos[0], nos): 1, _lkey(ls[1], nos): 1}), _topics(*nos))
+    _, new_st = digest.pruned(
+        d, _state(**{_lkey(nos[0], nos): 1, _lkey(ls[1], nos): 1}), _topics(*nos)
+    )
     assert new_st["tries"] == {_lkey(ls[1], nos): 1}
 
 
@@ -386,13 +511,21 @@ def test_a_lesson_without_a_verdict_is_not_judged():
     prop = _answer(ws[0])
     verdicts = {"g:a1": OK}
     new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
-    assert counts["unjudged"] == 2 and counts["headings_written"] == 1 and counts["lines_written"] == 1
+    assert (
+        counts["unjudged"] == UNJUDGED_TWO
+        and counts["headings_written"] == 1
+        and counts["lines_written"] == 1
+    )
     assert counts["refused_check"] == 0 and st["tries"] == {}
     assert list(new["topics"]["a"]["lines"]) == ["a1"]
     # a verdict that is present and not true still spends a try
     verdicts = {"g:a1": OK, "g:a2": {"fits": True, "faithful": False}}
     new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
-    assert counts["unjudged"] == 1 and counts["refused_check"] == 1 and st["tries"] == {_lkey(ls[1], ls): 1}
+    assert (
+        counts["unjudged"] == 1
+        and counts["refused_check"] == 1
+        and st["tries"] == {_lkey(ls[1], ls): 1}
+    )
     assert sorted(new["topics"]["a"]["lines"]) == ["a1"]
 
 
@@ -400,30 +533,50 @@ def test_a_heading_needs_one_verdict_and_every_verdict_fitting():
     ls, ws = _new_topic()
     prop = _answer(ws[0])
     new, st, counts = digest.decide(ws, prop, {}, {"topics": {}}, _state())
-    assert new == {"topics": {}} and st["tries"] == {} and counts["unjudged"] == 3 and counts["refused_check"] == 0
+    assert (
+        new == {"topics": {}}
+        and st["tries"] == {}
+        and counts["unjudged"] == UNJUDGED_THREE
+        and counts["refused_check"] == 0
+    )
     verdicts = {"g:a1": OK, "g:a2": {"fits": False, "faithful": True}}
     new, st, counts = digest.decide(ws, prop, verdicts, {"topics": {}}, _state())
-    assert new == {"topics": {}} and st["tries"] == {_hkey("a", ls): 1} and counts["refused_check"] == 1
+    assert (
+        new == {"topics": {}}
+        and st["tries"] == {_hkey("a", ls): 1}
+        and counts["refused_check"] == 1
+    )
 
 
 # --- printing the digest and the index (Task 3) ---
 
 import os
 import subprocess
-from pathlib import Path
-
-import pytest
 
 import mem
+import pytest
 import rules
-from test_rules_session import FIT, PLUGIN, pad
+from test_rules_session import PLUGIN, pad
 
 
 def _full(lessons, topic="a", heading="when doing x", texts=None):
     h = digest.heading_print(lessons)
-    return {"topics": {topic: {"heading": heading, "of": h, "lines": {
-        m.handle: {"text": (texts or {}).get(m.handle, f"text {m.handle}"), "of": digest.line_print(m), "under": h}
-        for m in lessons}}}}
+    return {
+        "topics": {
+            topic: {
+                "heading": heading,
+                "of": h,
+                "lines": {
+                    m.handle: {
+                        "text": (texts or {}).get(m.handle, f"text {m.handle}"),
+                        "of": digest.line_print(m),
+                        "under": h,
+                    }
+                    for m in lessons
+                },
+            }
+        }
+    }
 
 
 def _two():
@@ -433,14 +586,20 @@ def _two():
 def test_a_fresh_digest_prints_heading_and_lines():
     ls = _two()
     choice = rules.Choice(loaded=ls)
-    want = [rules.HEADER, "a: when doing x", *(f"- text {m.handle} (held in 2 projects)" for m in ls)]
+    want = [
+        rules.HEADER,
+        "a: when doing x",
+        *(f"- text {m.handle} (held in 2 projects)" for m in ls),
+    ]
     assert rules.block(choice, "digest", digest=_full(ls), topics={"a": ls}) == want
 
 
 def test_a_changed_lesson_prints_its_short_form_and_the_rest_keep_their_lines():
     ls = _two()
     d = _full(ls)
-    ls[1] = dataclasses.replace(ls[1], short="New rule.")  # the heading is fresh only for the claims, which did not change
+    ls[1] = dataclasses.replace(
+        ls[1], short="New rule."
+    )  # the heading is fresh only for the claims, which did not change
     got = rules.block(rules.Choice(loaded=ls), "digest", digest=d, topics={"a": ls})
     assert got[1:] == ["a: when doing x", "- text a1 (held in 2 projects)", rules.line(ls[1])]
 
@@ -466,7 +625,12 @@ def test_a_project_lesson_prints_its_short_form_under_the_heading():
     proj = dataclasses.replace(_lesson("p1"), scope="project")
     choice = rules.Choice(loaded=[ls[0], proj, ls[1]])
     got = rules.block(choice, "digest", digest=_full(ls), topics={"a": ls})
-    assert got[1:] == ["a: when doing x", "- text a1 (held in 2 projects)", "- text a2 (held in 2 projects)", rules.line(proj)]
+    assert got[1:] == [
+        "a: when doing x",
+        "- text a1 (held in 2 projects)",
+        "- text a2 (held in 2 projects)",
+        rules.line(proj),
+    ]
 
 
 def test_a_stale_line_prints_after_the_digest_lines_and_a_bare_topic_keeps_its_order():
@@ -474,7 +638,12 @@ def test_a_stale_line_prints_after_the_digest_lines_and_a_bare_topic_keeps_its_o
     d = _full(ls)
     stale = [dataclasses.replace(ls[0], short="New rule."), *ls[1:]]
     got = rules.block(rules.Choice(loaded=stale), "digest", digest=d, topics={"a": stale})
-    assert got[1:] == ["a: when doing x", "- text a2 (held in 2 projects)", "- text a3 (held in 2 projects)", rules.line(stale[0])]
+    assert got[1:] == [
+        "a: when doing x",
+        "- text a2 (held in 2 projects)",
+        "- text a3 (held in 2 projects)",
+        rules.line(stale[0]),
+    ]
     more = [*ls, _lesson("a4")]  # a changed topic has no heading: no reordering
     proj = dataclasses.replace(_lesson("p1"), scope="project")
     got = rules.block(rules.Choice(loaded=[proj, *more]), "digest", digest=d, topics={"a": more})
@@ -495,9 +664,14 @@ def test_index_names_the_headings_of_topics_left_out():
     a, b = _two(), [_lesson("b1", topic="b")]
     left = rules.Choice(left=[(m, rules.OVER) for m in [*a, *b]])
     assert rules.index_lines(left, digest=_full(a), topics={"a": a}) == [
-        "More lessons, by topic (mem rules --more <topic>):", "- a (2): when doing x", "- b (1)"]
+        "More lessons, by topic (mem rules --more <topic>):",
+        "- a (2): when doing x",
+        "- b (1)",
+    ]
     assert rules.index_lines(left) == [rules.more_line(left)]
-    assert rules.index_lines(left, digest={"topics": {}}, topics={"a": a}) == [rules.more_line(left)]
+    assert rules.index_lines(left, digest={"topics": {}}, topics={"a": a}) == [
+        rules.more_line(left)
+    ]
     assert rules.index_lines(rules.Choice(), digest=_full(a), topics={"a": a}) == []
 
 
@@ -516,7 +690,10 @@ def test_the_index_sums_the_topics_left_out_in_the_singular_or_the_plural():
 def _forty():
     out = {}
     for i in range(40):
-        ls = [_lesson(f"t{i:02}x", topic=f"topic{i:02}"), _lesson(f"t{i:02}y", topic=f"topic{i:02}")]
+        ls = [
+            _lesson(f"t{i:02}x", topic=f"topic{i:02}"),
+            _lesson(f"t{i:02}y", topic=f"topic{i:02}"),
+        ]
         out[f"topic{i:02}"] = ls
     return out
 
@@ -529,14 +706,20 @@ def test_index_stays_within_its_limit():
     groups = _forty()
     left = rules.Choice(left=[(m, rules.OVER) for ls in groups.values() for m in ls])
     got = rules.index_lines(left, digest=_digest_of(groups), topics=groups)
-    assert len("\n".join(got)) <= rules.INDEX_LIMIT and got[-1].startswith("- and ") and got[-1].endswith(" topics")
+    assert (
+        len("\n".join(got)) <= rules.INDEX_LIMIT
+        and got[-1].startswith("- and ")
+        and got[-1].endswith(" topics")
+    )
     named = sum(2 for x in got[1:-1])
-    assert named + int(got[-1].split()[2]) == 80
+    assert named + int(got[-1].split()[2]) == INDEX_TOPICS
 
 
 def test_digest_lines_stay_within_the_limit_of_lesson_lines():
     ls = [dataclasses.replace(_lesson(f"l{i:02}"), short=pad("Rule", 60)) for i in range(40)]
-    choice = rules.Choice(loaded=ls[:30])  # the slack left under the limit lets about ten lines grow by 60 characters
+    choice = rules.Choice(
+        loaded=ls[:30]
+    )  # the slack left under the limit lets about ten lines grow by 60 characters
     texts = {m.handle: pad("Digest", 120) for m in ls}
     got = rules.block(choice, "digest", digest=_full(ls, texts=texts), topics={"a": ls})
     printed = got[2:]
@@ -547,12 +730,20 @@ def test_digest_lines_stay_within_the_limit_of_lesson_lines():
 
 
 def test_headings_stay_within_their_limit():
-    groups = {f"topic{i:02}": [_lesson(f"t{i:02}x", topic=f"topic{i:02}"), _lesson(f"t{i:02}y", topic=f"topic{i:02}")]
-              for i in range(30)}
+    groups = {
+        f"topic{i:02}": [
+            _lesson(f"t{i:02}x", topic=f"topic{i:02}"),
+            _lesson(f"t{i:02}y", topic=f"topic{i:02}"),
+        ]
+        for i in range(30)
+    }
     choice = rules.Choice(loaded=[m for ls in groups.values() for m in ls])
     got = rules.block(choice, "digest", digest=_digest_of(groups), topics=groups)
     heads = [x for x in got if x.endswith("h" * 80)]
-    assert sum(80 for _ in heads) == 800 and len(heads) == rules.HEADINGS_LIMIT // 80
+    assert (
+        sum(HEADING_WIDTH for _ in heads) == HEADINGS_TOTAL
+        and len(heads) == rules.HEADINGS_LIMIT // 80
+    )
     assert [x for x in got if x.endswith(":")] == [f"topic{i:02}:" for i in range(10, 30)]
 
 
@@ -571,9 +762,31 @@ def _store(tmp_path, monkeypatch, n=2, topic="a"):
     monkeypatch.setenv("MEM_DATA", str(tmp_path / "data"))
     monkeypatch.delenv("MEM_RULES_LAYOUT", raising=False)
     for i in range(n):
-        assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", f"Lesson {i}.", "--origin", "transcript",
-                         "--reach", "general", "--short", f"Rule {i}.", "--topic", topic, "--weight", "light",
-                         "--source", f"session a project {K}", "--source", f"session b project {'ba9876543210'}"]) == 0
+        assert (
+            mem.main([
+                "remember",
+                "--global",
+                "--kind",
+                "lesson",
+                "--claim",
+                f"Lesson {i}.",
+                "--origin",
+                "transcript",
+                "--reach",
+                "general",
+                "--short",
+                f"Rule {i}.",
+                "--topic",
+                topic,
+                "--weight",
+                "light",
+                "--source",
+                f"session a project {K}",
+                "--source",
+                f"session b project {'ba9876543210'}",
+            ])
+            == 0
+        )
     for m in records.load_memories(folder, "global"):
         if m.triage == "pending":
             assert mem.main(["triage", "accept", m.handle]) == 0
@@ -597,7 +810,9 @@ def test_rules_command_and_session_start_take_the_digest_layout(tmp_path, monkey
     before = _run(capsys, "session-index")
     _write_digest(folder, data)
     assert "a: when doing x\n- text " in _run(capsys, "rules", "--layout", "digest")
-    assert _run(capsys, "session-index") == before  # unset: no heading anywhere, and nothing is left out
+    assert (
+        _run(capsys, "session-index") == before
+    )  # unset: no heading anywhere, and nothing is left out
     monkeypatch.setenv("MEM_RULES_LAYOUT", "digest")
     assert "a: when doing x\n- text " in _run(capsys, "session-index")
     monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
@@ -605,7 +820,7 @@ def test_rules_command_and_session_start_take_the_digest_layout(tmp_path, monkey
 
 
 def test_a_broken_digest_file_leaves_the_grouped_block(tmp_path, monkeypatch, capsys):
-    folder, _, data = _store(tmp_path, monkeypatch)
+    _, _, data = _store(tmp_path, monkeypatch)
     monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
     grouped = _run(capsys, "session-index")
     data.mkdir(parents=True, exist_ok=True)
@@ -617,57 +832,135 @@ def test_a_broken_digest_file_leaves_the_grouped_block(tmp_path, monkeypatch, ca
 
 
 def test_the_hooks_pass_the_digest_value(tmp_path):
-    home, store, proj, data = tmp_path / "home", tmp_path / "store", tmp_path / "work" / "proj", tmp_path / "data"
+    home, store, proj, data = (
+        tmp_path / "home",
+        tmp_path / "store",
+        tmp_path / "work" / "proj",
+        tmp_path / "data",
+    )
     for d in (home, store, proj):
         d.mkdir(parents=True)
     (store / "mem-store.yaml").write_text("format: 1\n", encoding="utf-8")
     subprocess.run(["git", "-C", str(proj), "init", "-q"], check=True)
-    env = {"HOME": str(home), "PATH": os.environ["PATH"], "MEM_STORE": str(store), "MEM_DATA": str(data)}
+    env = {
+        "HOME": str(home),
+        "PATH": os.environ["PATH"],
+        "MEM_STORE": str(store),
+        "MEM_DATA": str(data),
+    }
     for i in range(2):
-        r = subprocess.run([str(PLUGIN / "bin" / "mem"), "remember", "--global", "--kind", "lesson", "--claim", f"Hook lesson {i}.",
-                            "--origin", "transcript", "--reach", "general", "--short", f"Hook rule {i}.", "--topic", "a",
-                            "--source", f"session a project {K}", "--source", "session b project ba9876543210"],
-                           cwd=proj, env=env, capture_output=True, text=True)
+        r = subprocess.run(
+            [
+                str(PLUGIN / "bin" / "mem"),
+                "remember",
+                "--global",
+                "--kind",
+                "lesson",
+                "--claim",
+                f"Hook lesson {i}.",
+                "--origin",
+                "transcript",
+                "--reach",
+                "general",
+                "--short",
+                f"Hook rule {i}.",
+                "--topic",
+                "a",
+                "--source",
+                f"session a project {K}",
+                "--source",
+                "session b project ba9876543210",
+            ],
+            cwd=proj,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
         assert r.returncode == 0, r.stderr
     lessons = records.load_memories(store / "memories", "global")
     for m in lessons:
-        subprocess.run([str(PLUGIN / "bin" / "mem"), "confirm", f"m:{m.handle}", "--global", "--by-owner"],
-                       cwd=proj, env=env, capture_output=True, text=True, check=True)
+        subprocess.run(
+            [str(PLUGIN / "bin" / "mem"), "confirm", f"m:{m.handle}", "--global", "--by-owner"],
+            cwd=proj,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
     digest.write(data, _full(lessons, heading="when doing x"))
-    run = lambda layout: subprocess.run([str(PLUGIN / "hooks" / "session-index.sh")],
-                                        input=json.dumps({"cwd": str(proj), "source": "startup"}),
-                                        env={**env, "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT": layout}, capture_output=True, text=True)
+    run = lambda layout: subprocess.run(
+        [str(PLUGIN / "hooks" / "session-index.sh")],
+        input=json.dumps({"cwd": str(proj), "source": "startup"}),
+        env={**env, "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT": layout},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert "a: when doing x\n- text " in run("digest").stdout
     assert "a:\n- Hook rule" in run("grouped").stdout
     envfile = tmp_path / "envfile"
     envfile.write_text("")
-    done = subprocess.run([str(PLUGIN / "hooks" / "session-env.sh")],
-                          env={**env, "CLAUDE_ENV_FILE": str(envfile), "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT": "digest",
-                               "XDG_CONFIG_HOME": str(tmp_path / "c"), "XDG_DATA_HOME": str(tmp_path / "d")},
-                          capture_output=True, text=True)
+    done = subprocess.run(
+        [str(PLUGIN / "hooks" / "session-env.sh")],
+        env={
+            **env,
+            "CLAUDE_ENV_FILE": str(envfile),
+            "CLAUDE_PLUGIN_OPTION_RULES_LAYOUT": "digest",
+            "XDG_CONFIG_HOME": str(tmp_path / "c"),
+            "XDG_DATA_HOME": str(tmp_path / "d"),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert done.returncode == 0
     assert "export MEM_RULES_LAYOUT=digest" in envfile.read_text().splitlines()
 
 
 def test_session_start_text_stays_printable(tmp_path, monkeypatch, capsys):
     """As many lessons as load (the longest short forms) and many more left out, a full digest and a full index."""
-    folder, proj, data = _store(tmp_path, monkeypatch, n=0)
+    folder, _proj, data = _store(tmp_path, monkeypatch, n=0)
     n = 0
     for t in range(75):
         for _ in range(2):
             n += 1
-            assert mem.main(["remember", "--global", "--kind", "lesson", "--claim", f"Claim {n}.", "--origin", "transcript",
-                             "--reach", "general", "--short", pad(f"Rule {n}", 103), "--topic", f"topic{t:02}",
-                             "--source", f"session a project {K}", "--source", "session b project ba9876543210"]) == 0
+            assert (
+                mem.main([
+                    "remember",
+                    "--global",
+                    "--kind",
+                    "lesson",
+                    "--claim",
+                    f"Claim {n}.",
+                    "--origin",
+                    "transcript",
+                    "--reach",
+                    "general",
+                    "--short",
+                    pad(f"Rule {n}", 103),
+                    "--topic",
+                    f"topic{t:02}",
+                    "--source",
+                    f"session a project {K}",
+                    "--source",
+                    "session b project ba9876543210",
+                ])
+                == 0
+            )
     for m in records.load_memories(folder, "global"):
         if m.triage == "pending":
             assert mem.main(["triage", "accept", m.handle]) == 0
         assert mem.main(["confirm", f"m:{m.handle}", "--global", "--by-owner"]) == 0
     groups = digest.topics_of(records.load_memories(folder, "global"), TODAY)
-    full = {"topics": {t: _full(ls, t, "h" * 80, {m.handle: pad("Digest", 120) for m in ls})["topics"][t]
-                       for t, ls in groups.items()}}
+    full = {
+        "topics": {
+            t: _full(ls, t, "h" * 80, {m.handle: pad("Digest", 120) for m in ls})["topics"][t]
+            for t, ls in groups.items()
+        }
+    }
     digest.write(data, full)
     monkeypatch.setenv("MEM_RULES_LAYOUT", "digest")
     text = _run(capsys, "session-index")
     assert "mem rules --more" in text and "- and " in text and "h" * 80 in text
-    assert len(text) < 9500
+    assert len(text) < TEXT_LIMIT

@@ -2,11 +2,12 @@ import datetime
 import subprocess
 from pathlib import Path
 
+import project_syntheses as ps
 import pytest
 
-import project_syntheses as ps
-
 TODAY = datetime.date(2026, 11, 17)
+GIT_TIMEOUT = 2
+MIN_GIT_CALLS = 5
 GIT = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com"]
 
 
@@ -37,7 +38,9 @@ def mem_dir(git_project):
 
 
 def write(mem_dir, tree, paths=("src/",), heading="Where the engine lives", body="Text."):
-    return ps.write_part(mem_dir, tree, "organization", heading, body, list(paths), TODAY)
+    return ps.write_part(
+        mem_dir, tree, ps.NewPart("organization", heading, body, list(paths)), TODAY
+    )
 
 
 def stamp_of(mem_dir, handle="where-the-engine-lives"):
@@ -65,11 +68,26 @@ def test_same_heading_replaces_and_keeps_order(git_project, mem_dir):
 
 def test_unknown_name_is_refused(git_project, mem_dir):
     with pytest.raises(ps.ProjectSynthesisError):
-        ps.write_part(mem_dir, git_project, "notes", "H", "T", ["src/"], TODAY)
+        ps.write_part(mem_dir, git_project, ps.NewPart("notes", "H", "T", ["src/"]), TODAY)
 
 
-@pytest.mark.parametrize("paths", [[], ["../x"], ["/etc"], [""], ["a,b"], ["a|b"], [".memory/x"], ["missing/"],
-                                   ["./.memory"], ["./.memory/x"], ["src/../.memory"], ["src/../../x"]])
+@pytest.mark.parametrize(
+    "paths",
+    [
+        [],
+        ["../x"],
+        ["/etc"],
+        [""],
+        ["a,b"],
+        ["a|b"],
+        [".memory/x"],
+        ["missing/"],
+        ["./.memory"],
+        ["./.memory/x"],
+        ["src/../.memory"],
+        ["src/../../x"],
+    ],
+)
 def test_bad_paths_are_refused(git_project, mem_dir, paths):
     (git_project / ".memory" / "x").mkdir(parents=True)
     with pytest.raises(ps.ProjectSynthesisError):
@@ -77,7 +95,9 @@ def test_bad_paths_are_refused(git_project, mem_dir, paths):
     assert not (mem_dir / "syntheses").exists()
 
 
-@pytest.mark.parametrize("body", ["a\n## Other\nb", "a\nCovers: src/ | updated 2026-11-17 at no-commit"])
+@pytest.mark.parametrize(
+    "body", ["a\n## Other\nb", "a\nCovers: src/ | updated 2026-11-17 at no-commit"]
+)
 def test_body_with_a_heading_or_a_stamp_is_refused(git_project, mem_dir, body):
     with pytest.raises(ps.ProjectSynthesisError):
         write(mem_dir, git_project, body=body)
@@ -156,7 +176,12 @@ def test_no_git_and_missing_commit_are_unknown(tmp_path, git_project, mem_dir):
     plain_mem = plain / ".memory"
     assert ps.head_commit(plain) is None
     write(plain_mem, plain)
-    assert (plain_mem / "syntheses" / "organization.md").read_text().rstrip("\n").endswith("at no-commit")
+    assert (
+        (plain_mem / "syntheses" / "organization.md")
+        .read_text()
+        .rstrip("\n")
+        .endswith("at no-commit")
+    )
     stamp = stamp_of(plain_mem)
     assert stamp.commit is None and ps.freshness(plain, stamp) == ps.UNKNOWN
     assert ps.freshness(git_project, ps.Stamp(("src/",), TODAY, "0" * 12)) == ps.UNKNOWN
@@ -178,6 +203,7 @@ def test_git_timeout_is_unknown(git_project, mem_dir, monkeypatch):
 
     def boom(*a, **k):
         raise subprocess.TimeoutExpired("git", 2)
+
     monkeypatch.setattr(subprocess, "run", boom)
     assert ps.freshness(git_project, stamp) == ps.UNKNOWN
     assert ps.head_commit(git_project) is None
@@ -185,8 +211,14 @@ def test_git_timeout_is_unknown(git_project, mem_dir, monkeypatch):
 
 def test_describe_texts():
     assert ps.describe(ps.FRESH) == "fresh: its files are as they were when it was written"
-    assert ps.describe(ps.CHANGED) == "possibly stale: its files changed since it was written; check them before relying on it"
-    assert ps.describe(ps.UNKNOWN) == "unknown: not a git project or its commit is gone; check the files"
+    assert (
+        ps.describe(ps.CHANGED)
+        == "possibly stale: its files changed since it was written; check them before relying on it"
+    )
+    assert (
+        ps.describe(ps.UNKNOWN)
+        == "unknown: not a git project or its commit is gone; check the files"
+    )
 
 
 def test_body_leaving_a_code_fence_open_is_refused(git_project, mem_dir):
@@ -235,12 +267,16 @@ def test_worktree_runs_git_through_the_timeout_helper(git_project, monkeypatch):
     def spy(*a, **k):
         seen.append(k)
         return real(*a, **k)
+
     monkeypatch.setattr(subprocess, "run", spy)
-    assert ps.worktree(git_project, Path("/nonexistent-root"), {}).resolve() == git_project.resolve()
-    assert seen and all(k.get("timeout") == 2 for k in seen)
+    assert (
+        ps.worktree(git_project, Path("/nonexistent-root"), {}).resolve() == git_project.resolve()
+    )
+    assert seen and all(k.get("timeout") == GIT_TIMEOUT for k in seen)
 
     def boom(*a, **k):
         raise subprocess.TimeoutExpired("git", 2)
+
     monkeypatch.setattr(subprocess, "run", boom)
     assert ps.worktree(git_project, git_project / "root", {}) == git_project / "root"
 
@@ -249,13 +285,17 @@ def test_write_and_confirm_bump_updated_and_keep_created(git_project, mem_dir):
     path = mem_dir / "syntheses" / "organization.md"
     write(mem_dir, git_project)
     day2, day3 = datetime.date(2026, 11, 18), datetime.date(2026, 11, 19)
-    ps.write_part(mem_dir, git_project, "organization", "Second", "Two.", ["src/"], day2)
+    ps.write_part(
+        mem_dir, git_project, ps.NewPart("organization", "Second", "Two.", ["src/"]), day2
+    )
     text = path.read_text()
     assert "created: '2026-11-17'" in text or "created: 2026-11-17" in text
     assert "updated: '2026-11-18'" in text
     ps.confirm_part(mem_dir, git_project, "organization", "second", day3)
     text = path.read_text()
-    assert "updated: '2026-11-19'" in text and ("created: '2026-11-17'" in text or "created: 2026-11-17" in text)
+    assert "updated: '2026-11-19'" in text and (
+        "created: '2026-11-17'" in text or "created: 2026-11-17" in text
+    )
 
 
 def test_every_git_call_has_the_timeout(git_project, mem_dir, monkeypatch):
@@ -265,11 +305,12 @@ def test_every_git_call_has_the_timeout(git_project, mem_dir, monkeypatch):
     def spy(*a, **k):
         seen.append(k)
         return real(*a, **k)
+
     monkeypatch.setattr(subprocess, "run", spy)
     write(mem_dir, git_project)
     ps.confirm_part(mem_dir, git_project, "organization", "where-the-engine-lives", TODAY)
     ps.freshness(git_project, stamp_of(mem_dir))
-    assert len(seen) >= 5 and all(k.get("timeout") == 2 for k in seen)
+    assert len(seen) >= MIN_GIT_CALLS and all(k.get("timeout") == GIT_TIMEOUT for k in seen)
 
 
 def test_confirming_a_part_whose_path_was_deleted_raises(git_project, mem_dir):

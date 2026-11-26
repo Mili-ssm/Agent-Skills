@@ -5,11 +5,12 @@ Usage: mem-research "QUESTION" [--depth memory|contrast|deep] [--contrast NOTE .
                     [--budget USD] [--allow-host HOST ...] [--dry-run] [--self-check]
 The logic and the design are in engine/research_pipeline.py (plan 2026-11-17-memory-seamless, stage 1b).
 """
+
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "engine"))
-import research_pipeline  # noqa: E402
+import research_pipeline
 
 if __name__ == "__main__":
     sys.exit(research_pipeline.main())
