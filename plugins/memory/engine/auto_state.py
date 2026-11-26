@@ -3,6 +3,7 @@ and the failure line of the session text. Standard library only (mem-auto runs i
 
 Layout, per store: `<data folder>/auto/<id>/` (mode 0700) holds `run.lock`, `status.json` and `runs/<stamp>/` (logs and
 transcripts, kept 30 days)."""
+
 from __future__ import annotations
 
 import datetime
@@ -14,7 +15,7 @@ from pathlib import Path
 
 import safe_io
 
-STALE_RUNNING_SECONDS = 3600   # a `running` status older than this is a run that was killed
+STALE_RUNNING_SECONDS = 3600  # a `running` status older than this is a run that was killed
 LOCK_NAME = "run.lock"
 STATUS_NAME = "status.json"
 
@@ -87,7 +88,11 @@ def failure(status: dict, now: float) -> dict | None:
     if isinstance(found, dict) and found.get("reason"):
         return found
     started = status.get("started")
-    if status.get("state") == "running" and isinstance(started, (int, float)) and now - started > STALE_RUNNING_SECONDS:
+    if (
+        status.get("state") == "running"
+        and isinstance(started, (int, float))
+        and now - started > STALE_RUNNING_SECONDS
+    ):
         return {"at": started, "reason": "the run did not finish", "log": status.get("log", "")}
     return None
 
@@ -101,5 +106,7 @@ def failure_line(data: Path | None, store: Path | None, now: float) -> str | Non
         return None
     when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
     reason = " ".join(str(found["reason"]).split())[:200]
-    return (f"Automatic curation failed on {when}: {reason}; log: {found.get('log') or '(none)'} "
-            "(mem-auto ack clears this).")
+    return (
+        f"Automatic curation failed on {when}: {reason}; log: {found.get('log') or '(none)'} "
+        "(mem-auto ack clears this)."
+    )
