@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: implemented (2026-11-26); branch not yet pushed · Branch: `refactor/memory-headless` (stacked on `refactor/memory-corroborate-split`, PR #200) · Date: 2026-11-26
+Status: implemented, merged to dev 2026-11-26 (PR #201) · Branch: `refactor/memory-headless` (stacked on `refactor/memory-corroborate-split`, PR #200) · Date: 2026-11-26
 
 **Goal:** the seven builders of `claude -p` sessions in the memory plugin build their command through one spec in `engine/headless.py`, and the three that lack it get `--strict-mcp-config` (owner ruling 2026-11-23); everything else about each session stays as it is.
 
