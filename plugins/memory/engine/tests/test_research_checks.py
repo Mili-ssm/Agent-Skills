@@ -5,6 +5,7 @@ import functools
 import http.server
 import os
 import socket
+import ssl
 import sys
 import threading
 import time
@@ -199,6 +200,45 @@ def public_name(server, monkeypatch):
         socket, "create_connection", lambda addr, *a, **k: real(("127.0.0.1", addr[1]), *a, **k)
     )
     return f"http://public.example:{server.rsplit(':', 1)[1]}", lookups
+
+
+def test_the_pinned_tls_connection_uses_the_checked_address_and_the_host_name(monkeypatch):
+    """No network: the socket goes to the pinned IP, and the TLS handshake names the host (SNI)."""
+    calls: dict[str, tuple] = {}
+    raw, wrapped = object(), object()
+    real_context = ssl.create_default_context
+
+    def create_context(*args, **kwargs):
+        ctx = real_context(*args, **kwargs)
+
+        class Spy:
+            real = ctx
+
+            def __setattr__(self, name, value):
+                setattr(self.real, name, value)
+
+            def wrap_socket(self, sock, server_hostname=None):
+                calls["wrap"] = (sock, server_hostname)
+                calls["verify"] = (self.real.verify_mode, self.real.check_hostname)
+                return wrapped
+
+        return Spy()
+
+    def create_connection(address, timeout=None):
+        calls["connect"] = (address, timeout)
+        return raw
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    monkeypatch.setattr(rc.ssl, "create_default_context", create_context)
+    parts = rc.urllib.parse.urlsplit("https://pinned.example/page")
+    conn = rc._connection(parts, "93.184.216.34", 443, timeout=7)
+    assert isinstance(conn, rc.http.client.HTTPSConnection)
+    assert (conn.host, conn.port) == ("pinned.example", 443)
+    conn.connect()
+    assert calls["connect"] == (("93.184.216.34", 443), 7)
+    assert calls["wrap"] == (raw, "pinned.example")
+    assert calls["verify"] == (ssl.CERT_REQUIRED, True)
+    assert conn.sock is wrapped
 
 
 def test_relative_redirect_is_followed_and_rechecked(public_name):
@@ -635,6 +675,8 @@ def test_plan_commands_for_each_verdict():
         ([note_row(quote="A sentence that the page does not carry")], "not on the fetched page"),
         ([note_row(quote=Q[:19])], "not on the fetched page"),
         ([note_row(quote=None)], "not on the fetched page"),
+        ([note_row(quote=["a list"])], "not on the fetched page"),
+        ([note_row(quote={"a": "dict"})], "not on the fetched page"),
         ([note_row(fact="--force")], "starts with"),
         ([note_row(fact="")], "fact"),
         ([note_row(verdict="maybe")], "verdict"),

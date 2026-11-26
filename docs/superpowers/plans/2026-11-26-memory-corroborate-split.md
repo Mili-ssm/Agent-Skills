@@ -92,7 +92,7 @@ Low findings of the task reviews, ruled on 2026-11-26 (none changes the result o
 | `_finish` repeated in `corroborate_fill`, `corroborate_reword`, `corroborate_digest` | Open: candidate for `corroborate_run` with the shared job runner (rest of A4) |
 | `_Filler._log` reaches the run folder through `applier.cwd` | Open: store the run folder if the class changes again |
 | `ruff format` moved some trailing comments after closing brackets | Cosmetic; move above the statement when touched |
-| A test of two fill runs in the same second passes without its `time.strftime` patch (already at base) | Open: the test does not prove what it names (Q9) |
+| A test of two fill runs in the same second passes without its `time.strftime` patch (already at base) | Fixed in the [fixes plan](2026-11-26-memory-fixes.md): it asserts the exact folder names; it fails without the collision guard |
 | `_digest_sheet` and `_reword_sheet` share their body; `_ask`, `_cell`, `_fill_world` are underscore names used by three modules | Open: with the shared job runner (rest of A4) |
 | The engine (`corroborate_run`, `_fill`, `_cli`) uses `datetime.UTC` | Accepted: the engine requires Python 3.12 (`mem.py` header) and the launcher imports it guarded, so on 3.10 the engine-cannot-load path runs |
 

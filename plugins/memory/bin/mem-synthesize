@@ -1165,11 +1165,41 @@ def _commit_all(store: Path, message: str) -> None:
     )
 
 
+# What the fake session writes: it must pass `mem check`, or the store's commit gate holds it back.
+FAKE_NOTE = """---
+claim: A fake session wrote this
+topics: [notes]
+confidence: low
+level: basic
+origin: experience
+updated: 2026-11-26
+---
+
+## Claim
+
+x
+
+## Evidence
+
+x
+
+## Applies when
+
+x
+
+## Does not apply when
+
+x
+"""
+
+
 def _fake_claude(tmp: Path, store: Path) -> Path:
-    """A `claude` that touches a file in the store and stops; the store gets a committed fixture."""
+    """A `claude` that writes a valid note into the store and stops; the store gets a committed fixture."""
     fake = tmp / "fake-claude"
     fake.write_text(
-        '#!/bin/sh\ntouch "$MEM_STORE/knowledge/touched.md"\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n',
+        '#!/bin/sh\nmkdir -p "$MEM_STORE/knowledge/notes"\ncat > "$MEM_STORE/knowledge/notes/touched.md" <<\'EOF\'\n'
+        + FAKE_NOTE
+        + 'EOF\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n',
         encoding="utf-8",
     )
     fake.chmod(0o755)
@@ -1237,7 +1267,7 @@ def _check_guard(store: Path, env: dict) -> None:
     os.environ.pop("MEM_STORE", None)
 
 
-def _check_fake_run(store: Path, fake: Path) -> None:
+def _check_fake_run(store: Path, fake: Path, env: dict) -> None:
     lines: list[str] = []
     assert run(str(fake), store, ["one", "two"], 3.0, False, out=lines.append) == 1
     assert (
@@ -1250,11 +1280,23 @@ def _check_fake_run(store: Path, fake: Path) -> None:
     assert "mem-synthesize: after one, two" in log and "mem-synthesize: before" not in log, (
         log
     )  # only a change commits
+    shown = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=store,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout
+    assert "knowledge/notes/touched.md" in shown.splitlines(), shown  # not held back
+    checked = sp.mem(store, env, "check")
+    report = checked.stdout + checked.stderr
+    # keep.md is a fixture finding: seeing it proves `mem check` ran; only the fake's note must be clean
+    assert "knowledge/keep.md" in report and "notes/touched.md" not in report, report
 
 
 def self_check() -> int:
-    """No model: parsers, the dry run, and a whole run with a fake `claude` that writes nothing (every topic fails,
-    the run goes on, both history commits are made, the store keeps its content)."""
+    """No model: parsers, the dry run, and a whole run with a fake `claude` that writes a valid note and stops
+    (every topic fails, the run goes on, the closing commit holds the note, `mem check` reports nothing on it, the store keeps its content)."""
     _check_parsers()
     with tempfile.TemporaryDirectory(prefix="mem-synthesize-check-") as tmp_name:
         tmp = Path(tmp_name)
@@ -1266,7 +1308,7 @@ def self_check() -> int:
         fake = _fake_claude(tmp, store)
         _check_guard(store, env)
         _commit_all(store, "demo")
-        _check_fake_run(store, fake)
+        _check_fake_run(store, fake, env)
     print("self-check passed")
     return 0
 

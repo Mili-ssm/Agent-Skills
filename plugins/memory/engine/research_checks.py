@@ -360,6 +360,9 @@ def html_text(markup: str) -> str:
     parser = _Text()
     parser.feed(markup)
     parser.close()
+    # CPython 3.12.0 leaves the text after an unclosed script/style in rawdata; later patches hand it over
+    if parser.raw_tag and parser.rawdata:
+        parser.handle_data(parser.rawdata)
     text = "".join(parser.parts)
     if parser.raw_tag:  # a script/style never closed: its "content" runs to the end; resume at the next tag start (known limit: script source before it may leak into the text)
         rest = "".join(parser.raw)
@@ -873,18 +876,20 @@ class _Planner:
         self.entries, self.pages, self.sent = entries, pages, set(sent)
         self.commands: list[list[str]] = []
         self.refused: list[dict[str, Any]] = []
-        self.found: dict[tuple[str, Any], bool] = {}
+        self.found: dict[tuple[str, str], bool] = {}
         self.normalized: dict[str, str] = {}  # url -> its page, normalized once
 
     def refuse(self, row: Any, reason: str) -> None:
         self.refused.append({"row": row, "reason": reason})
 
     def on_page(self, quote: Any, url: str) -> TypeGuard[str]:
+        if not isinstance(quote, str):  # also unhashable as a lookup key
+            return False
         key = (url, quote)
         if key not in self.found:
             if url not in self.normalized:
                 self.normalized[url] = normalize(self.pages.get(url, ""))
-            wanted = normalize(quote) if isinstance(quote, str) else ""
+            wanted = normalize(quote)
             self.found[key] = len(wanted) >= MIN_QUOTE and wanted in self.normalized[url]
         return self.found[key]
 

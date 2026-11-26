@@ -118,8 +118,8 @@ Suite at start: 2,284 passed, 5 skipped.
 
 ## Deferred findings
 
-- The TLS branch of `_connection` (`PinnedHTTPS`) has no test (pre-existing).
-- `plan_commands` raises `TypeError` on a non-string `quote` from verdicts JSON (pre-existing, unhashable key).
+- The TLS branch of `_connection` (`PinnedHTTPS`) has no test (pre-existing). Fixed in the [fixes plan](2026-11-26-memory-fixes.md).
+- `plan_commands` raises `TypeError` on a non-string `quote` from verdicts JSON (pre-existing, unhashable key). Fixed in the [fixes plan](2026-11-26-memory-fixes.md): refused as not on the page.
 - `fetch_raw` and `apply` options are only type-checked: an unknown key is ignored at runtime (PEP 692 trade-off, ruled).
 - Naming and comment-placement nits in `research_checks.py` and `digest.py`: `_shaped`, `_call`, `_RowCheck`, the `Work` docstring still names `given_up`, `DigestFormatError` placement.
 - `apply` and `fetch_raw` options are now keyword-only (a positional 5th argument to `apply` raises TypeError; every caller passes keywords).

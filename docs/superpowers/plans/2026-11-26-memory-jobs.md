@@ -89,8 +89,8 @@ Status: implemented, merged to dev 2026-11-26 (PR #202) · Branch: `refactor/mem
 | `settle_state.minutes_of` no longer parses buffer objects such as `array.array` (falls back to the default) | Accepted: callers pass environment and argparse strings only |
 | `failure` names both `jobs.failure` and local variables in several modules | Cosmetic |
 | `test_jobs.py` covers only `lock_held`; the moved pieces rely on `test_jobs_golden.py` | Accepted |
-| Found by a Python 3.12 run: `mem-auto` and `mem-settle` crashed at start on Python < 3.13 since PR #199 (loaded `mem-synthesize`, now with `@dataclass`, without registering it in `sys.modules`) | Fixed here (d67ef6f) with a guard test in `test_bin_python_floor.py`; test loaders and the `run_trials.py` loader fixed too |
-| Under Python 3.12, `test_backfill.py` (101 lint findings, not touched) and `test_synthesize_references.py` (uses its loader) still error on the same cause, test-side only; the suite under 3.12 also has 14 failures that `dev` has | Open: fix when `test_backfill.py` is cleaned |
+| Found by a Python 3.12 run: `mem-auto` and `mem-settle` crashed at start on Python < 3.15 (measured 3.12.0 to 3.14.4) since PR #199 (loaded `mem-synthesize`, now with `@dataclass`, without registering it in `sys.modules`) | Fixed here (d67ef6f) with a guard test in `test_bin_python_floor.py`; test loaders and the `run_trials.py` loader fixed too |
+| Under Python 3.12, `test_backfill.py` (101 lint findings, not touched) and `test_synthesize_references.py` (uses its loader) still error on the same cause, test-side only; the suite under 3.12 also has 14 failures that `dev` has | Fixed in the [fixes plan](2026-11-26-memory-fixes.md): every test loader registers its module (the need lasts until Python 3.15, measured), and the guard test covers test and eval loaders |
 
 ## Kill criteria
 

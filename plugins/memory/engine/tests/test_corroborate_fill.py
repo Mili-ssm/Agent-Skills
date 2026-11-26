@@ -884,7 +884,7 @@ def test_fill_auto_with_the_lock_taken_writes_nothing(w, monkeypatch):
 
 
 def test_two_fill_runs_in_the_same_second_keep_separate_run_folders(w, monkeypatch):
-    one_lesson(w)
+    pinned = one_lesson(w)
     monkeypatch.setattr(corroborate_fill.time, "strftime", lambda fmt: "20260101-000000")
     answers(w, monkeypatch)
     assert auto(w)["written"] == 1
@@ -898,11 +898,14 @@ def test_two_fill_runs_in_the_same_second_keep_separate_run_folders(w, monkeypat
     )
     assert auto(w)["written"] == 1
     first, second = fill_runs(w)
-    assert (
-        first != second
-        and (first / "journal.jsonl").exists()
-        and (second / "journal.jsonl").exists()
-    )
+    stamp = f"20260101-000000-{os.getpid()}"
+    assert {first.name, second.name} == {f"{stamp}-fill", f"{stamp}-2-fill"}
+    applied = {run.name: json.loads((run / "applied.json").read_text()) for run in (first, second)}
+    assert sorted(h for handles in applied.values() for h in handles) == sorted([
+        pinned.handle,
+        other.handle,
+    ])
+    assert all(len(handles) == 1 for handles in applied.values())
 
 
 def test_undo_of_an_automatic_fill_run_restores_the_records(w, monkeypatch):
