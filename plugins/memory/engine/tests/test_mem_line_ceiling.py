@@ -3,7 +3,7 @@
 from pathlib import Path
 
 MEM_PY = Path(__file__).resolve().parent.parent / "mem.py"
-CEILING = 8250  # lines; lowered by every A5 task, at most 1,350 after the last (plan 2026-11-26-memory-mem-split.md)
+CEILING = 6959  # lines; lowered by every A5 task, at most 1,350 after the last (plan 2026-11-26-memory-mem-split.md)
 
 
 def test_mem_py_stays_under_its_line_ceiling():

@@ -59,7 +59,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] As Task 2; `build_corpus` patches retargeted.
 
 ### Task 4: `commands/edit.py`
-- [ ] As Task 2; patches `_swap_file`, `_edited_note_text`, `_index_files`, `apply_index`, `invalid_changed` retargeted.
+- [x] As Task 2; patches `_edited_note_text`, `_index_files`, `apply_index` retargeted (`_swap_file`, `invalid_changed` already were); `_attach`, `_set_part_of`, `_log_note` live in `edit`; `_section_ref`, `_note_target`, `NewNoteError`, `_sha`, `_log_group`, `_read_body` stay shared in `common`.
 
 ### Task 5: `commands/sources.py`
 - [ ] As Task 2; local static import from `mem.py`; patches `_download`, `FETCH_MAX_BYTES`, `time`, `_write_text_copy` retargeted.

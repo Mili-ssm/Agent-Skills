@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import contextlib
 import datetime
+import hashlib
 import json
 import os
 import re
 import sys
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +18,7 @@ from core import config, safe_io, store_git
 from memories import records
 from notes import check as check_rules
 from notes import note as note_files
+from syntheses import document
 from syntheses import project as project_syntheses
 
 if TYPE_CHECKING:
@@ -447,3 +450,85 @@ def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None
             if m.handle == handle:
                 return m
     return None
+
+
+class NewNoteError(Exception):
+    pass
+
+
+def _sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _log_group(
+    root: Path,
+    originals: Mapping[Path, bytes],
+    action: str,
+    moved: Mapping[Path, Path] | None = None,
+    group: str | None = None,
+) -> None:
+    """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
+    and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since.
+    `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
+    group = group or uuid.uuid4().hex
+    stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    out = []
+    for path, before in originals.items():
+        entry = {
+            "t": stamp,
+            "action": action,
+            "handle": path.relative_to(root).as_posix(),
+            "group": group,
+            "before": before.decode("utf-8"),
+            "after": _sha(path.read_bytes()),
+        }
+        if moved and path in moved:
+            entry["from"] = moved[path].relative_to(root).as_posix()
+        out.append(json.dumps(entry, ensure_ascii=False) + "\n")
+    safe_io.append_text(root / records.CURATION_LOG, "".join(out))
+
+
+def _read_body_text(source: str) -> str:
+    """The text of the file, or of standard input for `-`, before any check of its content."""
+    if source == "-":
+        if sys.stdin.isatty():
+            raise NewNoteError("--body-file - needs the body on standard input, not a terminal")
+        return sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
+    return note_files._read_text(Path(source))
+
+
+def _read_body(source: str) -> str:
+    """The text of a `--body-file` (`-` is standard input); NewNoteError when it cannot be a body."""
+    try:
+        body = _read_body_text(source)
+    except (OSError, UnicodeDecodeError, note_files.FrontmatterError) as exc:
+        raise NewNoteError(f"cannot read the body: {exc}") from exc
+    if not body.strip():
+        raise NewNoteError("the body is empty")
+    if body.split("\n", 1)[0].strip() == "---":
+        raise NewNoteError(
+            "the body starts with a frontmatter fence: pass the text after the frontmatter"
+        )
+    return body if body.endswith("\n") else body + "\n"
+
+
+def _section_ref(root: Path, ref: str) -> tuple[document.Synthesis, document.Section]:
+    """`s:<h>#<section>` as the synthesis and section it names; ValueError when either is missing."""
+    handle, section = document.split_ref(ref)
+    path = document.path_of(root / document.SYNTHESES_DIR, handle)
+    if section is None or path is None or not path.is_file():
+        raise ValueError(
+            f"{ref} must name an existing synthesis section: s:<handle>#<section handle>"
+        )
+    syn = document.load_one(path)
+    if syn.error:
+        raise ValueError(f"{path.name}: {syn.error}")
+    found = next((x for x in syn.sections if x.handle == section), None)
+    if found is None:
+        raise ValueError(f"no section {section} in s:{handle}")
+    return syn, found
+
+
+def _note_target(rel: str) -> str:
+    """How a synthesis part refers to the note stored at `rel` (a store-relative path)."""
+    return "../" + rel
