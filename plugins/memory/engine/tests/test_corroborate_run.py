@@ -6,7 +6,6 @@ import os
 import stat
 import subprocess
 from pathlib import Path
-from typing import cast
 
 import auto_state
 import capture_state
@@ -48,11 +47,6 @@ CALLS_THREE_PASSES = 6
 PAIR_SIZE = 2  # a group of two lessons: two projects, two refused marks, two links
 EXIT_USAGE = 2
 PRIVATE_FILE_MODE = 0o600
-
-
-def model_with(w, groups, verdicts: object):
-    """`model` for verdicts that are None, a list or a string: its signature types them as the default "all"."""
-    model(w, groups, cast("str", verdicts))
 
 
 def test_state_module_keeps_the_curation_log_name_of_records():
@@ -155,7 +149,7 @@ def test_nothing_new_starts_no_model(w):
 
 def test_bad_model_file_writes_nothing(w):
     two_projects(w)
-    model_with(w, "this is not json", verdicts=None)
+    model(w, "this is not json", verdicts=None)
     before = snapshot(w)
     assert run(w).returncode == 0
     assert status(w)["state"] == "ok" and log_lines(w)[-1]["dropped"] > 0
@@ -164,7 +158,7 @@ def test_bad_model_file_writes_nothing(w):
 
 def test_unverified_group_is_not_applied(w):
     a, b = two_projects(w)
-    model_with(w, [group(a, b)], [verdict(1, same=False)])
+    model(w, [group(a, b)], [verdict(1, same=False)])
     before = snapshot(w)
     assert run(w).returncode == 0
     assert snapshot(w) == before
@@ -175,7 +169,7 @@ def test_unverified_group_is_not_applied(w):
 
 def test_a_group_refused_only_for_its_rewording_is_not_applied_and_not_marked(w):
     a, b = two_projects(w)
-    model_with(w, [group(a, b)], [verdict(1, faithful=False)])
+    model(w, [group(a, b)], [verdict(1, faithful=False)])
     before = snapshot(w)
     assert run(w).returncode == 0
     assert snapshot(w) == before
@@ -188,7 +182,7 @@ def test_a_group_refused_only_for_its_rewording_is_not_applied_and_not_marked(w)
 @pytest.mark.parametrize("verdicts", [None, "garbage"])
 def test_missing_verdicts_apply_nothing(w, verdicts):
     a, b = two_projects(w)
-    model_with(w, [group(a, b)], verdicts)
+    model(w, [group(a, b)], verdicts)
     before = snapshot(w)
     assert run(w).returncode == 0
     assert snapshot(w) == before and calls(w) == CALLS_PER_PASS
@@ -448,7 +442,7 @@ def test_a_failing_mem_call_is_a_failure_not_a_refusal(w):
 @pytest.mark.parametrize("missing", ["groups", "verdicts"])
 def test_a_session_that_leaves_no_file_saves_no_fingerprint(w, missing):
     a, b = two_projects(w)
-    model_with(w, [group(a, b)], None if missing == "verdicts" else "all")
+    model(w, [group(a, b)], None if missing == "verdicts" else "all")
     if missing == "groups":
         os.environ.pop("FAKE_GROUPS")
     assert run(w).returncode == 0
@@ -750,7 +744,7 @@ def test_a_group_without_a_verdict_makes_the_run_incomplete(w):
         "Read the whole failing test output before you change any code, since the cause is often there.",
         ("s2",),
     )
-    model_with(
+    model(
         w,
         [
             group(a, b),

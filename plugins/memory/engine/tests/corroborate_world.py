@@ -157,7 +157,7 @@ def verdict(n, **override):
     }
 
 
-def model(w, groups, verdicts="all"):
+def model(w, groups, verdicts: str | list | None = "all"):
     """The fake writes these files as the model's answers; `verdicts` "all" approves every group, None writes none."""
     (w.tmp / "groups.json").write_text(
         groups if isinstance(groups, str) else json.dumps({"groups": groups})
