@@ -89,9 +89,9 @@ CANDIDATES = [
         "name": "git-wait",
         "question": "Al comprobar si una parte de una síntesis de proyecto sigue vigente se llama a git. ¿En qué archivo "
         "se fija cuántos segundos se espera como máximo a esa llamada?",
-        "expect": "memory/engine/notes/project_syntheses.py",
+        "expect": "memory/engine/syntheses/project.py",
         # mem.py _part_line / _project_synthesis_block call project_syntheses.freshness -> _git(), whose subprocess.run
-        # passes timeout=GIT_TIMEOUT (= 2) defined at the top of project_syntheses.py.
+        # passes timeout=GIT_TIMEOUT (= 2) defined at the top of syntheses/project.py.
     },
     {
         "name": "default-store",

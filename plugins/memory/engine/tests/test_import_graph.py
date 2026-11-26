@@ -26,7 +26,7 @@ PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.
 # The check family: pure rules and queries over a notes folder.
 PURE_CHECK_MODULES = ["notes.check", "notes.fields", "notes.links", "notes.due"]
 NOTE_MODULES = ["notes.note", "notes.index", *PURE_CHECK_MODULES]
-SYNTHESES_MODULES = ["syntheses.document"]
+SYNTHESES_MODULES = ["syntheses.document", "syntheses.project"]
 
 
 def test_modules_cover_every_engine_file():
@@ -166,7 +166,7 @@ def test_engine_modules_use_no_dynamic_import():
 
 MEMORY_AND_NOTE_MODULES = (
     tuple(f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints"))
-    + tuple(f"notes.{name}" for name in ("project_syntheses", "index", "note", "check"))
+    + tuple(f"notes.{name}" for name in ("index", "note", "check"))
     + tuple(SYNTHESES_MODULES)
 )
 

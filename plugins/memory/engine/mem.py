@@ -45,7 +45,6 @@ from notes import fields as note_fields
 from notes import index as index_files
 from notes import links as link_rules
 from notes import note as note_files
-from notes import project_syntheses
 from notes.check import (
     MAX_KNOWLEDGE_NAME,
     NAME_PATTERNS,
@@ -84,6 +83,7 @@ from session import notices as session_notices
 from settle import state as settle_state
 from settle import verdicts as settle_verdicts
 from syntheses import document
+from syntheses import project as project_syntheses
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Mapping, Sequence

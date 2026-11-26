@@ -3,7 +3,7 @@ import subprocess
 
 import mem
 import pytest
-from notes import project_syntheses as ps
+from syntheses import project as ps
 
 TODAY = datetime.date(2026, 11, 17)
 STALE_HEAD = "-- project syntheses: possibly stale --"
