@@ -4,7 +4,7 @@ Status: done · merged in #123 · boxes left unticked during execution are not o
 
 **Goal:** Find out whether a synthesis written by Haiku, checked and fixed in a loop by Haiku, is as accurate and complete as one written by Sonnet with one Haiku fact-check (the pipeline of the 2026-11-17 curation), and at what cost. Owner's open items 1 (cost of curation) and 3 (an independent cheap checker that iterates with the writer).
 
-**Status:** done 2026-11-17 (preliminary): keep today's pipeline; quiet script-driven curation is the lead.
+Outcome: done 2026-11-17 (preliminary): keep today's pipeline; quiet script-driven curation is the lead.
 
 ## Decisions already taken (owner, 2026-11-17)
 

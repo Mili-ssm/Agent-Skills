@@ -1,5 +1,7 @@
 # Memory capture in the background (stage B2) Implementation Plan
 
+Status: done · merged in #151, 2026-11-22
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** With the plugin option `auto_capture` on, each compaction and each session end starts one detached `mem-capture auto` run that reads the transcript from the line where the last run stopped and writes unconfirmed lessons into the project's memory; with the option off (the default) nothing changes.

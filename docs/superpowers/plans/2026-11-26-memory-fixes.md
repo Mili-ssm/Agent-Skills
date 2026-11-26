@@ -1,8 +1,10 @@
 # Memory plugin fixes before the rest of the refactor Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
+Status: done · merged in #204, 2026-11-26
 
-Status: implemented, PR to dev pending · Branch: `fix/memory-fixes` (from `dev` b62e41b) · Date: 2026-11-26
+Branch: `fix/memory-fixes` (from `dev` b62e41b) · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** the memory engine's suite passes on Python 3.12 as on 3.15, and the open deferred findings of the 2026-11-26 sub-plans that are defects (not A4 restructuring) are fixed.
 

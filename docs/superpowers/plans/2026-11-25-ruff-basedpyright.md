@@ -1,6 +1,8 @@
 # Ruff and basedpyright: a touched Python file must be clean
 
-Status: done (2026-11-25); superseded in part the same day: pre-commit replaced Task 2's script (ADR 0031, last Review) · Branch: `chore/ruff-pyright` · Decision: ADR 0031
+Status: done · merged in #192, 2026-11-25
+
+Superseded in part the same day: pre-commit replaced Task 2's script (ADR 0031, last Review) · Branch: `chore/ruff-pyright` · Decision: ADR 0031
 
 ## Owner rulings (2026-11-25)
 

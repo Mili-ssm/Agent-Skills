@@ -1,8 +1,10 @@
 # Split `mem.py` into `engine/commands/` (A5) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
+Status: done · merged in #217, 2026-11-26
 
-Status: done 2026-11-26 · Branch: `refactor/memory-mem-split` (from `dev` 1af5485), one pull request per task · Date: 2026-11-26
+Branch: `refactor/memory-mem-split` (from `dev` 1af5485), one pull request per task · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** `engine/mem.py` (10,502 lines) becomes the parser, the dispatch and a re-export map; every `cmd_*` handler lives with its logic in `engine/commands/`; behavior unchanged.
 

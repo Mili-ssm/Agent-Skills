@@ -1,5 +1,7 @@
 # Superpowers and agent-skills seams analysis
 
+Status: done · merged in #113, 2026-11-15
+
 Goal: document where Superpowers 7.0.2 and the `agent-skills` plugin overlap in intent and in action, so the owner can decide seam by seam later. This work changes no agent, skill, command or policy text.
 
 Deliverable: `docs/superpowers-seams.md`.

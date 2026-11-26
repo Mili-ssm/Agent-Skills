@@ -10,7 +10,7 @@ Status: done · merged in #121 · boxes left unticked during execution are not o
 
 **Tech Stack:** Python 3.12+, pyyaml, pytest.
 
-**Status:** done 2026-11-17 (branch `feat/memory-edit-commands`, not merged).
+Earlier status: done 2026-11-17 (branch `feat/memory-edit-commands`, not merged).
 
 ## Decisions already taken (owner, 2026-11-17)
 

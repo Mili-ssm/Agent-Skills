@@ -1,8 +1,10 @@
 # `store/` package and the `records.py` split (A14 Task 5 + review A6) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
+Status: done · merged in #212–#214, 2026-11-26 · unticked boxes are not open work
 
-Status: planned, pre-mortem 2026-11-26 applied · Branches: stacked, `refactor/memory-store-clean` (from `dev` 6cb7571) → `refactor/memory-store-move` → `refactor/memory-records-split` · Date: 2026-11-26
+Pre-mortem 2026-11-26 applied · Branches: stacked, `refactor/memory-store-clean` (from `dev` 6cb7571) → `refactor/memory-store-move` → `refactor/memory-records-split` · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** the store's modules live in `engine/store/`, and `records.py` (1,856 lines, 56 importers) is split by responsibility inside it; behavior unchanged.
 

@@ -12,7 +12,7 @@ Status: done · merged in #119 · boxes left unticked during execution are not o
 
 **Spec:** `docs/superpowers/specs/2026-11-17-memory-plugin-design.md` (decisions D21, D24 and the new D25 added by Task 1).
 
-**Status:** Tasks 1 to 3 built; the pilot of Task 4 stopped the experiment on 2026-11-17, and the staleness arms the owner then asked for showed no effect at their sample size (see `## Results`); what to do with the code is the owner's decision.
+Outcome: Tasks 1 to 3 built; the pilot of Task 4 stopped the experiment on 2026-11-17, and the staleness arms the owner then asked for showed no effect at their sample size (see `## Results`); what to do with the code is the owner's decision.
 
 ## Decisions already taken (owner, 2026-11-17)
 
@@ -33,7 +33,7 @@ Status: done · merged in #119 · boxes left unticked during execution are not o
 - `mem show p:…`, `mem project-synthesis list` and `mem curate` are the only commands that run the freshness comparison; the session-start hook runs no extra git command.
 - Two roots. `.memory/` sits at the main worktree's root (`records.project_root` / `records.project_dir`). Git, the stamp's commit, the path checks and the freshness comparison use the working tree the session is in: `project_syntheses.worktree()`, which is the project root when `MEM_PROJECT` is set (it names the project, and the tests set it), else `git rev-parse --show-toplevel` run from `cwd` under the git-call rule above (not `records._toplevel`, which has no timeout), else the project root. Git names files relative to the toplevel, which differs from the project root when the project is a subfolder of a repository; the `.memory/` filter accounts for that. Git runs with `GIT_LITERAL_PATHSPECS=1` in git's environment. Passing `records.project_root` as the worktree would stamp the main worktree's HEAD while comparing a linked worktree's files.
 - The repository is public: no home paths, private repository names or note titles in code, tests, docs or commits.
-- The owner's standing rules are in [the stage plan](2026-11-17-memory-plugin.md#current-state-and-where-to-resume-2026-11-17), last paragraph of that section: the origin of the notes is never written to, and a merge into `main` needs the owner's word.
+- The owner's standing rules are in [the stage plan](2026-11-17-memory-plugin.md#current-state-and-where-to-resume-2026-11-26), last paragraph of that section: the origin of the notes is never written to, and a merge into `main` needs the owner's word.
 - Vocabulary: "project synthesis" (the file), "part" (a `## ` section), "stamp" (the last line of a part), "freshness" (`fresh`, `changed`, `unknown`).
 - Tests: `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q` (745 passed, 4 skipped before this plan); `python3 scripts/validate.py` before every commit.
 

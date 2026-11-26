@@ -1,8 +1,10 @@
 # Memory store resolution in one place (A1): Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
+Status: done · merged in #199, 2026-11-26
 
-Status: implemented, merged to dev 2026-11-26 (PR #199); § Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
+§ Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** one pure module, `engine/config.py`, decides where the note store and the config files are, every Python entry point and every hook uses it, and the two owner rulings of 2026-11-26 hold everywhere.
 

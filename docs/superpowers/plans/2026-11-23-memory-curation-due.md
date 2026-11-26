@@ -1,5 +1,7 @@
 # The `Curation due` count and a quieter curation queue Implementation Plan
 
+Status: done · merged in #176, 2026-11-23
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The session start count names the decisions of the curation queue that the last pass did not list, within the hook's time, and `mem curate` prints pairs grouped, state memories as a proposal of their own and `differ in` without stopwords.

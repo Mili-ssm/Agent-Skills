@@ -1,8 +1,10 @@
 # `mem-synthesize` into an `engine/synthesize/` package (review A4, second part; package pilot) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
+Status: done · merged in #206, 2026-11-26
 
-Status: implemented, PR to dev pending (pre-mortem 2026-11-26 applied) · Branch: `refactor/memory-synthesize-split` (from `dev` 46d4317, rebased on `af71251` after PR #205) · Date: 2026-11-26
+Pre-mortem 2026-11-26 applied · Branch: `refactor/memory-synthesize-split` (from `dev` 46d4317, rebased on `af71251` after PR #205) · Date: 2026-11-26
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
 **Goal:** the synthesis job lives in one feature package, `engine/synthesize/`; `bin/mem-synthesize` becomes a thin launcher; `mem-auto`, `mem-settle`, tests and evals import the package instead of loading the script with `exec_module`; behavior unchanged. This is the pilot of the owner's ruling to organize `engine/` into feature packages (2026-11-26); the other packages follow in a later plan, one package per pull request.
 

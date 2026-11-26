@@ -1,8 +1,10 @@
 # Memory plugin descriptions: measured changes
 
-Four `description` changes proposed by the prompt audit of 2026-11-17 (`2026-11-17-memory-prompts-and-loop.md`, section Audit). Each is measured before and after and lands in its own commit, so one can be reverted alone (CLAUDE.md: N6, eval protocol). The owner asked for the tests on 2026-11-17.
+Status: done · merged in #126, 2026-11-17
 
-**Status:** done 2026-11-17; all four changes kept.
+Outcome: done 2026-11-17; all four changes kept.
+
+Four `description` changes proposed by the prompt audit of 2026-11-17 (`2026-11-17-memory-prompts-and-loop.md`, section Audit). Each is measured before and after and lands in its own commit, so one can be reverted alone (CLAUDE.md: N6, eval protocol). The owner asked for the tests on 2026-11-17.
 
 ## Rules
 
