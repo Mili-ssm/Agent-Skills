@@ -12,7 +12,7 @@ Source: four `prompt-engineer` audits on 2026-11-26 (workers, specialists, skill
 - [x] 4 memory plugin: `memory-curator` (`--claim` with `--short`, unread short forms, apply report, turn stop); stop rules and the command list in `memory-synthesizer` and `memory-researcher`; `memory-recorder` confirm exception; `memory` skill write threshold; `memory-curation` `--short` bullet. Check: `validate.py`.
 - [x] 4b Session start "Curation due" names the agent (`engine/mem.py`, two asserts in `test_curation.py`); `mem.py` made clean first ([plan](2026-11-26-mem-py-ruff-clean.md)).
 - [x] 5 Offload policy: name the two-round cap in the `skeptical-reviewer` row and the last line; own commit; `port.py`; measure every `offload-*-with-policy` case and record it in ADR 0017. Check: Eval protocol.
-- [x] 6 Changelogs, backlog, `port.py`, `validate.py`, `claude plugin validate .`, review, pull request to `dev`.
+- [ ] 6 Changelogs, backlog, `port.py`, `validate.py`, `claude plugin validate .`, review, pull request to `dev`.
 
 ## Deferred, with reason
 
