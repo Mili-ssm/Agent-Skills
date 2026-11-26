@@ -1110,6 +1110,17 @@ def test_fill_items_drop_a_bad_load_value(w):
     assert _a(w).short is None
 
 
+def test_fill_items_drop_a_list_valued_load(w):
+    g = fill_world(w)
+    out, shared, gid = fill_file(w, g, load=["yes"])
+    done = fill_run(w, "--items", str(out), claude=False, mode="never")
+    assert done.returncode == 0, done.stderr
+    assert log_lines(w)[-1]["fill"] == {"asked": 2, "written": 0, "dropped": 2, "failed": 0}
+    (run_dir,) = (w.cdir / "runs").iterdir()
+    assert (run_dir / "log.txt").read_text().count("load must be yes, index or no") == 2
+    assert _a(w).short is None
+
+
 def test_fill_items_turn_on_a_record_that_was_turned_off(w):
     g = fill_world(w)
     out, shared, gid = fill_file(w, g)
