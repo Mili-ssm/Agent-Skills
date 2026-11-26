@@ -14,7 +14,7 @@ import records
 from corroborate import decide as corroborate_decide
 from corroborate import reword as corroborate_reword
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 CORR = PLUGIN / "bin" / "mem-corroborate"
 MEM = PLUGIN / "bin" / "mem"
 TODAY = datetime.date.today()
