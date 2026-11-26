@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import mem
 import pytest
-import records
+from store import records
 
 EXIT_USAGE = 2
 EXIT_DUPLICATE = 3

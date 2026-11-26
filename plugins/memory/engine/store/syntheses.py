@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, TypedDict
 
-import records
 import yaml
 from core import safe_io
+
+from store import records
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

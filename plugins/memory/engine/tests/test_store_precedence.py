@@ -11,8 +11,8 @@ from pathlib import Path
 
 import mem
 import pytest
-import records
 from research import pipeline as research_pipeline
+from store import records
 from synthesize import run as sr
 
 GLOBAL = records.GLOBAL_DIR

@@ -4,11 +4,11 @@ import stat
 from pathlib import Path
 
 import mem
-import project_syntheses as ps
 import pytest
-import records
 from core import jobs, safe_io
 from settle import verdicts as settle_verdicts
+from store import project_syntheses as ps
+from store import records
 
 TODAY = datetime.date(2026, 11, 24)
 MODE_GROUP_READABLE = 0o644

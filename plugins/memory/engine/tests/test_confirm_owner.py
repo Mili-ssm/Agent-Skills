@@ -3,7 +3,7 @@ import subprocess
 
 import mem
 import pytest
-import records
+from store import records
 
 K1 = "0123456789ab"
 K2 = "ba9876543210"

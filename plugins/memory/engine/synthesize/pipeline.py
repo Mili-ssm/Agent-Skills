@@ -18,9 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Required, TypedDict, Unpack
 
-import records
-import syntheses
 from core import headless
+from store import records, syntheses
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence

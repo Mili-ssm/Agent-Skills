@@ -4,14 +4,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, NamedTuple
 
-import notes as notes_mod
 from core import safe_io
-from notes import FrontmatterError, discover_notes, leaf_topics, load_topics, root_of, root_topics
+
+from store import notes as notes_mod
+from store.notes import (
+    FrontmatterError,
+    discover_notes,
+    leaf_topics,
+    load_topics,
+    root_of,
+    root_topics,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from notes import Note
+    from store.notes import Note
 
 
 INDEX_START = "<!-- hub:index:start -->"

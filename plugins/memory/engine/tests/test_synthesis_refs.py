@@ -5,7 +5,7 @@ from pathlib import Path
 
 import mem
 import pytest
-import syntheses
+from store import syntheses
 
 USAGE_EXIT = 2
 GAMMA_UNITS = 2

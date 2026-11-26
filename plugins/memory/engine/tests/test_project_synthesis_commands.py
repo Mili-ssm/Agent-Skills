@@ -2,8 +2,8 @@ import io
 import subprocess
 
 import mem
-import project_syntheses as ps
 import pytest
+from store import project_syntheses as ps
 
 USAGE_ERROR = 2
 SECRET_REFUSED = 4

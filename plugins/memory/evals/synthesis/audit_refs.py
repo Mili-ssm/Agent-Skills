@@ -36,8 +36,8 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_trials as rt
-import syntheses
 import trial_env
+from store import syntheses
 from synthesize import pipeline as sp
 
 logger = logging.getLogger(__name__)

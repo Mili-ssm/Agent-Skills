@@ -8,9 +8,8 @@ from typing import TypedDict, Unpack
 
 import mem
 import pytest
-import records
-import rules
 from corroborate import decide as corroborate_decide
+from store import records, rules
 from test_rules_session import FIT, FIT_HELD, pad
 
 TODAY = datetime.date.today()

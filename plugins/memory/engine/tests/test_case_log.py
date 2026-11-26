@@ -5,9 +5,8 @@ from pathlib import Path
 
 import mem
 import pytest
-import records
-import rules
 from capture import extract as capture_extract
+from store import records, rules
 from test_rules_session import FIT, gfolder, pad, write
 
 # re-exported: pytest finds the fixture in this module by its name

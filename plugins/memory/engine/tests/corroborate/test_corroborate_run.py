@@ -8,7 +8,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-import records
 from capture import state as capture_state
 from core import jobs
 from corroborate import decide as corroborate_decide
@@ -38,6 +37,7 @@ from corroborate_world import (
     verdict,
     w,
 )
+from store import records
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
 

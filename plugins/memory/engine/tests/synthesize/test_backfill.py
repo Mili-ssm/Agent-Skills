@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import syntheses
+from store import syntheses
 from synthesize import backfill as sb
 from synthesize import cli, topics
 from synthesize import pipeline as sp

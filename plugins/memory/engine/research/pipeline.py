@@ -29,7 +29,7 @@ from typing import Any, Required, TypedDict, Unpack
 
 import mem
 from core import config, headless, jobs
-from notes import FrontmatterError, split_frontmatter
+from store.notes import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
 
 from research import checks as rc

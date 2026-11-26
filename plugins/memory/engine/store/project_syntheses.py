@@ -17,10 +17,10 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-import records
-import syntheses
 import yaml
 from core import safe_io
+
+from store import records, syntheses
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

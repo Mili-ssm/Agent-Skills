@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import records
 from corroborate import decide as corroborate_decide
+from store import records
 
 TODAY = datetime.date(2026, 11, 22)
 PAIR = 2

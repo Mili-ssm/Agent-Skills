@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING, NamedTuple, Protocol, Required, TypedDict, Unp
 
 import yaml
 from core import config, safe_io
-from notes import safe_load
+
+from store.notes import safe_load
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence

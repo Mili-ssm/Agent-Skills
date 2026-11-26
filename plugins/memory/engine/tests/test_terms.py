@@ -3,8 +3,8 @@ import subprocess
 
 import mem
 import pytest
-import records
 from conftest import usage_log_path
+from store import records
 
 RC_FORBIDDEN = 4
 RC_SOFT = 5

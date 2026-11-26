@@ -3,8 +3,8 @@ from typing import TypedDict, Unpack
 
 import mem
 import pytest
-import records
 from conftest import usage_log_path
+from store import records
 
 PER_SCOPE_LIMIT = 3
 MEMORY_SECTION_LINES = 2

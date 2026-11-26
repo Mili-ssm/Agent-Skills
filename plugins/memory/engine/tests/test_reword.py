@@ -3,9 +3,8 @@ from pathlib import Path
 
 import mem
 import pytest
-import records
-import rules
 from corroborate import decide as corroborate_decide
+from store import records, rules
 from test_case_log import (
     FAILS,
     TODAY,

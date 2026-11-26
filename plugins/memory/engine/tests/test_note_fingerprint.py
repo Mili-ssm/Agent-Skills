@@ -3,7 +3,7 @@ part, changes."""
 
 import mem
 import pytest
-import syntheses
+from store import syntheses
 
 FIRST_NOTE = "../knowledge/computing/one-note.md"
 SECOND_NOTE = "../knowledge/computing/two-note.md"

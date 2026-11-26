@@ -4,7 +4,7 @@ import time
 
 import mem
 import pytest
-import records
+from store import records
 
 
 @pytest.fixture

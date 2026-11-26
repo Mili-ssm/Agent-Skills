@@ -6,8 +6,8 @@ from pathlib import Path
 
 import mem
 import pytest
-import records
 from conftest import usage_log_path
+from store import records
 
 USAGE_EXIT = 2
 PATH_LINES = 2
