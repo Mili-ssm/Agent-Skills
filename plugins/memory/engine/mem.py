@@ -1431,6 +1431,8 @@ def unify_notes(
     before = collections.Counter((p.path, p.message) for p in check(root))
     originals = {p: p.read_bytes() for p in edits}
     listings = _index_files(root)
+    for path in edits:  # a note resolved outside the store raises ValueError here, before any write
+        path.relative_to(root)
     for path, text in edits.items():
         safe_io.replace_file(path, text.encode("utf-8"))
     problems: list[Problem] = []
