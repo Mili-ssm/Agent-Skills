@@ -11,7 +11,8 @@ ENGINE = Path(__file__).resolve().parent.parent
 
 @pytest.mark.parametrize("name", sorted(mem._MOVED))
 def test_moved_name_resolves_through_mem(name):
-    assert getattr(mem, name) is not None
+    """`mem.<name>` is the very object of the module `_MOVED` names, not a copy or another module's namesake."""
+    assert getattr(mem, name) is getattr(mem._MOVED_MODULES[mem._MOVED[name]], name)
 
 
 def _defined_names(source: str) -> set[str]:
