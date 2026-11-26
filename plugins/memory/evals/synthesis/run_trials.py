@@ -3059,7 +3059,7 @@ def fake_session(
     """A stand-in for `run_session`: records what it was called with and answers like a session with a cost."""
 
     def stub(*args, **kw):
-        model, work, log = args[1], args[3], args[6]
+        model, work, log = args[1], args[3], kw["log"]
         calls.append(dict(model=model, work=work, **kw))
         store = work.parent / "store"
         if "writer" in log.name and (store / "syntheses").is_dir():
@@ -3584,7 +3584,7 @@ class RefStepFixture:
     inner: Callable[..., dict]
 
     def session(self, *args, **kw):
-        self.order.append("judge" if "judge" in args[6].name else "writer")
+        self.order.append("judge" if "judge" in kw["log"].name else "writer")
         return self.inner(*args, **kw)
 
     def backfill_stub(self, status, cost=0.05):
