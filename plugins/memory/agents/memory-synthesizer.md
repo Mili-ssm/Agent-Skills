@@ -24,11 +24,11 @@ A synthesis for the topic: one long, indexed document that gathers what the topi
 Read the skill file `memory-synthesis` (`SKILL.md`; the caller's path, else `find ~/.claude/plugins -path '*skills/memory-synthesis/SKILL.md'`), section "Writing a new synthesis", and follow it with these specifics:
 1. `mem find --topic <topic>` lists the notes. Read the conclusions in batches with `mem show <path>... --section conclusion` (the whole note when a figure is at stake). Literature notes are sources; knowledge notes are findings.
 2. 4 to 12 parts, as many as the subjects need. A note may support more than one part; a note that fits no part is left out and listed in your report.
-3. `--slug <slug>`, `--topics <topic>`. Pass each body on stdin with a heredoc (`--body-file -`). If a part is refused, read the error and fix the text; never edit files by hand. Do NOT run `mem synthesis attach`: the caller does.
+3. `--slug <slug>`, `--topics <topic>`. Pass each body on stdin with a heredoc (`--body-file -`). If a part is refused, read the error and fix the text; a part refused twice is left out and named under Doubts. Never edit files by hand. Do not run `mem synthesis attach`: the caller attaches after the fact-check. By your 50th tool call, stop adding parts, run `mem check` and report (maxTurns is 60): a shorter synthesis that passes is useful, an unfinished one is not.
 
 ## Accuracy
 
-The "Accuracy" section of the skill file applies to every part: your own reasoning starts with `Inference:`; a figure keeps its exact origin; search the topic's notes before writing "no note measures X"; a `low`-confidence claim stays a hypothesis; when notes disagree, give both. A fact-checker compares every part with its cited notes after you finish.
+The paragraph beginning "Accuracy" in the skill file applies to every part: your own reasoning starts with `Inference:`; a figure keeps its exact origin; search the topic's notes before writing "no note measures X"; a `low`-confidence claim stays a hypothesis; when notes disagree, give both. A fact-checker compares every part with its cited notes after you finish.
 
 ## Scope and limits
 

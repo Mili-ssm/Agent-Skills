@@ -54,3 +54,19 @@ Rejected: adding `resume` to the SessionStart matcher. A resumed session already
 Revisit if: the positive cases fire in fewer than 2 of 2 runs, or the negative case fires: reword the row or the description, one change per run.
 
 The owner waived N6 for this change on 2026-11-25: it merges to `dev` and ships in memory 0.14.0 unmeasured; the trigger cases run on 2026-11-26 and a failure there reverts or rewords it.
+
+## Review 2026-11-26
+
+The trigger cases ran (`claude plugin eval plugins/memory --ablation none --model sonnet -j 4`, memory 0.14.0). The owner decided on 2026-11-26 to keep the description of 2026-11-25 instead of reverting or rewording it.
+
+| Case | 2 runs | 6 runs, description of 2026-11-25 | 6 runs, earlier description (parent of `941efff`) |
+|---|---|---|---|
+| `memory-status-checker` (description alone) | 0/2 | 4/6 | 1/6 |
+| `memory-status-checker-with-policy` | 2/2 | — | — |
+| `memory-status-checker-neg-one-fact` | 2/2 silent | — | — |
+| `memory-research-wave-neg-one-source` | 2/2 silent | — | — |
+
+- The description alone fires in 4 of 8 runs; the runs that did not fire in the 6-run batches called only `Bash` and `Glob` (their kept traces). The earlier description fired in 1 of 6: a difference of 3 of 6 in favour of the new one, which 6 runs per side do not separate from noise with confidence.
+- The "fewer than 2 of 2" trigger of Review 2026-11-25 fired for the description-alone case; the owner's decision above answers it. With the offload row the agent fired 2 of 2. The session start line (`_STATUS_LINE`) is not in either case and stays unmeasured.
+
+Revisit if: `memory-status-checker-with-policy` falls below 2 of 2, or a negative case fires. A further reword of the description is measured against 4/6.

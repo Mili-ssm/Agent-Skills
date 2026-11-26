@@ -83,3 +83,26 @@ The same day the owner raised `skeptical-reviewer` from effort `medium` to `high
 ADR 0019 makes `skeptical-reviewer` the task reviewer of the Superpowers plan loop and the reviewer after its last task; ADR 0021 moves the owner's review rows into `user-config/routing.md`.
 
 The kill criterion "More than 2 dispatches per change in a trace" no longer holds as written: one review per plan task and several narrow reviews per change are intended (owner, 2026-11-15). No replacement criterion has been set by the owner; ADR 0021 proposes one for the review rows. In the 62 sessions measured, the reviewer was dispatched 496 times against 530 `implementer` dispatches.
+
+## Measurement 2026-11-26
+
+The offload policy's `skeptical-reviewer` row and closing line now name the two-round limit ("re-run it once after fixing (round 2 is the last)"; "and round 2 has not run"), which until now only `user-config/routing.md` stated (project review 2026-11-24, P4). Sonnet main, 2 runs, `--scaffold`; the same run carries body changes to `check-runner`, `implementer` and `ui-verifier` (changelog, Unreleased).
+
+| Case | Last record | 2026-11-26 (2 runs) |
+|---|---|---|
+| `offload-skeptical-reviewer-with-policy` | 2/6 | 2/2 |
+| `offload-check-runner-with-policy` | rerun 6/6 | 2/2 |
+| `offload-summarizer-with-policy` · `-extract-` | 3/3 · 3/3 | 2/2 · 2/2 |
+| `offload-implementer-with-policy` | 0.17 | 0/2: implemented 2/2, no dispatch |
+| `offload-ui-verifier-with-policy` | rerun 6/6 | 0/2: `delegated`, `inline`, `js-defect` 2/2; `faq-works` 1/2; `mobile-defect` 0/2 |
+
+- The four cases that ran clean hold their records, so the change is kept. The reviewer case moved from 2/6 to 2/2 on 2 runs, too few to claim a gain.
+- The two cases below their record were rerun at 6 runs on both sides the same day (Eval protocol step 2), `dev` in a worktree:
+
+  | Case | `dev` (old policy text) | This change |
+  |---|---|---|
+  | `offload-implementer-with-policy` | 0/6, score 0.17: `implemented` 6/6, `delegated` 0/6 | 0/6, score 0.17: `implemented` 6/6, `delegated` 0/6 |
+  | `offload-ui-verifier-with-policy` | 2/6, score 0.83: `delegated`, `inline`, `js-defect` 6/6; `faq-works` 4/6; `mobile-defect` 2/6 | 1/6, score 0.75: `delegated`, `inline`, `js-defect` 6/6; `faq-works` 2/6; `mobile-defect` 1/6 |
+
+- `offload-implementer-with-policy` is identical on both sides: the main model writes the code itself in every run, as its record of 0.17 says. The policy change does not move it.
+- `offload-ui-verifier-with-policy` drops 1 run of 6, under the revert threshold of 2, so the change is kept. Both sides sit far below the record of 6/6 because no browser launches in the eval sandbox (Playwright finds no Chromium; system Chrome exits on the read-only `$HOME`): the two graders that need the browser fail on `dev` too, while dispatch is 6/6 on both. That record cannot be reproduced on this machine until backlog item 3g is done (set aside by the owner, 2026-11-26).

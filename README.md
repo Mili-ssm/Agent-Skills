@@ -108,7 +108,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
 | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `agent-skills:skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `agent-skills:skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -123,7 +123,7 @@ A worker sees none of this conversation, so its brief carries everything it need
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -185,7 +185,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -200,7 +200,7 @@ A worker sees none of this conversation, so its brief carries everything it need
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -262,7 +262,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -277,7 +277,7 @@ A worker sees none of this conversation, so its brief carries everything it need
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
