@@ -4,6 +4,7 @@ A cheap session reads one synthesis's units and its source notes and answers `<p
 lines; this module selects the parts, builds the session's input and command, parses the answer and keeps the done
 list. The session never writes: Python turns its lines into `mem synthesis refs` proposals, so a wrong answer can be
 a wrong reference, never a changed sentence."""
+
 from __future__ import annotations
 
 import json
@@ -11,12 +12,17 @@ import os
 import re
 import subprocess
 import time
-from pathlib import Path
-from typing import NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
 import synth_pipeline as sp
+import syntheses
 
-ANSWER_LINE = re.compile(r"^\s*`?\s*(?P<part>[^|\s`]+)\s*\|\s*(?P<n>\d+)\s*\|\s*`?(?P<target>[^|`\s]+)`?\s*$")
+if TYPE_CHECKING:
+    from pathlib import Path
+
+ANSWER_LINE = re.compile(
+    r"^\s*`?\s*(?P<part>[^|\s`]+)\s*\|\s*(?P<n>\d+)\s*\|\s*`?(?P<target>[^|`\s]+)`?\s*$"
+)
 FENCE_LINE = re.compile(r"^\s*(```|~~~)")
 TIMEOUT = 900
 
@@ -27,7 +33,6 @@ def select(path: Path, done: dict[str, str]) -> list[dict]:
 
     Each: `handle`, `units` (all its units), `bare` (those without reference), `sources` (note targets, as on its
     `Sources:` line), `fingerprint`."""
-    import syntheses
     chosen = []
     for section in syntheses.load_one(path).parts:
         sources = [t for t in section.sources if syntheses._is_ref(t)]
@@ -35,13 +40,18 @@ def select(path: Path, done: dict[str, str]) -> list[dict]:
         bare = [u for u in found if not u.refs]
         fingerprint = syntheses.fingerprint(section.text)
         if sources and bare and done.get(section.handle) != fingerprint:
-            chosen.append(dict(handle=section.handle, units=found, bare=bare, sources=sources, fingerprint=fingerprint))
+            chosen.append({
+                "handle": section.handle,
+                "units": found,
+                "bare": bare,
+                "sources": sources,
+                "fingerprint": fingerprint,
+            })
     return chosen
 
 
 def write_input(path: Path, parts: list[dict], work: Path) -> tuple[Path, Path]:
     """The units file restricted to `parts`, and the `target -> absolute path` list of their source notes."""
-    import syntheses
     keep = {p["handle"] for p in parts}
     lines, inside = [], False
     for line in sp.units_text(path).splitlines():
@@ -50,20 +60,49 @@ def write_input(path: Path, parts: list[dict], work: Path) -> tuple[Path, Path]:
         if inside:
             lines.append(line)
     units, notes = work / "units-backfill.md", work / "notes-backfill.md"
-    units.write_text("\n".join(lines) + "\n")
+    units.write_text("\n".join(lines) + "\n", encoding="utf-8")
     seen = dict.fromkeys(t for p in parts for t in p["sources"])
-    notes.write_text("".join(f"{t} -> {syntheses._resolved(path.parent, t)}\n" for t in seen))
+    notes.write_text(
+        "".join(f"{t} -> {syntheses._resolved(path.parent, t)}\n" for t in seen), encoding="utf-8"
+    )
     return units, notes
 
 
-def session_cmd(claude: str, prompt: str, work: Path, store: Path, settings: Path, max_budget: float | None) -> list[str]:
+class SessionOptions(TypedDict):
+    settings: Path
+    max_budget: float | None
+
+
+def session_cmd(
+    claude: str, prompt: str, work: Path, store: Path, **options: Unpack[SessionOptions]
+) -> list[str]:
     """Only Read exists (`--tools`, no MCP server) and the rules allow it inside the work folder and the store
     (`//` is an absolute path in a permission rule): no shell, no web, no write."""
-    cmd = [claude, "-p", prompt, "--model", "haiku", "--effort", sp.CHEAP, "--settings", str(settings),
-           "--setting-sources", "project", "--tools", "Read", "--strict-mcp-config",
-           # --tools says which tools exist; a headless session still needs the permission to call them
-           "--allowedTools", f"Read(/{work}/**)", f"Read(/{store}/**)",
-           "--output-format", "stream-json", "--verbose", "--no-session-persistence"]
+    settings, max_budget = options["settings"], options["max_budget"]
+    cmd = [
+        claude,
+        "-p",
+        prompt,
+        "--model",
+        "haiku",
+        "--effort",
+        sp.CHEAP,
+        "--settings",
+        str(settings),
+        "--setting-sources",
+        "project",
+        "--tools",
+        "Read",
+        "--strict-mcp-config",
+        # --tools says which tools exist; a headless session still needs the permission to call them
+        "--allowedTools",
+        f"Read(/{work}/**)",
+        f"Read(/{store}/**)",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "--no-session-persistence",
+    ]
     if max_budget is not None:
         cmd += ["--max-budget-usd", f"{max_budget:.4f}"]
     return cmd
@@ -72,21 +111,29 @@ def session_cmd(claude: str, prompt: str, work: Path, store: Path, settings: Pat
 def run_session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
     start = time.monotonic()
     try:
-        raw = subprocess.run(cmd, cwd=work, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                             timeout=TIMEOUT).stdout
+        raw = subprocess.run(
+            cmd,
+            check=False,
+            cwd=work,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=TIMEOUT,
+        ).stdout
     except subprocess.TimeoutExpired as exc:
         raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-    log.write_text(raw)
+    log.write_text(raw, encoding="utf-8")
     result = sp.parse(raw)
     result["wall"] = time.monotonic() - start
     return result
 
 
 class Answer(NamedTuple):
-    found: list[tuple[str, int, str]]   # (part, number, target or "none") in order without repeats
+    found: list[tuple[str, int, str]]  # (part, number, target or "none") in order without repeats
     unreadable: int
-    repeated: int   # readable lines dropped as repeats: found + unreadable + repeated = the non-blank, non-fence lines
-    nothing: bool   # the answer is exactly the word `nothing`: an explicit empty result
+    repeated: int  # readable lines dropped as repeats: found + unreadable + repeated = the non-blank, non-fence lines
+    nothing: bool  # the answer is exactly the word `nothing`: an explicit empty result
 
 
 def parse_answer(answer: str) -> Answer:
@@ -115,14 +162,19 @@ def load_done(path: Path) -> tuple[dict, bool]:
     """(store -> synthesis handle -> section handle -> fingerprint, readable). A missing file is `({}, True)`; a file
     that exists but is not that shape is `({}, False)`, so the caller can refuse to go on."""
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return {}, True
     except (OSError, ValueError):
         return {}, False
     ok = isinstance(data, dict) and all(
-        isinstance(syns, dict) and all(isinstance(parts, dict) and all(isinstance(fp, str) for fp in parts.values())
-                                       for parts in syns.values()) for syns in data.values())
+        isinstance(syns, dict)
+        and all(
+            isinstance(parts, dict) and all(isinstance(fp, str) for fp in parts.values())
+            for parts in syns.values()
+        )
+        for syns in data.values()
+    )
     return (data, True) if ok else ({}, False)
 
 
@@ -134,5 +186,5 @@ def save_done(path: Path, store: str, handle: str, entries: dict[str, str]) -> N
         raise ValueError(f"{path} is not a readable done list")
     data.setdefault(store, {}).setdefault(handle, {}).update(entries)
     tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
-    tmp.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True) + "\n", encoding="utf-8")
     tmp.replace(path)

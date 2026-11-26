@@ -313,7 +313,7 @@ def test_research_web_command_line(tmp_path: Path) -> None:
 
 def test_backfill_command_line(tmp_path: Path) -> None:
     work, store, settings = tmp_path / "work", tmp_path / "store", tmp_path / "settings.json"
-    argv = backfill.session_cmd(CLAUDE, PROMPT, work, store, settings, BUDGET)
+    argv = backfill.session_cmd(CLAUDE, PROMPT, work, store, settings=settings, max_budget=BUDGET)
     assert argv[:3] == ["claude", "-p", "the prompt"]
     assert flag_map(argv[3:]) == {
         "--model": ("haiku",),
@@ -332,7 +332,12 @@ def test_backfill_command_line(tmp_path: Path) -> None:
 
 def test_backfill_command_line_without_a_budget(tmp_path: Path) -> None:
     argv = backfill.session_cmd(
-        CLAUDE, PROMPT, tmp_path / "w", tmp_path / "s", tmp_path / "x.json", None
+        CLAUDE,
+        PROMPT,
+        tmp_path / "w",
+        tmp_path / "s",
+        settings=tmp_path / "x.json",
+        max_budget=None,
     )
     assert "--max-budget-usd" not in argv
 
@@ -548,6 +553,7 @@ def test_backfill_runner_arguments(run: Recorder, tmp_path: Path) -> None:
     backfill.run_session(["claude", "-p", "x"], tmp_path, env, tmp_path / "log")
     assert run.cmd == ["claude", "-p", "x"]
     assert run.kwargs == {
+        "check": False,
         "cwd": tmp_path,
         "env": env,
         "stdin": subprocess.DEVNULL,

@@ -785,7 +785,12 @@ class _BackfillRun:
             "backfill", SLUG=self.handle, UNITS_FILE=str(units), NOTES_FILE=str(notes)
         )
         cmd = bf.session_cmd(
-            self.claude, prompt, self.work, self.store, self.settings, self.budget_left
+            self.claude,
+            prompt,
+            self.work,
+            self.store,
+            settings=self.settings,
+            max_budget=self.budget_left,
         )
         s = bf.run_session(cmd, self.work, self.env, self.root / self.handle / "backfill.jsonl")
         self.row["cost"] = s["cost"]
