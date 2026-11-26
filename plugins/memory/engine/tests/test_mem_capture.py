@@ -121,12 +121,14 @@ def world(tmp_path, monkeypatch):
     )
 
 
-def _load_bin(name):
+def _load_bin(name, monkeypatch):
     """Import `bin/mem-capture` (no `.py` suffix) as a module called `name`."""
     loader = SourceFileLoader(name, str(CAPTURE))
     spec = importlib.util.spec_from_loader(name, loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
+    # @dataclass before Python 3.13 looks the module up in sys.modules; teardown removes the entry
+    monkeypatch.setitem(sys.modules, name, module)
     loader.exec_module(module)
     return module
 
@@ -493,7 +495,7 @@ def test_the_project_flag_wins_over_mem_project_and_only_its_name_is_recorded(wo
 
 
 def test_a_huge_instruction_file_is_read_only_up_to_the_cap(world, monkeypatch):
-    module = _load_bin("mem_capture_bin")
+    module = _load_bin("mem_capture_bin", monkeypatch)
     (world.project / "CLAUDE.md").write_text("x" * 100_000)
     seen = []
     real = Path.open
@@ -912,7 +914,7 @@ def test_global_transcript_records_are_listed_by_their_lapse_and_state(world):
 
 
 def apply_direct(world, monkeypatch, handle, mem=None):
-    mod = _load_module()
+    mod = _load_module(monkeypatch)
     if mem is not None:
         monkeypatch.setattr(mod, "MEM", mem)
     monkeypatch.setenv("MEM_COUNT_TEMP_PROJECTS", "1")
@@ -953,8 +955,8 @@ def test_a_superseded_global_record_is_skipped_without_calling_mem(world, monkey
     assert not marker.exists()
 
 
-def test_the_brief_keeps_its_leave_out_rule(world):
-    brief = _load_module().BRIEF
+def test_the_brief_keeps_its_leave_out_rule(world, monkeypatch):
+    brief = _load_module(monkeypatch).BRIEF
     assert "what the code, the git history or the project's documents already state" in brief
     assert "Only what a (general) line" not in brief
 
@@ -1027,8 +1029,8 @@ def test_run_forward_reports_more(world):
     assert result(world)["extract"]["more"] is False
 
 
-def test_run_window_is_importable_and_quiet(world, capsys):
-    mod = _load_bin("mem_capture_module")
+def test_run_window_is_importable_and_quiet(world, capsys, monkeypatch):
+    mod = _load_bin("mem_capture_module", monkeypatch)
     transcript(world.transcript, [OWNER, "go on"])
     result_dict, code = mod.run_window(
         world.transcript, world.out, world.project, 0, "haiku", 0.25, None, False, False, quiet=True
@@ -1037,12 +1039,12 @@ def test_run_window_is_importable_and_quiet(world, capsys):
     assert not capsys.readouterr().out and result(world)["reason"] == "too short"
 
 
-def _load_module():
-    return _load_bin("mem_capture_module2")
+def _load_module(monkeypatch):
+    return _load_bin("mem_capture_module2", monkeypatch)
 
 
-def test_run_window_allow_out_in_repo_only_skips_the_repository_refusal(world):
-    mod = _load_module()
+def test_run_window_allow_out_in_repo_only_skips_the_repository_refusal(world, monkeypatch):
+    mod = _load_module(monkeypatch)
     transcript(world.transcript, [OWNER, "go on"])
     repo = world.tmp / "repo"
     (repo / ".git").mkdir(parents=True)
@@ -1071,8 +1073,8 @@ def test_run_window_allow_out_in_repo_only_skips_the_repository_refusal(world):
     )
 
 
-def test_run_window_refuses_a_symlinked_out_even_when_allowed(world):
-    mod = _load_module()
+def test_run_window_refuses_a_symlinked_out_even_when_allowed(world, monkeypatch):
+    mod = _load_module(monkeypatch)
     transcript(world.transcript, [OWNER, "go on"])
     target = world.tmp / "target.json"
     link = world.tmp / "link.json"
@@ -1094,8 +1096,8 @@ def test_run_window_refuses_a_symlinked_out_even_when_allowed(world):
     assert not target.exists()
 
 
-def test_run_window_early_refusal_carries_the_printed_text(world, capsys):
-    mod = _load_module()
+def test_run_window_early_refusal_carries_the_printed_text(world, capsys, monkeypatch):
+    mod = _load_module(monkeypatch)
     refused, code = mod.run_window(
         world.transcript,
         world.out,
