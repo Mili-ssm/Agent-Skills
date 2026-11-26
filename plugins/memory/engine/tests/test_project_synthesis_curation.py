@@ -1,10 +1,9 @@
 import datetime
 import subprocess
 
-import pytest
-
 import mem
 import project_syntheses as ps
+import pytest
 
 TODAY = datetime.date(2026, 11, 17)
 STALE_HEAD = "-- project syntheses: possibly stale --"
@@ -12,8 +11,12 @@ NONE_HEAD = "-- project syntheses: none yet --"
 
 
 def git(cwd, *args):
-    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args], cwd=cwd, check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+    )
 
 
 @pytest.fixture
@@ -39,13 +42,27 @@ def memories(root, n):
     for i in range(n):
         (folder / f"m{i}.md").write_text(
             f"---\nkind: decision\nclaim: The {WORDS[i % 8]} {WORDS[(i * 3 + 1) % 8]} job{i} ships {WORDS[(i + 5) % 8]}{i}.\ncreated: '{datetime.date.today().isoformat()}'\n"
-            "observed: 1\nstatus: active\n---\n", encoding="utf-8")
+            "observed: 1\nstatus: active\n---\n",
+            encoding="utf-8",
+        )
 
 
 def add(tmp_path, name="organization", heading="Where the engine lives"):
     body = tmp_path / "body.txt"
     body.write_text("The engine lives in src.", encoding="utf-8")
-    assert mem.main(["project-synthesis", "add", name, heading, "--paths", "src/", "--body-file", str(body)]) == 0
+    assert (
+        mem.main([
+            "project-synthesis",
+            "add",
+            name,
+            heading,
+            "--paths",
+            "src/",
+            "--body-file",
+            str(body),
+        ])
+        == 0
+    )
 
 
 def run(capsys, *argv):
@@ -74,8 +91,10 @@ def test_curate_prints_nothing_for_a_fresh_part(proj, tmp_path, capsys):
 
 def test_curate_asks_to_organize_five_memories_without_a_synthesis(proj, capsys):
     memories(proj, 5)
-    expected = (f"{NONE_HEAD}\n5 active memories and no project synthesis: organize them "
-                "(see the memory-curation skill).\n")
+    expected = (
+        f"{NONE_HEAD}\n5 active memories and no project synthesis: organize them "
+        "(see the memory-curation skill).\n"
+    )
     assert run(capsys, "curate") == (0, expected, "")
     assert run(capsys, "curate", "--project") == (0, expected, "")
     assert NONE_HEAD not in run(capsys, "curate", "--global")[1]
@@ -107,6 +126,7 @@ def test_session_index_runs_no_git(proj, tmp_path, monkeypatch):
 
     def fail(*a, **k):
         raise AssertionError("git was called")
+
     monkeypatch.setattr(ps.subprocess, "run", fail)
     assert mem.session_index(None, proj / ".memory", None, TODAY)
 
@@ -116,7 +136,9 @@ UNREADABLE_HEAD = "-- project syntheses: unreadable --"
 
 def test_curate_lists_a_broken_file_and_still_shows_the_others(proj, tmp_path, capsys):
     add(tmp_path)
-    (proj / ".memory" / "syntheses" / "plans.md").write_text("no frontmatter here\n", encoding="utf-8")
+    (proj / ".memory" / "syntheses" / "plans.md").write_text(
+        "no frontmatter here\n", encoding="utf-8"
+    )
     (proj / "src" / "a.py").write_text("a = 2\n")
     capsys.readouterr()
     code, out, err = run(capsys, "curate")
@@ -126,7 +148,7 @@ def test_curate_lists_a_broken_file_and_still_shows_the_others(proj, tmp_path, c
     row = lines[lines.index(UNREADABLE_HEAD) + 1]
     assert row.startswith("syntheses/plans.md\t") and "frontmatter" in row
     assert STALE_HEAD in lines and "p:organization#where-the-engine-lives" in out
-    assert err == ""
+    assert not err
 
 
 def test_session_index_survives_a_broken_file(proj):
@@ -136,7 +158,9 @@ def test_session_index_survives_a_broken_file(proj):
     assert "Project syntheses" not in mem.session_index(None, proj / ".memory", None, TODAY)
 
 
-def test_curate_checks_freshness_in_the_sessions_linked_worktree(proj, tmp_path, monkeypatch, capsys):
+def test_curate_checks_freshness_in_the_sessions_linked_worktree(
+    proj, tmp_path, monkeypatch, capsys
+):
     add(tmp_path)
     git(proj, "add", "-A")
     git(proj, "commit", "-q", "-m", "synthesis")
