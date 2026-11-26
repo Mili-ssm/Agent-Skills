@@ -10,6 +10,7 @@ Behavior-preserving refactor of `plugins/memory`, from steps 2 and 4 to 7 of the
 - `mem-capture` gets the same tool restriction as `mem-corroborate` (`--tools Read,Write --strict-mcp-config`).
 - Code files at 1,000+ lines get a split review; split by locality (functions used together stay together). Since 2026-11-24 (owner) this is one case of a wider rule: every edit leaves the code it touches compliant or better.
 - Store resolution (owner, 2026-11-26): every entry point applies `--root`/`--store` > `MEM_STORE` > config file > default store, and the default store counts only with its `mem-store.yaml` marker.
+- Order and scope of A2 (owner, 2026-11-26): first split `bin/mem-corroborate` into a thin launcher and engine logic, cleaned (the first part of A4), then A2 unifies all seven `claude -p` launchers in `headless.py`; each launcher keeps its own session environment builder (no env unification in A2).
 - Rust: not now; this refactor is the precondition the [Rust study](../../studies/2026-11-23-memory-rust-port.md) names.
 
 ## Tasks
