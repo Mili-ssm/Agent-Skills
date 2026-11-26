@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 import yaml
 from capture import state as capture_state
+from commands import admin, common
 from core import auto_state, config, jobs, safe_io, store_git
 from corroborate import decide as corroborate_decide
 from digest import lessons as digest_lessons
@@ -49,7 +50,6 @@ from notes.check import (
     MAX_KNOWLEDGE_NAME,
     NAME_PATTERNS,
     check,
-    invalid_changed,
 )
 from notes.due import due_requirements, due_rereads, due_retests
 from notes.fields import (
@@ -97,6 +97,7 @@ if TYPE_CHECKING:
 # Each maps to the one module that defines it; `_MOVED_MODULES` holds the already-imported module objects
 # (no `importlib`: the import graph test bans it).
 _MOVED_MODULES = {
+    "commands.common": common,
     "notes.check": check_rules,
     "notes.due": due_queries,
     "notes.fields": note_fields,
@@ -113,6 +114,7 @@ _MOVED: dict[str, str] = {
     "IndexTarget": "notes.index",
     "MAX_FILE_BYTES": "notes.check",
     "MODEL_SPECIFIC_ROOT": "notes.due",
+    "NO_STORE": "commands.common",
     "Note": "notes.note",
     "REQUIRED_HEADINGS": "notes.check",
     "REREAD_DAYS": "notes.due",
@@ -145,6 +147,7 @@ _MOVED: dict[str, str] = {
     "_authors": "notes.fields",
     "_blank": "notes.links",
     "_cell": "notes.index",
+    "_check_terms": "commands.common",
     "_date": "notes.fields",
     "_disputed": "notes.fields",
     "_domain_notes": "notes.index",
@@ -179,6 +182,7 @@ _MOVED: dict[str, str] = {
     "_string": "notes.fields",
     "_strip_code": "notes.links",
     "_subtopics": "notes.index",
+    "_swap_file": "commands.common",
     "_target_spans": "notes.links",
     "_topic_line": "notes.check",
     "_topics": "notes.fields",
@@ -187,10 +191,14 @@ _MOVED: dict[str, str] = {
     "_with_index": "notes.index",
     "_yaml_problem": "notes.note",
     "_year": "notes.fields",
+    "data_dir": "commands.common",
     "key_line": "notes.note",
     "leaf_topics": "notes.note",
+    "log_usage": "commands.common",
     "render_domain_index": "notes.index",
     "render_index": "notes.index",
+    "resolve_note": "commands.common",
+    "resolve_root": "commands.common",
     "rule_consistency": "notes.check",
     "rule_domain": "notes.check",
     "rule_file_size": "notes.check",
@@ -216,10 +224,6 @@ def __getattr__(name: str) -> object:
 
 
 logger = logging.getLogger(__name__)
-
-
-class UsageError(Exception):
-    """The options of a command contradict each other: the dispatch prints the message as the parser's error (exit 2)."""
 
 
 _KEY_VALUE_CELLS = 2  # a two-cell table row: name and value
@@ -271,46 +275,9 @@ _NO_STORE_NEEDED = (
 )
 
 
-def _env_value(env: Mapping[str, str], key: str) -> str:
-    return env.get(key) or ""
-
-
-NO_STORE = (
-    'mem: no store is set. Run "mem init" to create the default store, or set the plugin\'s "store" option, '
-    "or pass --root <folder>, or set MEM_STORE."
-)
-
-
-def no_store_message(env: Mapping[str, str]) -> str:
-    """NO_STORE, plus a line when the default folder exists without its marker (it is not used, and why)."""
-    folder = config.default_store_path(env)
-    if folder is None or not folder.is_dir() or (folder / config.STORE_MARKER).is_file():
-        return NO_STORE
-    return (
-        f"{NO_STORE}\nmem: {folder} has no {config.STORE_MARKER}, so it is not used; "
-        "add the file by hand only if you own that folder and mean to write to it."
-    )
-
-
 def store_source(cli_root: str | None, env: Mapping[str, str]) -> config.StoreSource | None:
     """Where the store path comes from: --root, MEM_STORE, the config file or the default store."""
     return config.store_source(cli_root, env)
-
-
-def resolve_root(cli_root: str | None, env: Mapping[str, str]) -> Path | None:
-    """The store folder by precedence --root, MEM_STORE, config file, default store; not checked for existence."""
-    return config.resolve_store(cli_root, env)
-
-
-def data_dir(env: Mapping[str, str]) -> Path | None:
-    """Folder for the usage log and other state, outside the store; None when no variable locates it."""
-    if _env_value(env, "MEM_DATA"):
-        return Path(env["MEM_DATA"])
-    state = _env_value(env, "XDG_STATE_HOME")
-    if state:
-        return Path(state) / "agent-memory"
-    home = _env_value(env, "HOME")
-    return Path(home) / ".local" / "state" / "agent-memory" if home else None
 
 
 # --- find and new --------------------------------------------------------------
@@ -847,37 +814,6 @@ def short_handles(root: Path) -> dict[str, str]:
     return out
 
 
-def resolve_note(root: Path, arg: str, *, prefix: bool = True) -> Path | list[str] | None:
-    """The `.md` file `arg` names inside the hub, as a resolved absolute Path.
-
-    `arg` is a path (hub-relative or absolute), else a handle (`_handle`, with or without `.md`), else (when
-    `prefix`, and `arg` does not end in `.md`) a unique prefix of a handle or of a hub-relative path; an exact
-    handle or path wins over prefixes. Several matches return their hub-relative paths, sorted; no match
-    returns None. Handles come from file names alone: no note is parsed."""
-    root = root.resolve()
-    path = Path(arg)
-    path = (path if path.is_absolute() else root / path).resolve()
-    if path.suffix == ".md" and path.is_file() and path.is_relative_to(root):
-        return path
-    name = arg.removesuffix(".md")
-    if not name:
-        return None
-    rels = sorted(p.relative_to(root).as_posix() for _, p in note_files._note_files(root))
-    for found in (
-        [r for r in rels if note_files._handle(r) == name or r.removesuffix(".md") == name],
-        [r for r in rels if note_files._handle(r).startswith(name) or r.startswith(name)]
-        if prefix and name == arg
-        else [],
-    ):
-        if found:
-            return root / found[0] if len(found) == 1 else found
-    return None
-
-
-def _ambiguous(arg: str, found: list[str]) -> None:
-    print(f"ambiguous: {arg} matches {len(found)} notes:", *found[:10], sep="\n", file=sys.stderr)
-
-
 _CONCLUSION = {
     "knowledge": ("Claim", "Does not apply when"),
     "literature": ("TL;DR",),
@@ -924,7 +860,7 @@ def _show_unresolved(arg: str, found: list[str] | None) -> str:
     """The block for an argument that names no single note; prints the ambiguity to stderr."""
     if found is None:
         return f"== {arg}\n(not found)"
-    _ambiguous(arg, found)
+    common._ambiguous(arg, found)
     return f"== {arg}\n(ambiguous: {len(found)} notes match)"
 
 
@@ -985,7 +921,7 @@ def show(
     shown: list[str] = []
     ok = True
     for arg in paths:
-        path = resolve_note(root, arg)
+        path = common.resolve_note(root, arg)
         if not isinstance(path, Path):
             blocks.append(_show_unresolved(arg, path))
             ok = False
@@ -1218,35 +1154,6 @@ def _link_edits(
     return "\n".join(lines), count
 
 
-def _split_frontmatter_block(text: str) -> re.Match | None:
-    return re.match(r"---\n(.*?)\n---[ \t]*(?:\n|$)", text, re.DOTALL)
-
-
-def _set_field(text: str, key: str, value: Any) -> str:
-    """`text` with the frontmatter field `key` set (in place when present, else last) or, for None, removed;
-    every other byte stays."""
-    m = _split_frontmatter_block(text)
-    if m is None:
-        raise ValueError("the note has no frontmatter")
-    lines = m.group(1).split("\n")
-    start = next((i for i, ln in enumerate(lines) if re.match(rf"{re.escape(key)}:", ln)), None)
-    end = start
-    if start is not None:
-        end = start + 1
-        while end < len(lines) and re.match(r"(\s|- )", lines[end]):
-            end += 1
-    rendered = (
-        ""
-        if value is None
-        else yaml.safe_dump(
-            value, allow_unicode=True, default_flow_style=True, width=float("inf")
-        ).split("\n")[0]
-    )
-    new = [] if value is None else [f"{key}: {rendered}"]
-    new_lines = lines[:start] + new + lines[end:] if start is not None else lines + new
-    return "---\n" + "\n".join(new_lines) + "\n---\n" + text[m.end() :]
-
-
 def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
     """`text` with `superseded_by` and `distinct_from` values that name the note `old` naming `new`, and their count."""
     # `part_of` is not renamed here: it names a synthesis, and `rename` takes only literature and knowledge notes.
@@ -1257,11 +1164,13 @@ def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
     count = 0
     if isinstance(meta, dict):
         if meta.get("superseded_by") == old:
-            text, count = _set_field(text, "superseded_by", new), count + 1
+            text, count = common._set_field(text, "superseded_by", new), count + 1
         names = meta.get("distinct_from")
         if isinstance(names, list) and old in names:
             text, count = (
-                _set_field(text, "distinct_from", sorted(new if h == old else h for h in names)),
+                common._set_field(
+                    text, "distinct_from", sorted(new if h == old else h for h in names)
+                ),
                 count + 1,
             )
     return text, count
@@ -1269,7 +1178,7 @@ def _rename_handle_fields(text: str, old: str, new: str) -> tuple[str, int]:
 
 def _rename_source(root: Path, arg: str) -> Path:
     """The literature or knowledge note `arg` names exactly, else a refusal."""
-    old = resolve_note(root, arg, prefix=False)
+    old = common.resolve_note(root, arg, prefix=False)
     if isinstance(old, list):
         raise NewNoteError(f"ambiguous: {arg} matches {len(old)} notes: {', '.join(old[:10])}")
     parts = old.relative_to(root).parts if old else ()
@@ -1445,7 +1354,7 @@ def _resolve_notes(root: Path, args: Sequence[str]) -> list[Path]:
     typed = {p.resolve() for _, p in note_files._note_files(root)}
     found = []
     for arg in args:
-        path = resolve_note(root, arg)
+        path = common.resolve_note(root, arg)
         if isinstance(path, list):
             raise NewNoteError(
                 f"ambiguous: {arg} matches {len(path)} notes: {', '.join(path[:10])}"
@@ -1509,12 +1418,12 @@ def _unify_keep_text(notes: list[Note], request: UnifyRequest) -> str:
     """The text of the kept note: the new body, the union of the topics, the lowest confidence."""
     keep, others = notes[0], notes[1:]
     keep_text = note_files._read_text(keep.path)
-    m = _split_frontmatter_block(keep_text)
+    m = common._split_frontmatter_block(keep_text)
     if m is None:
         raise NewNoteError(f"{keep.rel} has no frontmatter")
     union = list(keep.meta.get("topics") or [])
     union += [t for o in others for t in (o.meta.get("topics") or []) if t not in union]
-    new_text = _set_field(keep_text[: m.end()] + request.body, "topics", union)
+    new_text = common._set_field(keep_text[: m.end()] + request.body, "topics", union)
     if "confidence" in SCHEMAS[keep.type]:
         ranks = [
             _CONFIDENCE_ORDER.index(n.meta["confidence"])
@@ -1522,9 +1431,9 @@ def _unify_keep_text(notes: list[Note], request: UnifyRequest) -> str:
             if n.meta.get("confidence") in _CONFIDENCE_ORDER
         ]
         if ranks:
-            new_text = _set_field(new_text, "confidence", _CONFIDENCE_ORDER[min(ranks)])
+            new_text = common._set_field(new_text, "confidence", _CONFIDENCE_ORDER[min(ranks)])
     if keep.type == "knowledge":
-        new_text = _set_field(new_text, "updated", request.today.isoformat())
+        new_text = common._set_field(new_text, "updated", request.today.isoformat())
     return new_text
 
 
@@ -1617,7 +1526,7 @@ def unify_notes(
 
     edits: dict[Path, str] = {keep.path: _unify_keep_text(notes, request)}
     for o in others:
-        edits[o.path] = _set_field(
+        edits[o.path] = common._set_field(
             note_files._read_text(o.path), "superseded_by", note_files._handle(keep.rel)
         )
     links = _unify_rewrite_links(root, edits, others, keep.path)
@@ -2127,57 +2036,6 @@ def cmd_topics(args: argparse.Namespace) -> int:
     return 0
 
 
-def _usage_log(env: Mapping[str, str]) -> Path | None:
-    data = data_dir(env)
-    return None if data is None else data / "usage" / "log.jsonl"
-
-
-def _is_outside(root: Path, cwd: Path | None) -> bool:
-    try:
-        here = (cwd if cwd is not None else Path.cwd()).resolve()
-        return not here.is_relative_to(root.resolve())
-    except OSError:
-        return True
-
-
-def _append_usage(
-    root: Path | None, entry: dict[str, Any], env: Mapping[str, str], cwd: Path | None
-) -> None:
-    """Write one usage entry as a line of the log file, unless the log would sit inside the store."""
-    log_path = _usage_log(env)
-    if root is not None:
-        entry["outside"] = _is_outside(root, cwd)
-        # the store is never written by the log
-        if log_path is not None and log_path.resolve().is_relative_to(root.resolve()):
-            return
-    if log_path is None:
-        return
-    # ASCII escapes keep one entry on one line and survive argv that is not valid UTF-8
-    line = (json.dumps(entry) + "\n").encode("ascii")
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-    try:
-        os.write(fd, line)  # one write: parallel processes cannot interleave lines
-    finally:
-        os.close(fd)
-
-
-def log_usage(
-    root: Path | None,
-    entry: dict[str, Any],
-    *,
-    env: Mapping[str, str] | None = None,
-    cwd: Path | None = None,
-) -> None:
-    """Append one JSON line to the usage log in the data folder; never raises, never changes output."""
-    env = os.environ if env is None else env
-    if env.get("MEM_USAGE_LOG") == "0":
-        return
-    entry = {"t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
-    with contextlib.suppress(OSError, ValueError, TypeError):
-        _append_usage(root, entry, env, cwd)
-
-
 def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
     try:
         project = records.project_root(Path.cwd(), os.environ)
@@ -2185,7 +2043,7 @@ def _memory_folders(args: argparse.Namespace) -> list[tuple[str, Path | None]]:
         project = None
     return [
         ("project", records.project_dir(project) if project else None),
-        ("global", records.memories_root(os.environ, _optional_store(args))),
+        ("global", records.memories_root(os.environ, common._optional_store(args))),
     ]
 
 
@@ -2194,7 +2052,7 @@ def _register_project(project: Path | None) -> None:
     if project is None:
         return
     try:
-        records.register_project(data_dir(os.environ), project, datetime.date.today())
+        records.register_project(common.data_dir(os.environ), project, datetime.date.today())
     except Exception:
         logger.debug("registering the project failed", exc_info=True)
 
@@ -2202,7 +2060,7 @@ def _register_project(project: Path | None) -> None:
 def _named_folder(name: str) -> Path | None:
     """The memory folder of a registered project; None when the name is unknown or the registry unreadable."""
     try:
-        entry = records.read_registry(data_dir(os.environ)).get(name)
+        entry = records.read_registry(common.data_dir(os.environ)).get(name)
     except ValueError:
         return None
     return records.project_dir(Path(entry["path"])) if entry else None
@@ -2211,7 +2069,7 @@ def _named_folder(name: str) -> Path | None:
 def _other_projects(names: Sequence[str], every: bool) -> list[tuple[str, Path]] | None:
     """The folders of the projects asked for, without the current one; None after a message on stderr."""
     try:
-        reg = records.read_registry(data_dir(os.environ))
+        reg = records.read_registry(common.data_dir(os.environ))
     except ValueError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return None
@@ -2324,8 +2182,8 @@ def _is_memory_arg(args: argparse.Namespace, arg: str) -> bool:
         return True
     if "/" in arg or arg.endswith(".md"):
         return False
-    root = _optional_store(args)
-    if root is not None and resolve_note(root, arg) is not None:
+    root = common._optional_store(args)
+    if root is not None and common.resolve_note(root, arg) is not None:
         return False
     return _find_memory(args, arg) is not None
 
@@ -2379,58 +2237,21 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
     return "\n".join(out).rstrip("\n")
 
 
-def _project_synthesis_context() -> tuple[Path, Path, Path] | None:
-    """(memory folder, working tree, project root) of the project the session is in; None after saying so."""
-    root = records.project_root(Path.cwd(), os.environ)
-    if root is None:
-        print("mem: not inside a project", file=sys.stderr)
-        return None
-    return records.project_dir(root), project_syntheses.worktree(Path.cwd(), root, os.environ), root
-
-
-def _split_part_ref(ref: str) -> tuple[str, str | None]:
-    name, sep, handle = ref.removeprefix("p:").partition("#")
-    if sep and not handle:
-        raise project_syntheses.ProjectSynthesisError(f"{ref!r} has an empty part handle after `#`")
-    return name, handle or None
-
-
-def _existing_parts(found: dict[str, list[project_syntheses.Part]]) -> str:
-    return "; ".join(f"p:{n}#{p.handle}" for n, parts in found.items() for p in parts) or "none yet"
-
-
-def _part_line(name: str, part: project_syntheses.Part, tree: Path) -> str:
-    return (
-        f"p:{name}#{part.handle}\t{project_syntheses.freshness(tree, part.stamp)}\t{part.heading}"
-    )
-
-
-def _load_project_syntheses(
-    memory_dir: Path, name: str | None = None
-) -> dict[str, list[project_syntheses.Part]]:
-    """The files that load; a broken one does not hide the others, but asking for it by name raises its error."""
-    found, broken = project_syntheses.load_each(memory_dir)
-    for path, error in broken:
-        if name is not None and path == f"{project_syntheses.folder(Path()).as_posix()}/{name}.md":
-            raise project_syntheses.Unavailable(f"{path} cannot be read: {error}")
-    return found
-
-
 def _project_synthesis_block(ref: str, memory_dir: Path, tree: Path) -> str:
     """The outline of `p:NAME` or the text of `p:NAME#HANDLE`; ProjectSynthesisError when it does not exist."""
-    name, handle = _split_part_ref(ref)
-    found = _load_project_syntheses(memory_dir, name)
+    name, handle = common._split_part_ref(ref)
+    found = common._load_project_syntheses(memory_dir, name)
     parts = found.get(name)
     if parts is None:
         raise project_syntheses.Unavailable(
-            f"no project synthesis {name!r}; parts that exist: {_existing_parts(found)}"
+            f"no project synthesis {name!r}; parts that exist: {common._existing_parts(found)}"
         )
     if handle is None:
-        return "\n".join(_part_line(name, p, tree) for p in parts)
+        return "\n".join(common._part_line(name, p, tree) for p in parts)
     part = next((p for p in parts if p.handle == handle), None)
     if part is None:
         raise project_syntheses.Unavailable(
-            f"no part {handle!r} in {name}; parts that exist: {_existing_parts(found)}"
+            f"no part {handle!r} in {name}; parts that exist: {common._existing_parts(found)}"
         )
     state = project_syntheses.describe(project_syntheses.freshness(tree, part.stamp))
     s = part.stamp
@@ -2450,7 +2271,7 @@ def _ps_list(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
     found, broken = project_syntheses.load_each(memory_dir)
     for name, parts in found.items():
         for part in parts:
-            print(_part_line(name, part, tree))
+            print(common._part_line(name, part, tree))
     for path, error in broken:
         print(f"mem: skipped {path}: {error}", file=sys.stderr)
     return 1 if broken else 0
@@ -2474,7 +2295,7 @@ def _ps_add(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
     project_syntheses._check_paths(
         tree, paths
     )  # before the secret scan, so a bad path is not reported as a secret
-    if _refuse_secret([args.heading, body]):
+    if common._refuse_secret([args.heading, body]):
         return 4
     handle = project_syntheses.write_part(
         memory_dir,
@@ -2490,11 +2311,11 @@ def _ps_add(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
 
 
 def _ps_confirm(args: argparse.Namespace, memory_dir: Path, tree: Path) -> int:
-    name, handle = _split_part_ref(args.part)
-    found = _load_project_syntheses(memory_dir, name)
+    name, handle = common._split_part_ref(args.part)
+    found = common._load_project_syntheses(memory_dir, name)
     if handle is None or name not in found or handle not in [p.handle for p in found[name]]:
         raise project_syntheses.Unavailable(
-            f"no part {args.part!r}; parts that exist: {_existing_parts(found)}"
+            f"no part {args.part!r}; parts that exist: {common._existing_parts(found)}"
         )
     project_syntheses.confirm_part(memory_dir, tree, name, handle, datetime.date.today())
     print(
@@ -2510,7 +2331,7 @@ _PS_HANDLERS = {"list": _ps_list, "add": _ps_add}
 
 
 def cmd_project_synthesis(args: argparse.Namespace) -> int:
-    context = _project_synthesis_context()
+    context = common._project_synthesis_context()
     if context is None:
         return 2
     memory_dir, tree, _ = context
@@ -2534,7 +2355,7 @@ class _ShowPart:
 def _show_refused_options(args: argparse.Namespace) -> bool:
     """Whether the options of `mem show` are refused (a message is already printed); `--ranges` alone exits."""
     if args.ranges and not args.outline:
-        raise UsageError("--ranges needs --outline")
+        raise common.UsageError("--ranges needs --outline")
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return True
@@ -2551,7 +2372,7 @@ def _show_project_handle(args: argparse.Namespace, arg: str) -> _ShowPart | None
             file=sys.stderr,
         )
         return _ShowPart([f"== {arg}\n(not found)"], [], ok=False, refused=True)
-    context = _project_synthesis_context()
+    context = common._project_synthesis_context()
     if context is None:
         return None
     try:
@@ -2622,7 +2443,7 @@ def cmd_show(args: argparse.Namespace) -> int:
         )
     print("\n\n".join(part.blocks))
     if part.ok:
-        log_usage(
+        common.log_usage(
             args.root,
             {
                 "cmd": "show",
@@ -2634,21 +2455,6 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 2 if part.refused else 0 if part.ok else 1
 
 
-_INIT_ALLOWED = {
-    "mem-store.yaml",
-    "topics.yaml",
-    "literature",
-    "knowledge",
-    "research",
-    "memories",
-    "templates",
-    "syntheses",
-    ".git",
-    ".gitignore",
-    "README.md",
-}
-
-
 def _memory_body(source: str | None) -> str:
     """The text of `--body-file` (`-` is standard input); absent or empty gives an empty body."""
     if not source:
@@ -2658,10 +2464,6 @@ def _memory_body(source: str | None) -> str:
             raise OSError("--body-file - needs the body on standard input, not a terminal")
         return sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
     return Path(source).read_text(encoding="utf-8").replace("\r\n", "\n")
-
-
-def _optional_store(args: argparse.Namespace) -> Path | None:
-    return args.root if isinstance(args.root, Path) and args.root.is_dir() else None
 
 
 def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None:
@@ -2679,28 +2481,13 @@ def _find_memory(args: argparse.Namespace, handle: str) -> records.Memory | None
     project = records.project_root(Path.cwd(), os.environ)
     folders = [
         ("project", records.project_dir(project) if project else None),
-        ("global", records.memories_root(os.environ, _optional_store(args))),
+        ("global", records.memories_root(os.environ, common._optional_store(args))),
     ]
     for scope, folder in folders:
         for m in records.load_memories(folder, scope):
             if m.handle == handle:
                 return m
     return None
-
-
-_READ_ONLY_PROJECT = (
-    "mem: this project is the store, which is read-only: it has no mem-store.yaml; "
-    "a memory cannot be written here."
-)
-_READ_ONLY_MEMORIES = (
-    "mem: the memories folder is inside the store, which is read-only: it has no mem-store.yaml."
-)
-
-
-def _read_only_store(store: Path | None, path: Path) -> bool:
-    return (
-        store is not None and not records.store_is_writable(store) and records.inside(path, store)
-    )
 
 
 def _same_claim(a: str, b: str) -> bool:
@@ -2970,7 +2757,7 @@ def _index_lines(
     if notice:
         lines.append(notice)
     if store is not None:
-        lines += session_notices.store_due_lines(store, today, data_dir(os.environ))
+        lines += session_notices.store_due_lines(store, today, common.data_dir(os.environ))
     return lines
 
 
@@ -3115,26 +2902,6 @@ def _hook_input() -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _append_hook_log(entry: dict[str, Any]) -> None:
-    folder = data_dir(os.environ)
-    if folder is None:
-        return
-    log_path = folder / "hooks" / "log.jsonl"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
-    try:
-        os.write(fd, (json.dumps(entry) + "\n").encode("ascii"))
-    finally:
-        os.close(fd)
-
-
-def _log_hook(entry: dict[str, Any]) -> None:
-    """Append one line to the hook log in the data folder; never raises. Holds no text and no path."""
-    entry = {"t": datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"), **entry}
-    with contextlib.suppress(OSError, ValueError, TypeError):
-        _append_hook_log(entry)
-
-
 def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
     """The line `mem session-index` adds after a failed corroboration pass (`mem-corroborate ack` clears it)."""
     if data is None:
@@ -3184,10 +2951,10 @@ def _session_notices(store: Path | None, memories: Path | None) -> str | None:
     """The failure lines of the background runs, one per line; None when there are none."""
     notices = []
     for make in (
-        lambda: auto_state.failure_line(data_dir(os.environ), store, time.time()),
-        lambda: settle_state.failure_line(data_dir(os.environ), store, time.time()),
-        lambda: capture_state.failure_line(data_dir(os.environ), time.time()),
-        lambda: _corroborate_failure_line(data_dir(os.environ), time.time()),
+        lambda: auto_state.failure_line(common.data_dir(os.environ), store, time.time()),
+        lambda: settle_state.failure_line(common.data_dir(os.environ), store, time.time()),
+        lambda: capture_state.failure_line(common.data_dir(os.environ), time.time()),
+        lambda: _corroborate_failure_line(common.data_dir(os.environ), time.time()),
         lambda: settle_state.settled_line(memories),
     ):
         found = _session_notice(make)
@@ -3236,7 +3003,7 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     print(text)
     if args.hook:
         source = data.get("source")
-        _log_hook({
+        common._log_hook({
             "hook": "session-index",
             "source": source if isinstance(source, str) else None,
             "ms": int((time.monotonic() - started) * 1000),
@@ -3285,7 +3052,7 @@ def _compact_log(args: argparse.Namespace, started: float) -> None:
     if lines:
         print("\n".join(lines)[:_COMPACT_OUT_LIMIT])
     if args.hook:
-        _log_hook(_compact_entry(data, summary, found, lines, started))
+        common._log_hook(_compact_entry(data, summary, found, lines, started))
 
 
 def cmd_compact_log(args: argparse.Namespace) -> int:
@@ -3375,7 +3142,7 @@ def _signal_log(
     started: float,
 ) -> None:
     subagent_type = given.tool_input.get("subagent_type")
-    _log_hook({
+    common._log_hook({
         "hook": "signal",
         "ms": int((time.monotonic() - started) * 1000),
         "strong": len(strong),
@@ -3418,64 +3185,8 @@ def cmd_signal(args: argparse.Namespace) -> int:
     return 0
 
 
-def _check_terms(texts: Sequence[str], kind: str, approved: bool) -> int:
-    """0 when a write to the global scope may go on, else its exit code after a message on stderr: 4 for a hard
-    term, 5 for a soft one the owner has not approved, 2 when the list cannot be read, created or located (no HOME and
-    no XDG_CONFIG_HOME). A missing list is created, so it never blocks."""
-    if records.forbidden_file(os.environ) is None:
-        print(
-            "mem: the forbidden-terms list has no place: neither XDG_CONFIG_HOME nor HOME is set; nothing was written.",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        records.ensure_terms_file(os.environ)
-        hits = records.term_hits(texts, os.environ, kind)
-    except records.ForbiddenListError as exc:
-        print(
-            f"mem: the forbidden-terms list cannot be read ({exc}); nothing was written.",
-            file=sys.stderr,
-        )
-        return 2
-    except OSError as exc:
-        print(
-            f"mem: the forbidden-terms list cannot be created ({exc}); nothing was written.",
-            file=sys.stderr,
-        )
-        return 2
-    hard = next((t for t in hits if not t.soft), None)
-    if hard is not None:
-        print(
-            f"mem: the text contains a forbidden term (line {hard.line} of the forbidden-terms list); "
-            "nothing was written.",
-            file=sys.stderr,
-        )
-        return 4
-    soft = next((t for t in hits), None)
-    if soft is not None and not approved:
-        print(
-            f'mem: the text mentions "{soft.text}" (a soft term): ask the owner whether this may be written to the '
-            "global scope; if they agree, repeat with --owner-approved.",
-            file=sys.stderr,
-        )
-        return 5
-    return 0
-
-
 def _approval(args: argparse.Namespace) -> dict[str, bool]:
     return {"owner_approved": True} if getattr(args, "owner_approved", False) else {}
-
-
-def _refuse_secret(texts: Sequence[str]) -> bool:
-    """Say so on stderr and return True when a text looks like it holds a secret."""
-    name = records.secret_in(texts)
-    if name is None:
-        return False
-    print(
-        f"mem: the text looks like it contains a secret ({name}); nothing was written.",
-        file=sys.stderr,
-    )
-    return True
 
 
 def _add_sightings(
@@ -3610,8 +3321,8 @@ def _remember_global_target(store: Path | None) -> _RememberTarget:
             file=sys.stderr,
         )
         raise _RememberRefusalError(2)
-    if _read_only_store(store, folder.resolve()):
-        print(_READ_ONLY_MEMORIES, file=sys.stderr)
+    if common._read_only_store(store, folder.resolve()):
+        print(common._READ_ONLY_MEMORIES, file=sys.stderr)
         raise _RememberRefusalError(2)
     return _RememberTarget("global", folder, None)
 
@@ -3625,8 +3336,8 @@ def _remember_project_target(store: Path | None) -> _RememberTarget:
         )
         raise _RememberRefusalError(2)
     folder = records.project_dir(project)
-    if _read_only_store(store, project) or _read_only_store(store, folder.resolve()):
-        print(_READ_ONLY_PROJECT, file=sys.stderr)
+    if common._read_only_store(store, project) or common._read_only_store(store, folder.resolve()):
+        print(common._READ_ONLY_PROJECT, file=sys.stderr)
         raise _RememberRefusalError(2)
     return _RememberTarget("project", folder, project)
 
@@ -3657,11 +3368,17 @@ def _remember_body(args: argparse.Namespace) -> str:
 
 def _remember_check_text(args: argparse.Namespace, body: str) -> None:
     """Refuse a text that looks like a secret (4), and for the global scope one with a forbidden term."""
-    if _refuse_secret([args.claim, args.context or "", body, *args.source, args.short or ""]):
+    if common._refuse_secret([
+        args.claim,
+        args.context or "",
+        body,
+        *args.source,
+        args.short or "",
+    ]):
         raise _RememberRefusalError(4)
     if args.is_global:
         _refuse(
-            _check_terms(
+            common._check_terms(
                 [
                     args.claim,
                     args.context or "",
@@ -3841,7 +3558,7 @@ def _remember_log(
     m: records.Memory,
     today: datetime.date,
 ) -> None:
-    log_usage(store, {"cmd": "remember", "scope": target.scope, **_approval(args)})
+    common.log_usage(store, {"cmd": "remember", "scope": target.scope, **_approval(args)})
     if (
         target.scope == "global"
         and getattr(args, "origin", None) != "pipeline"
@@ -3853,7 +3570,7 @@ def _remember_log(
 def _remember(args: argparse.Namespace) -> None:
     """The steps of `mem remember`; a refusal raises `_RememberRefusalError`."""
     today = datetime.date.today()
-    store = _optional_store(args)
+    store = common._optional_store(args)
     _remember_check_args(args)
     target = _remember_target(args, store)
     _remember_check_options(args, today)
@@ -3886,7 +3603,7 @@ def _memory_scopes(args: argparse.Namespace) -> dict[str, dict[str, records.Memo
     project = records.project_root(Path.cwd(), os.environ)
     folders = {
         "project": records.project_dir(project) if project else None,
-        "global": records.memories_root(os.environ, _optional_store(args)),
+        "global": records.memories_root(os.environ, common._optional_store(args)),
     }
     return {
         scope: {m.handle: m for m in records.load_memories(folder, scope)}
@@ -3929,9 +3646,10 @@ def _memory_refused(found: Sequence[records.Memory], store: Path | None) -> bool
         if m.error is not None:
             print(f"mem: {m.path}: {m.error}", file=sys.stderr)
             return True
-        if _read_only_store(store, m.path.resolve()):
+        if common._read_only_store(store, m.path.resolve()):
             print(
-                _READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr
+                common._READ_ONLY_PROJECT if m.scope == "project" else common._READ_ONLY_MEMORIES,
+                file=sys.stderr,
             )
             return True
     return False
@@ -3945,7 +3663,7 @@ def _memory_of(args: argparse.Namespace, handles: Sequence[str]) -> list[records
     loaded = _memory_scopes(args)
     order = ("global",) if args.is_global else ("project", "global")
     found = _memory_pick(loaded, order, handles)
-    if found is None or _memory_refused(found, _optional_store(args)):
+    if found is None or _memory_refused(found, common._optional_store(args)):
         return None
     return found
 
@@ -3963,11 +3681,11 @@ def _reason_allowed(memory: records.Memory, because: str | None, approved: bool)
     through the term list, failing closed. Else the exit code, after a message."""
     if not because:
         return 0
-    if _refuse_secret([because]):
+    if common._refuse_secret([because]):
         return 4
     if memory.scope != "global":
         return 0
-    return _check_terms([because], memory.kind, approved)
+    return common._check_terms([because], memory.kind, approved)
 
 
 def _act(
@@ -3991,7 +3709,9 @@ def _act(
     if found[0].scope == "project":
         _register_project(records.project_root(Path.cwd(), os.environ))
     print("\n".join(lines))
-    log_usage(_optional_store(args), {"cmd": name, "scope": found[0].scope, **_approval(args)})
+    common.log_usage(
+        common._optional_store(args), {"cmd": name, "scope": found[0].scope, **_approval(args)}
+    )
     return 0
 
 
@@ -4232,7 +3952,9 @@ def _linked_in_folder(
 def _linked_in_counted_projects(handle: str) -> list[records.Memory]:
     named = re.compile(rf"^general:\s*['\"]?{re.escape(handle)}['\"]?\s*$", re.MULTILINE)
     found: list[records.Memory] = []
-    projects = corroborate_decide.counted_projects(records.read_registry(data_dir(os.environ)))
+    projects = corroborate_decide.counted_projects(
+        records.read_registry(common.data_dir(os.environ))
+    )
     for n, project in enumerate(projects, 1):
         folder = records.project_dir(project)
         files = _project_md_files(folder, n, len(projects))
@@ -4383,7 +4105,7 @@ def _undo_failed_edit(
 ) -> None:
     """Put a memory file and its curation log back as they were before an edit that failed."""
     if updating and m.path.read_bytes() != original:
-        _swap_file(m.path, original)
+        common._swap_file(m.path, original)
     if log_before is None:
         log.unlink(missing_ok=True)
     else:
@@ -4430,8 +4152,8 @@ def _reword_failed(args: argparse.Namespace) -> int:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"m:{m.handle}\tedited reword failed")
-    log_usage(
-        _optional_store(args),
+    common.log_usage(
+        common._optional_store(args),
         {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)},
     )
     return 0
@@ -4457,7 +4179,7 @@ def _memory_edit_flags_refused(args: argparse.Namespace) -> int | None:
         return 2
     asks = (args.claim, args.context, args.body_file, args.short, args.topic)
     if all(a is None for a in asks) and not args.no_load and not args.load and not args.index_only:
-        raise UsageError(
+        raise common.UsageError(
             "memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load"
         )
     return None
@@ -4478,7 +4200,7 @@ def _memory_edit_inputs(args: argparse.Namespace) -> _MemoryEditInputs | int:
     if (refused := _check_short_topic(args)) is not None:
         return refused
     texts = [t for t in (claim, context, body, args.short) if t]
-    if _refuse_secret(texts):
+    if common._refuse_secret(texts):
         return 4
     return _MemoryEditInputs(claim, context, body, texts)
 
@@ -4502,7 +4224,11 @@ def _memory_edit_target(args: argparse.Namespace, edit: _MemoryEditInputs) -> re
     if (
         m.scope == "global"
         and edit.texts
-        and (refused := _check_terms(edit.texts, m.kind, getattr(args, "owner_approved", False)))
+        and (
+            refused := common._check_terms(
+                edit.texts, m.kind, getattr(args, "owner_approved", False)
+            )
+        )
     ):
         return refused
     return m
@@ -4624,13 +4350,17 @@ def _memory_edit_finish(
             file=sys.stderr,
         )
     print(f"m:{m.handle}\tedited {', '.join(what)}")
-    log_usage(
-        _optional_store(args),
+    common.log_usage(
+        common._optional_store(args),
         {"cmd": "memory", "action": "edit", "scope": m.scope, **_approval(args)},
     )
     if m.scope == "global" and m.origin != "pipeline":
         settle_state.maybe_start(
-            m.path.parent, _optional_store(args), os.environ, time.time(), datetime.date.today()
+            m.path.parent,
+            common._optional_store(args),
+            os.environ,
+            time.time(),
+            datetime.date.today(),
         )
 
 
@@ -4717,7 +4447,7 @@ def _distinct_note_paths(args: argparse.Namespace, store: Path) -> tuple[Path, P
     """The two notes `mem distinct` names; None when the arguments are not both notes of the store."""
     if args.a.startswith("m:") or args.b.startswith("m:"):
         return None
-    first, second = resolve_note(store, args.a), resolve_note(store, args.b)
+    first, second = common.resolve_note(store, args.a), common.resolve_note(store, args.b)
     if not isinstance(first, Path) or not isinstance(second, Path):
         return None
     return first, second
@@ -4731,7 +4461,7 @@ def _distinct_edit(path: Path, other_name: str) -> tuple[bytes, str]:
     known = [h for h in listed if isinstance(h, str)] if isinstance(listed, list) else []
     return (
         path.read_bytes(),
-        _set_field(text, "distinct_from", sorted({*known, other_name})),
+        common._set_field(text, "distinct_from", sorted({*known, other_name})),
     )
 
 
@@ -4766,7 +4496,7 @@ def _distinct_notes(args: argparse.Namespace, store: Path) -> int | None:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"{names[first]}\tkept apart from {names[second]}")
-    log_usage(root, {"cmd": "distinct", "scope": "note"})
+    common.log_usage(root, {"cmd": "distinct", "scope": "note"})
     return 0
 
 
@@ -4779,7 +4509,7 @@ def _distinct_pair(a: records.Memory, b: records.Memory, today: datetime.date) -
 
 
 def cmd_distinct(args: argparse.Namespace) -> int:
-    store = _optional_store(args)
+    store = common._optional_store(args)
     if store is not None and store.is_dir() and (done := _distinct_notes(args, store)) is not None:
         return done
 
@@ -4792,7 +4522,10 @@ def cmd_distinct(args: argparse.Namespace) -> int:
 def _writable_store(args: argparse.Namespace, command: str) -> Path | None:
     root = args.root
     if not isinstance(root, Path) or not root.is_dir():
-        print(no_store_message(os.environ) if root is None else NO_STORE, file=sys.stderr)
+        print(
+            common.no_store_message(os.environ) if root is None else common.NO_STORE,
+            file=sys.stderr,
+        )
         return None
     if not records.store_is_writable(root):
         print(
@@ -4864,7 +4597,7 @@ def _restore_synthesis(args: argparse.Namespace) -> int:
     if not _restore_logged_text(syn, entry):
         return 2
     print(f"s:{handle}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}")
-    log_usage(root, {"cmd": "restore", "scope": "synthesis"})
+    common.log_usage(root, {"cmd": "restore", "scope": "synthesis"})
     return 0
 
 
@@ -4963,7 +4696,7 @@ def _restore_group(root: Path, rel: str, entry: dict, label: str | None = None) 
         f"{label or note_files._handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]} "
         f"({len(members)} files)"
     )
-    log_usage(root, {"cmd": "restore", "scope": "note"})
+    common.log_usage(root, {"cmd": "restore", "scope": "note"})
     return 0
 
 
@@ -4996,7 +4729,7 @@ def _restore_note(args: argparse.Namespace, root: Path, note: Path) -> int:
     print(
         f"{note_files._handle(rel)}\trestored to before {entry.get('action')} of {str(entry.get('t'))[:10]}"
     )
-    log_usage(root, {"cmd": "restore", "scope": "note"})
+    common.log_usage(root, {"cmd": "restore", "scope": "note"})
     return 0
 
 
@@ -5004,8 +4737,8 @@ def _restore_store_note(args: argparse.Namespace) -> int | None:
     """Restore the note of the store that `args.handle` names; None when it names no note."""
     if args.handle.startswith("m:"):
         return None
-    store = _optional_store(args)
-    if store is None or not isinstance(found := resolve_note(store, args.handle), Path):
+    store = common._optional_store(args)
+    if store is None or not isinstance(found := common.resolve_note(store, args.handle), Path):
         return None
     root = _writable_store(args, "restore")
     return 2 if root is None else _restore_note(args, root, found)
@@ -5038,7 +4771,7 @@ def _global_memory_exists(args: argparse.Namespace, handle: str) -> bool:
     return any(
         m.handle == handle and m.error is None
         for m in records.load_memories(
-            records.memories_root(os.environ, _optional_store(args)), "global"
+            records.memories_root(os.environ, common._optional_store(args)), "global"
         )
     )
 
@@ -5167,7 +4900,7 @@ def _rules_digest(
 ) -> tuple[dict | None, dict | None]:
     """The digest file and the topics it may speak for, (None, None) when either cannot be read: callers then print without it."""
     try:
-        data = digest_lessons.read(data_dir(os.environ))
+        data = digest_lessons.read(common.data_dir(os.environ))
         return (
             (data, digest_lessons.topics_of(global_lessons, today))
             if data["topics"]
@@ -5203,11 +4936,12 @@ def _rules_read_targets(
 
 def _rules_read_only_refused(args: argparse.Namespace, targets: list[records.Memory]) -> bool:
     """True, with the reason printed, when a target sits in a store that cannot be written."""
-    store = _optional_store(args)
+    store = common._optional_store(args)
     for m in targets:
-        if _read_only_store(store, m.path.resolve()):
+        if common._read_only_store(store, m.path.resolve()):
             print(
-                _READ_ONLY_PROJECT if m.scope == "project" else _READ_ONLY_MEMORIES, file=sys.stderr
+                common._READ_ONLY_PROJECT if m.scope == "project" else common._READ_ONLY_MEMORIES,
+                file=sys.stderr,
             )
             return True
     return False
@@ -5383,7 +5117,7 @@ _STANDING_KINDS = (
 
 
 def _passes_file(env: Mapping[str, str]) -> Path | None:
-    folder = data_dir(env)
+    folder = common.data_dir(env)
     return folder / "curated.json" if folder is not None else None
 
 
@@ -5408,7 +5142,7 @@ def _write_passes(env: Mapping[str, str], covered: Sequence[Path], today: dateti
 
 
 def _marks_file(env: Mapping[str, str]) -> Path | None:
-    folder = data_dir(env)
+    folder = common.data_dir(env)
     return folder / "curated-items.json" if folder is not None else None
 
 
@@ -5534,7 +5268,7 @@ def _changed_since(live: Sequence[records.Memory], since: datetime.date) -> list
 def _fill_attempts(env: Mapping[str, str]) -> dict:
     """The automatic short-form fill's attempts (`fill_key` -> entry), read defensively: a missing, unreadable or
     malformed state reads as no attempts, so curation never fails on it."""
-    data = data_dir(env)
+    data = common.data_dir(env)
     lessons = (
         jobs.read_json(data / "corroborate" / "fill-attempts.json").get("lessons") if data else None
     )
@@ -6030,7 +5764,7 @@ def _safe_attach(args: argparse.Namespace, note: str, target: str) -> str | None
     root = args.root
     if not isinstance(root, Path) or not root.is_dir() or not records.store_is_writable(root):
         return "no writable store"
-    found = resolve_note(root, note)
+    found = common.resolve_note(root, note)
     if isinstance(found, list):
         return "the note name is ambiguous"
     if found is None:
@@ -6155,9 +5889,9 @@ def _curate_pass_of(
     for scope, folder, _ in scopes:
         if folder is None or not folder.is_dir():
             continue
-        if _read_only_store(store, folder.resolve()):
+        if common._read_only_store(store, folder.resolve()):
             print(
-                _READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES,
+                common._READ_ONLY_PROJECT if scope == "project" else common._READ_ONLY_MEMORIES,
                 file=sys.stderr,
             )
             return None
@@ -6189,10 +5923,12 @@ def _curate_record_pass(passed: _CuratePass, today: datetime.date) -> int:
 def _curate_commit_pass(store: Path | None, today: datetime.date) -> None:
     """Commit the store after a pass and trim its logs."""
     if store is not None and store_git.is_repo(store):
-        _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
+        _, failed = common._commit_points(
+            store, lambda n: f"curation pass {today.isoformat()}: {n} files"
+        )
         # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
         # to them, and under the commit lock so a commit never sees a half-written log.
-        if not failed and not auto_state.run_lock_held(data_dir(os.environ), store):
+        if not failed and not auto_state.run_lock_held(common.data_dir(os.environ), store):
             store_git.trim_logs_locked(store)
 
 
@@ -6200,7 +5936,7 @@ def _curate_done(
     args: argparse.Namespace, scopes: _CurateScopes, attempts: dict, today: datetime.date
 ) -> int:
     """`mem curate --done`: record the pass over the folders loaded."""
-    store = _optional_store(args)
+    store = common._optional_store(args)
     passed = _curate_pass_of(store, scopes, attempts, today)
     if passed is None:
         return 2
@@ -6469,7 +6205,9 @@ def _settle_actions() -> settle_verdicts.Actions:
 
 
 def _settle_reason_ok(reason: str) -> bool:
-    return not _refuse_secret([reason]) and _check_terms([reason], "lesson", False) == 0
+    return (
+        not common._refuse_secret([reason]) and common._check_terms([reason], "lesson", False) == 0
+    )
 
 
 def _settle_missing_folder(command: str) -> int:
@@ -6568,13 +6306,13 @@ _SETTLE_HANDLERS: dict[str, Callable[[argparse.Namespace, Path, datetime.date], 
 
 def cmd_settle(args: argparse.Namespace) -> int:
     """`mem settle`: the engine side of settling new global memories (see settle.py)."""
-    store = _optional_store(args)
+    store = common._optional_store(args)
     folder = records.memories_root(os.environ, store)
     command = args.settle_command
     if folder is None or not folder.is_dir():
         return _settle_missing_folder(command)
-    if _read_only_store(store, folder.resolve()):
-        print(_READ_ONLY_MEMORIES, file=sys.stderr)
+    if common._read_only_store(store, folder.resolve()):
+        print(common._READ_ONLY_MEMORIES, file=sys.stderr)
         return 2
     today = datetime.date.today()
     try:
@@ -6588,366 +6326,6 @@ _ENGINE = Path(__file__).resolve().parent
 _MEM_PY = (
     _ENGINE / "mem.py"
 )  # `mem stats` counts this file by name, wherever the code that counts it lives
-_TEMPLATES = _ENGINE / "templates"
-
-
-def cmd_init(args: argparse.Namespace) -> int:
-    if args.folder is None:
-        default = records.default_store(os.environ)
-        if default is None:
-            print(
-                "mem: no folder given and neither XDG_DATA_HOME nor HOME is set.", file=sys.stderr
-            )
-            return 2
-        args.folder = str(default)
-    code = _init_store(Path(args.folder).expanduser())
-    if code == 0:
-        # the list is made again by the first global write
-        with contextlib.suppress(OSError):
-            records.ensure_terms_file(os.environ)
-    return code
-
-
-def _history_store(args: argparse.Namespace) -> Path | None:
-    root = resolve_root(args.root, os.environ)
-    if root is None or not root.is_dir():
-        print(
-            no_store_message(os.environ)
-            if root is None
-            else f"mem: the store folder does not exist: {root}",
-            file=sys.stderr,
-        )
-        return None
-    return root
-
-
-def _commit_points(
-    store: Path,
-    message: str | Callable[[int], str],
-    *,
-    quiet: bool = False,
-    held: list[str] | None = None,
-) -> tuple[str | None, bool]:
-    """Commit the store; (commit id or None, whether git failed). The failure is reported and logged.
-
-    `held` receives the paths this run held back, so a caller never reads an older run's list."""
-    failed: list[str] = []
-
-    def report(reason: str) -> None:
-        failed.append(reason)
-        if not quiet:
-            print(f"mem: history: {reason}", file=sys.stderr)
-        log_usage(store, {"cmd": "history", "error": reason})
-
-    def warn(
-        reason: str,
-    ) -> None:  # not a git failure: it must not make `mem history commit` exit 1
-        if not quiet:
-            print(f"mem: history: {reason}", file=sys.stderr)
-        log_usage(store, {"cmd": "history", "warning": reason})
-
-    commit = store_git.commit_if_changed(
-        store,
-        message,
-        report=report,
-        warn=warn,
-        validate=invalid_changed(store),
-        on_held=lambda paths: held.extend(paths) if held is not None else None,
-    )
-    return commit, bool(failed)
-
-
-def _history_init_folder(args: argparse.Namespace) -> Path | None:
-    """The store folder `mem history init` turns into a repository; None after a message on stderr."""
-    folder = Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
-    if folder is None:
-        print(no_store_message(os.environ), file=sys.stderr)
-        return None
-    if not folder.is_dir():
-        print(f"mem: the store folder does not exist: {folder}", file=sys.stderr)
-        return None
-    if not records.store_is_writable(folder):
-        print(
-            f'mem: {folder} is read-only: it has no mem-store.yaml (create a store with "mem init").',
-            file=sys.stderr,
-        )
-        return None
-    if store_git.is_repo(folder):
-        print(f"mem: {folder} is a git repository already", file=sys.stderr)
-        return None
-    return folder
-
-
-def _history_init(args: argparse.Namespace) -> int:
-    folder = _history_init_folder(args)
-    if folder is None:
-        return 2
-    try:
-        print(store_git.init(folder) or "nothing to commit")
-    except store_git.GitError as exc:
-        print(f"mem: history: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def _history_repo(args: argparse.Namespace, hook: bool) -> Path | None:
-    """The store when it is a git repository; None otherwise, with a message unless `hook`."""
-    store = _history_store(args) if not hook else resolve_root(args.root, os.environ)
-    if store is None or not store.is_dir():
-        return None
-    if not store_git.is_repo(store):
-        if not hook:
-            print(f'mem: {store} is not a git repository (run "mem history init")', file=sys.stderr)
-        return None
-    return store
-
-
-def _history_message(args: argparse.Namespace, hook: bool) -> str | Callable[[int], str]:
-    """The commit message: `-m`, or a line stamped with the time of the call."""
-    if args.message:
-        return args.message
-    now = datetime.datetime.now()
-    label = "session end" if hook else "manual commit"
-    return lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"
-
-
-def _history_commit(args: argparse.Namespace, store: Path, hook: bool, started: float) -> int:
-    detached = hook and args.detached
-    if detached:
-        _log_hook({"hook": "session-end", "phase": "started"})
-    if hook and auto_state.run_lock_held(data_dir(os.environ), store):
-        if detached:
-            _log_hook({
-                "hook": "session-end",
-                "phase": "done",
-                "ms": int((time.monotonic() - started) * 1000),
-                "committed": False,
-                "failed": False,
-            })
-        return 0  # an automatic run holds the store: it commits its own work
-    message = _history_message(args, hook)
-    held: list[str] = []
-    commit, failed = _commit_points(
-        store, message, quiet=hook, held=held
-    )  # the hook is silent; a failure is in the usage log
-    if hook:
-        _log_hook({
-            "hook": "session-end",
-            **({"phase": "done"} if detached else {}),
-            "ms": int((time.monotonic() - started) * 1000),
-            "committed": commit is not None,
-            "failed": failed,
-        })
-        return 0
-    print(commit or "nothing to commit")
-    for path in [] if failed else held:
-        print(f"held back: {path}", file=sys.stderr)
-    return 1 if failed else 0
-
-
-def _history_log(args: argparse.Namespace, store: Path) -> int:
-    try:
-        print("\n".join(store_git.log(store, args.n)))
-    except store_git.GitError as exc:
-        print(f"mem: history: {exc}", file=sys.stderr)
-        return 1
-    return 0
-
-
-def cmd_history(args: argparse.Namespace) -> int:
-    started = time.monotonic()
-    hook = args.history_command == "commit" and args.hook
-    if args.history_command == "init":
-        return _history_init(args)
-    store = _history_repo(args, hook)
-    if store is None:
-        return 0 if hook else 2
-    if args.history_command == "commit":
-        return _history_commit(args, store, hook, started)
-    return _history_log(args, store)
-
-
-def _init_store_check(folder: Path) -> int | None:
-    """The exit code when `folder` cannot become a store, or already is one; None when it can be created."""
-    if folder.exists() and not folder.is_dir():
-        print(f"mem: {folder} is not a folder", file=sys.stderr)
-        return 2
-    if folder.is_dir() and any(p.name not in _INIT_ALLOWED for p in folder.iterdir()):
-        print(f"mem: {folder} is not empty and is not a store", file=sys.stderr)
-        return 2
-    if (folder / records.STORE_MARKER).is_file():
-        print(folder)
-        return 0
-    if any((folder / n).exists() for n in ("literature", "knowledge", "research", "topics.yaml")):
-        print(
-            f"mem: {folder} already holds a store without mem-store.yaml; it stays read-only "
-            "(add the file by hand only if you own it and mean to write to it).",
-            file=sys.stderr,
-        )
-        return 2
-    return None
-
-
-def _init_store_create(folder: Path) -> None:
-    """Make the folders, the templates and the two files of a new store; what exists stays."""
-    folder.mkdir(parents=True, exist_ok=True)
-    for name in (
-        "literature",
-        "knowledge",
-        "research",
-        records.GLOBAL_DIR,
-        document.SYNTHESES_DIR,
-    ):
-        (folder / name).mkdir(exist_ok=True)
-    if not (folder / "templates").exists():
-        shutil.copytree(_TEMPLATES, folder / "templates")
-    for name, text in (
-        (records.STORE_MARKER, "format: 1\n"),
-        ("topics.yaml", "notes: {description: General notes}\n"),
-    ):
-        if not (folder / name).exists():
-            safe_io.replace_file(folder / name, text.encode("utf-8"))
-
-
-def _init_store(folder: Path) -> int:
-    code = _init_store_check(folder)
-    if code is not None:
-        return code
-    try:
-        _init_store_create(folder)
-    except OSError as exc:
-        print(f"mem: {exc}", file=sys.stderr)
-        return 2
-    print(folder)
-    return 0
-
-
-def _term_class(term: records.Term) -> str:
-    return "hard" if not term.soft else f"soft[{term.kind}]" if term.kind else "soft"
-
-
-def _projects_list(_args: argparse.Namespace, data: Path) -> int:
-    today = datetime.date.today()
-    for name, entry in sorted(records.read_registry(data).items()):
-        path = Path(entry["path"])
-        if not path.is_dir():
-            print(f"{name}\tmissing\t{path}")
-            continue
-        live = [
-            m
-            for m in records.load_memories(records.project_dir(path), "project")
-            if records.is_live(m, today)
-        ]
-        print(f"{name}\t{len(live)} memories\t{path}")
-    return 0
-
-
-def _projects_add(args: argparse.Namespace, data: Path) -> int:
-    path = Path(args.path).expanduser().resolve()
-    if not path.is_dir():
-        print(f"mem: {path} is not a folder.", file=sys.stderr)
-        return 2
-    name = records.register_project(data, path, datetime.date.today(), args.name)
-    print(f"{name}\t{path}")
-    return 0
-
-
-def _projects_remove(args: argparse.Namespace, data: Path) -> int:
-    if not records.forget_project(data, args.name):
-        print(f"mem: no project named {args.name} (see mem projects list)", file=sys.stderr)
-        return 2
-    return 0
-
-
-_PROJECTS_HANDLERS: dict[str, Callable[[argparse.Namespace, Path], int]] = {
-    "list": _projects_list,
-    "add": _projects_add,
-}  # any other subcommand is `remove`
-
-
-def cmd_projects(args: argparse.Namespace) -> int:
-    data = data_dir(os.environ)
-    if data is None:
-        print(
-            "mem: no data folder is set (MEM_DATA, XDG_STATE_HOME or HOME), so there is no registry.",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        return _PROJECTS_HANDLERS.get(args.projects_command, _projects_remove)(args, data)
-    except (ValueError, OSError) as exc:
-        print(f"mem: {exc}", file=sys.stderr)
-        return 2
-
-
-def _terms_list(_args: argparse.Namespace, _path: Path, terms: Sequence[records.Term]) -> int:
-    for t in terms:
-        print(f"{_term_class(t)}\t{t.text}")
-    return 0
-
-
-def _terms_add(args: argparse.Namespace, path: Path, terms: Sequence[records.Term]) -> int:
-    text = " ".join(args.term.split())
-    if args.kind and not args.soft:
-        raise UsageError("--kind needs --soft")
-    if (
-        not text
-        or text.startswith("#")
-        or cast("records.Term", records.parse_term(text)).soft  # not blank, not a comment
-    ):
-        print("mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr)
-        return 2
-    line = (
-        f"soft[{args.kind}]: {text}"
-        if args.soft and args.kind
-        else f"soft: {text}"
-        if args.soft
-        else text
-    )
-    new = cast("records.Term", records.parse_term(line))  # `line` is neither blank nor a comment
-    if any((t.text, t.soft, t.kind) == (new.text, new.soft, new.kind) for t in terms):
-        print("already listed")
-        return 0
-    records.ensure_terms_file(os.environ)
-    existing = path.read_text(encoding="utf-8")
-    with path.open("a", encoding="utf-8") as f:
-        f.write(("" if not existing or existing.endswith("\n") else "\n") + line + "\n")
-    print(f"{_term_class(new)}\t{text}")
-    return 0
-
-
-def _terms_remove(args: argparse.Namespace, path: Path, _terms: Sequence[records.Term]) -> int:
-    text = " ".join(args.term.split())
-    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
-    kept = [ln for ln in lines if (t := records.parse_term(ln)) is None or t.text != text]
-    if len(kept) == len(lines):
-        print(f"mem: no term {text!r} in the list.", file=sys.stderr)
-        return 2
-    path.write_text("".join(ln + "\n" for ln in kept), encoding="utf-8")
-    print(f"removed {len(lines) - len(kept)}")
-    return 0
-
-
-_TERMS_HANDLERS: dict[str, Callable[[argparse.Namespace, Path, Sequence[records.Term]], int]] = {
-    "list": _terms_list,
-    "add": _terms_add,
-}  # any other subcommand is `remove`
-
-
-def cmd_terms(args: argparse.Namespace) -> int:
-    path = records.forbidden_file(os.environ)
-    if path is None:
-        print(
-            "mem: neither XDG_CONFIG_HOME nor HOME is set: the term list has no place.",
-            file=sys.stderr,
-        )
-        return 2
-    try:
-        terms = records.read_terms(os.environ)
-        return _TERMS_HANDLERS.get(args.terms_command, _terms_remove)(args, path, terms)
-    except (records.ForbiddenListError, OSError) as exc:
-        print(f"mem: the forbidden-terms list cannot be used ({exc}).", file=sys.stderr)
-        return 2
 
 
 SIMILAR_LIMIT = 3
@@ -7066,9 +6444,9 @@ def _set_part_of(text: str, part_of: str, digest: str) -> str:
 
 def _attach(args: argparse.Namespace) -> int:
     root = args.root
-    found = resolve_note(root, args.note)
+    found = common.resolve_note(root, args.note)
     if isinstance(found, list):
-        _ambiguous(args.note, found)
+        common._ambiguous(args.note, found)
         return 2
     if found is None:
         print(f"mem: no note {args.note}", file=sys.stderr)
@@ -7096,7 +6474,7 @@ def _attach(args: argparse.Namespace) -> int:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
     print(f"{note_files._handle(rel)}\tpart of s:{syn.handle}#{sec.handle}")
-    log_usage(root, {"cmd": "synthesis", "action": "attach"})
+    common.log_usage(root, {"cmd": "synthesis", "action": "attach"})
     return 0
 
 
@@ -7158,11 +6536,11 @@ def _write_logged_changes(
     try:
         _logged_changes_unchanged(changes)
         for path, (_, new) in changes.items():
-            _swap_file(path, new)
+            common._swap_file(path, new)
             swapped.append(path)
     except BaseException:
         for path in swapped:
-            _swap_file(path, changes[path][0])
+            common._swap_file(path, changes[path][0])
         if log_before is None:
             log.unlink(missing_ok=True)
         else:
@@ -7213,9 +6591,9 @@ class _SectionEdit:
 
 def _structure_detach_plan(root: Path, note: str) -> _StructurePlan | None:
     """The plan to detach a note from its synthesis; None after an ambiguity message on stderr."""
-    found = resolve_note(root, note)
+    found = common.resolve_note(root, note)
     if isinstance(found, list):
-        _ambiguous(note, found)
+        common._ambiguous(note, found)
         return None
     if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
         raise ValueError(f"no note {note}")
@@ -7357,9 +6735,9 @@ def _structure_plan(
 
 def _structure_heading_refused(args: argparse.Namespace) -> int:
     """0 when the new heading may be written, else the exit code after a message on stderr."""
-    if _refuse_secret([args.heading]):
+    if common._refuse_secret([args.heading]):
         return 4
-    return _check_terms([args.heading], "synthesis", getattr(args, "owner_approved", False))
+    return common._check_terms([args.heading], "synthesis", getattr(args, "owner_approved", False))
 
 
 def _structure_run(
@@ -7390,7 +6768,7 @@ def _structure(args: argparse.Namespace) -> int:
     if code != 0:
         return code
     print("\n".join(lines))
-    log_usage(root, {"cmd": "synthesis", "action": action})
+    common.log_usage(root, {"cmd": "synthesis", "action": action})
     return 0
 
 
@@ -7593,7 +6971,7 @@ def _refs_note_edits(
         if units.is_current(stored, old, _note_target(rel)) and stored != new_fp:
             notes[note] = (
                 text.encode("utf-8"),
-                _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"),
+                common._set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"),
             )
     return notes
 
@@ -7682,18 +7060,20 @@ def _refs(args: argparse.Namespace) -> int:
         return run.code
     print("\n".join(run.lines))
     if run.changed:
-        log_usage(root, {"cmd": "synthesis", "action": "refs"})
+        common.log_usage(root, {"cmd": "synthesis", "action": "refs"})
     return 0
 
 
 def _detached(text: str, rel: str) -> str:
     """The note's text without `part_of` and `part_of_hash`."""
-    return _set_field(_set_field(_lf(text, rel), "part_of", None), "part_of_hash", None)
+    return common._set_field(
+        common._set_field(_lf(text, rel), "part_of", None), "part_of_hash", None
+    )
 
 
 def _renamed_part_of(text: str, rel: str, part_of: str) -> str:
     """The note's text with `part_of` set to `part_of`; `part_of_hash` stays, so a stale note stays listed."""
-    return _set_field(_lf(text, rel), "part_of", part_of)
+    return common._set_field(_lf(text, rel), "part_of", part_of)
 
 
 def _lf(text: str, rel: str) -> str:
@@ -7754,7 +7134,7 @@ def _synthesis_note_checked(root: Path, target: Path, cleaned: str) -> str:
     if (stamp := units.note_fingerprint(cleaned, _note_target(rel))) != units.fingerprint(cleaned):
         safe_io.replace_file(
             target,
-            _set_field(note_files._read_text(target), "part_of_hash", stamp).encode("utf-8"),
+            common._set_field(note_files._read_text(target), "part_of_hash", stamp).encode("utf-8"),
         )
     if found := [p for p in check(root) if p.path == rel]:
         raise NewNoteError(
@@ -7841,7 +7221,7 @@ def _synthesis_one_call(args: argparse.Namespace, action: str) -> bool:
     )
     one_call = any(note_group)
     if one_call and not all(note_group):
-        raise UsageError(
+        raise common.UsageError(
             "--note-slug, --note-claim, --note-body-file, --confidence and --level go together"
         )
     return one_call
@@ -7871,13 +7251,13 @@ def _synthesis_create(args: argparse.Namespace) -> int:
     summary = _synthesis_text(args.summary_file)
     if summary is None:
         return 1
-    if _refuse_secret([args.title, summary]):
+    if common._refuse_secret([args.title, summary]):
         return 4
     approved = getattr(args, "owner_approved", False)
-    if refused := _check_terms([args.title, args.slug, summary], "synthesis", approved):
+    if refused := common._check_terms([args.title, args.slug, summary], "synthesis", approved):
         return refused
     text = synthesis_edit.render_new(
-        (_TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
+        (common._TEMPLATES / "synthesis.md").read_text(encoding="utf-8"),
         title=args.title,
         topics=topics,
         summary=summary,
@@ -7912,12 +7292,12 @@ def _synthesis_refused(args: argparse.Namespace, body: str, note_texts: list[str
     """0 when the texts may be written, else the exit code after a message on stderr."""
     heading = getattr(args, "section", None) or ""
     approved = getattr(args, "owner_approved", False)
-    if _refuse_secret([heading, body, *note_texts]):
+    if common._refuse_secret([heading, body, *note_texts]):
         return 4
-    if refused := _check_terms([heading, body], "synthesis", approved):
+    if refused := common._check_terms([heading, body], "synthesis", approved):
         return refused
     if note_texts:
-        return _check_terms([*note_texts, args.note_slug], "note", approved)
+        return common._check_terms([*note_texts, args.note_slug], "note", approved)
     return 0
 
 
@@ -8013,7 +7393,7 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
         return 1
     if code != 0:
         return code
-    log_usage(args.root, {"cmd": "synthesis", "action": action})
+    common.log_usage(args.root, {"cmd": "synthesis", "action": action})
     return 0
 
 
@@ -8041,14 +7421,14 @@ def _new_write(
     """Write the note after the secret and term checks; the exit code of a refusal instead. `fields` gains the
     `--part-of` link."""
     body = _read_body(args.body_file) if args.body_file else None
-    if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
+    if common._refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
         return 4
     texts = [
         str(fields[k])
         for k in ("title", "claim", "url", "question", "author", "slug")
         if k in fields
     ]
-    if refused := _check_terms(
+    if refused := common._check_terms(
         [*texts, args.slug, body or ""], "note", getattr(args, "owner_approved", False)
     ):
         return refused
@@ -8069,7 +7449,9 @@ def _new_write(
         if stamp != fields["part_of_hash"]:
             safe_io.replace_file(
                 path,
-                _set_field(note_files._read_text(path), "part_of_hash", stamp).encode("utf-8"),
+                common._set_field(note_files._read_text(path), "part_of_hash", stamp).encode(
+                    "utf-8"
+                ),
             )
     return _NoteWritten(path, body)
 
@@ -8154,9 +7536,9 @@ def cmd_new(args: argparse.Namespace) -> int:
 def cmd_unify(args: argparse.Namespace) -> int:
     try:
         body = _read_body(args.body_file)
-        if _refuse_secret([body]):
+        if common._refuse_secret([body]):
             return 4
-        if refused := _check_terms([body], "note", getattr(args, "owner_approved", False)):
+        if refused := common._check_terms([body], "note", getattr(args, "owner_approved", False)):
             return refused
         keep, count, links = unify_notes(
             args.root,
@@ -8170,7 +7552,7 @@ def cmd_unify(args: argparse.Namespace) -> int:
     print(
         f"{note_files._handle(keep.relative_to(args.root.resolve()).as_posix())}\tunified from {count} notes, {links} links rewritten"
     )
-    log_usage(args.root, {"cmd": "unify", "notes": count, "links": links, "drop": args.drop})
+    common.log_usage(args.root, {"cmd": "unify", "notes": count, "links": links, "drop": args.drop})
     return 0
 
 
@@ -8233,7 +7615,7 @@ def _note_replace_claim(text: str, meta: dict, claim: str, shrink: bool) -> str:
         raise ValueError("the claim is empty")
     if not shrink:
         synthesis_edit._guard_shrink(meta["claim"], claim, sentences=False)
-    return _set_field(text, "claim", claim)
+    return common._set_field(text, "claim", claim)
 
 
 def _note_require_topic(topic: str, topics: list[str], known: dict, path: Path) -> None:
@@ -8256,7 +7638,7 @@ def _note_replace_topics(text: str, path: Path, topics: list[str], known: dict) 
         raise ValueError("at least one topic is required")
     for t in topics:
         _note_require_topic(t, topics, known, path)
-    return _set_field(text, "topics", topics)
+    return common._set_field(text, "topics", topics)
 
 
 def _edited_note_text(
@@ -8276,12 +7658,8 @@ def _edited_note_text(
         text = _note_replace_topics(text, path, topics, known)
         what.append("topics")
     if "updated" in meta:
-        text = _set_field(text, "updated", options["today"].isoformat())
+        text = common._set_field(text, "updated", options["today"].isoformat())
     return text, what
-
-
-def _swap_file(path: Path, data: bytes) -> None:
-    safe_io.replace_file(path, data)
 
 
 @dataclass(frozen=True)
@@ -8308,9 +7686,9 @@ def _note_snapshot(root: Path, found: Path) -> _NoteSnapshot:
 
 def _note_locate(root: Path, name: str) -> Path | int:
     """The note file `name` names; 2 after listing the candidates when it is ambiguous, ValueError when it is none."""
-    found = resolve_note(root, name)
+    found = common.resolve_note(root, name)
     if isinstance(found, list):
-        _ambiguous(name, found)
+        common._ambiguous(name, found)
         return 2
     if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
         raise ValueError(f"no note {name}")
@@ -8335,10 +7713,10 @@ def _note_edit_backup(root: Path) -> _NoteEditBackup:
 def _note_edit_rollback(snap: _NoteSnapshot, backup: _NoteEditBackup, swapped: bool) -> None:
     """Put the note (when it was swapped), the listings and the log back as they were."""
     if swapped:
-        _swap_file(snap.found, snap.original)
+        common._swap_file(snap.found, snap.original)
         for path, data in backup.listings.items():
             if path.read_bytes() != data:
-                _swap_file(path, data)
+                common._swap_file(path, data)
     if backup.log_before is None:
         backup.log.unlink(missing_ok=True)
     else:
@@ -8365,7 +7743,7 @@ def _commit_note_edit(root: Path, snap: _NoteSnapshot, new: str) -> None:
             raise ValueError(
                 f"{snap.rel} changed since it was read, so nothing was written: run the command again"
             )
-        _swap_file(snap.found, new.encode("utf-8"))
+        common._swap_file(snap.found, new.encode("utf-8"))
         swapped = True
         apply_index(root)
     except BaseException:  # any failure leaves the note, the listings and the log as they were
@@ -8377,9 +7755,9 @@ def _commit_note_edit(root: Path, snap: _NoteSnapshot, new: str) -> None:
 def _note_edit_options(args: argparse.Namespace) -> tuple[str | None, list[str] | None]:
     """The claim and the topics of `note edit`, normalized; the parser's error when the options do not fit."""
     if args.section is None and args.claim is None and args.topics is None:
-        raise UsageError("note edit needs --section, --claim or --topics")
+        raise common.UsageError("note edit needs --section, --claim or --topics")
     if (args.section is None) != (args.body_file is None):
-        raise UsageError("--section and --body-file go together")
+        raise common.UsageError("--section and --body-file go together")
     claim = " ".join(args.claim.split()) if args.claim is not None else None
     topics = (
         list(dict.fromkeys(t.strip() for t in args.topics.split(",") if t.strip()))
@@ -8395,9 +7773,9 @@ def _note_edit(
     """Edit the note; (its hub-relative path, what changed), or the exit code of a refusal."""
     body = _read_body(args.body_file) if args.body_file else None
     texts = [args.section or "", body or "", claim or "", *(topics or [])]
-    if _refuse_secret(texts):
+    if common._refuse_secret(texts):
         return 4
-    if refused := _check_terms(texts, "note", getattr(args, "owner_approved", False)):
+    if refused := common._check_terms(texts, "note", getattr(args, "owner_approved", False)):
         return refused
     found = _note_locate(root, args.note)
     if isinstance(found, int):
@@ -8431,7 +7809,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         return edited
     rel, what = edited
     print(f"{note_files._handle(rel)}\tedited {', '.join(what)}")
-    log_usage(root, {"cmd": "note", "action": "edit"})
+    common.log_usage(root, {"cmd": "note", "action": "edit"})
     return 0
 
 
@@ -8466,9 +7844,9 @@ def _note_mark_require_options(args: argparse.Namespace, clear: bool) -> None:
     """The parser's error when the options of `note confirm | dispute` do not fit."""
     given = [args.fact, args.source, args.quote]
     if clear and any(v is not None for v in given):
-        raise UsageError("--clear goes alone")
+        raise common.UsageError("--clear goes alone")
     if not clear and any(v is None for v in given):
-        raise UsageError(
+        raise common.UsageError(
             f"note {args.note_command} needs --fact, --source and --quote"
             + (" (or --clear)" if args.note_command == "dispute" else "")
         )
@@ -8476,9 +7854,9 @@ def _note_mark_require_options(args: argparse.Namespace, clear: bool) -> None:
 
 def _note_mark_refused(marks: tuple[str, str, str], approved: bool) -> int:
     """0 when the texts may be written, else the exit code after a message on stderr."""
-    if _refuse_secret(list(marks)):
+    if common._refuse_secret(list(marks)):
         return 4
-    return _check_terms(list(marks), "note", approved)
+    return common._check_terms(list(marks), "note", approved)
 
 
 def _note_require_knowledge(root: Path, found: Path) -> None:
@@ -8503,10 +7881,10 @@ def _note_mark_text(
     if clear:
         if not snap.meta.get("disputed"):
             raise ValueError(f"{snap.rel} is not disputed")
-        return _set_field(snap.text, "disputed", None)
+        return common._set_field(snap.text, "disputed", None)
     entry = {"date": today, "fact": fact, "source": source, "quote": quote}
     disputed = snap.meta.get("disputed")
-    return _set_field(
+    return common._set_field(
         snap.text, "disputed", [*(disputed if isinstance(disputed, list) else []), entry]
     )
 
@@ -8526,7 +7904,7 @@ def _note_mark_edit(args: argparse.Namespace, root: Path, clear: bool) -> int | 
     today = datetime.date.today().isoformat()
     new = _note_mark_text(snap, args.note_command, clear, marks, today)
     if "updated" in snap.meta:
-        new = _set_field(new, "updated", today)
+        new = common._set_field(new, "updated", today)
     _commit_note_edit(root, snap, new)
     return snap.rel
 
@@ -8552,7 +7930,7 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
     if isinstance(marked, int):
         return marked
     print(f"{note_files._handle(marked)}\t{_note_mark_verdict(action, clear)}")
-    log_usage(root, {"cmd": "note", "action": action})
+    common.log_usage(root, {"cmd": "note", "action": action})
     return 0
 
 
@@ -8882,7 +8260,9 @@ def cmd_import(args: argparse.Namespace) -> int:
         print(f"mem: import failed: {exc}", file=sys.stderr)
         return 2
     _import_report(plan, problems, flagged)
-    log_usage(dest, {"cmd": "import", "copied": len(plan.todo), "conflicts": len(plan.conflicts)})
+    common.log_usage(
+        dest, {"cmd": "import", "copied": len(plan.todo), "conflicts": len(plan.conflicts)}
+    )
     return 0
 
 
@@ -8935,7 +8315,7 @@ def _stats_memory_line(args: argparse.Namespace) -> str | None:
 
 
 def _stats_usage_entries() -> int:
-    log_path = _usage_log(os.environ)
+    log_path = common._usage_log(os.environ)
     try:
         return 0 if log_path is None else log_path.read_bytes().count(b"\n")
     except OSError:
@@ -8945,7 +8325,7 @@ def _stats_usage_entries() -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     root = args.root
     if args.paths and not args.orphans:
-        raise UsageError("PATH needs --orphans")
+        raise common.UsageError("PATH needs --orphans")
     if args.orphans:
         return _stats_orphans(args)
     notes = discover_notes(root)
@@ -9018,9 +8398,9 @@ class _QueryHits:
 
 def _search_check_args(args: argparse.Namespace, queries: list[str]) -> None:
     if not all(tokenize(q) for q in queries):
-        raise UsageError("query has no searchable words: use letters or digits")
+        raise common.UsageError("query has no searchable words: use letters or digits")
     if args.links and args.offset:
-        raise UsageError("--offset cannot be used with --links")
+        raise common.UsageError("--offset cannot be used with --links")
 
 
 def _search_filters(args: argparse.Namespace) -> dict[str, Any]:
@@ -9176,7 +8556,7 @@ def _search_log(ctx: _SearchContext, query: str, hits: _QueryHits) -> None:
         extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in hits.sections]
     if args.deep:
         extra["deep"] = True
-    log_usage(
+    common.log_usage(
         args.root,
         {
             "cmd": "search",
@@ -9261,15 +8641,15 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 def cmd_passages(args: argparse.Namespace) -> int:
     if not tokenize(args.query):
-        raise UsageError("query has no searchable words: use letters or digits")
+        raise common.UsageError("query has no searchable words: use letters or digits")
     try:
         notes = {n.rel for n in discover_notes(args.root) if n.type == "literature"}
     except (FrontmatterError, OSError) as exc:
         print(f"mem: cannot read passages: {exc}", file=sys.stderr)
         return 1
-    path = resolve_note(args.root, args.path)  # a path or handle, like `show`
+    path = common.resolve_note(args.root, args.path)  # a path or handle, like `show`
     if isinstance(path, list):
-        _ambiguous(args.path, path)
+        common._ambiguous(args.path, path)
         return 1
     rel = path.relative_to(args.root.resolve()).as_posix() if path else args.path
     source = source_text(args.root, rel) if rel in notes else None
@@ -9296,7 +8676,7 @@ def cmd_passages(args: argparse.Namespace) -> int:
     else:
         print(f"source: {source.relative_to(args.root).as_posix()} ({total} words)")
         print("\n\n".join(f"== words {a}-{b} of {total} ==\n{t}" for a, b, t in found))
-    log_usage(
+    common.log_usage(
         args.root,
         {
             "cmd": "passages",
@@ -9337,9 +8717,9 @@ def _related_print(
 
 
 def cmd_related(args: argparse.Namespace) -> int:
-    path = resolve_note(args.root, args.path)
+    path = common.resolve_note(args.root, args.path)
     if isinstance(path, list):
-        _ambiguous(args.path, path)
+        common._ambiguous(args.path, path)
         return 1
     rel = path.relative_to(args.root.resolve()).as_posix() if path else None
     try:
@@ -10298,7 +9678,7 @@ def _parser_add_registry(sub: Any) -> None:
         "remove", help="remove every line that holds exactly this term"
     )
     terms_remove.add_argument("term")
-    terms_parser.set_defaults(func=cmd_terms)
+    terms_parser.set_defaults(func=admin.cmd_terms)
     projects_parser = sub.add_parser(
         "projects", help="the local registry of projects whose memories can be searched"
     )
@@ -10311,12 +9691,12 @@ def _parser_add_registry(sub: Any) -> None:
         "remove", help="forget a project; its files are not touched"
     )
     projects_remove.add_argument("name")
-    projects_parser.set_defaults(func=cmd_projects)
+    projects_parser.set_defaults(func=admin.cmd_projects)
     init_parser = sub.add_parser(
         "init", help="make a folder a writable store (default: the default store)"
     )
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
-    init_parser.set_defaults(func=cmd_init)
+    init_parser.set_defaults(func=admin.cmd_init)
 
 
 def _parser_add_history(sub: Any) -> None:
@@ -10339,7 +9719,7 @@ def _parser_add_history(sub: Any) -> None:
         action="store_true",
         help="with --hook: also log a `started` record before and a `done` one after, so a killed run shows",
     )
-    history_parser.set_defaults(func=cmd_history)
+    history_parser.set_defaults(func=admin.cmd_history)
 
 
 def _parser_add_memory_edit(sub: Any) -> None:
@@ -10462,7 +9842,7 @@ def _memories_need_no_store(args: argparse.Namespace, root: Path | None) -> bool
 def _store_refusal(args: argparse.Namespace, root: Path | None) -> str | None:
     """The message that refuses `args.command` on this store, or None when the command may run."""
     if root is None:
-        return no_store_message(os.environ)
+        return common.no_store_message(os.environ)
     if root.exists() and not root.is_dir():
         return f"mem: the store is not a folder: {root}"
     if not root.is_dir():
@@ -10489,9 +9869,9 @@ def _dispatch_store(args: argparse.Namespace) -> int | None:
     if (
         args.command in _NO_STORE_NEEDED
     ):  # a project memory needs no store; a missing one is an error only where used
-        args.root = resolve_root(args.root, os.environ)
+        args.root = common.resolve_root(args.root, os.environ)
         return None
-    root = resolve_root(args.root, os.environ)
+    root = common.resolve_root(args.root, os.environ)
     if _memories_need_no_store(args, root):
         args.root = None  # memories need no store; only a project or a global folder
         return None
@@ -10515,7 +9895,9 @@ def _dispatch(argv: list[str] | None) -> int:
     try:
         code = _dispatch_store(args)
         return args.func(args) if code is None else code
-    except UsageError as exc:  # the parser's usage line and exit code 2, as argparse prints them
+    except (
+        common.UsageError
+    ) as exc:  # the parser's usage line and exit code 2, as argparse prints them
         parser.error(str(exc))
 
 

@@ -15,7 +15,7 @@ MEM = "mem"
 
 # Patches still aimed at an import `mem.py` holds: each A5 task retargets its names to the defining module and
 # shrinks this set; it is empty after the last task.
-ALLOWED = {"time", "apply_index", "invalid_changed", "orphan_notes"}
+ALLOWED = {"time", "apply_index", "orphan_notes"}
 
 _PATCH_CALLS = {
     "setattr",
