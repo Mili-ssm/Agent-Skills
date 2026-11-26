@@ -624,10 +624,15 @@ def test_pending_shows_a_reworded_look_alike_below_the_curation_floor(gfolder, r
     )  # the curation queue keeps its own floor
 
 
-def test_a_web_record_is_never_the_newer_side_of_an_offered_pair(gfolder, run):
+def test_a_web_record_is_never_the_newer_side_of_an_offered_pair(gfolder, run, tmp_path):
     seeded(gfolder, run, claim="unrelated words only here")
     put(gfolder, "web-one", NEW, created=days_ago(1), extra="origin: web\n")
     put(gfolder, "global-two", OLD + " Really.", created=days_ago(5))
     code, out, _ = run("pending", "--json")
     pairs = [p for p in json.loads(out) if {p["a"], p["b"]} == {"web-one", "global-two"}]
     assert code == 0 and pairs and pairs[0]["newer"] is None
+    for decision in ("supersede", "merge"):
+        row = verdicts(tmp_path, {"a": "global-two", "b": "web-one", "decision": decision})
+        assert run("apply", "--verdicts", row)[1].startswith("refused")
+    live = {m.handle: m.status for m in records.load_memories(gfolder, "global")}
+    assert live["global-two"] == "active" and live["web-one"] == "active"

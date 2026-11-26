@@ -188,13 +188,17 @@ def newer_first(
     a: records.Memory, b: records.Memory, judged: set[str]
 ) -> tuple[records.Memory, records.Memory] | None:
     """(newer, older), or None when it cannot be told. Creation dates have day precision, so: the one record not yet
-    judged is the newer; otherwise the later `created`; the same date is undecidable."""
+    judged is the newer; otherwise the later `created`; the same date is undecidable. A newer record of origin web or
+    pipeline also gives None: it is never the side that stays, so its pair can be told apart but not joined, in the
+    listing and at apply."""
     if (a.handle in judged) != (b.handle in judged):
-        return (b, a) if a.handle in judged else (a, b)
-    da, db = (a.created or datetime.date.min), (b.created or datetime.date.min)
-    if da == db:
-        return None
-    return (a, b) if da > db else (b, a)
+        order = (b, a) if a.handle in judged else (a, b)
+    else:
+        da, db = (a.created or datetime.date.min), (b.created or datetime.date.min)
+        if da == db:
+            return None
+        order = (a, b) if da > db else (b, a)
+    return None if order[0].origin in {"pipeline", "web"} else order
 
 
 # A model judges every pair shown here and a wrong action is undone with one command, so settling looks lower than
@@ -217,8 +221,6 @@ def pending(
         if not (_counts_as_new(a, judged, today) or _counts_as_new(b, judged, today)):
             continue
         order = newer_first(a, b, judged)
-        if order and order[0].origin in {"pipeline", "web"}:
-            order = None  # a web or pipeline record is never the side that stays: the pair can only be told apart
         out.append({
             "pair": len(out) + 1,
             "a": a.handle,
