@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import mem
 import pytest
-from store import records
+from memories import records
 
 TODAY = datetime.date.today()
 CLAIM = "Zebra caches expire silently under load."

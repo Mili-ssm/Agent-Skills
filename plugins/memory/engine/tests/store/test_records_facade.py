@@ -1,7 +1,7 @@
 import ast
 from pathlib import Path
 
-from store import records
+from memories import records
 
 MEMORY = Path(__file__).resolve().parents[3]
 ROOTS = (MEMORY / "engine", MEMORY / "bin", MEMORY / "evals")
@@ -26,7 +26,7 @@ def _names_in(tree):
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute) and _is_records(node.value):
             yield node.attr
-        elif isinstance(node, ast.ImportFrom) and node.module == "store.records":
+        elif isinstance(node, ast.ImportFrom) and node.module == "memories.records":
             yield from (alias.name for alias in node.names)
 
 

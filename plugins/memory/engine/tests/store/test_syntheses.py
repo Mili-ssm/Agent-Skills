@@ -378,8 +378,8 @@ def test_init_creates_the_folder_and_accepts_it_again(tmp_path, capsys):
 
 
 def test_syntheses_and_records_import_nothing_from_mem():
-    for name in ("syntheses.py", "records.py"):
-        src = (mem.Path(__file__).resolve().parent.parent.parent / "store" / name).read_text(
+    for folder, name in (("store", "syntheses.py"), ("memories", "records.py")):
+        src = (mem.Path(__file__).resolve().parent.parent.parent / folder / name).read_text(
             encoding="utf-8"
         )
         assert not re.search(r"^\s*(import|from) mem\b", src, re.MULTILINE)

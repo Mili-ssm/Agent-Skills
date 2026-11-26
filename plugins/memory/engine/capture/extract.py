@@ -15,7 +15,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from store import records
+from memories import records
 
 logger = logging.getLogger(__name__)
 

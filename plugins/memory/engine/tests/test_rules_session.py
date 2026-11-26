@@ -9,7 +9,7 @@ from typing import Any
 
 import mem
 import pytest
-from store import records, rules
+from memories import records, rules
 
 PLUGIN = Path(__file__).resolve().parents[2]
 K1, K2 = "0123456789ab", "ba9876543210"

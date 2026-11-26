@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from core import config
 
-from store.memory_model import KINDS, STORE_MARKER
+from memories.model import KINDS, STORE_MARKER
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping

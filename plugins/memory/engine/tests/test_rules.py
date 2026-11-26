@@ -9,7 +9,7 @@ from typing import TypedDict, Unpack
 import mem
 import pytest
 from corroborate import decide as corroborate_decide
-from store import records, rules
+from memories import records, rules
 from test_rules_session import FIT, FIT_HELD, pad
 
 TODAY = datetime.date.today()

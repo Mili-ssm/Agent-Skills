@@ -7,7 +7,7 @@ from typing import TypedDict, Unpack
 
 import pytest
 import yaml
-from store import records
+from memories import records
 
 TODAY = datetime.date(2026, 11, 17)
 RAW_OBSERVED = 3

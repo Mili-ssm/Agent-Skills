@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from core.yaml_load import safe_load
 
-from store.memory_model import (
+from memories.model import (
     KINDS,
     ORIGINS,
     REACHES,
@@ -23,7 +23,7 @@ from store.memory_model import (
     valid_topic,
     valid_triage_reason,
 )
-from store.sightings import (
+from memories.sightings import (
     _version,
     case,
 )

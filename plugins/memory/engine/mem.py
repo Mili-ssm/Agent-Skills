@@ -37,6 +37,8 @@ from capture import state as capture_state
 from core import auto_state, config, jobs, safe_io, store_git
 from corroborate import decide as corroborate_decide
 from digest import lessons as digest_lessons
+from memories import records, rules, shortcheck
+from memories.records import tokenize
 from research import checks as research_checks
 from session import handoff
 from session import notices as session_notices
@@ -45,7 +47,7 @@ from settle import verdicts as settle_verdicts
 from store import check as check_rules
 from store import index as index_files
 from store import notes as note_files
-from store import project_syntheses, records, rules, shortcheck, syntheses
+from store import project_syntheses, syntheses
 from store.check import (
     LEVELS,
     MAX_KNOWLEDGE_NAME,
@@ -78,7 +80,6 @@ from store.notes import (
     slugify,
     split_frontmatter,
 )
-from store.records import tokenize
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Mapping, Sequence

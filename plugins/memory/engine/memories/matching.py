@@ -7,12 +7,12 @@ import re
 import unicodedata
 from typing import TYPE_CHECKING, NamedTuple, Required, TypedDict, Unpack
 
-from store.memory_model import is_live
+from memories.model import is_live
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterable, Sequence
 
-    from store.memory_model import Memory
+    from memories.model import Memory
 
 
 def _terms(tokens: Iterable[str]) -> frozenset[str]:

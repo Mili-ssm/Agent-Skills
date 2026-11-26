@@ -5,7 +5,7 @@ from pathlib import Path
 
 import mem
 import pytest
-from store import records
+from memories import records
 
 EXIT_USAGE = 2
 EXIT_DUPLICATE = 3

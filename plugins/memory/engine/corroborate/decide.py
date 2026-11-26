@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from capture import extract as capture_extract
-from store import records, rules, shortcheck
+from memories import records, rules, shortcheck
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence

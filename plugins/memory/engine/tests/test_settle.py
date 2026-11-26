@@ -6,8 +6,8 @@ import json
 import mem
 import pytest
 from core import store_git
+from memories import records
 from settle import verdicts as settle_verdicts
-from store import records
 from test_curation import days_ago, gfolder, put
 
 # re-exported: pytest finds the fixture in this module by its name

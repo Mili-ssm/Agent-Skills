@@ -21,7 +21,7 @@ import os
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 
 from core import jobs, safe_io, store_git
-from store import records
+from memories import records
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

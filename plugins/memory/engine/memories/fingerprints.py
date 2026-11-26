@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from store.memory_model import Memory
+    from memories.model import Memory
 
 
 def _print(*parts: str) -> str:

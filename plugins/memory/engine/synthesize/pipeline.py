@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Required, TypedDict, Unpack
 
 from core import headless
-from store import records, syntheses
+from memories import records
+from store import syntheses
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence

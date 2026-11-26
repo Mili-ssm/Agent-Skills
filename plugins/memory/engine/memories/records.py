@@ -12,14 +12,14 @@ from pathlib import Path
 
 from core.yaml_load import safe_load
 
-from store.journal import (
+from memories.journal import (
     CURATION_LOG,
     Logged,
     last_log_entry,
     log_before,
     restore,
 )
-from store.locations import (
+from memories.locations import (
     REGISTRY_FILE,
     _main_worktree,
     default_store,
@@ -36,7 +36,7 @@ from store.locations import (
     tracked_memories,
     under_temp,
 )
-from store.matching import (
+from memories.matching import (
     MIN_TERMS,
     POSSIBLE,
     STOPWORDS,
@@ -48,7 +48,7 @@ from store.matching import (
     related_records,
     tokenize,
 )
-from store.memory_model import (
+from memories.model import (
     GLOBAL_DIR,
     GLOBAL_MIN_PROJECTS,
     KINDS,
@@ -76,21 +76,7 @@ from store.memory_model import (
     valid_topic,
     valid_triage_reason,
 )
-from store.memory_parse import (
-    _parse,
-    load_memories,
-    logger,
-)
-from store.memory_write import (
-    SightingOptions,
-    WriteOptions,
-    add_case,
-    add_sighting,
-    observe,
-    update,
-    write_memory,
-)
-from store.pairing import (
+from memories.pairing import (
     OPPOSITES,
     Budget,
     differing_words,
@@ -99,7 +85,12 @@ from store.pairing import (
     refuted_pairs,
     similarity,
 )
-from store.sightings import (
+from memories.parse import (
+    _parse,
+    load_memories,
+    logger,
+)
+from memories.sightings import (
     FAILED_TO_LIST,
     MAX_SESSION_ID,
     Case,
@@ -127,7 +118,7 @@ from store.sightings import (
     version_entry,
     version_list,
 )
-from store.terms import (
+from memories.terms import (
     SECRET_PATTERNS,
     TERM_KINDS,
     TERMS_HEADER,
@@ -142,6 +133,15 @@ from store.terms import (
     secret_in,
     store_is_writable,
     term_hits,
+)
+from memories.write import (
+    SightingOptions,
+    WriteOptions,
+    add_case,
+    add_sighting,
+    observe,
+    update,
+    write_memory,
 )
 
 __all__ = [

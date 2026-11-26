@@ -13,14 +13,14 @@ from typing import TYPE_CHECKING
 
 from core import config
 
-from store.memory_model import GLOBAL_DIR, PROJECT_DIR, PROJECT_KEY_LEN
-from store.terms import store_is_writable
+from memories.model import GLOBAL_DIR, PROJECT_DIR, PROJECT_KEY_LEN
+from memories.terms import store_is_writable
 
 if TYPE_CHECKING:
     import datetime
     from collections.abc import Mapping, Sequence
 
-    from store.memory_model import Memory
+    from memories.model import Memory
 
 
 def _git_common_dir(cwd: Path) -> Path | None:

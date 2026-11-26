@@ -9,7 +9,7 @@ from typing import TypedDict, Unpack
 import mem
 import pytest
 from corroborate import decide as corroborate_decide
-from store import records
+from memories import records
 
 TODAY = datetime.date.today()
 

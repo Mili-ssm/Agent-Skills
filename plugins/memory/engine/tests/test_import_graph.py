@@ -158,19 +158,8 @@ def test_engine_modules_use_no_dynamic_import():
 
 
 STORE_MODULES = tuple(
-    f"store.{name}"
-    for name in (
-        "records",
-        "syntheses",
-        "project_syntheses",
-        "index",
-        "notes",
-        "check",
-        "rules",
-        "shortcheck",
-        "fingerprints",
-    )
-)
+    f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints")
+) + tuple(f"store.{name}" for name in ("syntheses", "project_syntheses", "index", "notes", "check"))
 
 
 def test_store_modules_never_import_synthesize():
@@ -200,7 +189,7 @@ FROZEN_EDGES = {
     ("research", "mem"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "synthesize",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "memories", "synthesize",
 }  # fmt: skip
 
 
@@ -215,7 +204,7 @@ def test_packages_are_planned_and_edges_frozen():
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
         # itself and the base layers (`core`, `store`) are not cross-package edges
-        and target not in {own, "core", "store"}
+        and target not in {own, "core", "store", "memories"}
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
@@ -226,13 +215,14 @@ def test_packages_are_planned_and_edges_frozen():
 # imports only itself and the standard library, `store` only those and `core`.
 PACKAGE_DEPENDENCIES = {
     "core": set(),
-    "store": {"core"},
-    "corroborate": {"core", "store", "capture", "digest", "synthesize"},
-    "capture": {"core", "store"},
-    "settle": {"core", "store"},
-    "digest": {"store"},
-    "session": {"core", "store"},
-    "research": {"core", "store", "synthesize", "mem"},
+    "memories": {"core"},
+    "store": {"core", "memories"},
+    "corroborate": {"core", "store", "memories", "capture", "digest", "synthesize"},
+    "capture": {"core", "store", "memories"},
+    "settle": {"core", "store", "memories"},
+    "digest": {"store", "memories"},
+    "session": {"core", "store", "memories"},
+    "research": {"core", "store", "memories", "synthesize", "mem"},
 }
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
@@ -304,6 +294,8 @@ def test_store_modules_import_the_defining_module_not_the_records_facade():
     extra = sorted(
         name
         for name, deps in graph.items()
-        if name.startswith("store.") and name != "store.records" and "store.records" in deps
+        if name.startswith(("store.", "memories."))
+        and name != "memories.records"
+        and "memories.records" in deps
     )
     assert not extra, f"store modules importing the records facade: {extra}"

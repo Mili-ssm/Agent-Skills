@@ -6,7 +6,7 @@ import datetime
 import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from store.memory_model import (
+from memories.model import (
     GLOBAL_MIN_PROJECTS,
     OUTCOMES,
     PROJECT_KEY_LEN,
@@ -20,7 +20,7 @@ from store.memory_model import (
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from store.memory_model import Memory
+    from memories.model import Memory
 
 
 MAX_SESSION_ID = 200  # characters of the id after "session "; longer is not a session

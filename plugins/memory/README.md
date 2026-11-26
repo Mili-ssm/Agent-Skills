@@ -167,7 +167,7 @@ Plugin option `auto_capture` (exactly `true` turns it on) and `auto_capture_budg
 | The same with `--user-read` | The owner, who read the text; no check | No mark | Same |
 | `fill --dry-run` then `fill --items FILE` | A model proposes, the owner reads the file | No mark | Same |
 
-**The automatic fill:** for established lessons that have no valid short form, one session writes the short form and the topic (a lesson that already has a short form is never touched, even without a topic); code refuses a short form that drops its claim's hedge, adds an absolute word, holds a link or says "owner" (`engine/store/shortcheck.py`); a second session checks the survivors against their claims; what passes is stored. The pass never changes `load`. It runs at every `mem-corroborate auto`, after the matching pass and whatever that pass did, in the background, under the store run lock; `mem-corroborate status` prints a `last fill:` line (counts only) when the last fill wrote, refused, held or stopped.
+**The automatic fill:** for established lessons that have no valid short form, one session writes the short form and the topic (a lesson that already has a short form is never touched, even without a topic); code refuses a short form that drops its claim's hedge, adds an absolute word, holds a link or says "owner" (`engine/memories/shortcheck.py`); a second session checks the survivors against their claims; what passes is stored. The pass never changes `load`. It runs at every `mem-corroborate auto`, after the matching pass and whatever that pass did, in the background, under the store run lock; `mem-corroborate status` prints a `last fill:` line (counts only) when the last fill wrote, refused, held or stopped.
 
 | Rule of the fill | Value |
 | --- | --- |

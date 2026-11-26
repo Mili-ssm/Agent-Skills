@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import NamedTuple, TypedDict, Unpack
 
 from core import jobs
-from store import records
+from memories import records
 
 from corroborate import decide as corroborate_decide
 from corroborate import run as corroborate_run

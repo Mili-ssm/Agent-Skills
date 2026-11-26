@@ -14,7 +14,7 @@ from typing import NamedTuple
 
 from core import jobs
 from digest import lessons as dg
-from store import records
+from memories import records
 
 from corroborate import decide as corroborate_decide
 from corroborate import run as corroborate_run

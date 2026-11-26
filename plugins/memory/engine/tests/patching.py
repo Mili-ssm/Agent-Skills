@@ -16,7 +16,9 @@ def patch_all(monkeypatch: pytest.MonkeyPatch, name: str, replacement: Callable)
     holders = [
         module
         for key, module in sys.modules.items()
-        if key.startswith("store.") and isinstance(module, ModuleType) and hasattr(module, name)
+        if key.startswith(("store.", "memories."))
+        and isinstance(module, ModuleType)
+        and hasattr(module, name)
     ]
     assert holders, f"no store module holds {name}"
     for module in holders:

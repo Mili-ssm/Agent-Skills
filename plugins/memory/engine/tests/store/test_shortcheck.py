@@ -1,5 +1,5 @@
 import pytest
-from store import shortcheck
+from memories import shortcheck
 
 HEDGED = "the claim is hedged and the short form is not"
 

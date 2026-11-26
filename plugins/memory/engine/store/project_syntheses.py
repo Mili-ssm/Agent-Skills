@@ -20,9 +20,9 @@ from typing import TYPE_CHECKING, NamedTuple
 import yaml
 from core import safe_io
 from core.yaml_load import safe_load
+from memories.model import PROJECT_DIR
 
 from store import syntheses
-from store.memory_model import PROJECT_DIR
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

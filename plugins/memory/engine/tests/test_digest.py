@@ -4,7 +4,7 @@ import json
 from typing import Any, cast
 
 from digest import lessons as digest_lessons
-from store import records
+from memories import records
 
 TODAY = datetime.date.today()
 K1, K2 = "0123456789ab", "ba9876543210"
@@ -567,7 +567,7 @@ import subprocess
 
 import mem
 import pytest
-from store import rules
+from memories import rules
 from test_rules_session import PLUGIN, pad
 
 

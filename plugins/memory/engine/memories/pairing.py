@@ -6,19 +6,19 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from store.matching import (
+from memories.matching import (
     STOPWORDS,
     STRONG,
     _containment_of_terms,
     _terms,
 )
-from store.memory_model import is_live
+from memories.model import is_live
 
 if TYPE_CHECKING:
     import datetime
     from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 
-    from store.memory_model import Memory
+    from memories.model import Memory
 
 
 def similarity(a: Iterable[str], b: Iterable[str]) -> float:

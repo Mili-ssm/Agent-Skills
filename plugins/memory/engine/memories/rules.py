@@ -8,14 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from store import fingerprints, sightings
-from store.memory_model import is_live, valid_short
+from memories import fingerprints, sightings
+from memories.model import is_live, valid_short
 
 if TYPE_CHECKING:
     import datetime
     from collections.abc import Sequence
 
-    from store.memory_model import Memory
+    from memories.model import Memory
 
 HEADER = (
     "memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "

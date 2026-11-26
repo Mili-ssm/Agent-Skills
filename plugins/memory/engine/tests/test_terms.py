@@ -4,7 +4,7 @@ import subprocess
 import mem
 import pytest
 from conftest import usage_log_path
-from store import records
+from memories import records
 
 RC_FORBIDDEN = 4
 RC_SOFT = 5

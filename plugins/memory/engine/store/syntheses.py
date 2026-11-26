@@ -22,9 +22,8 @@ from typing import TYPE_CHECKING, TypedDict
 import yaml
 from core import safe_io
 from core.yaml_load import safe_load
-
-from store import journal
-from store.matching import STOPWORDS
+from memories import journal
+from memories.matching import STOPWORDS
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence

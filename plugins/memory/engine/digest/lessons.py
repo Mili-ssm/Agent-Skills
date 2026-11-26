@@ -18,8 +18,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-from store import records, rules, shortcheck
-from store.fingerprints import heading, heading_print, line, line_print
+from memories import records, rules, shortcheck
+from memories.fingerprints import heading, heading_print, line, line_print
 
 if TYPE_CHECKING:
     import datetime

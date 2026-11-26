@@ -15,7 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import mem
-from store import records
+from memories import records
 
 DATA = json.loads((Path(__file__).parent / "set.json").read_text())
 

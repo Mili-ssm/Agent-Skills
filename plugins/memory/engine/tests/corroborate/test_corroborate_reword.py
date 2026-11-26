@@ -29,7 +29,7 @@ from corroborate_world import (
     w,
     worse_one,
 )
-from store import records
+from memories import records
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
 

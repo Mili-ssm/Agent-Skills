@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from core import jobs
-from store import records, rules, shortcheck
+from memories import records, rules, shortcheck
 
 from corroborate import decide as corroborate_decide
 from corroborate import run as corroborate_run

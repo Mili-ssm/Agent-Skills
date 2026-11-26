@@ -1,6 +1,6 @@
 import mem
 import pytest
-from store import records
+from memories import records
 
 CLAIM = "Always run the project's checks before reporting that a change works."
 SHORT = "Run the checks before reporting a change."

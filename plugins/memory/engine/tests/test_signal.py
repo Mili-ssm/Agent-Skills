@@ -5,8 +5,8 @@ from pathlib import Path
 
 import mem
 import pytest
-from store import records
-from store.records import Related
+from memories import records
+from memories.records import Related
 
 TODAY = datetime.date(2026, 11, 17)
 MAX_SIGNAL_CHARS = 400
