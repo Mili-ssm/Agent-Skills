@@ -8528,28 +8528,29 @@ def cmd_import(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_stats(args: argparse.Namespace) -> int:
+def _stats_orphans(args: argparse.Namespace) -> int:
     root = args.root
-    if args.paths and not args.orphans:
-        build_parser().error("PATH needs --orphans")
-    if args.orphans:
-        try:
-            scopes = _scopes(root, args.paths)
-        except ValueError as exc:
-            print(f"mem: {exc}", file=sys.stderr)
-            return 2
-        for path in orphan_notes(root):
-            if _in_scopes(path, scopes):
-                print(path)
-        return 0
-    notes = discover_notes(root)
     try:
-        topic_count = len(load_topics(root))
+        scopes = _scopes(root, args.paths)
+    except ValueError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    for path in orphan_notes(root):
+        if _in_scopes(path, scopes):
+            print(path)
+    return 0
+
+
+def _stats_topic_count(root: Path) -> int:
+    try:
+        return len(load_topics(root))
     except FrontmatterError:
-        topic_count = 0
-    chars = 0
-    for note in notes:
-        chars += len(note.text)
+        return 0
+
+
+def _stats_note_lines(args: argparse.Namespace, notes: list[Note]) -> list[str]:
+    """The store line, the count per note type and per domain, and the syntheses line."""
+    root = args.root
     lines = [f"store: {root} (from {getattr(args, 'root_source', None) or 'unknown'})"]
     lines += [f"{kind}: {sum(1 for n in notes if n.type == kind)}" for kind in INDEX_FOLDERS]
     for kind in ("literature", "knowledge"):
@@ -8561,14 +8562,43 @@ def cmd_stats(args: argparse.Namespace) -> int:
             len(INDEX_FOLDERS) + 1,
             f"syntheses: {len(synths)} ({sum(len(s.parts) for s in synths)} parts)",
         )
+    return lines
+
+
+def _stats_memory_line(args: argparse.Namespace) -> str | None:
+    """The count of project and global memories, or None when the store holds none."""
     today = datetime.date.today()
     counts = [records.load_memories(folder, scope) for scope, folder in _memory_folders(args)]
-    if any(counts):
-        counts = [[m for m in group if not records.quarantined(m)] for group in counts]
-        live = sum(records.is_live(m, today) for group in counts for m in group)
-        lines.insert(
-            1, f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)"
-        )
+    if not any(counts):
+        return None
+    counts = [[m for m in group if not records.quarantined(m)] for group in counts]
+    live = sum(records.is_live(m, today) for group in counts for m in group)
+    return f"memories: {len(counts[0])} project, {len(counts[1])} global ({live} live)"
+
+
+def _stats_usage_entries() -> int:
+    log_path = _usage_log(os.environ)
+    try:
+        return 0 if log_path is None else log_path.read_bytes().count(b"\n")
+    except OSError:
+        return 0
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    root = args.root
+    if args.paths and not args.orphans:
+        build_parser().error("PATH needs --orphans")
+    if args.orphans:
+        return _stats_orphans(args)
+    notes = discover_notes(root)
+    topic_count = _stats_topic_count(root)
+    chars = 0
+    for note in notes:
+        chars += len(note.text)
+    lines = _stats_note_lines(args, notes)
+    memory_line = _stats_memory_line(args)
+    if memory_line is not None:
+        lines.insert(1, memory_line)
     script = Path(__file__).resolve().read_text(encoding="utf-8")
     lines.append(f"orphans: {len(orphan_notes(root))}")
     lines += [
@@ -8577,12 +8607,7 @@ def cmd_stats(args: argparse.Namespace) -> int:
         f"tokens: {chars // 4}",
         f"mem.py lines: {len(script.splitlines())}",
     ]
-    log_path = _usage_log(os.environ)
-    try:
-        entries = 0 if log_path is None else log_path.read_bytes().count(b"\n")
-    except OSError:
-        entries = 0
-    lines.append(f"usage log entries: {entries}")
+    lines.append(f"usage log entries: {_stats_usage_entries()}")
     print("\n".join(lines))
     return 0
 
@@ -8607,66 +8632,103 @@ def _deeper_hit(args: argparse.Namespace, query: str, printed: int) -> bool:
         return False
 
 
-def cmd_search(args: argparse.Namespace) -> int:
-    queries = [args.query, *args.also]
+@dataclass(frozen=True)
+class _SearchContext:
+    """What every query of one `mem search` run shares: the corpus, the memories and the syntheses."""
+
+    args: argparse.Namespace
+    with_notes: bool
+    corpus: Corpus | None
+    names: dict[str, str]
+    memories: list[tuple[str, list[records.Memory]]]
+    other_memories: list[tuple[str, list[records.Memory]]]
+    all_syntheses: list[syntheses.Synthesis]
+    default_type: str | None
+    filters: dict[str, Any]
+    today: datetime.date
+
+
+@dataclass(frozen=True)
+class _QueryHits:
+    """What one query found: notes, notes linked to them, memory handles printed and syntheses."""
+
+    result: list[tuple[Note, float]]
+    linked: list[tuple[Note, float]]
+    printed: list[str]
+    sections: list[tuple[syntheses.Synthesis, syntheses.Section]]
+
+
+def _search_check_args(args: argparse.Namespace, queries: list[str]) -> None:
     if not all(tokenize(q) for q in queries):
         build_parser().error("query has no searchable words: use letters or digits")
     if args.links and args.offset:
         build_parser().error("--offset cannot be used with --links")
-    others = (
-        _other_projects(args.project, args.all_projects)
-        if args.project or args.all_projects
-        else []
-    )
-    if others is None:
-        return 2
-    with_notes = args.scope != "memories"
-    filters = {
+
+
+def _search_filters(args: argparse.Namespace) -> dict[str, Any]:
+    return {
         k: getattr(args, k)
         for k in ("type", "topic", "kind", "status", "confidence", "level")
         if getattr(args, k) is not None
     }
-    corpus = None
-    default_type = None if args.deep or args.type else "knowledge"
-    if with_notes:
-        try:
-            corpus = build_corpus(
-                args.root,
-                type=args.type or default_type,
-                topic=args.topic,
-                kind=args.kind,
-                status=args.status,
-                confidence=args.confidence,
-                level=args.level,
-                superseded=args.superseded,
-            )
-            ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
-            linkeds = [
-                linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks
-            ]
-        except (FrontmatterError, OSError) as exc:
-            print(f"mem: cannot search: {exc}", file=sys.stderr)
-            return 1
-    else:
-        ranks, linkeds = [[] for _ in queries], [[] for _ in queries]
-    names = short_handles(args.root) if args.handles and with_notes else {}
-    # memories stay out of any narrowed, paged or path-only note listing, unless they are all that was asked for
+
+
+def _search_rank(
+    args: argparse.Namespace, queries: list[str], default_type: str | None
+) -> tuple[Corpus | None, list[list[tuple[Note, float]]], list[list[tuple[Note, float]]]]:
+    """The corpus, and per query its ranked notes and the notes linked to them (none without notes)."""
+    if args.scope == "memories":
+        return None, [[] for _ in queries], [[] for _ in queries]
+    corpus = build_corpus(
+        args.root,
+        type=args.type or default_type,
+        topic=args.topic,
+        kind=args.kind,
+        status=args.status,
+        confidence=args.confidence,
+        level=args.level,
+        superseded=args.superseded,
+    )
+    ranks = [rank(corpus, q, limit=len(corpus.notes)) for q in queries]
+    linkeds = [linked_notes(args.root, corpus, r, args.limit) if args.links else [] for r in ranks]
+    return corpus, ranks, linkeds
+
+
+def _search_load_memories(
+    args: argparse.Namespace, others: list[tuple[str, Path]]
+) -> tuple[list[tuple[str, list[records.Memory]]], list[tuple[str, list[records.Memory]]]]:
+    """The memories of this project and the global ones, then those of the other projects asked for."""
     memories: list[tuple[str, list[records.Memory]]] = []
     other_memories: list[tuple[str, list[records.Memory]]] = []
+    for scope, folder in [*_memory_folders(args), *((f"project: {n}", f) for n, f in others)]:
+        loaded = records.load_memories(folder, scope.split(":")[0])
+        for m in loaded:
+            if m.error is not None:
+                print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
+        loaded = [m for m in loaded if not records.quarantined(m)]
+        (other_memories if ":" in scope else memories).append((scope, loaded))
+    return memories, other_memories
+
+
+def _search_context(
+    args: argparse.Namespace,
+    corpus: Corpus | None,
+    filters: dict[str, Any],
+    others: list[tuple[str, Path]],
+    default_type: str | None,
+) -> _SearchContext:
+    with_notes = args.scope != "memories"
+    names = short_handles(args.root) if args.handles and with_notes else {}
     today = datetime.date.today()
-    if (
-        args.scope != "notes"
+    # memories stay out of any narrowed, paged or path-only note listing, unless they are all that was asked for
+    memories, other_memories = (
+        _search_load_memories(args, others)
+        if args.scope != "notes"
         and not args.offset
         and not filters
         and (args.detail != "paths" or not with_notes)
-    ):
-        for scope, folder in [*_memory_folders(args), *((f"project: {n}", f) for n, f in others)]:
-            loaded = records.load_memories(folder, scope.split(":")[0])
-            for m in loaded:
-                if m.error is not None:
-                    print(f"mem: skipped {m.path}: {m.error}", file=sys.stderr)
-            loaded = [m for m in loaded if not records.quarantined(m)]
-            (other_memories if ":" in scope else memories).append((scope, loaded))
+        else ([], [])
+    )
     # like memories, syntheses stay out of any narrowed, paged or path-only listing; they follow the notes
     all_syntheses = (
         syntheses.load(args.root / syntheses.SYNTHESES_DIR)
@@ -8678,99 +8740,162 @@ def cmd_search(args: argparse.Namespace) -> int:
         and args.detail != "paths"
         else []
     )
+    return _SearchContext(
+        args=args,
+        with_notes=with_notes,
+        corpus=corpus,
+        names=names,
+        memories=memories,
+        other_memories=other_memories,
+        all_syntheses=all_syntheses,
+        default_type=default_type,
+        filters=filters,
+        today=today,
+    )
+
+
+def _search_print_memory_hits(ctx: _SearchContext, scope: str, hits: list[records.Memory]) -> None:
+    if ctx.args.detail == "paths":
+        print("\n".join(f"m:{m.handle}" for m in hits))
+    else:
+        print(f"-- memories ({scope}) --")
+        print("\n".join(_memory_line(m, ctx.today) for m in hits))
+
+
+def _search_memory_hits(ctx: _SearchContext, query: str) -> tuple[list[str], bool]:
+    """Print the memories matching `query`: their handles (this project and global), and whether any
+    came from another project."""
+    printed: list[str] = []
+    from_others = False
+    for scope, loaded in [*ctx.memories, *ctx.other_memories]:
+        hits = records.match_memories(
+            loaded,
+            tokenize(query),
+            ctx.today,
+            tokenize=tokenize,
+            limit=3,
+            include_dead=ctx.args.all_memories,
+        )
+        if not hits:
+            continue
+        _search_print_memory_hits(ctx, scope, hits)
+        if ":" in scope:
+            from_others = True
+        else:
+            printed += [f"m:{m.handle}" for m in hits]
+    return printed, from_others
+
+
+def _search_print_notes(
+    ctx: _SearchContext,
+    terms: list[str],
+    weights: dict[str, float],
+    hits: list[tuple[Note, float]],
+) -> None:
+    for note, score in hits:
+        print(
+            "\n".join(
+                format_hit(
+                    note,
+                    ctx.args.detail,
+                    score=score,
+                    terms=terms,
+                    weights=weights,
+                    name=ctx.names.get(note.rel),
+                )
+            )
+        )
+
+
+def _search_log(ctx: _SearchContext, query: str, hits: _QueryHits) -> None:
+    args = ctx.args
+    extra = {"links": True, "linked": [note.rel for note, _ in hits.linked]} if args.links else {}
+    if hits.printed:
+        extra["memories"] = hits.printed
+    if args.project or args.all_projects:
+        extra["projects"] = len(ctx.other_memories)
+    if hits.sections:
+        extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in hits.sections]
+    if args.deep:
+        extra["deep"] = True
+    log_usage(
+        args.root,
+        {
+            "cmd": "search",
+            "query": query,
+            "limit": args.limit,
+            "detail": args.detail,
+            "filters": ctx.filters,
+            "results": [note.rel for note, _ in hits.result],
+            **extra,
+        },
+    )
+
+
+def _search_print_query(ctx: _SearchContext, query: str, hits: _QueryHits, found: bool) -> None:
+    """Print the notes, the linked notes and the syntheses of one query after its memories."""
+    args = ctx.args
+    if ctx.with_notes and found and hits.result:
+        print("-- notes --")
+    if not hits.result and not found and not args.offset:
+        print("no matches", file=sys.stderr)
+    terms = tokenize(query)
+    weights = term_idf(ctx.corpus, terms) if ctx.corpus is not None else {}
+    _search_print_notes(ctx, terms, weights, hits.result)
+    if hits.linked and args.detail != "paths":
+        print("-- linked to the results above --")
+    _search_print_notes(ctx, terms, weights, hits.linked)
+    if hits.sections:
+        print("-- syntheses (extended versions) --")
+        for syn, sec in hits.sections:
+            print(f"s:{syn.handle}#{sec.handle}\t{syn.title}: {sec.heading}")
+
+
+def _search_one(
+    ctx: _SearchContext,
+    query: str,
+    ranked: list[tuple[Note, float]],
+    linked: list[tuple[Note, float]],
+    more: bool,
+) -> bool:
+    """Run one query; True when a --deep search would show more (`more` carries earlier queries)."""
+    args = ctx.args
+    result = ranked[args.offset : args.offset + args.limit]
+    if args.also:
+        print(f"== {query} ==")
+    printed, from_others = _search_memory_hits(ctx, query)
+    sections = syntheses.match_sections(ctx.all_syntheses, tokenize(query), tokenize=tokenize)
+    hits = _QueryHits(result, linked, printed, sections)
+    _search_print_query(ctx, query, hits, bool(printed or from_others))
+    if ctx.default_type and ctx.with_notes and len(result) < _SPARSE_HITS and not more:
+        more = _deeper_hit(args, query, len(result))
+    if not args.also and ctx.with_notes:  # a footer names --offset, which applies to every query
+        _page_footer(args.offset, len(result), len(ranked))
+    _search_log(ctx, query, hits)
+    return more
+
+
+def cmd_search(args: argparse.Namespace) -> int:
+    queries = [args.query, *args.also]
+    _search_check_args(args, queries)
+    others = (
+        _other_projects(args.project, args.all_projects)
+        if args.project or args.all_projects
+        else []
+    )
+    if others is None:
+        return 2
+    filters = _search_filters(args)
+    default_type = None if args.deep or args.type else "knowledge"
+    try:
+        corpus, ranks, linkeds = _search_rank(args, queries, default_type)
+    except (FrontmatterError, OSError) as exc:
+        print(f"mem: cannot search: {exc}", file=sys.stderr)
+        return 1
+    ctx = _search_context(args, corpus, filters, others, default_type)
     more = False
     for query, ranked, linked in zip(queries, ranks, linkeds, strict=False):
-        result = ranked[args.offset : args.offset + args.limit]
-        if args.also:
-            print(f"== {query} ==")
-        printed: list[str] = []
-        from_others = False
-        for scope, loaded in [*memories, *other_memories]:
-            hits = records.match_memories(
-                loaded,
-                tokenize(query),
-                today,
-                tokenize=tokenize,
-                limit=3,
-                include_dead=args.all_memories,
-            )
-            if not hits:
-                continue
-            if args.detail == "paths":
-                print("\n".join(f"m:{m.handle}" for m in hits))
-            else:
-                print(f"-- memories ({scope}) --")
-                print("\n".join(_memory_line(m, today) for m in hits))
-            if ":" in scope:
-                from_others = True
-            else:
-                printed += [f"m:{m.handle}" for m in hits]
-        if with_notes and (printed or from_others) and result:
-            print("-- notes --")
-        if not result and not printed and not from_others and not args.offset:
-            print("no matches", file=sys.stderr)
-        terms = tokenize(query)
-        weights = term_idf(corpus, terms) if corpus is not None else {}
-        for note, score in result:
-            print(
-                "\n".join(
-                    format_hit(
-                        note,
-                        args.detail,
-                        score=score,
-                        terms=terms,
-                        weights=weights,
-                        name=names.get(note.rel),
-                    )
-                )
-            )
-        if linked and args.detail != "paths":
-            print("-- linked to the results above --")
-        for note, score in linked:
-            print(
-                "\n".join(
-                    format_hit(
-                        note,
-                        args.detail,
-                        score=score,
-                        terms=terms,
-                        weights=weights,
-                        name=names.get(note.rel),
-                    )
-                )
-            )
-        sections = syntheses.match_sections(all_syntheses, tokenize(query), tokenize=tokenize)
-        if sections:
-            print("-- syntheses (extended versions) --")
-            for syn, sec in sections:
-                print(f"s:{syn.handle}#{sec.handle}\t{syn.title}: {sec.heading}")
-        if default_type and with_notes and len(result) < _SPARSE_HITS and not more:
-            more = _deeper_hit(args, query, len(result))
-        if (
-            not args.also and with_notes
-        ):  # a footer names --offset, which applies to every query at once
-            _page_footer(args.offset, len(result), len(ranked))
-        extra = {"links": True, "linked": [note.rel for note, _ in linked]} if args.links else {}
-        if printed:
-            extra["memories"] = printed
-        if args.project or args.all_projects:
-            extra["projects"] = len(other_memories)
-        if sections:
-            extra["syntheses"] = [f"s:{syn.handle}#{sec.handle}" for syn, sec in sections]
-        if args.deep:
-            extra["deep"] = True
-        log_usage(
-            args.root,
-            {
-                "cmd": "search",
-                "query": query,
-                "limit": args.limit,
-                "detail": args.detail,
-                "filters": filters,
-                "results": [note.rel for note, _ in result],
-                **extra,
-            },
-        )
+        more = _search_one(ctx, query, ranked, linked, more)
     if more:
         print("mem: more in sources and syntheses: repeat with --deep.", file=sys.stderr)
     return 0
@@ -8827,23 +8952,18 @@ def cmd_passages(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_related(args: argparse.Namespace) -> int:
-    path = resolve_note(args.root, args.path)
-    if isinstance(path, list):
-        _ambiguous(args.path, path)
-        return 1
-    rel = path.relative_to(args.root.resolve()).as_posix() if path else None
-    try:
-        corpus = build_corpus(args.root, superseded=args.superseded)
-        if rel is None:
-            raise ValueError(f"not a note: {rel}")  # what `related` raises for it
-        groups = related(args.root, rel, limit=args.limit, corpus=corpus)
-    except ValueError:
-        print(f"mem: not a note: {args.path}", file=sys.stderr)
-        return 1
-    except (FrontmatterError, OSError) as exc:
-        print(f"mem: cannot relate: {exc}", file=sys.stderr)
-        return 1
+def _related_load(
+    args: argparse.Namespace, rel: str | None
+) -> tuple[Corpus, dict[str, list[Note]]]:
+    corpus = build_corpus(args.root, superseded=args.superseded)
+    if rel is None:
+        raise ValueError(f"not a note: {rel}")  # what `related` raises for it
+    return corpus, related(args.root, rel, limit=args.limit, corpus=corpus)
+
+
+def _related_print(
+    args: argparse.Namespace, rel: str, corpus: Corpus, groups: dict[str, list[Note]]
+) -> None:
     terms = tokenize(_title(next(n for n in corpus.notes if n.rel == rel)))
     weights = term_idf(corpus, terms)
     if args.unlinked_mentions:
@@ -8856,6 +8976,24 @@ def cmd_related(args: argparse.Namespace) -> int:
         " · ".join(f"{relation}: {len(notes)}" for relation, notes in groups.items()),
         file=sys.stderr,
     )
+
+
+def cmd_related(args: argparse.Namespace) -> int:
+    path = resolve_note(args.root, args.path)
+    if isinstance(path, list):
+        _ambiguous(args.path, path)
+        return 1
+    rel = path.relative_to(args.root.resolve()).as_posix() if path else None
+    try:
+        corpus, groups = _related_load(args, rel)
+    except ValueError:
+        print(f"mem: not a note: {args.path}", file=sys.stderr)
+        return 1
+    except (FrontmatterError, OSError) as exc:
+        print(f"mem: cannot relate: {exc}", file=sys.stderr)
+        return 1
+    assert rel is not None  # `_related_load` raised for a missing note
+    _related_print(args, rel, corpus, groups)
     return 0
 
 
@@ -8946,14 +9084,7 @@ _USER_READ = (
 )
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="mem", description="Memory engine: search and read a store of notes."
-    )
-    parser.add_argument(
-        "--root", default=None, help="store folder (default: $MEM_STORE, then the config file)"
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
+def _parser_add_search(sub: Any) -> None:
     check_parser = sub.add_parser("check", help="validate the hub rules")
     check_parser.add_argument(
         "paths", nargs="*", metavar="PATH", help="print only problems in these notes or folders"
@@ -9038,6 +9169,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--offset", type=_offset, default=0, help="skip the first N notes (default: 0)"
     )
     find_parser.set_defaults(func=cmd_find)
+
+
+def _parser_add_read(sub: Any) -> None:
     passages_parser = sub.add_parser(
         "passages", help="print the passages of a note's local source that best match"
     )
@@ -9118,6 +9252,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--today", type=_today, default=None, help="YYYY-MM-DD (default: today)"
     )
     review_parser.set_defaults(func=cmd_review)
+
+
+def _parser_add_sources(sub: Any) -> None:
     fetch_parser = sub.add_parser(
         "fetch-sources", help="download literature note urls into .sources/"
     )
@@ -9142,6 +9279,9 @@ def build_parser() -> argparse.ArgumentParser:
     rename_parser.add_argument("note", metavar="NOTE")
     rename_parser.add_argument("new_stem", metavar="NEW-STEM", help="the new file name without .md")
     rename_parser.set_defaults(func=cmd_rename)
+
+
+def _parser_add_note(sub: Any) -> None:
     note_parser = sub.add_parser(
         "note", help="change a note through mem, never by editing its file"
     )
@@ -9186,6 +9326,9 @@ def build_parser() -> argparse.ArgumentParser:
             )
         marked.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
         marked.set_defaults(func=cmd_note_mark)
+
+
+def _parser_add_import(sub: Any) -> None:
     import_parser = sub.add_parser(
         "import",
         help="copy the notes of another folder of notes into the store; the source is never changed",
@@ -9230,6 +9373,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--drop", action="store_true", help="accept a unified text that lacks a link the notes had"
     )
     unify_parser.set_defaults(func=cmd_unify)
+
+
+def _parser_add_new(sub: Any) -> None:
     new_parser = sub.add_parser("new", help="create a note from its template")
     new_sub = new_parser.add_subparsers(dest="type", required=True)
     for note_type, flags in {
@@ -9269,6 +9415,9 @@ def build_parser() -> argparse.ArgumentParser:
             )
         type_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
         type_parser.set_defaults(func=cmd_new)
+
+
+def _parser_add_remember(sub: Any) -> None:
     remember_parser = sub.add_parser(
         "remember", help="write a memory in the project or, with --global, in the global folder"
     )
@@ -9321,6 +9470,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     remember_parser.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     remember_parser.set_defaults(func=cmd_remember)
+
+
+def _parser_add_hooks(sub: Any) -> None:
     index_cmd = sub.add_parser(
         "session-index", help="print the text that opens a session: usage rules and counts"
     )
@@ -9354,28 +9506,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     signal_cmd.set_defaults(func=cmd_signal)
 
-    def memory_command(name: str, help_text: str, *handles: str, because: bool = False):
-        cmd = sub.add_parser(name, help=help_text)
-        for h in handles:
-            cmd.add_argument(h, metavar="m:HANDLE")
-        if because:
-            cmd.add_argument(
-                "--because", metavar="TEXT", help="the reason, appended to the memory's body"
-            )
-            cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
-        cmd.add_argument(
-            "--global",
-            dest="is_global",
-            action="store_true",
-            help="act on the global memory when the handle exists in both scopes",
-        )
-        return cmd
 
+def _parser_memory_command(
+    sub: Any, name: str, help_text: str, *handles: str, because: bool = False
+) -> argparse.ArgumentParser:
+    cmd = sub.add_parser(name, help=help_text)
+    for h in handles:
+        cmd.add_argument(h, metavar="m:HANDLE")
+    if because:
+        cmd.add_argument(
+            "--because", metavar="TEXT", help="the reason, appended to the memory's body"
+        )
+        cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    cmd.add_argument(
+        "--global",
+        dest="is_global",
+        action="store_true",
+        help="act on the global memory when the handle exists in both scopes",
+    )
+    return cmd
+
+
+def _parser_add_memory_marks(sub: Any) -> None:
     for name, text in (
         ("confirm", "count one more observation of a memory"),
         ("observe", "alias of confirm"),
     ):
-        confirm_parser = memory_command(name, text, "handle")
+        confirm_parser = _parser_memory_command(sub, name, text, "handle")
         confirm_parser.add_argument(
             "--until", metavar="YYYY-MM-DD", help="also set valid_until to this date"
         )
@@ -9405,12 +9562,15 @@ def build_parser() -> argparse.ArgumentParser:
             help="the owner vouches for a transcript lesson: it is established (exit 3 when already)",
         )
         confirm_parser.set_defaults(func=cmd_confirm)
-    memory_command("refute", "mark a memory refuted", "handle", because=True).set_defaults(
-        func=cmd_refute
-    )
-    memory_command("forget", "mark a memory forgotten", "handle", because=True).set_defaults(
-        func=cmd_forget
-    )
+    _parser_memory_command(
+        sub, "refute", "mark a memory refuted", "handle", because=True
+    ).set_defaults(func=cmd_refute)
+    _parser_memory_command(
+        sub, "forget", "mark a memory forgotten", "handle", because=True
+    ).set_defaults(func=cmd_forget)
+
+
+def _parser_add_triage(sub: Any) -> None:
     triage_parser = sub.add_parser(
         "triage",
         help="decide what a corroborated general lesson becomes",
@@ -9452,11 +9612,14 @@ def build_parser() -> argparse.ArgumentParser:
                 help="keep the wording of a project lesson that got worse",
             )
     triage_parser.set_defaults(func=cmd_triage)
-    memory_command("supersede", "mark OLD as superseded by NEW", "old", "new").set_defaults(
-        func=cmd_supersede
-    )
-    merge_parser = memory_command(
-        "merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop"
+
+
+def _parser_add_memory_pairs(sub: Any) -> None:
+    _parser_memory_command(
+        sub, "supersede", "mark OLD as superseded by NEW", "old", "new"
+    ).set_defaults(func=cmd_supersede)
+    merge_parser = _parser_memory_command(
+        sub, "merge", "add DROP's count and body to KEEP and supersede DROP", "keep", "drop"
     )
     merge_parser.add_argument(
         "--force",
@@ -9464,14 +9627,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="merge although the claims differ by a negation or a number",
     )
     merge_parser.set_defaults(func=cmd_merge)
-    memory_command(
+    _parser_memory_command(
+        sub,
         "distinct",
         "record that two memories are different claims: the queue stops pairing them",
         "a",
         "b",
     ).set_defaults(func=cmd_distinct)
-    memory_command(
-        "restore", "put back the text a memory had before its last curation action", "handle"
+    _parser_memory_command(
+        sub, "restore", "put back the text a memory had before its last curation action", "handle"
     ).set_defaults(func=cmd_restore)
     promote_parser = sub.add_parser(
         "promote", help="print a draft of a global memory from project memories"
@@ -9487,6 +9651,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     promote_parser.add_argument("handles", nargs="+", metavar="m:HANDLE")
     promote_parser.set_defaults(func=cmd_promote)
+
+
+def _parser_add_memories(sub: Any) -> None:
     memories_parser = sub.add_parser("memories", help="list memories, newest first")
     curate_parser = sub.add_parser(
         "curate", help="list what needs a decision: pairs, expired, frequent, unconfirmed"
@@ -9578,6 +9745,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="with apply: the action lines (default or -: stdin)",
     )
     curate_parser.set_defaults(func=cmd_curate)
+
+
+def _parser_add_settle(sub: Any) -> None:
     settle_parser = sub.add_parser(
         "settle", help="settle new global memories against their look-alikes (verdicts from a file)"
     )
@@ -9614,6 +9784,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     settle_due.add_argument("--minutes", type=float, required=True, metavar="M")
     settle_parser.set_defaults(func=cmd_settle)
+
+
+def _parser_add_project_synthesis(sub: Any) -> None:
     ps_parser = sub.add_parser(
         "project-synthesis",
         help="write, confirm and list the stamped parts of a project's syntheses",
@@ -9636,10 +9809,9 @@ def build_parser() -> argparse.ArgumentParser:
     ps_confirm.add_argument("part", metavar="p:NAME#HANDLE")
     ps_sub.add_parser("list", help="one line per part: handle, freshness, heading")
     ps_parser.set_defaults(func=cmd_project_synthesis)
-    synthesis_parser = sub.add_parser(
-        "synthesis", help="create and extend syntheses, the long documents behind notes"
-    )
-    synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
+
+
+def _parser_synthesis_write(synthesis_sub: Any) -> None:
     syn_new = synthesis_sub.add_parser("new", help="create syntheses/<slug>.md with its summary")
     syn_new.add_argument("--title", required=True)
     syn_new.add_argument("--topics", required=True, help="comma-separated topic ids")
@@ -9684,6 +9856,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="allow a sentence kept unchanged to lose a reference (a note link in its body)",
     )
+    syn_new.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    syn_add.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    syn_edit.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+
+
+def _parser_synthesis_sections(synthesis_sub: Any) -> None:
     syn_append = synthesis_sub.add_parser(
         "append", help="add text at the end of a section, before its Sources line"
     )
@@ -9707,6 +9885,11 @@ def build_parser() -> argparse.ArgumentParser:
     syn_remove.add_argument("target", metavar="s:HANDLE#SECTION")
     syn_detach = synthesis_sub.add_parser("detach", help="remove a note's part_of")
     syn_detach.add_argument("note", metavar="NOTE")
+    syn_append.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+    syn_rename.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
+
+
+def _parser_synthesis_links(synthesis_sub: Any) -> None:
     syn_refs = synthesis_sub.add_parser(
         "refs", help="add or remove inline note references from a file of proposals"
     )
@@ -9720,11 +9903,22 @@ def build_parser() -> argparse.ArgumentParser:
     syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
     syn_topics.add_argument("target", metavar="s:HANDLE")
     syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")
-    for syn_cmd in (syn_new, syn_add, syn_edit, syn_append, syn_rename):
-        syn_cmd.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
     syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
     syn_list.add_argument("--topic")
+
+
+def _parser_add_synthesis(sub: Any) -> None:
+    synthesis_parser = sub.add_parser(
+        "synthesis", help="create and extend syntheses, the long documents behind notes"
+    )
+    synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
+    _parser_synthesis_write(synthesis_sub)
+    _parser_synthesis_sections(synthesis_sub)
+    _parser_synthesis_links(synthesis_sub)
     synthesis_parser.set_defaults(func=cmd_synthesis)
+
+
+def _parser_add_registry(sub: Any) -> None:
     terms_parser = sub.add_parser(
         "terms", help="manage the terms that must not reach the global scope"
     )
@@ -9765,6 +9959,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_parser.add_argument("folder", metavar="FOLDER", nargs="?")
     init_parser.set_defaults(func=cmd_init)
+
+
+def _parser_add_history(sub: Any) -> None:
     history_parser = sub.add_parser("history", help="the store's git history: list, init, commit")
     history_parser.add_argument(
         "-n", type=int, default=10, metavar="N", help="how many commits to list"
@@ -9785,6 +9982,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --hook: also log a `started` record before and a `done` one after, so a killed run shows",
     )
     history_parser.set_defaults(func=cmd_history)
+
+
+def _parser_add_memory_edit(sub: Any) -> None:
     memory_parser = sub.add_parser(
         "memory", help="change a memory through mem, never by editing its file"
     )
@@ -9844,6 +10044,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="edit the global memory when the handle exists in both scopes",
     )
     memory_parser.set_defaults(func=cmd_memory)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="mem", description="Memory engine: search and read a store of notes."
+    )
+    parser.add_argument(
+        "--root", default=None, help="store folder (default: $MEM_STORE, then the config file)"
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+    for add in (
+        _parser_add_search,
+        _parser_add_read,
+        _parser_add_sources,
+        _parser_add_note,
+        _parser_add_import,
+        _parser_add_new,
+        _parser_add_remember,
+        _parser_add_hooks,
+        _parser_add_memory_marks,
+        _parser_add_triage,
+        _parser_add_memory_pairs,
+        _parser_add_memories,
+        _parser_add_settle,
+        _parser_add_project_synthesis,
+        _parser_add_synthesis,
+        _parser_add_registry,
+        _parser_add_history,
+        _parser_add_memory_edit,
+    ):
+        add(sub)
     return parser
 
 
@@ -9855,6 +10086,66 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
 
+def _no_store_folder(root: Path | None) -> bool:
+    return root is None or not root.is_dir()
+
+
+def _memories_need_no_store(args: argparse.Namespace, root: Path | None) -> bool:
+    """True for a search of memories only, or a show of memory handles, when no store folder exists."""
+    if args.command == "search":
+        return args.scope == "memories" and _no_store_folder(root)
+    if args.command == "show":
+        return all(
+            a.startswith(("m:", "p:")) or _find_memory(args, a) for a in args.paths
+        ) and _no_store_folder(root)
+    return False
+
+
+def _store_refusal(args: argparse.Namespace, root: Path | None) -> str | None:
+    """The message that refuses `args.command` on this store, or None when the command may run."""
+    if root is None:
+        return NO_STORE
+    if root.exists() and not root.is_dir():
+        return f"mem: the store is not a folder: {root}"
+    if not root.is_dir():
+        return f"mem: the store folder does not exist: {root}"
+    writes = args.command in _WRITE_COMMANDS or (
+        args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES
+    )
+    if writes and not records.store_is_writable(root):
+        return (
+            f"mem: {args.command} writes to the store, which is read-only: it has no mem-store.yaml "
+            '(create a store with "mem init").'
+        )
+    return None
+
+
+def _dispatch_store(args: argparse.Namespace) -> int | None:
+    """Resolve the store into `args.root`; the exit code of a refusal, or None to run the command."""
+    if args.command in {
+        "init",
+        "terms",
+        "history",
+    }:  # history finds its own store: `history init` may name one
+        return None
+    if (
+        args.command in _NO_STORE_NEEDED
+    ):  # a project memory needs no store; a missing one is an error only where used
+        args.root = resolve_root(args.root, os.environ)
+        return None
+    root = resolve_root(args.root, os.environ)
+    if _memories_need_no_store(args, root):
+        args.root = None  # memories need no store; only a project or a global folder
+        return None
+    refusal = _store_refusal(args, root)
+    if refusal:
+        print(refusal, file=sys.stderr)
+        return 2
+    args.root_source = store_source(args.root, os.environ)
+    args.root = root
+    return None
+
+
 def _dispatch(argv: list[str] | None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "read":
@@ -9862,55 +10153,8 @@ def _dispatch(argv: list[str] | None) -> int:
     if refusal := safe_io.sandbox_refusal(args.command, vars(args)):
         print(f"mem: {refusal}", file=sys.stderr)
         return 2
-    if args.command in {
-        "init",
-        "terms",
-        "history",
-    }:  # history finds its own store: `history init` may name one
-        return args.func(args)
-    if (
-        args.command in _NO_STORE_NEEDED
-    ):  # a project memory needs no store; a missing one is an error only where used
-        root = resolve_root(args.root, os.environ)
-        args.root = root
-        return args.func(args)
-    root = resolve_root(args.root, os.environ)
-    if (
-        args.command == "search"
-        and args.scope == "memories"
-        and (root is None or not root.is_dir())
-    ):
-        args.root = None  # memories need no store; only a project or a global folder
-        return args.func(args)
-    if (
-        args.command == "show"
-        and all(a.startswith(("m:", "p:")) or _find_memory(args, a) for a in args.paths)
-        and (root is None or not root.is_dir())
-    ):
-        args.root = None
-        return args.func(args)
-    if root is None:
-        print(NO_STORE, file=sys.stderr)
-        return 2
-    if root.exists() and not root.is_dir():
-        print(f"mem: the store is not a folder: {root}", file=sys.stderr)
-        return 2
-    if not root.is_dir():
-        print(f"mem: the store folder does not exist: {root}", file=sys.stderr)
-        return 2
-    writes = args.command in _WRITE_COMMANDS or (
-        args.command == "synthesis" and args.synthesis_command in _SYNTHESIS_WRITES
-    )
-    if writes and not records.store_is_writable(root):
-        print(
-            f"mem: {args.command} writes to the store, which is read-only: it has no mem-store.yaml "
-            '(create a store with "mem init").',
-            file=sys.stderr,
-        )
-        return 2
-    args.root_source = store_source(args.root, os.environ)
-    args.root = root
-    return args.func(args)
+    code = _dispatch_store(args)
+    return args.func(args) if code is None else code
 
 
 if __name__ == "__main__":
