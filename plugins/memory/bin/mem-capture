@@ -239,8 +239,9 @@ def rules_text(project: Path) -> tuple[str, bool]:
 def session_cmd(
     claude: str, work: Path, settings: Path, model: str, max_budget: float
 ) -> list[str]:
-    """One session. Tools: Read and Write/Edit inside `work` only (`//` is an absolute path in a permission rule; a new
-    file needs the Edit rule beside Write); no Bash, no web, hooks disabled by `settings`."""
+    """One session. Only the Read and Write tools exist (`--tools`, no MCP server), allowed inside `work` only (`//` is
+    an absolute path in a permission rule; a new file needs the Edit rule beside Write); no Bash, no web, hooks disabled
+    by `settings`."""
     return headless.command(
         headless.Session(
             claude=claude,
