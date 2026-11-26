@@ -245,11 +245,11 @@ PACKAGE_DEPENDENCIES = {
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
-    "corroborate": {"mem"},
+    "corroborate": {"mem", "commands"},
     "research": {"mem", "commands"},
     "capture": {"mem", "corroborate"},
-    "settle": {"mem"},
-    "digest": {"mem", "corroborate"},
+    "settle": {"mem", "commands"},
+    "digest": {"mem", "corroborate", "commands"},
     "session": {"mem"},
     "entry": {"run"},
     "commands": {"mem"},

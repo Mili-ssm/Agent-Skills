@@ -65,7 +65,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] As Task 2; imported eagerly (a local import is forbidden by Ruff PLC0415; ADR 0028); patches `_download`, `FETCH_MAX_BYTES`, `time`, `_write_text_copy` retargeted.
 
 ### Task 6: `commands/memory.py` (with settle)
-- [ ] As Task 2; `_merge_pair` patch retargeted.
+- [x] As Task 2; `_merge_pair` patch retargeted.
 
 ### Task 7: `commands/curate.py`
 - [ ] As Task 2; `_decisions`, `_write_marks`, `orphan_notes` patches; `orphan_notes` and the due queries next to their callers (refactor plan).

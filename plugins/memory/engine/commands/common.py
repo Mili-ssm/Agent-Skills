@@ -6,6 +6,7 @@ import contextlib
 import datetime
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -14,7 +15,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
-from core import config, safe_io, store_git
+from core import config, jobs, safe_io, store_git
+from digest import lessons as digest_lessons
 from memories import records
 from notes import check as check_rules
 from notes import note as note_files
@@ -24,6 +26,9 @@ from syntheses import project as project_syntheses
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable, Mapping, Sequence
+
+
+logger = logging.getLogger(__name__)
 
 
 class UsageError(Exception):
@@ -532,3 +537,58 @@ def _section_ref(root: Path, ref: str) -> tuple[document.Synthesis, document.Sec
 def _note_target(rel: str) -> str:
     """How a synthesis part refers to the note stored at `rel` (a store-relative path)."""
     return "../" + rel
+
+
+def _memory_body(source: str | None) -> str:
+    """The text of `--body-file` (`-` is standard input); absent or empty gives an empty body."""
+    if not source:
+        return ""
+    if source == "-":
+        if sys.stdin.isatty():
+            raise OSError("--body-file - needs the body on standard input, not a terminal")
+        return sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
+    return Path(source).read_text(encoding="utf-8").replace("\r\n", "\n")
+
+
+def _readable(memories: Sequence[records.Memory], today: datetime.date) -> list[records.Memory]:
+    """What a reader may be shown: live, and not a global lesson still in quarantine. The tools that corroborate or
+    look a record up (the identical-claim check, handles, curate, the capture list) load unfiltered. `cmd_search`,
+    `cmd_memories` and `cmd_signal` filter `records.quarantined` directly: the first two because `--all-memories` and
+    `--dead` still show dead records, the third because it reads the folders itself and shows no liveness."""
+    return [m for m in memories if records.is_live(m, today) and not records.quarantined(m)]
+
+
+def _rules_layout(arg: str | None = None) -> str:
+    """`--layout` wins, then MEM_RULES_LAYOUT (set by the hooks from the option rules_layout); only `grouped` and `digest` switch."""
+    env = os.environ.get("MEM_RULES_LAYOUT")
+    return arg or (env if env in {"grouped", "digest"} else "flat")
+
+
+def _rules_digest(
+    global_lessons: list[records.Memory], today: datetime.date
+) -> tuple[dict | None, dict | None]:
+    """The digest file and the topics it may speak for, (None, None) when either cannot be read: callers then print without it."""
+    try:
+        data = digest_lessons.read(data_dir(os.environ))
+        return (
+            (data, digest_lessons.topics_of(global_lessons, today))
+            if data["topics"]
+            else (None, None)
+        )
+    except Exception:
+        logger.debug("reading the rules digest failed", exc_info=True)
+        return None, None
+
+
+def _rules_off() -> bool:
+    return os.environ.get("MEM_LOADED_RULES") == "off"
+
+
+def _fill_attempts(env: Mapping[str, str]) -> dict:
+    """The automatic short-form fill's attempts (`fill_key` -> entry), read defensively: a missing, unreadable or
+    malformed state reads as no attempts, so curation never fails on it."""
+    data = data_dir(env)
+    lessons = (
+        jobs.read_json(data / "corroborate" / "fill-attempts.json").get("lessons") if data else None
+    )
+    return lessons if isinstance(lessons, dict) else {}

@@ -5,6 +5,7 @@ import json
 
 import mem
 import pytest
+from commands import memory
 from core import store_git
 from memories import records
 from settle import verdicts as settle_verdicts
@@ -447,13 +448,13 @@ def test_a_failure_after_a_file_changed_is_logged_as_partial_and_can_be_undone(
     put(gfolder, "new-one", NEW, created=days_ago(1), body="New body.\n")
     run("pending")
     before = snapshot(gfolder)
-    real = mem._merge_pair
+    real = memory._merge_pair
 
     def broken(keep, drop, today):
         real(keep, drop, today)
         raise OSError("disk went away")
 
-    monkeypatch.setattr(mem, "_merge_pair", broken)
+    monkeypatch.setattr(memory, "_merge_pair", broken)
     out = run(
         "apply",
         "--verdicts",
@@ -569,13 +570,13 @@ def test_a_programming_error_still_logs_the_changed_record_then_propagates(
     put(gfolder, "new-one", NEW, created=days_ago(1), body="New body.\n")
     run("pending")
     before = snapshot(gfolder)
-    real = mem._merge_pair
+    real = memory._merge_pair
 
     def broken(keep, drop, today):
         real(keep, drop, today)
         raise KeyError("bug")
 
-    monkeypatch.setattr(mem, "_merge_pair", broken)
+    monkeypatch.setattr(memory, "_merge_pair", broken)
     with pytest.raises(KeyError):
         run(
             "apply",
