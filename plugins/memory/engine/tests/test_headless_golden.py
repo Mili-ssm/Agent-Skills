@@ -523,9 +523,8 @@ def test_capture_runner_arguments(mem_capture: ModuleType, run: Recorder, tmp_pa
 
 def test_settle_runner_arguments(mem_settle: ModuleType, run: Recorder, tmp_path: Path) -> None:
     env = {"E": "1"}
-    mem_settle.session(
-        CLAUDE, tmp_path, PROMPT, tmp_path / "settings.json", env, tmp_path / "log", BUDGET
-    )
+    cmd = mem_settle.session_cmd(CLAUDE, tmp_path, PROMPT, tmp_path / "settings.json", BUDGET)
+    mem_settle.session(cmd, tmp_path, env, tmp_path / "log")
     assert run.cmd[:3] == ["claude", "-p", "the prompt"]
     assert run.kwargs == {
         "cwd": tmp_path,
@@ -534,6 +533,7 @@ def test_settle_runner_arguments(mem_settle: ModuleType, run: Recorder, tmp_path
         "capture_output": True,
         "text": True,
         "timeout": SESSION_TIMEOUT,
+        "check": False,
     }
 
 
