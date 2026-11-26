@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: in progress — Tasks 1, 2a, 2b committed (752b633, f2c6abe); Task 2 review running; next Task 3 · Branch: `refactor/memory-corroborate-split` (stacked on `refactor/memory-config`, PR #199) · Date: 2026-11-26
+Status: implemented — Tasks 1–7 committed; branch not yet pushed · Branch: `refactor/memory-corroborate-split` (stacked on `refactor/memory-config`, PR #199) · Date: 2026-11-26
 
 **Goal:** `bin/mem-corroborate` becomes a thin launcher; its logic lives in engine modules, every touched file is clean under ADR 0031, and behavior is unchanged. Then A2 can put all seven `claude -p` launchers behind `headless.py`.
 
@@ -58,26 +58,41 @@ Status: in progress — Tasks 1, 2a, 2b committed (752b633, f2c6abe); Task 2 rev
 
 ### Task 3: `corroborate_fill.py` clean
 
-- [ ] **Step 1:** As Task 2b, plus the `"load": ["yes"]` test.
+- [x] **Step 1:** As Task 2b, plus the `"load": ["yes"]` test.
 
 ### Task 4: `corroborate_reword.py` and `corroborate_digest.py` clean
 
-- [ ] **Step 1:** As Task 2b, both files.
+- [x] **Step 1:** As Task 2b, both files.
 
 ### Task 5: `corroborate_cli.py` and the launcher clean
 
-- [ ] **Step 1:** As Task 2b; `--help` outputs byte-identical to base.
+- [x] **Step 1:** As Task 2b; `--help` outputs byte-identical to base.
 
 ### Task 6: Tests split by job, clean
 
 **Files:** Replace `engine/tests/test_mem_corroborate.py` with `test_corroborate_run.py`, `test_corroborate_fill.py`, `test_corroborate_reword.py`, `test_corroborate_digest.py`, `test_corroborate_cli.py` (shared helpers in `conftest.py` only if two or more files use them).
 
-- [ ] **Step 6a:** Move each test verbatim to the file of the job it covers; shared helpers (57 functions and the `w` fixture) go to a helper module `engine/tests/corroborate_world.py` imported by the five files (fixtures through a `conftest.py` in no wider scope than needed); the count of collected tests is unchanged (`pytest --collect-only -q | tail -1` before and after). Commit with the exception's `SKIP`.
-- [ ] **Steps 6b–6g:** one dispatch per file (the helper module and the five test files): make it clean (150 Ruff, 43 basedpyright findings across them at base, 68 of them PLR2004), suite passes; commit with every hook.
+- [x] **Step 6a:** Move each test verbatim to the file of the job it covers; shared helpers (57 functions and the `w` fixture) go to a helper module `engine/tests/corroborate_world.py` imported by the five files (fixtures through a `conftest.py` in no wider scope than needed); the count of collected tests is unchanged (`pytest --collect-only -q | tail -1` before and after). Commit with the exception's `SKIP`.
+- [x] **Steps 6b–6g:** one dispatch per file (the helper module and the five test files): make it clean (150 Ruff, 43 basedpyright findings across them at base, 68 of them PLR2004), suite passes; commit with every hook.
 
 ### Task 7: Gate and docs
 
-- [ ] **Step 1:** `pre-commit run --from-ref <plan base> --to-ref HEAD` passes with every hook; refactor plan: the "`bin/` holds launchers only" task notes mem-corroborate done; backlog A4 row and Q8 (`test_mem_corroborate.py` split) updated; this plan's Status. `python3 scripts/validate.py`. Commit.
+- [x] **Step 1:** `pre-commit run --from-ref <plan base> --to-ref HEAD` passes with every hook; refactor plan: the "`bin/` holds launchers only" task notes mem-corroborate done; backlog A4 row and Q8 (`test_mem_corroborate.py` split) updated; this plan's Status. `python3 scripts/validate.py`. Commit.
+
+## Deferred findings
+
+Low findings of the task reviews, ruled on 2026-11-26 (none changes observable behavior):
+
+| Finding | Ruling |
+|---|---|
+| `fill`, `reword`, `digest`: a failed session now saves its state after the scratch folder is removed (base: before) | Accepted: the scratch folder is a private temporary folder; nothing reads it after the session |
+| `reword_auto` and `digest_auto` take `**options: Unpack[...]`, so an unknown keyword is ignored at run time (base: `TypeError`) | Accepted: the agreed recipe for the argument limit; basedpyright rejects unknown keys in every clean caller |
+| `_finish` repeated in `corroborate_fill`, `corroborate_reword`, `corroborate_digest` | Open: candidate for `corroborate_run` with the shared job runner (rest of A4) |
+| `_Filler._log` reaches the run folder through `applier.cwd` | Open: store the run folder if the class changes again |
+| `ruff format` moved some trailing comments after closing brackets | Cosmetic; move above the statement when touched |
+| A test of two fill runs in the same second passes without its `time.strftime` patch (already at base) | Open: the test does not prove what it names (Q9) |
+
+The review of Task 5 found one regression, fixed in bdadfbc: the launcher used `datetime.UTC` (Python 3.11+), but `bin/` runs on the system `python3` (`ruff.toml` targets it at 3.10), and the error would have been swallowed silently.
 
 ## Kill criteria
 
