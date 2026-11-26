@@ -72,9 +72,10 @@ CANDIDATES = [
         "name": "root-worktree",
         "question": "El comando `mem` busca la carpeta `.memory/` de un proyecto. Si la sesión está dentro de un worktree "
         "enlazado de git, ¿en qué archivo se decide qué carpeta se toma como raíz del proyecto?",
-        "expect": "memory/engine/store/records.py",
-        # mem.py cmd_session_index / _project_synthesis_context call records.project_root(cwd, env), which returns
-        # MEM_PROJECT or records._main_worktree(cwd) (the first entry of `git worktree list --porcelain`).
+        "expect": "memory/engine/store/locations.py",
+        # mem.py cmd_session_index / _project_synthesis_context call records.project_root(cwd, env) (the facade re-exports
+        # store/locations.py), which returns
+        # MEM_PROJECT or locations._main_worktree(cwd) (the first entry of `git worktree list --porcelain`).
     },
     {
         "name": "synthesis-shrink",
