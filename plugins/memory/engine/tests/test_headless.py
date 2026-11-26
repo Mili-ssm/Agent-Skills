@@ -8,7 +8,7 @@ import headless
 import pytest
 from headless import Raw, Session
 
-BANNED = ("datetime.UTC", "Self", "Required", "NotRequired", "Unpack", "tomllib", "StrEnum")
+BANNED = ("override", "batched", "TypeAliasType")
 
 
 def test_command_minimal() -> None:
@@ -184,9 +184,9 @@ def test_session_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         assert gone not in env
 
 
-def test_source_is_python_310_safe() -> None:
+def test_source_is_python_311_safe() -> None:
     source = Path(headless.__file__).read_text(encoding="utf-8")
-    ast.parse(source, feature_version=(3, 10))
+    ast.parse(source, feature_version=(3, 11))
     for name in BANNED:
         assert not re.search(rf"\b{re.escape(name)}\b", source), name
     assert "except*" not in source

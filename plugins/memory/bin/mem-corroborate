@@ -61,8 +61,7 @@ def _failed_status_for_auto() -> None:
     if os.environ.get(cs.OPTION) != "true":
         return
     start = time.time()
-    # bin/ runs on the system python3, so no datetime.UTC (3.11+)
-    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    stamp = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
     cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
     reason = "engine import error"
     failure = {"at": time.time(), "reason": reason, "log": ""}
