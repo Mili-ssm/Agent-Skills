@@ -62,7 +62,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | low | B8 | Re-date model facts in `prompt-engineering` | `web-research` |
 | low | P8 | Small prompt items | — |
 | low | 3g | Browser driver for the `ui-verifier` eval case: reinstall the global `playwright` npm package | Installed 2026-11-25 (`playwright` 1.65.1, Chromium launches); the case ran 0/2 on 2026-11-26: Playwright finds no Chromium in the eval sandbox and system Chrome exits on the read-only `$HOME`; set aside by the owner |
-| low | — | Prompt review 2026-11-26, left open ([plan](superpowers/plans/2026-11-26-prompt-review-fixes.md)): the session start "Curation due" line tells the main model to run `mem curate` instead of dispatching `memory-curator` (one string in `engine/mem.py`, which ADR 0031 then requires fully clean); `hooks/subagent-start.sh` wording; about 25 low findings | Owner decision on `mem.py`; a count of `mem search` calls by a trivial subagent for the hook text |
+| low | — | Prompt review 2026-11-26, left open ([plan](superpowers/plans/2026-11-26-prompt-review-fixes.md)): `hooks/subagent-start.sh` wording; about 25 low findings | A count of `mem search` calls by a trivial subagent for the hook text |
 
 ## Plugin `memory`
 

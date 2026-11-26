@@ -12,6 +12,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- When curation is due, the session start text now ends with `(after the current task: dispatch memory:memory-curator).` instead of telling the model to run `mem curate`, so the main model hands the pass to the cheap curator. Nothing to migrate.
 - Contributors: the engine test suite runs in parallel (`pytest-xdist`, `-n auto`, and a shared uv cache: about 30 s instead of about 5 min on 20 cores, no network once the uv cache is warm); `bin/mem-capture` reads `MEM_CAPTURE_LOCK_POLL` (seconds between lock attempts, default 5; a test hook); the README command is updated. No change for users.
 
 ## [0.14.0] - 2026-11-25

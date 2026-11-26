@@ -48,3 +48,25 @@ Also 2026-11-25: "Python file" includes extensionless scripts whose shebang name
 
 On the owner's proposal, `scripts/lint_touched.py` and its tests are removed: pre-commit selects the files natively. `.pre-commit-config.yaml` runs `ruff-check --fix` and `ruff-format` (`astral-sh/ruff-pre-commit`) and basedpyright `--warnings` (a local `language: python` hook pinned to `basedpyright==1.40.2`) on the staged files at commit and on the pushed commits' files at push; `pre-commit run --from-ref origin/dev --to-ref HEAD` checks a whole branch. pre-commit's file typing recognises python-shebang scripts when they are executable (all of `plugins/memory/bin/` is), and `exclude: ^(ports|target)/` keeps the generated and ignored trees out. Versions are pinned only in that file (`pre-commit autoupdate` moves Ruff). It supersedes the Decision's second and third bullets (the script, `uvx`) and the Consequences line on a machine without `uvx`. The rule itself is unchanged: a touched Python file must be fully clean; a file is checked when it is committed, so unstaged or untracked work is checked at its commit, not before. A commit made with `--no-verify` or without pre-commit installed skips the check until the push hook or the branch-wide run.
 
+
+## Review 2026-11-26: `mem.py` clean
+
+`plugins/memory/engine/mem.py` and `tests/test_curation.py` now pass the gate with no finding, behavior unchanged. Plan: [mem.py clean](../superpowers/plans/2026-11-26-mem-py-ruff-clean.md). It unblocked one user-visible change: the session start text names `memory:memory-curator` when curation is due.
+
+| Measure | Before | After |
+|---|---|---|
+| `mem.py` Ruff findings (after safe fixes; 361 at `dev`) | 333 | 0 |
+| `mem.py` basedpyright errors | 62 | 0 |
+| `test_curation.py` Ruff / basedpyright | 50 / 3 | 0 / 0 |
+| `mem.py` lines | 6,102 | 10,532 |
+| Top-level functions and classes | n/a | 616 (66 functions split into helpers) |
+| Tests | 2,272 passed, 5 skipped | 2,272 passed, 5 skipped |
+| Golden run on a copy of the owner's store (about 50 read commands, 12 write scenarios) | n/a | identical to `dev` except the session start sentence |
+
+**How.** 12 tasks. Whole-file passes in sequence (format and imports, small rules, types, the test file), then a pilot group of functions, then six groups decomposed in parallel git worktrees and merged without conflict. No suppression comment, no config change. 15 broad `except Exception` handlers stay broad with `logger.debug(..., exc_info=True)` (owner decision, 2026-11-26). Functions over 5 parameters with outside callers take typed `**options` (`Unpack[TypedDict]`), so no calling file changed. 104 names that live in `check`, `notes` and `index` remain readable as `mem.<name>` through a module `__getattr__`.
+
+**Cost in shape.** The file grew by about 73% (formatter line length 100 plus helper extraction): the gate was met by more, smaller functions, not by a shorter file.
+
+**Defect caught by review.** An "unused" variable in `unify_notes` was an implicit refusal of a note resolved outside the store; removing it as dead code changed behavior. Neither the tests nor the golden run covered it. Restored explicitly in `841f436`.
+
+**Lesson for the next large file** (`check.py`, `notes.py` and others are not clean yet): record a golden comparison on a copy of real data before the first edit, and decompose one pilot group before the parallel fan-out, so the recipe (helpers, `**options`, logging) is settled once. Treat every "unused" or "unreachable" finding as a possible implicit behavior and ask what it did before deleting it.

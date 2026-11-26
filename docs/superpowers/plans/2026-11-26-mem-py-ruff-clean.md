@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: confirmed by the owner on 2026-11-26 (debug-logging recipe included), in progress · Branch: `fix/prompt-review-2026-11-26` · Date: 2026-11-26
+Status: done 2026-11-26, review pending · Branch: `fix/prompt-review-2026-11-26` · Date: 2026-11-26
 
 **Goal:** `plugins/memory/engine/mem.py` and `plugins/memory/engine/tests/test_curation.py` pass the commit gate of ADR 0031 with no finding, behavior unchanged, so the one-sentence change to the session start text can be committed.
 
@@ -146,10 +146,10 @@ Task 8 runs first, alone, as the pilot: it holds `cmd_curate`, the most complex 
 
 Steps, the same for each task:
 
-- [ ] **Step 1:** List the task's findings: `uvx ruff@0.17.6 check --no-fix --output-format concise plugins/memory/engine/mem.py`, kept to the lines inside its functions.
-- [ ] **Step 2:** One function at a time, smallest first: extract helpers along seams until the function and its helpers have no structural finding. A `cmd_*` function with a subcommand chain becomes a dispatch through a dict of handlers, each handler `(args: argparse.Namespace) -> int`. Too many arguments (`PLR0913`, `PLR0917`) on a function whose signature must stay: stop and report it, unless the extra arguments are internal to helpers you created, which take a small frozen dataclass instead. Run the tests of the area after each function (`pytest plugins/memory/engine/tests -q -n auto -k <name>` when a narrower selection exists, else the full suite).
-- [ ] **Step 3:** Gate: full tests pass; no structural finding inside the task's functions and helpers; no new finding of any other rule; `ruff format --check` passes; the type gate still reports 0; golden comparison shows only the session start sentence. Commit in the worktree.
-- [ ] **Step 4:** Report: per function, complexity before and after and the helpers created; any function left with a finding and why.
+- [x] **Step 1:** List the task's findings: `uvx ruff@0.17.6 check --no-fix --output-format concise plugins/memory/engine/mem.py`, kept to the lines inside its functions.
+- [x] **Step 2:** One function at a time, smallest first: extract helpers along seams until the function and its helpers have no structural finding. A `cmd_*` function with a subcommand chain becomes a dispatch through a dict of handlers, each handler `(args: argparse.Namespace) -> int`. Too many arguments (`PLR0913`, `PLR0917`) on a function whose signature must stay: stop and report it, unless the extra arguments are internal to helpers you created, which take a small frozen dataclass instead. Run the tests of the area after each function (`pytest plugins/memory/engine/tests -q -n auto -k <name>` when a narrower selection exists, else the full suite).
+- [x] **Step 3:** Gate: full tests pass; no structural finding inside the task's functions and helpers; no new finding of any other rule; `ruff format --check` passes; the type gate still reports 0; golden comparison shows only the session start sentence. Commit in the worktree.
+- [x] **Step 4:** Report: per function, complexity before and after and the helpers created; any function left with a finding and why.
 
 Before the fan-out the controller adds to `mem.py` any helper two groups would both write (a plural helper for the `'' if n == 1 else 's'` pattern, and others the pilot reveals) and names them in each brief; a task that needs a new import reports it instead of adding it. Merge, by the controller, after each task's review: `git merge` the branches one by one, in file order, and after each merge run full Ruff (a duplicate helper shows as `F811`), the type gate, the tests and the golden comparison. A conflict outside the two blank lines between neighbouring groups, or an `F811`, stops the merges: rebase the remaining branches one at a time.
 
@@ -158,10 +158,10 @@ Before the fan-out the controller adds to `mem.py` any helper two groups would b
 **Files:**
 - Modify: `plugins/memory/CHANGELOG.md`, `plugins/memory/README.md` (the sentence that quotes the old session start text), `docs/backlog.md`, `docs/superpowers/plans/2026-11-26-prompt-review-fixes.md` (tick 4b), `docs/adr/0031-a-touched-python-file-passes-ruff-and-basedpyright.md` (`## Review 2026-11-26`: `mem.py` clean, counts before and after, what the cleanup cost).
 
-- [ ] **Step 1:** `pre-commit run --files plugins/memory/engine/mem.py plugins/memory/engine/tests/test_curation.py`. Expected: every hook passes and changes nothing.
-- [ ] **Step 2:** Full tests; golden comparison (only the session start sentence differs); `python3 scripts/validate.py`; `claude plugin validate .`.
-- [ ] **Step 3:** One line under `## [Unreleased]` of the memory changelog: the session start text names `memory:memory-curator` when curation is due. The refactor itself needs no line (pure refactor).
-- [ ] **Step 4:** Update the README sentence, the backlog row left open by the prompt review, the 4b tick and the ADR 0031 review. Commit with every hook on.
+- [x] **Step 1:** `pre-commit run --files plugins/memory/engine/mem.py plugins/memory/engine/tests/test_curation.py`. Expected: every hook passes and changes nothing.
+- [x] **Step 2:** Full tests; golden comparison (only the session start sentence differs); `python3 scripts/validate.py`; `claude plugin validate .`.
+- [x] **Step 3:** One line under `## [Unreleased]` of the memory changelog: the session start text names `memory:memory-curator` when curation is due. The refactor itself needs no line (pure refactor).
+- [x] **Step 4:** Update the README sentence, the backlog row left open by the prompt review, the 4b tick and the ADR 0031 review. Commit with every hook on.
 
 ## Decisions taken, with reasons
 
