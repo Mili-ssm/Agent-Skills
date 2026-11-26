@@ -1,6 +1,7 @@
-"""Memory records: one Markdown file with YAML frontmatter per memory.
+"""The records facade: re-exports the names importers reach as `records.<name>`; the code lives in the sibling modules.
 
-Imports nothing from mem.py (mem.py imports this module), so similarity and match_memories take tokens or a tokenizer.
+Holds imports and `__all__` only. Store modules import the defining module, never this one (test_import_graph).
+Names that are not the store's own (`safe_load`, `datetime`, `replace`, `Path`) are here because importers reach them through it.
 """
 
 from __future__ import annotations
