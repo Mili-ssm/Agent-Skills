@@ -135,7 +135,9 @@ def test_session_end_ignores_an_unmarked_default_folder(tmp_path):
 
 
 def _env_file_run(tmp_path, **extra):
-    root = _plugin(tmp_path)
+    root = tmp_path / "plug"
+    if not root.exists():
+        root = _plugin(tmp_path)
     envfile = tmp_path / "envfile"
     envfile.write_text("")
     r = _run(root, "session-env.sh", _env(tmp_path, CLAUDE_ENV_FILE=str(envfile), **extra))
@@ -149,13 +151,13 @@ def test_session_env_option_set(tmp_path):
     assert "export MEM_STORE=" in exported
 
 
-def test_session_env_option_cleared_removes_the_config_file(tmp_path):
+def test_session_env_option_cleared_keeps_a_file_it_has_no_record_of(tmp_path):
     cfg = tmp_path / "cfg" / "agent-memory"
     cfg.mkdir(parents=True)
     (cfg / "store").write_text("/old\n")
     r, exported = _env_file_run(tmp_path)
     assert r.returncode == 0 and not r.stderr
-    assert not (cfg / "store").exists()
+    assert (cfg / "store").read_text() == "/old\n"
     assert "MEM_STORE" not in exported
 
 
@@ -203,3 +205,100 @@ def test_session_env_without_its_helper_starts_no_init(tmp_path):
     r = _run(root, "session-env.sh", _env(tmp_path, CLAUDE_ENV_FILE=str(envfile)))
     assert r.returncode == 0 and not r.stderr
     assert not calls.exists() or "init" not in calls.read_text()
+
+
+def _cfg(tmp_path):
+    cfg = tmp_path / "cfg" / "agent-memory"
+    cfg.mkdir(parents=True, exist_ok=True)
+    return cfg
+
+
+@pytest.mark.parametrize("name", PRINTING)
+def test_a_config_file_store_is_left_to_mem(tmp_path, name):
+    root = _plugin(tmp_path)
+    (_cfg(tmp_path) / "store").write_text("/from/file\n")
+    _default_store(tmp_path, marked=True)
+    r = _run(root, name, _env(tmp_path))
+    assert r.returncode == 0 and not r.stderr
+    assert "STORE=unset" in r.stdout
+
+
+def test_session_end_leaves_a_config_file_store_to_mem(tmp_path):
+    (_cfg(tmp_path) / "store").write_text("/from/file\n")
+    _default_store(tmp_path, marked=True)
+    r, calls = _session_end(tmp_path)
+    assert r.returncode == 0 and not r.stderr
+    assert "STORE=unset" in calls
+
+
+def test_session_env_keeps_a_hand_written_store_file(tmp_path):
+    cfg = _cfg(tmp_path)
+    (cfg / "store").write_text("/by/hand\n")
+    _default_store(tmp_path, marked=True)
+    r, exported = _env_file_run(tmp_path)
+    assert r.returncode == 0 and not r.stderr
+    assert (cfg / "store").read_text() == "/by/hand\n"
+    assert "MEM_STORE" not in exported
+
+
+def test_session_env_removes_the_file_it_wrote_when_the_option_is_cleared(tmp_path):
+    cfg = _cfg(tmp_path)
+    _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_STORE="/opt")
+    assert (cfg / "store.hook").read_text() == "/opt\n"
+    r, exported = _env_file_run(tmp_path)
+    assert r.returncode == 0 and not r.stderr
+    assert not (cfg / "store").exists() and not (cfg / "store.hook").exists()
+    assert "MEM_STORE" not in exported
+
+
+def test_session_env_clearing_the_option_removes_a_stale_record_only(tmp_path):
+    cfg = _cfg(tmp_path)
+    (cfg / "store").write_text("/by/hand\n")
+    (cfg / "store.hook").write_text("/opt\n")
+    r, _ = _env_file_run(tmp_path)
+    assert r.returncode == 0 and not r.stderr
+    assert (cfg / "store").read_text() == "/by/hand\n"
+    assert not (cfg / "store.hook").exists()
+
+
+def test_session_env_option_set_keeps_a_different_hand_written_file(tmp_path):
+    cfg = _cfg(tmp_path)
+    (cfg / "store").write_text("/by/hand\n")
+    r, exported = _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_STORE="/opt")
+    assert r.returncode == 0 and not r.stderr
+    assert (cfg / "store").read_text() == "/by/hand\n"
+    assert not (cfg / "store.hook").exists()
+    assert "export MEM_STORE=/opt" in exported
+
+
+def test_session_env_option_set_with_no_file_writes_file_and_record(tmp_path):
+    cfg = _cfg(tmp_path)
+    r, exported = _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_STORE="/opt")
+    assert r.returncode == 0 and not r.stderr
+    assert (cfg / "store").read_text() == "/opt\n"
+    assert (cfg / "store.hook").read_text() == "/opt\n"
+    assert "export MEM_STORE=/opt" in exported
+
+
+def test_session_env_updates_a_file_it_wrote_when_the_option_changes(tmp_path):
+    cfg = _cfg(tmp_path)
+    _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_STORE="/one")
+    _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_STORE="/two")
+    assert (cfg / "store").read_text() == "/two\n"
+    assert (cfg / "store.hook").read_text() == "/two\n"
+
+
+def test_session_env_memories_file_follows_the_same_rules(tmp_path):
+    cfg = _cfg(tmp_path)
+    _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_MEMORIES="/m")
+    assert (cfg / "memories").read_text() == "/m\n"
+    assert (cfg / "memories.hook").read_text() == "/m\n"
+    _env_file_run(tmp_path)
+    assert not (cfg / "memories").exists() and not (cfg / "memories.hook").exists()
+    (cfg / "memories").write_text("/by/hand\n")
+    r, exported = _env_file_run(tmp_path, CLAUDE_PLUGIN_OPTION_MEMORIES="/m")
+    assert r.returncode == 0 and not r.stderr
+    assert (cfg / "memories").read_text() == "/by/hand\n"
+    assert "export MEM_MEMORIES=/m" in exported
+    _env_file_run(tmp_path)
+    assert (cfg / "memories").read_text() == "/by/hand\n"

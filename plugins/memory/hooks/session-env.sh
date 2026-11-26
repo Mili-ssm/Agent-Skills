@@ -2,12 +2,14 @@
 # SessionStart hook: hands the plugin's `store` and `memories` options to the session's shell
 # commands (they do not receive plugin options) and to the config files `mem` falls back on.
 # With no `store` option it makes the default store on the first run and hands that one over.
+# A config file the hook did not write (no matching `<name>.hook` record) is never overwritten or removed.
 # Silent and always exit 0: a failing hook would disturb every session.
 cfg="${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 . "$here/store-env.sh" 2>/dev/null
 store_helper=1
 type default_store_dir >/dev/null 2>&1 || { store_helper=""; default_store_dir() { :; }; }   # helper missing: no default store, never a failure
+type config_store >/dev/null 2>&1 || config_store() { :; }
 export_var() { # <variable> <value>
   if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
     { printf 'export %s=%q\n' "$1" "$2" >> "$CLAUDE_ENV_FILE"; } 2>/dev/null
@@ -15,12 +17,19 @@ export_var() { # <variable> <value>
   return 0
 }
 handle() { # <option value> <config file name> <variable>
+  # `$cfg/<name>.hook` records what this hook wrote: a file with other content was written or edited by hand and stays.
+  local file="$cfg/$2" record="$cfg/$2.hook" current="" recorded=""
+  [ -f "$file" ] && current="$(cat "$file" 2>/dev/null; printf x)"
+  [ -f "$record" ] && recorded="$(cat "$record" 2>/dev/null; printf x)"
   if [ -z "$1" ]; then
-    # The option was cleared: the fallback file must not keep an old value alive.
-    rm -f "$cfg/$2" 2>/dev/null
+    # The option was cleared: remove the file only when this hook wrote it.
+    [ -n "$current" ] && [ "$current" = "$recorded" ] && rm -f "$file" 2>/dev/null
+    rm -f "$record" 2>/dev/null
     return 0
   fi
-  { mkdir -p "$cfg" && printf '%s\n' "$1" > "$cfg/$2"; } >/dev/null 2>&1
+  if [ -z "$current" ] || [ "$current" = "$recorded" ]; then
+    { mkdir -p "$cfg" && printf '%s\n' "$1" > "$file" && printf '%s\n' "$1" > "$record"; } >/dev/null 2>&1
+  fi
   export_var "$3" "$1"
 }
 default_store() {
@@ -42,9 +51,9 @@ default_store() {
 if [ -n "${CLAUDE_PLUGIN_OPTION_STORE:-}" ]; then
   handle "$CLAUDE_PLUGIN_OPTION_STORE" store MEM_STORE
 else
-  # The option was cleared: the fallback file must not keep an old path alive.
-  rm -f "$cfg/store" 2>/dev/null
-  default_store
+  handle "" store MEM_STORE
+  # A `store` config file that names a store is `mem`'s to resolve: no default store is exported over it.
+  [ -z "$(config_store)" ] && default_store
 fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
 # mem-research, run from a shell command of this session, needs the claude binary and the owner's default depth; the
@@ -71,6 +80,7 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_SETTLE:-}" = "true" ]; then
   # `settle log` creates the settle state when it is missing and records the memories that exist as judged, so the
   # first write after the option is turned on is not taken as already judged.
   store="${CLAUDE_PLUGIN_OPTION_STORE:-}"
+  [ -n "$store" ] || store="$(config_store)"
   [ -n "$store" ] || store="$(default_store_dir)"
   if [ -n "$here" ] && [ -n "$store" ]; then
     if command -v timeout >/dev/null 2>&1; then
