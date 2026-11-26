@@ -1,4 +1,5 @@
 """mem-corroborate: the state folder, the journal and undo, and the commands that need nothing else (stdlib, `auto_state`, `safe_io`; no yaml)."""
+
 from __future__ import annotations
 
 import hashlib
@@ -13,8 +14,7 @@ from pathlib import Path
 import auto_state as au
 import safe_io
 
-
-DEFAULT_BUDGET = 0.25   # USD per session
+DEFAULT_BUDGET = 0.25  # USD per session
 
 
 STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
@@ -77,17 +77,28 @@ def read_bytes(path: Path) -> bytes | None:
         return None
 
 
+FILL_NEWS = (
+    "written",
+    "refused_code",
+    "refused_check",
+    "to_triage",
+    "stopped",
+)  # the counts `status` reports
+
+
 class Journal:
     """The undo record of one run: `commit` after an action compares each watched file with its text before."""
 
     def __init__(self, run: Path):
         self.run = run
-        self.seen: dict[str, bool] = {}   # file -> created by this run
+        self.seen: dict[str, bool] = {}  # file -> created by this run
 
-    def before_name(self, path: Path) -> str:
+    @staticmethod
+    def before_name(path: Path) -> str:
         return hashlib.sha1(str(path).encode()).hexdigest()[:16]
 
-    def watch(self, paths) -> dict[Path, bytes | None]:
+    @staticmethod
+    def watch(paths) -> dict[Path, bytes | None]:
         """The files and the curation log beside each (an action may log the text it replaces)."""
         out = {Path(p): read_bytes(Path(p)) for p in paths}
         for p in list(out):
@@ -101,7 +112,9 @@ class Journal:
         found.setdefault(log, read_bytes(log))
         return found
 
-    def commit(self, action: str, before: dict[Path, bytes | None], folder: Path | None = None) -> None:
+    def commit(
+        self, action: str, before: dict[Path, bytes | None], folder: Path | None = None
+    ) -> None:
         """Journal every watched file that changed; with `folder`, files that appeared in it count as created."""
         paths = dict(before)
         if folder is not None and folder.is_dir():
@@ -109,19 +122,22 @@ class Journal:
                 paths.setdefault(p, None)
         for path, old in paths.items():
             now = read_bytes(path)
-            if now == old:
-                continue
-            key = str(path)
-            if key not in self.seen:
-                self.seen[key] = old is None
-                if old is not None:
-                    folder_b = self.run / "before"
-                    au.private_dir(folder_b)
-                    write_private_bytes(folder_b / self.before_name(path), old)
-            row = {"action": action, "file": key, "created": self.seen[key], "hash": digest(now)}
-            fd = os.open(self.run / "journal.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-            with os.fdopen(fd, "a", encoding="utf-8") as f:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+            if now != old:
+                self._record(action, path, old, now)
+
+    def _record(self, action: str, path: Path, old: bytes | None, now: bytes | None) -> None:
+        """Journal one changed file; the first change to it also saves its text before the run."""
+        key = str(path)
+        if key not in self.seen:
+            self.seen[key] = old is None
+            if old is not None:
+                folder_b = self.run / "before"
+                au.private_dir(folder_b)
+                write_private_bytes(folder_b / self.before_name(path), old)
+        row = {"action": action, "file": key, "created": self.seen[key], "hash": digest(now)}
+        fd = os.open(self.run / "journal.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as f:
+            f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
 def write_private_bytes(path: Path, data: bytes) -> None:
@@ -131,40 +147,49 @@ def write_private_bytes(path: Path, data: bytes) -> None:
         f.write(data)
 
 
-def undo_run(run: Path) -> tuple[bool, str]:
-    """(done, message). Changes nothing unless every journaled file that is not restored yet still holds what the run
-    left in it; a file already equal to its saved copy (or a created one already gone) counts as restored, so an
-    interrupted undo can be run again."""
-    if (run / "undone").exists():
-        return True, f"run {run.name} was already undone"
+class UndoRefusedError(Exception):
+    """An undo that must change nothing; the message says why."""
+
+
+def _journal_rows(run: Path) -> dict[str, dict]:
+    """The last journal row of each file the run changed."""
     journal = run / "journal.jsonl"
     if not journal.is_file():
-        return False, "this run has no journal: nothing to undo"
+        raise UndoRefusedError("this run has no journal: nothing to undo")
     last: dict[str, dict] = {}
     for text in journal.read_text(encoding="utf-8").splitlines():
         try:
             row = json.loads(text)
         except ValueError:
-            return False, "the journal cannot be read: nothing was changed"
+            raise UndoRefusedError("the journal cannot be read: nothing was changed") from None
         if isinstance(row, dict) and isinstance(row.get("file"), str):
             last[row["file"]] = row
-    todo: list[tuple[Path, bytes | None]] = []
-    for file, row in last.items():
-        path, now = Path(file), read_bytes(Path(file))
-        if row.get("created"):
-            saved = None
-            if now is None:
-                continue
-        else:
-            saved = read_bytes(run / "before" / Journal(run).before_name(path))
-            if saved is None:
-                return False, f"the saved copy of {file} is missing: nothing was changed"
-            if now == saved:
-                continue
-        if digest(now) != row.get("hash"):
-            return False, (f"{file} changed since the run: nothing was changed. Undo the later change first "
-                           "(mem restore for a memory), or leave the pass applied")
-        todo.append((path, saved))
+    return last
+
+
+def _to_restore(run: Path, file: str, row: dict) -> tuple[Path, bytes | None] | None:
+    """What to put back at `file` (None means remove it), or None when it is restored already."""
+    path, now = Path(file), read_bytes(Path(file))
+    if row.get("created"):
+        saved = None
+        if now is None:
+            return None
+    else:
+        saved = read_bytes(run / "before" / Journal.before_name(path))
+        if saved is None:
+            raise UndoRefusedError(f"the saved copy of {file} is missing: nothing was changed")
+        if now == saved:
+            return None
+    if digest(now) != row.get("hash"):
+        raise UndoRefusedError(
+            f"{file} changed since the run: nothing was changed. Undo the later change first "
+            "(mem restore for a memory), or leave the pass applied"
+        )
+    return path, saved
+
+
+def _restore(todo: list[tuple[Path, bytes | None]]) -> str | None:
+    """Put the files back; the message of the first failure, None when all are restored."""
     for path, saved in todo:
         try:
             if saved is None:
@@ -172,7 +197,27 @@ def undo_run(run: Path) -> tuple[bool, str]:
             else:
                 safe_io.replace_file(path, saved, mode=0o600)
         except OSError as exc:
-            return False, f"cannot restore {path}: {exc.strerror or type(exc).__name__}; run undo again to finish"
+            return f"cannot restore {path}: {exc.strerror or type(exc).__name__}; run undo again to finish"
+    return None
+
+
+def undo_run(run: Path) -> tuple[bool, str]:
+    """(done, message). Changes nothing unless every journaled file that is not restored yet still holds what the run
+    left in it; a file already equal to its saved copy (or a created one already gone) counts as restored, so an
+    interrupted undo can be run again."""
+    if (run / "undone").exists():
+        return True, f"run {run.name} was already undone"
+    try:
+        todo = [
+            step
+            for file, row in _journal_rows(run).items()
+            if (step := _to_restore(run, file, row))
+        ]
+    except UndoRefusedError as exc:
+        return False, str(exc)
+    failure = _restore(todo)
+    if failure:
+        return False, failure
     write_private(run / "undone", "")
     return True, f"undone: {len(todo)} files"
 
@@ -192,7 +237,7 @@ def forget_run(cdir: Path, run: Path) -> None:
 
 
 def cmd_undo(args) -> int:
-    if not STAMP_RE.fullmatch(args.stamp) or args.stamp in (".", ".."):
+    if not STAMP_RE.fullmatch(args.stamp) or args.stamp in {".", ".."}:
         print("mem-corroborate: not a run stamp", file=sys.stderr)
         return 2
     cdir = corroborate_dir(data_dir())
@@ -209,7 +254,9 @@ def cmd_undo(args) -> int:
             done, message = True, f"run {args.stamp} was already undone"
         else:
             done, message = undo_run(run)
-            if done and not (run / "fill").exists():   # a fill run never touched the pass's `seen.json`
+            if (
+                done and not (run / "fill").exists()
+            ):  # a fill run never touched the pass's `seen.json`
                 forget_run(cdir, run)
     finally:
         os.close(lock)
@@ -224,18 +271,23 @@ def cmd_status() -> int:
         return 0
     shown = data.get("state", "?")
     started = data.get("started")
-    if shown == "running" and isinstance(started, (int, float)) and time.time() - started > au.STALE_RUNNING_SECONDS:
+    if (
+        shown == "running"
+        and isinstance(started, (int, float))
+        and time.time() - started > au.STALE_RUNNING_SECONDS
+    ):
         shown = "failed (a run that did not finish)"
     print(f"last run: state {shown}, cost {float(data.get('cost') or 0):.3f} USD")
     failure = au.failure(data, time.time())
     if failure:
         print(f"unacknowledged failure: {failure.get('reason')} (mem-corroborate ack clears it)")
     fill = data.get("fill")
-    if isinstance(fill, dict) and (fill.get("written") or fill.get("refused_code") or fill.get("refused_check")
-                                   or fill.get("to_triage") or fill.get("stopped")):
+    if isinstance(fill, dict) and any(fill.get(k) for k in FILL_NEWS):
         refused = (fill.get("refused_code") or 0) + (fill.get("refused_check") or 0)
         stopped = f", stopped: {fill['stopped']}" if fill.get("stopped") else ""
-        print(f"last fill: {fill.get('written') or 0} written, {refused} refused, {fill.get('to_triage') or 0} to triage{stopped}")
+        print(
+            f"last fill: {fill.get('written') or 0} written, {refused} refused, {fill.get('to_triage') or 0} to triage{stopped}"
+        )
     print(f"log: {data.get('log') or '(none)'}")
     return 0
 
@@ -246,8 +298,11 @@ def cmd_ack() -> int:
     if current:
         changes: dict = {"failure": None}
         started = current.get("started")
-        if (current.get("state") == "running" and isinstance(started, (int, float))
-                and time.time() - started > au.STALE_RUNNING_SECONDS):
+        if (
+            current.get("state") == "running"
+            and isinstance(started, (int, float))
+            and time.time() - started > au.STALE_RUNNING_SECONDS
+        ):
             changes["state"] = "failed"
         save_status(cdir, **changes)
     print("acknowledged: the failure line is cleared")

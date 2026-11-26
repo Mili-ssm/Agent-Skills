@@ -176,6 +176,10 @@ def two_projects(w):
     return ident(w, "Brief the subagent"), ident(w, "Give a subagent")
 
 
+def test_state_module_keeps_the_curation_log_name_of_records():
+    assert corroborate_state.CURATION_LOG == records.CURATION_LOG   # a local copy that must not drift
+
+
 def test_two_projects_make_one_established_global_record(w):
     a, b = two_projects(w)
     model(w, [group(a, b)])
