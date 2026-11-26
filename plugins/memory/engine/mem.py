@@ -37,7 +37,7 @@ from capture import state as capture_state
 from core import auto_state, config, jobs, safe_io, store_git
 from corroborate import decide as corroborate_decide
 from digest import lessons as digest_lessons
-from memories import records, rules, shortcheck
+from memories import model, records, rules
 from memories.records import tokenize
 from notes import check as check_rules
 from notes import due as due_queries
@@ -3539,7 +3539,7 @@ def _check_short_claim(args: argparse.Namespace, claim: str) -> int | None:
             "mem: --user-read goes with --short: it says the owner read that text.", file=sys.stderr
         )
         return 2
-    if args.short and not user_read and (reasons := shortcheck.problems(claim, args.short)):
+    if args.short and not user_read and (reasons := model.short_problems(claim, args.short)):
         print(
             "mem: the short form is refused: "
             + "; ".join(reasons)

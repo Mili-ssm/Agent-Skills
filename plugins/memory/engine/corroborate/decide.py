@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from capture import extract as capture_extract
-from memories import records, rules, shortcheck
+from memories import model, records, rules
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
@@ -816,7 +816,7 @@ def reword_survivors(
     proposed: Mapping[str, dict], items: Sequence[tuple[str, records.Memory]]
 ) -> tuple[list[tuple[str, records.Memory, str]], dict[str, str]]:
     """The proposals fit to go to the checking session, as (id, memory, short), and a refusal word for each other
-    proposal: `same_text` (an earlier wording), `refused_code` (any other problem, or `shortcheck`). An id the writer
+    proposal: `same_text` (an earlier wording), `refused_code` (any other problem, or `short_problems`). An id the writer
     did not answer is in neither."""
     kept: list[tuple[str, records.Memory, str]] = []
     refused: dict[str, str] = {}
@@ -826,7 +826,7 @@ def reword_survivors(
             continue
         if got.get("problem") == "same as an earlier wording":
             refused[ident] = "same_text"
-        elif got.get("problem") or shortcheck.problems(m.claim, got["short"]):
+        elif got.get("problem") or model.short_problems(m.claim, got["short"]):
             refused[ident] = "refused_code"
         else:
             kept.append((ident, m, got["short"]))

@@ -1015,7 +1015,7 @@ OTHER = "Keep a failing command's output in a file, as it may help when it is lo
 OTHER_SHORT = "Keep a failing command's output in a file, as it may help."
 CODE_REFUSED = {
     NARROW: "Run the narrowest covering test before the whole suite."
-}  # the hedge is gone: shortcheck refuses it
+}  # the hedge is gone: short_problems refuses it
 
 
 def count_of(w, claim):

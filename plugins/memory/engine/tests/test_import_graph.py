@@ -165,7 +165,7 @@ def test_engine_modules_use_no_dynamic_import():
 
 
 MEMORY_AND_NOTE_MODULES = (
-    tuple(f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints"))
+    tuple(f"memories.{name}" for name in ("records", "rules", "fingerprints"))
     + tuple(f"notes.{name}" for name in ("index", "note", "check"))
     + tuple(SYNTHESES_MODULES)
 )
