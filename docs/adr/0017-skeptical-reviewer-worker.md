@@ -83,3 +83,19 @@ The same day the owner raised `skeptical-reviewer` from effort `medium` to `high
 ADR 0019 makes `skeptical-reviewer` the task reviewer of the Superpowers plan loop and the reviewer after its last task; ADR 0021 moves the owner's review rows into `user-config/routing.md`.
 
 The kill criterion "More than 2 dispatches per change in a trace" no longer holds as written: one review per plan task and several narrow reviews per change are intended (owner, 2026-11-15). No replacement criterion has been set by the owner; ADR 0021 proposes one for the review rows. In the 62 sessions measured, the reviewer was dispatched 496 times against 530 `implementer` dispatches.
+
+## Measurement 2026-11-26
+
+The offload policy's `skeptical-reviewer` row and closing line now name the two-round limit ("re-run it once after fixing (round 2 is the last)"; "and round 2 has not run"), which until now only `user-config/routing.md` stated (project review 2026-11-24, P4). Sonnet main, 2 runs, `--scaffold`; the same run carries body changes to `check-runner`, `implementer` and `ui-verifier` (changelog, Unreleased).
+
+| Case | Last record | 2026-11-26 (2 runs) |
+|---|---|---|
+| `offload-skeptical-reviewer-with-policy` | 2/6 | 2/2 |
+| `offload-check-runner-with-policy` | rerun 6/6 | 2/2 |
+| `offload-summarizer-with-policy` · `-extract-` | 3/3 · 3/3 | 2/2 · 2/2 |
+| `offload-implementer-with-policy` | 0.17 | 0/2: implemented 2/2, no dispatch |
+| `offload-ui-verifier-with-policy` | rerun 6/6 | 0/2: `delegated`, `inline`, `js-defect` 2/2; `faq-works` 1/2; `mobile-defect` 0/2 |
+
+- The four cases that ran clean hold their records, so the change is kept. The reviewer case moved from 2/6 to 2/2 on 2 runs, too few to claim a gain.
+- `offload-implementer-with-policy` was not rerun at 6 runs, against the Eval protocol: its record is a score of 0.17 (about 1 run in 6), so a drop of 2 runs of 6 cannot show.
+- `offload-ui-verifier-with-policy` fails on its browser graders because no browser launches in the eval sandbox (Playwright finds no Chromium; system Chrome exits on the read-only `$HOME`); dispatch is 2/2. It fell below its record and was not rerun at 6 runs either: the owner set backlog 3g aside on 2026-11-26, and it stays open.
