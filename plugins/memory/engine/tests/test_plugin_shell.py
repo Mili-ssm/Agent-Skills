@@ -5,10 +5,10 @@ import subprocess
 import time
 from pathlib import Path
 
-import handoff
 import mem
 import pytest
 import store_git
+from session import handoff
 from test_capture_auto import hook as capture_hook
 from test_capture_auto import world
 from test_mem_capture import FAKE

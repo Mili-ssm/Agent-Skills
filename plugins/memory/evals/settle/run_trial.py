@@ -44,8 +44,8 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import records
-import settle_state
 import trial_env
+from settle import state as settle_state
 from synthesize import pipeline as sp
 
 PLUGIN = trial_env.PLUGIN

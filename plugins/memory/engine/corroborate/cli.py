@@ -12,8 +12,8 @@ import tempfile
 import time
 from pathlib import Path
 
-import capture_state as cs
 import jobs
+from capture import state as cs
 
 from corroborate import digest as corroborate_digest
 from corroborate import fill as corroborate_fill

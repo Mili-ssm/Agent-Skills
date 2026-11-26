@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import capture
 import records
 import rules
 import shortcheck
+from capture import extract as capture_extract
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
@@ -738,7 +738,11 @@ def _failure_signals(body: str) -> list[str]:
     seen: list[str] = []
     for text in (body or "").splitlines():
         found = _SEEN_AGAIN.search(text)
-        if found and capture.outcome(found.group(1)) == "failed" and found.group(1) not in seen:
+        if (
+            found
+            and capture_extract.outcome(found.group(1)) == "failed"
+            and found.group(1) not in seen
+        ):
             seen.append(found.group(1))
     return seen
 

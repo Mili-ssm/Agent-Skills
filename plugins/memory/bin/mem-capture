@@ -43,13 +43,13 @@ HERE = Path(__file__).resolve().parent
 LOCK_POLL_SECONDS = 5.0
 MIN_LOCK_POLL_SECONDS = 0.01
 sys.path.insert(0, str(HERE.parent / "engine"))
-import capture_state as cs
 import headless
 import jobs
+from capture import state as cs
 
 IMPORT_ERROR: Exception | None = None
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
-    capture = importlib.import_module("capture")
+    capture = importlib.import_module("capture.extract")
     records = importlib.import_module("records")
     sp = importlib.import_module("synthesize.pipeline")
 except Exception as _exc:  # ruff: ignore[blind-except] - any failure to load is reported, never raised

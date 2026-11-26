@@ -11,10 +11,10 @@ from types import SimpleNamespace
 import jobs
 import mem
 import pytest
-import settle
-import settle_state
+from settle import state as settle_state
+from settle import verdicts as settle_verdicts
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 SETTLE = PLUGIN / "bin" / "mem-settle"
 SESSION_ENV = PLUGIN / "hooks" / "session-env.sh"
 SESSION_END = PLUGIN / "hooks" / "session-end.sh"
@@ -287,7 +287,9 @@ def test_a_memory_edit_starts_the_run_too(world, on, capsys):
     assert (
         mem.main(["--root", str(world.store), "settle", "ack"]) == 0
     )  # state exists; new-one is unjudged
-    settle.save_state(world.folder, {**settle.load_state(world.folder), "judged": ["old-one"]})
+    settle_verdicts.save_state(
+        world.folder, {**settle_verdicts.load_state(world.folder), "judged": ["old-one"]}
+    )
     assert (
         mem.main([
             "--root",
@@ -341,14 +343,14 @@ def test_a_broken_trigger_never_fails_the_write(world, on, monkeypatch):
 
     monkeypatch.setattr(settle_state.subprocess, "Popen", boom)
     assert remember(world) == 0
-    monkeypatch.setattr(settle, "due", lambda *a, **k: 1 / 0)
+    monkeypatch.setattr(settle_verdicts, "due", lambda *a, **k: 1 / 0)
     assert remember(world, claim="Another unrelated claim about zebras.") == 0
 
 
 def test_a_recent_apply_keeps_the_trigger_quiet(world, on):
     seed(world, new=False)
-    state = settle.load_state(world.folder)
-    settle.save_state(world.folder, {**state, "last_apply": time.time()})
+    state = settle_verdicts.load_state(world.folder)
+    settle_verdicts.save_state(world.folder, {**state, "last_apply": time.time()})
     assert remember(world) == 0
     time.sleep(NEGATIVE_WINDOW)
     assert calls(world) == 0
@@ -379,7 +381,7 @@ def test_session_start_hook_exports_the_variables_and_initializes_the_state_only
         check=False,
     )
     assert "MEM_SETTLE" not in (off.read_text() if off.exists() else "")
-    assert not (world.folder / settle.STATE_NAME).exists()
+    assert not (world.folder / settle_verdicts.STATE_NAME).exists()
     on_file = world.tmp / "env-on"
     done = subprocess.run(
         [str(SESSION_ENV)],
@@ -398,7 +400,9 @@ def test_session_start_hook_exports_the_variables_and_initializes_the_state_only
     text = on_file.read_text()
     assert done.returncode == 0 and not done.stdout and "export MEM_SETTLE_AUTO=1" in text
     assert "MEM_SETTLE_MINUTES=12" in text and f"MEM_SETTLE_CLAUDE={world.fake}" in text
-    assert "old-one" in json.loads((world.folder / settle.STATE_NAME).read_text())["judged"]
+    assert (
+        "old-one" in json.loads((world.folder / settle_verdicts.STATE_NAME).read_text())["judged"]
+    )
 
 
 def test_session_end_hook_starts_the_run_only_when_the_option_is_true(world):

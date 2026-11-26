@@ -5,12 +5,12 @@ import os
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import digest
 import jobs
 import mem
 import records
 from corroborate import digest as corroborate_digest
 from corroborate_world import TODAY, calls, globals_, run, snapshot, w
+from digest import lessons as digest_module
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
 
@@ -128,7 +128,7 @@ def do_digest(w, **kw):
 
 
 def engine_digest():
-    return digest.read(mem.data_dir(os.environ))  # the folder the session start resolves
+    return digest_module.read(mem.data_dir(os.environ))  # the folder the session start resolves
 
 
 def digest_state(w):
@@ -167,12 +167,12 @@ def test_digest_writes_a_topic_the_engine_reads_as_fresh(w, monkeypatch):
     lessons = digest_lessons(w)
     stored = engine_digest()
     assert stored["topics"][DG_TOPIC]["heading"] == DG_HEADING
-    assert digest.heading(stored, DG_TOPIC, lessons) == DG_HEADING
+    assert digest_module.heading(stored, DG_TOPIC, lessons) == DG_HEADING
     for m in lessons:
         want = DG_LINES[[c for c, _s in DG_LESSONS].index(m.claim)]
-        assert digest.line(stored, DG_TOPIC, m, lessons) == want
+        assert digest_module.line(stored, DG_TOPIC, m, lessons) == want
     assert snapshot(w) == before  # no record is written
-    assert (w.data / digest.FILE).exists() and digest_state(w)["failures"]["count"] == 0
+    assert (w.data / digest_module.FILE).exists() and digest_state(w)["failures"]["count"] == 0
     assert not (w.cdir / "runs").exists()  # no journal: nothing to undo
 
 
@@ -192,7 +192,7 @@ def test_a_refused_line_falls_back_and_is_tried_twice(w, monkeypatch):
     assert do_digest(w) == DG_NOTHING and calls(w) == before  # nothing left to ask
     lessons, stored = digest_lessons(w), engine_digest()
     for m in lessons:
-        got = digest.line(stored, DG_TOPIC, m, lessons)
+        got = digest_module.line(stored, DG_TOPIC, m, lessons)
         assert got is None if m.claim == refused else got in DG_LINES
 
 
@@ -215,13 +215,13 @@ def test_a_reworded_lesson_gets_a_new_line_and_the_rest_keep_theirs(w, monkeypat
     lessons, stored = digest_lessons(w), engine_digest()
     for m in lessons:
         if m.handle == target.handle:
-            assert digest.line(stored, DG_TOPIC, m, lessons) == new_line
+            assert digest_module.line(stored, DG_TOPIC, m, lessons) == new_line
         else:
             assert (
                 stored["topics"][DG_TOPIC]["lines"][m.handle]
                 == first["topics"][DG_TOPIC]["lines"][m.handle]
             )
-            assert digest.line(stored, DG_TOPIC, m, lessons) is not None
+            assert digest_module.line(stored, DG_TOPIC, m, lessons) is not None
 
 
 def test_an_unusable_answer_changes_nothing_and_three_in_a_row_wait(w, monkeypatch):
@@ -235,7 +235,7 @@ def test_an_unusable_answer_changes_nothing_and_three_in_a_row_wait(w, monkeypat
             "tries": {},
             "failures": {"count": n, "fingerprint": state["failures"]["fingerprint"]},
         }
-    assert not (w.data / digest.FILE).exists()
+    assert not (w.data / digest_module.FILE).exists()
     before = calls(w)
     waiting = do_digest(w)
     assert calls(w) == before and "waiting" in waiting["stopped"]
@@ -252,7 +252,7 @@ def test_a_digest_checker_that_gives_no_usable_answer_is_a_failed_session(w, mon
     digest_answers(w, monkeypatch, checker="none")
     result = do_digest(w)
     assert result["stopped"] and result["headings_written"] == 0 and calls(w) == CALLS_OF_A_FULL_RUN
-    assert not (w.data / digest.FILE).exists() and digest_state(w)["tries"] == {}
+    assert not (w.data / digest_module.FILE).exists() and digest_state(w)["tries"] == {}
     assert digest_state(w)["failures"]["count"] == 1
 
 
@@ -266,7 +266,7 @@ def test_digest_dry_run_writes_the_sheet_and_nothing_else(w, monkeypatch):
     assert json.loads(done.stdout)["topics"] == 1 and calls(w) == CALLS_OF_A_FULL_RUN
     assert (
         snapshot(w) == before
-        and not (w.data / digest.FILE).exists()
+        and not (w.data / digest_module.FILE).exists()
         and not (w.cdir / "digest-attempts.json").exists()
     )
     rows = [x for x in sheet.read_text().splitlines() if x.startswith("| ") and "---" not in x][1:]
@@ -298,7 +298,10 @@ def test_digest_respects_the_lock(w, monkeypatch):
     finally:
         os.close(lock)
     assert "run is going" in result["stopped"] and result["headings_written"] == 0 and calls(w) == 0
-    assert not (w.data / digest.FILE).exists() and not (w.cdir / "digest-attempts.json").exists()
+    assert (
+        not (w.data / digest_module.FILE).exists()
+        and not (w.cdir / "digest-attempts.json").exists()
+    )
 
 
 def test_an_unwritable_sheet_does_not_fail_an_applied_digest_run(w, monkeypatch):
@@ -396,7 +399,7 @@ def test_a_run_with_nothing_to_write_still_prunes_and_starts_no_session(w, monke
         "of": "x",
         "lines": {"h1": {"text": "t", "of": "o", "under": "x"}},
     }
-    digest.write(data, stored)
+    digest_module.write(data, stored)
     state = digest_state(w)
     state["tries"]["h:vanished@x"] = 1
     state["tries"]["l:old@x@y"] = 2
@@ -406,7 +409,7 @@ def test_a_run_with_nothing_to_write_still_prunes_and_starts_no_session(w, monke
     assert list(engine_digest()["topics"]) == [DG_TOPIC] and digest_state(w)["tries"] == {}
     # a dry run prunes nothing
     stored["topics"]["vanished"] = {"heading": "when gone", "of": "x", "lines": {}}
-    digest.write(data, stored)
+    digest_module.write(data, stored)
     do_digest(w, apply=False)
     assert "vanished" in engine_digest()["topics"]
 
@@ -415,7 +418,9 @@ def test_a_run_that_writes_also_prunes(w, monkeypatch):
     digest_world(w)
     data = mem.data_dir(os.environ)
     assert data is not None
-    digest.write(data, {"topics": {"vanished": {"heading": "when gone", "of": "x", "lines": {}}}})
+    digest_module.write(
+        data, {"topics": {"vanished": {"heading": "when gone", "of": "x", "lines": {}}}}
+    )
     digest_answers(w, monkeypatch)
     assert do_digest(w)["headings_written"] == 1
     assert list(engine_digest()["topics"]) == [DG_TOPIC]
@@ -424,7 +429,7 @@ def test_a_run_that_writes_also_prunes(w, monkeypatch):
 def test_a_digest_that_cannot_be_written_is_a_counted_failed_run(w, monkeypatch):
     digest_world(w)
     digest_answers(w, monkeypatch)
-    (w.data / digest.FILE).mkdir()  # the path is taken by a directory: the write fails
+    (w.data / digest_module.FILE).mkdir()  # the path is taken by a directory: the write fails
     for n in (1, 2, 3):
         before = calls(w)
         result = do_digest(w)

@@ -34,7 +34,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import headless
 import jobs
-import settle_state as ss
+from settle import state as ss
 from synthesize import pipeline as sp
 from synthesize import run as synth_run
 

@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-import capture_state as cs
 import headless
 import jobs
 import records
+from capture import state as cs
 from synthesize import pipeline as sp
 
 from corroborate import decide as corroborate_decide
@@ -75,7 +75,7 @@ SESSION_VARS = (
 )
 
 
-# `settle_state.maybe_start` starts a run from these
+# `settle.state.maybe_start` starts a run from these
 SETTLE_VARS = ("MEM_SETTLE_AUTO", "MEM_SETTLE_MINUTES", "MEM_SETTLE_CLAUDE")
 
 

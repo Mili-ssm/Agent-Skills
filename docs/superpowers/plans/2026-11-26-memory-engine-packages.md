@@ -60,7 +60,7 @@ Order (fewest importers first; each task is one pull request on the previous bra
 - [x] Move `research_checks`, `research_pipeline`; a rule that no package except `research` (frozen, until A5) imports root `mem` or `run`; importers (`bin/mem-research`), tests to `tests/research/`; rule. Check: suite; `bin/mem-research --help` byte-identical.
 
 ### Task 3: `capture/`, `settle/`, `digest/`, `session/`
-- [ ] Clean `capture.py`; one commit per package; tests beside each; rules. Check: suite; `mem session-index` output on a fixture store byte-identical (a golden first if none exists).
+- [x] Clean `capture.py`; one commit per package; tests beside each; rules. Check: suite; `mem session-index` output on a fixture store byte-identical (a golden first if none exists).
 
 ### Task 4: `core/`
 - [ ] Move `config`, `safe_io`, `headless`, `jobs`, `auto_state`; `ruff.toml` py311 entries; the core-imports-only-core rule. Check: suite; self-checks on 3.11.15.

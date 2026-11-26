@@ -5,8 +5,8 @@ import json
 import sys
 from pathlib import Path
 
-import capture
 import mem
+from capture import extract as capture_extract
 
 FIVE_LINES = 5
 THREE_PIECES = 3
@@ -75,7 +75,7 @@ def test_extract_keeps_owner_agent_and_tool_events_with_line_numbers(tmp_path):
             result("b", "all passed"),
         ],
     )
-    out, last = capture.extract(p)
+    out, last = capture_extract.extract(p)
     assert out.splitlines() == [
         "[1] OWNER: use tabs, not spaces",
         "[2] AGENT: ok",
@@ -99,7 +99,7 @@ def test_extract_leaves_out_meta_summary_and_plain_results(tmp_path):
             result("a", "content of x"),
         ],
     )
-    assert capture.extract(p)[0].splitlines() == ["[5] TOOL Read: x.py"]
+    assert capture_extract.extract(p)[0].splitlines() == ["[5] TOOL Read: x.py"]
 
 
 def test_extract_tells_the_owner_from_reports(tmp_path):
@@ -116,7 +116,7 @@ def test_extract_tells_the_owner_from_reports(tmp_path):
             result("q", "the second\noption"),
         ],
     )
-    assert capture.extract(p)[0].splitlines() == [
+    assert capture_extract.extract(p)[0].splitlines() == [
         "[1] OWNER: typed by the owner",
         "[2] OWNER: an old prompt",
         "[3] OWNER: typed while the agent worked",
@@ -129,14 +129,16 @@ def test_extract_tells_the_owner_from_reports(tmp_path):
 
 def test_parts_and_counts():
     t = "\n".join(f"[{i}] OWNER: " + "x" * 90 for i in range(1, 1001))
-    pieces = capture.parts(t)
+    pieces = capture_extract.parts(t)
     assert (
         len(pieces) == THREE_PIECES
-        and all(len(x) <= capture.PART_SIZE for x in pieces)
+        and all(len(x) <= capture_extract.PART_SIZE for x in pieces)
         and "\n".join(pieces) == t
     )
-    assert capture.parts("") == [""] and capture.parts("a" * 50_000) == ["a" * 50_000]
-    assert capture.counts(
+    assert capture_extract.parts("") == [""] and capture_extract.parts("a" * 50_000) == [
+        "a" * 50_000
+    ]
+    assert capture_extract.counts(
         "[1] OWNER: a\n[2] OWNER ANSWER: b\n[3] TOOL ERROR Bash: c\n[4] TOOL Bash: d\n[5] REPORT: e"
     ) == {
         "OWNER": 1,
@@ -164,7 +166,7 @@ def test_extract_survives_bad_lines(tmp_path):
             },
         ],
     )
-    assert capture.extract(p) == ("[4] OWNER: fine", 6)
+    assert capture_extract.extract(p) == ("[4] OWNER: fine", 6)
 
 
 def test_extract_since_line_and_text_blocks(tmp_path):
@@ -175,17 +177,17 @@ def test_extract_since_line_and_text_blocks(tmp_path):
             {"type": "user", "origin": {"kind": "human"}, "message": {"content": [text("new")]}},
         ],
     )
-    assert capture.extract(p, since_line=1) == ("[2] OWNER: new", 2)
+    assert capture_extract.extract(p, since_line=1) == ("[2] OWNER: new", 2)
 
 
 def test_extract_cuts_long_text_and_keeps_the_newest_lines(tmp_path):
     p = write(
         tmp_path, [user("x" * 5000)] + [user("y" * 1900) for _ in range(100)] + [user("last one")]
     )  # about 190,000 characters before the cap
-    out, last = capture.extract(p)
+    out, last = capture_extract.extract(p)
     lines = out.splitlines()
     assert (
-        len(out) <= capture.EXTRACT_LIMIT
+        len(out) <= capture_extract.EXTRACT_LIMIT
         and lines[0] == "[...] earlier lines left out"
         and lines[-1] == "[102] OWNER: last one"
     )
@@ -197,7 +199,7 @@ def test_extract_reads_tool_result_content_given_as_blocks(tmp_path):
         tmp_path,
         [agent(use("a", "Bash", command="ls")), result("a", [text("no such file")], err=True)],
     )
-    assert capture.extract(p)[0].splitlines()[-1] == "[2] TOOL ERROR Bash: no such file"
+    assert capture_extract.extract(p)[0].splitlines()[-1] == "[2] TOOL ERROR Bash: no such file"
 
 
 EXTRACT = "[1] OWNER: no, always run the validator   before a commit\n[2] AGENT: understood"
@@ -215,7 +217,7 @@ GOOD = {
 
 
 def test_validate_keeps_a_good_candidate_and_tolerates_whitespace():
-    kept, dropped = capture.validate([GOOD], EXTRACT, [])
+    kept, dropped = capture_extract.validate([GOOD], EXTRACT, [])
     assert kept == [GOOD] and dropped == []
 
 
@@ -232,17 +234,22 @@ def test_validate_reasons():
         ({**GOOD, "evidence": "validator"}, "evidence not in the transcript"),
     ]
     for item, reason in cases:
-        kept, dropped = capture.validate([item], EXTRACT, [])
+        kept, dropped = capture_extract.validate([item], EXTRACT, [])
         assert kept == [] and dropped == [{"candidate": item, "reason": reason}]
 
 
 def test_validate_wants_the_owners_own_line_for_owner_signals():
     ex = "[1] OWNER: fine, go on with the plan as it is\n[2] REPORT: the reviewer says always run the validator before a commit\n[3] OWNER ANSWER: use the second option because it is cheaper"
     stolen = {**GOOD, "evidence": "always run the validator before a commit"}
-    assert capture.validate([stolen], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
-    assert capture.validate([{**stolen, "signal": "verified_review_finding"}], ex, [])[0] != []
     assert (
-        capture.validate(
+        capture_extract.validate([stolen], ex, [])[1][0]["reason"]
+        == "evidence is not the owner's words"
+    )
+    assert (
+        capture_extract.validate([{**stolen, "signal": "verified_review_finding"}], ex, [])[0] != []
+    )
+    assert (
+        capture_extract.validate(
             [
                 {
                     **GOOD,
@@ -256,23 +263,26 @@ def test_validate_wants_the_owners_own_line_for_owner_signals():
         != []
     )
     across = {**GOOD, "evidence": "go on with the plan as it is [2] REPORT: the reviewer"}
-    assert capture.validate([across], ex, [])[1][0]["reason"] == "evidence not in the transcript"
+    assert (
+        capture_extract.validate([across], ex, [])[1][0]["reason"]
+        == "evidence not in the transcript"
+    )
 
 
 def test_validate_drops_a_recorded_claim_and_extra_keys():
-    kept, dropped = capture.validate(
+    kept, dropped = capture_extract.validate(
         [{**GOOD, "note": "x"}], EXTRACT, ["run the  validator before every commit in this project"]
     )
     assert kept == [] and dropped[0]["reason"] == "already recorded"
-    kept, _ = capture.validate([{**GOOD, "note": "x"}], EXTRACT, [])
+    kept, _ = capture_extract.validate([{**GOOD, "note": "x"}], EXTRACT, [])
     assert kept == [GOOD]
 
 
 def test_validate_caps_the_kept_and_rejects_a_non_list():
     many = [{**GOOD, "claim": GOOD["claim"] + f" ({i})"} for i in range(7)]
-    kept, dropped = capture.validate(many, EXTRACT, [])
+    kept, dropped = capture_extract.validate(many, EXTRACT, [])
     assert len(kept) == KEPT_CAP and [d["reason"] for d in dropped] == ["over the limit"] * 2
-    assert capture.validate({"a": 1}, EXTRACT, []) == (
+    assert capture_extract.validate({"a": 1}, EXTRACT, []) == (
         [],
         [{"candidate": {"a": 1}, "reason": "not a list"}],
     )
@@ -281,10 +291,10 @@ def test_validate_caps_the_kept_and_rejects_a_non_list():
 def test_a_non_dict_origin_is_a_report_never_the_owner(tmp_path):
     for origin in ("peer", ["peer"], 7, {"kind": "system"}):
         p = write(tmp_path, [{"type": "user", "message": {"content": "x"}, "origin": origin}])
-        assert capture.extract(p)[0] == "[1] REPORT: x", origin
+        assert capture_extract.extract(p)[0] == "[1] REPORT: x", origin
     p = write(tmp_path, [{"type": "user", "message": {"content": "x"}, "origin": None}])
-    assert capture.extract(p)[0] == "[1] OWNER: x"
-    ex = capture.extract(
+    assert capture_extract.extract(p)[0] == "[1] OWNER: x"
+    ex = capture_extract.extract(
         write(
             tmp_path,
             [
@@ -296,7 +306,7 @@ def test_a_non_dict_origin_is_a_report_never_the_owner(tmp_path):
             ],
         )
     )[0]
-    kept, dropped = capture.validate([GOOD], ex, [])
+    kept, dropped = capture_extract.validate([GOOD], ex, [])
     assert kept == [] and dropped[0]["reason"] == "evidence is not the owner's words"
 
 
@@ -318,19 +328,21 @@ def test_extract_never_raises_on_a_line(tmp_path):
             user("fine"),
         ],
     )
-    assert capture.extract(p) == ("[2] TOOL Bash: ls\n[7] OWNER: fine", 7)
+    assert capture_extract.extract(p) == ("[2] TOOL Bash: ls\n[7] OWNER: fine", 7)
 
 
 def test_extract_cuts_a_huge_text_to_the_limit(tmp_path):
     p = write(tmp_path, [user("ab " * 1_666_667)])
-    out, _ = capture.extract(p)
+    out, _ = capture_extract.extract(p)
     assert len(out.split(": ", 1)[1]) == TEXT_CAP
 
 
 def test_validate_matches_the_body_only_not_the_prefix():
-    kept, dropped = capture.validate([{**GOOD, "evidence": "OWNER: no, always run"}], EXTRACT, [])
+    kept, dropped = capture_extract.validate(
+        [{**GOOD, "evidence": "OWNER: no, always run"}], EXTRACT, []
+    )
     assert kept == [] and dropped[0]["reason"] == "evidence not in the transcript"
-    kept, dropped = capture.validate(
+    kept, dropped = capture_extract.validate(
         [{**GOOD, "evidence": "[1] OWNER: real following"}],
         "[1] OWNER: real following text here",
         [],
@@ -338,7 +350,8 @@ def test_validate_matches_the_body_only_not_the_prefix():
     assert kept == [] and dropped[0]["reason"] == "evidence not in the transcript"
     quoted = "[1] AGENT: the owner said always run the validator before a commit"
     assert (
-        capture.validate([GOOD], quoted, [])[1][0]["reason"] == "evidence is not the owner's words"
+        capture_extract.validate([GOOD], quoted, [])[1][0]["reason"]
+        == "evidence is not the owner's words"
     )
 
 
@@ -347,9 +360,9 @@ def test_validate_stops_scanning_once_the_cap_is_reached(monkeypatch):
         {**GOOD, "claim": GOOD["claim"] + f" ({i})"} for i in range(5, 50)
     ]
     calls = []
-    real = capture._reason
-    monkeypatch.setattr(capture, "_reason", lambda *a: calls.append(1) or real(*a))
-    kept, dropped = capture.validate(many, EXTRACT, [])
+    real = capture_extract._reason
+    monkeypatch.setattr(capture_extract, "_reason", lambda *a: calls.append(1) or real(*a))
+    kept, dropped = capture_extract.validate(many, EXTRACT, [])
     assert (
         len(kept) == KEPT_CAP
         and len(calls) == KEPT_CAP
@@ -358,10 +371,10 @@ def test_validate_stops_scanning_once_the_cap_is_reached(monkeypatch):
 
 
 def test_validate_reach_and_the_new_signals():
-    kept, _ = capture.validate([{**GOOD, "reach": "general"}], EXTRACT, [])
+    kept, _ = capture_extract.validate([{**GOOD, "reach": "general"}], EXTRACT, [])
     assert kept[0]["reach"] == "general"
     no_reach = {k: v for k, v in GOOD.items() if k != "reach"}
-    kept, _ = capture.validate([no_reach], EXTRACT, [])
+    kept, _ = capture_extract.validate([no_reach], EXTRACT, [])
     assert kept == [GOOD] and list(kept[0]) == [
         "kind",
         "signal",
@@ -374,15 +387,17 @@ def test_validate_reach_and_the_new_signals():
         "same_as",
     ]
     bad = {**GOOD, "reach": "global"}
-    assert capture.validate([bad], EXTRACT, [])[1] == [{"candidate": bad, "reason": "reach"}]
+    assert capture_extract.validate([bad], EXTRACT, [])[1] == [
+        {"candidate": bad, "reason": "reach"}
+    ]
     ex = "[1] REPORT: the subagent failed to finish the task and left no diff"
     item = {
         **GOOD,
         "signal": "delegation_failed",
         "evidence": "failed to finish the task and left no diff",
     }
-    assert capture.validate([item], ex, [])[0] != []
-    assert capture.SIGNALS == (
+    assert capture_extract.validate([item], ex, [])[0] != []
+    assert capture_extract.SIGNALS == (
         "owner_correction",
         "failed_then_passed",
         "verified_review_finding",
@@ -418,7 +433,7 @@ def test_a_queued_command_is_the_owner_only_with_a_human_origin(tmp_path):
             user("   " * 6000 + "tail"),
         ],
     )
-    assert capture.extract(p)[0].splitlines() == [
+    assert capture_extract.extract(p)[0].splitlines() == [
         "[1] OWNER: typed by the owner",
         "[2] REPORT: a background task is done",
         "[3] REPORT: from another agent",
@@ -427,10 +442,10 @@ def test_a_queued_command_is_the_owner_only_with_a_human_origin(tmp_path):
 
 def test_lines_that_fail_for_another_reason_than_json_are_counted(tmp_path):
     p = write(tmp_path, ["not json", "[" * 100000, user("fine")])
-    assert capture.extract(p)[0] == "[3] OWNER: fine" and capture.last_skipped == 1
+    assert capture_extract.extract(p)[0] == "[3] OWNER: fine" and capture_extract.last_skipped == 1
     assert (
-        capture.extract(write(tmp_path, [user("fine")]))[0] == "[1] OWNER: fine"
-        and capture.last_skipped == 0
+        capture_extract.extract(write(tmp_path, [user("fine")]))[0] == "[1] OWNER: fine"
+        and capture_extract.last_skipped == 0
     )
 
 
@@ -442,7 +457,7 @@ HANDLES = {
 
 def test_validate_defaults_and_the_exact_keys_of_a_kept_item():
     bare = {k: v for k, v in GOOD.items() if k not in {"weight", "form", "same_as", "context"}}
-    kept, _ = capture.validate([bare], EXTRACT, [])
+    kept, _ = capture_extract.validate([bare], EXTRACT, [])
     assert kept == [{**GOOD, "context": ""}]
     assert list(kept[0]) == [
         "kind",
@@ -455,7 +470,7 @@ def test_validate_defaults_and_the_exact_keys_of_a_kept_item():
         "evidence",
         "same_as",
     ]
-    assert capture.REACHES == capture.records.REACHES and capture.FORMS == (
+    assert capture_extract.REACHES == capture_extract.records.REACHES and capture_extract.FORMS == (
         "suggestion",
         "recommendation",
     )
@@ -472,23 +487,26 @@ def test_validate_new_reasons():
         ({**GOOD, "same_as": "m:other"}, "same_as mismatch"),
     ]
     for item, reason in cases:
-        kept, dropped = capture.validate([item], EXTRACT, [], HANDLES)
+        kept, dropped = capture_extract.validate([item], EXTRACT, [], HANDLES)
         assert kept == [] and dropped == [{"candidate": item, "reason": reason}]
 
 
 def test_validate_orders_reasons_reach_weight_form():
     item = {**GOOD, "reach": "world", "weight": "heavy", "form": "order"}
-    assert capture.validate([item], EXTRACT, [])[1][0]["reason"] == "reach"
-    assert capture.validate([{**item, "reach": "project"}], EXTRACT, [])[1][0]["reason"] == "weight"
+    assert capture_extract.validate([item], EXTRACT, [])[1][0]["reason"] == "reach"
     assert (
-        capture.validate([{**item, "reach": "project", "weight": "light"}], EXTRACT, [])[1][0][
-            "reason"
-        ]
+        capture_extract.validate([{**item, "reach": "project"}], EXTRACT, [])[1][0]["reason"]
+        == "weight"
+    )
+    assert (
+        capture_extract.validate([{**item, "reach": "project", "weight": "light"}], EXTRACT, [])[1][
+            0
+        ]["reason"]
         == "form"
     )
     both = {**GOOD, "kind": "decision", "reach": "general", "same_as": "m:missing"}
     assert (
-        capture.validate([both], EXTRACT, [], HANDLES)[1][0]["reason"]
+        capture_extract.validate([both], EXTRACT, [], HANDLES)[1][0]["reason"]
         == "a decision is a project record"
     )
 
@@ -496,11 +514,12 @@ def test_validate_orders_reasons_reach_weight_form():
 def test_validate_a_sighting_skips_already_recorded_and_is_kept_once_per_record():
     item = {**GOOD, "same_as": "m:validator"}
     claim_line = [GOOD["claim"]]
-    assert capture.validate([item], EXTRACT, claim_line, HANDLES)[0] == [item]
+    assert capture_extract.validate([item], EXTRACT, claim_line, HANDLES)[0] == [item]
     assert (
-        capture.validate([GOOD], EXTRACT, claim_line, HANDLES)[1][0]["reason"] == "already recorded"
+        capture_extract.validate([GOOD], EXTRACT, claim_line, HANDLES)[1][0]["reason"]
+        == "already recorded"
     )
-    kept, dropped = capture.validate(
+    kept, dropped = capture_extract.validate(
         [item, {**item, "claim": GOOD["claim"] + " (again)"}], EXTRACT, [], HANDLES
     )
     assert kept == [item] and [d["reason"] for d in dropped] == ["same_as repeated"]
@@ -517,10 +536,10 @@ def test_a_hedged_sighting_is_kept_and_an_unrelated_record_is_not():
         "m:migrations": "Check migrations before merging schema changes.",
         "m:cooking": "Rinse the rice before cooking it.",
     }
-    kept, dropped = capture.validate([hedged], EXTRACT, [], handles)
+    kept, dropped = capture_extract.validate([hedged], EXTRACT, [], handles)
     assert kept == [hedged] and dropped == []
     other = {**hedged, "same_as": "m:cooking"}
-    assert capture.validate([other], EXTRACT, [], handles)[1] == [
+    assert capture_extract.validate([other], EXTRACT, [], handles)[1] == [
         {"candidate": other, "reason": "same_as mismatch"}
     ]
 
@@ -528,12 +547,12 @@ def test_a_hedged_sighting_is_kept_and_an_unrelated_record_is_not():
 def test_capture_imports_the_records_module_only():
     names = {
         a.name
-        for n in ast.walk(ast.parse(Path(capture.__file__).read_text(encoding="utf-8")))
+        for n in ast.walk(ast.parse(Path(capture_extract.__file__).read_text(encoding="utf-8")))
         if isinstance(n, ast.Import)
         for a in n.names
     }
     assert "mem" not in names and "records" in names
-    assert mem.tokenize is capture.records.tokenize
+    assert mem.tokenize is capture_extract.records.tokenize
 
 
 def test_validate_collapses_whitespace_and_cuts_the_context():
@@ -543,7 +562,7 @@ def test_validate_collapses_whitespace_and_cuts_the_context():
         "evidence": "always run the validator\nbefore a commit",
         "context": " the owner\n corrected  it " + "x" * 400,
     }
-    kept, dropped = capture.validate([item], EXTRACT, [])
+    kept, dropped = capture_extract.validate([item], EXTRACT, [])
     assert (
         dropped == []
         and kept[0]["claim"] == GOOD["claim"]
@@ -557,27 +576,30 @@ def test_validate_collapses_whitespace_and_cuts_the_context():
 
 def test_validate_turns_an_identical_claim_into_a_sighting_of_its_record():
     handles = {"m:validator": "  run the VALIDATOR before every   commit in this project"}
-    kept, dropped = capture.validate([GOOD], EXTRACT, [GOOD["claim"]], handles)
+    kept, dropped = capture_extract.validate([GOOD], EXTRACT, [GOOD["claim"]], handles)
     assert dropped == [] and kept == [{**GOOD, "same_as": "m:validator"}]
-    kept, dropped = capture.validate([GOOD, {**GOOD}], EXTRACT, [GOOD["claim"]], handles)
+    kept, dropped = capture_extract.validate([GOOD, {**GOOD}], EXTRACT, [GOOD["claim"]], handles)
     assert len(kept) == 1 and [d["reason"] for d in dropped] == ["same_as repeated"]
     # a claim recorded with no handle (a general memory) stays "already recorded"
     assert (
-        capture.validate([GOOD], EXTRACT, [GOOD["claim"]], {})[1][0]["reason"] == "already recorded"
+        capture_extract.validate([GOOD], EXTRACT, [GOOD["claim"]], {})[1][0]["reason"]
+        == "already recorded"
     )
 
 
 def test_a_calibrated_claim_may_run_to_400_characters():
     long = "In one session " + "x" * 385  # 400 characters
-    assert capture.validate([{**GOOD, "claim": long}], EXTRACT, [])[0][0]["claim"] == long
+    assert capture_extract.validate([{**GOOD, "claim": long}], EXTRACT, [])[0][0]["claim"] == long
     assert (
-        capture.validate([{**GOOD, "claim": long + "y"}], EXTRACT, [])[1][0]["reason"]
+        capture_extract.validate([{**GOOD, "claim": long + "y"}], EXTRACT, [])[1][0]["reason"]
         == "claim length"
     )
 
 
 def test_claim_length_is_measured_after_whitespace_is_collapsed():
-    kept, dropped = capture.validate([{**GOOD, "claim": "Run" + " " * 25 + "it"}], EXTRACT, [])
+    kept, dropped = capture_extract.validate(
+        [{**GOOD, "claim": "Run" + " " * 25 + "it"}], EXTRACT, []
+    )
     assert kept == [] and dropped[0]["reason"] == "claim length"
 
 
@@ -588,9 +610,9 @@ def test_what_worked_is_a_signal_too():
         "signal": "owner_approval",
         "evidence": "this way of splitting the brief worked really well",
     }
-    assert capture.validate([praised], ex, [])[0] != []
+    assert capture_extract.validate([praised], ex, [])[0] != []
     assert (
-        capture.validate(
+        capture_extract.validate(
             [{**praised, "evidence": "the narrow briefs all returned complete reports"}], ex, []
         )[1][0]["reason"]
         == "evidence is not the owner's words"
@@ -600,8 +622,8 @@ def test_what_worked_is_a_signal_too():
         "signal": "effective_practice",
         "evidence": "the narrow briefs all returned complete reports on the first try",
     }
-    assert capture.validate([paid_off], ex, [])[0] != []
-    assert capture.SIGNALS[-3:] == (
+    assert capture_extract.validate([paid_off], ex, [])[0] != []
+    assert capture_extract.SIGNALS[-3:] == (
         "owner_approval",
         "owner_request_paid_off",
         "effective_practice",
@@ -618,13 +640,16 @@ def test_a_step_the_owner_asked_for_that_paid_off_needs_the_owners_words():
         "signal": "owner_request_paid_off",
         "evidence": "run one more review before we publish",
     }
-    assert capture.validate([asked], ex, [])[0] != []
+    assert capture_extract.validate([asked], ex, [])[0] != []
     agent = {**asked, "evidence": "the review found a stale link in the changelog"}
-    assert capture.validate([agent], ex, [])[1][0]["reason"] == "evidence is not the owner's words"
+    assert (
+        capture_extract.validate([agent], ex, [])[1][0]["reason"]
+        == "evidence is not the owner's words"
+    )
 
 
 def test_the_brief_names_every_signal_and_the_amended_exclusion(monkeypatch):
-    path = Path(__file__).resolve().parents[2] / "bin" / "mem-capture"
+    path = Path(__file__).resolve().parents[3] / "bin" / "mem-capture"
     loader = importlib.machinery.SourceFileLoader("mem_capture_brief", str(path))
     spec = importlib.util.spec_from_loader("mem_capture_brief", loader)
     assert spec is not None
@@ -632,7 +657,7 @@ def test_the_brief_names_every_signal_and_the_amended_exclusion(monkeypatch):
     # @dataclass before Python 3.15 looks the module up in sys.modules
     monkeypatch.setitem(sys.modules, spec.name, mod)
     loader.exec_module(mod)
-    for name in capture.SIGNALS:
+    for name in capture_extract.SIGNALS:
         assert f'"{name}"' in mod.BRIEF
     assert (
         'leave it out, unless the step the owner asked for visibly paid off (the signal "owner_request_paid_off").'
@@ -651,17 +676,17 @@ def line_len(
 
 
 def budget():
-    return capture.EXTRACT_LIMIT - len(capture.LEFT_OUT_MARKER) - 1
+    return capture_extract.EXTRACT_LIMIT - len(capture_extract.LEFT_OUT_MARKER) - 1
 
 
 def test_forward_stops_when_full(tmp_path):
     p = long_session(tmp_path)
-    out, last = capture.extract(p, 0, forward=True)
-    assert len(out) <= capture.EXTRACT_LIMIT and out.startswith("[1] OWNER:")
+    out, last = capture_extract.extract(p, 0, forward=True)
+    assert len(out) <= capture_extract.EXTRACT_LIMIT and out.startswith("[1] OWNER:")
     assert (
         0 < last < SESSION_LINES
-        and capture.last_more is True
-        and capture.LEFT_OUT_MARKER not in out
+        and capture_extract.last_more is True
+        and capture_extract.LEFT_OUT_MARKER not in out
     )
     assert len(out.splitlines()) == last
     # as full as fits: the next line would not have gone in
@@ -673,37 +698,41 @@ def test_forward_windows_cover_every_line_once(tmp_path):
     seen, last = [], 0
     while True:
         prev = last
-        out, last = capture.extract(p, last, forward=True)
+        out, last = capture_extract.extract(p, last, forward=True)
         assert last > prev
         seen += [int(l[1 : l.index("]")]) for l in out.splitlines()]
-        if not capture.last_more:
+        if not capture_extract.last_more:
             break
     assert seen == list(range(1, 201))
 
 
 def test_forward_short_transcript(tmp_path):
     p = write(tmp_path, [user(f"line {i}") for i in range(5)])
-    out, last = capture.extract(p, 0, forward=True)
-    assert last == FIVE_LINES and capture.last_more is False and out == capture.extract(p, 0)[0]
+    out, last = capture_extract.extract(p, 0, forward=True)
+    assert (
+        last == FIVE_LINES
+        and capture_extract.last_more is False
+        and out == capture_extract.extract(p, 0)[0]
+    )
 
 
 def test_forward_keeps_an_oversized_first_line(tmp_path, monkeypatch):
-    monkeypatch.setattr(capture, "EXTRACT_LIMIT", 300)
+    monkeypatch.setattr(capture_extract, "EXTRACT_LIMIT", 300)
     p = write(tmp_path, [user("x" * 2000), user("second")])
-    out, last = capture.extract(p, 0, forward=True)
-    assert out and last == 1 and capture.last_more is True
+    out, last = capture_extract.extract(p, 0, forward=True)
+    assert out and last == 1 and capture_extract.last_more is True
 
 
 def test_default_mode_unchanged(tmp_path):
     p = long_session(tmp_path)
-    out, last = capture.extract(p, 0)
-    assert last == SESSION_LINES and capture.last_more is False
+    out, last = capture_extract.extract(p, 0)
+    assert last == SESSION_LINES and capture_extract.last_more is False
     kept, used = 0, 0
     while used + line_len(200 - kept) + 1 <= budget():
         used += line_len(200 - kept) + 1
         kept += 1
     lines = out.splitlines()
-    assert lines[0] == capture.LEFT_OUT_MARKER and len(lines) == kept + 1
+    assert lines[0] == capture_extract.LEFT_OUT_MARKER and len(lines) == kept + 1
     assert lines[1].startswith(f"[{200 - kept + 1}] OWNER:") and lines[-1].startswith(
         "[200] OWNER:"
     )
@@ -725,20 +754,20 @@ def flow():
 
 def test_chained_forward_windows_equal_one_read_across_every_boundary(tmp_path, monkeypatch):
     p = write(tmp_path, flow())
-    whole = capture.extract(p)[0]
+    whole = capture_extract.extract(p)[0]
     assert (
         "TOOL ERROR Bash: boom" in whole
         and "TOOL OK Bash" in whole
         and "OWNER ANSWER: the first one" in whole
     )
     for limit in range(60, 260, 7):
-        monkeypatch.setattr(capture, "EXTRACT_LIMIT", limit)
+        monkeypatch.setattr(capture_extract, "EXTRACT_LIMIT", limit)
         chained, last, windows = [], 0, 0
         while True:
-            out, last = capture.extract(p, last, forward=True)
+            out, last = capture_extract.extract(p, last, forward=True)
             chained += out.splitlines()
             windows += 1
-            if not capture.last_more:
+            if not capture_extract.last_more:
                 break
         assert chained == whole.splitlines(), limit
         assert windows > 1 or limit > SESSION_LINES
@@ -746,12 +775,12 @@ def test_chained_forward_windows_equal_one_read_across_every_boundary(tmp_path, 
 
 def test_since_line_in_the_middle_still_knows_the_tool_names(tmp_path):
     p = write(tmp_path, flow())
-    whole = capture.extract(p)[0].splitlines()
+    whole = capture_extract.extract(p)[0].splitlines()
     for since in range(1, 9):
-        out = capture.extract(p, since)[0].splitlines()
+        out = capture_extract.extract(p, since)[0].splitlines()
         assert out == [l for l in whole if int(l[1 : l.index("]")]) > since], since
     assert "[3] TOOL ERROR Bash: boom" in whole and "[7] OWNER ANSWER: the first one" in whole
-    assert capture.extract(p, 2)[0].splitlines()[0] == "[3] TOOL ERROR Bash: boom"
+    assert capture_extract.extract(p, 2)[0].splitlines()[0] == "[3] TOOL ERROR Bash: boom"
 
 
 def test_priming_does_not_count_or_move_last(tmp_path):
@@ -764,19 +793,19 @@ def test_priming_does_not_count_or_move_last(tmp_path):
             user("x"),
         ],
     )
-    out, last = capture.extract(p, 3)
-    assert out == "[4] OWNER: x" and last == LAST_PRIMED and capture.last_skipped == 0
+    out, last = capture_extract.extract(p, 3)
+    assert out == "[4] OWNER: x" and last == LAST_PRIMED and capture_extract.last_skipped == 0
 
 
 def test_forward_leaves_an_unterminated_last_line_for_the_next_call(tmp_path):
     p = tmp_path / "t.jsonl"
     p.write_text(json.dumps(user("one")) + "\n" + json.dumps(user("two")))
-    out, last = capture.extract(p, 0, forward=True)
-    assert out == "[1] OWNER: one" and last == 1 and capture.last_more is False
-    assert capture.extract(p, 0)[1] == SECOND_LINE  # default mode unchanged
+    out, last = capture_extract.extract(p, 0, forward=True)
+    assert out == "[1] OWNER: one" and last == 1 and capture_extract.last_more is False
+    assert capture_extract.extract(p, 0)[1] == SECOND_LINE  # default mode unchanged
     p.write_text(p.read_text() + "\n")
-    out, last = capture.extract(p, 1, forward=True)
-    assert out == "[2] OWNER: two" and last == SECOND_LINE and capture.last_more is False
+    out, last = capture_extract.extract(p, 1, forward=True)
+    assert out == "[2] OWNER: two" and last == SECOND_LINE and capture_extract.last_more is False
 
 
 def test_a_same_as_naming_a_global_record_is_kept_like_a_project_one():
@@ -789,21 +818,21 @@ def test_a_same_as_naming_a_global_record_is_kept_like_a_project_one():
         "claim": "Check migrations before merging schema changes, one session showed a broken one.",
         "same_as": "g:migrations",
     }
-    kept, dropped = capture.validate([item], EXTRACT, [], handles)
+    kept, dropped = capture_extract.validate([item], EXTRACT, [], handles)
     assert kept == [item] and dropped == []
     other = {**item, "same_as": "g:cooking"}
-    assert capture.validate([other], EXTRACT, [], handles)[1][0]["reason"] == "same_as"
+    assert capture_extract.validate([other], EXTRACT, [], handles)[1][0]["reason"] == "same_as"
 
 
 def test_a_known_global_handle_with_too_few_shared_terms_is_dropped_as_a_mismatch():
     handles = {"g:cooking": "Rinse the rice before cooking it."}
     item = {**GOOD, "same_as": "g:cooking"}
-    kept, dropped = capture.validate([item], EXTRACT, [], handles)
+    kept, dropped = capture_extract.validate([item], EXTRACT, [], handles)
     assert kept == [] and dropped[0]["reason"] == "same_as mismatch"
 
 
 def test_an_identical_claim_in_a_project_and_a_global_record_links_to_the_global_one():
     claim = "Check migrations before merging schema changes."
     for handles in ({"m:a": claim, "g:a": claim}, {"g:a": claim, "m:a": claim}):
-        kept, dropped = capture.validate([{**GOOD, "claim": claim}], EXTRACT, [], handles)
+        kept, dropped = capture_extract.validate([{**GOOD, "claim": claim}], EXTRACT, [], handles)
         assert dropped == [] and kept[0]["same_as"] == "g:a", handles

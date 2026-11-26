@@ -12,10 +12,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import capture
-import capture_state
 import jobs
 import pytest
+from capture import extract as capture_extract
+from capture import state as capture_state
 from test_mem_capture import FAKE, GOOD, OWNER, entry
 
 PLUGIN = Path(__file__).resolve().parents[2]
@@ -296,7 +296,7 @@ def test_full_window_without_owner_lines_advances(world):
         for i in range(QUIET)
     )
     world.transcript.write_text(text)
-    first = capture.extract(world.transcript, 0, True)[1]
+    first = capture_extract.extract(world.transcript, 0, True)[1]
     assert first < QUIET
     with world.transcript.open("a") as f:
         f.write(lines_for("OAOAOA", QUIET))
