@@ -1,0 +1,14 @@
+schema_version: "1.1"
+name: offload-ui-verifier-with-hook
+tags: [offload]
+runs: 3
+plugins: ["../../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  env:
+    EVAL_OFFLOAD_HOOK: "on"
+  max_turns: 14
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash]
+  prompt: I just changed the newsletter signup form in `site/`. Before I ship it, check in a real browser, on desktop and on mobile, that signing up with a valid email shows the thank-you message and that the FAQ question opens its answer. Serve it with `python3 -m http.server 8765 --directory site`.

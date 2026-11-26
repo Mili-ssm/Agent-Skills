@@ -1,0 +1,14 @@
+schema_version: "1.1"
+name: offload-skeptical-reviewer-with-hook
+tags: [offload]
+runs: 3
+plugins: ["../../.."]
+context:
+  scaffold_script: scaffold.sh
+execution:
+  env:
+    EVAL_OFFLOAD_HOOK: "on"
+  max_turns: 14
+  timeout_seconds: 900
+  allowed_tools: [Read, Glob, Grep, Skill, Agent, Bash, Edit, Write]
+  prompt: Write the inventory module described in docs/spec.md (the two files it lists, about 60 lines in total) and tell me when it is ready.
