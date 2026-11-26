@@ -216,7 +216,7 @@ def test_packages_are_planned_and_edges_frozen():
 # feature packages in later tasks of backlog A14, which rename them here).
 PACKAGE_DEPENDENCIES = {
     "corroborate": {
-        "records", "config", "jobs", "safe_io", "auto_state", "headless", "rules", "shortcheck",
+        "records", "jobs", "safe_io", "headless", "rules", "shortcheck",
         "capture", "capture_state", "digest", "synthesize",
     },
     "research": {
@@ -268,3 +268,13 @@ def test_only_research_imports_the_entry_modules():
         for dep in deps & ENTRY_MODULES
     )
     assert not extra, f"packages importing `mem` or `run`: {extra}"
+
+
+def test_engine_uses_no_relative_imports():
+    """A relative import (`from . import x`) would hide an edge from every rule above, which read absolute names."""
+    relative = sorted(
+        name
+        for name, tree in _trees().items()
+        if any(isinstance(node, ast.ImportFrom) and node.level > 0 for node in ast.walk(tree))
+    )
+    assert not relative, f"relative imports in: {relative}"
