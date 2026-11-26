@@ -10,7 +10,7 @@ Read this section first; the stage list below is the detail. Release-by-release 
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.14.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
+| Released | `memory` 0.15.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
 | Unreleased work | See `## [Unreleased]` in [the changelog](../../../plugins/memory/CHANGELOG.md) |
 | Installed | `memory@mili-ssm` at user scope, following `main`; options in use: unverified (read the owner's settings, not this file) |
 | Engine tests | `uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto` (parallel: about 30 s on 20 cores; serial about 5 min): 2,272 passed, 5 skipped (2026-11-25) |

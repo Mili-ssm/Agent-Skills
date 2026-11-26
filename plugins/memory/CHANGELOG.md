@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-26
+
 ### Added
 
 - The memory offload table (about 520 tokens, estimated at 4 bytes per token) now loads from a second `SessionStart` hook at session start, after `/clear` and after a compaction, so you no longer paste it. Nothing to do if the table is pasted in `~/.claude/CLAUDE.md`: the hook sees its heading and stays silent. If the table reaches the session another way (an `@import`, a project `CLAUDE.md`, `CLAUDE.local.md`, account instructions, a file with CRLF line ends) it loads twice: turn the option off with `/plugin configure memory@mili-ssm` (`offload_table`). A stale pasted copy wins over the plugin's until you delete it. No eval covers this table's delivery yet (ADR 0032).
