@@ -215,6 +215,7 @@ def test_packages_are_planned_and_edges_frozen():
 # frozen edges to other features, named by today's root modules (they move into `store/` in a later task of
 # backlog A14, which renames them here; `core` imports only itself and the standard library).
 PACKAGE_DEPENDENCIES = {
+    "core": set(),
     "corroborate": {"core", "records", "rules", "shortcheck", "capture", "digest", "synthesize"},
     "capture": {"core", "records"},
     "settle": {"core", "records", "store_git"},

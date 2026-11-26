@@ -63,7 +63,7 @@ Order (fewest importers first; each task is one pull request on the previous bra
 - [x] Clean `capture.py`; one commit per package; tests beside each; rules. Check: suite; `mem session-index` output on a fixture store byte-identical (a golden first if none exists).
 
 ### Task 4: `core/`
-- [ ] Move `config`, `safe_io`, `headless`, `jobs`, `auto_state`; `ruff.toml` py311 entries; the core-imports-only-core rule. Check: suite; self-checks on 3.11.15.
+- [x] Move `config`, `safe_io`, `headless`, `jobs`, `auto_state`; `ruff.toml` py311 entries; the core-imports-only-core rule. Check: suite; self-checks on 3.11.15. Done: `ruff.toml` `engine/core/*` at py311; `core` rule proven by a temporary `import records` and `import mem` in `jobs.py`; any package may import `core` (the frozen-edge test skips it); `test_safe_io` scans `engine/**` now (its `engine/*.py` glob would miss `core/safe_io.py`).
 
 ### Task 5: `store/`
 - [ ] Clean `check.py`, `syntheses.py`; move the nine modules; the store rule (store imports only stdlib, core, store). Check: suite on 3.12.0 and default; self-checks.

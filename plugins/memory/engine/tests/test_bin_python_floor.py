@@ -106,6 +106,7 @@ def test_scripts_are_found() -> None:
         "mem-synthesize",
     }
     assert ENGINE / "synthesize" / "run.py" in _closure(BIN / "mem-settle")
+    assert ENGINE / "core" / "jobs.py" in _closure(BIN / "mem-settle")
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)
