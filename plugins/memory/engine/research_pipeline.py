@@ -32,8 +32,8 @@ import headless
 import jobs
 import mem
 import research_checks as rc
-import synth_pipeline as sp
 from notes import FrontmatterError, split_frontmatter
+from synthesize import pipeline as sp
 
 logger = logging.getLogger(__name__)
 

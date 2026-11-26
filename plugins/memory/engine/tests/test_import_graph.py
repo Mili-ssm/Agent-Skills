@@ -8,7 +8,11 @@ from pathlib import Path
 import pytest
 
 ENGINE = Path(__file__).resolve().parent.parent
-MODULES = {path.stem for path in ENGINE.glob("*.py")}
+PACKAGE = "synthesize"
+# Package modules are named by their dotted path (`synthesize.pipeline`); the package's own `__init__` is left out.
+MODULES = {path.stem for path in ENGINE.glob("*.py")} | {
+    f"{PACKAGE}.{path.stem}" for path in (ENGINE / PACKAGE).glob("*.py") if path.stem != "__init__"
+}
 
 
 @pytest.mark.parametrize("module", ["notes", "index", "check", "session_notices"])
@@ -58,7 +62,7 @@ def test_session_notices_does_not_import_mem():
 
 def _trees() -> dict[str, ast.Module]:
     return {
-        name: ast.parse((ENGINE / f"{name}.py").read_text(encoding="utf-8"))
+        name: ast.parse((ENGINE / f"{name.replace('.', '/')}.py").read_text(encoding="utf-8"))
         for name in sorted(MODULES)
     }
 
@@ -68,9 +72,11 @@ def _imported_engine_modules(tree: ast.Module, own: str) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found.update(alias.name.split(".")[0] for alias in node.names)
+            for alias in node.names:
+                found.update({alias.name, alias.name.split(".")[0]})
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             found.add(node.module.split(".")[0])
+            found.update(f"{node.module}.{alias.name}" for alias in node.names)
     return (found & MODULES) - {own}
 
 

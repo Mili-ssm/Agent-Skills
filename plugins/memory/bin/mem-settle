@@ -37,7 +37,7 @@ sys.path.insert(0, str(HERE.parent / "engine"))
 import headless
 import jobs
 import settle_state as ss
-import synth_pipeline as sp
+from synthesize import pipeline as sp
 
 _loader = importlib.machinery.SourceFileLoader("mem_synthesize", str(HERE / "mem-synthesize"))
 _spec = importlib.util.spec_from_loader("mem_synthesize", _loader)

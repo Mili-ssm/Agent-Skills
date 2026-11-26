@@ -38,7 +38,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au
 import jobs
-import synth_pipeline as sp
+from synthesize import pipeline as sp
 
 logger = logging.getLogger(__name__)
 

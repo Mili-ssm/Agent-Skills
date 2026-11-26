@@ -38,10 +38,10 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-import backfill as bf
 import config
 import jobs
-import synth_pipeline as sp
+from synthesize import pipeline as sp
+from synthesize import references as bf
 
 logger = logging.getLogger(__name__)
 

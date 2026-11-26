@@ -6,10 +6,10 @@ import json
 import sys
 from pathlib import Path
 
-import backfill as bf
 import pytest
-import synth_pipeline as sp
 import syntheses
+from synthesize import pipeline as sp
+from synthesize import references as bf
 from test_synth_pipeline_refs import A, B, store, synthesis_text
 
 __all__ = ["store"]  # re-exported: pytest finds the fixture in this module by its name

@@ -54,9 +54,9 @@ from typing import TYPE_CHECKING, ClassVar, NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import mem
-import synth_pipeline as sp
 import trial_env
 from records import memories_root
+from synthesize import pipeline as sp
 
 if TYPE_CHECKING:
     from collections.abc import Callable

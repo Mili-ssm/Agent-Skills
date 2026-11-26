@@ -27,9 +27,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-PLUGIN = Path(__file__).resolve().parents[1]
+PLUGIN = Path(__file__).resolve().parents[2]
 MEM = PLUGIN / "bin" / "mem"
-BRIEFS = Path(__file__).resolve().parent / "synth_briefs"
+BRIEFS = Path(__file__).resolve().parent / "briefs"
 SKILL = PLUGIN / "skills" / "memory-synthesis" / "SKILL.md"
 CHEAP = "high"  # effort of every Haiku checker and fixer (owner, 2026-11-17: raised from medium, unmeasured)
 NOT_GIVEN = "(not given)"
@@ -187,7 +187,7 @@ def parse(stdout: str) -> dict:
 # The `mem` subcommands the background sessions may run, one `Bash(mem <sub>*)` rule each. Sources: the curator
 # (agents/memory-curator.md: `curate` with `apply --safe`, `show`, `memories`, `search`), the writer
 # (agents/memory-synthesizer.md: `find`, `show`, `synthesis list|new|add|append|edit`, `check`), and the checker and
-# fixer briefs (synth_briefs/*.md: `search`, `show`, `synthesis edit`, `check`). No `import`, `fetch-sources`, `new`,
+# fixer briefs (briefs/*.md: `search`, `show`, `synthesis edit`, `check`). No `import`, `fetch-sources`, `new`,
 # `remember` or `history`: no brief names them, and `attach` and `refs` run from code (`mem()`), not in a session.
 MEM_ALLOWED = (
     "curate",

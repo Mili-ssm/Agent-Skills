@@ -63,10 +63,10 @@ from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
-import synth_pipeline as sp
 import syntheses
 import trial_env
-from synth_pipeline import (
+from synthesize import pipeline as sp
+from synthesize.pipeline import (
     CHEAP,
     DELETE_ONLY,
     NOT_GIVEN,
@@ -79,7 +79,7 @@ from synth_pipeline import (
     split_parts,
     summary,
 )
-from synth_pipeline import (
+from synthesize.pipeline import (
     brief as _brief,
 )
 

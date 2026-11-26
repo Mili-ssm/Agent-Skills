@@ -45,8 +45,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import records
 import settle_state
-import synth_pipeline as sp
 import trial_env
+from synthesize import pipeline as sp
 
 PLUGIN = trial_env.PLUGIN
 MEM_SETTLE = PLUGIN / "bin" / "mem-settle"

@@ -6,7 +6,7 @@ test_backfill, so its command line and its answer are the real ones."""
 import math
 
 import pytest
-import synth_pipeline as sp
+from synthesize import pipeline as sp
 from test_backfill import B, answer, fake, ms, sessions
 from test_synth_pipeline_refs import ALPHA, BETA, store
 

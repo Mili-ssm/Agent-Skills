@@ -20,7 +20,7 @@ import corroborate_state
 import headless
 import jobs
 import records
-import synth_pipeline as sp
+from synthesize import pipeline as sp
 
 if TYPE_CHECKING:
     from collections.abc import Callable

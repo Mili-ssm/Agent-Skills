@@ -35,9 +35,12 @@ def _is_import_module(call: ast.Call) -> bool:
 def _names(node: ast.AST) -> set[str]:
     """Module or script names one syntax node refers to."""
     if isinstance(node, ast.Import):
-        return {a.name.split(".")[0] for a in node.names}
+        return {a.name for a in node.names} | {a.name.split(".")[0] for a in node.names}
     if isinstance(node, ast.ImportFrom):
-        return {node.module.split(".")[0]} if node.module and not node.level else set()
+        if not node.module or node.level:
+            return set()
+        # `from synthesize import pipeline` may name a submodule of a package
+        return {node.module.split(".")[0], *(f"{node.module}.{a.name}" for a in node.names)}
     if isinstance(node, ast.Call) and _is_import_module(node) and node.args:
         arg = node.args[0]
         return (
@@ -59,8 +62,9 @@ def _edges(path: Path) -> set[Path]:
     names: set[str] = set().union(*(_names(node) for node in ast.walk(tree)))
     found: set[Path] = set()
     for name in names:
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) and (ENGINE / f"{name}.py").is_file():
-            found.add(ENGINE / f"{name}.py")
+        module = ENGINE / f"{name.replace('.', '/')}.py"
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", name) and module.is_file():
+            found.add(module)
         elif re.fullmatch(r"mem-[a-z]+", name) and (BIN / name).is_file() and name not in EXCLUDED:
             found.add(BIN / name)
     return found - {path}
