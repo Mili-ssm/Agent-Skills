@@ -14,6 +14,7 @@ from typing import Any
 
 import auto_state
 import corroborate_state
+import jobs
 import pytest
 import research_pipeline
 import settle_state
@@ -23,7 +24,7 @@ DAY = 86400
 NOW = 1_700_100_000.0
 FAILED_AT = 1_700_049_600  # 2023-11-15 12:00 UTC: the same date in every time zone
 FAILED_DATE = "2023-11-15"
-STALE_AGE = auto_state.STALE_RUNNING_SECONDS + 1
+STALE_AGE = jobs.STALE_RUNNING_SECONDS + 1
 LOG_MODE = 0o600
 DIR_MODE = 0o700
 FRESH_DAYS, OLD_DAYS = 29, 31
@@ -227,7 +228,7 @@ def test_run_lock_held_only_while_the_lock_is_taken(tmp_path):
     folder = auto_state.auto_dir(data, store)
     assert auto_state.run_lock_held(data, store) is False  # no folder yet, and none is made
     assert not folder.exists()
-    fd = auto_state.take_run_lock(folder)
+    fd = jobs.take_run_lock(folder)
     assert fd is not None
     try:
         assert auto_state.run_lock_held(data, store) is True
@@ -242,7 +243,7 @@ def test_settle_lock_held_only_while_the_lock_is_taken(monkeypatch, tmp_path, me
     state = mem_settle.State(tmp_path / "store")
     assert mem_settle._lock_held(state) is False
     assert not state.dir.exists()
-    fd = auto_state.take_run_lock(state.dir)
+    fd = jobs.take_run_lock(state.dir)
     assert fd is not None
     try:
         assert mem_settle._lock_held(state) is True
