@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: planned, two pre-mortems 2026-11-26 applied, owner chose the shared launcher · Branch: `refactor/memory-next` (from `dev` 9380eda) · Date: 2026-11-26
+Status: done 2026-11-26 (two pre-mortems applied; owner chose the shared launcher) · Branch: `refactor/memory-next` (from `dev` 9380eda) · Date: 2026-11-26
 
 **Goal:** every script in `plugins/memory/bin/` runs through `uv` with one interpreter policy and one cached environment, `bin/` holds launchers only, and a missing `uv` is reported instead of failing silently.
 

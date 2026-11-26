@@ -102,3 +102,16 @@ def test_run_rejects_an_unknown_bin_name():
     )
     assert (done.returncode, done.stdout) == (2, "")
     assert "unknown --bin name" in done.stderr
+
+
+def _requires_python(path: Path) -> str:
+    match = re.search(
+        r'^# requires-python = "([^"]+)"', path.read_text(encoding="utf-8"), re.MULTILINE
+    )
+    assert match, f"{path.name} has no requires-python line"
+    return match.group(1)
+
+
+def test_run_and_mem_declare_the_same_python_range() -> None:
+    """`run.py` is the header every launcher runs and `mem.py` keeps its own for a direct run: one range for both."""
+    assert _requires_python(ENGINE / "run.py") == _requires_python(ENGINE / "mem.py")
