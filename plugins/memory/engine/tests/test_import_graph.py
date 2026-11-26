@@ -209,3 +209,41 @@ def test_packages_are_planned_and_edges_frozen():
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
+
+
+# Engine modules a package may import besides its own and stdlib: its low-level dependencies and the
+# frozen edges to other features, named by today's root modules (they move into `core/`, `store/` and the
+# feature packages in later tasks of backlog A14, which rename them here).
+PACKAGE_DEPENDENCIES = {
+    "corroborate": {
+        "records", "config", "jobs", "safe_io", "auto_state", "headless", "rules", "shortcheck",
+        "capture", "capture_state", "digest", "synthesize",
+    },
+}  # fmt: skip
+# Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
+PACKAGE_IMPORTERS = {"corroborate": {"mem"}}
+
+
+def test_package_imports_only_its_dependencies():
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    for package, allowed in PACKAGE_DEPENDENCIES.items():
+        extra = {
+            f"{name} -> {dep}"
+            for name, deps in graph.items()
+            if name.split(".")[0] == package
+            for dep in deps
+            if dep.split(".")[0] not in allowed | {package}
+        }
+        assert not extra, f"{package} imports outside its dependencies: {sorted(extra)}"
+
+
+def test_package_is_imported_only_by_its_importers():
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    for package, allowed in PACKAGE_IMPORTERS.items():
+        extra = sorted(
+            name
+            for name, deps in graph.items()
+            if name.split(".")[0] not in allowed | {package}
+            and any(dep.split(".")[0] == package for dep in deps)
+        )
+        assert not extra, f"modules importing {package} that may not: {extra}"
