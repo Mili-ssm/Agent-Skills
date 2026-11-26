@@ -115,10 +115,9 @@ Owner rule: size is a balance (neither one 10k-line file nor a hundred 100-line 
 | Merge | Into | Why |
 |---|---|---|
 | `memories/pairing.py` (244) | `memories/matching.py` (208) | both answer which memories resemble or contradict each other; pairing already imports matching |
-| `memories/shortcheck.py` (66) | `memories/model.py` (142) | the short-form check beside `valid_short`; both pure |
-| `memories/fingerprints.py` (51) | `memories/rules.py` (291) | the lesson lookups rules uses; digest already imports rules, no cycle |
+| `memories/shortcheck.py` (66) | `memories/model.py` (142) | the short-form check beside `valid_short`; both pure; `problems` enters as `short_problems` (a bare `model.problems` loses the context grep needs) |
 
-- [ ] One commit per merge (verbatim; importers, tests, `patch_all`, eval keys, records facade retargeted; test files merge or move with their module); then one commit: every package `__init__.py` docstring lists each of its modules with one line of role, and a test in `test_import_graph.py` checks every module file of every engine package is named in its package docstring (prove it bites). Kept apart on purpose: `journal` (used by two packages), `core/yaml_load` (keeps `memories` off `notes`), per-feature `state` modules, `terms` vs `locations`. Check: suite (collected count changes only by the new test), goldens, self-checks, graph rules.
+- [ ] One commit per merge (verbatim; importers, tests, `patch_all`, eval keys, records facade retargeted; test files merge or move with their module); then one commit: every package `__init__.py` docstring lists each of its modules with one line of role, and a test in `test_import_graph.py` checks every module file of every engine package is named in its package docstring (prove it bites). Pre-mortem 2026-11-27: `fingerprints` → `rules` dropped (both define `line()`, and `fingerprints` exists so `digest` and `rules` never import each other). The map test requires a structured entry per module (a docstring line starting with the backticked module name, then its role), globs `*.py` only, skips `__init__` and non-package folders (`synthesize/briefs/`), and is proven by deleting the entry of a common-word module (`run`). Kept apart on purpose: `fingerprints`, `journal` (used by two packages), `core/yaml_load` (keeps `memories` off `notes`), per-feature `state` modules, `terms` vs `locations`. Check: suite (collected count changes only by the new test), goldens, self-checks, graph rules.
 
 ## Deferred findings
 
