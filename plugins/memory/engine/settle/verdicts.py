@@ -217,6 +217,8 @@ def pending(
         if not (_counts_as_new(a, judged, today) or _counts_as_new(b, judged, today)):
             continue
         order = newer_first(a, b, judged)
+        if order and order[0].origin in {"pipeline", "web"}:
+            order = None  # a web or pipeline record is never the side that stays: the pair can only be told apart
         out.append({
             "pair": len(out) + 1,
             "a": a.handle,

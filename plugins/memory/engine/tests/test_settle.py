@@ -622,3 +622,12 @@ def test_pending_shows_a_reworded_look_alike_below_the_curation_floor(gfolder, r
     assert (
         frozenset(("client-one", "client-two")) not in in_queue
     )  # the curation queue keeps its own floor
+
+
+def test_a_web_record_is_never_the_newer_side_of_an_offered_pair(gfolder, run):
+    seeded(gfolder, run, claim="unrelated words only here")
+    put(gfolder, "web-one", NEW, created=days_ago(1), extra="origin: web\n")
+    put(gfolder, "global-two", OLD + " Really.", created=days_ago(5))
+    code, out, _ = run("pending", "--json")
+    pairs = [p for p in json.loads(out) if {p["a"], p["b"]} == {"web-one", "global-two"}]
+    assert code == 0 and pairs and pairs[0]["newer"] is None
