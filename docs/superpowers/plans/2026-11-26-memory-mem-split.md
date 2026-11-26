@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: planned · Branch: `refactor/memory-mem-split` (from `dev` 1af5485), one pull request per task · Date: 2026-11-26
+Status: planned, pre-mortem 2026-11-26 applied · Branch: `refactor/memory-mem-split` (from `dev` 1af5485), one pull request per task · Date: 2026-11-26
 
 **Goal:** `engine/mem.py` (10,502 lines) becomes the parser, the dispatch and a re-export map; every `cmd_*` handler lives with its logic in `engine/commands/`; behavior unchanged.
 
@@ -33,6 +33,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - Behavior unchanged: CLI stdout, stderr, exit codes, files, goldens, `mem session-index`; `--help` of `mem` and every subcommand byte-identical (save goldens before Task 1).
 - Verbatim moves; handlers raise `UsageError` instead of `build_parser().error` (dispatch prints the same message, exit 2).
 - Each moved name tests read as `mem.X` joins `_MOVED` (`dict[str, str]`, name → module); tests patch the defining module or use `tests/patching.py` `patch_all`, never `setattr(mem, …)` for a moved name (guard test, Task 1).
+- Call convention (pre-mortem: a `from X import n` binding is not reached by patching the defining module, nor by `patch_all`): command modules call every shared engine name through its module attribute (`common._swap_file`, `index_files.apply_index`), never by a from-import; `patch_all` also walks `commands.*`.
 - `commands` is imported only by `mem`; `entry` and feature packages never import it; `importlib` stays banned.
 - A ratcheting line ceiling on `mem.py` drops with every task.
 - ADR 0031 on every touched file (`ruff check --no-fix` read-only). Commits pass every hook; no `SKIP`. Pure refactor: no CHANGELOG line. One pull request per task to `dev`; merge only on the owner's word.
@@ -43,12 +44,13 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 2. Messages and exit codes of the ten `build_parser().error` sites after `UsageError` (golden first).
 3. Module-level handler dicts (`_PS_`, `_SETTLE_`, `_PROJECTS_`, `_TERMS_HANDLERS`) moving with their handlers.
 4. Start-up: the session-index hook timed (p50, p95) before and after the hooks task; `sources` stays lazily imported.
-5. Names defined twice after a move (`__getattr__` picking the wrong one): `_MOVED` maps each name to one module.
+5. Each task re-moves from `dev`'s tip and checks every moved function's AST against it (174 commits in nine days; no other work on `mem.py` during A5).
+6. Names defined twice after a move (`__getattr__` picking the wrong one): `_MOVED` maps each name to one module.
 
 ---
 
 ### Task 1: Preparation (no code moves)
-- [ ] `research/pipeline.py` uses `memories.records.tokenize` instead of `mem.tokenize` (drops the frozen edge `research → mem`); `UsageError` plus dispatch handling, with a golden test of stderr and exit 2 for every former `build_parser().error` site first; `_MOVED` becomes a name → module dict and `__getattr__` looks it up directly; `test_import_graph.py` rules for `commands` (only `mem` imports it); the guard test (an AST scan of tests and evals failing on `setattr(mem, n)` / `monkeypatch.setattr(mem, "n")` when `n` is not defined in `mem.py`); the `mem.py` line ceiling test; `--help` goldens of `mem` and every subcommand. Check: suite; goldens; each new guard proven by a temporary violation.
+- [ ] `research/pipeline.py` uses `memories.records.tokenize` instead of `mem.tokenize` (drops the frozen edge `research → mem`); `UsageError` plus dispatch handling, with a golden test of stderr and exit 2 for every former `build_parser().error` site first; `_MOVED` becomes a name → module dict and `__getattr__` looks it up directly; `test_import_graph.py` rules for `commands` (only `mem` imports it); the guard test (an AST scan of tests and evals failing on `setattr(mem, n)` / `monkeypatch.setattr(mem, "n")` when `n` is not a def, class or assignment in `mem.py`; a temporary allow-list, today `time`, `apply_index`, `invalid_changed`, `orphan_notes`, that each task shrinks and that is empty after Task 9); delete the dead `mem._read_note` patch (`tests/test_resolve.py`, already a no-op); every `__file__`-relative path made explicit and tested (`mem stats` "mem.py lines" counts `mem.py` by name and its test asserts the exact value; `_TEMPLATES` moves to `commands/common.py` as `parents[1] / "templates"`); `evals/signal/score.py` and `evals/research/run_trial.py` import `tokenize`, `split_frontmatter`, `FrontmatterError` from `memories`/`notes` directly, plus an import-smoke test of `evals/**/*.py`; goldens store the full stderr (usage line included) and `SystemExit.code` from `main()`; the `mem.py` line ceiling test; `--help` goldens of `mem` and every subcommand. Check: suite; goldens; each new guard proven by a temporary violation.
 
 ### Task 2: `commands/common.py` and `commands/admin.py`
 - [ ] Verbatim moves; `_MOVED` entries; ceiling lowered. Check: suite, goldens, help goldens, graph rules.
@@ -72,7 +74,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [ ] As Task 2; `PAIR_WORK` patch; session-index hook timed before and after (p50, p95).
 
 ### Task 9: `commands/synthesis.py`, then docs
-- [ ] As Task 2 (last: highest churn); then ADR 0034 Review line, backlog A5, refactor plan item, resume state.
+- [ ] As Task 2 (last: highest churn; `_write_logged_changes` patch retargeted; the allow-list ends empty); then ADR 0034 Review line, backlog A5, refactor plan item, resume state.
 
 ## Deferred findings
 
@@ -81,4 +83,5 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 
 ## Kill criteria
 
+- A task needs a patch target that is neither its own module nor allow-listed; a rebase conflict inside a moved function body (redo the move from `dev`'s tip, never hand-merge); allow-list entries left after Task 9.
 - A golden, stdout, stderr or exit code changes; a patch stops reaching its code; a cycle or a `commands` importer other than `mem`; a module over 2,600 lines; the session-index hook p95 rises by more than 100 ms.
