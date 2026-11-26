@@ -419,7 +419,7 @@ def _read(resp: http.client.HTTPResponse, limit: int, deadline: float) -> bytes:
 
 
 class FetchOptions(TypedDict, total=False):
-    """The keyword options of `fetch_raw`; an omitted one has the default named in its docstring."""
+    """The keyword options of `fetch_raw`; an omitted one has the default in the comment after its field."""
 
     over: Literal["truncate", "fail"]  # "truncate"
     headers: Mapping[str, str] | None  # None

@@ -262,7 +262,7 @@ def test_fetch_raw_omitted_options_match_defaults(public_name):
         result = rc.fetch_raw(f"{base}/redir-page", limit_for, **options)
         return result, limits, list(lookups)
 
-    explicit = {
+    explicit: rc.FetchOptions = {
         "over": "truncate",
         "headers": None,
         "deadline": None,
@@ -271,6 +271,8 @@ def test_fetch_raw_omitted_options_match_defaults(public_name):
         "timeout": rc.TIMEOUT,
     }
     assert run() == run(**explicit)
+    limit_for = lambda ctype: rc.MAX_BYTES
+    assert rc._call(limit_for, {})._replace(end=0) == rc._call(limit_for, explicit)._replace(end=0)
 
 
 @pytest.mark.parametrize(
