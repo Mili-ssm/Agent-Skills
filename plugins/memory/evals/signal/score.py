@@ -6,6 +6,7 @@ The set is split by alternating briefs: odd ids tune, even ids test. For each pa
 the tuning half, how many signalled briefs name only related records (precision by brief) and how many briefs
 that have a related record get a signal (coverage); then the same two figures for every pair on the test half.
 """
+
 from __future__ import annotations
 
 import json
@@ -13,16 +14,21 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
-import mem  # noqa: E402
-import records  # noqa: E402
+import mem
+import records
 
 DATA = json.loads((Path(__file__).parent / "set.json").read_text())
 
 
 def scores(brief: str) -> dict[str, float]:
     text = set(mem.tokenize(brief + "\n" + DATA["boilerplate"]))
-    out = {h: records.containment(mem.tokenize(claim), text) for h, claim in DATA["memories"].items()}
-    out.update({stem: records.containment(mem.tokenize(stem.replace("-", " ")), text) for stem in DATA["notes"]})
+    out = {
+        h: records.containment(mem.tokenize(claim), text) for h, claim in DATA["memories"].items()
+    }
+    out.update({
+        stem: records.containment(mem.tokenize(stem.replace("-", " ")), text)
+        for stem in DATA["notes"]
+    })
     return out
 
 
@@ -45,7 +51,9 @@ def main() -> int:
     print("strong  tune: clean/signalled  covered/related   test: clean/signalled  covered/related")
     for strong in (0.4, 0.5, 0.6, 0.67, 0.75, 0.8, 0.9, 1.0):
         a, b = figures(tune, strong), figures(test, strong)
-        print(f"{strong:<6}  {a[0]:>5}/{a[1]:<9}  {a[2]:>5}/{a[3]:<9}  {b[0]:>10}/{b[1]:<9}  {b[2]:>5}/{b[3]}")
+        print(
+            f"{strong:<6}  {a[0]:>5}/{a[1]:<9}  {a[2]:>5}/{a[3]:<9}  {b[0]:>10}/{b[1]:<9}  {b[2]:>5}/{b[3]}"
+        )
     return 0
 
 
