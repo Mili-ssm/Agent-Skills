@@ -215,4 +215,5 @@ def test_a_broken_engine_exits_1_before_argparse_and_writes_no_state(
     data.mkdir()
     done = _run(script, *args, env=_env(PYTHONPATH=str(stub_yaml), MEM_DATA=str(data)))
     assert (done.returncode, done.stdout) == (1, "")
+    assert "stub: no yaml" in done.stderr  # the engine load failed, not something else
     assert list(data.iterdir()) == []

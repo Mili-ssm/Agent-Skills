@@ -37,7 +37,7 @@ class Case:
     )
     global_root: str | None = None  # records.global_memories_root
     research: str | None = None  # research_pipeline.default_store
-    synth: str | None = None  # default_store of bin/mem-synthesize
+    synth: str | None = None  # synthesize.run.default_store
 
 
 STD = {"HOME": "{p}/home", "XDG_DATA_HOME": "{p}/share", "XDG_CONFIG_HOME": "{p}/cfg"}

@@ -51,7 +51,7 @@ def _names(node: ast.AST) -> set[str]:
         and isinstance(node.value, str)
         and node.value.startswith("mem-")
     ):
-        # a bin script loaded by path (`HERE / "mem-synthesize"` through SourceFileLoader)
+        # a bin script loaded by path (`HERE / "mem-capture"` style, through SourceFileLoader)
         return {node.value}
     return set()
 
@@ -105,7 +105,7 @@ def test_scripts_are_found() -> None:
         "mem-settle",
         "mem-synthesize",
     }
-    assert "run.py" in {p.name for p in _closure(BIN / "mem-settle")}
+    assert ENGINE / "synthesize" / "run.py" in _closure(BIN / "mem-settle")
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)
