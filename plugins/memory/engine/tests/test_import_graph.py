@@ -195,12 +195,12 @@ FROZEN_EDGES = {
     ("research", "mem"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "notes", "synthesize",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize",
 }  # fmt: skip
 
 
 def test_packages_are_planned_and_edges_frozen():
-    """Packages import each other only along FROZEN_EDGES (any package may import the base layers `core`, `memories` and `notes`); `core` imports no other package."""
+    """Packages import each other only along FROZEN_EDGES (any package may import the base layers `core`, `memories`, `syntheses` and `notes`); `core` imports no other package."""
     assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     new_edges = sorted(
@@ -209,21 +209,23 @@ def test_packages_are_planned_and_edges_frozen():
         if (own := name.split(".")[0]) in PACKAGES
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
-        # itself and the base layers (`core`, `memories`, `notes`) are not cross-package edges
-        and target not in {own, "core", "memories", "notes"}
+        # itself and the base layers (`core`, `memories`, `syntheses`, `notes`) are not cross-package edges
+        and target not in {own, "core", "memories", "syntheses", "notes"}
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
 
 
 # Engine modules a package may import besides its own and stdlib: its low-level dependencies and the
-# frozen edges to other features. `core`, `memories` and `notes` are base layers that any package may import:
-# `core` imports only itself and the standard library, `memories` only those and `core`, `notes` those and
-# `memories`; `memories` never imports `notes` (the owner ruling that split the old `store`).
+# frozen edges to other features. `core`, `memories`, `syntheses` and `notes` are base layers that any package may
+# import: `core` imports only itself and the standard library, `memories` only those and `core`, `syntheses` those
+# and `memories`, `notes` those and `syntheses`; `memories` never imports `syntheses` or `notes`, and `syntheses`
+# never imports `notes` (the owner ruling that split the old `store`, ADR 0034).
 PACKAGE_DEPENDENCIES = {
     "core": set(),
     "memories": {"core"},
-    "notes": {"core", "memories"},
+    "syntheses": {"core", "memories"},
+    "notes": {"core", "memories", "syntheses"},
     "corroborate": {"core", "memories", "capture", "digest", "synthesize"},
     "capture": {"core", "memories"},
     "settle": {"core", "memories"},
