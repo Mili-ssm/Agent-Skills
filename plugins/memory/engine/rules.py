@@ -5,20 +5,30 @@ The standing after each rule is computed here from the record, never taken from 
 
 from __future__ import annotations
 
-import datetime
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import TYPE_CHECKING
 
+import digest_text
 import records
-from records import Memory
 
-HEADER = ("memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "
-          "not to, and mention a skipped one only when it matters to the user.")
+if TYPE_CHECKING:
+    import datetime
+    from collections.abc import Sequence
+
+    from records import Memory
+
+HEADER = (
+    "memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "
+    "not to, and mention a skipped one only when it matters to the user."
+)
 RULES_LIMIT = 3200
 INDEX_LIMIT = 1600
-HEADINGS_LIMIT = 800  # characters of topic headings printed; a heading is at most digest.HEADING_LIMIT
+# characters of topic headings printed; a heading is at most digest.HEADING_LIMIT
+HEADINGS_LIMIT = 800
 TOPICS_NAMED = 4
 PROJECT_FIRST = 3
+# a project lesson loads once this many sessions held it, unless the owner confirmed it
+MIN_SESSIONS = 2
 OVER, PENDING, INDEX = "over the limit", "awaits triage", "index only"
 _WEIGHT = {"strong": 0, "medium": 1, "light": 2}
 
@@ -28,7 +38,8 @@ class Choice:
     loaded: list[Memory] = field(default_factory=list)
     left: list[tuple[Memory, str]] = field(default_factory=list)
     unready: int = 0  # lessons that would qualify but have no valid `short`
-    unready_lessons: list[Memory] = field(default_factory=list)  # the same lessons, `unready` counts them
+    # the same lessons, `unready` counts them
+    unready_lessons: list[Memory] = field(default_factory=list)
 
 
 def eligible(m: Memory, today: datetime.date) -> bool:
@@ -37,13 +48,22 @@ def eligible(m: Memory, today: datetime.date) -> bool:
         return False
     if records.standing(m) != "established" or records.quarantined(m) or m.load == "no":
         return False
-    return m.scope == "global" or bool(m.owner_confirmed) or len(records.sessions(m)) >= 2
+    return (
+        m.scope == "global" or bool(m.owner_confirmed) or len(records.sessions(m)) >= MIN_SESSIONS
+    )
 
 
 def _rank(m: Memory) -> tuple:
     seen = m.last_observed
-    return (m.owner_confirmed is None, _WEIGHT.get(m.weight or "medium", 1), -len(records.projects(m)),
-            -len(records.sessions(m)), seen is None, -(seen.toordinal() if seen else 0), m.handle)
+    return (
+        m.owner_confirmed is None,
+        _WEIGHT.get(m.weight or "medium", 1),
+        -len(records.projects(m)),
+        -len(records.sessions(m)),
+        seen is None,
+        -(seen.toordinal() if seen else 0),
+        m.handle,
+    )
 
 
 def standing_words(m: Memory) -> str:
@@ -51,7 +71,11 @@ def standing_words(m: Memory) -> str:
         return "(from repository)"
     if m.owner_confirmed:
         return "(the user vouched for it)"
-    n, unit = (len(records.projects(m)), "project") if m.scope == "global" else (len(records.sessions(m)), "session")
+    n, unit = (
+        (len(records.projects(m)), "project")
+        if m.scope == "global"
+        else (len(records.sessions(m)), "session")
+    )
     return f"(held in {n} {unit}{'' if n == 1 else 's'})"
 
 
@@ -59,14 +83,10 @@ def line(m: Memory) -> str:
     return f"- {m.short} {standing_words(m)}"
 
 
-def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime.date) -> Choice:
-    out = Choice()
-    globals_ = [m for m in global_ if eligible(m, today)]
-    # ready to load and competing: an index-only global lesson must not hide its twin in the project it came from
-    names = {m.handle for m in globals_ if m.triage != "pending" and records.valid_short(m.short) and m.load is None}
-    projects_ = [m for m in project if eligible(m, today) and (m.general or "").removeprefix("m:") not in names]
+def _sorted_out(candidates: Sequence[Memory], out: Choice) -> list[Memory]:
+    """Records into `out` the lessons that wait for triage, are index only or have no valid short form; returns the ready ones."""
     ready: list[Memory] = []
-    for m in [*projects_, *globals_]:
+    for m in candidates:
         if m.triage == "pending":
             out.left.append((m, PENDING))
         elif m.load == "index":
@@ -76,11 +96,13 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
             out.unready_lessons.append(m)
         else:
             ready.append(m)
-    ordered = sorted((m for m in ready if m.scope == "project"), key=_rank)
-    first = ordered[:PROJECT_FIRST]
-    rest = sorted([*ordered[PROJECT_FIRST:], *(m for m in ready if m.scope != "project")], key=_rank)
+    return ready
+
+
+def _fill(ranked: Sequence[Memory], out: Choice) -> None:
+    """Loads the lessons in order while the limit holds; the rest are left as over the limit."""
     used, full = 0, False
-    for m in [*first, *rest]:
+    for m in ranked:
         size = len(line(m)) + 1
         if not full and used + size <= RULES_LIMIT:
             out.loaded.append(m)
@@ -88,6 +110,29 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
         else:
             full = True  # the order decides: nothing ranked lower jumps ahead of a rule that did not fit
             out.left.append((m, OVER))
+
+
+def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime.date) -> Choice:
+    out = Choice()
+    globals_ = [m for m in global_ if eligible(m, today)]
+    # ready to load and competing: an index-only global lesson must not hide its twin in the project it came from
+    names = {
+        m.handle
+        for m in globals_
+        if m.triage != "pending" and records.valid_short(m.short) and m.load is None
+    }
+    projects_ = [
+        m
+        for m in project
+        if eligible(m, today) and (m.general or "").removeprefix("m:") not in names
+    ]
+    ready = _sorted_out([*projects_, *globals_], out)
+    ordered = sorted((m for m in ready if m.scope == "project"), key=_rank)
+    first = ordered[:PROJECT_FIRST]
+    rest = sorted(
+        [*ordered[PROJECT_FIRST:], *(m for m in ready if m.scope != "project")], key=_rank
+    )
+    _fill([*first, *rest], out)
     return out
 
 
@@ -111,23 +156,42 @@ def grouped(choice: Choice) -> list[str]:
 def _digested(choice: Choice, digest: dict, topics: dict) -> list[str]:
     """`grouped` with the digest's heading after a topic and its line for a global lesson, wherever they are fresh and fit.
     Under a printed heading the lessons with a digest line come first: a short form stands alone, a line leans on the heading."""
-    import digest as store  # digest imports this module
+    return _printed(_digest_plan(choice, digest, topics))
+
+
+def _digest_plan(
+    choice: Choice, digest: dict, topics: dict
+) -> list[tuple[str, str | None, list[tuple[Memory, str | None]]]]:
+    """Per topic: its name, its heading when one fits, and (lesson, its fresh line) in the order they print."""
     used_heads = 0
     heads_open = True
-    plan: list[tuple[str, str | None, list[tuple[Memory, str | None]]]] = []  # topic, heading, (lesson, its fresh line)
+    plan: list[tuple[str, str | None, list[tuple[Memory, str | None]]]] = []
     for topic, ms in _by_topic(choice).items():
         lessons = topics.get(topic)
-        head = store.heading(digest, topic, lessons) if lessons else None
-        if head is not None and heads_open and used_heads + len(head) <= HEADINGS_LIMIT:
+        head = digest_text.heading(digest, topic, lessons) if lessons else None
+        items: list[tuple[Memory, str | None]]
+        if lessons and head is not None and heads_open and used_heads + len(head) <= HEADINGS_LIMIT:
             used_heads += len(head)
-            items = [(m, store.line(digest, topic, m, lessons) if m.scope == "global" else None) for m in ms]
+            items = [
+                (m, digest_text.line(digest, topic, m, lessons) if m.scope == "global" else None)
+                for m in ms
+            ]
             items = [*(x for x in items if x[1] is not None), *(x for x in items if x[1] is None)]
         else:
-            heads_open = heads_open and head is None  # a fresh heading that did not fit closes the rest
+            heads_open = (
+                heads_open and head is None
+            )  # a fresh heading that did not fit closes the rest
             head = None
             items = [(m, None) for m in ms]
         plan.append((topic, head, items))
-    pending = [len(line(m)) + 1 for _, _, items in plan for m, _ in items]  # short forms still to print, in printed order
+    return plan
+
+
+def _printed(plan: Sequence[tuple[str, str | None, list[tuple[Memory, str | None]]]]) -> list[str]:
+    """The lines of a plan; a digest line prints only while every short form still to come fits under the limit."""
+    pending = [
+        len(line(m)) + 1 for _, _, items in plan for m, _ in items
+    ]  # short forms still to print, in printed order
     out: list[str] = []
     used, lines_open = 0, True
     for topic, head, items in plan:
@@ -146,11 +210,17 @@ def _digested(choice: Choice, digest: dict, topics: dict) -> list[str]:
     return out
 
 
-def block(choice: Choice, layout: str = "flat", *, digest: dict | None = None, topics: dict | None = None) -> list[str]:
+def block(
+    choice: Choice, layout: str = "flat", *, digest: dict | None = None, topics: dict | None = None
+) -> list[str]:
     if not choice.loaded:
         return []
     if layout == "digest":
-        body = _digested(choice, digest, topics or {}) if digest and digest.get("topics") else grouped(choice)
+        body = (
+            _digested(choice, digest, topics or {})
+            if digest and digest.get("topics")
+            else grouped(choice)
+        )
     else:
         body = grouped(choice) if layout == "grouped" else list(map(line, choice.loaded))
     return [HEADER, *body]
@@ -166,7 +236,7 @@ def topic_counts(choice: Choice) -> list[tuple[str, int]]:
 
 def not_fitted(choice: Choice) -> list[tuple[Memory, str]]:
     """The lessons that qualify and did not fit. A global lesson awaiting triage is announced by the `Triage:` line."""
-    return [(m, why) for m, why in choice.left if why in (OVER, INDEX)]
+    return [(m, why) for m, why in choice.left if why in {OVER, INDEX}]
 
 
 def more_line(choice: Choice) -> str | None:
@@ -189,22 +259,31 @@ def more_line(choice: Choice) -> str | None:
     return text if named else f"{total} more {noun}: mem rules --more"
 
 
-def index_lines(choice: Choice, *, digest: dict | None = None, topics: dict | None = None) -> list[str]:
+def index_lines(
+    choice: Choice, *, digest: dict | None = None, topics: dict | None = None
+) -> list[str]:
     """The lines after the block for the lessons that did not fit: a line per topic when a fresh heading names one, else `more_line`."""
     left = not_fitted(choice)
     if left and digest and topics:
-        import digest as store  # digest imports this module
         counts = dict(topic_counts(Choice(left=left)))
-        if (other := sum(1 for m, _ in left if not m.topic)):
+        if other := sum(1 for m, _ in left if not m.topic):
             counts["other"] = other
-        heads = {t: store.heading(digest, t, topics[t]) for t in counts if t in topics}
+        heads = {t: digest_text.heading(digest, t, topics[t]) for t in counts if t in topics}
         if any(h is not None for h in heads.values()):
             names = sorted(counts.items(), key=lambda t: (-t[1], t[0]))
-            entries = [f"- {t} ({n}): {heads[t]}" if heads.get(t) else f"- {t} ({n})" for t, n in names]
+            entries = [
+                f"- {t} ({n}): {heads[t]}" if heads.get(t) else f"- {t} ({n})" for t, n in names
+            ]
             top = "More lessons, by topic (mem rules --more <topic>):"
             for kept in range(len(entries), -1, -1):
                 rest = names[kept:]
-                tail = [f"- and {sum(n for _, n in rest)} more in {len(rest)} topic{'' if len(rest) == 1 else 's'}"] if rest else []
+                tail = (
+                    [
+                        f"- and {sum(n for _, n in rest)} more in {len(rest)} topic{'' if len(rest) == 1 else 's'}"
+                    ]
+                    if rest
+                    else []
+                )
                 lines = [top, *entries[:kept], *tail]
                 if len("\n".join(lines)) <= INDEX_LIMIT:
                     return lines
