@@ -49,8 +49,44 @@ Import edges (no cycle): `run` imports `pipeline`; `backfill` imports `run`, `re
 
 ### Task 1: Inventory and goldens
 
-- [ ] List every importer, loader and patch of `bin/mem-synthesize`, `synth_pipeline`, `backfill` and `synth_briefs` (engine, bin, evals, hooks, tests); record each file's lint counts; clean an unclean one in its own commit. Known extra touches: `ruff.toml`, `test_bin_python_floor.py` (its `"mem-synthesize" in _closure(mem-settle)` edge becomes `synthesize/run.py`), `test_import_graph.py`, `test_auto_curation.py`, `test_run_trials_harness.py`. Write the list under this task.
-- [ ] `engine/tests/test_synthesize_cli_golden.py`: literal `--help` of the three scripts, a bad-argument call, topic and backfill dry runs on a fixture store, and Review Focus 1 with a stub `yaml`. Pass at base. Commit `test(memory): golden behavior of the synthesis command lines`.
+- [x] List every importer, loader and patch of `bin/mem-synthesize`, `synth_pipeline`, `backfill` and `synth_briefs` (engine, bin, evals, hooks, tests); record each file's lint counts; clean an unclean one in its own commit. Known extra touches: `ruff.toml`, `test_bin_python_floor.py` (its `"mem-synthesize" in _closure(mem-settle)` edge becomes `synthesize/run.py`), `test_import_graph.py`, `test_auto_curation.py`, `test_run_trials_harness.py`. Write the list under this task.
+- [x] `engine/tests/test_synthesize_cli_golden.py`: literal `--help` of the three scripts, a bad-argument call, topic and backfill dry runs on a fixture store, and Review Focus 1 with a stub `yaml`. Pass at base. Commit `test(memory): golden behavior of the synthesis command lines`.
+
+**Inventory (2026-11-26, base b991a19).** Paths under `plugins/memory/`. Lint = Ruff findings / format / basedpyright errors; all `0/ok/0` unless noted. `sp` = `synth_pipeline`, `bf` = `backfill`, `ms` = the loaded `mem-synthesize`.
+
+| File | Uses | Lint |
+|---|---|---|
+| `bin/mem-synthesize` | `import synth_pipeline as sp` (L44), `import backfill as bf` (L41); the code to move | 0/ok/0 |
+| `bin/mem-auto` | `import synth_pipeline as sp`; `SourceFileLoader("mem_synthesize", HERE/"mem-synthesize")` as `ms` (`ms.state_dir`, `session_env`, `history_commit`, `topics_without_synthesis`, `run`, `default_store`) | 0/ok/0 |
+| `bin/mem-settle` | same as `mem-auto` (`ms.state_dir`, `session_env`, `default_store`; `sp.mem/brief/parse/MEM/NO_COST`) | 0/ok/0 |
+| `bin/mem-capture` | `importlib.import_module("synth_pipeline")` inside a function (dynamic) | 0/ok/0 |
+| `engine/backfill.py` | `import synth_pipeline as sp`; moves whole | 0/ok/0 |
+| `engine/synth_pipeline.py` | `BRIEFS = parent / "synth_briefs"` (L32); comment naming `synth_briefs/` (L190); moves whole | 0/ok/0 |
+| `engine/research_pipeline.py`, `engine/corroborate_run.py` | `import synth_pipeline as sp` | 0/ok/0 |
+| `engine/safe_io.py`, `engine/tests/test_shortcheck.py` | prose mentions only (no import) | not touched |
+| `engine/tests/test_backfill.py` | `import backfill as bf`, `import synth_pipeline as sp`; fixture `ms` = `SourceFileLoader` of the script (`ms.*`, 20 uses); `setattr(bf, "save_done")` L346; argv `"mem-synthesize"` L331 | 0/ok/0 |
+| `engine/tests/test_synthesize_references.py` | `sp`; `ms` fixture from `test_backfill`; `setattr(sp, "run_session"/"lean_loop")` L81-82, `setattr(ms.bf, "select")` L187, `setattr(ms, "backfill_one")` L226, L238 | 0/ok/0 |
+| `engine/tests/test_synth_pipeline_refs.py` | `sp`; `setattr(sp, "mem"/"run_session"/"brief")` L54, L194, L278 | 0/ok/0 |
+| `engine/tests/test_synth_session.py` | `sp`; `setattr(sp.subprocess, "run")` L21 | 0/ok/0 |
+| `engine/tests/test_auto_curation.py` | `import synth_pipeline as sp`; `setattr(sp, "run_session")` L476 (the `mod` patches hit `mem-auto` names: unchanged) | 0/ok/0 |
+| `engine/tests/test_headless_golden.py` | `import backfill`, `import synth_pipeline`; `load_bin("mem-synthesize")` (SourceFileLoader) -> `mem_synthesize.session_env` | 0/ok/0 |
+| `engine/tests/test_jobs_golden.py` | `load_bin("mem-synthesize")` -> `mem_synthesize.state_dir` (also loads `mem-auto`, `mem-settle`) | 0/ok/0 |
+| `engine/tests/test_store_precedence.py` | `BIN = bin/mem-synthesize`, `SourceFileLoader("mem_synthesize_precedence")` -> `default_store` | 0/ok/0 |
+| `engine/tests/test_mem_synthesize_self_check.py` | runs `bin/mem-synthesize --self-check` as a subprocess | 0/ok/0 |
+| `engine/tests/test_bin_python_floor.py` | `"mem-synthesize" in _closure(mem-settle)` L101; comment on the SourceFileLoader edge L51 | 0/ok/0 |
+| `engine/tests/test_run_trials_harness.py` | loads `evals/synthesis/run_trials.py`; `harness.load_synthesize()` (`ReferenceOptions`, `add_references`) | 0/ok/0 |
+| `engine/tests/test_import_graph.py` | gets the new store-never-imports-synthesize rule (Task 4) | 0/ok/0 |
+| `evals/synthesis/run_trials.py` | `import synth_pipeline as sp`, two `from synth_pipeline import (...)`; `load_synthesize()` `SourceFileLoader` of `bin/mem-synthesize` (L571-573); runs the script as a subprocess (L1962) | 0/ok/0 |
+| `evals/synthesis/audit_refs.py` | `import synth_pipeline as sp` | 0/ok/0 |
+| `evals/research/run_trial.py` | `import synth_pipeline as sp  # noqa: E402` | **37 / format diff / 2** |
+| `evals/settle/run_trial.py` | `import synth_pipeline as sp  # noqa: E402`; runs `bin/mem-settle` | **21 / format diff / 1** |
+| Not code: `ruff.toml` (py311 line), `skills/memory-synthesis/SKILL.md`, `skills/memory-curation/SKILL.md`, `evals/synthesis/frozen-main/README.md`, `README.md`, `CHANGELOG.md` | prose or config | n/a |
+
+No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-settle`); no string path to `synth_briefs` outside `synth_pipeline.py`.
+
+**Unclean files (ADR 0031), not cleaned in Task 1:** the two eval harnesses above. Findings: shebang not executable, unsorted imports, unused `noqa`, magic values, too-many-arguments, `complex-structure` (`grade` 14, `trial` 9, `final_verdict` 9), too-many-locals/statements (`main` 69 > 50), `subprocess.run` without `check`; plus a format diff and pyright `log_message` override / `splitlines` on `None`. Clearing them needs function splits, not mechanical edits. Task 2 touches both (the `sp` import), so they need a ruling first.
+
+**Goldens:** `engine/tests/test_synthesize_cli_golden.py` (9 cases; passes on 3.12.0, 3.13, 3.14 and default; run with `NO_COLOR=1`, `COLUMNS=80`).
 
 ### Task 2: Move the engine modules into the package
 
