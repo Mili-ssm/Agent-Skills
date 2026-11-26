@@ -1,1 +1,1 @@
-"""Memories: the record model, parsing and writing, matching, terms, locations, sightings, pairing, rules and fingerprints. A base layer like `core`: imports stdlib, `core` and `memories` only (never `notes`)."""
+"""Memories: the record model, parsing and writing, matching and pairing, terms, locations, sightings, rules and fingerprints. A base layer like `core`: imports stdlib, `core` and `memories` only (never `notes`)."""

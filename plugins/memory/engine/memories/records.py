@@ -38,14 +38,21 @@ from memories.locations import (
 )
 from memories.matching import (
     MIN_TERMS,
+    OPPOSITES,
     POSSIBLE,
     STOPWORDS,
     STRONG,
+    Budget,
     MatchOptions,
     Related,
     containment,
+    differing_words,
+    flagged_words,
     match_memories,
+    pairs,
+    refuted_pairs,
     related_records,
+    similarity,
     tokenize,
 )
 from memories.model import (
@@ -75,15 +82,6 @@ from memories.model import (
     valid_short,
     valid_topic,
     valid_triage_reason,
-)
-from memories.pairing import (
-    OPPOSITES,
-    Budget,
-    differing_words,
-    flagged_words,
-    pairs,
-    refuted_pairs,
-    similarity,
 )
 from memories.parse import (
     _parse,
