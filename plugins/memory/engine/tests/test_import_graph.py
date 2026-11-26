@@ -23,6 +23,11 @@ MODULES = {_module_name(path) for path in ENGINE_FILES}
 PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.py"}
 
 
+# The check family: pure rules and queries over a notes folder.
+PURE_CHECK_MODULES = ["notes.check"]
+NOTE_MODULES = ["notes.note", "notes.index", *PURE_CHECK_MODULES]
+
+
 def test_modules_cover_every_engine_file():
     """One module name per file: a file whose name collides with another would hide from every rule below."""
     assert len(MODULES) == len(ENGINE_FILES), sorted(MODULES)
@@ -34,7 +39,7 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", ["notes.note", "notes.index", "notes.check", "session.notices"])
+@pytest.mark.parametrize("module", [*NOTE_MODULES, "session.notices"])
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
@@ -55,9 +60,10 @@ def test_note_module_imports_only_core_yaml_load():
     assert result.returncode == 0, result.stderr
 
 
-def test_check_stays_pure():
-    """check.py itself imports no git or subprocess code (a library it loads may use subprocess)."""
-    tree = ast.parse((ENGINE / "notes" / "check.py").read_text(encoding="utf-8"))
+@pytest.mark.parametrize("module", PURE_CHECK_MODULES)
+def test_check_stays_pure(module):
+    """The check family imports no git or subprocess code (a library it loads may use subprocess)."""
+    tree = ast.parse(_source(module).read_text(encoding="utf-8"))
     imported = {
         a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
     }
@@ -71,7 +77,7 @@ def test_check_stays_pure():
         for a in n.names
     }
     assert not {"store_git", "core.store_git", "subprocess"} & imported
-    code = "import sys; from notes import check; assert 'core.store_git' not in sys.modules"
+    code = f"import sys, {module}; assert 'core.store_git' not in sys.modules"
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
     )

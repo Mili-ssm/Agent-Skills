@@ -105,7 +105,6 @@ _MOVED = frozenset({
     "RETEST_DAYS",
     "RULES",
     "Validator",
-    "_BACKTICKS",
     "_CODE_SPAN",
     "_CONCRETE_ID",
     "_DATE",
