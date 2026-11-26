@@ -8,7 +8,23 @@ from pathlib import Path
 import pytest
 
 ENGINE = Path(__file__).resolve().parent.parent
-MODULES = {path.stem for path in ENGINE.glob("*.py")}
+PACKAGE = "synthesize"
+# Package modules are named by their dotted path (`synthesize.pipeline`); the package itself is `synthesize` (its `__init__.py`).
+MODULES = (
+    {path.stem for path in ENGINE.glob("*.py")}
+    | {
+        f"{PACKAGE}.{path.stem}"
+        for path in (ENGINE / PACKAGE).glob("*.py")
+        if path.stem != "__init__"
+    }
+    | {PACKAGE}
+)
+
+
+def _source(name: str) -> Path:
+    """The file of a module name: `a.b` is `a/b.py`, a package is its `__init__.py`."""
+    path = ENGINE / name.replace(".", "/")
+    return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
 @pytest.mark.parametrize("module", ["notes", "index", "check", "session_notices"])
@@ -57,10 +73,7 @@ def test_session_notices_does_not_import_mem():
 
 
 def _trees() -> dict[str, ast.Module]:
-    return {
-        name: ast.parse((ENGINE / f"{name}.py").read_text(encoding="utf-8"))
-        for name in sorted(MODULES)
-    }
+    return {name: ast.parse(_source(name).read_text(encoding="utf-8")) for name in sorted(MODULES)}
 
 
 def _imported_engine_modules(tree: ast.Module, own: str) -> set[str]:
@@ -68,9 +81,11 @@ def _imported_engine_modules(tree: ast.Module, own: str) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found.update(alias.name.split(".")[0] for alias in node.names)
+            for alias in node.names:
+                found.update({alias.name, alias.name.split(".")[0]})
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             found.add(node.module.split(".")[0])
+            found.update(f"{node.module}.{alias.name}" for alias in node.names)
     return (found & MODULES) - {own}
 
 
@@ -127,3 +142,30 @@ def test_engine_modules_use_no_dynamic_import():
         if (call := _dynamic_import(node))
     ]
     assert not dynamic, "dynamic imports in engine modules:\n" + "\n".join(dynamic)
+
+
+STORE_MODULES = (
+    "records",
+    "syntheses",
+    "project_syntheses",
+    "store_git",
+    "index",
+    "notes",
+    "check",
+)
+
+
+def test_store_modules_never_import_synthesize():
+    """The store sits below the synthesis feature: no store module reaches `synthesize`, directly or through others."""
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    reached: dict[str, list[str]] = {}
+    for store in STORE_MODULES:
+        seen: set[str] = set()
+        todo = [store]
+        while todo:
+            for dep in graph[todo.pop()] - seen:
+                seen.add(dep)
+                todo.append(dep)
+        if hit := sorted(m for m in seen if m.split(".")[0] == PACKAGE):
+            reached[store] = hit
+    assert not reached, f"store modules reaching the synthesize package: {reached}"

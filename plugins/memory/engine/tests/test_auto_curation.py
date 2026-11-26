@@ -16,7 +16,7 @@ import auto_state
 import jobs
 import mem
 import pytest
-import synth_pipeline as sp
+from synthesize import pipeline as sp
 
 PRIVATE_MODE = 0o700
 RETURN_LIMIT = 5  # seconds a hook may take to return: the run must be detached

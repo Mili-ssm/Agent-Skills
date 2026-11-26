@@ -35,9 +35,12 @@ def _is_import_module(call: ast.Call) -> bool:
 def _names(node: ast.AST) -> set[str]:
     """Module or script names one syntax node refers to."""
     if isinstance(node, ast.Import):
-        return {a.name.split(".")[0] for a in node.names}
+        return {a.name for a in node.names} | {a.name.split(".")[0] for a in node.names}
     if isinstance(node, ast.ImportFrom):
-        return {node.module.split(".")[0]} if node.module and not node.level else set()
+        if not node.module or node.level:
+            return set()
+        # `from synthesize import pipeline` may name a submodule of a package
+        return {node.module.split(".")[0], *(f"{node.module}.{a.name}" for a in node.names)}
     if isinstance(node, ast.Call) and _is_import_module(node) and node.args:
         arg = node.args[0]
         return (
@@ -48,7 +51,7 @@ def _names(node: ast.AST) -> set[str]:
         and isinstance(node.value, str)
         and node.value.startswith("mem-")
     ):
-        # a bin script loaded by path (`HERE / "mem-synthesize"` through SourceFileLoader)
+        # a bin script loaded by path (`HERE / "mem-capture"` style, through SourceFileLoader)
         return {node.value}
     return set()
 
@@ -59,8 +62,12 @@ def _edges(path: Path) -> set[Path]:
     names: set[str] = set().union(*(_names(node) for node in ast.walk(tree)))
     found: set[Path] = set()
     for name in names:
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name) and (ENGINE / f"{name}.py").is_file():
-            found.add(ENGINE / f"{name}.py")
+        base = ENGINE / name.replace(".", "/")
+        module = (
+            base / "__init__.py" if base.is_dir() else base.with_suffix(".py")
+        )  # a package is its `__init__.py`
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*", name) and module.is_file():
+            found.add(module)
         elif re.fullmatch(r"mem-[a-z]+", name) and (BIN / name).is_file() and name not in EXCLUDED:
             found.add(BIN / name)
     return found - {path}
@@ -98,7 +105,7 @@ def test_scripts_are_found() -> None:
         "mem-settle",
         "mem-synthesize",
     }
-    assert "mem-synthesize" in {p.name for p in _closure(BIN / "mem-settle")}
+    assert ENGINE / "synthesize" / "run.py" in _closure(BIN / "mem-settle")
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)
@@ -114,7 +121,7 @@ def _loaders() -> list[Path]:
     """Every file that may run a module by `exec_module`: the `bin/` scripts, the engine tests and the eval harnesses."""
     return [
         *_scripts(),
-        *sorted((ENGINE / "tests").glob("*.py")),
+        *sorted((ENGINE / "tests").rglob("*.py")),
         *sorted((ROOT / "evals").rglob("*.py")),
     ]
 

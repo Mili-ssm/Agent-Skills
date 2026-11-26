@@ -5,9 +5,6 @@ marks the rows the store-resolution refactor flips (ruling 1: a config file is h
 unmarked default folder is not a store; HOME-less: no passwd fallback). Paths are relative to `tmp_path`.
 """
 
-import importlib.machinery
-import importlib.util
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,8 +13,8 @@ import mem
 import pytest
 import records
 import research_pipeline
+from synthesize import run as sr
 
-BIN = Path(__file__).resolve().parents[2] / "bin" / "mem-synthesize"
 GLOBAL = records.GLOBAL_DIR
 SHARE = "share/agent-memory/store"  # XDG_DATA_HOME=share
 HOME_SHARE = "home/.local/share/agent-memory/store"  # HOME=home, no XDG_DATA_HOME
@@ -40,7 +37,7 @@ class Case:
     )
     global_root: str | None = None  # records.global_memories_root
     research: str | None = None  # research_pipeline.default_store
-    synth: str | None = None  # default_store of bin/mem-synthesize
+    synth: str | None = None  # synthesize.run.default_store
 
 
 STD = {"HOME": "{p}/home", "XDG_DATA_HOME": "{p}/share", "XDG_CONFIG_HOME": "{p}/cfg"}
@@ -340,13 +337,7 @@ def test_research_pipeline_default_store(world):
 @with_cases
 def test_mem_synthesize_default_store(world):
     case, _, at = world
-    loader = importlib.machinery.SourceFileLoader("mem_synthesize_precedence", str(BIN))
-    spec = importlib.util.spec_from_loader("mem_synthesize_precedence", loader)
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    loader.exec_module(module)
-    assert module.default_store() == at(case.synth)
+    assert sr.default_store() == at(case.synth)
 
 
 DEFAULT_PATHS: dict[str, tuple[dict[str, str], str | None]] = {

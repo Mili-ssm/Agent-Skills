@@ -41,8 +41,6 @@ from __future__ import annotations
 
 import argparse
 import contextlib
-import importlib.machinery
-import importlib.util
 import json
 import logging
 import math
@@ -63,10 +61,11 @@ from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
-import synth_pipeline as sp
 import syntheses
 import trial_env
-from synth_pipeline import (
+from synthesize import pipeline as sp
+from synthesize import topics as synthesize_topics
+from synthesize.pipeline import (
     CHEAP,
     DELETE_ONLY,
     NOT_GIVEN,
@@ -79,7 +78,7 @@ from synth_pipeline import (
     split_parts,
     summary,
 )
-from synth_pipeline import (
+from synthesize.pipeline import (
     brief as _brief,
 )
 
@@ -562,25 +561,9 @@ def judge_and_refs(
     return mark_lost(row, lost)
 
 
-_SYNTHESIZE: list[ModuleType] = []
-
-
 def load_synthesize() -> ModuleType:
-    """The `mem-synthesize` script as a module (it has no .py suffix): the one implementation of the reference step."""
-    if not _SYNTHESIZE:
-        path = str(PLUGIN / "bin" / "mem-synthesize")
-        spec = importlib.util.spec_from_loader(
-            "mem_synthesize_bin", importlib.machinery.SourceFileLoader("mem_synthesize_bin", path)
-        )
-        if spec is None or spec.loader is None:
-            raise ImportError(path)
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = (
-            module  # before 3.15, @dataclass looks its module up in sys.modules
-        )
-        spec.loader.exec_module(module)
-        _SYNTHESIZE.append(module)
-    return _SYNTHESIZE[0]
+    """`synthesize.topics`: the one implementation of the reference step (`add_references`, `ReferenceOptions`)."""
+    return synthesize_topics
 
 
 def reference_backfill(claude: str, base: Path, env: dict, topic: str) -> dict:
@@ -3076,7 +3059,7 @@ def fake_session(
     """A stand-in for `run_session`: records what it was called with and answers like a session with a cost."""
 
     def stub(*args, **kw):
-        model, work, log = args[1], args[3], args[6]
+        model, work, log = args[1], args[3], kw["log"]
         calls.append(dict(model=model, work=work, **kw))
         store = work.parent / "store"
         if "writer" in log.name and (store / "syntheses").is_dir():
@@ -3601,7 +3584,7 @@ class RefStepFixture:
     inner: Callable[..., dict]
 
     def session(self, *args, **kw):
-        self.order.append("judge" if "judge" in args[6].name else "writer")
+        self.order.append("judge" if "judge" in kw["log"].name else "writer")
         return self.inner(*args, **kw)
 
     def backfill_stub(self, status, cost=0.05):

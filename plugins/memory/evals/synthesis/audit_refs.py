@@ -36,9 +36,9 @@ from typing import NamedTuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_trials as rt
-import synth_pipeline as sp
 import syntheses
 import trial_env
+from synthesize import pipeline as sp
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +170,7 @@ def _plant(lines: dict, facts: dict, planted: int, rng: random.Random) -> list[P
 
 
 def units_file(synthesis: str, lines: dict, facts: dict) -> str:
-    """A units file in the format of `synth_pipeline.units_text`, holding only the planned units of the synthesis."""
+    """A units file in the format of `synthesize.pipeline.units_text`, holding only the planned units of the synthesis."""
     out = []
     for part in facts[synthesis]:
         mine = sorted(n for p, n in lines if p == part)

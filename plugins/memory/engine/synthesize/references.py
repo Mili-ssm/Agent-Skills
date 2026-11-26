@@ -14,8 +14,9 @@ import time
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
 import headless
-import synth_pipeline as sp
 import syntheses
+
+from synthesize import pipeline as sp
 
 if TYPE_CHECKING:
     from pathlib import Path

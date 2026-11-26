@@ -11,12 +11,13 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-import backfill
 import corroborate_run
 import headless
 import pytest
 import research_pipeline
-import synth_pipeline
+from synthesize import pipeline as synth_pipeline
+from synthesize import references as backfill
+from synthesize import run as sr
 
 PLUGIN = Path(__file__).resolve().parents[2]
 BUDGET = 0.25
@@ -26,7 +27,7 @@ EMPTY = ""
 WORK_PLACEHOLDER = "{work}"
 SESSION_TIMEOUT = 600  # corroborate, mem-capture, mem-settle
 BACKFILL_TIMEOUT = 900
-SYNTH_TIMEOUT = 1500  # the default of synth_pipeline.run_session
+SYNTH_TIMEOUT = 1500  # the default of synthesize.pipeline.run_session
 CUSTOM_TIMEOUT = 77
 RESEARCH_MIN_TIMEOUT = 1.0  # research: max(1.0, seconds left), pinned with no time left
 SESSION_VARS = (
@@ -81,7 +82,7 @@ def mem_settle() -> ModuleType:
 
 @pytest.fixture(scope="module")
 def mem_synthesize() -> ModuleType:
-    return load_bin("mem-synthesize")
+    return sr
 
 
 class Recorder:

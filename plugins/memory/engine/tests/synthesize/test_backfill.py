@@ -1,20 +1,21 @@
 """`mem-synthesize --backfill`: a read-only session proposes references, code applies them; run with a fake `claude`."""
 
-import importlib.machinery
-import importlib.util
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
-import backfill as bf
 import pytest
-import synth_pipeline as sp
 import syntheses
+from synthesize import backfill as sb
+from synthesize import cli, topics
+from synthesize import pipeline as sp
+from synthesize import references as bf
+from synthesize import run as sr
 from test_synth_pipeline_refs import A, B, store, synthesis_text
 
 __all__ = ["store"]  # re-exported: pytest finds the fixture in this module by its name
 
-BIN = Path(__file__).resolve().parents[2] / "bin" / "mem-synthesize"
 URL_PART = "Delta says a thing.\n\nSources: [paper](https://example.org/paper)"
 TWO_SESSIONS = 2
 USAGE_EXIT = 2
@@ -35,17 +36,15 @@ elif mode == "error":
 
 
 @pytest.fixture
-def ms(monkeypatch):
-    loader = importlib.machinery.SourceFileLoader("mem_synthesize_bin", str(BIN))
-    spec = importlib.util.spec_from_loader("mem_synthesize_bin", loader)
-    if spec is None:
-        raise ImportError(f"cannot load {BIN}")
-    module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(
-        sys.modules, spec.name, module
-    )  # @dataclass before Python 3.15 looks its module up here
-    loader.exec_module(module)
-    return module
+def ms():
+    """The names the tests read, from the modules that define them (`bf` is `synthesize.references`)."""
+    return SimpleNamespace(
+        run=topics.run,
+        run_backfill=sb.run_backfill,
+        done_file=sb.done_file,
+        ESTIMATE_PER_BACKFILL=sr.ESTIMATE_PER_BACKFILL,
+        bf=bf,
+    )
 
 
 @pytest.fixture
@@ -330,7 +329,7 @@ def test_topic_or_self_check_with_backfill_is_an_error(ms, monkeypatch, capsys):
     for flag in (["--topic", "x"], ["--self-check"]):
         monkeypatch.setattr(sys, "argv", ["mem-synthesize", "--backfill", *flag])
         with pytest.raises(SystemExit) as exc:
-            ms.main()
+            cli.main("mem-synthesize: tests")
         assert exc.value.code == USAGE_EXIT
         assert "--backfill takes synthesis handles" in capsys.readouterr().err
 
@@ -346,7 +345,7 @@ def test_a_failed_done_list_write_does_not_skip_the_table_or_the_commit(
     monkeypatch.setattr(bf, "save_done", boom)
     commits = []
     monkeypatch.setattr(
-        ms, "history_commit", lambda store, env, message, log: commits.append(message)
+        sr, "history_commit", lambda store, env, message, log: commits.append(message)
     )
     code, lines, rows = backfill(ms, fake, full)
     assert code == 1 and rows[0]["status"] == "ok, done list not saved: disk full"

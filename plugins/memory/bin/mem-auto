@@ -17,8 +17,6 @@ from __future__ import annotations
 
 import argparse
 import functools
-import importlib.machinery
-import importlib.util
 import json
 import logging
 import math
@@ -38,17 +36,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au
 import jobs
-import synth_pipeline as sp
+from synthesize import pipeline as sp
+from synthesize import run as synth_run
+from synthesize import topics as synth_topics
 
 logger = logging.getLogger(__name__)
-
-_loader = importlib.machinery.SourceFileLoader("mem_synthesize", str(HERE / "mem-synthesize"))
-_spec = importlib.util.spec_from_loader("mem_synthesize", _loader)
-if _spec is None:
-    raise ImportError("cannot load mem-synthesize")
-ms = importlib.util.module_from_spec(_spec)
-sys.modules[_spec.name] = ms  # before 3.15, @dataclass looks its module up in sys.modules
-_loader.exec_module(ms)
 
 OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CURATION"
 BUDGET_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CURATION_BUDGET"
@@ -101,7 +93,7 @@ class State:
 
     def __init__(self, store: Path):
         self.store = store
-        self.dir = au.auto_dir(ms.state_dir(), store)
+        self.dir = au.auto_dir(synth_run.state_dir(), store)
 
     def status(self) -> dict:
         return jobs.read_json(self.dir / jobs.STATUS_NAME)
@@ -134,7 +126,7 @@ def topics_due(state: State, env: dict) -> list[str]:
     found = sp.mem(state.store, env, "curate", "--notes")
     if found.returncode:
         raise RuntimeError(f"mem curate --notes failed: {found.stderr.strip()[:150]}")
-    return ms.topics_without_synthesis(found.stdout)
+    return synth_run.topics_without_synthesis(found.stdout)
 
 
 def prune(state: State, now: float) -> None:
@@ -153,7 +145,7 @@ def run_steps(ctx: RunContext, acct: dict) -> None:
     """The curator, then the synthesis of the topics due. `acct` (`cost`, `failures`) is filled as sessions finish, so
     an exception later still leaves what was spent. A session without a cost report ends the run: no further session."""
     state, claude, run_budget, root, log = ctx
-    env = ms.session_env(state.store)
+    env = synth_run.session_env(state.store)
     store = state.store
     settings = root / "settings.json"
     settings.write_text(
@@ -163,7 +155,7 @@ def run_steps(ctx: RunContext, acct: dict) -> None:
         }),
         encoding="utf-8",
     )  # no hook of the sessions may commit or start a run
-    ms.history_commit(store, env, "mem-auto: before curation", log)
+    synth_run.history_commit(store, env, "mem-auto: before curation", log)
     work = root / "curator-work"
     work.mkdir(mode=DIR_MODE)
     done = sp.run_session(
@@ -184,7 +176,7 @@ def run_steps(ctx: RunContext, acct: dict) -> None:
         f"curator: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
         f"answer={' '.join(done['answer'].split())[:300]}"
     )
-    ms.history_commit(store, env, "mem-auto: after curation", log)
+    synth_run.history_commit(store, env, "mem-auto: after curation", log)
     if not done["has_result"]:
         acct["failures"].append(sp.NO_COST)
         return
@@ -195,7 +187,7 @@ def run_steps(ctx: RunContext, acct: dict) -> None:
     if topics:
         rows: list[dict] = []
         try:
-            ms.run(
+            synth_topics.run(
                 claude,
                 store,
                 topics,
@@ -256,7 +248,7 @@ def _gates(
     threshold = threshold_of(
         threshold_arg if threshold_arg is not None else os.environ.get(THRESHOLD_OPTION)
     )
-    if count_new(state, ms.session_env(state.store)) < threshold:
+    if count_new(state, synth_run.session_env(state.store)) < threshold:
         return None
     return budget
 
@@ -336,7 +328,7 @@ def cmd_due(store: Path, threshold_arg: str | None) -> int:
     state = State(store)
     threshold = threshold_of(threshold_arg or os.environ.get(THRESHOLD_OPTION))
     try:
-        count = count_new(state, ms.session_env(store))
+        count = count_new(state, synth_run.session_env(store))
     except RuntimeError as exc:
         print(f"would not start: {exc}")
         return 0
@@ -344,7 +336,7 @@ def cmd_due(store: Path, threshold_arg: str | None) -> int:
         "the option auto_curation is not exactly true"
         if os.environ.get(OPTION) != "true"
         else "a run holds the lock"
-        if au.run_lock_held(ms.state_dir(), store)
+        if au.run_lock_held(synth_run.state_dir(), store)
         else f"{count} is under the threshold"
         if count < threshold
         else ""
@@ -425,7 +417,7 @@ def self_check() -> int:
         assert cmd_run(store, "/nonexistent", "2", 1000) == 0 and not state.status().get("state"), (
             "ran under the threshold"
         )
-        assert count_new(state, ms.session_env(store)) == 0
+        assert count_new(state, synth_run.session_env(store)) == 0
     print("self-check passed")
     return 0
 
@@ -475,7 +467,7 @@ def main() -> int:
         return self_check()
     if not args.command:
         parser.error("a command is required")
-    store = args.store.expanduser().resolve() if args.store else ms.default_store()
+    store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         return _missing_store(store, args.command)
     return _dispatch(args, store)

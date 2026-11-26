@@ -1,4 +1,4 @@
-"""The synthesis trial harness (`evals/synthesis/run_trials.py`) calls `mem-synthesize`'s `add_references` with the
+"""The synthesis trial harness (`evals/synthesis/run_trials.py`) calls `synthesize.topics.add_references` with the
 keyword options that function declares; a stub records them, so no model session runs."""
 
 import importlib.util

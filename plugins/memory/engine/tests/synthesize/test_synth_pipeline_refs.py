@@ -7,7 +7,7 @@ from pathlib import Path
 
 import mem
 import pytest
-import synth_pipeline as sp
+from synthesize import pipeline as sp
 
 A = "../knowledge/computing/attention-replaces-recurrence.md"
 B = "../literature/computing/2017-vaswani-attention.md"
