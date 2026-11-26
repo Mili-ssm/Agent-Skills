@@ -1,11 +1,13 @@
 """`mem note edit`: a section, the claim or the topics of a note, through the guard, with undo."""
 
+import datetime
 import io
 
 import mem
 import pytest
 import yaml
 from commands import edit
+from notes import check as check_rules
 from notes import index as index_files
 
 REL = "knowledge/computing/attention-replaces-recurrence.md"
@@ -59,9 +61,9 @@ def test_section_replaces_only_that_section_and_bumps_updated(run, hub_root, tmp
     after = (hub_root / REL).read_text()
     assert "Its tables also show the training cost." in after
     assert after.replace(new.strip(), EVIDENCE) == before.replace(
-        "updated: 2026-11-07", f"updated: '{mem.datetime.date.today()}'"
+        "updated: 2026-11-07", f"updated: '{datetime.date.today()}'"
     )
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 def test_section_accepts_a_path_and_reads_stdin(run, hub_root, monkeypatch):
@@ -101,9 +103,9 @@ def test_claim_one_word_correction_needs_no_shrink(run, hub_root):
     assert code == 0 and out == f"{HANDLE}\tedited claim\n"
     text = (hub_root / REL).read_text()
     assert "claim: Self-attention can replace recurrence for sequence modelling\n" in text
-    assert f"updated: '{mem.datetime.date.today()}'" in text
+    assert f"updated: '{datetime.date.today()}'" in text
     assert "modelling" in (hub_root / INDEX).read_text()
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 def test_claim_guard_refuses_a_big_drop(run, hub_root):
@@ -112,7 +114,7 @@ def test_claim_guard_refuses_a_big_drop(run, hub_root):
     assert code == EXIT_USAGE and "--shrink" in err
     assert snapshot(hub_root) == before
     assert run(HANDLE, "--claim", "Attention works", "--shrink")[0] == 0
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 def test_topics_replace_and_rebuild_the_index(run, hub_root):
@@ -120,7 +122,7 @@ def test_topics_replace_and_rebuild_the_index(run, hub_root):
     assert code == 0 and out == f"{HANDLE}\tedited topics\n"
     assert "topics: [ml, computing, algorithms]\n" in (hub_root / REL).read_text()
     assert "### algorithms" in (hub_root / INDEX).read_text()
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 def test_topics_refuse_unknown_and_other_domain(run, hub_root, capsys):
@@ -148,10 +150,10 @@ def test_options_combine_in_one_call_and_one_restore_undoes_them(run, hub_root, 
         "ml,computing,algorithms",
     )
     assert code == 0 and out == f"{HANDLE}\tedited section Evidence, claim, topics\n"
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
     assert restore(hub_root, capsys) == 0
     assert snapshot(hub_root) == before
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 @pytest.mark.parametrize(
@@ -167,7 +169,7 @@ def test_restore_returns_the_exact_bytes_and_the_index(run, hub_root, capsys, ar
     assert snapshot(hub_root) != before
     assert restore(hub_root, capsys) == 0
     assert snapshot(hub_root) == before
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 def test_secret_is_refused_with_exit_4_and_nothing_written(run, hub_root, tmp_path):
@@ -245,7 +247,7 @@ def test_part_of_survives_an_edit(run, hub_root, tmp_path, capsys):
     )
     text = (hub_root / REL).read_text()
     assert 'part_of: "attention#part"' in text and "part_of_hash:" in text
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
     digest = [ln for ln in text.splitlines() if ln.startswith("part_of_hash:")]
     assert (
         run(
@@ -259,7 +261,7 @@ def test_part_of_survives_an_edit(run, hub_root, tmp_path, capsys):
     )
     after = (hub_root / REL).read_text()
     assert [ln for ln in after.splitlines() if ln.startswith("part_of_hash:")] == digest
-    assert mem.check(hub_root) == []
+    assert check_rules.check(hub_root) == []
 
 
 def test_refused_when_the_file_changed_since_it_was_read(run, hub_root, tmp_path, monkeypatch):

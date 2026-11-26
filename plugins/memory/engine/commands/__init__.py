@@ -10,4 +10,5 @@ Modules (the plan, docs/superpowers/plans/2026-11-26-memory-mem-split.md, adds o
 `memory`: `remember`, `confirm` (and `observe`), `refute`, `forget`, `triage`, `supersede`, `merge`, `distinct`, `restore`, `promote`, `memories`, `rules`, `memory` (edit) and `settle`
 `curate`: `curate`, and the session-start curation decisions (passes, marks, pair and note queues)
 `hooks`: `session-index`, `compact-log` and `signal`, with the session start text and the logic only they use
+`synthesis`: `synthesis` (list, new, add, append, edit, attach, rename, remove, detach, topics, refs) and `project-synthesis`, with the logic only they use
 """

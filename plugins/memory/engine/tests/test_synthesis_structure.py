@@ -2,7 +2,8 @@
 
 import mem
 import pytest
-from commands import common
+from commands import common, synthesis
+from notes import note as note_files
 
 SRC = "Sources: [attention](../knowledge/computing/attention-replaces-recurrence.md)"
 SYN = "syntheses/attention.md"
@@ -110,7 +111,7 @@ def note_rel(root, slug):
 
 
 def part_of(root, slug):
-    meta, _, _ = mem.split_frontmatter(read(root, note_rel(root, slug)))
+    meta, _, _ = note_files.split_frontmatter(read(root, note_rel(root, slug)))
     return meta.get("part_of"), meta.get("part_of_hash")
 
 
@@ -428,14 +429,14 @@ def test_a_failed_write_leaves_files_and_log_as_they_were(run, made, monkeypatch
 
 def test_a_file_changed_since_it_was_read_is_refused(run, made, monkeypatch):
     note = made / note_rel(made, "two-note")
-    real = mem._write_logged_changes
+    real = synthesis._write_logged_changes
     original = note.read_bytes()
 
     def racing(root, changes, *a, **kw):
         note.write_bytes(original + b"\nrace\n")
         return real(root, changes, *a, **kw)
 
-    monkeypatch.setattr(mem, "_write_logged_changes", racing)
+    monkeypatch.setattr(synthesis, "_write_logged_changes", racing)
     before = files(made)
     code, _, err = run("synthesis", "remove", "s:attention#alpha")
     assert code == EXIT_REFUSED and "changed since it was read" in err
