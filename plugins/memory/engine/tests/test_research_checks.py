@@ -201,6 +201,33 @@ def public_name(server, monkeypatch):
     return f"http://public.example:{server.rsplit(':', 1)[1]}", lookups
 
 
+def test_the_pinned_tls_connection_uses_the_checked_address_and_the_host_name(monkeypatch):
+    """No network: the socket goes to the pinned IP, and the TLS handshake names the host (SNI)."""
+    calls: dict[str, tuple] = {}
+    raw, wrapped = object(), object()
+
+    class Context:
+        @staticmethod
+        def wrap_socket(sock, server_hostname=None):
+            calls["wrap"] = (sock, server_hostname)
+            return wrapped
+
+    def create_connection(address, timeout=None):
+        calls["connect"] = (address, timeout)
+        return raw
+
+    monkeypatch.setattr(socket, "create_connection", create_connection)
+    monkeypatch.setattr(rc.ssl, "create_default_context", Context)
+    parts = rc.urllib.parse.urlsplit("https://pinned.example/page")
+    conn = rc._connection(parts, "93.184.216.34", 443, timeout=7)
+    assert isinstance(conn, rc.http.client.HTTPSConnection)
+    assert (conn.host, conn.port) == ("pinned.example", 443)
+    conn.connect()
+    assert calls["connect"] == (("93.184.216.34", 443), 7)
+    assert calls["wrap"] == (raw, "pinned.example")
+    assert conn.sock is wrapped
+
+
 def test_relative_redirect_is_followed_and_rechecked(public_name):
     base, lookups = public_name
     assert LONG in rc.fetch_text(f"{base}/redir-page")
