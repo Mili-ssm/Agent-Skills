@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au
+import headless
 import settle_state as ss
 import synth_pipeline as sp
 
@@ -121,52 +122,25 @@ def session_cmd(
 ) -> list[str]:
     """One Haiku session. Tools: Read and Write/Edit inside `work` only; no Bash (a session with `Bash(mem *)` could
     run any `mem` command and bypass the limits `mem settle apply` enforces), no web, hooks disabled by `settings`."""
-    return [
-        claude,
-        "-p",
-        brief,
-        "--model",
-        "haiku",
-        "--effort",
-        "medium",
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        "--allowedTools",
-        f"Read(/{work}/**)",
-        f"Write(/{work}/**)",
-        f"Edit(/{work}/**)",  # `//` is an absolute path
-        "--disallowedTools",
-        "Bash",
-        "WebSearch",
-        "WebFetch",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        "--max-budget-usd",
-        f"{max_budget:.4f}",
-    ]
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=brief,
+            model="haiku",
+            settings=settings,
+            effort="medium",
+            # `//` is an absolute path
+            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+            disallowed=("Bash", "WebSearch", "WebFetch"),
+            max_budget=max_budget,
+        )
+    )
 
 
 def session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
     """Runs a `session_cmd` command in `work`; the stream goes to `log`."""
     start = time.monotonic()
-    try:
-        done = subprocess.run(
-            cmd,
-            cwd=work,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=SESSION_TIMEOUT,
-            check=False,
-        )
-        raw = done.stdout
-    except subprocess.TimeoutExpired as exc:
-        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+    raw = headless.run_raw(cmd, cwd=work, env=env, timeout=SESSION_TIMEOUT).stdout
     log.write_text(raw, encoding="utf-8")
     result = sp.parse(raw)
     result["wall"] = time.monotonic() - start

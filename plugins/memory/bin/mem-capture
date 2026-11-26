@@ -45,6 +45,7 @@ MIN_LOCK_POLL_SECONDS = 0.01
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au
 import capture_state as cs
+import headless
 
 IMPORT_ERROR: Exception | None = None
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
@@ -240,51 +241,24 @@ def session_cmd(
 ) -> list[str]:
     """One session. Tools: Read and Write/Edit inside `work` only (`//` is an absolute path in a permission rule; a new
     file needs the Edit rule beside Write); no Bash, no web, hooks disabled by `settings`."""
-    return [
-        claude,
-        "-p",
-        BRIEF.replace(WORK_PLACEHOLDER, str(work)),
-        "--model",
-        model,
-        "--effort",
-        "medium",
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        "--allowedTools",
-        f"Read(/{work}/**)",
-        f"Write(/{work}/**)",
-        f"Edit(/{work}/**)",
-        "--disallowedTools",
-        "Bash",
-        "WebSearch",
-        "WebFetch",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        "--max-budget-usd",
-        f"{max_budget:.4f}",
-    ]
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=BRIEF.replace(WORK_PLACEHOLDER, str(work)),
+            model=model,
+            settings=settings,
+            effort="medium",
+            tools=("Read", "Write"),
+            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+            disallowed=("Bash", "WebSearch", "WebFetch"),
+            max_budget=max_budget,
+        )
+    )
 
 
 def run_session(cmd: list[str], work: Path) -> dict:
     env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
-    try:
-        done = subprocess.run(
-            cmd,
-            check=False,
-            cwd=work,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=SESSION_TIMEOUT,
-        )
-        raw = done.stdout
-    except subprocess.TimeoutExpired as exc:
-        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+    raw = headless.run_raw(cmd, cwd=work, env=env, timeout=SESSION_TIMEOUT).stdout
     return sp.parse(raw)
 
 
@@ -831,7 +805,7 @@ class AutoRun:
         self.session = transcript.stem
         self.start = time.time()
         self.line: dict = {
-            "t": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+            "t": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
             "trigger": trigger,
             "session": self.session,
             "windows": 0,
