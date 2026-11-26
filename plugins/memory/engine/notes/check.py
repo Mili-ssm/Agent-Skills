@@ -8,9 +8,10 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from syntheses import document
+
 from notes import index as index_mod
 from notes import note as notes_mod
-from notes import syntheses
 from notes.due import rule_requirements
 from notes.fields import (
     _INSTRUCTION_FIX,
@@ -37,8 +38,9 @@ from notes.note import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from syntheses.document import Section, Synthesis
+
     from notes.note import Note
-    from notes.syntheses import Section, Synthesis
 
 
 NAME_PATTERNS: dict[str, re.Pattern] = {
@@ -606,7 +608,7 @@ def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[P
     """Rule 15: each synthesis parses, repeats no section handle, uses known topics and ends every part with a
     valid `Sources:` line; a reference names a source and has a sentence before it, and no reference or source
     names a superseded note."""
-    loaded = syntheses.load(root / syntheses.SYNTHESES_DIR)
+    loaded = document.load(root / document.SYNTHESES_DIR)
     superseded = {
         (root / n.rel).resolve(): n.meta["superseded_by"]
         for n in notes
@@ -647,14 +649,14 @@ def _part_of_problem(note: Note, loaded: list[Synthesis]) -> Problem | None:
 
 
 def _section_messages(sec: Section, root: Path, superseded: dict) -> list[str]:
-    if sec.handle == syntheses.SUMMARY:
-        return syntheses.summary_problems(sec.text)
-    msgs = syntheses.validate_section(sec.text, root)
-    base = (root / syntheses.SYNTHESES_DIR).resolve()
-    cited = [("reference", t) for t in dict.fromkeys(syntheses.references(sec.text))]
+    if sec.handle == document.SUMMARY:
+        return document.summary_problems(sec.text)
+    msgs = document.validate_section(sec.text, root)
+    base = (root / document.SYNTHESES_DIR).resolve()
+    cited = [("reference", t) for t in dict.fromkeys(document.references(sec.text))]
     cited += [("source", t) for t in sec.sources]
     for kind, target in cited:
-        successor = superseded.get(syntheses._resolved(base, target))
+        successor = superseded.get(document._resolved(base, target))
         if successor:
             msgs.append(f"{kind} {target} is superseded by {successor}: point to it")
     return msgs

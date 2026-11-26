@@ -26,6 +26,7 @@ PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.
 # The check family: pure rules and queries over a notes folder.
 PURE_CHECK_MODULES = ["notes.check", "notes.fields", "notes.links", "notes.due"]
 NOTE_MODULES = ["notes.note", "notes.index", *PURE_CHECK_MODULES]
+SYNTHESES_MODULES = ["syntheses.document"]
 
 
 def test_modules_cover_every_engine_file():
@@ -39,7 +40,7 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", [*NOTE_MODULES, "session.notices"])
+@pytest.mark.parametrize("module", [*NOTE_MODULES, *SYNTHESES_MODULES, "session.notices"])
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
@@ -163,9 +164,11 @@ def test_engine_modules_use_no_dynamic_import():
     assert not dynamic, "dynamic imports in engine modules:\n" + "\n".join(dynamic)
 
 
-MEMORY_AND_NOTE_MODULES = tuple(
-    f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints")
-) + tuple(f"notes.{name}" for name in ("syntheses", "project_syntheses", "index", "note", "check"))
+MEMORY_AND_NOTE_MODULES = (
+    tuple(f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints"))
+    + tuple(f"notes.{name}" for name in ("project_syntheses", "index", "note", "check"))
+    + tuple(SYNTHESES_MODULES)
+)
 
 
 def test_memory_and_note_modules_never_import_synthesize():

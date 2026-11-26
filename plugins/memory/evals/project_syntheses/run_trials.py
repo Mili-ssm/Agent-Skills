@@ -81,8 +81,8 @@ CANDIDATES = [
         "name": "synthesis-shrink",
         "question": "`mem synthesis edit` rechaza un texto nuevo que borra demasiado de la sección que se reescribe. "
         "¿En qué archivo está la regla que decide cuánto texto se puede perder?",
-        "expect": "memory/engine/notes/syntheses.py",
-        # mem.py cmd_synthesis edit (syntheses.edit_section(..., shrink=args.shrink), mem.py ~4332) -> syntheses.edit_section
+        "expect": "memory/engine/syntheses/document.py",
+        # mem.py cmd_synthesis edit (document.edit_section(..., shrink=args.shrink), mem.py ~4332) -> document.edit_section
         # -> _guard_shrink, which compares word counts with SHRINK_RATIO = 0.8.
     },
     {

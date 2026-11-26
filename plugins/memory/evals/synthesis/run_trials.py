@@ -62,7 +62,7 @@ from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "engine"))
 import trial_env
-from notes import syntheses
+from syntheses import document
 from synthesize import pipeline as sp
 from synthesize import topics as synthesize_topics
 from synthesize.pipeline import (
@@ -201,24 +201,22 @@ def ensure_source() -> Path:
 
 def drop_unlisted_references(store: Path) -> int:
     """Remove from the (trial) copy `store` every reference that names a note missing from its part's `Sources:` line,
-    the case `syntheses.validate_section` refuses; return how many were removed. Never run it on a real store."""
-    base, total = store / syntheses.SYNTHESES_DIR, 0
+    the case `document.validate_section` refuses; return how many were removed. Never run it on a real store."""
+    base, total = store / document.SYNTHESES_DIR, 0
     for path in sorted(base.glob("*.md")):
-        text, syn = path.read_text(), syntheses.load_one(path)
+        text, syn = path.read_text(), document.load_one(path)
         if syn.error:
             continue
         for part in syn.parts:
-            line = syntheses._sources_line(part.text) or ""
+            line = document._sources_line(part.text) or ""
             listed = {
-                syntheses._resolved(base, t)
-                for t in syntheses._links(line)
-                if syntheses._relative(t)
+                document._resolved(base, t) for t in document._links(line) if document._relative(t)
             }
-            _, every, _, body_end = syntheses._parse(part.text)
-            bad = [r for r in every if syntheses._resolved(base, r.target) not in listed]
+            _, every, _, body_end = document._parse(part.text)
+            bad = [r for r in every if document._resolved(base, r.target) not in listed]
             if bad:
-                new = syntheses._remove(part.text, 0, body_end, bad) + part.text[body_end:]
-                text, total = syntheses.apply_part_text(text, part.handle, new), total + len(bad)
+                new = document._remove(part.text, 0, body_end, bad) + part.text[body_end:]
+                text, total = document.apply_part_text(text, part.handle, new), total + len(bad)
         path.write_text(text)
     return total
 
@@ -283,9 +281,9 @@ def row_cost(r: dict) -> float:
 def without_references_text(path: Path) -> str:
     """The synthesis file's text with the references of every part's body (Summary included) removed."""
     text = path.read_text(encoding="utf-8")
-    for section in syntheses.load_one(path).sections:
-        text = syntheses.apply_part_text(
-            text, section.handle, syntheses.without_references(section.text)
+    for section in document.load_one(path).sections:
+        text = document.apply_part_text(
+            text, section.handle, document.without_references(section.text)
         )
     return text
 
@@ -368,7 +366,7 @@ def stored_facts(store: Path, env: dict, topic: str) -> dict:
         "words": words,
         "parts": parts,
         "tokens_stored": tokens(stored),
-        "tokens_shown": tokens(syntheses.shown_file(stored)),
+        "tokens_shown": tokens(document.shown_file(stored)),
     }
 
 
@@ -1066,8 +1064,8 @@ def parse_ref_report(text: str) -> dict:
 def file_units(path: Path) -> list[tuple[str, int, list[str]]]:
     """(part handle, unit number, normalized reference targets without repeats) for every unit of the file's parts."""
     out = []
-    for section in syntheses.load_one(path).parts:
-        found, _ = syntheses.units(section.text)
+    for section in document.load_one(path).parts:
+        found, _ = document.units(section.text)
         out += [(section.handle, u.n, [_norm(t) for t in dict.fromkeys(u.refs)]) for u in found]
     return out
 
@@ -1161,9 +1159,9 @@ def part_sources(base: Path, parts: list) -> dict[str, dict[Path, tuple[str, str
     sources: dict[str, dict[Path, tuple[str, str]]] = {}
     for section in parts:
         sources[section.handle] = mine = {}
-        for m in syntheses._REF_LINK.finditer(syntheses._sources_line(section.text) or ""):
-            if syntheses._is_ref(m.group(2)):
-                mine.setdefault(syntheses._resolved(base, m.group(2)), (m.group(1), m.group(2)))
+        for m in document._REF_LINK.finditer(document._sources_line(section.text) or ""):
+            if document._is_ref(m.group(2)):
+                mine.setdefault(document._resolved(base, m.group(2)), (m.group(1), m.group(2)))
     return sources
 
 
@@ -1181,12 +1179,12 @@ def unit_candidate(scope: PlantScope, n: int, own: list) -> tuple[bool, tuple] |
     """The swap a unit allows, or None: (strong, (part handle, unit number, references the judge marked yes,
     replacements)). `own` holds the unit's references; a strong swap needs a note only other parts cite, a weak one a
     source of this part that the unit does not carry."""
-    carried = {syntheses._resolved(scope.base, r.target) for r in own}
+    carried = {document._resolved(scope.base, r.target) for r in own}
     ok = [
         r
         for r in own
         if r.trailing
-        and scope.verdicts.get((scope.handle, n, _norm(syntheses._file_part(r.target)))) is True
+        and scope.verdicts.get((scope.handle, n, _norm(document._file_part(r.target)))) is True
     ]
     if not ok:
         return None
@@ -1199,7 +1197,7 @@ def unit_candidate(scope: PlantScope, n: int, own: list) -> tuple[bool, tuple] |
 
 def part_candidates(scope: PlantScope, text: str, kinds: dict) -> tuple[list, list]:
     """The strong and the weak swap candidates of one part's `text`, over the units the judge marked `finding`."""
-    found, refs, orphans, _ = syntheses._parse(text)
+    found, refs, orphans, _ = document._parse(text)
     orphan_at = {r.start for r in orphans}
     strong, weak = [], []
     for unit in found:
@@ -1226,7 +1224,7 @@ def choose_swaps(
         for handle, n, ok, other in group:
             ref, (label, target) = rng.choice(ok), rng.choice(other)
             edits.setdefault(handle, []).append((ref.start, ref.end, f"[{label}]({target})"))
-            out.append((handle, n, _norm(syntheses._file_part(target))))
+            out.append((handle, n, _norm(document._file_part(target))))
     return planted, planted_weak, edits
 
 
@@ -1242,7 +1240,7 @@ def plant_references(
     the unit did not carry (it may support the sentence too). Weak plants fill what the strong ones leave of `quota`.
     One swap per unit; the label and target of the reference become the replacements'."""
     base, text = path.parent, path.read_text(encoding="utf-8")
-    parts = syntheses.load_one(path).parts
+    parts = document.load_one(path).parts
     sources = part_sources(base, parts)
     strong, weak = [], []
     for section in parts:
@@ -1262,7 +1260,7 @@ def plant_references(
             new = section.text
             for start, end, repl in sorted(edits[section.handle], reverse=True):
                 new = new[:start] + repl + new[end:]
-            text = syntheses.apply_part_text(text, section.handle, new)
+            text = document.apply_part_text(text, section.handle, new)
     return text, planted, planted_weak
 
 
@@ -1764,14 +1762,14 @@ def snapshot_files(store: Path, handle: str) -> dict[str, bytes]:
 
 def changed_parts(before: Path, after: Path) -> list[str]:
     """The parts whose words changed (references aside) or that exist on one side only."""
-    b = {s.handle: s.text for s in syntheses.load_one(before).parts}
-    a = {s.handle: s.text for s in syntheses.load_one(after).parts}
+    b = {s.handle: s.text for s in document.load_one(before).parts}
+    a = {s.handle: s.text for s in document.load_one(after).parts}
     return [
         h
         for h in sorted(set(a) | set(b))
         if h not in a
         or h not in b
-        or syntheses.without_references(a[h]) != syntheses.without_references(b[h])
+        or document.without_references(a[h]) != document.without_references(b[h])
     ]
 
 
@@ -1937,7 +1935,7 @@ class BackfillTrial:
             self.pairs_before[h] = {(p, n, t) for p, n, refs in units_before for t in refs}
             self.had_ref[h] = {(p, n) for p, n, refs in units_before if refs}
             t = (self.before_dir / f"{h}.md").read_text()
-            m["sizes_before"][h] = (tokens(t), tokens(syntheses.shown_file(t)))
+            m["sizes_before"][h] = (tokens(t), tokens(document.shown_file(t)))
 
     def backfill(self) -> None:
         m = self.m
@@ -2161,7 +2159,7 @@ class BackfillTrial:
             before, after = m["sizes_before"].get(h), None
             if h in self.handles and (self.after_dir / f"{h}.md").is_file():
                 t = (self.after_dir / f"{h}.md").read_text()
-                after = (tokens(t), tokens(syntheses.shown_file(t)))
+                after = (tokens(t), tokens(document.shown_file(t)))
             print(
                 f"  {h}: cost {cost:.3f} USD over {parts} parts ({cost / parts:.3f} per part); tokens stored/shown "
                 f"{fmt_tokens(before[0]) if before else '-'}/{fmt_tokens(before[1]) if before else '-'} before, "
@@ -2291,10 +2289,10 @@ def store_preparation_checks(root: Path) -> tuple[Path, Path]:
     assert prepared == DEMO.replace(" [Beta note](../literature/b.md) [Alpha", " [Alpha").replace(
         "see [Beta note](../literature/b.md) here", "see Beta note here"
     ), prepared
-    for part in syntheses.load_one(path).parts:
+    for part in document.load_one(path).parts:
         assert not [
             p
-            for p in syntheses.validate_section(part.text, store)
+            for p in document.validate_section(part.text, store)
             if "not on the `Sources:` line" in p
         ], part.handle
     assert drop_unlisted_references(store) == 0
@@ -2305,10 +2303,10 @@ def judge_copy_checks(path: Path) -> None:
     """The judge's copy has no reference in a body while the run's file keeps them."""
     path.write_text(DEMO, encoding="utf-8")
     stripped = without_references_text(path)
-    for section in syntheses.load_one(path).sections:
-        assert syntheses.references(section.text), section.handle
+    for section in document.load_one(path).sections:
+        assert document.references(section.text), section.handle
     path.write_text(stripped, encoding="utf-8")
-    assert all(not syntheses.references(sec.text) for sec in syntheses.load_one(path).sections)
+    assert all(not document.references(sec.text) for sec in document.load_one(path).sections)
     assert [ln for ln in stripped.splitlines() if ln.startswith("Sources:")] == [
         ln for ln in DEMO.splitlines() if ln.startswith("Sources:")
     ]
@@ -2367,7 +2365,7 @@ def judge_row_checks(root: Path, env: dict, store: Path) -> None:
     seen_path = root / "seen.md"
     seen_path.write_text(seen["file"])
     assert all(
-        not syntheses.references(sec.text) for sec in syntheses.load_one(seen_path).sections
+        not document.references(sec.text) for sec in document.load_one(seen_path).sections
     ), seen["file"]
     assert seen["file"].count("Sources:") == TWO
     assert (base / "store" / "syntheses" / "demo.md").read_text() == DEMO, (
@@ -2378,7 +2376,7 @@ def judge_row_checks(root: Path, env: dict, store: Path) -> None:
     ] and JUDGE_EXTRA in seen["prompt"]
     assert (
         row["tokens_stored"] == len(DEMO) / 4
-        and row["tokens_shown"] == len(syntheses.shown_file(DEMO)) / 4
+        and row["tokens_shown"] == len(document.shown_file(DEMO)) / 4
     )
     assert row["tokens_shown"] < row["tokens_stored"] and row["checked"] == TEN, row
 

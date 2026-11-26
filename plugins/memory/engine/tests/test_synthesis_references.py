@@ -4,7 +4,7 @@ from pathlib import Path
 
 import mem
 import pytest
-from notes import syntheses
+from syntheses import document
 
 A = "../knowledge/computing/attention-replaces-recurrence.md"
 B = "../literature/computing/2017-vaswani-attention.md"
@@ -12,7 +12,7 @@ SRC = f"Sources: [attention]({A})"
 
 
 def parse(text):
-    return syntheses.units(text)
+    return document.units(text)
 
 
 def plains(text):
@@ -149,28 +149,28 @@ BASE = f"The reasons are clear. Another reason holds.\n\n{SRC}\n"
 
 
 def test_fingerprint_ignores_references_and_their_targets():
-    plain = syntheses.fingerprint(BASE)
+    plain = document.fingerprint(BASE)
     with_ref = f"The reasons are clear.[x]({A}) Another reason holds.\n\n{SRC}\n"
     moved = f"The reasons are clear.[x]({B}) Another reason holds.\n\n{SRC}\n"
-    assert syntheses.fingerprint(with_ref) == plain == syntheses.fingerprint(moved)
-    assert syntheses.fingerprint(BASE.replace("clear", "unclear")) != plain
+    assert document.fingerprint(with_ref) == plain == document.fingerprint(moved)
+    assert document.fingerprint(BASE.replace("clear", "unclear")) != plain
 
 
 def test_fingerprint_sees_a_change_of_the_text_around_a_reference():
     inline = f"See [the paper]({A}) now.\n\n{SRC}\n"
-    assert syntheses.fingerprint(inline) != syntheses.fingerprint(inline.replace("now", "later"))
-    assert syntheses.fingerprint(inline) == syntheses.fingerprint(inline.replace(A, B))
+    assert document.fingerprint(inline) != document.fingerprint(inline.replace("now", "later"))
+    assert document.fingerprint(inline) == document.fingerprint(inline.replace(A, B))
 
 
 def test_legacy_fingerprint_is_the_old_hash_and_still_current():
-    assert syntheses.fingerprint_legacy(BASE) == syntheses.fingerprint(
+    assert document.fingerprint_legacy(BASE) == document.fingerprint(
         BASE
     )  # no references: the same
     with_ref = f"The reasons are clear.[x]({A}) Another reason holds.\n\n{SRC}\n"
-    assert syntheses.fingerprint_legacy(with_ref) != syntheses.fingerprint(with_ref)
-    old, new = syntheses.fingerprint_legacy(with_ref), syntheses.fingerprint(with_ref)
-    assert syntheses.is_current(old, with_ref) and syntheses.is_current(new, with_ref)
-    assert not syntheses.is_current("0" * 10, with_ref) and not syntheses.is_current(None, with_ref)
+    assert document.fingerprint_legacy(with_ref) != document.fingerprint(with_ref)
+    old, new = document.fingerprint_legacy(with_ref), document.fingerprint(with_ref)
+    assert document.is_current(old, with_ref) and document.is_current(new, with_ref)
+    assert not document.is_current("0" * 10, with_ref) and not document.is_current(None, with_ref)
 
 
 # ---- CLI -----------------------------------------------------------------------------------------------------
@@ -282,7 +282,7 @@ def test_rename_of_a_referenced_note_leaves_the_member_notes_current(run, made):
         )[0]
         == 0
     )
-    section = syntheses.load_one(made / "syntheses" / "attention.md").sections[-1]
+    section = document.load_one(made / "syntheses" / "attention.md").sections[-1]
     assert (
         "attention-beats-recurrence.md" in section.text
         and "attention-replaces-recurrence" not in section.text
@@ -292,11 +292,11 @@ def test_rename_of_a_referenced_note_leaves_the_member_notes_current(run, made):
 
 def test_a_note_stamped_with_the_old_fingerprint_is_current(run, made):
     path = next((made / "knowledge").rglob("one-note.md"))
-    section = syntheses.load_one(made / "syntheses" / "attention.md").sections[-1]
-    legacy = syntheses.fingerprint_legacy(section.text)
-    assert legacy != syntheses.fingerprint(section.text)
+    section = document.load_one(made / "syntheses" / "attention.md").sections[-1]
+    legacy = document.fingerprint_legacy(section.text)
+    assert legacy != document.fingerprint(section.text)
     path.write_text(
-        path.read_text(encoding="utf-8").replace(syntheses.fingerprint(section.text), legacy),
+        path.read_text(encoding="utf-8").replace(document.fingerprint(section.text), legacy),
         encoding="utf-8",
     )
     assert "one-note  s:attention#alpha" not in run("curate", "--notes")[1]
@@ -323,7 +323,7 @@ def test_a_dropped_reference_on_an_unchanged_sentence_is_refused_with_and_withou
 
 
 def test_a_text_written_from_the_label_form_is_refused_whatever_the_flags(run, made, tmp_path):
-    text = syntheses.shown(PART)
+    text = document.shown(PART)
     assert f"]({A})" not in text.split("Sources:")[0]
     for flags in ((), ("--shrink",), ("--shrink", "--drop-references")):
         code, _, err = edit(run, tmp_path, text, *flags)
@@ -465,13 +465,13 @@ def test_shown_numbers_follow_the_sources_line_and_fall_back_to_the_label():
         f"One. [x]({B}) Two uses [the paper]({A}) here. Three. [y](../knowledge/computing/absent.md) "
         f"Four. [](../knowledge/computing/absent.md)\n\nSources: [attention]({A}), [vaswani]({B})\n"
     )
-    assert syntheses.source_numbers(text) == {A: 1, B: 2}
+    assert document.source_numbers(text) == {A: 1, B: 2}
     assert (
-        syntheses.shown(text).split("\n")[0]
+        document.shown(text).split("\n")[0]
         == "One. [2] Two uses the paper [1] here. Three. [y] Four. [note]"
     )
     assert (
-        syntheses.shown(text).split("\n")[2] == f"Sources: [1] [attention]({A}), [2] [vaswani]({B})"
+        document.shown(text).split("\n")[2] == f"Sources: [1] [attention]({A}), [2] [vaswani]({B})"
     )
 
 
@@ -479,7 +479,7 @@ def test_shown_numbers_follow_the_sources_line_and_fall_back_to_the_label():
 def test_a_reworded_text_from_the_shown_form_is_refused_by_its_bracketed_number(
     run, made, tmp_path, flags
 ):
-    text = syntheses.shown(PART).replace("stands firmly", "stands very firmly")
+    text = document.shown(PART).replace("stands firmly", "stands very firmly")
     code, _, err = edit(run, tmp_path, text, *flags)
     assert code == 1 and "--stored" in err
     assert f"[a]({A})" in (made / "syntheses" / "attention.md").read_text(encoding="utf-8")
@@ -489,12 +489,10 @@ def test_a_bracketed_number_is_refused_in_a_part_but_not_inside_code():
     base = Path("/nowhere")
     assert any(
         "[3]" in p
-        for p in syntheses.validate_section(
-            "A claim. [3]\n\nSources: https://example.org/a\n", base
-        )
+        for p in document.validate_section("A claim. [3]\n\nSources: https://example.org/a\n", base)
     )
     assert (
-        syntheses.validate_section(
+        document.validate_section(
             "Index `x[3]` and a link [3](https://example.org).\n\nSources: https://example.org/a\n",
             base,
         )
