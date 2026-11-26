@@ -71,7 +71,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 |---|---|---|---|
 | medium | — | Release #185 (Unreleased entry in `CHANGELOG.md`) | Waiting for a release |
 | high | A1 | Refactor: pure `config.py` | Not started |
-| high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers | Not started |
+| high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Not started |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle | Not started |
 | medium | A7 | Refactor: import direction | Open: only session_env, moved into A2 (tokenize and both cycles done on branch refactor/memory-a7-a1-a3) |
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | Not started |

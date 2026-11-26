@@ -111,10 +111,10 @@ Suite at start: 2,284 passed, 5 skipped.
 - Create: `plugins/memory/engine/tests/test_import_graph.py`
 - Modify: `docs/superpowers/plans/2026-11-23-memory-refactor.md` (the "Import direction" task), `docs/backlog.md` (A7 row, `Updated`/`Expires` dates), this plan's Status line
 
-- [x] **Step 1:** Write `test_engine_modules_import_no_cycle`: parse every `plugins/memory/engine/*.py` with `ast`; collect each `import x` and `from x import …` (level 0, at any depth, including inside functions and `TYPE_CHECKING` blocks) whose first name part is another engine module; assert no cycle, the failure message listing each cycle as `a -> b -> a`. Write `test_engine_modules_import_engine_modules_statically`: no `importlib.import_module(` or `__import__(` call whose argument names an engine module, so a cycle cannot hide behind a dynamic import.
+- [x] **Step 1:** Write `test_engine_modules_import_no_cycle`: parse every `plugins/memory/engine/*.py` with `ast`; collect each `import x` and `from x import …` (level 0, at any depth, including inside functions and `TYPE_CHECKING` blocks) whose first name part is another engine module; assert no cycle, the failure message listing each cycle as `a -> b -> a`. Write `test_engine_modules_use_no_dynamic_import`: no engine module imports `importlib` or calls `import_module`/`__import__`, whatever the argument, so a cycle cannot hide behind a dynamic import (broadened after the final review).
 - [x] **Step 2:** Prove it bites: `git worktree add` the base commit `65e901a` in the scratch directory, copy the test file in, run it there. Expected: the cycle test FAILS naming both cycles. Remove the worktree.
 - [x] **Step 3:** Run it on the branch. Expected: PASS; the test file clean.
-- [x] **Step 4:** Docs: the refactor plan's "Import direction" task becomes done for `tokenize` and both cycles, with `session_env` moved into the headless task (A2); the backlog A7 row says the same; bump the backlog dates; this plan's Status becomes done. Run `python3 scripts/validate.py`. Commit.
+- [x] **Step 4:** Docs: the refactor plan's "Import direction" task becomes done for `tokenize` and both cycles, with `session_env` moved into the headless task (A2); the backlog A7 row says the same; bump the backlog dates; this plan's Status says implemented, with § Deferred findings open (the backlog's rule ties a done Status to no open work). Run `python3 scripts/validate.py`. Commit.
 
 ## Deferred findings
 

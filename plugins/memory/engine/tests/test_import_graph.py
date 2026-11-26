@@ -101,7 +101,16 @@ def test_engine_modules_import_no_cycle():
 
 
 def _dynamic_import(node: ast.AST) -> str | None:
-    """Call text of `importlib.import_module(...)`, `import_module(...)` or `__import__(...)`, any argument."""
+    """Text of an `importlib` import or of a call named `import_module` or `__import__`, any argument.
+
+    Banning `importlib` itself also catches an aliased `import_module`.
+    """
+    if isinstance(node, ast.Import) and any(
+        a.name.split(".")[0] == "importlib" for a in node.names
+    ):
+        return "import importlib"
+    if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "importlib":
+        return f"from {node.module} import ..."
     if not isinstance(node, ast.Call):
         return None
     func = node.func
