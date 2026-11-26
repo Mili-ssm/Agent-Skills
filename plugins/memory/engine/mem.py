@@ -30,7 +30,7 @@ import urllib.parse
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
 import auto_state
 import capture_state
@@ -348,6 +348,18 @@ def _unknown_topic_message(topic: str, known: dict) -> str:
     return f'unknown topic {topic}: {hint}for free text use: mem search "{topic.replace("-", " ")}" (ids: topics.yaml)'
 
 
+class NoteFilters(TypedDict, total=False):
+    """The keyword filters of `_matching_notes`, for the functions that pass them on."""
+
+    type: str | None
+    topic: str | None
+    kind: str | None
+    status: str | None
+    confidence: str | None
+    level: str | None
+    superseded: bool
+
+
 def _matching_notes(
     root: Path,
     *,
@@ -400,7 +412,7 @@ def _title(note: Note) -> str:
     return str(note.meta.get("claim" if note.type == "knowledge" else "title", ""))
 
 
-def find(root: Path, **filters: str | None) -> list[tuple[str, str]]:
+def find(root: Path, **filters: Unpack[NoteFilters]) -> list[tuple[str, str]]:
     """(rel, title) of notes matching every filter; claim is the title of knowledge notes."""
     return sorted((n.rel, _title(n)) for n in _matching_notes(root, **filters))
 
@@ -438,7 +450,7 @@ class Corpus:
     average: dict[str, float]
 
 
-def build_corpus(root: Path, **filters: str | None) -> Corpus:
+def build_corpus(root: Path, **filters: Unpack[NoteFilters]) -> Corpus:
     """Read and tokenize the notes matching `filters` once."""
     notes = _matching_notes(root, **filters)
     counts = [
@@ -484,7 +496,7 @@ def rank(corpus: Corpus, query: str, *, limit: int = 10) -> list[tuple[Note, flo
 
 
 def search(
-    root: Path, query: str, *, limit: int = 10, **filters: str | None
+    root: Path, query: str, *, limit: int = 10, **filters: Unpack[NoteFilters]
 ) -> list[tuple[str, float, str]]:
     """(rel, score, title) of the best BM25F matches, best first; notes scoring 0 are omitted."""
     return [
@@ -1167,7 +1179,8 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
         raise NewNoteError(f"ambiguous: {arg} matches {len(old)} notes: {', '.join(old[:10])}")
     parts = old.relative_to(root).parts if old else ()
     if (
-        len(parts) != _NOTE_PATH_PARTS
+        old is None
+        or len(parts) != _NOTE_PATH_PARTS
         or parts[0] not in {"literature", "knowledge"}
         or old.name == "README.md"
         or note_files._is_hidden(old, root)
@@ -1187,7 +1200,9 @@ def rename_note(root: Path, arg: str, new_stem: str) -> tuple[Path, int, int]:
         authors = meta.get("authors") if isinstance(meta, dict) else None
         year, *tokens = old.stem.split("-")
         slug = (
-            slugify(authors[0]) if check_rules._authors(authors) is None else tokens[0]
+            slugify(cast("list[str]", authors)[0])  # `_authors` found a valid list
+            if check_rules._authors(authors) is None
+            else tokens[0]
         )  # as rule_consistency: may span tokens
         n = next((k for k in range(1, len(tokens)) if "".join(tokens[:k]) == slug), 1)
         new_year, *new_tokens = stem.split("-")
@@ -2086,7 +2101,10 @@ def _synthesis_block(args: argparse.Namespace, ref: str) -> str | None:
         stop = next((x.line - 1 for x in syn.sections if x.line > found[0].line), len(lines))
         return "\n".join([f"== s:{handle}#{section}", *lines[start:stop]]).rstrip("\n")
     out = [f"== s:{handle}"]
-    first = text[: syntheses._FRONTMATTER.match(text).end()].count("\n")
+    frontmatter = cast(
+        "re.Match[str]", syntheses._FRONTMATTER.match(text)
+    )  # `syn` parsed this text
+    first = text[: frontmatter.end()].count("\n")
     body = lines[first:]
     if args.outline and not args.ranges:
         out.extend(f"{first + 1 + i}: {line}" for i, _, line in _headings(body))
@@ -2487,16 +2505,16 @@ def session_index(
             logger.debug("counting a store folder failed", exc_info=True)
             complete = False  # this folder stays out of the count, so the line says "at least"; the rest prints
 
-    if has_store:
+    if store is not None and has_store:
         head.append(f"Store: {_count_notes(store)} notes.")
-    if has_memories:
+    if memories is not None and has_memories:
         loaded_global = records.load_memories(memories, "global")
         live = len(_readable(loaded_global, today))
         head.append(f"Global memories: {live}.")
     loaded_project = records.mark_repository(records.load_memories(project, "project"), tracked)
     if passes is not None and project is not None:
         due_in(project, loaded_project, project.parent)
-    if passes is not None and has_memories:
+    if passes is not None and memories is not None and has_memories:
         due_in(memories, loaded_global, None)
     mine = [m for m in loaded_project if records.is_live(m, today)]
     if mine:
@@ -2552,7 +2570,7 @@ def session_index(
         lines.append(_STATUS_LINE)
     if notice:
         lines.append(notice)
-    if has_store:
+    if store is not None and has_store:
         lines += session_notices.store_due_lines(store, today, data_dir(os.environ))
     extra: list[str] = []
     if rules_off:
@@ -2809,6 +2827,7 @@ def cmd_signal(args: argparse.Namespace) -> int:
     started = time.monotonic()
     try:
         data: dict[str, Any] = {}
+        tool_input: Any = None
         if args.hook:
             data = _hook_input()
             tool_input = data.get("tool_input")
@@ -3374,6 +3393,7 @@ def cmd_confirm(args: argparse.Namespace) -> int:
             if (
                 from_transcript
                 and key
+                and source is not None  # a session key comes only from a source
                 and getattr(args, "outcome", None)
                 and not records.has_case(found[0], key, outcome)
             ):
@@ -3578,8 +3598,8 @@ def _supersede_pair(old: records.Memory, new: records.Memory, today: datetime.da
 
 
 def cmd_supersede(args: argparse.Namespace) -> int:
-    def apply(found, today):
-        return _supersede_pair(*found, today)
+    def apply(found: list[records.Memory], today: datetime.date) -> list[str]:
+        return _supersede_pair(found[0], found[1], today)
 
     return _two(args, args.old, args.new, "supersede", apply)
 
@@ -3874,8 +3894,8 @@ def cmd_distinct(args: argparse.Namespace) -> int:
     if store is not None and store.is_dir() and (done := _distinct_notes(args, store)) is not None:
         return done
 
-    def apply(found, today):
-        return _distinct_pair(*found, today)
+    def apply(found: list[records.Memory], today: datetime.date) -> list[str]:
+        return _distinct_pair(found[0], found[1], today)
 
     return _two(args, args.a, args.b, "distinct", apply)
 
@@ -4517,7 +4537,7 @@ def _decisions(
     *,
     since: datetime.date | None = None,
     budget: records.Budget | None = None,
-    attempts: Mapping | None = None,
+    attempts: dict | None = None,
     root: Path | None = None,
     tracked: frozenset[str] | None = frozenset(),
 ) -> Decisions:
@@ -4586,7 +4606,7 @@ def _grouped_pairs(pairs: Sequence[tuple[records.Memory, records.Memory]]) -> li
             count.update([(a.scope, a.handle), (b.scope, b.handle)])
         top = min(count, key=lambda k: (-count[k], k[1], k[0]))
         rest = []
-        head = None
+        head = left[0][0]  # overwritten: `top` is a member of some pair
         lines = []
         for a, b in left:
             if (a.scope, a.handle) == top:
@@ -5058,6 +5078,7 @@ def cmd_curate(args: argparse.Namespace) -> int:
         out += [
             f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}"
             for m in expired
+            if m.valid_until is not None
         ]
     frequent = [m for d in found for m in d.seen]
     if frequent:
@@ -5070,7 +5091,11 @@ def cmd_curate(args: argparse.Namespace) -> int:
         out.append(
             f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)"
         )
-        out += [f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}" for m in stale]
+        out += [
+            f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}"
+            for m in stale
+            if m.created is not None
+        ]
     awaiting = [m for m in live if m.triage == "pending"]
     if awaiting:
         out.append(
@@ -5301,7 +5326,7 @@ def _commit_points(
         report=report,
         warn=warn,
         validate=invalid_changed(store),
-        on_held=lambda paths: held is not None and held.extend(paths),
+        on_held=lambda paths: held.extend(paths) if held is not None else None,
     )
     return commit, bool(failed)
 
@@ -5488,7 +5513,11 @@ def cmd_terms(args: argparse.Namespace) -> int:
         if args.terms_command == "add":
             if args.kind and not args.soft:
                 build_parser().error("--kind needs --soft")
-            if not text or text.startswith("#") or records.parse_term(text).soft:
+            if (
+                not text
+                or text.startswith("#")
+                or cast("records.Term", records.parse_term(text)).soft  # not blank, not a comment
+            ):
                 print(
                     "mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr
                 )
@@ -5500,7 +5529,9 @@ def cmd_terms(args: argparse.Namespace) -> int:
                 if args.soft
                 else text
             )
-            new = records.parse_term(line)
+            new = cast(
+                "records.Term", records.parse_term(line)
+            )  # `line` is neither blank nor a comment
             if any((t.text, t.soft, t.kind) == (new.text, new.soft, new.kind) for t in terms):
                 print("already listed")
                 return 0
@@ -5776,8 +5807,6 @@ def _structure(args: argparse.Namespace) -> int:
                 raise ValueError(f"no synthesis named {args.target}")
             if action == "topics" and section is not None:
                 raise ValueError("topics takes s:<handle>")
-            if action != "topics" and section is None:
-                raise ValueError(f"{action} takes s:<handle>#<section handle>")
             if action == "topics":
                 topics = list(
                     dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip())
@@ -5803,6 +5832,8 @@ def _structure(args: argparse.Namespace) -> int:
                 log = folder / records.CURATION_LOG
                 write_log = lambda: records.log_before(syntheses.Synthesis(path, handle), "topics")
             else:
+                if section is None:
+                    raise ValueError(f"{action} takes s:<handle>#<section handle>")
                 ref = f"{handle}#{section}"
                 notes = _part_of_notes(root, ref)
                 if action == "rename":
@@ -5915,7 +5946,7 @@ def _refs(args: argparse.Namespace) -> int:
                 why = f"the handle {name!r} is repeated: rename one heading first"
             else:
                 why = None
-            if why:
+            if why or part is None:  # `part` is None only when `why` is set
                 refused += [f"refused: {line}: {why}" for line, *_ in items]
                 continue
 
@@ -6049,6 +6080,7 @@ def _add_with_note(
     undo = syntheses.snapshot(path)
     syntheses.add_section(path, args.section, body, today)
     target = None
+    created = False
     try:
         known = load_topics(root)
         domain = root_of(known, syn.topics[0]) if syn.topics and syn.topics[0] in known else None
@@ -6189,17 +6221,20 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                 problems = syntheses.validate_section(body, root) if body.strip() else []
                 if problems:
                     raise ValueError("; ".join(problems))
+                note_rel = ""
                 if one_call:
                     note_rel = _add_with_note(args, root, path, handle, body, today)
                     new_handle = syntheses.section_handle(args.section)
                 else:
                     new_handle = syntheses.add_section(path, args.section, body, today)
                 print(f"s:{handle}#{new_handle}\tadded")
+                shown = new_handle
                 if one_call:
                     print(note_rel)
             else:
                 if section is None:
                     raise ValueError(f"{action} takes s:<handle>#<section handle>")
+                shown = section
                 if action == "append":
                     syntheses.append_section(path, section, body, today, store=root)
                     print(f"s:{handle}#{section}\tappended")
@@ -6220,7 +6255,7 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
                         drop_references=args.drop_references,
                     )
                     print(f"s:{handle}#{section}\tedited")
-            _long_note(handle, path, new_handle if action == "add" else section)
+            _long_note(handle, path, shown)
     except (ValueError, OSError, FrontmatterError, yaml.YAMLError, NewNoteError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 1
@@ -6231,6 +6266,7 @@ def cmd_synthesis(args: argparse.Namespace) -> int:
 def cmd_new(args: argparse.Namespace) -> int:
     fields = {k: getattr(args, k) for k in _NEW_FIELDS[args.type]}
     topics = [t.strip() for t in args.topics.split(",") if t.strip()]
+    part_text: str | None = None  # the text of the section `--part-of` names
     try:
         body = _read_body(args.body_file) if args.body_file else None
         if _refuse_secret([*(v for v in fields.values() if isinstance(v, str)), body or ""]):
@@ -6248,6 +6284,7 @@ def cmd_new(args: argparse.Namespace) -> int:
             syn, sec = _section_ref(args.root, args.part_of)
             fields["part_of"] = f"{syn.handle}#{sec.handle}"
             fields["part_of_hash"] = syntheses.fingerprint(sec.text)
+            part_text = sec.text
         path = new_note(
             args.root,
             args.type,
@@ -6257,9 +6294,9 @@ def cmd_new(args: argparse.Namespace) -> int:
             body=body,
             **fields,
         )
-        if "part_of_hash" in fields:
+        if part_text is not None:
             stamp = syntheses.note_fingerprint(
-                sec.text, _note_target(path.relative_to(args.root).as_posix())
+                part_text, _note_target(path.relative_to(args.root).as_posix())
             )
             if stamp != fields["part_of_hash"]:
                 safe_io.replace_file(
@@ -6553,6 +6590,7 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
             f"note {action} needs --fact, --source and --quote"
             + (" (or --clear)" if action == "dispute" else "")
         )
+    fact = source = quote = ""  # set below unless `--clear`, which does not read them
     try:
         if not clear:
             fact, source, quote = _source_mark(*given)
@@ -6590,10 +6628,9 @@ def cmd_note_mark(args: argparse.Namespace) -> int:
             new = _set_field(text, "disputed", None)
         else:
             entry = {"date": today, "fact": fact, "source": source, "quote": quote}
+            disputed = meta.get("disputed")
             new = _set_field(
-                text,
-                "disputed",
-                [*(meta.get("disputed") if isinstance(meta.get("disputed"), list) else []), entry],
+                text, "disputed", [*(disputed if isinstance(disputed, list) else []), entry]
             )
         if "updated" in meta:
             new = _set_field(new, "updated", today)
@@ -6960,13 +6997,13 @@ def cmd_search(args: argparse.Namespace) -> int:
     # memories stay out of any narrowed, paged or path-only note listing, unless they are all that was asked for
     memories: list[tuple[str, list[records.Memory]]] = []
     other_memories: list[tuple[str, list[records.Memory]]] = []
+    today = datetime.date.today()
     if (
         args.scope != "notes"
         and not args.offset
         and not filters
         and (args.detail != "paths" or not with_notes)
     ):
-        today = datetime.date.today()
         for scope, folder in [*_memory_folders(args), *((f"project: {n}", f) for n, f in others)]:
             loaded = records.load_memories(folder, scope.split(":")[0])
             for m in loaded:
@@ -7142,6 +7179,8 @@ def cmd_related(args: argparse.Namespace) -> int:
     rel = path.relative_to(args.root.resolve()).as_posix() if path else None
     try:
         corpus = build_corpus(args.root, superseded=args.superseded)
+        if rel is None:
+            raise ValueError(f"not a note: {rel}")  # what `related` raises for it
         groups = related(args.root, rel, limit=args.limit, corpus=corpus)
     except ValueError:
         print(f"mem: not a note: {args.path}", file=sys.stderr)
