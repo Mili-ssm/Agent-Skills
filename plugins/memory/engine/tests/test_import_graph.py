@@ -43,7 +43,7 @@ def test_module_imports_without_mem(module):
     assert result.returncode == 0, result.stderr
 
 
-def test_notes_imports_no_other_engine_module():
+def test_note_module_imports_only_core_yaml_load():
     code = (
         "import sys; before = set(sys.modules); from notes import note; "
         f"engine = {sorted(MODULES)!r}; "
@@ -157,16 +157,16 @@ def test_engine_modules_use_no_dynamic_import():
     assert not dynamic, "dynamic imports in engine modules:\n" + "\n".join(dynamic)
 
 
-STORE_MODULES = tuple(
+MEMORY_AND_NOTE_MODULES = tuple(
     f"memories.{name}" for name in ("records", "rules", "shortcheck", "fingerprints")
 ) + tuple(f"notes.{name}" for name in ("syntheses", "project_syntheses", "index", "note", "check"))
 
 
-def test_store_modules_never_import_synthesize():
+def test_memory_and_note_modules_never_import_synthesize():
     """The store sits below the synthesis feature: no store module reaches `synthesize`, directly or through others."""
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     reached: dict[str, list[str]] = {}
-    for store in STORE_MODULES:
+    for store in MEMORY_AND_NOTE_MODULES:
         seen: set[str] = set()
         todo = [store]
         while todo:

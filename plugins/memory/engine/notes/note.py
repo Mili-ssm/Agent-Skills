@@ -1,4 +1,4 @@
-"""Notes: frontmatter, the YAML loaders, `Note`, topics and handles. Imports only `core.yaml_load`."""
+"""Notes: frontmatter, the YAML loaders, `Note`, topics and handles. From the engine, imports only `core.yaml_load`."""
 
 from __future__ import annotations
 

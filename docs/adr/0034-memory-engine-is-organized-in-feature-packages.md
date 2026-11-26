@@ -38,7 +38,7 @@ The last revisit trigger fired: `store/` reached 19 modules in two families with
 
 | Package | Modules | Imports |
 |---|---|---|
-| `core` | gains `yaml_load` (the YAML loader and `safe_load`) and `store_git` (both families commit the store) | stdlib |
+| `core` | gains `yaml_load` (the YAML loader and `safe_load`) and `store_git` (both families commit the store) | stdlib; PyYAML in `yaml_load` only |
 | `memories` | `records` (facade), `journal`, `matching`, `terms`, `locations`, `sightings`, `pairing`, `rules`, `shortcheck`, `fingerprints`, `model`, `parse`, `write` | `core` |
 | `notes` | `note`, `index`, `check`, `syntheses`, `project_syntheses` | `core`, `memories` |
 
