@@ -53,11 +53,11 @@ Out of scope: the eval harnesses' own `claude -p` calls (`evals/*/run_trial*.py`
 
 **Files:** Create `plugins/memory/engine/tests/test_headless_golden.py`.
 
-- [ ] **Step 1:** For each builder in the table, a test that calls it with fixed inputs (paths under `tmp_path`, fixed prompt, model, budget `0.25`) and asserts `argv[0:3]` and the flag map against literals copied from the current output. Builders 2 and 3 load their `bin/` script the way their existing tests do (`test_mem_capture.py`, `test_settle_run.py`); builder 4 records the `cmd` passed to a stubbed `subprocess.run`.
-- [ ] **Step 2:** Env tests: `research_pipeline.session_env()` with a crafted `os.environ` (a `MEM_X`, a `CLAUDE_PLUGIN_ROOT`, each `SESSION_VARS` name, a PATH folder holding an executable `mem`) returns the expected dict; same for `mem-capture`'s inline env (through its `run_session` with `subprocess.run` stubbed), `mem-synthesize`'s `session_env`, and `synth_pipeline.run_session`'s `MEM_SANDBOX`/`MEM_SANDBOX_ROOTS` additions.
-- [ ] **Step 3:** A helper `flag_map(argv) -> dict[str, tuple[str, ...]]` in the test file (a flag is a token starting with `--`; its values are the tokens up to the next flag); it fails when a flag appears twice.
-- [ ] **Step 3b:** Runner tests: for each runner, stub `subprocess.run` and pin the keyword arguments it passes (`cwd`, `timeout`, `stdin`, `text`, `errors`, `check`, `capture_output`) as literals; a research session whose `subprocess.run` raises `TimeoutExpired` with partial bytes raises `StopError("time limit reached")` and writes the partial text to `session.jsonl`; a corroborate session whose timed-out bytes are invalid UTF-8 returns parsed output without raising.
-- [ ] **Step 4:** Run the file at base: all pass. Commit `test(memory): golden command lines and environments of the seven headless sessions`.
+- [x] **Step 1:** For each builder in the table, a test that calls it with fixed inputs (paths under `tmp_path`, fixed prompt, model, budget `0.25`) and asserts `argv[0:3]` and the flag map against literals copied from the current output. Builders 2 and 3 load their `bin/` script the way their existing tests do (`test_mem_capture.py`, `test_settle_run.py`); builder 4 records the `cmd` passed to a stubbed `subprocess.run`.
+- [x] **Step 2:** Env tests: `research_pipeline.session_env()` with a crafted `os.environ` (a `MEM_X`, a `CLAUDE_PLUGIN_ROOT`, each `SESSION_VARS` name, a PATH folder holding an executable `mem`) returns the expected dict; same for `mem-capture`'s inline env (through its `run_session` with `subprocess.run` stubbed), `mem-synthesize`'s `session_env`, and `synth_pipeline.run_session`'s `MEM_SANDBOX`/`MEM_SANDBOX_ROOTS` additions.
+- [x] **Step 3:** A helper `flag_map(argv) -> dict[str, tuple[str, ...]]` in the test file (a flag is a token starting with `--`; its values are the tokens up to the next flag); it fails when a flag appears twice.
+- [x] **Step 3b:** Runner tests: for each runner, stub `subprocess.run` and pin the keyword arguments it passes (`cwd`, `timeout`, `stdin`, `text`, `errors`, `check`, `capture_output`) as literals; a research session whose `subprocess.run` raises `TimeoutExpired` with partial bytes raises `StopError("time limit reached")` and writes the partial text to `session.jsonl`; a corroborate session whose timed-out bytes are invalid UTF-8 returns parsed output without raising.
+- [x] **Step 4:** Run the file at base: all pass. Commit `test(memory): golden command lines and environments of the seven headless sessions`.
 
 ### Task 2: `engine/headless.py`
 
@@ -70,9 +70,9 @@ Out of scope: the eval harnesses' own `claude -p` calls (`evals/*/run_trial*.py`
 - `run_raw(cmd: list[str], *, cwd: Path, env: dict[str, str], timeout: float, errors: str | None = None) -> Raw`: `subprocess.run(cmd, check=False, cwd=cwd, env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)` plus `errors=errors` only when given (so the five other runners pass exactly what they passed); on `TimeoutExpired` returns the partial stdout decoded (with `errors` when given) and `timed_out=True`; `OSError` propagates.
 - `SESSION_VARS`, `has_mem(folder: str) -> bool`, `session_env() -> dict[str, str]` moved verbatim from `research_pipeline.py`.
 
-- [ ] **Step 1:** Tests: `command` for a minimal and a full `Session` (exact lists); `run_raw` with a fake executable script that prints, one that sleeps past a 0.2 s timeout after printing (partial output returned), and a missing binary (`OSError`); `session_env` as in Task 1 Step 2; the 3.10 guard test (`ast.parse(feature_version=(3, 10))`, banned names). Run: fail (no module).
-- [ ] **Step 2:** Implement; move the three env names out of `research_pipeline.py`, which then calls `headless.session_env()` (no re-export).
-- [ ] **Step 3:** File tests, Task 1 goldens, full suite pass; lint clean on `headless.py`, `research_pipeline.py`, the tests. Commit `refactor(memory): headless.py, the spec and runner of claude -p sessions`.
+- [x] **Step 1:** Tests: `command` for a minimal and a full `Session` (exact lists); `run_raw` with a fake executable script that prints, one that sleeps past a 0.2 s timeout after printing (partial output returned), and a missing binary (`OSError`); `session_env` as in Task 1 Step 2; the 3.10 guard test (`ast.parse(feature_version=(3, 10))`, banned names). Run: fail (no module).
+- [x] **Step 2:** Implement; move the three env names out of `research_pipeline.py`, which then calls `headless.session_env()` (no re-export).
+- [x] **Step 3:** File tests, Task 1 goldens, full suite pass; lint clean on `headless.py`, `research_pipeline.py`, the tests. Commit `refactor(memory): headless.py, the spec and runner of claude -p sessions`.
 
 ### Task 3: Engine builders on `headless`: corroborate, research, backfill
 
