@@ -90,16 +90,35 @@ def _flat(text: object) -> str:
     return " ".join(str(text).split())
 
 
+def _claim_of(meta: Mapping[str, Any]) -> str:
+    """The note's claim on one line; empty when it is missing or not text."""
+    claim = meta.get("claim")
+    return _flat(claim) if isinstance(claim, str) else ""
+
+
+def _state_refusal(meta: Mapping[str, Any]) -> str | None:
+    """Why a note in this state cannot join a part, or None."""
+    return next((reason for key, reason in _STATE_REFUSALS if meta.get(key) is not None), None)
+
+
+def _is_knowledge_rel(rel: str) -> bool:
+    """Whether the store-relative `rel` has the shape `knowledge/<topic>/<name>.md` that candidates list."""
+    parts = rel.split("/")
+    return (
+        len(parts) == len(("knowledge", "topic", "name.md"))
+        and parts[0] == "knowledge"
+        and parts[2] != "README.md"
+    )
+
+
 def _target_of(rel: str) -> str:
     return common._note_target(rel)
 
 
 def _read_part(root: Path, target: str) -> _Part:
     """The part `target` names as it was read; ValueError when it cannot take a note."""
-    handle, _ = document.split_ref(target)
-    path = document.path_of(root / document.SYNTHESES_DIR, handle)
-    original = path.read_bytes() if path is not None and path.is_file() else b""
     syn, sec = common._section_ref(root, target)
+    original = syn.path.read_bytes()
     edit._lf(original.decode("utf-8"), syn.path.name)
     if sec.handle == document.SUMMARY or sum(s.handle == sec.handle for s in syn.sections) > 1:
         raise ValueError(f"the part {sec.handle!r} cannot take a note")
@@ -125,7 +144,7 @@ def _find_note(root: Path, name: str) -> tuple[Path, str] | str:
     if found is None:
         return "no such note"
     rel = found.relative_to(root).as_posix()
-    return (found, rel) if rel.startswith("knowledge/") else "not a knowledge note"
+    return (found, rel) if _is_knowledge_rel(rel) else "not a knowledge note"
 
 
 def _note_of_row(build: _Build, row: Row) -> tuple[Path, str, dict[str, Any]] | str:
@@ -137,24 +156,29 @@ def _note_of_row(build: _Build, row: Row) -> tuple[Path, str, dict[str, Any]] | 
     meta = note_files.split_frontmatter(note_files._read_text(path))[0]
     if not isinstance(meta, dict):
         return "not a knowledge note"
-    refusals = [reason for key, reason in _STATE_REFUSALS if meta.get(key) is not None]
     if path in build.joined:
-        refusals.append("already part of a synthesis")
-    return refusals[0] if refusals else (path, rel, meta)
+        return "named twice in the file"
+    return _state_refusal(meta) or (path, rel, meta)
 
 
 def _new_text(build: _Build, row: Row, part: _Part, joined: tuple[str, str, str]) -> str:
     """The part's text after the row; ValueError with the reason when the row cannot be applied."""
     claim, stem, target = joined
+    # Listed by target: the same note under another label is not listed twice.
+    is_listed = f"({target})" in (synthesis_edit._sources_line(part.text) or "")
+    sources = "" if is_listed else f"\n\nSources: [{stem}]({target})"
     if row.action == "append":
         if reason := check_claim(claim, build.env):
             raise ValueError(reason)
-        text = f"{claim} [{stem}]({target})\n\nSources: [{stem}]({target})"
-        return synthesis_edit.append_text(part.text, text, store=build.root)
+        return synthesis_edit.append_text(
+            part.text, f"{claim} [{stem}]({target}){sources}", store=build.root
+        )
     if row.unit is None or row.unit > part.count:
         raise ValueError(f"no such unit {row.unit}")
     # A reference can only name a note that the part's `Sources:` line lists: list it first.
-    listed = synthesis_edit.append_text(part.text, f"Sources: [{stem}]({target})", store=build.root)
+    listed = (
+        part.text if is_listed else synthesis_edit.append_text(part.text, sources, store=build.root)
+    )
     new, why = synthesis_edit.change_references(
         listed, build.root / document.SYNTHESES_DIR, [(row.unit, "add", target)]
     )
@@ -176,7 +200,8 @@ def _apply_row(build: _Build, row: Row) -> str | None:
     path, rel, meta = note
     if not part.old or units.fingerprint(part.old) != row.fingerprint:
         return "part changed since it was read"
-    claim = _flat(meta.get("claim", ""))
+    if not (claim := _claim_of(meta)):
+        return "claim is empty"
     try:
         new = _new_text(build, row, part, (claim, path.stem, _target_of(rel)))
     except ValueError as exc:
@@ -265,7 +290,7 @@ def _loose_notes(root: Path) -> list[tuple[note_files.Note, list[str]]]:
     for note in note_files.discover_notes(root):
         if note.type != "knowledge" or note.error is not None or not isinstance(note.meta, dict):
             continue
-        if any(note.meta.get(key) is not None for key, _ in _STATE_REFUSALS):
+        if _state_refusal(note.meta) or not _claim_of(note.meta) or not _is_knowledge_rel(note.rel):
             continue
         topics = [t for t in note.meta.get("topics", []) if isinstance(t, str)]
         found.append((note, edit._own_topics(known, topics)))
@@ -288,7 +313,7 @@ def candidates(root: Path) -> list[dict[str, Any]]:
                 "notes": [
                     {
                         "handle": note_files._handle(n.rel),
-                        "claim": _flat(n.meta.get("claim", "")),
+                        "claim": _claim_of(n.meta),
                         "digest": hashlib.sha256(n.path.read_bytes()).hexdigest()[:_DIGEST_LENGTH],
                     }
                     for n in mine
@@ -318,6 +343,9 @@ def _run(args: argparse.Namespace, root: Path) -> int:
     if bad:
         print("\n".join(f"mem: {m}" for m in bad), file=sys.stderr)
         return 2
+    if not rows:
+        print("no rows")
+        return 0
     outcome = integrate_changes(root, rows, os.environ, datetime.date.today())
     group = _write(root, outcome.changes) if outcome.applied else None
     print("\n".join(outcome.lines))

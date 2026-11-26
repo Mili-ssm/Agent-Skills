@@ -86,8 +86,26 @@ class Store:
         )
         path.write_text(text, encoding="utf-8")
 
-    def fingerprint(self) -> str:
-        return units.fingerprint(self.section())
+    def fingerprint(self, handle: str = "alpha") -> str:
+        return units.fingerprint(self.section(handle))
+
+    def add_beta(self) -> None:
+        """A second synthesis `beta` (topic algorithms) whose part `basics` cites its own member `beta-member`."""
+        self.new_note("beta-member", "Beta members cite themselves.")
+        code, _, err = self.mem(
+            "synthesis", "new", "--title", "Beta", "--topics", "algorithms", "--slug", "beta",
+            "--summary-file", self.write("beta-summary.md", "Beta.\n"),
+        )  # fmt: skip
+        assert code == 0, err
+        target = "../knowledge/computing/beta-member.md"
+        part = f"Beta has one fact.[beta-member]({target})\n\nSources: [beta-member]({target})\n"
+        code, _, err = self.mem(
+            "synthesis", "add", "s:beta", "--section", "Basics", "--body-file",
+            self.write("beta-part.md", part),
+        )  # fmt: skip
+        assert code == 0, err
+        assert self.mem("synthesis", "attach", "beta-member", "s:beta#basics")[0] == 0
+        assert self.mem("check")[0] == 0
 
     def snapshot(self) -> dict[str, bytes]:
         return {

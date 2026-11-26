@@ -16,6 +16,7 @@ NEW_TARGET = "../knowledge/computing/n-new.md"
 DUP_TARGET = "../knowledge/computing/n-dup.md"
 USAGE_EXIT = 2
 ALPHA_UNITS = 2
+APPLIED_ROWS = 2
 NEW_CLAIM = "Rust moves values by default."
 DIGEST_LENGTH = 10
 
@@ -187,10 +188,14 @@ def test_changed_file_between_read_and_write_rolls_back(store_with_part, monkeyp
 
     monkeypatch.setattr(integrate_command, "integrate_changes", build_then_edit)
     log_before = store.log_lines()
+    before = store.snapshot()
+    edited = store.note_path("n-dup").relative_to(store.root).as_posix()
     code, _, err = store.integrate(row("n-new", store), row("n-dup", store, "unit 2"))
     assert code == USAGE_EXIT and "changed since it was read" in err
-    assert "part_of" not in store.meta("n-new")
-    assert NEW_CLAIM not in store.section()
+    after = store.snapshot()
+    assert after.pop(edited).endswith(b"\nedited\n")
+    before.pop(edited)
+    assert after == before
     assert store.log_lines() == log_before
 
 
@@ -209,7 +214,7 @@ def test_malformed_row_is_a_usage_error_and_writes_nothing(store_with_part):
     store = store_with_part
     before = store.snapshot()
     code, _, err = store.integrate("n-new | s:alpha | append")
-    assert code == USAGE_EXIT and "line 1" in err
+    assert code == USAGE_EXIT and err.startswith("mem: line 1: ")
     assert store.snapshot() == before
 
 
@@ -243,6 +248,8 @@ def test_candidates_skip_superseded_disputed_attached(store_with_part):
     store.edit_meta("n-new", "superseded_by: n-dup")
     assert [n["handle"] for n in store.candidates()[0]["notes"]] == ["n-dup"]
     store.edit_meta("n-dup", "part_of: alpha#basics")
+    assert store.candidates() == []
+    store.edit_meta("n-new", "part_of: alpha#basics")
     assert store.candidates() == []
 
 
@@ -291,3 +298,114 @@ def test_candidates_output_is_json_only(store_with_part):
     store = store_with_part
     code, out, err = store.mem("synthesis", "integrate", "--candidates")
     assert code == 0 and not err and isinstance(json.loads(out), list)
+
+
+def test_unknown_synthesis_and_unknown_section_are_refused_per_row(store_with_part):
+    store = store_with_part
+    before = store.snapshot()
+    fp = store.fingerprint()
+    code, out, _ = store.integrate(
+        f"n-new | s:nowhere#basics | append | {fp}", f"n-dup | s:alpha#nosuch | append | {fp}"
+    )
+    lines = out.splitlines()
+    assert code == 0 and not any(x.startswith("group\t") for x in lines)
+    refused = [x.split("\t") for x in lines if x.startswith("refused\t")]
+    assert [r[1] for r in refused] == ["n-new", "n-dup"] and all(r[2] for r in refused)
+    assert store.snapshot() == before
+
+
+def test_rows_for_two_syntheses_are_one_group_restored_together(store_with_part):
+    store = store_with_part
+    store.add_beta()
+    store.new_note("n-beta", "Beta takes another claim.")
+    before = store.snapshot()
+    code, out, _ = store.integrate(
+        row("n-new", store),
+        f"n-beta | s:beta#basics | append | {store.fingerprint('beta')}",
+    )
+    assert code == 0 and sum(x.startswith("applied\t") for x in out.splitlines()) == APPLIED_ROWS
+    assert len({x["group"] for x in store.log_lines() if x["action"] == "integrate"}) == 1
+    assert store.snapshot() != before
+    assert store.mem("restore", "s:alpha")[0] == 0
+    assert store.snapshot() == before
+
+
+def test_same_note_in_two_rows_is_refused_as_named_twice(store_with_part):
+    store = store_with_part
+    _, out, _ = store.integrate(row("n-new", store), row("n-new", store, "unit 1"))
+    lines = out.splitlines()
+    assert "applied\tn-new\ts:alpha#basics\tappend" in lines
+    assert "refused\tn-new\tnamed twice in the file" in lines
+
+
+@pytest.mark.parametrize("content", ["", "\n\n", "# only a comment\n\n"])
+def test_empty_rows_file_prints_no_rows_and_writes_nothing(store_with_part, content):
+    store = store_with_part
+    before = store.snapshot()
+    log_before = store.log_lines()
+    code, out, err = store.mem("synthesis", "integrate", store.write("empty.txt", content))
+    assert (code, out, err) == (0, "no rows\n", "")
+    assert store.snapshot() == before and store.log_lines() == log_before
+
+
+def test_unit_row_for_a_note_already_listed_in_sources_adds_the_reference(store_with_part):
+    store = store_with_part
+    store.new_note("listed", "A listed claim.")
+    target = "../knowledge/computing/listed.md"
+    path = store.root / "syntheses" / "alpha.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            f"Sources: [existing-note]({EXISTING_TARGET})",
+            f"Sources: [existing-note]({EXISTING_TARGET}), [listed]({target})",
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = store.integrate(row("listed", store, "unit 2"))
+    assert code == 0 and "applied\tlisted\ts:alpha#basics\tunit 2" in out.splitlines()
+    assert target in units.units(store.section())[0][1].refs
+    assert store.section().splitlines()[-1].count(target) == 1
+
+
+def test_source_listed_under_another_label_is_not_listed_twice(store_with_part):
+    store = store_with_part
+    path = store.root / "syntheses" / "alpha.md"
+    path.write_text(
+        path.read_text(encoding="utf-8").replace(
+            f"Sources: [existing-note]({EXISTING_TARGET})",
+            f"Sources: [existing-note]({EXISTING_TARGET}), [another label]({NEW_TARGET})",
+        ),
+        encoding="utf-8",
+    )
+    code, out, _ = store.integrate(row("n-new", store))
+    assert code == 0 and "applied\tn-new\ts:alpha#basics\tappend" in out.splitlines()
+    assert store.section().splitlines()[-1].count(NEW_TARGET) == 1
+
+
+@pytest.mark.parametrize("claim", ["", None, 7])
+def test_empty_or_non_text_claim_is_refused_and_not_a_candidate(store_with_part, claim):
+    store = store_with_part
+    store.new_note("n-empty", "Placeholder claim.")
+    store.set_line("n-empty", "claim", claim)
+    before = store.snapshot()
+    _, out, _ = store.integrate(row("n-empty", store))
+    assert "refused\tn-empty\tclaim is empty" in out.splitlines()
+    assert store.snapshot() == before
+    assert "n-empty" not in [n["handle"] for n in store.candidates()[0]["notes"]]
+
+
+def test_note_deeper_than_topic_folder_is_refused(store_with_part):
+    store = store_with_part
+    deep = store.root / "knowledge" / "computing" / "deep"
+    deep.mkdir()
+    (deep / "x.md").write_bytes(store.note_path("n-new").read_bytes())
+    _, out, _ = store.integrate(row("knowledge/computing/deep/x.md", store))
+    assert "refused\tknowledge/computing/deep/x.md\tnot a knowledge note" in out.splitlines()
+
+
+@pytest.mark.parametrize("action", ["unit 2", "append"])
+def test_check_prints_nothing_new_after_integration(store_with_part, action):
+    store = store_with_part
+    before = store.mem("check")
+    code, out, _ = store.integrate(row("n-dup" if action != "append" else "n-new", store, action))
+    assert code == 0 and "applied" in out
+    assert store.mem("check") == before
