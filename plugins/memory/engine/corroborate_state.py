@@ -1,4 +1,4 @@
-"""mem-corroborate: the state folder, the journal and undo, and the commands that need nothing else (stdlib, `auto_state`, `safe_io`; no yaml)."""
+"""mem-corroborate: the state folder, the journal and undo, and the commands that need nothing else (stdlib, `jobs`, `safe_io`; no yaml)."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 """Background settling (`bin/mem-settle`): where its state lives, the lines of the session start text, and the trigger
-the write path calls. Standard library plus `settle` and `auto_state`; every function that runs in a write or at
+the write path calls. Standard library plus `settle` and `jobs`; every function that runs in a write or at
 session start swallows its errors, because it must never fail what it rides on."""
 
 from __future__ import annotations
