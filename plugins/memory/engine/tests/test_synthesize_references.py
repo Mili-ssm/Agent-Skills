@@ -23,6 +23,7 @@ LOOP_OK = {
     "reverted": [],
 }
 APPLIED = 2  # references in REFS that the fake session answers with a source
+TWO_SESSIONS = 2  # the failed reference session, then the later backfill's
 
 
 @pytest.fixture
@@ -170,7 +171,7 @@ def test_a_failed_reference_step_keeps_the_synthesis_and_a_later_backfill_sends_
         == 0
     )
     assert (
-        len(sessions(tmp_path)) == APPLIED
+        len(sessions(tmp_path)) == TWO_SESSIONS
         and rows[0]["applied"] == APPLIED
         and text(store) != after_loop
     )
