@@ -47,7 +47,7 @@ CANARY_PROMPT = (
 TOOLS = ["Bash", "Read", "Edit", "Write"]
 ARMS = ("N", "L")
 QUOTE_CHARS = 25  # how much of the first rules line the canary reply must quote
-EXIT_CANARY, EXIT_CAP, EXIT_CHANGED = 3, 4, 6
+EXIT_CANARY, EXIT_CAP, EXIT_ABORTED, EXIT_CHANGED = 3, 4, 5, 6
 ATTEMPTS = 2  # a run that errors is rerun once
 MAIN_RUNS = 24  # 4 scenarios x 2 arms x 3 runs
 GUARDED_RUNS = 3  # runs the 0.5 USD cap lets through at 0.15 USD each
@@ -370,15 +370,17 @@ def execute(cfg: Config, scenarios: list[Scenario]) -> int:
     live = [s for s in scenarios if lesson_present(s, cfg.rules_text)]
     void = {s.name: "void: lesson not loaded" for s in scenarios if s not in live}
     state = State()
-    code = 0
+    code = EXIT_ABORTED  # stays when a run raises out of the loop: the summary then says so
     try:
+        done = 0
         if cfg.canary and not run_canary(cfg, state):
-            code = EXIT_CANARY if not state.stopped else EXIT_CAP
+            done = EXIT_CANARY if not state.stopped else EXIT_CAP
         else:
             for index, scenario, arm in plan(live, cfg.runs):
                 if not run_one(cfg, state, scenario, arm, index):
-                    code = EXIT_CAP
+                    done = EXIT_CAP
                     break
+        code = done
     finally:
         summary = summarize(cfg, state, void, code)
         cfg.out.mkdir(parents=True, exist_ok=True)
@@ -391,14 +393,15 @@ def real_run(cfg: Config, scenarios: list[Scenario]) -> int:
     cfg.out.mkdir(parents=True, exist_ok=True)
     before = snapshot(real_folders())
     (cfg.out / "checksums-before.json").write_text(json.dumps(before, indent=1), encoding="utf-8")
-    changed: dict[str, list[str]] = {}
+    code = EXIT_ABORTED
     try:
         code = execute(cfg, scenarios)
-    finally:
-        after = snapshot(real_folders())
-        changed = diff(before, after)
-        (cfg.out / "checksums-after.json").write_text(json.dumps(after, indent=1), encoding="utf-8")
-        print("real folders changed:", json.dumps(changed) if changed else "none")
+    except Exception as failure:  # ruff: ignore[blind-except]
+        print(f"ABORTED: {type(failure).__name__}: {failure}")
+    after = snapshot(real_folders())
+    changed = diff(before, after)
+    (cfg.out / "checksums-after.json").write_text(json.dumps(after, indent=1), encoding="utf-8")
+    print("real folders changed:", json.dumps(changed) if changed else "none")
     return EXIT_CHANGED if changed else code
 
 

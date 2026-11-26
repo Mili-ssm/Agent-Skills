@@ -10,7 +10,7 @@ Asks, on four small scenarios, whether a headless Sonnet session follows a loade
 | `... --self-check` | Whole loop against a fake `claude` the check writes to a temp folder: good and bad behavior per scenario, broken-scorer canary, error and budget runs, spend guard, failed canary, void scenario | none, no model |
 | `... --out <folder> [--runs 3] [--max-cost-usd 3.00] [--rules-file F]` | The paid run | cap 3.00 USD; 24 sessions + 2 canary, each capped at 0.20 USD |
 
-Exit codes: 0 done, 2 no `claude`, 3 canary failed, 4 spend guard stopped the trial, 6 any checksummed folder (the owner's global memories, this repository's `.memory/`, the plugin state folder) changed.
+Exit codes: 0 done, 2 no `claude`, 3 canary failed, 4 spend guard stopped the trial, 5 a run raised and the trial was aborted (the summary and the checksum guard are still written), 6 any checksummed folder (the owner's global memories, this repository's `.memory/`, the plugin state folder) changed.
 
 ## What it does
 
@@ -43,6 +43,15 @@ Known weakness: in `pipe-status` a session that does nothing also leaves `HEAD` 
 | --- | --- |
 | Whether the harness measures: the canary passes, runs are not void, scores differ between runs | That the lessons help: 4 scenarios and 3 runs are below the reading rule of the plan |
 | Whether arm N leaves room: a scenario arm N passes in 3 of 3 runs has no headroom and says nothing about its lesson | The cost of the block when no lesson bears (no such scenario, no token-matched arm) |
+
+## Known limits of the scorers (review of 2026-11-27, not fixed: the full trial is not run with these scenarios)
+
+| Scenario | Limit |
+| --- | --- |
+| `pipe-status` | `practice` is True for any command holding `pipefail`, also one that never runs `check.sh`, and False for `./check.sh; echo $?` when another pipe follows in the same command |
+| `real-data` | The outcome needs the bare number on standard output: a fix that prints `Total: 4.0` scores False |
+| `keep-the-look` | The new label is looked for anywhere in `index.html`, not inside the button |
+| Canary | Arm L fails when the first line of the rules text is indented or does not begin with `memory:` |
 
 ## Result
 

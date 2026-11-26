@@ -197,6 +197,11 @@ def newer_first(
     return (a, b) if da > db else (b, a)
 
 
+# A model judges every pair shown here and a wrong action is undone with one command, so settling looks lower than
+# the curation queue (matching.STRONG, read by people): reworded duplicates of real records scored 0.41 to 0.58.
+PAIR_FLOOR = 0.4
+
+
 def pending(
     memories: Sequence[records.Memory], state: dict, today: datetime.date, *, tokenize
 ) -> list[dict]:
@@ -204,7 +209,9 @@ def pending(
     when it cannot be told (see `newer_first`)."""
     judged = set(state["judged"])
     out = []
-    for a, b, _ in records.pairs(memories, today, tokenize=tokenize):
+    for a, b, _ in records.pairs_by(
+        memories, today, tokenize, records.PairSearch(floor=PAIR_FLOOR)
+    ):
         if records.quarantined(a) or records.quarantined(b):
             continue  # settling leaves quarantine alone
         if not (_counts_as_new(a, judged, today) or _counts_as_new(b, judged, today)):
