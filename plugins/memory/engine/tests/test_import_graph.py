@@ -91,7 +91,7 @@ def _imported_engine_modules(tree: ast.Module, own: str) -> set[str]:
             for alias in node.names:
                 found.update({alias.name, alias.name.split(".")[0]})
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            found.add(node.module.split(".")[0])
+            found.update({node.module.split(".")[0], node.module})
             found.update(f"{node.module}.{alias.name}" for alias in node.names)
     return (found & MODULES) - {own}
 

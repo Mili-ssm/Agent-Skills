@@ -40,7 +40,11 @@ def _names(node: ast.AST) -> set[str]:
         if not node.module or node.level:
             return set()
         # `from synthesize import pipeline` may name a submodule of a package
-        return {node.module.split(".")[0], *(f"{node.module}.{a.name}" for a in node.names)}
+        return {
+            node.module.split(".")[0],
+            node.module,
+            *(f"{node.module}.{a.name}" for a in node.names),
+        }
     if isinstance(node, ast.Call) and _is_import_module(node) and node.args:
         arg = node.args[0]
         return (
