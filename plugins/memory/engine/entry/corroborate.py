@@ -203,7 +203,3 @@ def main() -> int:
     if not args.command:
         parser.error("a command is required")
     return args.func(args)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
