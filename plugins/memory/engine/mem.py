@@ -4849,6 +4849,21 @@ def _last_error(buf: io.StringIO, default: str) -> str:
     return lines[-1] if lines else default
 
 
+def _curate_merge_refusal(a: records.Memory, b: records.Memory) -> str | None:
+    """Why two memories must not be merged automatically; None when they are the same claim, both active, in one
+    scope."""
+    if a.handle == b.handle:
+        return "the same memory twice"
+    if a.scope != b.scope:
+        return "different scopes"
+    for m in (a, b):
+        if m.status != "active" or m.superseded_by is not None:
+            return f"m:{m.handle} is {m.status}"
+    if _claim_key(a.claim) != _claim_key(b.claim):
+        return "the claims are not equal"
+    return None
+
+
 def _safe_merge(args: argparse.Namespace, keep: str, drop: str) -> str | None:
     """None after the merge ran; else why it was left. Only equal claims, both active, in one scope; never --force."""
     err = io.StringIO()
@@ -4856,21 +4871,30 @@ def _safe_merge(args: argparse.Namespace, keep: str, drop: str) -> str | None:
         found = _memory_of(args, [keep, drop])
     if found is None:
         return _last_error(err, "memories not found")
-    a, b = found
-    if a.handle == b.handle:
-        return "the same memory twice"
-    if a.scope != b.scope:
-        return "different scopes"
-    for m in found:
-        if m.status != "active" or m.superseded_by is not None:
-            return f"m:{m.handle} is {m.status}"
-    if _claim_key(a.claim) != _claim_key(b.claim):
-        return "the claims are not equal"
+    refusal = _curate_merge_refusal(*found)
+    if refusal is not None:
+        return refusal
     ns = argparse.Namespace(**{**vars(args), "keep": keep, "drop": drop, "force": False})
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = cmd_merge(ns)
     return None if code == 0 else _last_error(err, "the merge was refused")
+
+
+def _curate_attach_refusal(root: Path, found: Path, target: str) -> str | None:
+    """Why the note must not be attached automatically to `target`; None when the part's `Sources:` line links it and
+    it is not part of a synthesis yet."""
+    try:
+        syn, sec = _section_ref(root, target)
+        part = split_frontmatter(note_files._read_text(found))[0].get("part_of")
+    except (ValueError, OSError, FrontmatterError) as exc:
+        return str(exc)
+    if part:
+        return f"the note is already part of s:{part}"
+    cited = {(syn.path.parent / s).resolve() for s in sec.sources}
+    if found.resolve() not in cited:
+        return "the part's Sources line does not link the note"
+    return None
 
 
 def _safe_attach(args: argparse.Namespace, note: str, target: str) -> str | None:
@@ -4884,21 +4908,23 @@ def _safe_attach(args: argparse.Namespace, note: str, target: str) -> str | None
         return "the note name is ambiguous"
     if found is None:
         return "no such note"
-    try:
-        syn, sec = _section_ref(root, target)
-        part = split_frontmatter(note_files._read_text(found))[0].get("part_of")
-    except (ValueError, OSError, FrontmatterError) as exc:
-        return str(exc)
-    if part:
-        return f"the note is already part of s:{part}"
-    cited = {(syn.path.parent / s).resolve() for s in sec.sources}
-    if found.resolve() not in cited:
-        return "the part's Sources line does not link the note"
+    refusal = _curate_attach_refusal(root, found, target)
+    if refusal is not None:
+        return refusal
     ns = argparse.Namespace(root=root, note=note, target=target)
     out, err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
         code = _attach(ns)
     return None if code == 0 else _last_error(err, "the attach was refused")
+
+
+def _curate_run_action(args: argparse.Namespace, words: list[str]) -> str | None:
+    """None after the action ran; else why it was left."""
+    if words[0] == "merge":
+        return _safe_merge(args, words[1], words[2])
+    if words[0] == "attach":
+        return _safe_attach(args, words[1], words[2])
+    return f"not a safe action ({words[0]})"
 
 
 def _curate_apply(args: argparse.Namespace) -> int:
@@ -4918,12 +4944,7 @@ def _curate_apply(args: argparse.Namespace) -> int:
         return 2
     applied = left = 0
     for line, words in actions:
-        if words[0] == "merge":
-            why = _safe_merge(args, words[1], words[2])
-        elif words[0] == "attach":
-            why = _safe_attach(args, words[1], words[2])
-        else:
-            why = f"not a safe action ({words[0]})"
+        why = _curate_run_action(args, words)
         if why is None:
             applied += 1
             print(f"applied\t{line}")
@@ -4971,6 +4992,333 @@ def _curate_new_since(args: argparse.Namespace) -> int:
     return 0
 
 
+type _CurateScopes = Sequence[tuple[str, Path | None, list[records.Memory]]]
+
+
+@dataclass(frozen=True)
+class _CuratePass:
+    """The folders a `mem curate done` pass covers, with the decision keys and the scope label of each."""
+
+    covered: list[Path]
+    keys: dict[Path, set[str]]
+    labels: dict[Path, str]
+
+
+def _curate_pass_keys(folder: Path, scope: str, attempts: dict, today: datetime.date) -> set[str]:
+    """The decision keys of one folder's queue, as `mem curate done` records them."""
+    root = folder.parent if scope == "project" else None
+    return set(
+        _decisions(
+            records.load_memories(folder, scope),
+            today,
+            attempts=attempts,
+            root=root,
+            tracked=records.tracked_memories(root) if root else frozenset(),
+        ).keys()
+    )
+
+
+def _curate_pass_of(
+    store: Path | None, scopes: _CurateScopes, attempts: dict, today: datetime.date
+) -> _CuratePass | None:
+    """The folders a pass covers; None after a message on stderr when one of them is read-only."""
+    covered = []
+    keys: dict[Path, set[str]] = {}
+    labels: dict[Path, str] = {}
+    for scope, folder, _ in scopes:
+        if folder is None or not folder.is_dir():
+            continue
+        if _read_only_store(store, folder.resolve()):
+            print(
+                _READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES,
+                file=sys.stderr,
+            )
+            return None
+        covered.append(folder)
+        keys[folder] = _curate_pass_keys(folder, scope, attempts, today)
+        labels[folder] = scope
+    return _CuratePass(covered, keys, labels)
+
+
+def _curate_record_pass(passed: _CuratePass, today: datetime.date) -> int:
+    """Write the marks and the pass dates of the covered folders and say how many items each held; 2 when the write
+    fails."""
+    if not passed.covered:
+        return 0
+    try:
+        _write_marks(
+            os.environ, passed.keys
+        )  # first: a failed write leaves the pass date where it was
+        _write_passes(os.environ, passed.covered, today)
+    except OSError as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 2
+    for folder in sorted(passed.covered, key=lambda f: passed.labels[f] != "global"):
+        n = len(passed.keys[folder])
+        print(f"recorded {n} {'item' if n == 1 else 'items'} ({passed.labels[folder]})")
+    return 0
+
+
+def _curate_commit_pass(store: Path | None, today: datetime.date) -> None:
+    """Commit the store after a pass and trim its logs."""
+    if store is not None and store_git.is_repo(store):
+        _, failed = _commit_points(store, lambda n: f"curation pass {today.isoformat()}: {n} files")
+        # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
+        # to them, and under the commit lock so a commit never sees a half-written log.
+        if not failed and not auto_state.run_lock_held(data_dir(os.environ), store):
+            store_git.trim_logs_locked(store)
+
+
+def _curate_done(
+    args: argparse.Namespace, scopes: _CurateScopes, attempts: dict, today: datetime.date
+) -> int:
+    """`mem curate --done`: record the pass over the folders loaded."""
+    store = _optional_store(args)
+    passed = _curate_pass_of(store, scopes, attempts, today)
+    if passed is None:
+        return 2
+    code = _curate_record_pass(passed, today)
+    if code != 0:
+        return code
+    _curate_commit_pass(store, today)
+    return 0
+
+
+def _curate_decisions(
+    scopes: _CurateScopes, attempts: dict, today: datetime.date
+) -> list[Decisions]:
+    """The decision items of each scope, in order."""
+    roots = [
+        folder.parent if scope == "project" and folder else None for scope, folder, _ in scopes
+    ]
+    return [
+        _decisions(
+            loaded,
+            today,
+            attempts=attempts,
+            root=root,
+            tracked=records.tracked_memories(root) if root else frozenset(),
+        )
+        for root, (_, _, loaded) in zip(roots, scopes, strict=False)
+    ]
+
+
+def _curate_refuted_lines(found: Sequence[Decisions]) -> list[str]:
+    again = [pair for d in found for pair in d.refuted]
+    if not again:
+        return []
+    out = [
+        (
+            "written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
+            "different claim)"
+        )
+    ]
+    for a, r in again:
+        out += [_tagged(a), _tagged(r, ", refuted")]
+    return out
+
+
+def _curate_same_lines(found: Sequence[Decisions]) -> list[str]:
+    same = [pair for d in found for pair in d.same]
+    if not same:
+        return []
+    header = (
+        "same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)"
+    )
+    return [header, *_grouped_pairs(same)]
+
+
+def _curate_state_lines(found: Sequence[Decisions]) -> list[str]:
+    state = [pair for d in found for pair in d.state]
+    if not state:
+        return []
+    out = [
+        "newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)"
+    ]
+    for old, new in state:
+        out += [_tagged(old), f"    -> {_tagged(new).lstrip()}"]
+    return out
+
+
+def _curate_expired_lines(found: Sequence[Decisions]) -> list[str]:
+    expired = [m for d in found for m in d.expired]
+    if not expired:
+        return []
+    out = ["expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)"]
+    out += [
+        f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}"
+        for m in expired
+        if m.valid_until is not None
+    ]
+    return out
+
+
+def _curate_seen_lines(found: Sequence[Decisions]) -> list[str]:
+    frequent = [m for d in found for m in d.seen]
+    if not frequent:
+        return []
+    out = [f"seen {_FREQUENT} times or more: general enough for a global lesson? (mem promote <h>)"]
+    out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
+    return out
+
+
+def _curate_stale_lines(found: Sequence[Decisions]) -> list[str]:
+    stale = [m for d in found for m in d.stale]
+    if not stale:
+        return []
+    out = [f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)"]
+    out += [
+        f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}"
+        for m in stale
+        if m.created is not None
+    ]
+    return out
+
+
+def _curate_awaiting_lines(live: Sequence[records.Memory]) -> list[str]:
+    awaiting = [m for m in live if m.triage == "pending"]
+    if not awaiting:
+        return []
+    out = [
+        (
+            "general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
+            "reject <h>, or reword it with mem memory edit <h> --global and then accept)"
+        )
+    ]
+    for m in awaiting:
+        n, p = len(records.sessions(m)), len(records.projects(m))
+        out.append(
+            f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
+            f"{_flat(m.claim)}"
+        )
+        if m.triage_reason:
+            out.append(f"    held: {m.triage_reason}")
+    return out
+
+
+def _curate_worse_lines(
+    args: argparse.Namespace,
+    raw: dict[str, list[records.Memory]],
+    scopes: _CurateScopes,
+    today: datetime.date,
+) -> list[str]:
+    """The lessons whose balance got worse after loading; `raw` gets the scope not asked for, loaded quietly."""
+    asked = {scope for scope, _, _ in scopes}
+    for scope, folder in _memory_folders(
+        args
+    ):  # the scope not asked for still counts toward the cap; loaded quietly
+        if scope not in raw:
+            raw[scope] = records.load_memories(folder, scope)
+    worse = [
+        (m, loaded)
+        for m, loaded in _got_worse(raw.get("project", []), raw.get("global", []), today)
+        if m.scope in asked and m.superseded_by is None
+    ]
+    if not worse:
+        return []
+    out = [
+        (
+            "balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
+            "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)"
+        )
+    ]
+    for m, loaded in worse:
+        state = "rules off" if _rules_off() else "loaded" if loaded else "left out by the cap"
+        note = records.reword_note(m)
+        out.append(f"  m:{m.handle}  {state}{'; ' + note if note else ''}  {_flat(m.claim)}")
+        found = records.tallies(m)[-2:]
+        ends = [t.since for t in found[1:]] + [today]
+        out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends, strict=False)]
+    return out
+
+
+def _curate_quarantine_lines(every: Sequence[records.Memory]) -> list[str]:
+    held = sum(
+        1 for m in every if m.status == "active" and records.quarantined(m)
+    )  # a lapsed one is still stored
+    if not held:
+        return []
+    return [
+        (
+            f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
+            "(mem memories --global --quarantine)"
+        )
+    ]
+
+
+def _curate_unconfirmed_lines(live: Sequence[records.Memory], unconfirmed: set[str]) -> list[str]:
+    waiting = [m for m in live if m.handle in unconfirmed and not records.quarantined(m)]
+    if not waiting:
+        return []
+    out = [
+        (
+            "from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
+            "when another session shows it)"
+        )
+    ]
+    for m in waiting:
+        n = len(records.sessions(m))
+        out.append(
+            f"  m:{m.handle}  {m.weight or 'medium'}, {n} session{'' if n == 1 else 's'}  {_flat(m.claim)}"
+        )
+    return out
+
+
+def _curate_unread_lines(live: Sequence[records.Memory]) -> list[str]:
+    unread = [m for m in live if m.short_by == "model" and m.short]
+    return [f"short forms nobody read: {len(unread)} (mem rules --unread)"] if unread else []
+
+
+def _curate_nofill_lines(found: Sequence[Decisions]) -> list[str]:
+    nofill = [m for d in found for m in d.nofill]
+    if not nofill:
+        return []
+    out = [
+        (
+            "established, but the automatic fill will not write its short form (it gave up, or never "
+            f"tries a repository-tracked or strong unconfirmed project lesson); write one of at most "
+            f"{records.SHORT_LIMIT} characters and pick a topic: mem memory edit m:<h> --short '<text>' "
+            "--topic <t>, with --global for a global lesson; add --user-read only when the owner wrote or read the text)"
+        )
+    ]
+    out += [f"  m:{m.handle}  {_flat(m.claim)}" for m in nofill]
+    return out
+
+
+def _curate_report(
+    args: argparse.Namespace,
+    scopes: _CurateScopes,
+    attempts: dict,
+    today: datetime.date,
+) -> int:
+    """Print the curation queue: every decision the owner or the pipeline has to take."""
+    raw = {scope: loaded for scope, _, loaded in scopes}
+    scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
+    every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
+    live = [m for m in every if records.is_live(m, today)]
+    found = _curate_decisions(scopes, attempts, today)
+    unconfirmed = _unconfirmed_handles(every)  # their own category below
+    out = [
+        *_curate_refuted_lines(found),
+        *_curate_same_lines(found),
+        *_curate_state_lines(found),
+        *_curate_expired_lines(found),
+        *_curate_seen_lines(found),
+        *_curate_stale_lines(found),
+        *_curate_awaiting_lines(live),
+        *_curate_worse_lines(args, raw, scopes, today),
+        *_curate_quarantine_lines(every),
+        *_curate_unconfirmed_lines(live, unconfirmed),
+        *_curate_unread_lines(live),
+        *_curate_nofill_lines(found),
+    ]
+    if not args.is_global:
+        out += _curate_project_syntheses(scopes, today)
+    if out:
+        print("\n".join(out))
+    return 0
+
+
 def cmd_curate(args: argparse.Namespace) -> int:
     if args.action == "apply":
         return _curate_apply(args)
@@ -4983,193 +5331,10 @@ def cmd_curate(args: argparse.Namespace) -> int:
     if args.is_project or args.is_global:
         folders = [f for f in folders if (f[0] == "global") == args.is_global]
     scopes = _loaded(folders)
-    raw = {scope: loaded for scope, _, loaded in scopes}
     attempts = _fill_attempts(os.environ)
     if args.done:
-        store = _optional_store(args)
-        covered = []
-        keys: dict[Path, set[str]] = {}
-        labels: dict[Path, str] = {}
-        for scope, folder, _ in scopes:
-            if folder is None or not folder.is_dir():
-                continue
-            if _read_only_store(store, folder.resolve()):
-                print(
-                    _READ_ONLY_PROJECT if scope == "project" else _READ_ONLY_MEMORIES,
-                    file=sys.stderr,
-                )
-                return 2
-            covered.append(folder)
-            root = folder.parent if scope == "project" else None
-            keys[folder] = set(
-                _decisions(
-                    records.load_memories(folder, scope),
-                    today,
-                    attempts=attempts,
-                    root=root,
-                    tracked=records.tracked_memories(root) if root else frozenset(),
-                ).keys()
-            )
-            labels[folder] = scope
-        if covered:
-            try:
-                _write_marks(
-                    os.environ, keys
-                )  # first: a failed write leaves the pass date where it was
-                _write_passes(os.environ, covered, today)
-            except OSError as exc:
-                print(f"mem: {exc}", file=sys.stderr)
-                return 2
-            for folder in sorted(covered, key=lambda f: labels[f] != "global"):
-                n = len(keys[folder])
-                print(f"recorded {n} {'item' if n == 1 else 'items'} ({labels[folder]})")
-        if store is not None and store_git.is_repo(store):
-            _, failed = _commit_points(
-                store, lambda n: f"curation pass {today.isoformat()}: {n} files"
-            )
-            # git holds the older states now: the logs keep 30 days. Not while an automatic run may be appending
-            # to them, and under the commit lock so a commit never sees a half-written log.
-            if not failed and not auto_state.run_lock_held(data_dir(os.environ), store):
-                store_git.trim_logs_locked(store)
-        return 0
-    scopes = [(s, f, [m for m in loaded if m.superseded_by is None]) for s, f, loaded in scopes]
-    every = [m for _, _, loaded in scopes for m in loaded if m.error is None]
-    live = [m for m in every if records.is_live(m, today)]
-    out: list[str] = []
-    roots = [
-        folder.parent if scope == "project" and folder else None for scope, folder, _ in scopes
-    ]
-    found = [
-        _decisions(
-            loaded,
-            today,
-            attempts=attempts,
-            root=root,
-            tracked=records.tracked_memories(root) if root else frozenset(),
-        )
-        for root, (_, _, loaded) in zip(roots, scopes, strict=False)
-    ]
-    nofill = [m for d in found for m in d.nofill]  # `found` is reused below
-    unconfirmed = _unconfirmed_handles(every)  # their own category below
-    again = [pair for d in found for pair in d.refuted]
-    if again:
-        out.append(
-            "written again after being refuted (decide: mem refute <h>, or mem distinct <a> <b> if it is a "
-            "different claim)"
-        )
-        for a, r in again:
-            out += [_tagged(a), _tagged(r, ", refuted")]
-    same = [pair for d in found for pair in d.same]
-    if same:
-        out.append(
-            "same or opposite? (decide: mem merge <keep> <drop>, or keep both and say so in the body)"
-        )
-        out += _grouped_pairs(same)
-    state = [pair for d in found for pair in d.state]
-    if state:
-        out.append(
-            "newer state of the same project? (decide: mem supersede <old> <new>, or mem distinct <a> <b>)"
-        )
-        for old, new in state:
-            out += [_tagged(old), f"    -> {_tagged(new).lstrip()}"]
-    expired = [m for d in found for m in d.expired]
-    if expired:
-        out.append(
-            "expired (decide: mem forget <h>, or mem confirm <h> --until <date> if it still holds)"
-        )
-        out += [
-            f"  m:{m.handle}  valid until {m.valid_until.isoformat()}  {_flat(m.claim)}"
-            for m in expired
-            if m.valid_until is not None
-        ]
-    frequent = [m for d in found for m in d.seen]
-    if frequent:
-        out.append(
-            f"seen {_FREQUENT} times or more: general enough for a global lesson? (mem promote <h>)"
-        )
-        out += [f"  m:{m.handle}  observed {m.observed}  {_flat(m.claim)}" for m in frequent]
-    stale = [m for d in found for m in d.stale]
-    if stale:
-        out.append(
-            f"not confirmed in {_STALE_DAYS} days (decide: mem confirm <h> or mem forget <h>)"
-        )
-        out += [
-            f"  m:{m.handle}  {m.created.isoformat()}  {_flat(m.claim)}"
-            for m in stale
-            if m.created is not None
-        ]
-    awaiting = [m for m in live if m.triage == "pending"]
-    if awaiting:
-        out.append(
-            "general lesson, out of quarantine, awaiting triage (decide: mem triage accept <h>, mem triage "
-            "reject <h>, or reword it with mem memory edit <h> --global and then accept)"
-        )
-        for m in awaiting:
-            n, p = len(records.sessions(m)), len(records.projects(m))
-            out.append(
-                f"  m:{m.handle}  {n} session{'' if n == 1 else 's'}, {p} project{'' if p == 1 else 's'}  "
-                f"{_flat(m.claim)}"
-            )
-            if m.triage_reason:
-                out.append(f"    held: {m.triage_reason}")
-    asked = {scope for scope, _, _ in scopes}
-    for scope, folder in _memory_folders(
-        args
-    ):  # the scope not asked for still counts toward the cap; loaded quietly
-        if scope not in raw:
-            raw[scope] = records.load_memories(folder, scope)
-    worse = [
-        (m, loaded)
-        for m, loaded in _got_worse(raw.get("project", []), raw.get("global", []), today)
-        if m.scope in asked and m.superseded_by is None
-    ]
-    if worse:
-        out.append(
-            "balance got worse after loading (decide: reword it or go back with mem memory edit <h> --short, "
-            "drop it with mem forget <h>, or keep the wording with mem triage accept <h>)"
-        )
-        for m, loaded in worse:
-            state = "rules off" if _rules_off() else "loaded" if loaded else "left out by the cap"
-            note = records.reword_note(m)
-            out.append(f"  m:{m.handle}  {state}{'; ' + note if note else ''}  {_flat(m.claim)}")
-            found = records.tallies(m)[-2:]
-            ends = [t.since for t in found[1:]] + [today]
-            out += [f"    {_tally_line(t, end)}" for t, end in zip(found, ends, strict=False)]
-    held = sum(
-        1 for m in every if m.status == "active" and records.quarantined(m)
-    )  # a lapsed one is still stored
-    if held:
-        out.append(
-            f"in quarantine: {held} general lesson{'' if held == 1 else 's'}, not shown to a reader until corroborated "
-            "(mem memories --global --quarantine)"
-        )
-    waiting = [m for m in live if m.handle in unconfirmed and not records.quarantined(m)]
-    if waiting:
-        out.append(
-            "from a transcript, not confirmed yet (decide: mem forget <h>, or leave it; it is confirmed only "
-            "when another session shows it)"
-        )
-        for m in waiting:
-            n = len(records.sessions(m))
-            out.append(
-                f"  m:{m.handle}  {m.weight or 'medium'}, {n} session{'' if n == 1 else 's'}  {_flat(m.claim)}"
-            )
-    unread = [m for m in live if m.short_by == "model" and m.short]
-    if unread:
-        out.append(f"short forms nobody read: {len(unread)} (mem rules --unread)")
-    if nofill:
-        out.append(
-            "established, but the automatic fill will not write its short form (it gave up, or never "
-            f"tries a repository-tracked or strong unconfirmed project lesson); write one of at most "
-            f"{records.SHORT_LIMIT} characters and pick a topic: mem memory edit m:<h> --short '<text>' "
-            "--topic <t>, with --global for a global lesson; add --user-read only when the owner wrote or read the text)"
-        )
-        out += [f"  m:{m.handle}  {_flat(m.claim)}" for m in nofill]
-    if not args.is_global:
-        out += _curate_project_syntheses(scopes, today)
-    if out:
-        print("\n".join(out))
-    return 0
+        return _curate_done(args, scopes, attempts, today)
+    return _curate_report(args, scopes, attempts, today)
 
 
 def _settle_actions() -> settle.Actions:
@@ -5180,87 +5345,113 @@ def _settle_reason_ok(reason: str) -> bool:
     return not _refuse_secret([reason]) and _check_terms([reason], "lesson", False) == 0
 
 
+def _settle_missing_folder(command: str) -> int:
+    """The exit code of a settle subcommand when there is no global memories folder."""
+    if command == "due":
+        return 1
+    if command in {"pending", "log"}:
+        return 0
+    print("mem: there is no global memories folder.", file=sys.stderr)
+    return 2
+
+
+def _settle_due(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
+    count = settle.due(folder, args.minutes, time.time(), today)
+    if count is None:
+        return 1
+    print(count)
+    return 0
+
+
+def _settle_pending(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
+    with settle.locked(folder):
+        state = settle.load_state(folder)
+        found = settle.pending(
+            records.load_memories(folder, "global"), state, today, tokenize=tokenize
+        )
+        settle.offer(folder, state, found, time.time())
+    if args.json:
+        print(json.dumps(found, ensure_ascii=False, indent=1))
+    else:
+        for p in found:
+            flagged = f"  flagged: {', '.join(p['flagged_words'])}" if p["flagged_words"] else ""
+            print(
+                f"pair {p['pair']}  newer: m:{p['newer']}{flagged}\n  m:{p['a']}\t{p['claim_a']}\n  "
+                f"m:{p['b']}\t{p['claim_b']}"
+            )
+    return 0
+
+
+def _settle_apply(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
+    try:
+        rows = json.loads(Path(args.verdicts).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
+        return 2
+    try:
+        with settle.locked(folder):
+            lines = settle.apply_verdicts(
+                folder,
+                records.load_memories(folder, "global"),
+                rows,
+                today,
+                time.time(),
+                actions=_settle_actions(),
+                reason_ok=_settle_reason_ok,
+                tokenize=tokenize,
+            )
+    except settle.NoListing as exc:
+        print("\n".join(exc.lines))
+        print(f"mem: {exc}", file=sys.stderr)
+        return 1
+    print("\n".join(lines))
+    return 0
+
+
+def _settle_log(args: argparse.Namespace, folder: Path, _today: datetime.date) -> int:
+    out = settle.listing(folder, args.all)
+    if out:
+        print("\n".join(out))
+    return 0
+
+
+def _settle_ack(_args: argparse.Namespace, folder: Path, _today: datetime.date) -> int:
+    print(f"acknowledged {settle.ack(folder)}")
+    return 0
+
+
+def _settle_undo(args: argparse.Namespace, folder: Path, today: datetime.date) -> int:
+    try:
+        with settle.locked(folder):
+            print("\n".join(settle.undo(folder, args.number, today)))
+    except settle.NothingToUndo as exc:
+        print(f"mem: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+_SETTLE_HANDLERS: dict[str, Callable[[argparse.Namespace, Path, datetime.date], int]] = {
+    "due": _settle_due,
+    "pending": _settle_pending,
+    "apply": _settle_apply,
+    "log": _settle_log,
+    "ack": _settle_ack,
+}  # any other subcommand is `undo`
+
+
 def cmd_settle(args: argparse.Namespace) -> int:
     """`mem settle`: the engine side of settling new global memories (see settle.py)."""
     store = _optional_store(args)
     folder = records.memories_root(os.environ, store)
     command = args.settle_command
     if folder is None or not folder.is_dir():
-        if command == "due":
-            return 1
-        if command in {"pending", "log"}:
-            return 0
-        print("mem: there is no global memories folder.", file=sys.stderr)
-        return 2
+        return _settle_missing_folder(command)
     if _read_only_store(store, folder.resolve()):
         print(_READ_ONLY_MEMORIES, file=sys.stderr)
         return 2
     today = datetime.date.today()
     try:
-        if command == "due":
-            count = settle.due(folder, args.minutes, time.time(), today)
-            if count is None:
-                return 1
-            print(count)
-            return 0
-        if command == "pending":
-            with settle.locked(folder):
-                state = settle.load_state(folder)
-                found = settle.pending(
-                    records.load_memories(folder, "global"), state, today, tokenize=tokenize
-                )
-                settle.offer(folder, state, found, time.time())
-            if args.json:
-                print(json.dumps(found, ensure_ascii=False, indent=1))
-            else:
-                for p in found:
-                    flagged = (
-                        f"  flagged: {', '.join(p['flagged_words'])}" if p["flagged_words"] else ""
-                    )
-                    print(
-                        f"pair {p['pair']}  newer: m:{p['newer']}{flagged}\n  m:{p['a']}\t{p['claim_a']}\n  "
-                        f"m:{p['b']}\t{p['claim_b']}"
-                    )
-            return 0
-        if command == "apply":
-            try:
-                rows = json.loads(Path(args.verdicts).read_text(encoding="utf-8"))
-            except (OSError, ValueError) as exc:
-                print(f"mem: cannot read the verdicts: {exc}", file=sys.stderr)
-                return 2
-            try:
-                with settle.locked(folder):
-                    lines = settle.apply_verdicts(
-                        folder,
-                        records.load_memories(folder, "global"),
-                        rows,
-                        today,
-                        time.time(),
-                        actions=_settle_actions(),
-                        reason_ok=_settle_reason_ok,
-                        tokenize=tokenize,
-                    )
-            except settle.NoListing as exc:
-                print("\n".join(exc.lines))
-                print(f"mem: {exc}", file=sys.stderr)
-                return 1
-            print("\n".join(lines))
-            return 0
-        if command == "log":
-            out = settle.listing(folder, args.all)
-            if out:
-                print("\n".join(out))
-            return 0
-        if command == "ack":
-            print(f"acknowledged {settle.ack(folder)}")
-            return 0
-        try:
-            with settle.locked(folder):
-                print("\n".join(settle.undo(folder, args.number, today)))
-        except settle.NothingToUndo as exc:
-            print(f"mem: {exc}", file=sys.stderr)
-            return 1
-        return 0
+        return _SETTLE_HANDLERS.get(command, _settle_undo)(args, folder, today)
     except (OSError, ValueError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -5333,78 +5524,95 @@ def _commit_points(
     return commit, bool(failed)
 
 
-def cmd_history(args: argparse.Namespace) -> int:
-    started = time.monotonic()
-    hook = args.history_command == "commit" and args.hook
-    if args.history_command == "init":
-        folder = (
-            Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
+def _history_init_folder(args: argparse.Namespace) -> Path | None:
+    """The store folder `mem history init` turns into a repository; None after a message on stderr."""
+    folder = Path(args.folder).expanduser() if args.folder else resolve_root(args.root, os.environ)
+    if folder is None:
+        print(NO_STORE, file=sys.stderr)
+        return None
+    if not folder.is_dir():
+        print(f"mem: the store folder does not exist: {folder}", file=sys.stderr)
+        return None
+    if not records.store_is_writable(folder):
+        print(
+            f'mem: {folder} is read-only: it has no mem-store.yaml (create a store with "mem init").',
+            file=sys.stderr,
         )
-        if folder is None:
-            print(NO_STORE, file=sys.stderr)
-            return 2
-        if not folder.is_dir():
-            print(f"mem: the store folder does not exist: {folder}", file=sys.stderr)
-            return 2
-        if not records.store_is_writable(folder):
-            print(
-                f'mem: {folder} is read-only: it has no mem-store.yaml (create a store with "mem init").',
-                file=sys.stderr,
-            )
-            return 2
-        if store_git.is_repo(folder):
-            print(f"mem: {folder} is a git repository already", file=sys.stderr)
-            return 2
-        try:
-            print(store_git.init(folder) or "nothing to commit")
-        except store_git.GitError as exc:
-            print(f"mem: history: {exc}", file=sys.stderr)
-            return 1
-        return 0
+        return None
+    if store_git.is_repo(folder):
+        print(f"mem: {folder} is a git repository already", file=sys.stderr)
+        return None
+    return folder
+
+
+def _history_init(args: argparse.Namespace) -> int:
+    folder = _history_init_folder(args)
+    if folder is None:
+        return 2
+    try:
+        print(store_git.init(folder) or "nothing to commit")
+    except store_git.GitError as exc:
+        print(f"mem: history: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _history_repo(args: argparse.Namespace, hook: bool) -> Path | None:
+    """The store when it is a git repository; None otherwise, with a message unless `hook`."""
     store = _history_store(args) if not hook else resolve_root(args.root, os.environ)
     if store is None or not store.is_dir():
-        return 0 if hook else 2
+        return None
     if not store_git.is_repo(store):
         if not hook:
             print(f'mem: {store} is not a git repository (run "mem history init")', file=sys.stderr)
-        return 0 if hook else 2
-    if args.history_command == "commit":
-        detached = hook and args.detached
+        return None
+    return store
+
+
+def _history_message(args: argparse.Namespace, hook: bool) -> str | Callable[[int], str]:
+    """The commit message: `-m`, or a line stamped with the time of the call."""
+    if args.message:
+        return args.message
+    now = datetime.datetime.now()
+    label = "session end" if hook else "manual commit"
+    return lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"
+
+
+def _history_commit(args: argparse.Namespace, store: Path, hook: bool, started: float) -> int:
+    detached = hook and args.detached
+    if detached:
+        _log_hook({"hook": "session-end", "phase": "started"})
+    if hook and auto_state.run_lock_held(data_dir(os.environ), store):
         if detached:
-            _log_hook({"hook": "session-end", "phase": "started"})
-        if hook and auto_state.run_lock_held(data_dir(os.environ), store):
-            if detached:
-                _log_hook({
-                    "hook": "session-end",
-                    "phase": "done",
-                    "ms": int((time.monotonic() - started) * 1000),
-                    "committed": False,
-                    "failed": False,
-                })
-            return 0  # an automatic run holds the store: it commits its own work
-        now = datetime.datetime.now()
-        if args.message:
-            message: str | Callable[[int], str] = args.message
-        else:
-            label = "session end" if hook else "manual commit"
-            message = lambda n: f"{label} {now:%Y-%m-%d %H:%M}: {n} files"
-        held: list[str] = []
-        commit, failed = _commit_points(
-            store, message, quiet=hook, held=held
-        )  # the hook is silent; a failure is in the usage log
-        if hook:
             _log_hook({
                 "hook": "session-end",
-                **({"phase": "done"} if detached else {}),
+                "phase": "done",
                 "ms": int((time.monotonic() - started) * 1000),
-                "committed": commit is not None,
-                "failed": failed,
+                "committed": False,
+                "failed": False,
             })
-            return 0
-        print(commit or "nothing to commit")
-        for path in [] if failed else held:
-            print(f"held back: {path}", file=sys.stderr)
-        return 1 if failed else 0
+        return 0  # an automatic run holds the store: it commits its own work
+    message = _history_message(args, hook)
+    held: list[str] = []
+    commit, failed = _commit_points(
+        store, message, quiet=hook, held=held
+    )  # the hook is silent; a failure is in the usage log
+    if hook:
+        _log_hook({
+            "hook": "session-end",
+            **({"phase": "done"} if detached else {}),
+            "ms": int((time.monotonic() - started) * 1000),
+            "committed": commit is not None,
+            "failed": failed,
+        })
+        return 0
+    print(commit or "nothing to commit")
+    for path in [] if failed else held:
+        print(f"held back: {path}", file=sys.stderr)
+    return 1 if failed else 0
+
+
+def _history_log(args: argparse.Namespace, store: Path) -> int:
     try:
         print("\n".join(store_git.log(store, args.n)))
     except store_git.GitError as exc:
@@ -5413,7 +5621,21 @@ def cmd_history(args: argparse.Namespace) -> int:
     return 0
 
 
-def _init_store(folder: Path) -> int:
+def cmd_history(args: argparse.Namespace) -> int:
+    started = time.monotonic()
+    hook = args.history_command == "commit" and args.hook
+    if args.history_command == "init":
+        return _history_init(args)
+    store = _history_repo(args, hook)
+    if store is None:
+        return 0 if hook else 2
+    if args.history_command == "commit":
+        return _history_commit(args, store, hook, started)
+    return _history_log(args, store)
+
+
+def _init_store_check(folder: Path) -> int | None:
+    """The exit code when `folder` cannot become a store, or already is one; None when it can be created."""
     if folder.exists() and not folder.is_dir():
         print(f"mem: {folder} is not a folder", file=sys.stderr)
         return 2
@@ -5430,24 +5652,36 @@ def _init_store(folder: Path) -> int:
             file=sys.stderr,
         )
         return 2
+    return None
+
+
+def _init_store_create(folder: Path) -> None:
+    """Make the folders, the templates and the two files of a new store; what exists stays."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "literature",
+        "knowledge",
+        "research",
+        records.GLOBAL_DIR,
+        syntheses.SYNTHESES_DIR,
+    ):
+        (folder / name).mkdir(exist_ok=True)
+    if not (folder / "templates").exists():
+        shutil.copytree(_TEMPLATES, folder / "templates")
+    for name, text in (
+        (records.STORE_MARKER, "format: 1\n"),
+        ("topics.yaml", "notes: {description: General notes}\n"),
+    ):
+        if not (folder / name).exists():
+            safe_io.replace_file(folder / name, text.encode("utf-8"))
+
+
+def _init_store(folder: Path) -> int:
+    code = _init_store_check(folder)
+    if code is not None:
+        return code
     try:
-        folder.mkdir(parents=True, exist_ok=True)
-        for name in (
-            "literature",
-            "knowledge",
-            "research",
-            records.GLOBAL_DIR,
-            syntheses.SYNTHESES_DIR,
-        ):
-            (folder / name).mkdir(exist_ok=True)
-        if not (folder / "templates").exists():
-            shutil.copytree(_TEMPLATES, folder / "templates")
-        for name, text in (
-            (records.STORE_MARKER, "format: 1\n"),
-            ("topics.yaml", "notes: {description: General notes}\n"),
-        ):
-            if not (folder / name).exists():
-                safe_io.replace_file(folder / name, text.encode("utf-8"))
+        _init_store_create(folder)
     except OSError as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
@@ -5459,6 +5693,45 @@ def _term_class(term: records.Term) -> str:
     return "hard" if not term.soft else f"soft[{term.kind}]" if term.kind else "soft"
 
 
+def _projects_list(_args: argparse.Namespace, data: Path) -> int:
+    today = datetime.date.today()
+    for name, entry in sorted(records.read_registry(data).items()):
+        path = Path(entry["path"])
+        if not path.is_dir():
+            print(f"{name}\tmissing\t{path}")
+            continue
+        live = [
+            m
+            for m in records.load_memories(records.project_dir(path), "project")
+            if records.is_live(m, today)
+        ]
+        print(f"{name}\t{len(live)} memories\t{path}")
+    return 0
+
+
+def _projects_add(args: argparse.Namespace, data: Path) -> int:
+    path = Path(args.path).expanduser().resolve()
+    if not path.is_dir():
+        print(f"mem: {path} is not a folder.", file=sys.stderr)
+        return 2
+    name = records.register_project(data, path, datetime.date.today(), args.name)
+    print(f"{name}\t{path}")
+    return 0
+
+
+def _projects_remove(args: argparse.Namespace, data: Path) -> int:
+    if not records.forget_project(data, args.name):
+        print(f"mem: no project named {args.name} (see mem projects list)", file=sys.stderr)
+        return 2
+    return 0
+
+
+_PROJECTS_HANDLERS: dict[str, Callable[[argparse.Namespace, Path], int]] = {
+    "list": _projects_list,
+    "add": _projects_add,
+}  # any other subcommand is `remove`
+
+
 def cmd_projects(args: argparse.Namespace) -> int:
     data = data_dir(os.environ)
     if data is None:
@@ -5468,33 +5741,64 @@ def cmd_projects(args: argparse.Namespace) -> int:
         )
         return 2
     try:
-        if args.projects_command == "list":
-            today = datetime.date.today()
-            for name, entry in sorted(records.read_registry(data).items()):
-                path = Path(entry["path"])
-                if not path.is_dir():
-                    print(f"{name}\tmissing\t{path}")
-                    continue
-                live = [
-                    m
-                    for m in records.load_memories(records.project_dir(path), "project")
-                    if records.is_live(m, today)
-                ]
-                print(f"{name}\t{len(live)} memories\t{path}")
-        elif args.projects_command == "add":
-            path = Path(args.path).expanduser().resolve()
-            if not path.is_dir():
-                print(f"mem: {path} is not a folder.", file=sys.stderr)
-                return 2
-            name = records.register_project(data, path, datetime.date.today(), args.name)
-            print(f"{name}\t{path}")
-        elif not records.forget_project(data, args.name):
-            print(f"mem: no project named {args.name} (see mem projects list)", file=sys.stderr)
-            return 2
+        return _PROJECTS_HANDLERS.get(args.projects_command, _projects_remove)(args, data)
     except (ValueError, OSError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
+
+
+def _terms_list(_args: argparse.Namespace, _path: Path, terms: Sequence[records.Term]) -> int:
+    for t in terms:
+        print(f"{_term_class(t)}\t{t.text}")
     return 0
+
+
+def _terms_add(args: argparse.Namespace, path: Path, terms: Sequence[records.Term]) -> int:
+    text = " ".join(args.term.split())
+    if args.kind and not args.soft:
+        build_parser().error("--kind needs --soft")
+    if (
+        not text
+        or text.startswith("#")
+        or cast("records.Term", records.parse_term(text)).soft  # not blank, not a comment
+    ):
+        print("mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr)
+        return 2
+    line = (
+        f"soft[{args.kind}]: {text}"
+        if args.soft and args.kind
+        else f"soft: {text}"
+        if args.soft
+        else text
+    )
+    new = cast("records.Term", records.parse_term(line))  # `line` is neither blank nor a comment
+    if any((t.text, t.soft, t.kind) == (new.text, new.soft, new.kind) for t in terms):
+        print("already listed")
+        return 0
+    records.ensure_terms_file(os.environ)
+    existing = path.read_text(encoding="utf-8")
+    with path.open("a", encoding="utf-8") as f:
+        f.write(("" if not existing or existing.endswith("\n") else "\n") + line + "\n")
+    print(f"{_term_class(new)}\t{text}")
+    return 0
+
+
+def _terms_remove(args: argparse.Namespace, path: Path, _terms: Sequence[records.Term]) -> int:
+    text = " ".join(args.term.split())
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
+    kept = [ln for ln in lines if (t := records.parse_term(ln)) is None or t.text != text]
+    if len(kept) == len(lines):
+        print(f"mem: no term {text!r} in the list.", file=sys.stderr)
+        return 2
+    path.write_text("".join(ln + "\n" for ln in kept), encoding="utf-8")
+    print(f"removed {len(lines) - len(kept)}")
+    return 0
+
+
+_TERMS_HANDLERS: dict[str, Callable[[argparse.Namespace, Path, Sequence[records.Term]], int]] = {
+    "list": _terms_list,
+    "add": _terms_add,
+}  # any other subcommand is `remove`
 
 
 def cmd_terms(args: argparse.Namespace) -> int:
@@ -5507,50 +5811,7 @@ def cmd_terms(args: argparse.Namespace) -> int:
         return 2
     try:
         terms = records.read_terms(os.environ)
-        if args.terms_command == "list":
-            for t in terms:
-                print(f"{_term_class(t)}\t{t.text}")
-            return 0
-        text = " ".join(args.term.split())
-        if args.terms_command == "add":
-            if args.kind and not args.soft:
-                build_parser().error("--kind needs --soft")
-            if (
-                not text
-                or text.startswith("#")
-                or cast("records.Term", records.parse_term(text)).soft  # not blank, not a comment
-            ):
-                print(
-                    "mem: a term cannot be empty, start with # or start with soft:", file=sys.stderr
-                )
-                return 2
-            line = (
-                f"soft[{args.kind}]: {text}"
-                if args.soft and args.kind
-                else f"soft: {text}"
-                if args.soft
-                else text
-            )
-            new = cast(
-                "records.Term", records.parse_term(line)
-            )  # `line` is neither blank nor a comment
-            if any((t.text, t.soft, t.kind) == (new.text, new.soft, new.kind) for t in terms):
-                print("already listed")
-                return 0
-            records.ensure_terms_file(os.environ)
-            existing = path.read_text(encoding="utf-8")
-            with path.open("a", encoding="utf-8") as f:
-                f.write(("" if not existing or existing.endswith("\n") else "\n") + line + "\n")
-            print(f"{_term_class(new)}\t{text}")
-            return 0
-        lines = path.read_text(encoding="utf-8-sig").splitlines() if path.exists() else []
-        kept = [ln for ln in lines if (t := records.parse_term(ln)) is None or t.text != text]
-        if len(kept) == len(lines):
-            print(f"mem: no term {text!r} in the list.", file=sys.stderr)
-            return 2
-        path.write_text("".join(ln + "\n" for ln in kept), encoding="utf-8")
-        print(f"removed {len(lines) - len(kept)}")
-        return 0
+        return _TERMS_HANDLERS.get(args.terms_command, _terms_remove)(args, path, terms)
     except (records.ForbiddenListError, OSError) as exc:
         print(f"mem: the forbidden-terms list cannot be used ({exc}).", file=sys.stderr)
         return 2
@@ -5559,15 +5820,19 @@ def cmd_terms(args: argparse.Namespace) -> int:
 SIMILAR_LIMIT = 3
 
 
+def _read_body_text(source: str) -> str:
+    """The text of the file, or of standard input for `-`, before any check of its content."""
+    if source == "-":
+        if sys.stdin.isatty():
+            raise NewNoteError("--body-file - needs the body on standard input, not a terminal")
+        return sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
+    return note_files._read_text(Path(source))
+
+
 def _read_body(source: str) -> str:
     """The text of a `--body-file` (`-` is standard input); NewNoteError when it cannot be a body."""
     try:
-        if source == "-":
-            if sys.stdin.isatty():
-                raise NewNoteError("--body-file - needs the body on standard input, not a terminal")
-            body = sys.stdin.read().removeprefix("\ufeff").replace("\r\n", "\n")
-        else:
-            body = note_files._read_text(Path(source))
+        body = _read_body_text(source)
     except (OSError, UnicodeDecodeError, FrontmatterError) as exc:
         raise NewNoteError(f"cannot read the body: {exc}") from exc
     if not body.strip():
@@ -5740,6 +6005,15 @@ def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], ac
     )
 
 
+def _logged_changes_unchanged(changes: Mapping[Path, tuple[bytes, bytes]]) -> None:
+    """ValueError when a file is not as it was read."""
+    for path, (old, _) in changes.items():
+        if path.read_bytes() != old:
+            raise ValueError(
+                f"{path.name} changed since it was read, so nothing was written: run the command again"
+            )
+
+
 def _write_logged_changes(
     changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]
 ) -> None:
@@ -5749,11 +6023,7 @@ def _write_logged_changes(
     write_log()
     swapped: list[Path] = []
     try:
-        for path, (old, _) in changes.items():
-            if path.read_bytes() != old:
-                raise ValueError(
-                    f"{path.name} changed since it was read, so nothing was written: run the command again"
-                )
+        _logged_changes_unchanged(changes)
         for path, (_, new) in changes.items():
             _swap_file(path, new)
             swapped.append(path)
@@ -5767,281 +6037,518 @@ def _write_logged_changes(
         raise
 
 
+def _synthesis_require_writable(changes: Mapping[Path, tuple[bytes, bytes]]) -> None:
+    """ValueError naming the files of `changes` that cannot be written."""
+    locked = [
+        p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)
+    ]
+    if locked:
+        raise ValueError(f"not writable: {', '.join(locked)}")
+
+
+@dataclass(frozen=True)
+class _StructurePlan:
+    """What a `mem synthesis` structure command will write: the files with their old and new bytes, the output
+    lines, the curation log and the function that logs the undo."""
+
+    changes: dict[Path, tuple[bytes, bytes]]
+    lines: list[str]
+    log: Path
+    write_log: Callable[[], None]
+
+
+@dataclass(frozen=True)
+class _StructureTarget:
+    """The synthesis (and section, when given) a structure command acts on."""
+
+    root: Path
+    handle: str
+    section: str | None
+    path: Path
+    today: datetime.date
+
+
+@dataclass(frozen=True)
+class _SectionEdit:
+    """The new text of a synthesis after a section changed, the output lines, and how each member note changes."""
+
+    old: str
+    new: str
+    lines: list[str]
+    edit_note: Callable[[str, str], str]
+
+
+def _structure_detach_plan(root: Path, note: str) -> _StructurePlan | None:
+    """The plan to detach a note from its synthesis; None after an ambiguity message on stderr."""
+    found = resolve_note(root, note)
+    if isinstance(found, list):
+        _ambiguous(note, found)
+        return None
+    if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
+        raise ValueError(f"no note {note}")
+    rel = found.relative_to(root).as_posix()
+    original = found.read_bytes()
+    text = original.decode("utf-8")
+    meta = split_frontmatter(text)[0]
+    part = meta.get("part_of") if isinstance(meta, dict) else None
+    if not isinstance(part, str):
+        raise ValueError(f"{note_files._handle(rel)} is not part of a synthesis")
+    return _StructurePlan(
+        {found: (original, _detached(text, rel).encode("utf-8"))},
+        [f"{note_files._handle(rel)}\tdetached from s:{part}"],
+        root / records.CURATION_LOG,
+        lambda: _log_note(root, found, rel, "detach"),
+    )
+
+
+def _structure_topic_ids(args: argparse.Namespace, root: Path) -> list[str]:
+    """The topic ids of `mem synthesis topics`, each one known; ValueError otherwise."""
+    topics = list(dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip()))
+    known = load_topics(root)
+    if not topics:
+        raise ValueError("at least one topic is required")
+    for t in topics:
+        if t not in known:
+            raise ValueError(f"unknown topic '{t}': use an id from topics.yaml or add it there")
+    return topics
+
+
+def _structure_topic_clash(root: Path, handle: str, topics: Sequence[str]) -> None:
+    """ValueError when another synthesis already covers one of `topics`."""
+    for other in syntheses.load(root / syntheses.SYNTHESES_DIR):
+        if (
+            other.error is None
+            and other.handle != handle
+            and (clash := [t for t in topics if t in other.topics])
+        ):
+            raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}")
+
+
+def _structure_topics_plan(args: argparse.Namespace, target: _StructureTarget) -> _StructurePlan:
+    if target.section is not None:
+        raise ValueError("topics takes s:<handle>")
+    topics = _structure_topic_ids(args, target.root)
+    _structure_topic_clash(target.root, target.handle, topics)
+    old, new = syntheses.with_topics(target.path, topics, target.today)
+    return _StructurePlan(
+        {target.path: (old.encode("utf-8"), new.encode("utf-8"))},
+        [f"s:{target.handle}\ttopics {', '.join(topics)}"],
+        target.root / syntheses.SYNTHESES_DIR / records.CURATION_LOG,
+        lambda: records.log_before(syntheses.Synthesis(target.path, target.handle), "topics"),
+    )
+
+
+def _structure_rename_edit(
+    args: argparse.Namespace, target: _StructureTarget, members: Sequence[tuple[Path, str]]
+) -> _SectionEdit:
+    section = cast("str", target.section)
+    old, new, new_section = syntheses.renamed_section(
+        target.path, section, args.heading, target.today
+    )
+    return _SectionEdit(
+        old,
+        new,
+        [
+            f"s:{target.handle}#{new_section}\trenamed from {section}",
+            *[
+                f"{note_files._handle(p.relative_to(target.root).as_posix())}\tpart of s:{target.handle}#{new_section}"
+                for p, _ in members
+            ],
+        ],
+        lambda text, rel: _renamed_part_of(text, rel, f"{target.handle}#{new_section}"),
+    )
+
+
+def _structure_remove_edit(
+    target: _StructureTarget, members: Sequence[tuple[Path, str]]
+) -> _SectionEdit:
+    section = cast("str", target.section)
+    old, new = syntheses.without_section(target.path, section, target.today)
+    ref = f"{target.handle}#{section}"
+    return _SectionEdit(
+        old,
+        new,
+        [
+            f"s:{ref}\tremoved",
+            *[
+                f"{note_files._handle(p.relative_to(target.root).as_posix())}\tdetached from s:{ref}"
+                for p, _ in members
+            ],
+        ],
+        _detached,
+    )
+
+
+def _structure_section_plan(
+    args: argparse.Namespace, target: _StructureTarget, action: str
+) -> _StructurePlan:
+    """The plan to rename or remove one section, with the member notes that follow it."""
+    if target.section is None:
+        raise ValueError(f"{action} takes s:<handle>#<section handle>")
+    root = target.root
+    members = _part_of_notes(root, f"{target.handle}#{target.section}")
+    edit = (
+        _structure_rename_edit(args, target, members)
+        if action == "rename"
+        else _structure_remove_edit(target, members)
+    )
+    changes = {target.path: (edit.old.encode("utf-8"), edit.new.encode("utf-8"))}
+    for note, text in members:
+        changes[note] = (
+            text.encode("utf-8"),
+            edit.edit_note(text, note.relative_to(root).as_posix()).encode("utf-8"),
+        )
+    return _StructurePlan(
+        changes,
+        edit.lines,
+        root / records.CURATION_LOG,
+        lambda: _log_group_ahead(root, changes, action),
+    )
+
+
+def _structure_plan(
+    args: argparse.Namespace, root: Path, action: str, today: datetime.date
+) -> _StructurePlan | None:
+    """The plan of a structure command; None after a message on stderr."""
+    if action == "detach":
+        return _structure_detach_plan(root, args.note)
+    handle, section = syntheses.split_ref(args.target)
+    path = syntheses.path_of(root / syntheses.SYNTHESES_DIR, handle)
+    if path is None or not path.is_file():
+        raise ValueError(f"no synthesis named {args.target}")
+    target = _StructureTarget(root, handle, section, path, today)
+    if action == "topics":
+        return _structure_topics_plan(args, target)
+    return _structure_section_plan(args, target, action)
+
+
+def _structure_heading_refused(args: argparse.Namespace) -> int:
+    """0 when the new heading may be written, else the exit code after a message on stderr."""
+    if _refuse_secret([args.heading]):
+        return 4
+    return _check_terms([args.heading], "synthesis", getattr(args, "owner_approved", False))
+
+
+def _structure_run(
+    args: argparse.Namespace, root: Path, action: str, today: datetime.date
+) -> tuple[int, list[str]]:
+    """(exit code, output lines) after the files of the command were written; the lines only when the code is 0."""
+    if action == "rename":
+        refused = _structure_heading_refused(args)
+        if refused:
+            return refused, []
+    plan = _structure_plan(args, root, action, today)
+    if plan is None:
+        return 2, []
+    _synthesis_require_writable(plan.changes)
+    _write_logged_changes(plan.changes, plan.log, plan.write_log)
+    return 0, plan.lines
+
+
 def _structure(args: argparse.Namespace) -> int:
     """`mem synthesis rename | remove | detach | topics`: one line per changed record, errors on stderr with exit 2."""
     root = args.root.resolve()
     action = args.synthesis_command
-    today = datetime.date.today()
-    folder = root / syntheses.SYNTHESES_DIR
     try:
-        if action == "rename" and _refuse_secret([args.heading]):
-            return 4
-        if action == "rename" and (
-            refused := _check_terms(
-                [args.heading], "synthesis", getattr(args, "owner_approved", False)
-            )
-        ):
-            return refused
-        changes: dict[Path, tuple[bytes, bytes]] = {}
-        lines: list[str] = []
-        if action == "detach":
-            found = resolve_note(root, args.note)
-            if isinstance(found, list):
-                _ambiguous(args.note, found)
-                return 2
-            if found is None or found not in {p.resolve() for _, p in note_files._note_files(root)}:
-                raise ValueError(f"no note {args.note}")
-            rel = found.relative_to(root).as_posix()
-            original = found.read_bytes()
-            text = original.decode("utf-8")
-            meta = split_frontmatter(text)[0]
-            part = meta.get("part_of") if isinstance(meta, dict) else None
-            if not isinstance(part, str):
-                raise ValueError(f"{note_files._handle(rel)} is not part of a synthesis")
-            changes[found] = (original, _detached(text, rel).encode("utf-8"))
-            lines.append(f"{note_files._handle(rel)}\tdetached from s:{part}")
-            log = root / records.CURATION_LOG
-            write_log = lambda: _log_note(root, found, rel, "detach")
-        else:
-            handle, section = syntheses.split_ref(args.target)
-            path = syntheses.path_of(folder, handle)
-            if path is None or not path.is_file():
-                raise ValueError(f"no synthesis named {args.target}")
-            if action == "topics" and section is not None:
-                raise ValueError("topics takes s:<handle>")
-            if action == "topics":
-                topics = list(
-                    dict.fromkeys(t.strip() for t in args.topic_ids.split(",") if t.strip())
-                )
-                known = load_topics(root)
-                if not topics:
-                    raise ValueError("at least one topic is required")
-                for t in topics:
-                    if t not in known:
-                        raise ValueError(
-                            f"unknown topic '{t}': use an id from topics.yaml or add it there"
-                        )
-                for other in syntheses.load(folder):
-                    if (
-                        other.error is None
-                        and other.handle != handle
-                        and (clash := [t for t in topics if t in other.topics])
-                    ):
-                        raise ValueError(f"s:{other.handle} already covers the topic {clash[0]}")
-                old, new = syntheses.with_topics(path, topics, today)
-                changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
-                lines.append(f"s:{handle}\ttopics {', '.join(topics)}")
-                log = folder / records.CURATION_LOG
-                write_log = lambda: records.log_before(syntheses.Synthesis(path, handle), "topics")
-            else:
-                if section is None:
-                    raise ValueError(f"{action} takes s:<handle>#<section handle>")
-                ref = f"{handle}#{section}"
-                notes = _part_of_notes(root, ref)
-                if action == "rename":
-                    old, new, new_section = syntheses.renamed_section(
-                        path, section, args.heading, today
-                    )
-                    lines.append(f"s:{handle}#{new_section}\trenamed from {section}")
-                    edit = lambda text, rel: _renamed_part_of(text, rel, f"{handle}#{new_section}")
-                    lines += [
-                        f"{note_files._handle(p.relative_to(root).as_posix())}\tpart of s:{handle}#{new_section}"
-                        for p, _ in notes
-                    ]
-                else:
-                    old, new = syntheses.without_section(path, section, today)
-                    lines.append(f"s:{handle}#{section}\tremoved")
-                    edit = _detached
-                    lines += [
-                        f"{note_files._handle(p.relative_to(root).as_posix())}\tdetached from s:{ref}"
-                        for p, _ in notes
-                    ]
-                changes[path] = (old.encode("utf-8"), new.encode("utf-8"))
-                for note, text in notes:
-                    changes[note] = (
-                        text.encode("utf-8"),
-                        edit(text, note.relative_to(root).as_posix()).encode("utf-8"),
-                    )
-                log = root / records.CURATION_LOG
-                write_log = lambda: _log_group_ahead(root, changes, action)
-        locked = [
-            p.name for p in changes if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)
-        ]
-        if locked:
-            raise ValueError(f"not writable: {', '.join(locked)}")
-        _write_logged_changes(changes, log, write_log)
+        code, lines = _structure_run(args, root, action, datetime.date.today())
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
+    if code != 0:
+        return code
     print("\n".join(lines))
     log_usage(root, {"cmd": "synthesis", "action": action})
     return 0
+
+
+@dataclass(frozen=True)
+class _RefsPart:
+    """One part of a synthesis with the reference changes proposed for it, each (line, unit, op, target)."""
+
+    part: syntheses.Section
+    items: list[tuple[str, int, str, str]]
+    folder: Path
+    root: Path
+
+
+@dataclass(frozen=True)
+class _RefsPartOutcome:
+    """What the proposals for one part came to: refused lines, the summary line (None when the part was refused as
+    a whole), the units added and removed, and (old, new) text of the part when it changed."""
+
+    refused: list[str]
+    count_line: str | None
+    added: int
+    removed: int
+    change: tuple[str, str] | None
+
+
+@dataclass(frozen=True)
+class _RefsOutcome:
+    """What the proposals came to over the whole synthesis: its new text, the member notes to rewrite, one summary
+    line per part, the refused lines and the totals."""
+
+    new_file: str
+    notes: dict[Path, tuple[bytes, bytes]]
+    counts: list[str]
+    refused: list[str]
+    added: int
+    removed: int
+
+
+@dataclass(frozen=True)
+class _RefsRun:
+    """The result of `mem synthesis refs` before it prints: exit code, output lines, whether a file changed."""
+
+    code: int
+    lines: list[str]
+    changed: bool
+
+
+def _refs_target(target: str, folder: Path) -> tuple[str, Path] | None:
+    """(handle, path) of the synthesis named; None after a message on stderr when there is none."""
+    handle, section = syntheses.split_ref(target)
+    path = syntheses.path_of(folder, handle)
+    if path is None or not path.is_file():
+        print(f"mem: no synthesis named {target}", file=sys.stderr)
+        return None
+    if section is not None:
+        raise ValueError("refs takes s:<handle>")
+    return handle, path
+
+
+def _refs_read_file(file: str) -> str | None:
+    """The proposal file; None after a message on stderr when it cannot be read."""
+    try:
+        return Path(file).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"mem: cannot read the file: {exc}", file=sys.stderr)
+        return None
+
+
+def _refs_parse_line(line: str) -> tuple[str, tuple[str, int, str, str]] | None:
+    """(section handle, (line, unit, op, target)) of a proposal line; None when it is not one."""
+    cells = [c.strip() for c in line.split("|", 2)]
+    action = cells[2].split(None, 1) if len(cells) == _SETTLE_LOG_CELLS else []
+    if not (
+        len(cells) == _SETTLE_LOG_CELLS
+        and cells[1].isdigit()
+        and len(action) == _SETTLE_ACTION_WORDS
+        and action[0] in {"add", "remove"}
+    ):
+        return None
+    return cells[0], (line.strip(), int(cells[1]), action[0], action[1].strip())
+
+
+def _refs_proposals(
+    raw: str,
+) -> tuple[dict[str, list[tuple[str, int, str, str]]], list[str]]:
+    """The proposals of the file by section handle, and a refused line for each one that is malformed."""
+    refused: list[str] = []
+    by_part: dict[str, list[tuple[str, int, str, str]]] = {}
+    for line in raw.splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        parsed = _refs_parse_line(line)
+        if parsed is None:
+            refused.append(
+                f"refused: {line.strip()}: not `<section> | <unit> | add|remove <target>`"
+            )
+            continue
+        by_part.setdefault(parsed[0], []).append(parsed[1])
+    return by_part, refused
+
+
+def _refs_refusal(
+    sections: Sequence[syntheses.Section], name: str, part: syntheses.Section | None
+) -> str | None:
+    """Why no reference may change in the part `name`; None when it may."""
+    if name == syntheses.SUMMARY:
+        return "the Summary takes no references"
+    if part is None:
+        return f"no section {name!r}"
+    if sum(1 for x in sections if x.handle == name) > 1:
+        return f"the handle {name!r} is repeated: rename one heading first"
+    return None
+
+
+def _refs_attempt(unit: _RefsPart, picked: list[int]) -> tuple[str, list[str | None], str | None]:
+    """The part's text with the picked proposals applied, the reason each was refused, and a problem with the
+    result as a whole (None when it is sound)."""
+    part = unit.part
+    text, why_not = syntheses.change_references(
+        part.text,
+        unit.folder,
+        [(unit.items[i][1], unit.items[i][2], unit.items[i][3]) for i in picked],
+    )
+    if text == part.text:
+        return text, why_not, None
+    if syntheses.without_references(text) != syntheses.without_references(part.text):
+        return (
+            text,
+            why_not,
+            "the command would change a word of the part (a bug: nothing of it was written)",
+        )
+    if found := syntheses.validate_section(text, unit.root):
+        return text, why_not, "the part would fail its checks: " + "; ".join(found)
+    return text, why_not, None
+
+
+def _refs_resolve(unit: _RefsPart) -> tuple[str, list[str | None]]:
+    """The part's new text and the reason each proposal was refused (None when applied)."""
+    everyone = list(range(len(unit.items)))
+    new, reasons, problem = _refs_attempt(unit, everyone)
+    if problem:
+        # One line that breaks the part is refused alone; the others are applied unit by unit.
+        reasons, kept = list(reasons), []
+        for i in everyone:
+            if reasons[i] is not None:
+                continue
+            if (trial := _refs_attempt(unit, [*kept, i]))[2]:
+                reasons[i] = trial[2]
+            else:
+                kept.append(i)
+        new = _refs_attempt(unit, kept)[0]
+    return new, reasons
+
+
+def _refs_count(
+    items: Sequence[tuple[str, int, str, str]], reasons: Sequence[str | None], op: str
+) -> int:
+    """How many proposals of kind `op` were applied."""
+    return sum(1 for (_, _, o, _), r in zip(items, reasons, strict=False) if r is None and o == op)
+
+
+def _refs_part_outcome(
+    sections: Sequence[syntheses.Section],
+    handle: str,
+    root: Path,
+    name: str,
+    items: list[tuple[str, int, str, str]],
+) -> _RefsPartOutcome:
+    part = {s.handle: s for s in sections}.get(name)
+    why = _refs_refusal(sections, name, part)
+    if why or part is None:  # `part` is None only when `why` is set
+        return _RefsPartOutcome([f"refused: {line}: {why}" for line, *_ in items], None, 0, 0, None)
+    new, reasons = _refs_resolve(_RefsPart(part, items, root / syntheses.SYNTHESES_DIR, root))
+    failed = [
+        f"refused: {line}: {r}"
+        for (line, *_), r in zip(items, reasons, strict=False)
+        if r is not None
+    ]
+    added = _refs_count(items, reasons, "add")
+    removed = _refs_count(items, reasons, "remove")
+    return _RefsPartOutcome(
+        failed,
+        f"s:{handle}#{name}: added {added}, removed {removed}, refused {len(failed)}",
+        added,
+        removed,
+        (part.text, new) if new != part.text else None,
+    )
+
+
+def _refs_note_edits(
+    root: Path, handle: str, name: str, change: tuple[str, str]
+) -> dict[Path, tuple[bytes, bytes]]:
+    """The member notes of a changed part that were current and get the new `part_of_hash`."""
+    old, new = change
+    notes: dict[Path, tuple[bytes, bytes]] = {}
+    for note, text in _part_of_notes(root, f"{handle}#{name}"):
+        stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
+        rel = note.relative_to(root).as_posix()
+        new_fp = syntheses.note_fingerprint(new, _note_target(rel))
+        if syntheses.is_current(stored, old, _note_target(rel)) and stored != new_fp:
+            notes[note] = (
+                text.encode("utf-8"),
+                _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"),
+            )
+    return notes
+
+
+def _refs_collect(
+    syn: syntheses.Synthesis,
+    handle: str,
+    root: Path,
+    by_part: dict[str, list[tuple[str, int, str, str]]],
+    file_text: str,
+) -> _RefsOutcome:
+    """Apply the proposals part by part, in order, to the text of the synthesis."""
+    outcomes = []
+    new_file = file_text
+    notes: dict[Path, tuple[bytes, bytes]] = {}
+    for name, items in by_part.items():
+        outcome = _refs_part_outcome(syn.sections, handle, root, name, items)
+        outcomes.append(outcome)
+        if outcome.change is not None:
+            new_file = syntheses.apply_part_text(new_file, name, outcome.change[1])
+            notes.update(_refs_note_edits(root, handle, name, outcome.change))
+    return _RefsOutcome(
+        new_file,
+        notes,
+        [o.count_line for o in outcomes if o.count_line is not None],
+        [line for o in outcomes for line in o.refused],
+        sum(o.added for o in outcomes),
+        sum(o.removed for o in outcomes),
+    )
+
+
+def _refs_write(
+    path: Path, original: bytes, outcome: _RefsOutcome, root: Path, today: datetime.date
+) -> None:
+    """Write the synthesis and the member notes as one logged group."""
+    changes = {
+        path: (original, syntheses.bumped(outcome.new_file, today).encode("utf-8")),
+        **outcome.notes,
+    }
+    _synthesis_require_writable(changes)
+    _write_logged_changes(
+        changes, root / records.CURATION_LOG, lambda: _log_group_ahead(root, changes, "refs")
+    )
+
+
+def _refs_run(args: argparse.Namespace, root: Path, today: datetime.date) -> _RefsRun:
+    """Read the proposals, apply them and write the files; the lines are printed by the caller."""
+    target = _refs_target(args.target, root / syntheses.SYNTHESES_DIR)
+    if target is None:
+        return _RefsRun(1, [], False)
+    handle, path = target
+    raw = _refs_read_file(args.file)
+    if raw is None:
+        return _RefsRun(1, [], False)
+    syn = syntheses.load_one(path)
+    if syn.error:
+        raise ValueError(f"{path.name}: {syn.error}")
+    original = path.read_bytes()
+    file_text = original.decode("utf-8")
+    _lf(file_text, path.name)
+    by_part, malformed = _refs_proposals(raw)
+    if not (by_part or malformed):
+        print("mem: the file holds no proposal", file=sys.stderr)
+        return _RefsRun(1, [], False)
+    outcome = _refs_collect(syn, handle, root, by_part, file_text)
+    changed = bool(outcome.added or outcome.removed)
+    if changed:
+        _refs_write(path, original, outcome, root, today)
+    refused = [*malformed, *outcome.refused]
+    summary = (
+        f"s:{handle}: added {outcome.added}, removed {outcome.removed}, refused {len(refused)}"
+    )
+    return _RefsRun(0, [*outcome.counts, *refused, summary], changed)
 
 
 def _refs(args: argparse.Namespace) -> int:
     """`mem synthesis refs s:<handle> --file F`: add or remove references by unit number and source target, never
     by text. Every changed part, and each member note that stays current, is written as one logged group."""
     root = args.root.resolve()
-    folder = root / syntheses.SYNTHESES_DIR
-    today = datetime.date.today()
     try:
-        handle, section = syntheses.split_ref(args.target)
-        path = syntheses.path_of(folder, handle)
-        if path is None or not path.is_file():
-            print(f"mem: no synthesis named {args.target}", file=sys.stderr)
-            return 1
-        if section is not None:
-            raise ValueError("refs takes s:<handle>")
-        try:
-            raw = Path(args.file).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            print(f"mem: cannot read the file: {exc}", file=sys.stderr)
-            return 1
-        syn = syntheses.load_one(path)
-        if syn.error:
-            raise ValueError(f"{path.name}: {syn.error}")
-        original = path.read_bytes()
-        file_text = original.decode("utf-8")
-        _lf(file_text, path.name)
-        refused: list[str] = []
-        by_part: dict[
-            str, list[tuple[str, int, str, str]]
-        ] = {}  # section -> (line, unit, op, target)
-        read = 0
-        for line in raw.splitlines():
-            if not line.strip() or line.lstrip().startswith("#"):
-                continue
-            read += 1
-            cells = [c.strip() for c in line.split("|", 2)]
-            action = cells[2].split(None, 1) if len(cells) == _SETTLE_LOG_CELLS else []
-            if not (
-                len(cells) == _SETTLE_LOG_CELLS
-                and cells[1].isdigit()
-                and len(action) == _SETTLE_ACTION_WORDS
-                and action[0] in {"add", "remove"}
-            ):
-                refused.append(
-                    f"refused: {line.strip()}: not `<section> | <unit> | add|remove <target>`"
-                )
-                continue
-            by_part.setdefault(cells[0], []).append((
-                line.strip(),
-                int(cells[1]),
-                action[0],
-                action[1].strip(),
-            ))
-        if not read:
-            print("mem: the file holds no proposal", file=sys.stderr)
-            return 1
-        sections = {s.handle: s for s in syn.sections}
-        counts: list[str] = []
-        total_added = total_removed = 0
-        new_file = file_text
-        notes: dict[Path, tuple[bytes, bytes]] = {}
-        for name, items in by_part.items():
-            part = sections.get(name)
-            if name == syntheses.SUMMARY:
-                why = "the Summary takes no references"
-            elif part is None:
-                why = f"no section {name!r}"
-            elif sum(1 for x in syn.sections if x.handle == name) > 1:
-                why = f"the handle {name!r} is repeated: rename one heading first"
-            else:
-                why = None
-            if why or part is None:  # `part` is None only when `why` is set
-                refused += [f"refused: {line}: {why}" for line, *_ in items]
-                continue
-
-            def attempt(
-                picked: list[int], part=part, items=items
-            ) -> tuple[str, list[str | None], str | None]:
-                text, why_not = syntheses.change_references(
-                    part.text, folder, [(items[i][1], items[i][2], items[i][3]) for i in picked]
-                )
-                if text == part.text:
-                    return text, why_not, None
-                if syntheses.without_references(text) != syntheses.without_references(part.text):
-                    return (
-                        text,
-                        why_not,
-                        "the command would change a word of the part (a bug: nothing of it was written)",
-                    )
-                if found := syntheses.validate_section(text, root):
-                    return text, why_not, "the part would fail its checks: " + "; ".join(found)
-                return text, why_not, None
-
-            everyone = list(range(len(items)))
-            new, reasons, problem = attempt(everyone)
-            if problem:
-                # One line that breaks the part is refused alone; the others are applied unit by unit.
-                reasons, kept = list(reasons), []
-                for i in everyone:
-                    if reasons[i] is not None:
-                        continue
-                    if (trial := attempt([*kept, i]))[2]:
-                        reasons[i] = trial[2]
-                    else:
-                        kept.append(i)
-                new = attempt(kept)[0]
-            added = sum(
-                1
-                for (_, _, op, _), r in zip(items, reasons, strict=False)
-                if r is None and op == "add"
-            )
-            removed = sum(
-                1
-                for (_, _, op, _), r in zip(items, reasons, strict=False)
-                if r is None and op == "remove"
-            )
-            failed = [
-                f"refused: {line}: {r}"
-                for (line, *_), r in zip(items, reasons, strict=False)
-                if r is not None
-            ]
-            refused += failed
-            counts.append(
-                f"s:{handle}#{name}: added {added}, removed {removed}, refused {len(failed)}"
-            )
-            total_added, total_removed = total_added + added, total_removed + removed
-            if new is not None and new != part.text:
-                new_file = syntheses.apply_part_text(new_file, name, new)
-                for note, text in _part_of_notes(root, f"{handle}#{name}"):
-                    stored = (split_frontmatter(text)[0] or {}).get("part_of_hash")
-                    rel = note.relative_to(root).as_posix()
-                    new_fp = syntheses.note_fingerprint(new, _note_target(rel))
-                    if (
-                        syntheses.is_current(stored, part.text, _note_target(rel))
-                        and stored != new_fp
-                    ):
-                        notes[note] = (
-                            text.encode("utf-8"),
-                            _set_field(_lf(text, rel), "part_of_hash", new_fp).encode("utf-8"),
-                        )
-        if total_added or total_removed:
-            changes = {path: (original, syntheses.bumped(new_file, today).encode("utf-8")), **notes}
-            locked = [
-                p.name
-                for p in changes
-                if not os.access(p, os.W_OK) or not os.access(p.parent, os.W_OK)
-            ]
-            if locked:
-                raise ValueError(f"not writable: {', '.join(locked)}")
-            _write_logged_changes(
-                changes,
-                root / records.CURATION_LOG,
-                lambda: _log_group_ahead(root, changes, "refs"),
-            )
+        run = _refs_run(args, root, datetime.date.today())
     except (NewNoteError, OSError, ValueError, FrontmatterError, yaml.YAMLError) as exc:
         print(f"mem: {exc}", file=sys.stderr)
         return 2
-    print(
-        "\n".join([
-            *counts,
-            *refused,
-            f"s:{handle}: added {total_added}, removed {total_removed}, refused {len(refused)}",
-        ])
-    )
-    if total_added or total_removed:
+    if run.code != 0:
+        return run.code
+    print("\n".join(run.lines))
+    if run.changed:
         log_usage(root, {"cmd": "synthesis", "action": "refs"})
     return 0
 
