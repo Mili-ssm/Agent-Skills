@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: implemented, PR to dev pending (pre-mortem 2026-11-26 applied) · Branch: `refactor/memory-synthesize-split` (from `dev` 46d4317) · Date: 2026-11-26
+Status: implemented, PR to dev pending (pre-mortem 2026-11-26 applied) · Branch: `refactor/memory-synthesize-split` (from `dev` 46d4317, rebased on `af71251` after PR #205) · Date: 2026-11-26
 
 **Goal:** the synthesis job lives in one feature package, `engine/synthesize/`; `bin/mem-synthesize` becomes a thin launcher; `mem-auto`, `mem-settle`, tests and evals import the package instead of loading the script with `exec_module`; behavior unchanged. This is the pilot of the owner's ruling to organize `engine/` into feature packages (2026-11-26); the other packages follow in a later plan, one package per pull request.
 
-**Architecture:** package `engine/synthesize/` (`__init__.py` empty):
+**Architecture:** package `engine/synthesize/` (`__init__.py` holds only a docstring):
 
 | Module | From | Holds |
 |---|---|---|
@@ -118,6 +118,10 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 | Task 3a review: `Path` in `synthesize/run.py` is imported under `TYPE_CHECKING` only, so `typing.get_type_hints` on its functions would raise | Rejected: no code reads the hints; Ruff's TC rules require it |
 | Task 3b/3c review: the floor edge matched any `run.py` (there is also `engine/run.py`); the broken-engine golden did not assert the yaml cause | Fixed: full path; `stub: no yaml` asserted |
 | Task 4: `test_bin_python_floor._loaders()` globbed `tests/*.py` and lost the moved tests; now `rglob` | Accepted: keeps coverage, 2,668 tests collected before and after |
+| End review: `synthesize/pipeline.py` is 751 lines, over the 550-line kill criterion | Ruling: the criterion targets the modules cut from the script; `pipeline.py` moved whole and unchanged (same 751 lines as `synth_pipeline.py`); its split review joins A14 |
+| End review: Task 3c ticked while one retargeted patch cannot be proven | Ruling: the kill criterion is for a patch that stops reaching its code; this one never could (the test passes without it at base too), so the gap is the test's, recorded above |
+| End review: the two eval harness cleanups (Task 1) were larger than mechanical edits | Ruling (coordinator, 2026-11-26): ADR 0031 requires a touched file to be clean and Task 2 touches both; their `--self-check` output is identical before and after (normalized), `--help` identical |
+| End review: `synthesize/backfill.py` (the batch runner) and `synthesize/references.py` (reference sessions) read alike; short aliases `sr`, `sp`, `bf` | Open, low: rename with A14 |
 | Pre-mortem: `bin/` scripts already need PyYAML at import time through `synth_pipeline`/`backfill` → `syntheses`; the lazy `_syntheses()` did nothing | Recorded; the import becomes top-level (Global Constraints) |
 
 ## Kill criteria
