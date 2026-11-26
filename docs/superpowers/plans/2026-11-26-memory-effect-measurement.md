@@ -1,26 +1,22 @@
 # Memory: measure the effect of loaded lessons before adding mechanisms
 
-Status: waiting for the owner (four decisions below) · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout (pushed, no pull request; stacked on fix/skeptical-reviewer-p1-b1, PR #218)
+Status: in progress (task 8, the scenario with headroom) · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout for tasks 1–7; task 8 on a branch of its own, created when it starts
 
 Owner rulings (2026-11-26): proceed with the order the review of that day proposed; the paired trial starts as a pilot capped at 3 USD; matching by meaning is built after it, its trial capped at 2 USD. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
 
 ## Where to resume
 
-Nothing is running and the tree is clean. Model usage spent on this plan: 1.53 USD (pilot 1.46, settle trial 0.065) of the 5 USD the owner allowed (3 for the pilot, 2 for the settle trial). Open, each the owner's decision:
-
-1. `mem-settle` at the lower floor with the revised brief: adopt on the reading of the two records labelled `version` (the agent's recommendation), or have a fresh set written and labelled by a second reader and rerun (Results, last section).
-2. A scenario with headroom for the loaded lessons: the replay design is not written; first find out whether a headless session can continue from a cut copy of a transcript with another session start text, and what a run costs.
-3. Seamless stage 3: the reduced scope proposed in [its task plan](2026-11-26-memory-seamless-stage-3-integration.md#recommended-minimum-review-of-2026-11-26-a-proposal-the-owner-decides); not executed.
-4. PR #218 is open and this branch contains it; a pull request for this branch waits for that merge or the owner's word.
+Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan before task 8: 1.53 USD (pilot 1.46, settle trial 0.065) of the 5 USD the owner allowed (3 for the pilot, 2 for the settle trial).
 
 ## Tasks
 
 - [x] 1. The background curator can list unread short forms. `mem rules --unread` joins `MEM_ALLOWED` (`engine/synthesize/pipeline.py`), read-only form only (`rules --unread`, never `rules --read`). Check: the golden test of the session command line names the new rule; engine suite passes.
 - [x] 2. ~~Hold-out of loaded lessons~~ and 3. ~~`mem rules --effect`~~: **dropped after the pre-mortem of 2026-11-26**, before any code (reasons below). Replaced by task 7.
 - [x] 4. Outcome criteria proposed for the kill read of 2026-12-01, beside the accepted ones: plugin plan § Kill criteria and § Current state; backlog. Check: `python3 scripts/validate.py`.
-- [x] 5. Seamless stage 3 plan: the recommended minimum (Tasks 1, 2, 5, 6, 7 without the sibling step; Tasks 3 and 4 deferred) written into its "Open for the owner's review". Not executed. Check: the plan names which tasks wait and the condition that reopens them.
-- [ ] 6. Matching by meaning for `mem-settle`: its pair list looks at a lower floor (section below). Built and measured on 2026-11-27: by the rule not adopted, on one count that rests on a reading of two records; waits for the owner's reading (Results). Check: the trial rule of that section, results under `## Results`.
+- [x] 5. Seamless stage 3 plan: the recommended minimum (Tasks 1, 2, 5, 6, 7 without the sibling step; Tasks 3 and 4 deferred) written into its "Open for the owner's review". Not executed at that review; accepted by the owner on 2026-11-27. Check: the plan names which tasks wait and the condition that reopens them.
+- [x] 6. Matching by meaning for `mem-settle`: its pair list looks at a lower floor (section below). Built and measured on 2026-11-27: by the trial's rule not adopted, on one count that rests on a reading of two records; **adopted by the owner on 2026-11-27** on that reading (Results). Check: the trial rule of that section, results under `## Results`.
 - [x] 7. Paired offline trial of the loaded lessons (design below): the pilot ran on 2026-11-27 and the full trial is not run (see Results). Check: its `## Results` holds the table and the action its rule gives.
+- [ ] 8. A scenario with headroom for the loaded lessons (owner, 2026-11-27: "a more serious scenario"): tasks the model fails without the lesson, found before any arm is compared. Check: its design section names how headroom is shown first, and a run's table is under `## Results`.
 
 ## Why the hold-out was dropped (pre-mortem, 2026-11-26)
 
@@ -145,8 +141,8 @@ One revision, declared before its runs (the same records, since new ones would c
 
 **By the rule: not adopted**, on one count: run 2 took 2 wrong actions. The three paraphrases never shown score below 0.4 with their base.
 
-The wrong actions are two records labelled `version`, joined to their base (one in both runs, the other in run 2 only). Read after the runs: both restate their base's fact and add no case of their own (one repeats a rule about reading and writing a folder; the other states the positive side of the base's sentence about what a rename rewrites), and the judge's reasons say so ("same rule ... stated in other words"). By that reading they are paraphrases the writer mislabelled, and joining them loses nothing. A label changed after the result is not a measure, so the rule's verdict stands and the reading is put to the owner: adopt on it, or have a fresh set written and labelled by a second reader before the runs.
+The wrong actions are two records labelled `version`, joined to their base (one in both runs, the other in run 2 only). Read after the runs: both restate their base's fact and add no case of their own (one repeats a rule about reading and writing a folder; the other states the positive side of the base's sentence about what a rename rewrites), and the judge's reasons say so ("same rule ... stated in other words"). By that reading they are paraphrases the writer mislabelled, and joining them loses nothing. A label changed after the result is not a measure, so the rule's verdict stands and the reading was put to the owner, who adopted the change on it on 2026-11-27: adopted on the reading, the rule not met.
 
 Limits: one set of records, used for the runs before and after the revision; the writer and the judge are models of one family; 11 of the 18 paraphrases already passed the old floor, so the trial says more about the brief's revision than about the floor (on the 14 paraphrases written in both rounds, 12 shown each time: 6 joined before the revision, 12 after; recounted from the kept result files under `target/`); the trial holds no pair of opposite claims in which the newer one is the wrong one, a case the brief's `supersede` cannot tell from a correction and that stage W did not test either; with the lower floor more runs find a pair and start a session (about 0.015 USD each, at most one per `auto_settle_minutes`), which the weekly kill criterion bounds; no run on the real store (records that exist there are already counted as judged).
 
-State: the floor (`PAIR_FLOOR`) and the brief's revision are on the branch, unreleased. Nothing here turns an option on.
+State: the owner adopted the floor (`PAIR_FLOOR`) and the brief's revision on 2026-11-27, on the reading above of the two `version` records; the trial's rule on its own did not pass, and the limits above stand. Unreleased; it acts only where `auto_settle` is on. Kill criteria: those of the section "Matching by meaning".

@@ -1,6 +1,6 @@
 # Memory seamless, stage 3: integration and sibling updates Implementation Plan
 
-Status: planned, pre-mortem 2026-11-26 applied; not to be executed until the owner's review · Date: 2026-11-26 · Branch: feat/memory-seamless-integrate
+Status: in progress, reduced scope (owner, 2026-11-27: Tasks 1, 2, 5, 6, 7 and 8 as cut under "Reduced scope"; Tasks 3 and 4 deferred) · Date: 2026-11-26 · Branch: feat/memory-seamless-integrate (created at Task 1, Step 0)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -29,14 +29,14 @@ Ten amendments, each applied to the owning task:
 
 ## Open for the owner's review
 
-- Whether to build at all with only 4 candidate notes today (the owner reviews this plan and how it works first).
+- ~~Whether to build at all with only 4 candidate notes today~~: the owner ruled on 2026-11-27 to build the reduced scope below.
 - Kill bar "any wrong attachment" is kept from the revised criteria; it is stricter than the 2026-11-19 bar ("at most 1 in 10").
 
-### Recommended minimum (review of 2026-11-26, a proposal: the owner decides)
+### Reduced scope (proposed 2026-11-26, accepted by the owner 2026-11-27)
 
-Build the attachment path only, and leave the sibling step until notes need it.
+**Accepted by the owner on 2026-11-27.** Build the attachment path only, and leave the sibling step until notes need it. Where a task below still names a `siblings` session or brief, sibling rows (`Sibling`, `parse_siblings`, `plan_commands`), `mem note link`, `mem note contradicts`, a `link`, `evidence` or `contradicts` group, or the seed label `contradicts-sibling` and the sibling kill criterion of Task 8, this table wins: that part is not built.
 
-| Tasks | Proposal | Reason |
+| Tasks | Scope | Reason |
 |---|---|---|
 | 1, 2, 5, 6, 7 | Build, with Task 5 and Task 6 cut to the `place` and `check` sessions (no `siblings` brief, no sibling rows in `plan_commands`) | They join a note to its part with one undo. Python writes every word, so the cost of an error is one wrong attachment, which the trial counts |
 | 3 (`mem note link`), 4 (note-handle sources, `mem note contradicts`) | Deferred | 4 candidate notes on 2026-11-26, none under an exactly matching topic: no sibling update has been needed yet, and Task 4 carries pre-mortem amendment 5, which applies only in part: the `disputed` validators are pure, hold no store root and sit in `notes`, which may not import `commands` (`test_import_graph.py`), so they check only the shape of a handle; a note-handle source is resolved at write time and in `mem check`. No source measures the error rate of sibling updates ([seamless plan](2026-11-17-memory-seamless.md#what-the-literature-gives-and-how-it-is-adapted), A-MEM row) |
@@ -44,7 +44,7 @@ Build the attachment path only, and leave the sibling step until notes need it.
 
 Reopen Tasks 3 and 4 when `mem curate --notes` lists 20 or more unattached notes on covered topics, or the owner meets two notes of one part that contradict each other with no pair in the queue.
 
-Order against other work: after the effect measurement ([plan](2026-11-26-memory-effect-measurement.md)), because that plan answers whether the lessons the plugin already loads help, and this stage adds a mechanism.
+Order against other work: proposed after the effect measurement ([plan](2026-11-26-memory-effect-measurement.md)); the owner ruled on 2026-11-27 to build it alongside that plan's task 8.
 
 ## Global Constraints
 
