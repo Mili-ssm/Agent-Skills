@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: planned, pre-mortem amendments applied (2026-11-26) · Branch: `refactor/memory-jobs` (stacked on `refactor/memory-headless`, PR #201) · Date: 2026-11-26
+Status: implemented (2026-11-26); branch not yet pushed · Branch: `refactor/memory-jobs` (stacked on `refactor/memory-headless`, PR #201) · Date: 2026-11-26
 
 **Goal:** the background-job pieces that are copied identically across the memory plugin's background scripts live once, in `engine/jobs.py`; behavior unchanged.
 
@@ -49,37 +49,46 @@ Status: planned, pre-mortem amendments applied (2026-11-26) · Branch: `refactor
 
 ### Task 1: Clean what the move will touch
 
-- [ ] **Step 1:** Build the file list mechanically: `grep -rlE '\b(au|auto_state)\.'` over engine, `bin/`, `evals/`, tests, plus every file holding a copy in the "yes" rows and its callers; record each with its Ruff, format and basedpyright counts.
-- [ ] **Step 2:** Clean each unclean one, behavior unchanged, one commit each (`refactor(memory): <file> clean` / `test(memory): <file> clean`). Large ones (over ~40 findings) get their own dispatch.
+- [x] **Step 1:** Build the file list mechanically: `grep -rlE '\b(au|auto_state)\.'` over engine, `bin/`, `evals/`, tests, plus every file holding a copy in the "yes" rows and its callers; record each with its Ruff, format and basedpyright counts.
+- [x] **Step 2:** Clean each unclean one, behavior unchanged, one commit each (`refactor(memory): <file> clean` / `test(memory): <file> clean`). Large ones (over ~40 findings) get their own dispatch.
 
 ### Task 2: Characterization tests of the pieces that move
 
 **Files:** Create `plugins/memory/engine/tests/test_jobs_golden.py`.
 
-- [ ] **Step 1:** For each "yes" row: assert a literal expected value for each copy (the copies' equality is a cross-check in this task only; Task 4 may change which function a golden calls, never the expected values) (state folder for env combinations incl. empty and unset; a JSON-lines append's file content and mode; prune with files at 29 and 31 days; `failure_line` text for auto and settle with a fixed status, a stale running state and no failure). A row whose copies differ: drop it from the move and say so in the report.
-- [ ] **Step 2:** Run at base: pass. Commit `test(memory): golden behavior of the job pieces that move to jobs.py`.
+- [x] **Step 1:** For each "yes" row: assert a literal expected value for each copy (the copies' equality is a cross-check in this task only; Task 4 may change which function a golden calls, never the expected values) (state folder for env combinations incl. empty and unset; a JSON-lines append's file content and mode; prune with files at 29 and 31 days; `failure_line` text for auto and settle with a fixed status, a stale running state and no failure). A row whose copies differ: drop it from the move and say so in the report.
+- [x] **Step 2:** Run at base: pass. Commit `test(memory): golden behavior of the job pieces that move to jobs.py`.
 
 ### Task 3a: `engine/jobs.py`, with `auto_state` binding the moved names
 
-- [ ] **Step 1:** Create `jobs.py` with the pieces named in Architecture (verbatim, `lock_held(folder)` cut from `run_lock_held`); `auto_state` binds them from `jobs` (`STATUS_NAME = jobs.STATUS_NAME`, …) so no caller changes yet; `ruff.toml` py311 line; unit tests for `lock_held`. Suite, goldens, lint pass. Commit `refactor(memory): jobs.py holds the generic job pieces`.
+- [x] **Step 1:** Create `jobs.py` with the pieces named in Architecture (verbatim, `lock_held(folder)` cut from `run_lock_held`); `auto_state` binds them from `jobs` (`STATUS_NAME = jobs.STATUS_NAME`, …) so no caller changes yet; `ruff.toml` py311 line; unit tests for `lock_held`. Suite, goldens, lint pass. Commit `refactor(memory): jobs.py holds the generic job pieces`.
 
 ### Task 3b: importers call `jobs`
 
-- [ ] **Step 1:** In batches (the `corroborate_*` modules; `bin/` scripts; other engine modules; tests), callers of a moved name call `jobs.X`; patches and attribute chains retargeted. One commit per batch.
+- [x] **Step 1:** In batches (the `corroborate_*` modules; `bin/` scripts; other engine modules; tests), callers of a moved name call `jobs.X`; patches and attribute chains retargeted. One commit per batch.
 
 ### Task 3c: `auto_state` drops the bindings
 
-- [ ] **Step 1:** Remove the bindings; `auto_state` keeps `auto_dir`, `run_lock_held`, `failure_line`. Suite, goldens, self-checks, lint pass. Commit.
+- [x] **Step 1:** Remove the bindings; `auto_state` keeps `auto_dir`, `run_lock_held`, `failure_line`. Suite, goldens, self-checks, lint pass. Commit.
 
 ### Task 4: One copy of each identical piece
 
-- [ ] **Step 1:** `jobs.state_dir()` (modules keep their names as bindings), the JSON-lines log, the 30-day prune of `mem-auto`/`mem-settle` and `jobs.failure_line(folder, kind, ack, now)` (modules keep wrappers) replace the copies Task 2 proved identical; `bin/mem-settle` `_lock_held` calls `jobs.lock_held(state.dir)`.
-- [ ] **Step 2:** Goldens unchanged; suite, self-checks, lint pass. Commit `refactor(memory): one copy of the state folder, job log, prune and failure line`.
+- [x] **Step 1:** `jobs.state_dir()` (modules keep their names as bindings), the JSON-lines log, the 30-day prune of `mem-auto`/`mem-settle` and `jobs.failure_line(folder, kind, ack, now)` (modules keep wrappers) replace the copies Task 2 proved identical; `bin/mem-settle` `_lock_held` calls `jobs.lock_held(state.dir)`.
+- [x] **Step 2:** Goldens unchanged; suite, self-checks, lint pass. Commit `refactor(memory): one copy of the state folder, job log, prune and failure line`.
 
 ### Task 5: Gate and docs
 
-- [ ] **Step 1:** `pre-commit run --from-ref <plan base> --to-ref HEAD`; `python3 scripts/validate.py`; `claude plugin validate .`.
-- [ ] **Step 2:** Refactor plan: tick its "One headless launcher and one job lifecycle" task; backlog A3 row; this plan's Status and deferred findings. No CHANGELOG line (pure refactor). Commit.
+- [x] **Step 1:** `pre-commit run --from-ref <plan base> --to-ref HEAD`; `python3 scripts/validate.py`; `claude plugin validate .`.
+- [x] **Step 2:** Refactor plan: tick its "One headless launcher and one job lifecycle" task; backlog A3 row; this plan's Status and deferred findings. No CHANGELOG line (pure refactor). Commit.
+
+## Deferred findings
+
+| Finding | Ruling |
+|---|---|
+| The commit `c3e8605` (engine modules call `jobs`) fails two tests alone; the next commit fixes them | Accepted: only a bisect landing there sees it |
+| `settle_state.minutes_of` no longer parses buffer objects such as `array.array` (falls back to the default) | Accepted: callers pass environment and argparse strings only |
+| `failure` names both `jobs.failure` and local variables in several modules | Cosmetic |
+| `test_jobs.py` covers only `lock_held`; the moved pieces rely on `test_jobs_golden.py` | Accepted |
 
 ## Kill criteria
 

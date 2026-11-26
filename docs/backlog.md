@@ -21,7 +21,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. Quick fix: P1 (measured).
-3. Memory refactor task 2 (A3; A2 done on branch refactor/memory-headless); A1 is done on its branch.
+3. Memory refactor task 2 done (A2 on branch refactor/memory-headless, A3 on refactor/memory-jobs); A1 is done on its branch.
 4. Memory kill read, around 2026-12-01.
 
 Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12; the Codex mapping now derives from `shared/models.toml`.
@@ -72,7 +72,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | medium | — | Release #185 (Unreleased entry in `CHANGELOG.md`) | Waiting for a release |
 | low | — | Refactor A1 deferred findings (`mem-synthesize --self-check` fails since before A1; split reviews of `mem-synthesize` (with A4) and `run_trials.py`; low notes; [plan](superpowers/plans/2026-11-26-memory-config.md) § Deferred findings) | Open |
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Done on branch refactor/memory-headless ([plan](superpowers/plans/2026-11-26-memory-headless.md)); deferred lows in its ledger |
-| medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Not started |
+| medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Done on branch refactor/memory-jobs ([plan](superpowers/plans/2026-11-26-memory-jobs.md)): identical copies only (owner); differing copies stay |
 | medium | A7 | Refactor: import direction | Done: tokenize and both cycles on refactor/memory-a7-a1-a3; `session_env` in `headless.py` on refactor/memory-headless |
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean on branch refactor/memory-corroborate-split ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` logic pending |
 | medium | A6 | Refactor: split `records.py` | Not started |
