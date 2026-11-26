@@ -43,9 +43,9 @@ HERE = Path(__file__).resolve().parent
 LOCK_POLL_SECONDS = 5.0
 MIN_LOCK_POLL_SECONDS = 0.01
 sys.path.insert(0, str(HERE.parent / "engine"))
-import auto_state as au
 import capture_state as cs
 import headless
+import jobs
 
 IMPORT_ERROR: Exception | None = None
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
@@ -691,16 +691,16 @@ def seconds_env(name: str, default: float) -> float:
 
 
 def save_status(cdir: Path, **changes) -> dict:
-    au.private_dir(cdir)
-    data = {**au.read_json(cdir / au.STATUS_NAME), **changes}
+    jobs.private_dir(cdir)
+    data = {**jobs.read_json(cdir / jobs.STATUS_NAME), **changes}
     for key in [k for k, v in data.items() if k == "failure" and v is None]:
         del data[key]
-    au.write_json(cdir / au.STATUS_NAME, data)
+    jobs.write_json(cdir / jobs.STATUS_NAME, data)
     return data
 
 
 def append_log(cdir: Path, line: dict) -> None:
-    au.private_dir(cdir)
+    jobs.private_dir(cdir)
     fd = os.open(cdir / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
     with os.fdopen(fd, "a", encoding="utf-8") as f:
         f.write(json.dumps(line, ensure_ascii=False) + "\n")
@@ -850,10 +850,10 @@ class AutoRun:
         deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", lock_wait)
         # a floor, so a zero poll cannot spin the loop until the deadline
         poll = max(seconds_env("MEM_CAPTURE_LOCK_POLL", LOCK_POLL_SECONDS), MIN_LOCK_POLL_SECONDS)
-        self.lock = au.take_run_lock(self.cdir)
+        self.lock = jobs.take_run_lock(self.cdir)
         while self.lock is None and time.time() < deadline:
             time.sleep(min(poll, max(deadline - time.time(), 0.0)))
-            self.lock = au.take_run_lock(self.cdir)
+            self.lock = jobs.take_run_lock(self.cdir)
         return self.lock is not None
 
     def skip(self, why: str) -> bool:
@@ -954,7 +954,7 @@ class AutoRun:
     def capture(self, project: Path) -> bool:
         """The windows, then the end status and the log line; whether the corroboration pass should start."""
         run = self.cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-        au.private_dir(run)
+        jobs.private_dir(run)
         save_status(self.cdir, state="running", started=time.time(), log=str(run))
         self.read_windows(project, run)
         progress, written = self.progress, self.line["written"]
@@ -984,7 +984,7 @@ class AutoRun:
     def report_crash(self, exc: Exception) -> None:
         with contextlib.suppress(Exception):
             reason = self.line["failed"] = type(exc).__name__
-            log = str(au.read_json(self.cdir / au.STATUS_NAME).get("log") or "")
+            log = str(jobs.read_json(self.cdir / jobs.STATUS_NAME).get("log") or "")
             failure = {"at": time.time(), "reason": reason, "log": log}
             save_status(self.cdir, state="failed", finished=time.time(), failure=failure)
         if not self.logged and (self.usable or self.cdir.exists()):
@@ -1144,14 +1144,14 @@ def cmd_sweep(args: argparse.Namespace) -> int:
 
 def cmd_ack() -> int:
     cdir = cs.capture_dir(data_dir())
-    current = au.read_json(cdir / au.STATUS_NAME)
+    current = jobs.read_json(cdir / jobs.STATUS_NAME)
     if current:
         changes: dict = {"failure": None}
         started = current.get("started")
         if (
             current.get("state") == "running"
             and isinstance(started, (int, float))
-            and time.time() - started > au.STALE_RUNNING_SECONDS
+            and time.time() - started > jobs.STALE_RUNNING_SECONDS
         ):
             changes["state"] = (
                 "failed"  # a run that was killed: without this its "did not finish" line would stay

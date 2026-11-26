@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import auto_state as au
+import jobs
 import synth_pipeline as sp
 
 logger = logging.getLogger(__name__)
@@ -102,12 +103,12 @@ class State:
         self.dir = au.auto_dir(ms.state_dir(), store)
 
     def status(self) -> dict:
-        return au.read_json(self.dir / au.STATUS_NAME)
+        return jobs.read_json(self.dir / jobs.STATUS_NAME)
 
     def save_status(self, **changes) -> dict:
-        au.private_dir(self.dir)
+        jobs.private_dir(self.dir)
         data = {**self.status(), **changes}
-        au.write_json(self.dir / au.STATUS_NAME, data)
+        jobs.write_json(self.dir / jobs.STATUS_NAME, data)
         return data
 
 
@@ -271,7 +272,7 @@ def _start(state: State, acct: dict) -> tuple[Path, Path]:
     """The run folder and its log; writes status `running`."""
     now = time.time()
     previous = state.status()
-    stale = au.failure(
+    stale = jobs.failure(
         {
             "state": previous.get("state"),
             "started": previous.get("started"),
@@ -280,7 +281,7 @@ def _start(state: State, acct: dict) -> tuple[Path, Path]:
         now,
     )
     root = state.dir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-    au.private_dir(root)
+    jobs.private_dir(root)
     prune(state, now)
     log_file = root / "log.txt"
     acct["log"] = log_file
@@ -318,7 +319,7 @@ def cmd_run(
     store: Path, claude: str | None, budget_arg: str | float | None, threshold_arg: str | int | None
 ) -> int:
     state = State(store)
-    fd = au.take_run_lock(state.dir)  # the first action: a busy lock means a run is going
+    fd = jobs.take_run_lock(state.dir)  # the first action: a busy lock means a run is going
     if fd is None:
         return 0
     acct: dict = {"cost": 0.0, "failures": [], "log": None}
@@ -370,7 +371,7 @@ def cmd_status(store: Path) -> int:
         return 0
     now = time.time()
     shown = data.get("state", "?")
-    if shown == "running" and now - float(data.get("started") or 0) > au.STALE_RUNNING_SECONDS:
+    if shown == "running" and now - float(data.get("started") or 0) > jobs.STALE_RUNNING_SECONDS:
         shown = "failed (a run that did not finish)"
     print(
         f"last run: {stamp(data.get('started'))}, state {shown}, cost {float(data.get('cost') or 0):.3f} USD"
@@ -378,7 +379,7 @@ def cmd_status(store: Path) -> int:
     if data.get("reason"):
         print(f"reason: {data['reason']}")
     print(f"log: {data.get('log') or '(none)'}")
-    found = au.failure(data, now)
+    found = jobs.failure(data, now)
     print(f"unacknowledged failure: {'yes (mem-auto ack clears it)' if found else 'no'}")
     return 0
 
@@ -388,7 +389,7 @@ def cmd_ack(store: Path) -> int:
     data = state.status()
     if data:
         changes: dict = {"failure": None}
-        if au.failure({"state": data.get("state"), "started": data.get("started")}, time.time()):
+        if jobs.failure({"state": data.get("state"), "started": data.get("started")}, time.time()):
             changes["state"] = "failed"  # a stale `running` is closed
         state.save_status(**changes)
     print("acknowledged: the failure line is cleared")
@@ -417,8 +418,8 @@ def self_check() -> int:
         )
         assert init.returncode == 0, init.stderr
         state = State(store)
-        held = au.take_run_lock(state.dir)
-        assert held is not None and au.take_run_lock(state.dir) is None
+        held = jobs.take_run_lock(state.dir)
+        assert held is not None and jobs.take_run_lock(state.dir) is None
         assert au.run_lock_held(Path(os.environ["MEM_DATA"]), store)
         os.close(held)
         assert not au.run_lock_held(Path(os.environ["MEM_DATA"]), store)
