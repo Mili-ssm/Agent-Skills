@@ -77,6 +77,9 @@ Order (fewest importers first; each task is one pull request on the previous bra
 |---|---|
 | Cleanups grew `check.py` to 1,396 lines and `syntheses.py` to 1,313 (owner's 1,000-line split review); `corroborate.py` 891 | Split reviews with Task 5 + A6 (`store/`), where both land |
 | Cleanup review: `capture._Scan` control flow (old `continue`/`break` as `return True/False`) not traced line by line; tests pass | Open, low |
+| Test-cleanup review: `== ""` became `not x` (Ruff PLC1901) in test_reword, test_quarantine, test_settle (also passes on None); `INDEX_TOPICS`/literal 80 in test_digest; `EXIT_REFUSED` means 3 in one test file and 2 in others; test_fetch_sources' `mem.time` stub has no `monotonic` | Open, low: the values are strings; a stub miss fails loudly |
+| `project_syntheses.write_part` takes `NewPart` (`Part` already names the parsed part) | Accepted |
+| Intermittent errors in `test_capture_auto`, `test_capture_sweep`, `test_compact_log` when several suites run at once from worktrees: they share the real uv cache by design (`tests/conftest.py`), `bin/mem` runs `uv run` (inferred, not reproduced) | Open, low: only in parallel agent runs; a per-session `UV_CACHE_DIR` costs about 0.35 s per `bin/mem` launch |
 | Store-only lint debt (28 test files, about 304 findings) | Task 5 runs together with A6 (`records` split), which touches the same tests |
 
 ## Kill criteria
