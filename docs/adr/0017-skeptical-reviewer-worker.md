@@ -97,5 +97,12 @@ The offload policy's `skeptical-reviewer` row and closing line now name the two-
 | `offload-ui-verifier-with-policy` | rerun 6/6 | 0/2: `delegated`, `inline`, `js-defect` 2/2; `faq-works` 1/2; `mobile-defect` 0/2 |
 
 - The four cases that ran clean hold their records, so the change is kept. The reviewer case moved from 2/6 to 2/2 on 2 runs, too few to claim a gain.
-- `offload-implementer-with-policy` was not rerun at 6 runs, against the Eval protocol: its record is a score of 0.17 (about 1 run in 6), so a drop of 2 runs of 6 cannot show.
-- `offload-ui-verifier-with-policy` fails on its browser graders because no browser launches in the eval sandbox (Playwright finds no Chromium; system Chrome exits on the read-only `$HOME`); dispatch is 2/2. It fell below its record and was not rerun at 6 runs either: the owner set backlog 3g aside on 2026-11-26, and it stays open.
+- The two cases below their record were rerun at 6 runs on both sides the same day (Eval protocol step 2), `dev` in a worktree:
+
+  | Case | `dev` (old policy text) | This change |
+  |---|---|---|
+  | `offload-implementer-with-policy` | 0/6, score 0.17: `implemented` 6/6, `delegated` 0/6 | 0/6, score 0.17: `implemented` 6/6, `delegated` 0/6 |
+  | `offload-ui-verifier-with-policy` | 2/6, score 0.83: `delegated`, `inline`, `js-defect` 6/6; `faq-works` 4/6; `mobile-defect` 2/6 | 1/6, score 0.75: `delegated`, `inline`, `js-defect` 6/6; `faq-works` 2/6; `mobile-defect` 1/6 |
+
+- `offload-implementer-with-policy` is identical on both sides: the main model writes the code itself in every run, as its record of 0.17 says. The policy change does not move it.
+- `offload-ui-verifier-with-policy` drops 1 run of 6, under the revert threshold of 2, so the change is kept. Both sides sit far below the record of 6/6 because no browser launches in the eval sandbox (Playwright finds no Chromium; system Chrome exits on the read-only `$HOME`): the two graders that need the browser fail on `dev` too, while dispatch is 6/6 on both. That record cannot be reproduced on this machine until backlog item 3g is done (set aside by the owner, 2026-11-26).
