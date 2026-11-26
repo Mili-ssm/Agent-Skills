@@ -10,10 +10,10 @@ Read this section first; the stage list below is the detail. Release-by-release 
 
 | Fact | State |
 | --- | --- |
-| Released | `memory` 0.14.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
+| Released | `memory` 0.15.0 (`plugins/memory/.claude-plugin/plugin.json`; tags `memory-v*`); work merges into `dev`, a release into `main` (ADR 0027) |
 | Unreleased work | See `## [Unreleased]` in [the changelog](../../../plugins/memory/CHANGELOG.md) |
 | Installed | `memory@mili-ssm` at user scope, following `main`; options in use: unverified (read the owner's settings, not this file) |
-| Engine tests | `uv run --with pytest --with pyyaml pytest plugins/memory/engine/tests -q`: 2,214 passed, 5 skipped on `dev` (2026-11-24) |
+| Engine tests | `uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto` (parallel: about 30 s on 20 cores; serial about 5 min): 2,272 passed, 5 skipped (2026-11-25) |
 | Project syntheses (stage 10) | `engine/project_syntheses.py` ships in the engine (`git log --oneline -- plugins/memory/engine/project_syntheses.py`); stage 10 stays open below: trial showed no effect on staleness |
 | Compaction and capture | Handoff block, transcript capture, corroboration, loaded rules, case log, reword, digest: see the changelog and their plans: [handoff](2026-11-21-memory-handoff-and-compact-log.md), [capture](2026-11-22-memory-capture-corroboration.md) ([design](../specs/2026-11-21-memory-capture-design.md)), [auto short forms](2026-11-22-memory-auto-short-forms.md), [case log](2026-11-22-memory-case-log.md) ([design](../specs/2026-11-22-memory-case-log-design.md)), [loaded rules](2026-11-22-memory-loaded-rules.md), [topic digest](2026-11-23-memory-topic-digest.md#results) ([design](../specs/2026-11-23-memory-topic-digest-design.md)); reminders parked (C51) |
 | Curation due | Released in 0.10.0: the count names only decisions the last pass did not list; [plan](2026-11-23-memory-curation-due.md#results), [design](../specs/2026-11-23-memory-curation-due-design.md) |
@@ -40,6 +40,7 @@ Open items, none blocking:
 | To investigate (owner, 2026-11-24): rotate part of the loaded block, a sample of the left-out lessons drawn by importance, so sessions differ slightly and the effect of each lesson (helps, hurts, nothing) becomes measurable | Not planned yet; needs the usefulness signal (C49) |
 | To investigate (owner, 2026-11-24): two loaded sets, a generic top (most general and useful lessons) and a per-project top (the topics or kinds of lesson that matter in that project, local ones included) | Not planned yet |
 | To investigate (owner, 2026-11-24): find paraphrases among new or unconfirmed lessons by searching the five most similar lessons and memories and asking a Haiku judge whether they say the same; today `records.pairs` matches words only (containment 0.6) within one scope, and paraphrases scored 0.41 to 0.58 on 2026-11-24. Overlaps the matching by meaning above | Not planned yet |
+| To investigate (owner, 2026-11-25): expiry as a prompt for an explicit review, mainly for plans, ideas and reminders: when a record lapses, a review decides to drop it, update it, extend its date or remove the expiry altogether; without making the system more complex. Already there: the `valid_until` field (`mem remember --valid-until`), `mem curate` listing expired records, `mem confirm` moving the date. Open: whether a default lifetime per kind is worth it, and whether the review outcomes need commands of their own | Not planned yet; owner decides whether it is a good idea |
 
 Rules that hold for every stage, from the owner: the origin of the notes is never written to; this repository is public, so no home path, private repository name, client name or note title goes into it; a merge into `dev` or `main` needs the owner's word each time, a push to a branch does not; decisions are in the design's table (D1 to D25) and are not reopened without new evidence.
 

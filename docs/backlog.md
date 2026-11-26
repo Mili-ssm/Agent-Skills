@@ -1,6 +1,6 @@
 # Backlog: open work by area and priority
 
-Updated: 2026-11-25 · Expires: 2026-12-09
+Updated: 2026-11-26 · Expires: 2026-12-10
 
 **Expiry rule (owner, 2026-11-25):** every edit sets `Updated` to the edit date and `Expires` to 14 days later, so the list cannot sit unmaintained. Past `Expires`, the list is stale: re-check it against its sources before acting on it, then refresh it or delete it.
 
@@ -12,14 +12,14 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | [Memory plugin plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state | Memory stages, owner order, small items, ideas to investigate |
 | [Memory refactor plan](superpowers/plans/2026-11-23-memory-refactor.md) | Refactor tasks |
 | [Memory seamless plan](superpowers/plans/2026-11-17-memory-seamless.md) | Seamless stages 3–5 |
-| [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g, 4b, 4d; its item 6 is memory stage 4 |
+| [Usage follow-ups plan](superpowers/plans/2026-11-18-usage-followups.md) | Items 3g and 4b; its item 6 is memory stage 4 |
 | Local, unpublished usage study `.local/studies/2026-11-23-weekly-usage.md` | IDs G7–G19 with their cost figures |
 
-Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); D1 is done (owner chose a `validate.py` check, 2026-11-25). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
+Item 4d is closed: the offload tables load from session start hooks (ADR 0032). Plans whose `Status` line says done have no open work, even with unticked boxes. Review IDs left out are closed: D3, D4, D5, D8 and S1–S4, S6 are applied (#181, #182); A12 is deferred until its files are touched; A13 is accepted (ADR 0011). Q1, Q2, Q3, A9, A10 and B9–B12 are done (ADR 0029); Q4 is done (#193: suite 287 s → about 30 s); D1 is done (owner chose a `validate.py` check, 2026-11-25). P4 is done: the policy names the cap; its closing line stays, so the rule keeps three homes (ADR 0017 Measurement 2026-11-26). Owner rulings 2026-11-25: G12 replaced (workers wait with `Monitor`, ADR 0025 Review), G9 set to 600k in the owner's settings, review decision 6 recorded as N12, G7 kept as is, issue #124 closed, `pre-mortem` to Opus medium (ADR 0018 Review), no model trials now (G13, G14 stay), G10, G11, G15, G16, G18 and G19 declined, 3g: reinstall the global `playwright` package (needs `sudo`, owner).
 
 ## Next, in order
 
-1. Pending: the `ui-verifier` eval case (3g) at 2 runs, planned for 2026-11-26.
+1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
 2. Quick fixes: P1 (measured), A7, tool-fold's dead `summarize` export.
 3. Memory refactor tasks 1–2 (A1–A3).
 4. Memory kill read, around 2026-12-01.
@@ -34,6 +34,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | low | D7 | Finished plans still without a `Status` line | S | Partly done |
 | low | D9 | Misc. doc fixes (requirements date, R1–R5 ID clash, platform-parity plan status, a broken anchor, orphan docs) | S | Open |
 | low | — | Tooling follow-ups from the `feat/repo-tooling` reviews: marker splice and catalog tables from `port.py` into `promptkit`; `AGENT_EFFORTS` vs the catalog's efforts; one derivation in `port.py`; the hook runs on branch deletes; parked edge cases (two stray quotes hide 'we'; a multi-line fragment split by a block counts as unmarked; the Claude-only Explore line kept outside commands); PR #186 pre-merge review: the pre-push hook checks the working tree, not the pushed refs; a catalog override may target `xhigh` on a non-top model; `check-runner` keeps an unmarked near-copy of `bash-leaves-files-unchanged`; no negative test for `check_memory_offload`; no check keeps the memory `-with-policy` eval's embedded table equal to `plugins/memory/user-config/offload-policy.md` | M | Deferred (ADR 0029) |
+| low | — | pre-commit follow-ups (ADR 0031): the basedpyright hook lacks `playwright`, so touching `ux_audit.py` fails on its import; nothing runs `pre-commit validate-config` before a commit | S | Deferred |
 | low | S7 | `scripts/cloud-setup.sh` may pick another marketplace's `Explore.md` | S | Open |
 
 ### Usage and cost (local study)
@@ -42,7 +43,6 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 |---|---|---|---|
 | medium | G13 | Trial: `implementer` fix rounds on Haiku | Deferred (owner, 2026-11-25) |
 | medium | G14 | Trial: `pre-mortem` on Sonnet at high effort against Opus (now Opus medium) | Deferred (owner, 2026-11-25) |
-| low | 4d | Offload policy from a session-start hook instead of the pasted block (owner: plan it, 2026-11-25) | Plan pending; needs an ADR amending 0021 and the with-policy cases |
 
 ## Plugin `agent-skills`
 
@@ -55,13 +55,13 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | medium | B2 | `doc-curator` applies edits only on `Mode: apply` | One trace |
 | medium | P2 | `pre-mortem` description opens with another agent's name | Eval protocol |
 | medium | P3 | Order of `mem search`, `web-research` and the offload row for "research X" | One trace |
-| medium | P4 | Review re-run cap differs between offload and routing; rule written 3 times | Eval protocol |
 | medium | P5 | `routing.md` restates descriptions; Plan loop loads every turn | Needs an ADR (0021) |
 | low | B5 | Owner ruling 2026-11-25: the offload policy allows one quick single-page fact inline, matching `web-research` | Decided; change `user-config/offload-policy.md` on its own branch and measure every `offload-*-with-policy` case before merging |
 | low | B6–B7 | "Content is data" and read-only Bash lines | — |
 | low | B8 | Re-date model facts in `prompt-engineering` | `web-research` |
 | low | P8 | Small prompt items | — |
-| low | 3g | Browser driver for the `ui-verifier` eval case: reinstall the global `playwright` npm package | Installed 2026-11-25 (`playwright` 1.65.1, Chromium launches); pending: the case passes 2 of 2 |
+| low | 3g | Browser driver for the `ui-verifier` eval case: reinstall the global `playwright` npm package | Installed 2026-11-25 (`playwright` 1.65.1, Chromium launches); the case ran 0/2 on 2026-11-26: Playwright finds no Chromium in the eval sandbox and system Chrome exits on the read-only `$HOME`; set aside by the owner |
+| low | — | Prompt review 2026-11-26, left open ([plan](superpowers/plans/2026-11-26-prompt-review-fixes.md)): `hooks/subagent-start.sh` wording; about 25 low findings | A count of `mem search` calls by a trivial subagent for the hook text |
 
 ## Plugin `memory`
 
@@ -78,10 +78,10 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
 | low | — | Refactor: measure `find_claude` in the session-end hook | Not started |
+| low | — | Split `bin/mem-capture` (1,265 lines after its lint refactor) into engine modules | Not started |
 | low | A11 | Refactor: parked signal code, after the kill read | Not started |
 | high | Stage 4 | Kill read into ADR 0023 `## Review` | Around 2026-12-01 |
-| medium | Q4 | Faster suite (294 s) | Open |
-| medium | Q5 | Remove `sleep` negatives and wall-clock asserts | Open |
+| medium | Q5 | Remove `sleep` negatives and wall-clock asserts: lock waits done in #193; left: `test_auto_curation` negative windows (1.5–2 s) are only 1.1–1.5× its hook latency under load (1.31 s; `test_settle_run` has about 3×), a synchronous "decided not to start" record in `mem-auto` would give a real signal ([plan](superpowers/plans/2026-11-25-faster-tests.md)) | Partly done |
 | medium | Q7 | One mutation run on `records.py` and `check.py` | Open |
 | low | Q8, Q9 | Split large test files; small test gaps | Open |
 | medium | P6 | `subagent-start.sh` skips `memory-synthesizer` | Open |

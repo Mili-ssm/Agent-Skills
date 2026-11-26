@@ -12,9 +12,9 @@ An API is a contract; every change costs every consumer, and with enough consume
 | Situation | Code |
 |---|---|
 | Redirect after a form POST (PRG) | 303 See Other |
-| Malformed vs. semantically invalid input | 400 vs. 422 |
-| Not authenticated vs. not allowed vs. hiding existence | 401 vs. 403 vs. 404 |
-| State conflict / stale write | 409 / 412 with `If-Match` |
+| Malformed vs. semantically invalid input | 400 unparseable or wrong syntax; 422 well-formed but fails validation |
+| Not authenticated vs. not allowed vs. hiding existence | 401 missing or invalid credentials; 403 authenticated but not allowed; 404 when existence must stay hidden |
+| State conflict / stale write | 409 state conflict; 412 `If-Match` precondition failed |
 
 ## Errors: RFC 9457 Problem Details (JSON APIs)
 

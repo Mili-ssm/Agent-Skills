@@ -80,13 +80,13 @@ mkdir -p ~/.claude/agents && cp user-agents/Explore.md ~/.claude/agents/
 # add to ~/.claude/settings.json: "env": {"CLAUDE_CODE_SUBAGENT_MODEL": "sonnet"}
 ```
 
-Then add the offload table to `~/.claude/CLAUDE.md`: copy it from [`user-config/offload-policy.md`](user-config/offload-policy.md) (single source, ADR 0012). In evals it raised `check-runner` and `summarizer` delegation from 0–2/3 to 3/3 (ADR 0010); without it, force a worker per task with `/agent-skills:offload <task>`.
+**Claude Code:** nothing to paste for the offload table. The plugin's `SessionStart` hook prints it at session start, after `/clear` and after a compaction (implemented, ADR 0032; evals: no case dropped against the pasted table at 2 runs per case, too few to claim equivalence or a gain). It stays silent when the option `offload_policy` is `false` (`/plugin configure agent-skills@mili-ssm`) and when `~/.claude/CLAUDE.md` already holds the table, so users who pasted it need do nothing. Turn the option off if the table reaches the session another way (an `@import`, a project `CLAUDE.md`, account instructions), or it loads twice. Either way, paste the routing text from [`user-config/routing.md`](user-config/routing.md): a Claude Code user may paste the whole block below (the hook sees the pasted table's heading and stays silent, so nothing loads twice) or leave out its "Offload policy" section and let the hook load it. **Copilot CLI and Codex:** no hook parity; paste both files (below). Without the table, force a worker per task with `/agent-skills:offload <task>` (the table raised `check-runner` and `summarizer` delegation from 0–2/3 to 3/3, ADR 0010).
 
-The cloud script can write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
+The cloud script turns the table hook off (`offload_policy: false`; `AGENT_SKILLS_OFFLOAD_HOOK=1` keeps it on), because the owner's account preferences already carry the table. It can also write the table for you: with `AGENT_SKILLS_OFFLOAD_POLICY=1` it writes it between two marker comments in `~/.claude/CLAUDE.md` and replaces that block on every run, so updates apply. It is off by default because account-level preferences may already carry the table, and a second copy costs context twice.
 
 ## Recommended prompt
 
-Paste the block for your tool into your `CLAUDE.md`, `AGENTS.md` or Copilot instructions: it holds the offload table and the routing table (which skill, agent or command for which need). Sources: [`offload-policy.md`](user-config/offload-policy.md), [`routing.md`](user-config/routing.md).
+Paste the block for your tool into your `CLAUDE.md`, `AGENTS.md` or Copilot instructions (Claude Code users may leave out the "Offload policy" section and let the hook load it, but must paste the routing text, ADR 0032): it holds the offload table and the routing table (which skill, agent or command for which need). Sources: [`offload-policy.md`](user-config/offload-policy.md), [`routing.md`](user-config/routing.md).
 
 <!-- BEGIN generated: recommended-prompt -->
 
@@ -108,7 +108,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` |
 | Verifying a changed web UI in a browser | `agent-skills:ui-verifier` |
 | Before executing any plan, spec or design | `agent-skills:pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `agent-skills:skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `agent-skills:skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -123,7 +123,7 @@ A worker sees none of this conversation, so its brief carries everything it need
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -185,7 +185,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -200,7 +200,7 @@ A worker sees none of this conversation, so its brief carries everything it need
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -262,7 +262,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it after fixing | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
@@ -277,7 +277,7 @@ A worker sees none of this conversation, so its brief carries everything it need
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran and round 2 has not run, dispatch it now.
 
 ## Routing: which skill, agent or command for which need
 
@@ -347,7 +347,7 @@ Each plugin has its own version and changelog (`plugins/<name>/CHANGELOG.md`); `
 |---|---|---|
 | Commands `/agent-skills:<name>` | You type one; they never auto-trigger | A specialist review or workflow when you decide |
 | Skills | Their description matches the task, a bonus that can stay silent; force one with its command | Methods and knowledge applied while you work |
-| Workers | The [offload policy](user-config/offload-policy.md) is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification, after-action review and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier`, `skeptical-reviewer` (plus user-scope `Explore`) |
+| Workers | The [offload policy](user-config/offload-policy.md) loads from the plugin's session start hook (ADR 0032) or is in your user-level `~/.claude/CLAUDE.md`, or you force one with `/agent-skills:offload <task>` | Reading, checks, browser verification, after-action review and bounded edits on Haiku/Sonnet: `check-runner`, `summarizer`, `researcher`, `implementer`, `fixer`, `ui-verifier`, `skeptical-reviewer` (plus user-scope `Explore`) |
 | Superpowers | A row of the [routing table](user-config/routing.md) names its skill | Methods: brainstorming, plan writing, the plan loop, TDD, debugging, worktrees and branch finishing |
 
 ### Agents (fresh context, return a report)
@@ -437,8 +437,9 @@ finishing-a-branch ◄── narrow skeptical-reviewer reviews ◄── subagen
 |---|---|
 | Branch | Pull requests target `dev` (`gh pr create --base dev`); `main` holds only releases. An install that follows `dev` (`Mili-ssm/Agent-Skills#dev`; cloud: `AGENT_SKILLS_REF=dev`) still updates only when a version changes; to try unreleased work use `claude --plugin-dir plugins/<name>` |
 | Validate structure and authoring rules | `python3 scripts/validate.py` and `claude plugin validate .` |
-| Opt-in `pre-push` hook (validate, test suite, `claude plugin validate`; skips tools that are missing) | `git config core.hooksPath scripts/hooks` |
+| Git hooks, once per clone: a commit lints, formats and type-checks its staged Python files; a push checks the pushed files and runs validate, the test suite and `claude plugin validate` (skips tools that are missing) | `uv tool install pre-commit && pre-commit install`; push checks only, without pre-commit: `git config core.hooksPath scripts/hooks` |
 | Run the script tests | `uv run --with pytest pytest scripts/tests -q` |
+| Lint and type-check the Python files your branch touched (each must be fully clean; [ADR 0031](docs/adr/0031-a-touched-python-file-passes-ruff-and-basedpyright.md)) | `pre-commit run --from-ref origin/dev --to-ref HEAD` |
 | Regenerate the Copilot and Codex ports after changing agents, skills, commands or the offload policy | `python3 scripts/port.py` (`--check` verifies, `--report` prints the mapping) |
 | Measure a description or prompt change before merging | `claude plugin eval plugins/agent-skills --ablation none --model sonnet -j 4 --runs 2 --max-cost-usd 5 --case '<glob>'`; which cases and when to rerun: [`CLAUDE.md` § Eval protocol](CLAUDE.md#eval-protocol-adr-0007-review-2026-10-30) |
 | Validate and test a mod | `claude plugin validate plugins/<mod>` and `claude plugin test plugins/<mod>`; UI tests mount on every surface the site is raised on: `ToolUse` and the status line everywhere, `AbovePrompt` on terminal and desktop only (not VS Code) |
@@ -458,4 +459,4 @@ In `plugins/agent-skills/evals/`:
 
 - `trigger/`: one case per skill, plus `performance-analyst` and `pre-mortem`. A case passes when its skill, or the agent named in its grader, fires; `change-impact`, `intent-elicitation` and `ux-principles` accept only the skill, `performance-analyst` and `pre-mortem` only the agent.
 - `no-trigger/`: five near-misses (a live bug, an email to shorten, a small flag, a TDD green step, a "why" about an idiom). A case passes when no plugin skill or agent fires; each grader names every skill and agent.
-- `offload/`: `check-runner` and `summarizer` with and without the [offload policy](user-config/offload-policy.md), a verbatim-section case (passes by delegating to `summarizer` or by a bounded read), `implementer` and `ui-verifier` with it. A case passes when the worker is dispatched, its brief carries what only the conversation knew (the `implementer` case checks the decision with its reason, the off-limits file and the stop rule), the main conversation does none of the work inline, and the answer (or the file written) is right. Run it with `--scaffold --allow-tools Bash Edit Write` and a sandbox: `bubblewrap`, `socat`.
+- `offload/`: `check-runner` and `summarizer` with and without the [offload policy](user-config/offload-policy.md), a verbatim-section case (passes by delegating to `summarizer` or by a bounded read), `implementer` and `ui-verifier` with it, and six `-with-hook` cases that twin the `-with-policy` ones (the table arrives from the plugin's hook, `EVAL_OFFLOAD_HOOK=on`, ADR 0032). A case passes when the worker is dispatched, its brief carries what only the conversation knew (the `implementer` case checks the decision with its reason, the off-limits file and the stop rule), the main conversation does none of the work inline, and the answer (or the file written) is right. Run it with `--scaffold --allow-tools Bash Edit Write` and a sandbox: `bubblewrap`, `socat`.

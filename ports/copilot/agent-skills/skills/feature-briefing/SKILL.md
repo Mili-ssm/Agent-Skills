@@ -12,7 +12,7 @@ A briefing turns "how should we build X?" into a decided, evidenced plan. It run
 Copy and tick:
 
 ```
-- [ ] 1 Frame: goal, success criteria, constraints (Superpowers brainstorming if installed, else intent-elicitation in feature mode); then return to step 2, because writing-plans waits for step 5
+- [ ] 1 Frame: goal, success criteria, constraints (Superpowers brainstorming if installed, else `intent-elicitation` in feature mode when the feature extends existing code or docs; otherwise interview the owner directly); then step 2
 - [ ] 2 Gather evidence in parallel (one message, several subagents)
 - [ ] 3 Synthesize: options matrix
 - [ ] 4 Decide with the owner; record an ADR if significant
@@ -58,6 +58,7 @@ Prefer the simplest option that meets ranked quality attributes and is reversibl
 
 ## Rules
 
+- Superpowers `brainstorming` ends by invoking `writing-plans`: stop it once the design is agreed and resume at step 2, because the plan is written at step 5, after the evidence.
 - Parallelize independent evidence gathering; sequential dispatch wastes wall-clock time.
 - Keep raw research in subagents, because the main context is the expensive one; the main thread holds only distilled findings.
 - Skip steps that add nothing (say which and why).

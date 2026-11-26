@@ -1,7 +1,15 @@
 {
   "name": "agent-skills",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Generic specialist skills and agents (architecture, QA, UX/UI, docs, requirements, security, performance) and cheap offload workers that complement Superpowers and Playwright.",
   "author": { "name": "mili-ssm" },
-  "repository": "https://github.com/Mili-ssm/Agent-Skills"
+  "repository": "https://github.com/Mili-ssm/Agent-Skills",
+  "userConfig": {
+    "offload_policy": {
+      "type": "boolean",
+      "title": "Offload table at session start",
+      "description": "Loads the offload table (about 2800 characters) at session start, after /clear and after a compaction, and skips itself when ~/.claude/CLAUDE.md already holds the table. Turn it off when the table reaches the session another way (a project CLAUDE.md, an imported file, account instructions).",
+      "default": true
+    }
+  }
 }

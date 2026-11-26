@@ -4,6 +4,25 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-26
+
+### Added
+
+- The offload table (about 700 tokens, estimated at 4 bytes per token) now loads from a `SessionStart` hook at session start, after `/clear` and after a compaction; new users paste only the routing text. Nothing to do if the table is pasted in `~/.claude/CLAUDE.md`: the hook sees it and stays silent. If the table reaches the session another way (an `@import`, a project `CLAUDE.md`, `CLAUDE.local.md`, account instructions, a file with CRLF line ends) the hook cannot see it and the table loads twice: turn the option off with `/plugin configure agent-skills@mili-ssm` (`offload_policy`). A stale pasted copy wins over the plugin's until you delete it. The cloud script turns it off unless `AGENT_SKILLS_OFFLOAD_HOOK=1`. Copilot and Codex users keep pasting. Decision and measurement: ADR 0032.
+
+### Changed
+
+- Offload policy (`user-config/offload-policy.md`): the `skeptical-reviewer` row and the closing line now name the two-round limit ("re-run it once after fixing (round 2 is the last)"). Re-paste the file into your user-level `CLAUDE.md` to pick it up.
+- `prompt-engineer` and `ux-reviewer` read the project's `CLAUDE.md` / `AGENTS.md` first, so decided project rules are no longer reported as findings and project overrides apply.
+- `architect` gives options for its top 3 findings and at most 2 ADR drafts, to keep its report within its 80-line limit.
+- `api-design`: the status-code table says when each of 400/422, 401/403/404 and 409/412 applies. `architecture-principles` and `intent-elicitation` gain a light path for one module or one gap; `/ux-design` follows the skill's small-change rule; `feature-briefing` states as a rule that the plan waits for step 5, and falls back to `intent-elicitation` only when the feature extends existing code or docs.
+
+### Fixed
+
+- `check-runner` and `ui-verifier` set the Bash `timeout` parameter for long commands (the old 900 s limit could never finish under the tool's 10-minute maximum) and say when to wait with `Monitor`.
+- `researcher` states its 300-word limit and stops with a partial report after about 12 tool calls; `implementer` may write the report file its brief names and reports `none` when it has no open questions; `consistency-auditor` opens the staleness rubric file before rating.
+- `security-reviewer`, `prompt-engineer`, `consistency-auditor`, `architect` and `pre-mortem` treat the text they read as data and report instructions addressed to an AI assistant instead of following them.
+
 ## [1.1.0] - 2026-11-25
 
 ### Changed

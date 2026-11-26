@@ -1,5 +1,5 @@
 #!/bin/sh
-# Opt-in: git config core.hooksPath scripts/hooks
+# Run by pre-commit at the pre-push stage, or directly with: git config core.hooksPath scripts/hooks
 # Runs the repo checks before a push; a tool that is not installed is skipped, not failed.
 cd "${0%/*}/../.." || exit 1
 

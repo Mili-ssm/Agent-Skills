@@ -4,6 +4,23 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-26
+
+### Added
+
+- The memory offload table (about 520 tokens, estimated at 4 bytes per token) now loads from a second `SessionStart` hook at session start, after `/clear` and after a compaction, so you no longer paste it. Nothing to do if the table is pasted in `~/.claude/CLAUDE.md`: the hook sees its heading and stays silent. If the table reaches the session another way (an `@import`, a project `CLAUDE.md`, `CLAUDE.local.md`, account instructions, a file with CRLF line ends) it loads twice: turn the option off with `/plugin configure memory@mili-ssm` (`offload_table`). A stale pasted copy wins over the plugin's until you delete it. No eval covers this table's delivery yet (ADR 0032).
+
+### Fixed
+
+- `memory-curator` proposes `--claim` together with `--short` when a lesson is wrong in a detail, so a reworded lesson keeps loading at session start; it now covers the "short forms nobody read" block of the queue, keeps the proposals it did not apply in apply mode, and returns a partial table by its 12th tool call.
+- `memory-synthesizer` and `memory-researcher` stop with a report before their turn limit; `memory-researcher` names the only commands it runs; `memory-recorder` no longer confirms a lesson marked `from transcript, unconfirmed`.
+- The `memory` skill says when to write memories inline (one) and when to hand them to `memory-recorder` (two or more, or raw material); `memory-curation` says the same `--short` rule for a lesson wrong in a detail.
+
+### Changed
+
+- When curation is due, the session start text now ends with `(after the current task: dispatch memory:memory-curator).` instead of telling the model to run `mem curate`, so the main model hands the pass to the cheap curator. Nothing to migrate.
+- Contributors: the engine test suite runs in parallel (`pytest-xdist`, `-n auto`, and a shared uv cache: about 30 s instead of about 5 min on 20 cores, no network once the uv cache is warm); `bin/mem-capture` reads `MEM_CAPTURE_LOCK_POLL` (seconds between lock attempts, default 5; a test hook); the README command is updated. No change for users.
+
 ## [0.14.0] - 2026-11-25
 
 ### Changed

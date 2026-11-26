@@ -8,6 +8,7 @@
 # Environment variables (all optional):
 #   AGENT_SKILLS_MODS            mods to install, space-separated (ADR 0011), e.g. "tool-fold plan-progress"
 #   AGENT_SKILLS_OFFLOAD_POLICY  1 → write user-config/offload-policy.md into ~/.claude/CLAUDE.md (step 3b)
+#   AGENT_SKILLS_OFFLOAD_HOOK    1 → keep the plugin's offload table hook on (step 3c turns it off otherwise, ADR 0032)
 #   AGENT_SKILLS_REF             branch or tag of the marketplace to install (unset: main, the releases; a fresh cloud install takes the branch's current content)
 
 warn() { echo "WARN [cloud-setup]: $*" >&2; }
@@ -102,6 +103,40 @@ EOF
   else
     warn "user-config/offload-policy.md not found under ~/.claude/plugins (offload policy not written)"
   fi
+fi
+
+# 3c. Offload table hook (ADR 0032): the agent-skills plugin prints its offload table at session
+#     start. The owner's cloud account preferences already carry the table and a hook cannot see
+#     them, so this step sets the plugin option offload_policy to false in ~/.claude/settings.json,
+#     unless AGENT_SKILLS_OFFLOAD_HOOK=1. Every other key is kept; a file that is not valid JSON is
+#     left untouched.
+if [ "${AGENT_SKILLS_OFFLOAD_HOOK:-}" != "1" ]; then
+  python3 - <<'EOF' || warn "could not turn off the offload table hook in ~/.claude/settings.json"
+import json, os, pathlib, stat, sys, tempfile
+path = (pathlib.Path.home() / ".claude" / "settings.json").resolve()
+try:
+    settings = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+except ValueError:
+    sys.exit(f"{path} is not valid JSON; file left untouched")
+if not isinstance(settings, dict):
+    sys.exit(f"{path} is not a JSON object; file left untouched")
+configs = settings.setdefault("pluginConfigs", {})
+entry = configs.setdefault("agent-skills@mili-ssm", {})
+entry.setdefault("options", {})["offload_policy"] = False
+path.parent.mkdir(parents=True, exist_ok=True)
+# Atomic write: a temp file in the same folder, the old mode kept (0600 for a new file, since
+# settings can hold env values), then a rename over the (resolved) target.
+mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o600
+fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=".settings.", suffix=".tmp")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as out:
+        out.write(json.dumps(settings, indent=2) + "\n")
+    os.chmod(tmp, mode)
+    os.replace(tmp, path)
+except BaseException:
+    pathlib.Path(tmp).unlink(missing_ok=True)
+    raise
+EOF
 fi
 
 # 4. Turn on auto-update for this marketplace, so sessions started from a cached snapshot
