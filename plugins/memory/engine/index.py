@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
 
+import notes as notes_mod
 import safe_io
-from notes import (FrontmatterError, Note, _read_text, discover_notes, leaf_topics, load_topics, root_of,
-                   root_topics)
+from notes import FrontmatterError, discover_notes, leaf_topics, load_topics, root_of, root_topics
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from notes import Note
 
 
 INDEX_START = "<!-- hub:index:start -->"
@@ -28,27 +32,42 @@ def _cell(value: Any) -> str:
 def _index_row(note: Note, topics: dict) -> tuple[tuple, list[str]]:
     key, cells = _index_cells(note, topics)
     if note.meta.get("superseded_by") is not None:
-        cells[0 if note.type == "knowledge" else 1] += " (superseded)"  # the cell holding the note's link
+        cells[0 if note.type == "knowledge" else 1] += (
+            " (superseded)"  # the cell holding the note's link
+        )
     return key, cells
 
 
 def _index_cells(note: Note, topics: dict) -> tuple[tuple, list[str]]:
     meta = note.meta
     listed = meta.get("topics")
-    leaves = leaf_topics(topics, [t for t in listed if isinstance(t, str)]) \
-        if isinstance(listed, list) else []
+    leaves = (
+        leaf_topics(topics, [t for t in listed if isinstance(t, str)])
+        if isinstance(listed, list)
+        else []
+    )
     topic_cell = _cell(", ".join(sorted(leaves)))
     if note.type == "literature":
         name = note.path.name
         link = f"[{_cell(meta.get('title', name))}]({name})"
         year = meta.get("year")
         key = (-year if isinstance(year, int) else 0, name)
-        return key, [_cell(year if year is not None else ""), link, _cell(meta.get("kind", "")),
-                          _cell(meta.get("level", "")), topic_cell]
+        return key, [
+            _cell(year if year is not None else ""),
+            link,
+            _cell(meta.get("kind", "")),
+            _cell(meta.get("level", "")),
+            topic_cell,
+        ]
     if note.type == "knowledge":
         name = note.path.name
         link = f"[{_cell(meta.get('claim', name))}]({name})"
-        return (name,), [link, _cell(meta.get("confidence", "")), _cell(meta.get("level", "")), topic_cell]
+        return (name,), [
+            link,
+            _cell(meta.get("confidence", "")),
+            _cell(meta.get("level", "")),
+            topic_cell,
+        ]
     folder = note.path.parent.name
     link = f"[{_cell(meta.get('title', folder))}]({folder}/README.md)"
     started = str(meta.get("started", ""))
@@ -78,8 +97,11 @@ def _domain_notes(notes: list[Note], folder: str, domain: str) -> list[Note]:
 def _subtopics(note: Note, domain: str, topics: dict) -> list[str]:
     """Headings of a note in its domain README: each most-specific topic under the domain, else `general`."""
     listed = note.meta.get("topics")
-    leaves = leaf_topics(topics, [t for t in listed if isinstance(t, str) and t in topics]) \
-        if isinstance(listed, list) else []
+    leaves = (
+        leaf_topics(topics, [t for t in listed if isinstance(t, str) and t in topics])
+        if isinstance(listed, list)
+        else []
+    )
     found = sorted(t for t in leaves if t != domain and root_of(topics, t) == domain)
     return found or ["general"]
 
@@ -88,7 +110,9 @@ def render_index(root: Path, folder: str, notes: list[Note], topics: dict) -> st
     """Block content between the markers of research/ or of a top-level literature/knowledge README."""
     if folder == "research":
         rows = [_index_row(n, topics) for n in _indexable(notes, folder)]
-        return "\n" + "\n".join(_rows_table(folder, rows)) + "\n" if rows else "\n_No entries yet._\n"
+        return (
+            "\n" + "\n".join(_rows_table(folder, rows)) + "\n" if rows else "\n_No entries yet._\n"
+        )
     counts = {d: len(_domain_notes(notes, folder, d)) for d in sorted(root_topics(topics))}
     counts = {d: c for d, c in counts.items() if c}
     if not counts:
@@ -108,7 +132,7 @@ def render_domain_index(folder: str, domain: str, notes: list[Note], topics: dic
         return "\n_No entries yet._\n"
     out: list[str] = []
     for name in sorted(groups, key=lambda g: (g == "general", g)):
-        out += ["", f"### {name}", ""] + _rows_table(folder, groups[name])
+        out += ["", f"### {name}", "", *_rows_table(folder, groups[name])]
     return "\n".join(out) + "\n"
 
 
@@ -117,8 +141,10 @@ def _with_index(text: str, block: str) -> str:
     starts, ends = text.count(INDEX_START), text.count(INDEX_END)
     start, end = text.find(INDEX_START), text.find(INDEX_END)
     if (starts, ends) != (0, 0) and not (starts == ends == 1 and start < end):
-        raise FrontmatterError("index markers must be exactly one start marker followed by one "
-                               "end marker: remove the stray or duplicated markers")
+        raise FrontmatterError(
+            "index markers must be exactly one start marker followed by one "
+            "end marker: remove the stray or duplicated markers"
+        )
     if starts:
         return text[: start + len(INDEX_START)] + block + text[end:]
     sep = "" if not text or text.endswith("\n\n") else ("\n" if text.endswith("\n") else "\n\n")
@@ -141,20 +167,45 @@ def index_targets(root: Path, notes: list[Note], topics: dict) -> list[IndexTarg
     """Every README that carries a generated block."""
     targets = []
     for folder in INDEX_FOLDERS:
-        targets.append(IndexTarget(root / folder / "README.md",
-                                   render_index(root, folder, notes, topics), None))
+        targets.append(
+            IndexTarget(
+                root / folder / "README.md", render_index(root, folder, notes, topics), None
+            )
+        )
         if folder == "research":
             continue
         for domain in sorted(root_topics(topics)):
             readme = root / folder / domain / "README.md"
             if readme.is_file() and not _domain_notes(notes, folder, domain):
-                targets.append(IndexTarget(readme, render_domain_index(folder, domain, notes, topics), None))
+                targets.append(
+                    IndexTarget(readme, render_domain_index(folder, domain, notes, topics), None)
+                )
             elif _domain_notes(notes, folder, domain):
-                default = f"# {folder.capitalize()}: {domain}\n\n" \
-                          f"{_DOMAIN_PURPOSE[folder].format(domain=domain)}\n"
-                targets.append(IndexTarget(root / folder / domain / "README.md",
-                                           render_domain_index(folder, domain, notes, topics), default))
+                default = (
+                    f"# {folder.capitalize()}: {domain}\n\n"
+                    f"{_DOMAIN_PURPOSE[folder].format(domain=domain)}\n"
+                )
+                targets.append(
+                    IndexTarget(
+                        root / folder / domain / "README.md",
+                        render_domain_index(folder, domain, notes, topics),
+                        default,
+                    )
+                )
     return targets
+
+
+def _new_text(root: Path, target: IndexTarget) -> str | None:
+    """The README text with its block rewritten; None when nothing is to be written."""
+    path, block, default = target
+    if not path.is_file():
+        return None if default is None else _with_index(default, block)
+    try:
+        text = notes_mod._read_text(path)
+        new = _with_index(text, block)
+    except FrontmatterError as exc:
+        raise FrontmatterError(f"{path.relative_to(root).as_posix()}: {exc}") from exc
+    return new if new != text else None
 
 
 def apply_index(root: Path) -> list[str]:
@@ -162,21 +213,10 @@ def apply_index(root: Path) -> list[str]:
     topics = load_topics(root)
     notes = discover_notes(root)
     pending: list[tuple[Path, str]] = []
-    for path, block, default in index_targets(root, notes, topics):
-        if not path.is_file():
-            if default is None:
-                continue
-            text = default
-            new = _with_index(text, block)
-            pending.append((path, new))
-            continue
-        try:
-            text = _read_text(path)
-            new = _with_index(text, block)
-        except FrontmatterError as exc:
-            raise FrontmatterError(f"{path.relative_to(root).as_posix()}: {exc}") from exc
-        if new != text:
-            pending.append((path, new))
+    for target in index_targets(root, notes, topics):
+        new = _new_text(root, target)
+        if new is not None:
+            pending.append((target.path, new))
     for path, new in pending:  # write only after every README was accepted
         path.parent.mkdir(parents=True, exist_ok=True)
         safe_io.replace_file(path, new.encode("utf-8"))
