@@ -53,7 +53,7 @@ Each step passes the existing suite with no behavior change.
 
 | Decision | Options |
 |---|---|
-| Store precedence | every entry point honours the config file, or keep it per entry point (`mem-research` and `mem-synthesize` ignore it today) |
+| Store precedence | **ruled 2026-11-26: every entry point honours the config file** (`--root`/`--store` > `MEM_STORE` > config file > default store), and the default store counts only with its `mem-store.yaml` marker (step 2) |
 | Capture session tools | **ruled 2026-11-23: restrict like corroborate** (step 4) |
 | `bin/` interpreter | **ruled 2026-11-23: `uv` for all** (step 5) |
 | Parked code | remove after the kill read, or keep behind an option |
