@@ -60,7 +60,10 @@ def flag_map(argv: list[str]) -> dict[str, tuple[str, ...]]:
     return found
 
 
-ENTRIES = {"mem-settle": "entry.settle"}  # launchers: the module they run lives in `engine/entry`
+ENTRIES = {
+    "mem-capture": "entry.capture",
+    "mem-settle": "entry.settle",
+}  # launchers: the module they run lives in `engine/entry`
 
 
 def load_bin(name: str) -> ModuleType:

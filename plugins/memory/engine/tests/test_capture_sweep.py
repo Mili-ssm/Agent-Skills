@@ -4,7 +4,6 @@ import io
 import json
 import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -180,7 +179,7 @@ def test_the_first_cwd_is_found_without_reading_the_whole_file(world, mod):
 def test_the_command_exits_0_and_prints_nothing(world):
     make(world, "idle")
     done = subprocess.run(
-        [sys.executable, "-I", str(CAPTURE), "sweep", "--claude", str(world.fake)],
+        [*CAPTURE, "sweep", "--claude", str(world.fake)],
         input=json.dumps({"transcript_path": str(world.transcript), "cwd": str(world.project)}),
         env=env_of(world),
         capture_output=True,

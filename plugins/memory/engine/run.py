@@ -17,6 +17,10 @@ if __name__ == "__main__":
         from entry import auto
 
         main = auto.main
+    elif name == "mem-capture":
+        from entry import capture
+
+        main = capture.main
     elif name == "mem-corroborate":
         from entry import corroborate
 

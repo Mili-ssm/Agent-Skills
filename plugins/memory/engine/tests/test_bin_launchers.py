@@ -8,7 +8,14 @@ from pathlib import Path
 import pytest
 
 BIN = Path(__file__).resolve().parents[2] / "bin"
-LAUNCHERS = ["mem-auto", "mem-corroborate", "mem-research", "mem-settle", "mem-synthesize"]
+LAUNCHERS = [
+    "mem-auto",
+    "mem-capture",
+    "mem-corroborate",
+    "mem-research",
+    "mem-settle",
+    "mem-synthesize",
+]
 EXIT_UV_MISSING = 127
 
 

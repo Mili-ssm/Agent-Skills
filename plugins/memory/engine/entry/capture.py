@@ -1,0 +1,1201 @@
+"""mem-capture: an offline trial of memory capture from one session transcript.
+
+`run` reduces the transcript to an extract (`capture.extract`), gives it with the claims already recorded in the project's
+memory to ONE headless session that has no Bash and no hooks, and keeps the candidates that `capture.validate` accepts
+in a local JSON file. It writes nothing to the memory store and no hook runs it: it is started by hand.
+
+With `--write`, code (never the model) then applies each kept candidate to the PROJECT's memory through `bin/mem`, so
+every check that command makes at writing applies unchanged; nothing else runs it.
+
+`auto --trigger {pre-compact,session-end}` is what a hook starts, detached and with its output discarded, when the plugin
+option `auto_capture` is exactly `true`: it reads the hook JSON from standard input and the session from its saved
+offset, in up to MAX_WINDOWS windows, and records what the windows hold in the project's memory (`run --write` per
+window). It always exits 0 and prints nothing: it leaves `<data folder>/capture/status.json`, `log.jsonl` (counts only)
+and `runs/<stamp>/`. `ack` clears the failure it left.
+
+Usage: mem-capture run --transcript PATH --out FILE [--project DIR] [--since-line N] [--forward] [--model NAME] [--budget USD]
+                       [--claude PATH] [--no-rules] [--keep-work] [--write]
+       mem-capture auto --trigger {pre-compact,session-end} [--claude PATH] < hook.json
+       mem-capture ack
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import datetime
+import json
+import math
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from capture import extract as capture
+from capture import state as cs
+from core import headless, jobs
+from memories import records
+from synthesize import pipeline as sp
+
+PLUGIN = Path(__file__).resolve().parents[2]
+BIN = PLUGIN / "bin"
+LOCK_POLL_SECONDS = 5.0
+MIN_LOCK_POLL_SECONDS = 0.01
+
+DEFAULT_BUDGET = 0.25  # USD; also the default of `auto`
+DEFAULT_MODEL = "haiku"
+SESSION_TIMEOUT = 600
+MAX_CANDIDATES_BYTES = 1_000_000
+MIN_OWNER_LINES = 3
+CWD_SCAN_LINES = 200  # lines of a transcript the sweep reads to find its working folder
+RULES_LIMIT = 30_000
+LAPSED_DAYS = (
+    60  # a lapsed unconfirmed transcript memory can still be revived by a new sighting this long
+)
+MEM = BIN / "mem"
+CORROBORATE = BIN / "mem-corroborate"
+MEM_TIMEOUT = 60
+MEM_EXIT_COUNTED = 3  # `bin/mem`: this session already counted, or the claim is already recorded
+MEM_EXIT_SECRET = 4  # `bin/mem`: the claim holds a secret
+SESSION_VARS = (
+    "CLAUDE_ENV_FILE",
+    "CLAUDE_PLUGIN_ROOT",
+    "CLAUDE_PLUGIN_DATA",
+    "CLAUDE_PROJECT_DIR",
+    "CLAUDE_PID",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+)
+
+WORK_PLACEHOLDER = "{work}"
+BRIEF = """You read the record of one coding session and find what a later session should not have to learn again.
+
+Files in {work}:
+- extract-1.txt, extract-2.txt, ...: the session in order, one event per line. Read every one of them before you write. OWNER is the human, OWNER ANSWER the human's answer to a question, AGENT the assistant, REPORT a message from a subagent or another agent (not the human), TOOL lines the assistant's tool calls, TOOL ERROR a call that failed, TOOL OK the same tool succeeding after an error. The bracket and the label at the start of a line are positions, not content.
+- recorded.txt: what the memory already holds, one per line. A line starting with m: is a memory of this project, with its handle; a line starting with g: is a general lesson recorded from other sessions, with its handle; a line starting with (general) holds in every project.
+- rules.txt: the standing instructions the owner already wrote for the agent.
+
+Write {work}/candidates.json: a JSON list of at most 5 objects, or [] when nothing qualifies. Most sessions hold one or two things worth keeping, many hold none; five is a ceiling, not a target. Order what you found by how much a later session would lose without it, and keep only the ones you would defend to the owner.
+
+Two kinds of thing qualify, and they are not the same:
+- A lesson or a pitfall: something that generalises beyond this session and can be said as advice.
+- A decision of this project with its reason. That is a record of the project, not a lesson: give it "kind": "decision" and "reach": "project".
+A technical detail of one component, a progress report, or a request the owner made once is neither: leave it out, unless the step the owner asked for visibly paid off (the signal "owner_request_paid_off").
+
+Each object has these keys:
+- "signal": what in the session backs it. One of
+  "owner_correction" (the owner corrected the agent or rejected its approach; the evidence must come from an OWNER line),
+  "failed_then_passed" (a check or command failed, the agent changed something, it passed),
+  "verified_review_finding" (a review found a defect that was then confirmed and fixed),
+  "plan_changed_by_review" (a pre-mortem, a review or the owner changed a plan or a design before it was built),
+  "delegation_failed" (a subagent returned no report, stopped at a limit, misread its brief, or its report proved wrong),
+  "rework" (work declared done had to be redone or fixed right after),
+  "repeated_tool_error" (the same kind of tool error happened more than once),
+  "decision_with_reason" (the owner decided something and said why; the evidence must come from an OWNER or OWNER ANSWER line),
+  "owner_approval" (the owner said that a way of working served them well, or asked for more of it; the evidence must come from an OWNER or OWNER ANSWER line),
+  "owner_request_paid_off" (the owner asked, unprompted, for a step the agent had not planned, such as one more review, a check or a comparison, and the step visibly paid off: it found something, prevented rework or improved the result; the evidence must come from the OWNER or OWNER ANSWER line that asked for the step, and the claim says what the step then showed),
+  "effective_practice" (a way of planning, briefing, checking or using a tool visibly paid off in this session: it worked the first time where earlier attempts had not, saved a round, or caught something early; the evidence shows the result, not the intention).
+  Without one of these there is no candidate: an idea the agent had about itself, with nothing outside confirming it, is not kept.
+  Look for what worked as much as for what failed. The aim is not only fewer mistakes but better and cheaper work: a lesson may say "doing it this way tended to give a better result" and what made it work. It is also less work for the owner: when the owner had to ask for a step that then proved its worth, the lesson is to consider that step without being asked, as a suggestion, so that the owner needs to step in less often.
+- "kind": "lesson" (how to work), "pitfall" (something that breaks or misleads), or "decision".
+- "reach": "project" when it is about this codebase, its tools or its rules; "general" when it is about how the agent itself works in any project: how it plans, frames a request, briefs or checks a subagent, uses a skill or a plugin, verifies before claiming, or reads the owner's intent. Look for the general ones on purpose: a slip in method teaches more than the bug it caused. A general claim names no file, project or person. A project claim should name the exact file, command or setting it is about, because that is what makes it usable.
+- "weight": how much following it restricts the agent or the owner, and what it costs if it is wrong: "light" (a cheap habit that can hardly hurt), "medium", or "strong" (it forbids something, or a mistake would be costly).
+- "form": "suggestion" (worth trying) or "recommendation" (do this unless there is a reason not to). Never an order.
+- "claim": 20 to 400 characters, in English, standing on its own in six months. Say what was seen and what it suggests, at the strength the evidence gives it and no more. This session is one sighting: write "in one session ...", "when X, Y happened, so consider ...", not "always" or "never". Say what is not known: whether it holds elsewhere, whether it may be temporary, under which condition it was seen. When the signal is a correction by the owner, report it as what the owner said and did, and weigh the other reading too: the owner may have misread the agent, and then the lesson is to explain more clearly.
+- "context": one sentence on when it applies.
+- "evidence": a passage copied character for character from inside one line of an extract file, without the bracket and label, 15 to 300 characters, that shows the signal. A paraphrase, or a passage that spans two lines, is rejected by a program.
+- "same_as": only when a line of recorded.txt starting with m: or g: already says this: its handle, exactly as written (for example "m:some-handle" or "g:some-handle"). Then this session is one more sighting of it; still give the other keys.
+
+Leave out: what a (general) line of recorded.txt or rules.txt already says; what the code, the git history or the project's documents already state; secrets, tokens, names of people or clients.
+A candidate that states the same lesson as a line starting with m: or g: is not left out for that reason: give it, with "same_as" set to that handle.
+"""
+
+
+def budget_arg(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not a number: {value!r}") from None
+    if not math.isfinite(number) or number <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive number: {value!r}")
+    return number
+
+
+def repo_above(folder: Path) -> Path | None:
+    """The nearest folder, `folder` or an ancestor, that holds an entry named `.git`."""
+    for p in (folder, *folder.parents):
+        if os.path.lexists(p / ".git"):
+            return p
+    return None
+
+
+def private_dirs(folder: Path) -> None:
+    """`folder` and the parents it lacks, mode 0700 (`mkdir(parents=True)` gives the parents the default mode)."""
+    missing = []
+    for p in (folder, *folder.parents):
+        if p.exists():
+            break
+        missing.append(p)
+    for p in reversed(missing):
+        p.mkdir(mode=0o700, exist_ok=True)
+
+
+def write_private(path: Path, text: str) -> None:
+    """Never follows a symlink at `path`; the mode is set on the descriptor before anything is written."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", errors="replace") as f:
+        os.fchmod(f.fileno(), 0o600)
+        f.write(text)
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _lapsed(m, today: datetime.date) -> bool:
+    """An active unconfirmed memory whose validity ended at most LAPSED_DAYS ago."""
+    return (
+        m.status == "active"
+        and records.standing(m) == "unconfirmed"
+        and m.valid_until is not None
+        and today - datetime.timedelta(days=LAPSED_DAYS) <= m.valid_until < today
+    )
+
+
+def recorded_lines(project: Path) -> tuple[list[str], dict[str, str]]:
+    r"""The lines of recorded.txt, and the claims by handle: the project's memories ("m:<handle>") and the global
+    records of origin transcript ("g:<handle>").
+
+    Project: live memories, and unconfirmed transcript memories lapsed for at most LAPSED_DAYS (a new sighting
+    revives them); a line is `m:<handle>\t<claim>`. Global: transcript records, live or lapsed alike and in
+    quarantine too, as `g:<handle>\t<claim>`; the other live ones as `(general)\t<claim>`, with no handle."""
+    today = datetime.date.today()
+    lines: list[str] = []
+    handles: dict[str, str] = {}
+    for m in records.load_memories(records.project_dir(project), "project"):
+        claim = _one_line(m.claim)
+        lapsed = m.origin == "transcript" and _lapsed(m, today)
+        if claim and (records.is_live(m, today) or lapsed):
+            lines.append(f"m:{m.handle}\t{claim}")
+            handles[f"m:{m.handle}"] = claim
+    for m in records.load_memories(records.global_memories_root(os.environ), "global"):
+        claim = _one_line(m.claim)
+        if claim:
+            _global_line(m, claim, today, lines, handles)
+    return lines, handles
+
+
+def _global_line(
+    m, claim: str, today: datetime.date, lines: list[str], handles: dict[str, str]
+) -> None:
+    """Add a global memory to the recorded lines: transcript ones with a handle (quarantined ones too: that is
+    how they get corroborated), the other live ones as `(general)`."""
+    if m.origin == "transcript" and (records.is_live(m, today) or _lapsed(m, today)):
+        lines.append(f"g:{m.handle}\t{claim}")
+        handles[f"g:{m.handle}"] = claim
+    elif records.is_live(m, today):
+        lines.append(f"(general)\t{claim}")
+
+
+def rules_text(project: Path) -> tuple[str, bool]:
+    """The owner's always-loaded instruction files, each under `## <name>`, the project's first, each cut to
+    RULES_LIMIT characters; and whether any was cut."""
+    config = os.environ.get("CLAUDE_CONFIG_DIR")
+    config_dir = Path(config).expanduser() if config else Path.home() / ".claude"
+    parts: list[str] = []
+    cut = False
+    for path in (project / "CLAUDE.md", project / "AGENTS.md", config_dir / "CLAUDE.md"):
+        try:
+            if path.is_file():
+                with path.open(encoding="utf-8", errors="replace") as f:
+                    text = f.read(RULES_LIMIT + 1)  # never the whole of a huge file
+            else:
+                text = ""
+        except OSError:
+            text = ""
+        if not text.strip():
+            continue
+        if len(text) > RULES_LIMIT:
+            text, cut = text[:RULES_LIMIT].rstrip("\n") + "\n[...] cut", True
+        parts.append(f"## {path.name}\n{text.rstrip(chr(10))}\n")
+    return "\n".join(parts), cut
+
+
+def session_cmd(
+    claude: str, work: Path, settings: Path, model: str, max_budget: float
+) -> list[str]:
+    """One session. Only the Read and Write tools exist (`--tools`, no MCP server), allowed inside `work` only (`//` is
+    an absolute path in a permission rule; a new file needs the Edit rule beside Write); no Bash, no web, hooks disabled
+    by `settings`."""
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=BRIEF.replace(WORK_PLACEHOLDER, str(work)),
+            model=model,
+            settings=settings,
+            effort="medium",
+            tools=("Read", "Write"),
+            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+            disallowed=("Bash", "WebSearch", "WebFetch"),
+            max_budget=max_budget,
+        )
+    )
+
+
+def run_session(cmd: list[str], work: Path) -> dict:
+    env = {k: v for k, v in os.environ.items() if k not in SESSION_VARS}
+    raw = headless.run_raw(cmd, cwd=work, env=env, timeout=SESSION_TIMEOUT).stdout
+    return sp.parse(raw)
+
+
+def read_candidates(path: Path) -> tuple[object, str | None]:
+    if not path.is_file():
+        return None, "the session wrote no candidates.json"
+    try:
+        if path.stat().st_size > MAX_CANDIDATES_BYTES:
+            return None, "candidates file too large"
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None, "candidates.json is not valid JSON"
+    return (rows, None) if isinstance(rows, list) else (None, "candidates.json is not a JSON list")
+
+
+Applied = tuple[str, str | None, str | None]  # (outcome, handle, reason)
+
+
+def _run_mem(
+    cmd: list[str], env: dict, stdin: str | None = None
+) -> subprocess.CompletedProcess | None:
+    """`bin/mem` with `cmd`, or None when it could not run."""
+    try:
+        return subprocess.run(
+            cmd,
+            check=False,
+            env=env,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=MEM_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def apply_global_sighting(
+    item: dict, session: str, env: dict, clean, day: str | None = None
+) -> Applied:
+    """One more sighting of a global record, counted with the project's key. The note never holds the evidence:
+    text of a transcript must not reach the global scope."""
+    project = Path(env["MEM_PROJECT"])
+    if records.under_temp(project):
+        return "skipped", None, "a temporary project"
+    handle = item["same_as"][2:]
+    if not any(
+        m.handle == handle and m.origin == "transcript" and m.status == "active"
+        for m in records.load_memories(records.global_memories_root(os.environ), "global")
+    ):
+        return "skipped", None, "not a global memory any more"
+    source = records.sighting_entry(session, records.project_key(project))
+    cmd = [
+        str(MEM),
+        "confirm",
+        f"m:{handle}",
+        "--global",
+        clean(f"--source={source}"),
+        f"--note=Seen again ({item['signal']}).",
+        f"--outcome={capture.outcome(item['signal'])}",
+        *_seen_on(day),
+    ]
+    done = _run_mem(cmd, env)
+    if done is None:
+        return "skipped", None, "mem could not run"
+    if done.returncode == 0:
+        return "sighting", handle, None
+    if done.returncode == MEM_EXIT_COUNTED:
+        return "skipped", None, "this session already counted"
+    return "skipped", None, f"mem failed ({done.returncode})"
+
+
+def _seen_on(day: str | None) -> list[str]:
+    return [f"--seen-on={day}"] if day else []
+
+
+def _clean(text: str) -> str:
+    """A lone surrogate cannot be encoded as an argument."""
+    return text.encode("utf-8", "replace").decode("utf-8")
+
+
+def _confirm_cmd(item: dict, session: str, day: str | None) -> list[str]:
+    return [
+        str(MEM),
+        "confirm",
+        item["same_as"],
+        f"--source={session}",
+        _clean(f"--note=Seen again ({item['signal']}): “{item['evidence']}”"),
+        f"--outcome={capture.outcome(item['signal'])}",
+        *_seen_on(day),
+    ]
+
+
+def _remember_cmd(item: dict, session: str, day: str | None) -> tuple[list[str], str]:
+    """The `mem remember` command and what it reads on standard input."""
+    cmd = [
+        str(MEM),
+        "remember",
+        f"--kind={item['kind']}",
+        _clean(f"--claim={item['claim']}"),
+        _clean(f"--context={item['context']}"),
+        "--origin",
+        "transcript",
+        "--reach",
+        item["reach"],
+        "--weight",
+        item["weight"],
+        f"--source={session}",
+        "--body-file",
+        "-",
+        f"--outcome={capture.outcome(item['signal'])}",
+        *_seen_on(day),
+    ]
+    body = _clean(
+        f"Signal: {item['signal']}\nForm: {item['form']}\nEvidence: “{item['evidence']}”\n"
+    )
+    return cmd, body
+
+
+def _already_recorded(item: dict, stdout: str) -> Applied:
+    """`mem remember` found the same claim: what it printed first says whether this session counted."""
+    if item["same_as"]:
+        return "skipped", None, "this session already counted"
+    lines = stdout.strip().splitlines()
+    handle, _, verdict = lines[0].partition("\t") if lines else ("", "", "")
+    if verdict in {"sighting", "case"}:
+        return "sighting", handle, None
+    if verdict == "already counted":
+        return "skipped", handle, "this session already counted"
+    return "skipped", None, "same claim already recorded"
+
+
+def _mem_result(item: dict, done: subprocess.CompletedProcess) -> Applied:
+    handle = done.stdout.split("\t", 1)[0].strip() if done.stdout.startswith("m:") else None
+    if done.returncode == 0:
+        return ("sighting" if item["same_as"] else "remembered"), handle, None
+    if done.returncode == MEM_EXIT_COUNTED:
+        return _already_recorded(item, done.stdout)
+    if done.returncode == MEM_EXIT_SECRET:
+        return "skipped", None, "refused: a secret"
+    return "skipped", None, f"mem failed ({done.returncode})"
+
+
+def _is_project_memory(handle: str, env: dict) -> bool:
+    """`mem confirm` also finds global records: only a memory of this project may get the sighting."""
+    project = records.project_dir(Path(env["MEM_PROJECT"]))
+    return any(f"m:{m.handle}" == handle for m in records.load_memories(project, "project"))
+
+
+def apply_one(item: dict, session: str, env: dict, day: str | None = None) -> Applied:
+    """Apply one kept candidate with `bin/mem`: (outcome, handle, reason). Text arguments use `--name=value`
+    because a claim may start with `-`."""
+    same_as = item["same_as"]
+    if same_as and same_as.startswith("g:"):
+        return apply_global_sighting(item, session, env, _clean, day)
+    stdin = None
+    if same_as:
+        if not _is_project_memory(same_as, env):
+            return "skipped", None, "not a memory of this project any more"
+        cmd = _confirm_cmd(item, session, day)
+    else:
+        cmd, stdin = _remember_cmd(item, session, day)
+    done = _run_mem(cmd, env, stdin)
+    if done is None:
+        return "skipped", None, "mem could not run"
+    return _mem_result(item, done)
+
+
+def apply_all(items: list[dict], transcript: Path, project: Path) -> list[dict]:
+    session = f"session {transcript.stem}"
+    env = {**os.environ, "MEM_PROJECT": str(project)}
+    try:  # the day the session ended (its file's last change, local time), not the day of a late sweep
+        day = datetime.date.fromtimestamp(transcript.stat().st_mtime).isoformat()
+    except (OSError, OverflowError, ValueError):
+        day = None
+    rows = []
+    for item in items:
+        try:
+            outcome, handle, reason = apply_one(item, session, env, day)
+        except Exception:  # ruff: ignore[blind-except] - one odd candidate never stops the others
+            outcome, handle, reason = "skipped", None, "could not be applied"
+        rows.append({
+            "claim": item["claim"][:80].encode("utf-8", "replace").decode("utf-8"),
+            "outcome": outcome,
+            "handle": handle,
+            "reason": reason,
+        })
+    return rows
+
+
+@dataclass
+class Window:
+    """What `run_window` is asked for. `allow_out_in_repo` skips only the refusal of an `--out` inside a repository
+    (a symlink is always refused); `quiet` suppresses only the summary line on standard output; `project=None`
+    is `--project` absent."""
+
+    transcript: Path
+    out_path: Path
+    project: Path | None
+    since_line: int
+    model: str
+    budget: float
+    claude: str | None
+    forward: bool
+    write: bool
+    no_rules: bool = False
+    keep_work: bool = False
+    allow_out_in_repo: bool = False
+    quiet: bool = False
+
+
+@dataclass
+class Trial:
+    """One window being run: its request, the resolved paths and the result dict that is filled as it goes."""
+
+    opts: Window
+    transcript: Path
+    project: Path
+    since: int
+    out: dict
+
+
+def _blank_result(name: str, since: int, model: str, project: Path) -> dict:
+    return {
+        "transcript": name,
+        "lines": [since + 1, since],
+        "model": model,
+        "cost": None,
+        "modeled": False,
+        "extract": {**_extract_info(""), "skipped": 0, "more": False},
+        "candidates": [],
+        "dropped": [],
+        "reason": None,
+        "project": project.name,
+    }
+
+
+def _extract_info(text: str) -> dict:
+    return {
+        "chars": len(text),
+        "cut": text.startswith(capture.LEFT_OUT_MARKER),
+        "parts": len(capture.parts(text)) if text else 0,
+        "skipped": capture.last_skipped,
+        "more": capture.last_more,
+        "lines": capture.counts(text),
+        "rules_chars": 0,
+        "rules_cut": False,
+    }
+
+
+def _out_refusal(out_path: Path, allow_out_in_repo: bool) -> str | None:
+    repo = None if allow_out_in_repo else repo_above(out_path.parent.resolve())
+    if repo is not None:
+        return f"--out is inside a repository ({repo}); the result holds session text"
+    if out_path.is_symlink():
+        return "--out is a symlink; refusing to write through it"
+    return None
+
+
+def _summary_line(out: dict) -> str:
+    cost = "unknown" if out["cost"] is None else f"{out['cost']:.3f}"
+    line = (
+        f"mem-capture: {len(out['candidates'])} kept, {len(out['dropped'])} dropped, "
+        f"lines {out['lines'][0]}-{out['lines'][1]}, cost {cost}"
+    )
+    if "written" in out:
+        n = [
+            sum(w["outcome"] == k for w in out["written"])
+            for k in ("remembered", "sighting", "skipped")
+        ]
+        line += f", written {n[0]} new, {n[1]} sightings, {n[2]} skipped"
+    return line
+
+
+def _finish(out: dict, out_path: Path, code: int, quiet: bool) -> tuple[dict, int]:
+    try:
+        private_dirs(out_path.parent)
+        write_private(out_path, json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+    except OSError as exc:
+        print(f"mem-capture: cannot write {out_path.name}: {exc.strerror or exc}", file=sys.stderr)
+        return out, 1
+    if code:
+        print(f"mem-capture: {out['reason']}", file=sys.stderr)
+    elif not quiet:
+        print(_summary_line(out))
+    return out, code
+
+
+def _model_session(cmd: list[str], work: Path, out: dict, claude: str) -> str | None:
+    """Run the session; fill `modeled` and `cost` in `out`; the reason it failed, else None."""
+    try:
+        done = run_session(cmd, work)
+    except OSError as exc:
+        return f"cannot start claude ({claude}): {exc.strerror or exc}"
+    out["modeled"] = True  # a model session ran, whatever its end
+    out["cost"] = done["cost"] if done["has_result"] else None
+    if not done["has_result"]:
+        return "the session ended without a cost report"
+    return "the session failed" if done["error"] else None
+
+
+def _write_work(work: Path, text: str, trial: Trial) -> tuple[list[str], dict[str, str]]:
+    """The files the session reads; the recorded lines and their handles."""
+    for number, piece in enumerate(capture.parts(text), 1):
+        write_private(work / f"extract-{number}.txt", piece + "\n")
+    recorded, handles = recorded_lines(trial.project)
+    write_private(work / "recorded.txt", "".join(f"{c}\n" for c in recorded))
+    rules, rules_cut = ("", False) if trial.opts.no_rules else rules_text(trial.project)
+    write_private(work / "rules.txt", rules)
+    trial.out["extract"]["rules_chars"], trial.out["extract"]["rules_cut"] = len(rules), rules_cut
+    return recorded, handles
+
+
+def _in_work_folder(root: Path, trial: Trial, claude: str, text: str) -> int:
+    work = root / "work"
+    work.mkdir(mode=0o700)
+    recorded, handles = _write_work(work, text, trial)
+    settings = root / "settings.json"
+    # no hook of the session may run anything
+    write_private(settings, json.dumps({"disableAllHooks": True}))
+    opts, out = trial.opts, trial.out
+    cmd = session_cmd(claude, work, settings, opts.model, opts.budget)
+    out["reason"] = _model_session(cmd, work, out, claude)
+    if out["reason"]:
+        return 1
+    rows, out["reason"] = read_candidates(work / "candidates.json")
+    if out["reason"]:
+        return 1
+    out["candidates"], out["dropped"] = capture.validate(
+        rows, text, [c.split("\t", 1)[1] for c in recorded], handles
+    )
+    if opts.write:
+        out["written"] = apply_all(out["candidates"], trial.transcript, trial.project)
+    return 0
+
+
+def _with_work_root(trial: Trial, claude: str, text: str) -> int:
+    root = Path(tempfile.mkdtemp(prefix="mem-capture-"))  # mode 0700
+    try:
+        return _in_work_folder(root, trial, claude, text)
+    finally:
+        if trial.opts.keep_work:
+            print(f"mem-capture: work folder kept at {root}", file=sys.stderr)
+        else:
+            shutil.rmtree(root, ignore_errors=True)
+
+
+def _read_window(trial: Trial) -> int:
+    """Extract the window and run the session on it; the exit code. Fills `trial.out`."""
+    out, opts = trial.out, trial.opts
+    if not trial.transcript.is_file():
+        out["reason"] = f"no transcript at {trial.transcript.name}"
+        return 1
+    text, last = capture.extract(trial.transcript, trial.since, opts.forward)
+    out["lines"] = [trial.since + 1, last]
+    out["extract"] = _extract_info(text)
+    if out["extract"]["lines"]["OWNER"] < MIN_OWNER_LINES:
+        out["reason"] = "too short"
+        return 0
+    if not opts.claude:
+        out["reason"] = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
+        return 1
+    return _with_work_root(trial, opts.claude, text)
+
+
+def run_window(*args: Any, **kwargs: Any) -> tuple[dict, int]:
+    """One window of one transcript: the result dict (also written to its `out_path`) and the exit code.
+    The arguments are the fields of `Window`, in order or by name."""
+    return run_window_of(Window(*args, **kwargs))
+
+
+def run_window_of(opts: Window) -> tuple[dict, int]:
+    """`run_window` for a ready `Window`."""
+    transcript = Path(opts.transcript).expanduser()
+    given = Path(opts.project or ".").expanduser().resolve()
+    if opts.project is not None and not given.is_dir():
+        out: dict = {"reason": f"--project is not a folder: {given.name}"}
+        print(f"mem-capture: {out['reason']}", file=sys.stderr)
+        return out, 2
+    # an explicit --project wins over MEM_PROJECT in the caller's environment
+    env = (
+        {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
+        if opts.project is not None
+        else os.environ
+    )
+    project = records.project_root(given, env) or given
+    since = max(opts.since_line, 0)
+    out = _blank_result(transcript.name, since, opts.model, project)
+    out_path = Path(opts.out_path).expanduser()
+    out["reason"] = _out_refusal(out_path, opts.allow_out_in_repo)
+    if out["reason"]:
+        print(f"mem-capture: {out['reason']}", file=sys.stderr)
+        return out, 1
+    code = _read_window(Trial(opts, transcript, project, since, out))
+    return _finish(out, out_path, code, opts.quiet)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    return run_window_of(
+        Window(
+            Path(args.transcript),
+            Path(args.out),
+            args.project,
+            args.since_line,
+            args.model or DEFAULT_MODEL,
+            args.budget,
+            args.claude,
+            args.forward,
+            args.write,
+            args.no_rules,
+            args.keep_work,
+        )
+    )[1]
+
+
+data_dir = jobs.state_dir  # the data folder, resolved as `mem-auto` does
+
+
+def seconds_env(name: str, default: float) -> float:
+    try:
+        value = float(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+    return value if math.isfinite(value) and value >= 0 else default
+
+
+def save_status(cdir: Path, **changes) -> dict:
+    jobs.private_dir(cdir)
+    data = {**jobs.read_json(cdir / jobs.STATUS_NAME), **changes}
+    for key in [k for k, v in data.items() if k == "failure" and v is None]:
+        del data[key]
+    jobs.write_json(cdir / jobs.STATUS_NAME, data)
+    return data
+
+
+append_log = jobs.append_log
+
+
+def hook_input() -> tuple[Path, Path] | None:
+    """(transcript, cwd) from the hook JSON on standard input, or None when either is missing or unusable."""
+    try:
+        data = json.load(sys.stdin)
+    except Exception:  # ruff: ignore[blind-except]
+        return None
+    if not isinstance(data, dict):
+        return None
+    path, cwd = data.get("transcript_path"), data.get("cwd")
+    if not isinstance(path, str) or not path or not Path(path).expanduser().is_file():
+        return None
+    if not isinstance(cwd, str) or not cwd or not Path(cwd).expanduser().is_dir():
+        return None
+    return Path(path).expanduser(), Path(cwd).expanduser()
+
+
+def without_paths(reason: str) -> str:
+    """`reason` with every token that holds a `/` replaced, so a log line carries no path."""
+    return " ".join("(path)" if "/" in token else token for token in reason.split())
+
+
+def has_memory_folder(cwd: Path) -> bool:
+    """Standard library only, for when the engine cannot be imported: a `.memory` folder in `cwd` or a parent."""
+    name = ".memory"  # records.PROJECT_DIR
+    return any((folder / name).is_dir() for folder in (cwd, *cwd.parents))
+
+
+def window_failure(res: dict, code: int) -> str | None:
+    """Why a window counts as failed, else None: a failed run, or candidates that `mem` could not record at all."""
+    if code != 0:
+        return str(res.get("reason") or f"exit code {code}")
+    rows = res.get("written") or []
+    reasons = [str(w.get("reason") or "") for w in rows]
+    if (
+        res["candidates"]
+        and rows
+        and all(r.startswith(("mem could not run", "mem failed")) for r in reasons)
+    ):
+        return reasons[0]
+    return None
+
+
+def auto(trigger: str, claude: str | None) -> None:
+    """What a hook starts: read the hook JSON, then `auto_run`. Never raises and never prints."""
+    if os.environ.get(cs.OPTION) != "true":
+        return
+    given = hook_input()
+    if given is not None:
+        auto_run(trigger, given[0], given[1], claude)
+
+
+def start_corroboration(claude: str | None) -> None:
+    """Start `mem-corroborate auto` detached; a failure to start it is swallowed."""
+    with contextlib.suppress(Exception):
+        cmd = [str(CORROBORATE), "auto", *(["--claude", claude] if claude else [])]
+        subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+
+def session_budget() -> float:
+    """The budget of one window from the plugin option, else DEFAULT_BUDGET."""
+    try:
+        budget = float(os.environ[cs.BUDGET_OPTION])
+    except (KeyError, ValueError):
+        return DEFAULT_BUDGET
+    return budget if math.isfinite(budget) and budget > 0 else DEFAULT_BUDGET
+
+
+@dataclass
+class Progress:
+    """Where the windows of one `auto_run` stand: the saved offset and attempts, the memories made, and the failure."""
+
+    offset: int = 0
+    attempts: int = 0
+    new: int = 0
+    modeled: int = 0
+    failed: str | None = None
+
+
+def append_run_log(run: Path, text: str) -> None:
+    fd = os.open(run / "log.txt", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    with os.fdopen(fd, "a", encoding="utf-8") as f:
+        f.write(f"{time.strftime('%H:%M:%S')} {text}\n")
+
+
+class AutoRun:
+    """The state of one `auto_run`: the log line it fills and the lock it holds."""
+
+    def __init__(self, trigger: str, transcript: Path, cwd: Path, claude: str | None) -> None:
+        self.transcript, self.cwd, self.claude = transcript, cwd, claude
+        self.data = data_dir()
+        self.cdir = cs.capture_dir(self.data)
+        self.session = transcript.stem
+        self.start = time.time()
+        self.line: dict = {
+            "t": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+            "trigger": trigger,
+            "session": self.session,
+            "windows": 0,
+            "modeled": False,
+            "kept": 0,
+            "written": {"remembered": 0, "sighting": 0, "skipped": 0},
+            "cost": None,
+            "offset": 0,
+            "more": False,
+            "skipped": None,
+            "failed": None,
+            "given_up": 0,
+            "ms": 0,
+        }
+        self.result: dict | None = self.line
+        self.logged = False
+        self.usable = False
+        self.lock: int | None = None
+        self.progress = Progress()
+
+    def finish_log(self) -> None:
+        self.line["ms"] = int((time.time() - self.start) * 1000)
+        append_log(self.cdir, self.line)
+        self.logged = True
+
+    def take_lock(self, lock_wait: float) -> bool:
+        """Wait for the capture lock, polling, up to `lock_wait` seconds."""
+        if self.line["trigger"] == "pre-compact":
+            time.sleep(seconds_env("MEM_CAPTURE_DELAY", cs.PRE_COMPACT_DELAY_SECONDS))
+        deadline = time.time() + seconds_env("MEM_CAPTURE_LOCK_WAIT", lock_wait)
+        # a floor, so a zero poll cannot spin the loop until the deadline
+        poll = max(seconds_env("MEM_CAPTURE_LOCK_POLL", LOCK_POLL_SECONDS), MIN_LOCK_POLL_SECONDS)
+        self.lock = jobs.take_run_lock(self.cdir)
+        while self.lock is None and time.time() < deadline:
+            time.sleep(min(poll, max(deadline - time.time(), 0.0)))
+            self.lock = jobs.take_run_lock(self.cdir)
+        return self.lock is not None
+
+    def skip(self, why: str) -> bool:
+        self.line["skipped"] = why
+        self.finish_log()
+        return False
+
+    def tally(self, res: dict) -> None:
+        """Add one window's result to the log line and the count of new memories."""
+        line = self.line
+        line["windows"] += 1
+        line["modeled"] = line["modeled"] or bool(res.get("modeled"))
+        if res.get("cost") is not None:
+            line["cost"] = (line["cost"] or 0.0) + res["cost"]
+        line["kept"] += len(res["candidates"])
+        for row in res.get("written") or []:
+            line["written"][row["outcome"]] += 1
+        self.progress.new += sum(w["outcome"] == "remembered" for w in res.get("written") or [])
+
+    def window_failed(self, res: dict, reason: str) -> None:
+        """A window failed: retry from the same offset, or give the window up after MAX_ATTEMPTS."""
+        progress = self.progress
+        progress.failed, self.line["more"] = reason, True
+        progress.attempts += 1
+        if progress.attempts < cs.MAX_ATTEMPTS:
+            cs.save_session(self.data, self.session, progress.offset, progress.attempts)
+            return
+        progress.offset, progress.attempts = res["lines"][1], 0
+        cs.save_session(self.data, self.session, progress.offset, 0)
+        self.line["given_up"] += 1
+
+    def step(self, project: Path, run: Path, number: int, budget: float) -> bool:
+        """One window; whether another follows."""
+        progress = self.progress
+        opts = Window(
+            self.transcript,
+            run / f"window-{number}.json",
+            project,
+            progress.offset,
+            "haiku",
+            budget,
+            self.claude,
+            forward=True,
+            write=True,
+            allow_out_in_repo=True,
+            quiet=True,
+        )
+        res, code = run_window_of(opts)
+        self.tally(res)
+        more = bool(res["extract"]["more"])
+        reason = window_failure(res, code)
+        append_run_log(
+            run,
+            f"window {number}: lines {res['lines'][0]}-{res['lines'][1]}, kept {len(res['candidates'])}, "
+            f"dropped {len(res['dropped'])}, written {len(res.get('written') or [])}, more {more}"
+            + (f", failed: {reason}" if reason else ""),
+        )
+        if reason:
+            self.window_failed(res, reason)
+            return False
+        self.line["more"] = more
+        short = res["reason"] == "too short"
+        if short and not more:
+            return False
+        progress.modeled += not short
+        progress.offset, progress.attempts = res["lines"][1], 0
+        cs.save_session(self.data, self.session, progress.offset, 0)
+        return more
+
+    def read_windows(self, project: Path, run: Path) -> None:
+        """Read the session from its saved offset, in up to MAX_WINDOWS windows."""
+        budget = session_budget()
+        saved = cs.read_session(self.data, self.session)
+        progress = self.progress
+        progress.offset, progress.attempts = saved["offset"], saved["attempts"]
+        if count_lines(self.transcript) < progress.offset:
+            progress.offset, progress.attempts = 0, 0
+        for number in range(1, cs.MAX_WINDOWS + 1):
+            if progress.new >= cs.MAX_NEW_PER_TRIGGER or not self.step(
+                project, run, number, budget
+            ):
+                break
+
+    def end_status(self, run: Path) -> dict:
+        progress = self.progress
+        done = time.time()
+        end: dict = {
+            "state": "failed" if progress.failed else "ok",
+            "finished": done,
+            "cost": self.line["cost"],
+        }
+        if progress.failed:
+            end["failure"] = {"at": done, "reason": progress.failed, "log": str(run)}
+        elif progress.modeled:
+            end["failure"] = None
+        return end
+
+    def capture(self, project: Path) -> bool:
+        """The windows, then the end status and the log line; whether the corroboration pass should start."""
+        run = self.cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
+        jobs.private_dir(run)
+        save_status(self.cdir, state="running", started=time.time(), log=str(run))
+        self.read_windows(project, run)
+        progress, written = self.progress, self.line["written"]
+        failed = progress.failed
+        self.line["offset"], self.line["failed"] = (
+            progress.offset,
+            without_paths(failed) if failed else None,
+        )
+        save_status(self.cdir, **self.end_status(run))
+        self.finish_log()
+        cs.prune_runs(self.cdir / "runs", cs.KEEP_RUNS, cs.KEEP_RUN_DAYS, time.time())
+        return not failed and bool(written["remembered"] or written["sighting"])
+
+    def attempt(self, lock_wait: float) -> bool:
+        """Everything up to the end of the run; whether the corroboration pass should start."""
+        project = records.project_root(self.cwd.resolve(), os.environ)
+        self.usable = True
+        if project is None or not records.project_dir(project).is_dir():
+            return self.skip("the project has no memory folder")
+        if not self.take_lock(lock_wait):
+            return self.skip("another capture is running")
+        return self.capture(project)
+
+    def report_crash(self, exc: Exception) -> None:
+        with contextlib.suppress(Exception):
+            reason = self.line["failed"] = type(exc).__name__
+            log = str(jobs.read_json(self.cdir / jobs.STATUS_NAME).get("log") or "")
+            failure = {"at": time.time(), "reason": reason, "log": log}
+            save_status(self.cdir, state="failed", finished=time.time(), failure=failure)
+        if not self.logged and (self.usable or self.cdir.exists()):
+            with contextlib.suppress(Exception):
+                self.finish_log()
+
+
+def auto_run(
+    trigger: str,
+    transcript: Path,
+    cwd: Path,
+    claude: str | None,
+    lock_wait: float = cs.LOCK_WAIT_SECONDS,
+) -> dict | None:
+    """The whole of `auto` for one transcript; see the module docstring. Never raises and never prints.
+    `lock_wait` is the seconds to wait for the capture lock (`MEM_CAPTURE_LOCK_WAIT` overrides it);
+    `MEM_CAPTURE_LOCK_POLL` overrides the seconds between attempts.
+    After a run that wrote a record and did not fail, and once the capture lock is released, it starts the
+    corroboration pass. Returns the run's log line, or None when the engine could not load. In it `windows` counts
+    the windows read (0 when nothing was read: lock held, no memory folder) and `modeled` is true when a model
+    session was started in any of them, even one that failed; `cost` is not that signal (a killed session has none)."""
+    job = AutoRun(trigger, transcript, cwd, claude)
+    corroborate = False
+    try:
+        corroborate = job.attempt(lock_wait)
+    except Exception as exc:  # ruff: ignore[blind-except] - a background process reports and ends
+        job.report_crash(exc)
+    finally:
+        if job.lock is not None:
+            os.close(job.lock)
+    if corroborate:
+        start_corroboration(claude)
+    return job.result
+
+
+def count_lines(path: Path) -> int:
+    with path.open("rb") as f:
+        return sum(1 for _ in f)
+
+
+def _cwd_value(raw: bytes) -> str | None:
+    """The `cwd` string of one transcript line, if it has one."""
+    if b'"cwd"' not in raw:
+        return None
+    try:
+        item = json.loads(raw)
+    except ValueError:
+        return None
+    value = item.get("cwd") if isinstance(item, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
+def first_cwd(path: Path) -> Path | None:
+    """The first `cwd` value that is an existing directory among the first CWD_SCAN_LINES lines; read line by line."""
+    with path.open("rb") as f:
+        for number, raw in enumerate(f):
+            if number >= CWD_SCAN_LINES:
+                break
+            value = _cwd_value(raw)
+            if value and Path(value).expanduser().is_dir():
+                return Path(value).expanduser()
+    return None
+
+
+def _idle_sessions(transcript: Path, now: float) -> list[tuple[float, int, Path]]:
+    """(mtime, size, path) of the other transcripts of the folder that are idle and not too old."""
+    found = []
+    for item in transcript.parent.iterdir():
+        if item.suffix != ".jsonl" or not item.is_file() or item.stem == transcript.stem:
+            continue
+        info = item.stat()
+        if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
+            found.append((info.st_mtime, info.st_size, item))
+    return found
+
+
+def _sweep_cwd(store: Path, item: Path) -> Path | None:
+    """The folder of a session that has lines left to read and a memory folder, else None."""
+    if count_lines(item) <= cs.read_session(store, item.stem)["offset"]:
+        return None
+    cwd = first_cwd(item)
+    if cwd is not None:
+        project = records.project_root(cwd.resolve(), os.environ)
+        if project is None or not records.project_dir(project).is_dir():
+            return None
+    return cwd
+
+
+def _note_sweep_run(store: Path, now: float, item: Path, size: int, run: dict | None) -> bool:
+    """Record what a sweep run settled; whether it started a model session."""
+    if run is None or not run["windows"]:
+        return False  # nothing was read (lock held, engine missing): a later start may
+    if run["modeled"]:
+        cs.note_sweep(store, now)
+    if not run["failed"] and not run["more"]:
+        # read to the end; otherwise a later start continues or retries
+        cs.save_swept_size(store, item.stem, size)
+    return bool(run["modeled"])
+
+
+def _sweep_one(store: Path, now: float, item: Path, size: int, claude: str | None) -> bool:
+    """Capture one idle session; whether it started a model session."""
+    cwd = _sweep_cwd(store, item)
+    if cwd is None:
+        # Settled without a run: nothing can change while the file does not, so remember its size.
+        cs.save_swept_size(store, item.stem, size)
+        return False
+    run = auto_run("sweep", item, cwd, claude, lock_wait=cs.SWEEP_LOCK_WAIT_SECONDS)
+    return _note_sweep_run(store, now, item, size, run)
+
+
+def _swept_transcript(data: object) -> Path | None:
+    """The starting session's transcript from the hook JSON, when its folder exists."""
+    path = data.get("transcript_path") if isinstance(data, dict) else None
+    if not isinstance(path, str) or not path:
+        return None
+    transcript = Path(path).expanduser()
+    return transcript if transcript.parent.is_dir() else None
+
+
+def _sweep_limit_reached(store: Path, now: float, used: int, examined: int) -> bool:
+    return (
+        used >= cs.SWEEP_MAX_SESSIONS
+        or examined >= cs.SWEEP_MAX_EXAMINED
+        or cs.sweeps_today(store, now) >= cs.SWEEP_MAX_PER_DAY
+    )
+
+
+def _sweep(claude: str | None) -> None:
+    if os.environ.get(cs.OPTION) != "true":
+        return
+    transcript = _swept_transcript(json.load(sys.stdin))
+    if transcript is None:
+        return
+    store, now = data_dir(), time.time()
+    found = _idle_sessions(transcript, now)
+    examined = used = 0  # files opened; runs that started a model session
+    for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
+        if _sweep_limit_reached(store, now, used, examined):
+            break
+        if cs.swept_size(store, item.stem) == size:
+            continue  # unchanged since its last sweep: one stat, not an examination
+        examined += 1
+        used += _sweep_one(store, now, item, size, claude)
+
+
+def sweep(claude: str | None) -> None:
+    """Capture sessions of the starting session's folder that were left open and never ended. Never raises, never prints."""
+    with contextlib.suppress(Exception):  # a background process ends quietly
+        _sweep(claude)
+
+
+def cmd_sweep(args: argparse.Namespace) -> int:
+    sweep(args.claude)
+    return 0
+
+
+def cmd_ack() -> int:
+    cdir = cs.capture_dir(data_dir())
+    current = jobs.read_json(cdir / jobs.STATUS_NAME)
+    if current:
+        changes: dict = {"failure": None}
+        started = current.get("started")
+        if (
+            current.get("state") == "running"
+            and isinstance(started, (int, float))
+            and time.time() - started > jobs.STALE_RUNNING_SECONDS
+        ):
+            changes["state"] = (
+                "failed"  # a run that was killed: without this its "did not finish" line would stay
+            )
+        save_status(cdir, **changes)
+    print("acknowledged: the failure line is cleared")
+    return 0
+
+
+def cmd_auto(args: argparse.Namespace) -> int:
+    auto(args.trigger, args.claude)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    run = commands.add_parser("run", help="read one transcript and keep the validated candidates")
+    run.add_argument("--transcript", required=True, help="the session transcript (JSONL)")
+    run.add_argument("--out", required=True, help="the result file (mode 0600)")
+    run.add_argument(
+        "--project",
+        default=None,
+        help="project folder whose memories are the claims already recorded "
+        "(default: the current directory)",
+    )
+    run.add_argument(
+        "--since-line", type=int, default=0, help="read the transcript after this line"
+    )
+    run.add_argument(
+        "--forward",
+        action="store_true",
+        help="read a window from --since-line forward, not the newest lines",
+    )
+    run.add_argument("--model", help=f"model of the session (default {DEFAULT_MODEL})")
+    run.add_argument(
+        "--budget",
+        type=budget_arg,
+        default=DEFAULT_BUDGET,
+        help=f"USD for the session (default {DEFAULT_BUDGET})",
+    )
+    run.add_argument(
+        "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
+    )
+    run.add_argument(
+        "--no-rules",
+        action="store_true",
+        help="leave rules.txt empty (the instruction files are not given)",
+    )
+    run.add_argument(
+        "--write",
+        action="store_true",
+        help="record the kept candidates in the project's memory (via bin/mem)",
+    )
+    run.add_argument(
+        "--keep-work", action="store_true", help="keep the work folder (it holds session text)"
+    )
+    run.set_defaults(func=cmd_run)
+    auto_cmd = commands.add_parser(
+        "auto", help="what a hook starts: read a session from its saved offset, in the background"
+    )
+    auto_cmd.add_argument("--trigger", required=True, choices=["pre-compact", "session-end"])
+    auto_cmd.add_argument(
+        "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
+    )
+    auto_cmd.set_defaults(func=cmd_auto)
+    sweep_cmd = commands.add_parser(
+        "sweep", help="what the session start launches: read sessions of the folder left open"
+    )
+    sweep_cmd.add_argument(
+        "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
+    )
+    sweep_cmd.set_defaults(func=cmd_sweep)
+    ack = commands.add_parser(
+        "ack", help="clear the failure line left by a failed automatic capture"
+    )
+    ack.set_defaults(func=lambda _args: cmd_ack())
+    args = parser.parse_args()
+    return args.func(args)

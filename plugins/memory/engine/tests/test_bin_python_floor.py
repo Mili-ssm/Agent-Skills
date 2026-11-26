@@ -110,9 +110,10 @@ def _banned_uses(tree: ast.AST) -> set[str]:
     return used
 
 
-def test_scripts_are_found() -> None:
-    assert {p.name for p in _scripts()} >= {"mem-capture"}
-    assert ENGINE / "core" / "jobs.py" in _closure(BIN / "mem-capture")
+def test_no_python_script_is_left_in_bin() -> None:
+    """Every `bin/` file is a uv launcher now, so the parametrized floor checks below have no script to run; the task that
+    replaces this file checks the launchers themselves."""
+    assert _scripts() == []
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)

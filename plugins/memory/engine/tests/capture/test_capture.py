@@ -1,8 +1,6 @@
 import ast
-import importlib.machinery
-import importlib.util
+import importlib
 import json
-import sys
 from pathlib import Path
 
 import mem
@@ -653,15 +651,8 @@ def test_a_step_the_owner_asked_for_that_paid_off_needs_the_owners_words():
     )
 
 
-def test_the_brief_names_every_signal_and_the_amended_exclusion(monkeypatch):
-    path = Path(__file__).resolve().parents[3] / "bin" / "mem-capture"
-    loader = importlib.machinery.SourceFileLoader("mem_capture_brief", str(path))
-    spec = importlib.util.spec_from_loader("mem_capture_brief", loader)
-    assert spec is not None
-    mod = importlib.util.module_from_spec(spec)
-    # @dataclass before Python 3.15 looks the module up in sys.modules
-    monkeypatch.setitem(sys.modules, spec.name, mod)
-    loader.exec_module(mod)
+def test_the_brief_names_every_signal_and_the_amended_exclusion():
+    mod = importlib.import_module("entry.capture")
     for name in capture_extract.SIGNALS:
         assert f'"{name}"' in mod.BRIEF
     assert (

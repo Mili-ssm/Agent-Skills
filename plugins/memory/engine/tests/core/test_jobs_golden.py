@@ -35,6 +35,7 @@ ENV_NAMES = ("MEM_DATA", "XDG_STATE_HOME", "HOME")
 
 ENTRIES = {
     "mem-auto": "entry.auto",
+    "mem-capture": "entry.capture",
     "mem-settle": "entry.settle",
 }  # launchers: the module they run lives in `engine/entry`
 
