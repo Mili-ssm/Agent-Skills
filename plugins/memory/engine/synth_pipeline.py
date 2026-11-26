@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Required, TypedDict, Unpack
 
+import headless
 import records
 import syntheses
 
@@ -242,36 +243,9 @@ def _allowed_tools(work: Path, read_roots: Sequence[Path]) -> list[str]:
     ]
 
 
-def _optional_flags(options: SessionOptions) -> list[str]:
-    effort, agent = options.get("effort"), options.get("agent")
-    max_budget = options.get("max_budget")
-    cmd: list[str] = []
-    if effort:
-        cmd += ["--effort", effort]
-    # the session stops itself past this spend (--print only)
-    if max_budget is not None:
-        cmd += ["--max-budget-usd", f"{max_budget:.4f}"]
-    # the agent's body is the session's system prompt
-    if agent:
-        cmd += ["--agent", agent]
-    return cmd
-
-
 def _stream(cmd: list[str], work: Path, env: dict, timeout: int) -> str:
     """The session's stdout; the part of it written before the timeout when the session is killed."""
-    try:
-        return subprocess.run(
-            cmd,
-            cwd=work,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            check=False,
-        ).stdout
-    except subprocess.TimeoutExpired as exc:
-        return exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+    return headless.run_raw(cmd, cwd=work, env=env, timeout=timeout).stdout
 
 
 def run_session(
@@ -283,29 +257,22 @@ def run_session(
     **options: Unpack[SessionOptions],
 ) -> dict:
     read_roots = options.get("read_roots", ())
-    cmd = [
-        claude,
-        "-p",
-        prompt,
-        "--model",
-        model,
-        "--plugin-dir",
-        str(PLUGIN),
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        "--allowedTools",
-        *_allowed_tools(work, read_roots),
-        "--disallowedTools",
-        "WebSearch",
-        "WebFetch",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        *_optional_flags(options),
-    ]
+    cmd = headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=prompt,
+            model=model,
+            settings=settings,
+            effort=options.get("effort") or None,
+            plugin_dir=PLUGIN,
+            allowed=tuple(_allowed_tools(work, read_roots)),
+            disallowed=("WebSearch", "WebFetch"),
+            # the session stops itself past this spend (--print only)
+            max_budget=options.get("max_budget"),
+            # the agent's body is the session's system prompt
+            agent=options.get("agent") or None,
+        )
+    )
     env = {
         **options["env"],
         "MEM_SANDBOX": "1",

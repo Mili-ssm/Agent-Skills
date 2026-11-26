@@ -223,6 +223,7 @@ def test_synthesis_command_line_minimal(run: Recorder, tmp_path: Path) -> None:
         "--plugin-dir": (str(PLUGIN),),
         "--settings": (str(settings),),
         "--setting-sources": ("project",),
+        "--strict-mcp-config": (),
         "--allowedTools": (
             *SYNTH_MEM_ALLOWED,
             f"Read(/{store}/**)",
@@ -262,6 +263,7 @@ def test_synthesis_command_line_with_effort_budget_and_agent(run: Recorder, tmp_
         "--plugin-dir": (str(PLUGIN),),
         "--settings": (str(settings),),
         "--setting-sources": ("project",),
+        "--strict-mcp-config": (),
         "--allowedTools": (
             *SYNTH_MEM_ALLOWED,
             f"Read(/{skill_dir}/**)",
