@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: planned, pre-mortem 2026-11-26 applied · Branch: `refactor/memory-mem-split` (from `dev` 1af5485), one pull request per task · Date: 2026-11-26
+Status: done 2026-11-26 · Branch: `refactor/memory-mem-split` (from `dev` 1af5485), one pull request per task · Date: 2026-11-26
 
 **Goal:** `engine/mem.py` (10,502 lines) becomes the parser, the dispatch and a re-export map; every `cmd_*` handler lives with its logic in `engine/commands/`; behavior unchanged.
 
@@ -74,12 +74,14 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] As Task 2; `PAIR_WORK` patch retargeted to `hooks`; session-index hook p50/p95 267/292 ms before, 270-274/292-298 ms after; `tokenize` joins `_MOVED` (maps to `memories.matching`: `mem.py` no longer imports it); capture and session may be imported by `commands`.
 
 ### Task 9: `commands/synthesis.py`, then docs
-- [ ] As Task 2 (last: highest churn; `_write_logged_changes` patch retargeted; the allow-list ends empty); then ADR 0034 Review line, backlog A5, refactor plan item, resume state.
+- [x] As Task 2 (last: highest churn; `_write_logged_changes` patch retargeted; the allow-list ends empty); then ADR 0034 Review line, backlog A5, refactor plan item, resume state. Result: `mem.py` 1,403 lines (the plan target of 1,350 was not met: the parser alone is 948 lines, the rest is dispatch, `_MOVED` and parser constants); no command cluster is left in it.
 
 ## Deferred findings
 
 | Finding | Ruling |
 |---|---|
+| Untouched tests that read `mem.X` through `__getattr__` are typed `object` (`mem.check`, `mem.split_frontmatter` and others) | basedpyright errors when such a test file is next touched: retarget it to the defining module then (done for the files Task 9 touched) |
+| `notes/search.py` prints a skip warning on stderr for an unreadable note | Documented in its module docstring (pure means no subprocess, no `os.environ`, no file writes) |
 
 ## Kill criteria
 

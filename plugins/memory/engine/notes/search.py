@@ -1,4 +1,4 @@
-"""Search over the typed notes: filters, BM25F ranking, links, mentions and the search-eval table (A5, ADR 0028); pure, the `mem` commands print what it returns."""
+"""Search over the typed notes: filters, BM25F ranking, links, mentions and the search-eval table (A5, ADR 0028). Pure means no subprocess, no `os.environ` and no file writes; it only reads, and prints a skip warning on stderr for a note it cannot read. The `mem` commands print what it returns."""
 
 from __future__ import annotations
 
