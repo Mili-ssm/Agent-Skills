@@ -10,10 +10,10 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
 import time
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
+import headless
 import synth_pipeline as sp
 import syntheses
 
@@ -78,51 +78,24 @@ def session_cmd(
 ) -> list[str]:
     """Only Read exists (`--tools`, no MCP server) and the rules allow it inside the work folder and the store
     (`//` is an absolute path in a permission rule): no shell, no web, no write."""
-    settings, max_budget = options["settings"], options["max_budget"]
-    cmd = [
-        claude,
-        "-p",
-        prompt,
-        "--model",
-        "haiku",
-        "--effort",
-        sp.CHEAP,
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        "--tools",
-        "Read",
-        "--strict-mcp-config",
-        # --tools says which tools exist; a headless session still needs the permission to call them
-        "--allowedTools",
-        f"Read(/{work}/**)",
-        f"Read(/{store}/**)",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-    ]
-    if max_budget is not None:
-        cmd += ["--max-budget-usd", f"{max_budget:.4f}"]
-    return cmd
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=prompt,
+            model="haiku",
+            effort=sp.CHEAP,
+            settings=options["settings"],
+            tools=("Read",),
+            # --tools says which tools exist; a headless session still needs the permission to call them
+            allowed=(f"Read(/{work}/**)", f"Read(/{store}/**)"),
+            max_budget=options["max_budget"],
+        )
+    )
 
 
 def run_session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
     start = time.monotonic()
-    try:
-        raw = subprocess.run(
-            cmd,
-            check=False,
-            cwd=work,
-            env=env,
-            stdin=subprocess.DEVNULL,
-            capture_output=True,
-            text=True,
-            timeout=TIMEOUT,
-        ).stdout
-    except subprocess.TimeoutExpired as exc:
-        raw = exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")
+    raw = headless.run_raw(cmd, cwd=work, env=env, timeout=TIMEOUT).stdout
     log.write_text(raw, encoding="utf-8")
     result = sp.parse(raw)
     result["wall"] = time.monotonic() - start

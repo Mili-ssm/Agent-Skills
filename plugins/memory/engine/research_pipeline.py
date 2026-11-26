@@ -21,7 +21,6 @@ import math
 import os
 import re
 import shutil
-import subprocess
 import sys
 import tempfile
 import time
@@ -129,72 +128,38 @@ def mem_env(store: Path) -> dict[str, str]:
 # ---- sessions ----
 
 
-def work_tools(work: Path) -> list[str]:
-    """Only Read, Write and Edit exist (`--tools`, no MCP server), and the rules allow them inside `work` only
-    (`//` is an absolute path in a permission rule); no shell, no web."""
-    return [
-        "--tools",
-        "Read,Write,Edit",
-        "--strict-mcp-config",
-        "--allowedTools",
-        f"Read(/{work}/**)",
-        f"Write(/{work}/**)",
-        f"Edit(/{work}/**)",
-    ]
-
-
 def file_cmd(claude: str, prompt: str, work: Path, settings: Path, max_budget: float) -> list[str]:
-    """A session of the memory or verdict step."""
-    return [
-        claude,
-        "-p",
-        prompt,
-        "--model",
-        "haiku",
-        "--effort",
-        "medium",
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        *work_tools(work),
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        "--max-budget-usd",
-        f"{max_budget:.4f}",
-    ]
+    """A session of the memory or verdict step. Only Read, Write and Edit exist (`--tools`, no MCP server), and the
+    rules allow them inside `work` only (`//` is an absolute path in a permission rule); no shell, no web."""
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=prompt,
+            model="haiku",
+            effort="medium",
+            settings=settings,
+            tools=("Read", "Write", "Edit"),
+            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+            max_budget=max_budget,
+        )
+    )
 
 
 def web_cmd(claude: str, prompt: str, settings: Path, max_budget: float) -> list[str]:
-    """The web session: only WebSearch and WebFetch, no MCP server, no plugin, hooks off, project settings only."""
-    return [
-        claude,
-        "-p",
-        prompt,
-        "--model",
-        "haiku",
-        "--effort",
-        "medium",
-        "--settings",
-        str(settings),
-        "--setting-sources",
-        "project",
-        "--tools",
-        "WebSearch,WebFetch",
-        "--strict-mcp-config",
-        # --tools says which tools exist; a headless session still needs the permission to call them
-        "--allowedTools",
-        "WebSearch",
-        "WebFetch",
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--no-session-persistence",
-        "--max-budget-usd",
-        f"{max_budget:.4f}",
-    ]
+    """The web session: only WebSearch and WebFetch, no MCP server, no plugin, hooks off, project settings only.
+    `--tools` says which tools exist; a headless session still needs the permission to call them."""
+    return headless.command(
+        headless.Session(
+            claude=claude,
+            prompt=prompt,
+            model="haiku",
+            effort="medium",
+            settings=settings,
+            tools=("WebSearch", "WebFetch"),
+            allowed=("WebSearch", "WebFetch"),
+            max_budget=max_budget,
+        )
+    )
 
 
 def _dict_or_empty(value: object) -> dict[str, Any]:
@@ -303,22 +268,9 @@ class Run:
         (folder / "brief.txt").write_text(prompt, encoding="utf-8")
         start = time.monotonic()
         try:
-            done = subprocess.run(
-                cmd,
-                cwd=cwd,
-                env=env,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                timeout=max(1.0, self.seconds_left()),
-                check=False,
-            )
-            raw, failed = done.stdout, ""
-        except subprocess.TimeoutExpired as exc:
-            raw, failed = (
-                (exc.stdout.decode() if isinstance(exc.stdout, bytes) else (exc.stdout or "")),
-                "time limit reached",
-            )
+            out = headless.run_raw(cmd, cwd=cwd, env=env, timeout=max(1.0, self.seconds_left()))
+            raw = out.stdout
+            failed = "time limit reached" if out.timed_out else ""
         except OSError as exc:
             raw, failed = "", f"cannot start claude: {exc}"
         (folder / "session.jsonl").write_text(raw)
