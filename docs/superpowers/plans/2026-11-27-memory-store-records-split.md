@@ -60,7 +60,22 @@ A recut follows these lists; a cycle is fixed by recutting, never by `TYPE_CHECK
 - [x] (tests left in `tests/`: those that import another test file or are imported by one: `test_check`, `test_rules`, `test_store_git`; the rest of the store-related tests exercise `mem` or other features) `git mv` the ten modules; importers, string refs (`bin/mem-capture` `import_module("records")`, eval answer keys), `__file__` paths, `ruff.toml` py311, tests to `tests/store/` when they import no other test file; the store rule; rename `STORE_MODULES` (add `rules`, `shortcheck`, `fingerprints`), the `test_module_imports_without_mem` params, the `check.py` path in `test_check_stays_pure`; `test_notes_imports_no_other_engine_module` excludes `store/__init__`; `ruff.toml` `store/*` py311; eval answer key `store/records.py`; `test_syntheses` globs `store/*.py`; `test_capture_state` blocks `store`. Check: suite, goldens, collected count, self-checks.
 
 ### Task 3: Split `store/records.py`
-- [ ] One commit per module, bottom-up in the table order: verbatim move, the facade imports it, patches per the patch rule; then store's own modules off the facade, then the no-facade-inside-store rule; eval answer key → `store/locations.py`. Check per commit: suite, goldens, import graph (no cycle), each module under 600 lines.
+- [x] One commit per module, bottom-up in the table order: verbatim move, the facade imports it, patches per the patch rule; then store's own modules off the facade, then the no-facade-inside-store rule; eval answer key → `store/locations.py`. Check per commit: suite, goldens, import graph (no cycle), each module under 600 lines.
+
+### Task 3b: `store/` becomes `memories/` and `notes/` (owner ruling 2026-11-27)
+
+ADR 0034's revisit trigger fired: `store/` reached 19 modules in two families with different reasons to change. Owner chose two top-level packages over subpackages in `store/` and over keeping it flat. Layering, enforced in `test_import_graph.py`: `notes → memories → core`; `memories` and `notes` are base layers any feature package may import (the `store` ruling, carried over); `memories` never imports `notes`.
+
+| From | To |
+|---|---|
+| `store/{records,journal,matching,terms,locations,sightings,pairing,rules,shortcheck,fingerprints}.py` | `memories/` (same names) |
+| `store/memory_model.py`, `memory_parse.py`, `memory_write.py` | `memories/model.py`, `parse.py`, `write.py` (the package already says "memory") |
+| `store/{index,check,syntheses,project_syntheses}.py` | `notes/` |
+| `store/notes.py` | `notes/note.py` |
+| `store/store_git.py` | `core/store_git.py` (imports only `core`; both families commit the store) |
+| `_BaseLoader`, `safe_load` from `store/notes.py` | `core/yaml_load.py` (so `memories` does not import `notes`); `notes/note.py` imports them |
+
+- [ ] One commit per step: (1) `core/yaml_load.py` and `core/store_git.py`; (2) `memories/` move with renames; (3) `notes/` move; (4) delete `store/`, graph rules (`memories` imports only core and memories; `notes` only core, memories, notes; the no-facade rule now for `memories/*`), tests to `tests/memories/` and `tests/notes/`, `ruff.toml` py311 entries, string refs, eval answer keys. Check per step: suite, collected count unchanged, goldens, bin self-checks on 3.11.15, the graph rule bites.
 
 ### Task 4: Split reviews and gate
 - [ ] Split reviews of `check.py` (1,396 lines) and `syntheses.py` (1,313): split along their sections if cohesive parts exist, else record why not. Full matrix; docs (ADR 0034 `## Review`, backlog A6/A14, resume state, this plan).
