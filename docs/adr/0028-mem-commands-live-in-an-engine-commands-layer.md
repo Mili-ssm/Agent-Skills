@@ -12,7 +12,7 @@ Status: accepted · Date: 2026-11-26
 
 ## Decision
 
-Create `engine/commands/` (`common`, `admin`, `read`, `edit`, `sources`, `synthesis`, `memory`, `curate`, `hooks`), each module holding its `cmd_*` handlers with their logic; pure search goes to `notes/search.py`. `commands` is a top layer like `entry`: it may import every package, only `mem` imports it. `mem.py` keeps the parser, the dispatch and `_MOVED` (a name → defining module map for names tests read as `mem.X`), imports the command modules eagerly except `sources` (a local static import: `http.client` and `html.parser` cost about 18 ms on every hook run). Handlers raise `UsageError`; the dispatch turns it into `parser.error`, so the message and exit code 2 stay identical. Command modules call shared engine names through their module attribute, never by a from-import, so a test that patches the defining module (or uses `patch_all`, which also walks `commands.*`) reaches every caller; never `mem`. Owner rulings 2026-11-26: the parser stays in `mem.py`; `admin` stays apart from `common`; the `settle` commands live in `commands/memory.py`.
+Create `engine/commands/` (`common`, `admin`, `read`, `edit`, `sources`, `synthesis`, `memory`, `curate`, `hooks`), each module holding its `cmd_*` handlers with their logic; pure search goes to `notes/search.py`. `commands` is a top layer like `entry`: it may import every package, only `mem` imports it. `mem.py` keeps the parser, the dispatch and `_MOVED` (a name → defining module map for names tests read as `mem.X`), imports the command modules eagerly, `sources` included: a local import would save about 18 ms of `http.client` and `html.parser` per run, but Ruff's `import-outside-top-level` forbids it and a config exception costs more than 18 ms of a 3–4 s hook budget (Task 5, 2026-11-26). Handlers raise `UsageError`; the dispatch turns it into `parser.error`, so the message and exit code 2 stay identical. Command modules call shared engine names through their module attribute, never by a from-import, so a test that patches the defining module (or uses `patch_all`, which also walks `commands.*`) reaches every caller; never `mem`. Owner rulings 2026-11-26: the parser stays in `mem.py`; `admin` stays apart from `common`; the `settle` commands live in `commands/memory.py`.
 
 ## Alternatives
 
@@ -21,7 +21,7 @@ Create `engine/commands/` (`common`, `admin`, `read`, `edit`, `sources`, `synthe
 | Handlers into `notes`, `memories`, `session`, `syntheses` | base layers would import feature packages; `session` would need new edges to `capture` and `settle` |
 | A `cli.py` per feature package | six of the nine clusters have no feature package |
 | Split along the section banners | leaves handlers thousands of lines from their logic (A5) |
-| Lazy import of every handler | `importlib` is banned in the engine; at most about 20 ms gained |
+| Lazy import of every handler, or of `sources` alone | `importlib` is banned in the engine and Ruff forbids a local import; at most about 20 ms gained |
 | A `register(sub)` parser per module now | doubles each pull request; owner kept the parser in `mem.py` |
 
 ## Consequences

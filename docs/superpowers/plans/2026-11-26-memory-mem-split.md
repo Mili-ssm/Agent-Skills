@@ -43,7 +43,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 1. A `monkeypatch.setattr(mem, name, …)` that no longer reaches the moved code (R1: `mem.time` in `test_fetch_sources.py` would sleep for real, slow but green).
 2. Messages and exit codes of the twelve `build_parser().error` sites after `UsageError` (golden first).
 3. Module-level handler dicts (`_PS_`, `_SETTLE_`, `_PROJECTS_`, `_TERMS_HANDLERS`) moving with their handlers.
-4. Start-up: the session-index hook timed (p50, p95) before and after the hooks task; `sources` stays lazily imported.
+4. Start-up: the session-index hook timed (p50, p95) before and after the hooks task (`sources` is imported eagerly, about 18 ms).
 5. Each task re-moves from `dev`'s tip and checks every moved function's AST against it (174 commits in nine days; no other work on `mem.py` during A5).
 6. Names defined twice after a move (`__getattr__` picking the wrong one): `_MOVED` maps each name to one module.
 
@@ -62,7 +62,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] As Task 2; patches `_edited_note_text`, `_index_files`, `apply_index` retargeted (`_swap_file`, `invalid_changed` already were); `_attach`, `_set_part_of`, `_log_note` live in `edit`; `_section_ref`, `_note_target`, `NewNoteError`, `_sha`, `_log_group`, `_read_body` stay shared in `common`.
 
 ### Task 5: `commands/sources.py`
-- [ ] As Task 2; local static import from `mem.py`; patches `_download`, `FETCH_MAX_BYTES`, `time`, `_write_text_copy` retargeted.
+- [x] As Task 2; imported eagerly (a local import is forbidden by Ruff PLC0415; ADR 0028); patches `_download`, `FETCH_MAX_BYTES`, `time`, `_write_text_copy` retargeted.
 
 ### Task 6: `commands/memory.py` (with settle)
 - [ ] As Task 2; `_merge_pair` patch retargeted.
