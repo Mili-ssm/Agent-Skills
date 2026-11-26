@@ -1165,11 +1165,41 @@ def _commit_all(store: Path, message: str) -> None:
     )
 
 
+# What the fake session writes: it must pass `mem check`, or the store's commit gate holds it back.
+FAKE_NOTE = """---
+claim: A fake session wrote this
+topics: [notes]
+confidence: low
+level: basic
+origin: experience
+updated: 2026-11-26
+---
+
+## Claim
+
+x
+
+## Evidence
+
+x
+
+## Applies when
+
+x
+
+## Does not apply when
+
+x
+"""
+
+
 def _fake_claude(tmp: Path, store: Path) -> Path:
-    """A `claude` that touches a file in the store and stops; the store gets a committed fixture."""
+    """A `claude` that writes a valid note into the store and stops; the store gets a committed fixture."""
     fake = tmp / "fake-claude"
     fake.write_text(
-        '#!/bin/sh\ntouch "$MEM_STORE/knowledge/touched.md"\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n',
+        '#!/bin/sh\nmkdir -p "$MEM_STORE/knowledge/notes"\ncat > "$MEM_STORE/knowledge/notes/touched.md" <<\'EOF\'\n'
+        + FAKE_NOTE
+        + 'EOF\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n',
         encoding="utf-8",
     )
     fake.chmod(0o755)
