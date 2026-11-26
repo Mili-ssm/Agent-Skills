@@ -32,7 +32,7 @@ Engine code lives in feature packages under `engine/` (`synthesize/` first; then
 - The engine becomes an installed package (for example when `bin/` runs through `uv` as a project): then a `src/` layout and entry points replace the `sys.path` insert.
 - A package grows past about 10 modules or mixes unrelated reasons to change: split it.
 
-## Review 2026-11-27
+## Review 2026-11-26
 
 The last revisit trigger fired: `store/` reached 19 modules in two families with different reasons to change (the memory records, and the notes with their index, validators and syntheses). The owner chose two top-level packages over subpackages inside `store/` and over keeping it flat; `store/` no longer exists.
 
@@ -46,5 +46,5 @@ The last revisit trigger fired: `store/` reached 19 modules in two families with
 - Layering, enforced in `test_import_graph.py`: `notes → syntheses → memories → core`; `memories` imports neither `notes` nor `syntheses`, `syntheses` never imports `notes`. `memories`, `syntheses` and `notes` are base layers like `core`: any feature package may import them, within its own entry in `PACKAGE_DEPENDENCIES`.
 - Modules inside `memories/` import siblings directly, never the `records` facade (a rule in the same test).
 - `patch_all` (`tests/patching.py`) patches every `memories.*`, `syntheses.*` and `notes.*` binding of a name.
-- `notes/check.py` (1,396 lines) and the old `notes/syntheses.py` (1,316) were split by cohesion, not to a line cap; `check.py` keeps the whole rule catalog (~800 lines). Owner rule 2026-11-27: size is a balance, neither one 10k-line file nor a hundred 100-line files; split a file that mixes reasons to change or abstraction levels, or a part likely to grow or change often; merge small parts that rarely change. Measured norm: CPython 3.14 stdlib median 269 lines, p90 1,165, p99 3,409; rustc's tidy rejects files over 3,000 lines.
+- `notes/check.py` (1,396 lines) and the old `notes/syntheses.py` (1,316) were split by cohesion, not to a line cap; `check.py` keeps the whole rule catalog (~800 lines). Owner rule 2026-11-26: size is a balance, neither one 10k-line file nor a hundred 100-line files; split a file that mixes reasons to change or abstraction levels, or a part likely to grow or change often; merge small parts that rarely change. Measured norm: CPython 3.14 stdlib median 269 lines, p90 1,165, p99 3,409; rustc's tidy rejects files over 3,000 lines.
 - Behavior and goldens are unchanged; the collected count grew only by new guard tests.

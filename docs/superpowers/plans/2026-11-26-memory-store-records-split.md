@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development with the owner's Plan loop (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax.
 
-Status: planned, pre-mortem 2026-11-27 applied · Branches: stacked, `refactor/memory-store-clean` (from `dev` 6cb7571) → `refactor/memory-store-move` → `refactor/memory-records-split` · Date: 2026-11-27
+Status: planned, pre-mortem 2026-11-26 applied · Branches: stacked, `refactor/memory-store-clean` (from `dev` 6cb7571) → `refactor/memory-store-move` → `refactor/memory-records-split` · Date: 2026-11-26
 
 **Goal:** the store's modules live in `engine/store/`, and `records.py` (1,856 lines, 56 importers) is split by responsibility inside it; behavior unchanged.
 
 **Architecture:** first the move (A14 Task 5, [plan](2026-11-26-memory-engine-packages.md)): `records`, `syntheses`, `project_syntheses`, `store_git`, `index`, `notes`, `check`, `rules`, `shortcheck` and `digest_text` → `fingerprints` go to `engine/store/` with the A14 method (alias imports `from store import records`, measured import rules: store imports only stdlib, `core` and `store`). Then the split of `store/records.py` (review A6), along its own sections:
 
-Nine modules cut along the measured call graph (pre-mortem AST, 2026-11-27), extracted bottom-up, one commit each; module names avoid the facade's function names (`projects`, `cases`, `pairs`) and the common parameter name `memory`:
+Nine modules cut along the measured call graph (pre-mortem AST, 2026-11-26), extracted bottom-up, one commit each; module names avoid the facade's function names (`projects`, `cases`, `pairs`) and the common parameter name `memory`:
 
 | Module | Holds (from `records.py`) | Imports (store) |
 |---|---|---|
@@ -36,7 +36,7 @@ A recut follows these lists; a cycle is fixed by recutting, never by `TYPE_CHECK
 - Facade rule: `store/records.py` holds only imports and `__all__`, no function bodies. Check: every `records.<attr>` used in engine, `bin/` and evals (about 101 names) is in `dir(records)`.
 - Patch rule: patch every binding the code under test looks up: a call through the facade (`records.update` in `mem.py`) needs the facade patched, a direct call inside a submodule (`add_sighting` → `update`) needs the defining module; a `patch_all(monkeypatch, name, fn)` test helper patches both. A negative patch (`got_worse` → `1/0`, asserting it is never called) gets a positive control proving the name is called when not blocked.
 - Store's own modules (`syntheses`, `project_syntheses`, `rules`, `digest_text` → `fingerprints`) move off the facade in Task 3 before the no-facade-inside-store rule lands.
-- Ruling (coordinator, 2026-11-27): `store` is a base layer like `core`: any package may import it (capture, corroborate, settle, research, digest, session already import `records` at base); `store` imports only stdlib, `core` and `store`.
+- Ruling (coordinator, 2026-11-26): `store` is a base layer like `core`: any package may import it (capture, corroborate, settle, research, digest, session already import `records` at base); `store` imports only stdlib, `core` and `store`.
 - Engine modules inside `store/` import siblings directly (`from store import memory`), never through the facade; a rule in `test_import_graph.py` forbids `store/*` importing `store.records`.
 - New code imports the submodules; migrating the 56 importers off the facade is a later, optional task (recorded in the backlog).
 - Tests: suite on default Python and `--python 3.12.0` (2,671 passed, 5 skipped at base); collected count unchanged by moves; self-checks of `mem-auto`, `mem-settle`, `mem-corroborate`, `mem-synthesize` on 3.11.15 and default.
@@ -62,7 +62,7 @@ A recut follows these lists; a cycle is fixed by recutting, never by `TYPE_CHECK
 ### Task 3: Split `store/records.py`
 - [x] One commit per module, bottom-up in the table order: verbatim move, the facade imports it, patches per the patch rule; then store's own modules off the facade, then the no-facade-inside-store rule; eval answer key → `store/locations.py`. Check per commit: suite, goldens, import graph (no cycle), each module under 600 lines.
 
-### Task 3b: `store/` becomes `memories/` and `notes/` (owner ruling 2026-11-27)
+### Task 3b: `store/` becomes `memories/` and `notes/` (owner ruling 2026-11-26)
 
 ADR 0034's revisit trigger fired: `store/` reached 19 modules in two families with different reasons to change. Owner chose two top-level packages over subpackages in `store/` and over keeping it flat. Layering, enforced in `test_import_graph.py`: `notes → memories → core`; `memories` and `notes` are base layers any feature package may import (the `store` ruling, carried over); `memories` never imports `notes`.
 
@@ -77,18 +77,18 @@ ADR 0034's revisit trigger fired: `store/` reached 19 modules in two families wi
 
 - [ ] One commit per step: (1) `core/yaml_load.py` and `core/store_git.py`; (2) `memories/` move with renames; (3) `notes/` move; (4) delete `store/`, graph rules (`memories` imports only core and memories; `notes` only core, memories, notes; the no-facade rule now for `memories/*`), tests to `tests/memories/` and `tests/notes/`, `ruff.toml` py311 entries, string refs, eval answer keys. Check per step: suite, collected count unchanged, goldens, bin self-checks on 3.11.15, the graph rule bites.
 
-Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is guards that go vacuous):
+Pre-mortem 2026-11-26 amendments (measured: package graph acyclic; the risk is guards that go vacuous):
 - Every guard that names modules by string is retargeted and proven by a temporary violation: `test_import_graph.py` (`store.store_git` check, `test_notes_imports_no_other_engine_module` → allow `core.yaml_load` explicitly, base-layer set, PACKAGE_DEPENDENCIES, STORE_MODULES, no-facade prefix), `tests/capture/test_capture_state.py` `sys.modules` block, `tests/store/test_records_facade.py` `node.module`, `tests/patching.py` prefix (`memories.`, `notes.`), `bin/mem-capture` `import_module("store.records")` (the floor test skips unresolved names).
 - Every `from store` in `evals/` (6 files) retargeted, checked by an import smoke test of each eval with `engine/` on `sys.path`.
 - `"safe_load"` leaves `mem.py` `_MOVED` (no caller reads `mem.safe_load`; F401 would strip it from `note.py`).
 - Modules keep their aliases (`notes_mod` in check/index, `note_files` in mem.py): `note` is a loop variable in 72+ places.
 - `ruff.toml` py311 entries for `memories/*`, `notes/*` land with their move; I001 regrouping fixed by hand after `ruff check --no-fix`.
 - Remaining facade patches on `records.update` / `records.log_before` move to `patch_all`.
-- Docs: ADR 0034 `## Review 2026-11-27` (the revisit trigger fired), README `engine/store/shortcheck.py`, backlog A14.
+- Docs: ADR 0034 `## Review 2026-11-26` (the revisit trigger fired), README `engine/store/shortcheck.py`, backlog A14.
 - Kill: after the last step `grep -rnE "from store|\"store\.|'store'|store/" plugins/memory --include=*.py` and in `bin/` finds anything outside fixtures; a guard stays green when violated; collected count or a golden changes; `mem.<name>` for a `_MOVED` name raises.
 
 ### Task 4: Split reviews and gate
-- [x] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) by cohesion. Owner 2026-11-27: size is a review trigger, not a cap (a cohesive 1k–3k file can be right); group by function. Pre-mortem 2026-11-27 measured the first cut (check stayed ~771 lines; a `syntheses` ↔ `units` cycle; `synthesis_*`/`*_rules` prefixes in a 12-module `notes/`), so the syntheses go to their own base package. Layering: `notes → syntheses → memories → core` (syntheses import only core and memories today).
+- [x] Split `notes/check.py` (1,396 lines) and `notes/syntheses.py` (1,316) by cohesion. Owner 2026-11-26: size is a review trigger, not a cap (a cohesive 1k–3k file can be right); group by function. Pre-mortem 2026-11-26 measured the first cut (check stayed ~771 lines; a `syntheses` ↔ `units` cycle; `synthesis_*`/`*_rules` prefixes in a 12-module `notes/`), so the syntheses go to their own base package. Layering: `notes → syntheses → memories → core` (syntheses import only core and memories today).
 
 | Module | Holds | From |
 |---|---|---|
@@ -108,7 +108,7 @@ Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is g
 - Eval answer key `synthesis-shrink` (`_guard_shrink`) → `syntheses/edit.py`: a location change only, recorded as such.
 - Kill: a cycle only TYPE_CHECKING fixes; the `_MOVED` test fails; collected count or a golden changes.
 
-### Task 5: Regroup small modules and map each package (owner permission 2026-11-27, LLM-native)
+### Task 5: Regroup small modules and map each package (owner permission 2026-11-26, LLM-native)
 
 Owner rule: size is a balance (neither one 10k-line file nor a hundred 100-line files); merge small parts that rarely change. Agents navigate by grep and outline, so each package's `__init__.py` docstring is its module map.
 
@@ -117,7 +117,7 @@ Owner rule: size is a balance (neither one 10k-line file nor a hundred 100-line 
 | `memories/pairing.py` (244) | `memories/matching.py` (208) | both answer which memories resemble or contradict each other; pairing already imports matching |
 | `memories/shortcheck.py` (66) | `memories/model.py` (142) | the short-form check beside `valid_short`; both pure; `problems` enters as `short_problems` (a bare `model.problems` loses the context grep needs) |
 
-- [ ] One commit per merge (verbatim; importers, tests, `patch_all`, eval keys, records facade retargeted; test files merge or move with their module); then one commit: every package `__init__.py` docstring lists each of its modules with one line of role, and a test in `test_import_graph.py` checks every module file of every engine package is named in its package docstring (prove it bites). Pre-mortem 2026-11-27: `fingerprints` → `rules` dropped (both define `line()`, and `fingerprints` exists so `digest` and `rules` never import each other). The map test requires a structured entry per module (a docstring line starting with the backticked module name, then its role), globs `*.py` only, skips `__init__` and non-package folders (`synthesize/briefs/`), and is proven by deleting the entry of a common-word module (`run`). Kept apart on purpose: `fingerprints`, `journal` (used by two packages), `core/yaml_load` (keeps `memories` off `notes`), per-feature `state` modules, `terms` vs `locations`. Check: suite (collected count changes only by the new test), goldens, self-checks, graph rules.
+- [x] One commit per merge (verbatim; importers, tests, `patch_all`, eval keys, records facade retargeted; test files merge or move with their module); then one commit: every package `__init__.py` docstring lists each of its modules with one line of role, and a test in `test_import_graph.py` checks every module file of every engine package is named in its package docstring (prove it bites). Pre-mortem 2026-11-26: `fingerprints` → `rules` dropped (both define `line()`, and `fingerprints` exists so `digest` and `rules` never import each other). The map test requires a structured entry per module (a docstring line starting with the backticked module name, then its role), globs `*.py` only, skips `__init__` and non-package folders (`synthesize/briefs/`), and is proven by deleting the entry of a common-word module (`run`). Kept apart on purpose: `fingerprints`, `journal` (used by two packages), `core/yaml_load` (keeps `memories` off `notes`), per-feature `state` modules, `terms` vs `locations`. Check: suite (collected count changes only by the new test), goldens, self-checks, graph rules.
 
 ## Deferred findings
 
