@@ -14,6 +14,12 @@ import pytest
 import auto_state
 import capture_state
 import corroborate
+import corroborate_cli
+import corroborate_digest
+import corroborate_fill
+import corroborate_reword
+import corroborate_run
+import corroborate_state
 import records
 
 PLUGIN = Path(__file__).resolve().parents[2]
@@ -1132,19 +1138,13 @@ def test_fill_items_and_undo_behave_as_before_through_apply_fill(w):
 
 
 def test_apply_fill_passes_user_read_only_when_asked(w):
-    import importlib.machinery
-    import importlib.util
     g = fill_world(w)
     shared, gid = proposal(w, g)
     out = w.tmp / "proposal.json"
     assert fill_run(w, "--dry-run", "--out", str(out)).returncode == 0
     cut_problems(out)
     items = json.loads(out.read_text())
-    loader = importlib.machinery.SourceFileLoader("mem_corroborate_under_test", str(CORR))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
-    result = mod.apply_fill(items, w.cdir / "runs" / "direct-fill", user_read=False)
+    result = corroborate_fill.apply_fill(items, w.cdir / "runs" / "direct-fill", user_read=False)
     assert result["written"] == 2 and result["dropped"] == result["failed"] == 0
     assert sorted(result["applied"]) == sorted([shared[0], gid])
     written = [m for m in [*project_records(w.pa).values(), *globals_(w)] if m.short]
@@ -1157,16 +1157,6 @@ NARROW = "Run the narrowest test that covers a change before the whole suite, as
 GCLAIM = "Read the whole failing test output before you change any code."
 SHORTS = {SAME: SHORT, GCLAIM: "Read the whole failing test output before changing code.",
           NARROW: "Run the narrowest covering test before the whole suite, as it may save time."}
-
-
-def corr_module():
-    import importlib.machinery
-    import importlib.util
-    loader = importlib.machinery.SourceFileLoader("mem_corroborate_auto_under_test", str(CORR))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    mod = importlib.util.module_from_spec(spec)
-    loader.exec_module(mod)
-    return mod
 
 
 def candidate_ids(w):
@@ -1198,8 +1188,8 @@ def answers(w, mp, writer="ok", checker=True, shorts=None):
         mp.setenv("FAKE_VERDICTS", str(w.tmp / "verdicts.json"))
 
 
-def auto(w, mod=None):
-    return (mod or corr_module()).fill_auto(str(w.fake), 0.25)
+def auto(w):
+    return corroborate_fill.fill_auto(str(w.fake), 0.25)
 
 
 def attempts(w):
@@ -1298,8 +1288,7 @@ def test_an_applied_short_form_the_owner_removed_is_not_written_again_until_the_
 def test_a_claim_edited_during_the_run_gets_no_short_form_and_no_attempt(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    mod = corr_module()
-    real = mod.run_session
+    real = corroborate_run.run_session
     seen_sessions = []
 
     def edit_after_the_writer(cmd, work):
@@ -1309,8 +1298,8 @@ def test_a_claim_edited_during_the_run_gets_no_short_form_and_no_attempt(w, monk
         seen_sessions.append(cmd)
         return done
 
-    monkeypatch.setattr(mod, "run_session", edit_after_the_writer)
-    result = auto(w, mod)
+    monkeypatch.setattr(corroborate_run, "run_session", edit_after_the_writer)
+    result = auto(w)
     assert (result["written"], result["left"]) == (0, 1)
     assert by_claim(w, NARROW + " Edited meanwhile.").short is None
     assert attempts(w)["lessons"] == {}
@@ -1404,13 +1393,12 @@ def test_fill_auto_with_the_lock_taken_writes_nothing(w, monkeypatch):
 
 def test_two_fill_runs_in_the_same_second_keep_separate_run_folders(w, monkeypatch):
     one_lesson(w)
-    mod = corr_module()
-    monkeypatch.setattr(mod.time, "strftime", lambda fmt: "20260101-000000")
+    monkeypatch.setattr(corroborate_fill.time, "strftime", lambda fmt: "20260101-000000")
     answers(w, monkeypatch)
-    assert auto(w, mod)["written"] == 1
+    assert auto(w)["written"] == 1
     other = one_lesson(w, "Keep a failing command's output in a file, as it may help when it is long.")
     answers(w, monkeypatch, shorts={other.claim: "Keep a failing command's output in a file, as it may help."})
-    assert auto(w, mod)["written"] == 1
+    assert auto(w)["written"] == 1
     first, second = fill_runs(w)
     assert first != second and (first / "journal.jsonl").exists() and (second / "journal.jsonl").exists()
 
@@ -1453,23 +1441,22 @@ def test_auto_skips_the_fill_when_loaded_rules_is_off(w, monkeypatch):
 def test_a_fill_that_raises_leaves_the_pass_result_seen_and_status_alone(w, monkeypatch):
     a, b = two_projects(w)
     model(w, [group(a, b)])
-    mod = corr_module()
 
     def boom(*_args, **_kw):
         raise RuntimeError("the fill broke")
 
-    monkeypatch.setattr(mod, "fill_auto", boom)
+    monkeypatch.setattr(corroborate_fill, "fill_auto", boom)
     monkeypatch.setenv(OPTION, "true")
     kept = {}
-    real = mod.execute
+    real = corroborate_run.execute
 
     def execute_then_look(*args, **kw):   # what the pass left, read before the fill runs
         out = real(*args, **kw)
         kept.update(seen=(w.cdir / "seen.json").read_bytes(), status=(w.cdir / "status.json").read_bytes())
         return out
 
-    monkeypatch.setattr(mod, "execute", execute_then_look)
-    assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
+    monkeypatch.setattr(corroborate_run, "execute", execute_then_look)
+    assert corroborate_cli.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
     (line,) = log_lines(w)
     assert "fill" not in line and line["failed"] is None and line["written"] == 1 and len(globals_(w)) == 1
     assert (w.cdir / "seen.json").read_bytes() == kept["seen"]
@@ -1482,15 +1469,15 @@ def test_status_shows_the_last_fill_and_its_failure(w, capsys):
     fill = {"asked": 5, "written": 2, "dropped": 0, "refused_code": 1, "refused_check": 1, "to_triage": 1, "left": 1,
             "cost": 0.1, "stopped": "over budget"}
     auto_state.write_json(w.cdir / "status.json", {"state": "ok", "cost": 0.1, "fill": fill})
-    assert corr_module().cmd_status() == 0
+    assert corroborate_state.cmd_status() == 0
     out = capsys.readouterr().out
     assert "last fill: 2 written, 2 refused, 1 to triage, stopped: over budget\n" in out
     quiet = {**fill, "written": 0, "refused_code": 0, "refused_check": 0, "stopped": None}
     auto_state.write_json(w.cdir / "status.json", {"state": "ok", "fill": quiet})   # a run that only held a lesson
-    assert corr_module().cmd_status() == 0
+    assert corroborate_state.cmd_status() == 0
     assert "last fill: 0 written, 0 refused, 1 to triage\n" in capsys.readouterr().out
     auto_state.write_json(w.cdir / "status.json", {"state": "ok", "fill": {**quiet, "to_triage": 0}})
-    assert corr_module().cmd_status() == 0
+    assert corroborate_state.cmd_status() == 0
     assert "last fill" not in capsys.readouterr().out
 
 
@@ -1511,34 +1498,31 @@ def test_a_fill_that_raises_after_a_code_refusal_still_counts_the_attempt(w, mon
     one_lesson(w)
     other = one_lesson(w, OTHER)
     answers(w, monkeypatch, shorts={**CODE_REFUSED, other.claim: OTHER_SHORT})
-    mod = corr_module()
 
     def boom(*_args, **_kw):
         raise RuntimeError("apply broke")
 
-    monkeypatch.setattr(mod, "apply_fill", boom)
+    monkeypatch.setattr(corroborate_fill, "apply_fill", boom)
     for _ in range(2):
-        assert auto(w, mod)["stopped"] == "the apply failed"
+        assert auto(w)["stopped"] == "the apply failed"
     assert count_of(w, NARROW) == [2]
     assert count_of(w, OTHER) == [2]   # it passed the checks but was not written: its apply did not complete
 
 
 def _breaking_apply(w, monkeypatch):
-    mod = corr_module()
 
     def boom(*_args, **_kw):
         raise RuntimeError("apply broke")
 
-    monkeypatch.setattr(mod, "apply_fill", boom)
-    return mod
+    monkeypatch.setattr(corroborate_fill, "apply_fill", boom)
 
 
 def test_a_general_lesson_refused_by_code_in_two_runs_with_a_failing_apply_is_held_at_triage(w, monkeypatch):
     g = fill_world(w)
     answers(w, monkeypatch, shorts={GCLAIM: "Always read the whole failing test output before changing code."})
-    mod = _breaking_apply(w, monkeypatch)
-    assert auto(w, mod)["to_triage"] == 0
-    second = auto(w, mod)
+    _breaking_apply(w, monkeypatch)
+    assert auto(w)["to_triage"] == 0
+    second = auto(w)
     assert (second["stopped"], second["to_triage"]) == ("the apply failed", 1)
     (gl,) = [m for m in globals_(w) if m.handle == g.handle]
     assert gl.triage == "pending" and gl.triage_reason == 'the short form says "always" and the claim does not'
@@ -1547,38 +1531,38 @@ def test_a_general_lesson_refused_by_code_in_two_runs_with_a_failing_apply_is_he
 def test_a_failing_apply_three_times_in_a_row_makes_the_step_wait(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    mod = _breaking_apply(w, monkeypatch)
+    _breaking_apply(w, monkeypatch)
     # two attempts per lesson end the asking sooner than three failures could, so the attempts are cleared between
     # runs: what is under test is the failure count on the same lessons
     for n in range(corroborate.FILL_FAILURES):
-        assert auto(w, mod)["stopped"] == "the apply failed"
+        assert auto(w)["stopped"] == "the apply failed"
         state = attempts(w)
         assert state["failures"]["count"] == n + 1
         auto_state.write_json(w.cdir / "fill-attempts.json", {**state, "lessons": {}})
     before = calls(w)
-    result = auto(w, mod)
+    result = auto(w)
     assert result["stopped"] == "waiting for the lessons to change" and calls(w) == before
 
 
 def test_an_item_that_passed_the_checks_before_a_failing_apply_has_one_attempt(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    assert auto(w, _breaking_apply(w, monkeypatch))["stopped"] == "the apply failed"
+    _breaking_apply(w, monkeypatch)
+    assert auto(w)["stopped"] == "the apply failed"
     assert count_of(w, NARROW) == [1]
 
 
 def test_a_fill_that_raises_after_writing_marks_what_was_written_as_spent(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    mod = corr_module()
-    real = mod.apply_fill
+    real = corroborate_fill.apply_fill
 
     def write_then_break(*args, **kw):
         real(*args, **kw)
         raise RuntimeError("after the write")
 
-    monkeypatch.setattr(mod, "apply_fill", write_then_break)
-    assert auto(w, mod)["stopped"] == "the apply failed"
+    monkeypatch.setattr(corroborate_fill, "apply_fill", write_then_break)
+    assert auto(w)["stopped"] == "the apply failed"
     assert by_claim(w, NARROW).short == SHORTS[NARROW]
     assert count_of(w, NARROW) == [corroborate.FILL_ATTEMPTS]
     records.update(by_claim(w, NARROW), TODAY, short=None, topic=None)   # the owner removes it
@@ -1588,8 +1572,7 @@ def test_a_fill_that_raises_after_writing_marks_what_was_written_as_spent(w, mon
 def test_the_automatic_fill_never_sets_load_and_a_record_turned_off_meanwhile_stays_so(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    mod = corr_module()
-    real = mod.run_session
+    real = corroborate_run.run_session
     sessions = []
 
     def turn_off_after_the_writer(cmd, work):
@@ -1599,27 +1582,26 @@ def test_the_automatic_fill_never_sets_load_and_a_record_turned_off_meanwhile_st
         sessions.append(cmd)
         return done
 
-    monkeypatch.setattr(mod, "run_session", turn_off_after_the_writer)
-    result = auto(w, mod)
+    monkeypatch.setattr(corroborate_run, "run_session", turn_off_after_the_writer)
+    result = auto(w)
     assert result["written"] == 0 and result["dropped"] == 1
     assert (by_claim(w, NARROW).load, by_claim(w, NARROW).short) == ("no", None)
 
 
 def test_apply_fill_without_user_read_passes_no_load_flag(w, monkeypatch):
     m = one_lesson(w)
-    mod = corr_module()
     seen_args = []
-    real = mod.Applier.mem
+    real = corroborate_run.Applier.mem
 
     def spy(self, args, *rest, **kw):
         seen_args.append(args)
         return real(self, args, *rest, **kw)
 
-    monkeypatch.setattr(mod.Applier, "mem", spy)
+    monkeypatch.setattr(corroborate_run.Applier, "mem", spy)
     (ident,) = candidate_ids(w)[NARROW]
     item = {"id": ident, "short": SHORTS[NARROW], "topic": "process", "load": "yes",
             "claim_digest": corroborate.claim_digest(m)}
-    assert mod.apply_fill([item], w.cdir / "runs" / "direct-fill", user_read=False)["written"] == 1
+    assert corroborate_fill.apply_fill([item], w.cdir / "runs" / "direct-fill", user_read=False)["written"] == 1
     (args,) = seen_args
     assert not {"--load", "--index-only", "--no-load"} & set(args)
 
@@ -1640,14 +1622,14 @@ def test_a_checker_that_answers_for_the_first_id_only_is_a_failed_session_twice(
 def test_a_missing_claude_binary_is_a_failed_session_not_an_exception(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    result = corr_module().fill_auto("/nonexistent/claude", 0.25)
+    result = corroborate_fill.fill_auto("/nonexistent/claude", 0.25)
     assert result["stopped"] and result["written"] == 0
     assert attempts(w)["failures"]["count"] == 1 and attempts(w)["lessons"] == {}
 
 
 def test_an_unreadable_registry_stops_the_fill_without_raising(w):
     (w.data / "projects.json").write_text("{not json")
-    result = corr_module().fill_auto(str(w.fake), 0.25)
+    result = corroborate_fill.fill_auto(str(w.fake), 0.25)
     assert result["stopped"] and result["written"] == 0 and calls(w) == 0
 
 
@@ -1684,16 +1666,15 @@ def test_the_attempts_file_is_private_and_a_failed_write_keeps_the_old_one(w, mo
 def test_a_lesson_whose_edit_mem_refused_gets_one_attempt(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    mod = corr_module()
-    real = mod.Applier.mem
+    real = corroborate_run.Applier.mem
 
     def refuse_edits(self, args, *rest, **kw):
         if args[:2] == ["memory", "edit"]:
             return subprocess.CompletedProcess(args, 1, "", "")
         return real(self, args, *rest, **kw)
 
-    monkeypatch.setattr(mod.Applier, "mem", refuse_edits)
-    result = auto(w, mod)
+    monkeypatch.setattr(corroborate_run.Applier, "mem", refuse_edits)
+    result = auto(w)
     assert (result["written"], result["left"]) == (0, 1)
     assert count_of(w, NARROW) == [1]
 
@@ -1849,8 +1830,8 @@ def reword_answers(w, mp, shorts=None, writer="ok", checker=True):
         mp.setenv("FAKE_REWORD_CHECK", str(w.tmp / "reword-check-answer.json"))
 
 
-def reword(w, mod=None, **kw):
-    return (mod or corr_module()).reword_auto(str(w.fake), 0.25, **kw)
+def reword(w, **kw):
+    return corroborate_reword.reword_auto(str(w.fake), 0.25, **kw)
 
 
 def reword_state(w):
@@ -2033,7 +2014,7 @@ def test_reword_respects_the_lock(w, monkeypatch):
 def test_a_missing_claude_binary_is_a_stop_not_an_exception(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    result = corr_module().reword_auto("/nonexistent/claude", 0.25)
+    result = corroborate_reword.reword_auto("/nonexistent/claude", 0.25)
     assert result["stopped"] and result["written"] == 0
     assert by_claim(w, NARROW).short == OLD_WORDING
 
@@ -2041,19 +2022,18 @@ def test_a_missing_claude_binary_is_a_stop_not_an_exception(w, monkeypatch):
 def test_reword_skips_a_lesson_edited_meanwhile(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
     by_hand = "A short form the owner wrote while the sessions ran, which the step must not overwrite."
-    edit_between(w, mod, monkeypatch, short=by_hand)
-    result = reword(w, mod)
+    edit_between(w, monkeypatch, short=by_hand)
+    result = reword(w)
     assert result["changed"] == 1 and result["written"] == 0 and result["no_proposal"] == 0
     m = by_claim(w, NARROW)
     assert m.short == by_hand and m.reworded is None
     assert reword_state(w)["lessons"] == {} and not reword_runs(w)
 
 
-def edit_between(w, mod, mp, **changes):
+def edit_between(w, mp, **changes):
     """The record is changed after the checker session and before the step's edit."""
-    real = mod._ask
+    real = corroborate_run._ask
 
     def ask_then_edit(*args, **kw):
         got = real(*args, **kw)
@@ -2061,7 +2041,7 @@ def edit_between(w, mod, mp, **changes):
             records.update(by_claim(w, NARROW), TODAY, **changes)
         return got
 
-    mp.setattr(mod, "_ask", ask_then_edit)
+    mp.setattr(corroborate_run, "_ask", ask_then_edit)
 
 
 @pytest.mark.parametrize("changes", [{"reviewed": TODAY}, {"reworded": ago(10)},
@@ -2069,9 +2049,8 @@ def edit_between(w, mod, mp, **changes):
 def test_reword_skips_a_lesson_the_owner_kept_meanwhile(w, monkeypatch, changes):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
-    edit_between(w, mod, monkeypatch, **changes)
-    result = reword(w, mod)
+    edit_between(w, monkeypatch, **changes)
+    result = reword(w)
     assert (result["changed"], result["written"], result["no_proposal"], result["failed_edits"]) == (1, 0, 0, 0)
     assert reword_state(w)["lessons"] == {} and not reword_runs(w)
     assert [m for m in project_lessons(w) if m.claim == NARROW][0].short == OLD_WORDING
@@ -2088,9 +2067,8 @@ def test_a_strong_lesson_that_got_worse_is_reworded(w, monkeypatch):
 def test_a_lesson_that_became_strong_meanwhile_is_still_applied(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
-    edit_between(w, mod, monkeypatch, weight="strong")
-    result = reword(w, mod)
+    edit_between(w, monkeypatch, weight="strong")
+    result = reword(w)
     assert (result["written"], result["changed"]) == (1, 0) and by_claim(w, NARROW).short == NEW_WORDING
 
 
@@ -2098,12 +2076,12 @@ def project_lessons(w):
     return records.load_memories(records.project_dir(w.pa), "project")
 
 
-def fake_mem(w, mod, mp, shell):
+def fake_mem(w, mp, shell):
     """The step's `mem` calls go through a wrapper: `shell` runs first (REAL is the real command), then the real one."""
     script = w.tmp / "mem-fake"
-    script.write_text("#!/bin/sh\n" + shell.replace("REAL", str(mod.MEM)) + f'\nexec {mod.MEM} "$@"\n')
+    script.write_text("#!/bin/sh\n" + shell.replace("REAL", str(corroborate_run.MEM)) + f'\nexec {corroborate_run.MEM} "$@"\n')
     script.chmod(0o755)
-    mp.setattr(mod, "MEM", script)
+    mp.setattr(corroborate_run, "MEM", script)
 
 
 EDIT_EXITS = 'if [ "$1" = memory ] && [ "$2" = edit ]; then case "$*" in *--short=*) exit %d;; esac; fi'
@@ -2125,24 +2103,22 @@ def test_a_missing_proposal_spends_an_attempt_and_two_give_up(w, monkeypatch):
 def test_a_usage_error_of_the_edit_is_a_failed_edit(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
-    fake_mem(w, mod, monkeypatch, EDIT_EXITS % 2)
+    fake_mem(w, monkeypatch, EDIT_EXITS % 2)
     for n in (1, 2, 3):
-        got = reword(w, mod)
+        got = reword(w)
         assert (got["failed_edits"], got["written"], got["refused_code"], got["gave_up"]) == (1, 0, 0, 0)
         assert reword_state(w)["lessons"] == {} and reword_state(w)["failures"]["count"] == n
         assert by_claim(w, NARROW).reword_failed is None and by_claim(w, NARROW).short == OLD_WORDING
     before = calls(w)
-    waiting = reword(w, mod)
+    waiting = reword(w)
     assert calls(w) == before and "waiting" in waiting["stopped"]
 
 
 def test_a_forbidden_term_is_a_refusal(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
-    fake_mem(w, mod, monkeypatch, EDIT_EXITS % 4)
-    got = reword(w, mod)
+    fake_mem(w, monkeypatch, EDIT_EXITS % 4)
+    got = reword(w)
     assert (got["refused_code"], got["failed_edits"], got["written"]) == (1, 0, 0)
     (entry,) = reword_state(w)["lessons"].values()
     assert entry["count"] == 1 and reword_state(w)["failures"]["count"] == 0
@@ -2151,18 +2127,17 @@ def test_a_forbidden_term_is_a_refusal(w, monkeypatch):
 def test_a_failed_give_up_is_retried_without_a_session(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch, checker=False)
-    mod = corr_module()
     marker = w.tmp / "failed-once"
-    fake_mem(w, mod, monkeypatch, f'case "$*" in *--reword-failed*) if [ ! -f {marker} ]; then touch {marker}; exit 2; fi;; esac')
-    assert reword(w, mod)["gave_up"] == 0
-    second = reword(w, mod)
+    fake_mem(w, monkeypatch, f'case "$*" in *--reword-failed*) if [ ! -f {marker} ]; then touch {marker}; exit 2; fi;; esac')
+    assert reword(w)["gave_up"] == 0
+    second = reword(w)
     assert (second["refused_check"], second["gave_up"]) == (1, 0)
     assert list(reword_state(w)["lessons"].values())[0]["count"] == 2 and by_claim(w, NARROW).reword_failed is None
     before = calls(w)
-    third = reword(w, mod)
+    third = reword(w)
     assert third == {**NOTHING, "gave_up": 1} and calls(w) == before
     assert by_claim(w, NARROW).reword_failed == ago(10)
-    assert reword(w, mod) == NOTHING and calls(w) == before
+    assert reword(w) == NOTHING and calls(w) == before
 
 
 def test_every_needs_dry_run(w, monkeypatch):
@@ -2179,7 +2154,7 @@ def test_every_needs_dry_run(w, monkeypatch):
 def test_a_broken_state_file_reads_as_empty(w, content):
     auto_state.private_dir(w.cdir)
     (w.cdir / "reword-attempts.json").write_text(content)
-    got = corr_module()._reword_state(w.cdir)
+    got = corroborate_reword._reword_state(w.cdir)
     assert got["lessons"] == {} and got["failures"]["count"] == 0 and got["failures"]["fingerprint"] in (None, 3)
 
 
@@ -2228,16 +2203,15 @@ def test_auto_does_not_reword_without_auto_capture(w, monkeypatch):
 def test_a_failure_in_reword_does_not_fail_auto(w, monkeypatch):
     worse_one(w)
     model(w, [])
-    mod = corr_module()
 
     def boom(*_args, **_kw):
         raise RuntimeError("the step broke")
 
-    monkeypatch.setattr(mod, "reword_auto", boom)
+    monkeypatch.setattr(corroborate_reword, "reword_auto", boom)
     monkeypatch.setenv(OPTION, "true")
     monkeypatch.setenv(REWORD_OPTION, "true")
     monkeypatch.setattr(sys, "argv", ["mem-corroborate", "auto", "--claude", str(w.fake)])
-    assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
+    assert corroborate_cli.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
     lines = log_lines(w)
     assert any("fill" in x for x in lines) and not any("reword" in x for x in lines)
 
@@ -2268,16 +2242,15 @@ def test_auto_runs_digest_only_with_the_layout(w, monkeypatch):
 def test_a_failure_in_digest_does_not_fail_auto(w, monkeypatch):
     worse_one(w)
     model(w, [])
-    mod = corr_module()
 
     def boom(*_args, **_kw):
         raise RuntimeError("the step broke")
 
-    monkeypatch.setattr(mod, "digest_auto", boom)
+    monkeypatch.setattr(corroborate_digest, "digest_auto", boom)
     monkeypatch.setenv(OPTION, "true")
     monkeypatch.setenv(LAYOUT_OPTION, "digest")
     monkeypatch.setattr(sys, "argv", ["mem-corroborate", "auto", "--claude", str(w.fake)])
-    assert mod.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
+    assert corroborate_cli.cmd_auto(argparse.Namespace(claude=str(w.fake))) == 0
     lines = log_lines(w)
     assert any("fill" in x for x in lines) and not any("digest" in x for x in lines)
 
@@ -2317,27 +2290,26 @@ class _Run:
         self.returncode, self.stdout, self.stderr = code, "", "fake"
 
 
-def _edit_exits(monkeypatch, mod, code):
+def _edit_exits(monkeypatch, code):
     """Every `mem memory edit --reworded` call ends with `code` (None: could not run) and writes nothing."""
-    real = mod.Applier.mem
+    real = corroborate_run.Applier.mem
 
     def mem(self, args, *a, **kw):
         if "--reworded" in args:
             return None if code is None else _Run(code)
         return real(self, args, *a, **kw)
 
-    monkeypatch.setattr(mod.Applier, "mem", mem)
+    monkeypatch.setattr(corroborate_run.Applier, "mem", mem)
 
 
 @pytest.mark.parametrize("code", [None, 1, 2, 3])
 def test_a_failed_edit_spends_no_attempt(w, monkeypatch, code):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
-    _edit_exits(monkeypatch, mod, code)
+    _edit_exits(monkeypatch, code)
     before = by_claim(w, NARROW)
     for _ in range(2):
-        result = reword(w, mod)
+        result = reword(w)
         assert (result["failed_edits"], result["written"], result["refused_code"], result["no_proposal"]) == (1, 0, 0, 0)
     assert by_claim(w, NARROW) == before and by_claim(w, NARROW).reword_failed is None
     assert reword_state(w)["lessons"] == {}
@@ -2347,9 +2319,8 @@ def test_a_failed_edit_spends_no_attempt(w, monkeypatch, code):
 def test_a_refused_edit_still_spends_an_attempt(w, monkeypatch, code):
     worse_one(w)
     reword_answers(w, monkeypatch)
-    mod = corr_module()
-    _edit_exits(monkeypatch, mod, code)
-    result = reword(w, mod)
+    _edit_exits(monkeypatch, code)
+    result = reword(w)
     assert (result["refused_code"], result["failed_edits"], result["written"]) == (1, 0, 0)
     (entry,) = reword_state(w)["lessons"].values()
     assert entry["count"] == 1 and not entry["spent"]
@@ -2424,8 +2395,8 @@ def digest_answers(w, mp, *, heading=DG_HEADING, lines=None, fits=True, unfaithf
         mp.setenv("FAKE_DIGEST_CHECK", str(w.tmp / "digest-check-answer.json"))
 
 
-def do_digest(w, mod=None, **kw):
-    return (mod or corr_module()).digest_auto(str(w.fake), 0.25, **kw)
+def do_digest(w, **kw):
+    return corroborate_digest.digest_auto(str(w.fake), 0.25, **kw)
 
 
 def engine_digest():
@@ -2662,3 +2633,34 @@ def test_a_state_that_cannot_be_written_still_gives_a_result(w, monkeypatch):
     (w.cdir / "digest-attempts.json").mkdir()
     result = do_digest(w)
     assert result["stopped"] and result["stopped"] != "the step failed"
+
+
+# ---- an engine that cannot load: `auto` still reports, `status` and `ack` still work ---------------------------------
+
+ENGINE_LOG_KEYS = ["t", "lessons", "groups", "proposed", "verified", "dropped", "written", "sightings", "links", "merges",
+                   "refused", "failed_actions", "cases", "skipped", "cost", "failed", "ms"]
+
+
+def test_auto_with_an_engine_that_cannot_load_writes_its_failed_status(w):
+    plug = w.tmp / "plug-no-yaml"
+    (plug / "bin").mkdir(parents=True)
+    launcher = plug / "bin" / "mem-corroborate"
+    shutil.copy(CORR, launcher)
+    (plug / "engine").symlink_to(PLUGIN / "engine")
+    stub = w.tmp / "stub"
+    stub.mkdir()
+    (stub / "yaml.py").write_text('raise ImportError("no yaml in this test")\n')
+    env = {"PYTHONPATH": str(stub), OPTION: "true"}
+    done = run(w, cmd="auto", env=env, corr=launcher)
+    assert done.returncode == 0 and done.stdout == "" and done.stderr == ""
+    status = auto_state.read_json(w.cdir / "status.json")
+    assert status["state"] == "failed" and status["failure"]["reason"] == "engine import error"
+    log = [json.loads(x) for x in (w.cdir / "log.jsonl").read_text().splitlines()]
+    assert len(log) == 1 and list(log[0]) == ENGINE_LOG_KEYS and log[0]["failed"] == "engine import error"
+    shown = run(w, cmd="status", claude=False, env=env, corr=launcher)
+    assert shown.returncode == 0 and "unacknowledged failure: engine import error" in shown.stdout
+    assert run(w, cmd="ack", claude=False, env=env, corr=launcher).returncode == 0
+    shown = run(w, cmd="status", claude=False, env=env, corr=launcher)
+    assert shown.returncode == 0 and "unacknowledged" not in shown.stdout
+    refused = run(w, "--dry-run", "--out", str(w.tmp / "o.json"), env=env, corr=launcher)
+    assert refused.returncode == 1 and "cannot load the engine" in refused.stderr
