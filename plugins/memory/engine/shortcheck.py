@@ -2,12 +2,41 @@
 
 Pure: imports nothing from the engine. Length and the one-line rule are checked elsewhere.
 """
+
 import re
 
-HEDGES = frozenset("""may might can could sometimes often usually once untested provisional
-seems seemed likely probably consider perhaps""".split())
-ABSOLUTES = frozenset("""always never must every all only none cannot can't guarantees ensures
-proves""".split())
+HEDGES = frozenset([
+    "may",
+    "might",
+    "can",
+    "could",
+    "sometimes",
+    "often",
+    "usually",
+    "once",
+    "untested",
+    "provisional",
+    "seems",
+    "seemed",
+    "likely",
+    "probably",
+    "consider",
+    "perhaps",
+])
+ABSOLUTES = frozenset([
+    "always",
+    "never",
+    "must",
+    "every",
+    "all",
+    "only",
+    "none",
+    "cannot",
+    "can't",
+    "guarantees",
+    "ensures",
+    "proves",
+])
 
 _WORD = re.compile(r"[a-z']+")
 _LINK = re.compile(r"https?://|www\.", re.IGNORECASE)
@@ -32,6 +61,6 @@ def problems(claim: str, short: str) -> list[str]:
             out.append(f'the short form says "{w}" and the claim does not')
     if _LINK.search(short):
         out.append("the short form holds a link")
-    if any(w in ("owner", "owner's", "owners") for w in short_words):
+    if any(w in {"owner", "owner's", "owners"} for w in short_words):
         out.append('the short form says "owner": say "the user"')
     return out

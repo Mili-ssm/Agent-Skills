@@ -11,8 +11,8 @@ from corroborate import decide as corroborate_decide
 
 TODAY = datetime.date(2026, 11, 22)
 FILL_CAP = 30
-TWO = 2
-THREE = 3
+ATTEMPTS_RECORDED = 2
+SESSIONS_OF_STRONG = 3
 
 
 @pytest.fixture(autouse=True)
@@ -161,7 +161,7 @@ def test_attempt_count_reads_a_bool_or_a_foreign_digest_as_zero():
     assert corroborate_decide.attempt_count({"digest": "d", "count": True}, "d") == 0
     assert corroborate_decide.attempt_count({"digest": "x", "count": 2}, "d") == 0
     assert corroborate_decide.attempt_count(None, "d") == 0
-    assert corroborate_decide.attempt_count({"digest": "d", "count": 2}, "d") == TWO
+    assert corroborate_decide.attempt_count({"digest": "d", "count": 2}, "d") == ATTEMPTS_RECORDED
 
 
 def test_a_strong_project_lesson_with_three_sessions_waits_for_the_owner(world):
@@ -177,7 +177,7 @@ def test_a_strong_project_lesson_with_three_sessions_waits_for_the_owner(world):
         reach="general",
         weight="strong",
     )
-    assert len(records.sessions(strong)) == THREE
+    assert len(records.sessions(strong)) == SESSIONS_OF_STRONG
     assert [x.handle for _i, x in world.candidates(attempts={})] == []
     records.update(strong, TODAY, owner_confirmed=TODAY.isoformat())
     assert [x.handle for _i, x in world.candidates(attempts={})] == [strong.handle]

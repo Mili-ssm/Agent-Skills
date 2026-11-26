@@ -559,7 +559,7 @@ def test_a_group_with_a_global_member_needs_no_faithful(tmp_path):
 # ---- fill: the lessons that lack a short form --------------------------------------------------------------------
 
 K1, K2 = "0123456789ab", "ba9876543210"
-TWO = (f"session a project {K1}", f"session b project {K2}")
+SESSION_SOURCES = (f"session a project {K1}", f"session b project {K2}")
 SHORT = "Brief a subagent with the acceptance check first, as it may help it tell when it is done."
 
 
@@ -606,13 +606,13 @@ def test_fill_candidates_leave_out_what_cannot_load(tmp_path):
         sources=("session a", "session b"),
         short=SHORT,
     )
-    put(glob, "global", "established global", sources=TWO, triage=None)
-    put(glob, "global", "quarantined global", sources=(TWO[0],))
+    put(glob, "global", "established global", sources=SESSION_SOURCES, triage=None)
+    put(glob, "global", "quarantined global", sources=(SESSION_SOURCES[0],))
     put(
         glob,
         "global",
         "awaiting triage",
-        sources=(*TWO, f"session c project {K1}"),
+        sources=(*SESSION_SOURCES, f"session c project {K1}"),
         weight="strong",
     )  # only a strong one waits
     got = corroborate_decide.fill_candidates([p1, p2], glob, TODAY)
@@ -652,7 +652,7 @@ def test_fill_lines_hold_id_claim_and_context(tmp_path):
         weight="light",
         context="when testing",
     )
-    put(glob, "global", "Another claim.", sources=TWO, triage=None)
+    put(glob, "global", "Another claim.", sources=SESSION_SOURCES, triage=None)
     text = corroborate_decide.fill_lines(corroborate_decide.fill_candidates([p1], glob, TODAY))
     blocks = text.strip().split("\n\n")
     assert len(blocks) == PAIR
