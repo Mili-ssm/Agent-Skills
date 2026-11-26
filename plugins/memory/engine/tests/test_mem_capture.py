@@ -1,21 +1,20 @@
 """`bin/mem-capture run`: the offline trial of capture from a transcript, with a fake `claude` and invented transcripts."""
 
 import datetime
-import importlib.util
 import json
 import os
 import shutil
 import subprocess
 import sys
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from entry import capture as capture_entry
 from memories import records
 
 PLUGIN = Path(__file__).resolve().parents[2]
-CAPTURE = PLUGIN / "bin" / "mem-capture"
+CAPTURE = [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", "mem-capture"]
 MEM = PLUGIN / "bin" / "mem"
 MODE_FILE = 0o600
 MODE_DIR = 0o700
@@ -121,23 +120,9 @@ def world(tmp_path, monkeypatch):
     )
 
 
-def _load_bin(name, monkeypatch):
-    """Import `bin/mem-capture` (no `.py` suffix) as a module called `name`."""
-    loader = SourceFileLoader(name, str(CAPTURE))
-    spec = importlib.util.spec_from_loader(name, loader)
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    # @dataclass before Python 3.15 looks the module up in sys.modules; teardown removes the entry
-    monkeypatch.setitem(sys.modules, name, module)
-    loader.exec_module(module)
-    return module
-
-
 def run(w, *extra, mode="good", env=None, transcript_path=None):
     cmd = [
-        sys.executable,
-        "-I",
-        str(CAPTURE),
+        *CAPTURE,
         "run",
         "--transcript",
         str(transcript_path or w.transcript),
@@ -464,9 +449,7 @@ def test_the_project_flag_wins_over_mem_project_and_only_its_name_is_recorded(wo
     base = {k: v for k, v in os.environ.items() if k != "MEM_PROJECT"}
     copy = world.tmp / "recorded-copy.txt"
     cmd = [
-        sys.executable,
-        "-I",
-        str(CAPTURE),
+        *CAPTURE,
         "run",
         "--transcript",
         str(world.transcript),
@@ -495,7 +478,7 @@ def test_the_project_flag_wins_over_mem_project_and_only_its_name_is_recorded(wo
 
 
 def test_a_huge_instruction_file_is_read_only_up_to_the_cap(world, monkeypatch):
-    module = _load_bin("mem_capture_bin", monkeypatch)
+    module = capture_entry
     (world.project / "CLAUDE.md").write_text("x" * 100_000)
     seen = []
     real = Path.open
@@ -1034,7 +1017,7 @@ def test_run_forward_reports_more(world):
 
 
 def test_run_window_is_importable_and_quiet(world, capsys, monkeypatch):
-    mod = _load_bin("mem_capture_module", monkeypatch)
+    mod = capture_entry
     transcript(world.transcript, [OWNER, "go on"])
     result_dict, code = mod.run_window(
         world.transcript, world.out, world.project, 0, "haiku", 0.25, None, False, False, quiet=True
@@ -1044,7 +1027,7 @@ def test_run_window_is_importable_and_quiet(world, capsys, monkeypatch):
 
 
 def _load_module(monkeypatch):
-    return _load_bin("mem_capture_module2", monkeypatch)
+    return capture_entry
 
 
 def test_run_window_allow_out_in_repo_only_skips_the_repository_refusal(world, monkeypatch):

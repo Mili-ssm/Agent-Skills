@@ -7,7 +7,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import subprocess
-import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex
 
@@ -97,7 +96,7 @@ def _start(
     minutes = minutes_of(environ.get(ENV_MINUTES))
     if settle_verdicts.due(folder, minutes, now, today) is None:
         return False
-    cmd = [sys.executable, str(BIN), "run", "--minutes", str(minutes)]
+    cmd = [str(BIN), "run", "--minutes", str(minutes)]
     if store is not None:
         cmd += ["--store", str(store)]
     if environ.get(ENV_CLAUDE):

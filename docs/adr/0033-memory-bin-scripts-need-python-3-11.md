@@ -1,6 +1,6 @@
 # 0033 The memory plugin's `bin/` scripts need Python 3.11
 
-Status: accepted · Date: 2026-11-26 · Amended by 0034 (paths)
+Status: superseded by 0035 · Date: 2026-11-26 · Amended by 0034 (paths)
 
 ## Context
 

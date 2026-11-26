@@ -9,7 +9,7 @@ ADR 0023; see the [stage plan](../../docs/superpowers/plans/2026-11-17-memory-pl
 
 ## Requirements
 
-[`uv`](https://docs.astral.sh/uv/) on the path. Without it `mem` exits 127. The background passes (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-settle`, `mem-synthesize`) run on the system `python3`, which must be 3.11 or newer; `mem-research` needs 3.12 and `pyyaml` (ADR 0033). `bin/mem` runs the engine through a small launcher so Python caches the compiled engine; with a read-only plugin folder it still works, compiling each time.
+[`uv`](https://docs.astral.sh/uv/) on the path. Without it `mem` and the background passes (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-research`, `mem-settle`, `mem-synthesize`) exit 127, and the session start text says so; no system `python3` is needed (ADR 0035). Every `bin/` file is a small launcher that starts `engine/run.py` through `uv`, so Python caches the compiled engine and one environment serves all of them; with a read-only plugin folder it still works, compiling each time. After a plugin update the first run needs the network once, to build that environment.
 
 ## Two kinds of record, two scopes
 

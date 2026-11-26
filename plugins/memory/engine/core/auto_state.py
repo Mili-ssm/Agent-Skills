@@ -1,5 +1,5 @@
 """State of the automatic curation run (`bin/mem-auto`), shared with `mem`: where it lives, the store-wide run lock
-and the failure line of the session text. Standard library and `jobs` only (mem-auto runs it without uv).
+and the failure line of the session text. Standard library and `jobs` only.
 
 Layout, per store: `<data folder>/auto/<id>/` (mode 0700) holds `run.lock`, `status.json` and `runs/<stamp>/` (logs and
 transcripts, kept 30 days)."""

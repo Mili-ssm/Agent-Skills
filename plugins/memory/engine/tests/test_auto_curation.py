@@ -1,7 +1,6 @@
 """The automatic curation run: `bin/mem-auto`, its launch from the SessionEnd hook and the failure line."""
 
-import importlib.machinery
-import importlib.util
+import importlib
 import json
 import os
 import shutil
@@ -20,7 +19,7 @@ from synthesize import pipeline as sp
 PRIVATE_MODE = 0o700
 RETURN_LIMIT = 5  # seconds a hook may take to return: the run must be detached
 PLUGIN = Path(__file__).resolve().parents[2]
-AUTO = PLUGIN / "bin" / "mem-auto"
+AUTO = [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", "mem-auto"]
 SESSION_END = PLUGIN / "hooks" / "session-end.sh"
 
 needs_uv = pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
@@ -86,7 +85,7 @@ def memories(w, n):
 
 def auto(w, *args, **env):
     return subprocess.run(
-        [str(AUTO), *args], env={**w.env, **env}, capture_output=True, text=True, check=False
+        [*AUTO, *args], env={**w.env, **env}, capture_output=True, text=True, check=False
     )
 
 
@@ -123,7 +122,7 @@ def test_the_option_off_or_not_exactly_true_starts_nothing(world):
             env["CLAUDE_PLUGIN_OPTION_AUTO_CURATION"] = value
         done = subprocess.run(
             [
-                str(AUTO),
+                *AUTO,
                 "run",
                 "--store",
                 str(world.store),
@@ -504,13 +503,7 @@ def test_the_loop_starts_no_step_without_budget_left(monkeypatch, tmp_path):
 
 
 def _auto_module():
-    loader = importlib.machinery.SourceFileLoader("mem_auto_under_test", str(AUTO))
-    spec = importlib.util.spec_from_loader("mem_auto_under_test", loader)
-    assert spec is not None
-    mod = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = mod
-    loader.exec_module(mod)
-    return mod
+    return importlib.import_module("entry.auto")
 
 
 def test_a_failing_count_ends_in_a_failed_status_and_keeps_the_count_window(world, monkeypatch):

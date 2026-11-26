@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -13,7 +14,8 @@ from memories import records
 from research import pipeline as rp
 
 PLUGIN = Path(__file__).resolve().parents[3]
-RESEARCH = PLUGIN / "bin" / "mem-research"
+# `bin/mem-research` is a uv launcher: the test Python runs its entry through `engine/run.py`
+RESEARCH = [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", "mem-research"]
 HANDLE = "attention-replaces-recurrence"
 CLAIM = "Self-attention can replace recurrence for sequence transduction"
 QUOTE = "Self-attention can replace recurrence for sequence transduction, as the authors state"
@@ -156,7 +158,7 @@ def confirmed(w, quote=QUOTE, **kw):
 def go(w, question="How does attention compare with recurrence?", *args, env=None):
     return subprocess.run(
         [
-            str(RESEARCH),
+            *RESEARCH,
             question,
             "--store",
             str(w.store),
@@ -554,6 +556,6 @@ def test_render_fills_placeholders_in_one_pass():
 
 def test_self_check_passes():
     done = subprocess.run(
-        [str(RESEARCH), "--self-check"], capture_output=True, text=True, env=os.environ, check=False
+        [*RESEARCH, "--self-check"], capture_output=True, text=True, env=os.environ, check=False
     )
     assert done.returncode == 0 and "self-check passed" in done.stdout

@@ -2,6 +2,7 @@
 plan base (A2). Every expected value is a literal written from the builders' output, never computed by the code under
 test: a refactor that moves the builders must leave these untouched, except where its plan lists a flag addition."""
 
+import importlib
 import importlib.machinery
 import importlib.util
 import os
@@ -59,7 +60,15 @@ def flag_map(argv: list[str]) -> dict[str, tuple[str, ...]]:
     return found
 
 
+ENTRIES = {
+    "mem-capture": "entry.capture",
+    "mem-settle": "entry.settle",
+}  # launchers: the module they run lives in `engine/entry`
+
+
 def load_bin(name: str) -> ModuleType:
+    if name in ENTRIES:
+        return importlib.import_module(ENTRIES[name])
     path = PLUGIN / "bin" / name
     loader = importlib.machinery.SourceFileLoader(f"golden_{name.replace('-', '_')}", str(path))
     spec = importlib.util.spec_from_loader(loader.name, loader)

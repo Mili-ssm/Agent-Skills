@@ -1,28 +1,14 @@
-#!/usr/bin/env python3
-"""mem-synthesize: write syntheses for topics that have none, quietly, one headless session per step.
-
-Per topic: writer (the `memory-synthesizer` agent) -> checker -> one fixer round -> scoped check -> delete-only step
-when claims remain -> `mem synthesis attach` for the writer's attach list. The store changes only through `mem`
-(`mem restore` undoes a step). Stdout: one line at the start and one table at the end; everything else goes to a log
-file whose path is printed. On demand only: it spends model usage (about 0.5 USD per topic, unmeasured at high effort).
-Its last step adds inline references (the `--backfill` step below, about 0.05 USD per synthesis); a failure there leaves
-the synthesis as the loop left it and does not fail the topic; only a `mem check` that no longer exits 0 after the
-references were written does. `--no-references` skips the step.
-
-`--backfill [s:<handle> ...]` adds inline references to existing syntheses instead: one read-only Haiku session per
-synthesis proposes which source note supports each sentence, and code applies them (`mem synthesis refs`).
-
-Usage: mem-synthesize [--topic T]... [--budget USD (3)] [--no-references] [--dry-run] [--store PATH] [--claude PATH] | --self-check
-       mem-synthesize --backfill [s:<handle> ...] [--budget USD] [--dry-run] [--store PATH] [--claude PATH]
-"""
-
-from __future__ import annotations
-
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
-from synthesize import cli
-
-if __name__ == "__main__":
-    sys.exit(cli.main(__doc__ or ""))
+#!/usr/bin/env bash
+# Starts the engine entry of mem-synthesize with uv; engine/run.py carries the dependency header.
+src="${BASH_SOURCE[0]}"
+while [ -L "$src" ]; do
+  d="$(cd -P "$(dirname "$src")" && pwd)"
+  src="$(readlink "$src")"
+  case "$src" in /*) ;; *) src="$d/$src" ;; esac
+done
+here="$(cd -P "$(dirname "$src")" && pwd)"
+if ! command -v uv >/dev/null 2>&1; then
+  echo "mem-synthesize: uv is not installed (https://docs.astral.sh/uv/)" >&2
+  exit 127
+fi
+exec uv run --quiet --script "$here/../engine/run.py" --bin mem-synthesize "$@"

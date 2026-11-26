@@ -1,7 +1,5 @@
 """`bin/mem-capture auto` and `ack`: the background capture, with a fake `claude` and invented transcripts."""
 
-import importlib.machinery
-import importlib.util
 import json
 import os
 import shutil
@@ -16,10 +14,11 @@ import pytest
 from capture import extract as capture_extract
 from capture import state as capture_state
 from core import jobs
+from entry import capture as capture_entry
 from test_mem_capture import FAKE, GOOD, OWNER, entry
 
 PLUGIN = Path(__file__).resolve().parents[2]
-CAPTURE = PLUGIN / "bin" / "mem-capture"
+CAPTURE = [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", "mem-capture"]
 MEM = PLUGIN / "bin" / "mem"
 
 pytestmark = pytest.mark.skipif(shutil.which("uv") is None, reason="uv is not installed")
@@ -149,8 +148,8 @@ def hook(w, cwd=None, transcript=None):
     })
 
 
-def auto(w, trigger="session-end", stdin=None, python=(sys.executable, "-I"), **kw):
-    cmd = [*python, str(CAPTURE), "auto", "--trigger", trigger, "--claude", str(w.fake)]
+def auto(w, trigger="session-end", stdin=None, **kw):
+    cmd = [*CAPTURE, "auto", "--trigger", trigger, "--claude", str(w.fake)]
     return subprocess.run(
         cmd,
         input=hook(w) if stdin is None else stdin,
@@ -313,7 +312,7 @@ def test_failure_leaves_a_line_and_keeps_offset(world):
     assert status(world)["state"] == "failed"
     assert failure(world).startswith("Automatic capture failed on")
     ack = subprocess.run(
-        [sys.executable, "-I", str(CAPTURE), "ack"],
+        [*CAPTURE, "ack"],
         env=env_of(world),
         check=False,
         capture_output=True,
@@ -392,9 +391,7 @@ def test_lock_wait_gives_up(world):
 def test_waits_for_the_lock_then_continues(world):
     fd = held_lock(world)
     cmd = [
-        sys.executable,
-        "-I",
-        str(CAPTURE),
+        *CAPTURE,
         "auto",
         "--trigger",
         "session-end",
@@ -444,47 +441,6 @@ def test_identical_claim_becomes_a_sighting(world):
     assert written["remembered"] == 0 and written["sighting"] == 1
 
 
-def test_engine_import_failure_is_reported(world):
-    shadow = world.tmp / "shadow"
-    shadow.mkdir()
-    (shadow / "yaml.py").write_text("raise ImportError('shadowed for the test')\n")
-    done = subprocess.run(
-        [
-            sys.executable,
-            str(CAPTURE),
-            "auto",
-            "--trigger",
-            "session-end",
-            "--claude",
-            str(world.fake),
-        ],
-        input=hook(world),
-        env={**env_of(world), "PYTHONPATH": str(shadow)},
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert done.returncode == 0 and not done.stdout and not done.stderr
-    assert "cannot load the engine" in failure(world)
-    assert status(world)["state"] == "failed"
-    run = subprocess.run(
-        [
-            sys.executable,
-            str(CAPTURE),
-            "run",
-            "--transcript",
-            str(world.transcript),
-            "--out",
-            str(world.tmp / "o.json"),
-        ],
-        env={**env_of(world), "PYTHONPATH": str(shadow)},
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert run.returncode == 1 and "cannot load the engine" in run.stderr
-
-
 def test_data_folder_inside_a_repository_works(world, monkeypatch):
     repo = world.tmp / "repo"
     repo.mkdir()
@@ -510,7 +466,7 @@ def test_session_index_shows_the_failure_line(world):
     assert auto(world, mode="exit1").returncode == 0
     assert "Automatic capture failed on" in mem(world, "session-index")
     ack = subprocess.run(
-        [sys.executable, "-I", str(CAPTURE), "ack"],
+        [*CAPTURE, "ack"],
         env=env_of(world),
         check=False,
         capture_output=True,
@@ -520,8 +476,8 @@ def test_session_index_shows_the_failure_line(world):
     assert "Automatic capture failed on" not in mem(world, "session-index")
 
 
-def run_raw(world, stdin, cwd, extra=None, python=(sys.executable, "-I")):
-    cmd = [*python, str(CAPTURE), "auto", "--trigger", "session-end", "--claude", str(world.fake)]
+def run_raw(world, stdin, cwd, extra=None):
+    cmd = [*CAPTURE, "auto", "--trigger", "session-end", "--claude", str(world.fake)]
     return subprocess.run(
         cmd,
         input=stdin,
@@ -564,7 +520,7 @@ def stale_status(world, age, state="running"):
 
 def ack(world):
     done = subprocess.run(
-        [sys.executable, "-I", str(CAPTURE), "ack"],
+        [*CAPTURE, "ack"],
         env=env_of(world),
         check=False,
         capture_output=True,
@@ -605,22 +561,6 @@ def test_an_error_on_unusable_input_creates_nothing(world):
     assert auto(world, stdin="[]").returncode == 0 and not world.cdir.exists()
 
 
-def test_import_failure_outside_a_project_writes_nothing(world):
-    shadow = world.tmp / "shadow"
-    shadow.mkdir()
-    (shadow / "yaml.py").write_text("raise ImportError('shadowed for the test')\n")
-    plain = world.tmp / "plain"
-    plain.mkdir()
-    done = run_raw(
-        world,
-        hook(world, cwd=plain),
-        plain,
-        extra={"PYTHONPATH": str(shadow)},
-        python=(sys.executable,),
-    )  # -I would ignore PYTHONPATH
-    assert done.returncode == 0 and not done.stdout and not world.cdir.exists()
-
-
 def test_a_success_clears_an_earlier_failure(world):
     assert auto(world, mode="exit1").returncode == 0 and status(world)["state"] == "failed"
     assert auto(world).returncode == 0
@@ -640,12 +580,7 @@ def test_budget_option_reaches_the_session(world):
 
 def load_capture(monkeypatch, world, started):
     """mem-capture as a module in this process, with `mem-corroborate` replaced by a script that records its arguments."""
-    loader = importlib.machinery.SourceFileLoader("mem_capture_pass", str(CAPTURE))
-    spec = importlib.util.spec_from_loader("mem_capture_pass", loader)
-    assert spec is not None
-    module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, spec.name, module)
-    loader.exec_module(module)
+    module = capture_entry
     fake = world.tmp / "fake-corroborate"
     fake.write_text(f'#!/bin/sh\necho "$@" >> {started}\n')
     fake.chmod(0o755)
