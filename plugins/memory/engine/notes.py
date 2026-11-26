@@ -15,7 +15,7 @@ _DROPPED_TAGS = {"tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool"}
 
 # The C parser is several times faster; searching reads every note. libyaml accepts a tab after a colon
 # (`a:\tb`) and words parse errors differently. This is the one place that picks it.
-_BaseLoader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+_BaseLoader: type[yaml.SafeLoader] = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 class HubLoader(_BaseLoader):
@@ -41,8 +41,11 @@ def _no_duplicate_keys(loader: HubLoader, node: yaml.MappingNode, deep: bool = F
             continue
         if duplicate:
             raise yaml.constructor.ConstructorError(
-                "while constructing a mapping", node.start_mark,
-                f"found duplicate key {key!r}", key_node.start_mark)
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
     return yaml.constructor.SafeConstructor.construct_mapping(loader, node, deep=deep)
 
 
@@ -131,15 +134,21 @@ def _read_note(note_type: str, path: Path, root: Path) -> Note:
 
 def _note_files(root: Path) -> list[tuple[str, Path]]:
     """(type, path) of the typed notes: literature/*/*.md and knowledge/*/*.md (not README.md), research/*/README.md."""
-    found = [(kind, path) for kind in ("literature", "knowledge") for path in (root / kind).glob("*/*.md")
-             if path.name != "README.md"]
+    found = [
+        (kind, path)
+        for kind in ("literature", "knowledge")
+        for path in (root / kind).glob("*/*.md")
+        if path.name != "README.md"
+    ]
     found += [("research", path) for path in (root / "research").glob("*/README.md")]
     return [(kind, path) for kind, path in found if path.is_file() and not _is_hidden(path, root)]
 
 
 def discover_notes(root: Path) -> list[Note]:
     """Typed notes (see `_note_files`), sorted by path."""
-    return sorted((_read_note(kind, path, root) for kind, path in _note_files(root)), key=lambda n: n.rel)
+    return sorted(
+        (_read_note(kind, path, root) for kind, path in _note_files(root)), key=lambda n: n.rel
+    )
 
 
 def load_topics(root: Path) -> dict[str, dict]:
@@ -181,7 +190,11 @@ def descendants(topics: dict, tid: str) -> set[str]:
 
 def root_topics(topics: dict) -> list[str]:
     """Topic ids with no parent: the domains."""
-    return [t for t, e in topics.items() if isinstance(t, str) and isinstance(e, dict) and "parent" not in e]
+    return [
+        t
+        for t, e in topics.items()
+        if isinstance(t, str) and isinstance(e, dict) and "parent" not in e
+    ]
 
 
 def root_of(topics: dict, tid: str) -> str:
@@ -190,10 +203,7 @@ def root_of(topics: dict, tid: str) -> str:
 
 
 def leaf_topics(topics: dict, listed: list[str]) -> list[str]:
-    return [
-        t for t in listed
-        if not any(o != t and t in ancestors(topics, o) for o in listed)
-    ]
+    return [t for t in listed if not any(o != t and t in ancestors(topics, o) for o in listed)]
 
 
 def slugify(s: str) -> str:
