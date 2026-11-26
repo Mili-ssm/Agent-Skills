@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: implemented on the branch, not merged; § Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
+Status: Tasks 1–8 implemented on the branch, Task 9 planned (owner ruling 2026-11-26), not merged; § Deferred findings stays open · Branch: `refactor/memory-config` (stacked on `refactor/memory-a7-a1-a3`, PR #198) · Base: `6046218` · Date: 2026-11-26
 
 **Goal:** one pure module, `engine/config.py`, decides where the note store and the config files are, every Python entry point and every hook uses it, and the two owner rulings of 2026-11-26 hold everywhere.
 
@@ -145,6 +145,21 @@ Task 5 moved `add_references` past its fifth parameter to `**options`; the synth
 **Files:** Modify: `docs/superpowers/plans/2026-11-23-memory-refactor.md` (Config task), `docs/backlog.md` (A1 row, dates), `docs/studies/2026-11-23-memory-plugin-structure.md` (finding 2: the `MEM_RULES_LAYOUT` harm it names is already fixed, `conftest.py` clears every `MEM_*` and `CLAUDE_PLUGIN_OPTION_*`), this plan's Status line
 
 - [x] **Step 1:** Config task ticked with a link to this plan and what stays for A3 (data folder); backlog A1 row closed the way A7's was; study note; Status. `python3 scripts/validate.py`. Commit.
+
+### Task 9: Config files editable by hand (owner ruling 2026-11-26)
+
+Owner, 2026-11-26, after the final review: the `store` config file is user-editable, not hook-managed. Until now `session-env.sh` wrote `$cfg/store` and `$cfg/memories` from the options and deleted them whenever an option was empty, and every hook exported the default store as `MEM_STORE`, so a hand-written file never worked inside sessions.
+
+**Files:** Modify: `plugins/memory/hooks/session-env.sh`, `plugins/memory/hooks/store-env.sh`, `plugins/memory/engine/tests/test_hooks_store_env.py`, `plugins/memory/CHANGELOG.md`, `plugins/memory/README.md` (the sentence on where options are written)
+
+**Interfaces:**
+- `session-env.sh` `handle` records what it writes: next to `$cfg/<name>` a file `$cfg/<name>.hook` holding the exact value written. Option set: write `$cfg/<name>` and the record only when `$cfg/<name>` is missing or its content equals the record (hook-owned); a file that differs (written or edited by hand) is kept; the option is exported either way. Option empty: remove `$cfg/<name>` only when its content equals the record; always remove the record. Applies to `store` and `memories` alike.
+- `store-env.sh` gains `config_store` (prints the first line of `${XDG_CONFIG_HOME:-$HOME/.config}/agent-memory/store`, stripped, or nothing). `export_store_env` and `session-env.sh`'s `default_store` export the default store only when no option is set AND `config_store` prints nothing; when the config file names a store, no `MEM_STORE` is exported, so `mem` and `config.py` resolve it (config file > default).
+- Hooks stay silent and exit 0 in every case.
+
+- [ ] **Step 1:** Tests first (fail on the current hooks): hand-written `store` file with the option empty survives a session start and no `MEM_STORE` is exported (session-env and the printing hooks); a hook-written file is still removed when the option is cleared; the option set with a different hand-written file keeps the file and exports the option; the option set with no file writes file and record; same for `memories`; a config file plus a marked default store: no `MEM_STORE` exported.
+- [ ] **Step 2:** Implement; run the hook tests and the suite; `bash -n`; `claude plugin validate plugins/memory`.
+- [ ] **Step 3:** CHANGELOG (`### Changed`, for users): the config files under `~/.config/agent-memory/` can be edited by hand; the hooks no longer delete or overwrite a file they did not write, and no longer export the default store when the `store` file names one. Migration: a file written by an older version has no record, so after clearing the `store` option remove `~/.config/agent-memory/store` by hand if it still names the old store. README: replace the sentence added in `81e5399` accordingly. Commit, all hooks on.
 
 ## Deferred findings
 
