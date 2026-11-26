@@ -49,6 +49,7 @@ ignore = [
 "plugins/memory/bin/*" = "py311"
 "plugins/memory/engine/headless.py" = "py311"
 "plugins/memory/engine/jobs.py" = "py311"
+"plugins/memory/engine/corroborate/*" = "py311"
 "plugins/memory/engine/synthesize/*" = "py311"
 
 [lint.per-file-ignores]

@@ -5,9 +5,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import corroborate
 import pytest
 import records
+from corroborate import decide as corroborate_decide
 
 TODAY = datetime.date(2026, 11, 22)
 FILL_CAP = 30
@@ -53,15 +53,15 @@ def world(tmp_path):
         return records.update(m, TODAY, owner_confirmed=TODAY.isoformat()) if confirmed else m
 
     w.put = put
-    w.candidates = lambda **kw: corroborate.fill_candidates([w.project], w.gmem, TODAY, **kw)
+    w.candidates = lambda **kw: corroborate_decide.fill_candidates([w.project], w.gmem, TODAY, **kw)
     return w
 
 
 def test_fill_key_is_the_same_whatever_the_registry_order(tmp_path):
     a, b = tmp_path / "a", tmp_path / "b"
-    assert corroborate.fill_key(None, "h1") == "g:h1"
-    assert corroborate.fill_key(a, "h1") == f"{records.project_key(a)}:h1"
-    assert corroborate.fill_key(a, "h1") != corroborate.fill_key(b, "h1")
+    assert corroborate_decide.fill_key(None, "h1") == "g:h1"
+    assert corroborate_decide.fill_key(a, "h1") == f"{records.project_key(a)}:h1"
+    assert corroborate_decide.fill_key(a, "h1") != corroborate_decide.fill_key(b, "h1")
 
 
 def test_candidates_drop_a_lesson_after_two_attempts_before_the_cap(world):
@@ -71,9 +71,9 @@ def test_candidates_drop_a_lesson_after_two_attempts_before_the_cap(world):
     assert len(first) == FILL_CAP
     _i, m = first[0]
     attempts = {
-        corroborate.fill_key(world.project, m.handle): {
-            "digest": corroborate.claim_digest(m),
-            "count": corroborate.FILL_ATTEMPTS,
+        corroborate_decide.fill_key(world.project, m.handle): {
+            "digest": corroborate_decide.claim_digest(m),
+            "count": corroborate_decide.FILL_ATTEMPTS,
         }
     }
     asked = world.candidates(attempts=attempts)
@@ -84,7 +84,7 @@ def test_candidates_drop_a_lesson_after_two_attempts_before_the_cap(world):
 
 def test_a_changed_claim_is_a_candidate_again(world):
     m = world.put("Invented lesson about naming a branch after its task.")
-    attempts = {corroborate.fill_key(world.project, m.handle): {"digest": "old", "count": 5}}
+    attempts = {corroborate_decide.fill_key(world.project, m.handle): {"digest": "old", "count": 5}}
     assert [x.handle for _i, x in world.candidates(attempts=attempts)] == [m.handle]
 
 
@@ -117,23 +117,25 @@ def test_validate_check_counts_only_an_exact_true():
             {"id": "zz", "reason": "r", "faithful": True},
         ]
     }
-    assert corroborate.validate_check(payload, ids) == {"a": True, "b": False, "c": False}
+    assert corroborate_decide.validate_check(payload, ids) == {"a": True, "b": False, "c": False}
 
 
 def test_validate_check_of_a_missing_or_repeated_verdict_is_none():
     ids = ["a", "b"]
     one = {"id": "a", "reason": "r", "faithful": True}
-    assert corroborate.validate_check({"verdicts": [one]}, ids) is None
-    assert corroborate.validate_check({"verdicts": [one, one, {**one, "id": "b"}]}, ids) is None
+    assert corroborate_decide.validate_check({"verdicts": [one]}, ids) is None
+    assert (
+        corroborate_decide.validate_check({"verdicts": [one, one, {**one, "id": "b"}]}, ids) is None
+    )
 
 
 def test_validate_check_of_an_unusable_answer_is_none():
     for bad in ([], "text", {"verdicts": 3}, {}, None):
-        assert corroborate.validate_check(bad, ["a"]) is None
+        assert corroborate_decide.validate_check(bad, ["a"]) is None
 
 
 def test_check_lines_puts_each_field_on_one_line_and_omits_an_empty_context():
-    text = corroborate.check_lines([
+    text = corroborate_decide.check_lines([
         ("p1:x", "A claim\nover two lines", "when testing", "Short one."),
         ("g:y", "Another claim", None, "Short two."),
     ])
@@ -147,8 +149,8 @@ def test_a_non_numeric_stored_count_counts_as_zero(world):
     m = world.put("Invented lesson about reading a log from the end.")
     for bad in ("2", None, 2.0, True, [2]):
         attempts = {
-            corroborate.fill_key(world.project, m.handle): {
-                "digest": corroborate.claim_digest(m),
+            corroborate_decide.fill_key(world.project, m.handle): {
+                "digest": corroborate_decide.claim_digest(m),
                 "count": bad,
             }
         }
@@ -156,10 +158,10 @@ def test_a_non_numeric_stored_count_counts_as_zero(world):
 
 
 def test_attempt_count_reads_a_bool_or_a_foreign_digest_as_zero():
-    assert corroborate.attempt_count({"digest": "d", "count": True}, "d") == 0
-    assert corroborate.attempt_count({"digest": "x", "count": 2}, "d") == 0
-    assert corroborate.attempt_count(None, "d") == 0
-    assert corroborate.attempt_count({"digest": "d", "count": 2}, "d") == TWO
+    assert corroborate_decide.attempt_count({"digest": "d", "count": True}, "d") == 0
+    assert corroborate_decide.attempt_count({"digest": "x", "count": 2}, "d") == 0
+    assert corroborate_decide.attempt_count(None, "d") == 0
+    assert corroborate_decide.attempt_count({"digest": "d", "count": 2}, "d") == TWO
 
 
 def test_a_strong_project_lesson_with_three_sessions_waits_for_the_owner(world):

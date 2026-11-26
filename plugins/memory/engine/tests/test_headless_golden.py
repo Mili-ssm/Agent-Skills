@@ -11,10 +11,10 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-import corroborate_run
 import headless
 import pytest
 import research_pipeline
+from corroborate import run as corroborate_run
 from synthesize import pipeline as synth_pipeline
 from synthesize import references as backfill
 from synthesize import run as sr

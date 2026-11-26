@@ -6,10 +6,10 @@ import time
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import corroborate
 import mem
 import pytest
 import records
+from corroborate import decide as corroborate_decide
 
 TODAY = datetime.date.today()
 
@@ -1684,7 +1684,9 @@ def _stuck(folder, handle="nf", **fields: Unpack[StuckFields]):
     state.parent.mkdir(parents=True, exist_ok=True)
     state.write_text(
         json.dumps({
-            "lessons": {key: {"digest": digest or corroborate.claim_digest(m), "count": count}}
+            "lessons": {
+                key: {"digest": digest or corroborate_decide.claim_digest(m), "count": count}
+            }
         })
     )
     return state

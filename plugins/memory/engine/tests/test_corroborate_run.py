@@ -8,11 +8,11 @@ import subprocess
 from pathlib import Path
 
 import capture_state
-import corroborate
-import corroborate_state
 import jobs
 import pytest
 import records
+from corroborate import decide as corroborate_decide
+from corroborate import state as corroborate_state
 from corroborate_world import (
     BRIEF,
     BRIEF2,
@@ -481,7 +481,7 @@ def test_marks_use_the_fingerprint_after_the_runs_own_writes(w):
     merged_then_refused(w)
     assert log_lines(w)[-1]["merges"] == 1 and log_lines(w)[-1]["refused"] == 1
     marks = seen(w)["refused"]
-    live = {key_of(x): corroborate.lesson_fingerprint(x) for x in lessons(w)}
+    live = {key_of(x): corroborate_decide.lesson_fingerprint(x) for x in lessons(w)}
     assert marks and all(live.get(k) == v for k, v in marks.items())
     assert len(marks) == len(live)
 

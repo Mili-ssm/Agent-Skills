@@ -40,10 +40,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
 import capture_state as cs
-import corroborate_state
+from corroborate import state as corroborate_state
 
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
-    import corroborate_cli
+    from corroborate import cli as corroborate_cli
 
     IMPORT_ERROR: Exception | None = None
 except Exception as _exc:

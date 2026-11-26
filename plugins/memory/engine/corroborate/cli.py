@@ -13,12 +13,13 @@ import time
 from pathlib import Path
 
 import capture_state as cs
-import corroborate_digest
-import corroborate_fill
-import corroborate_reword
-import corroborate_run
-import corroborate_state
 import jobs
+
+from corroborate import digest as corroborate_digest
+from corroborate import fill as corroborate_fill
+from corroborate import reword as corroborate_reword
+from corroborate import run as corroborate_run
+from corroborate import state as corroborate_state
 
 logger = logging.getLogger(__name__)
 

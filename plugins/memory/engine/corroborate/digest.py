@@ -12,12 +12,13 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-import corroborate
-import corroborate_run
-import corroborate_state
 import digest as dg
 import jobs
 import records
+
+from corroborate import decide as corroborate_decide
+from corroborate import run as corroborate_run
+from corroborate import state as corroborate_state
 
 logger = logging.getLogger(__name__)
 
@@ -218,7 +219,7 @@ class _DigestPass:
         self.fingerprint = hashlib.sha256(json.dumps(keys).encode()).hexdigest()
         if self.failures["fingerprint"] != self.fingerprint:
             self.failures["count"] = 0
-        if self.failures["count"] >= corroborate.FILL_FAILURES:
+        if self.failures["count"] >= corroborate_decide.FILL_FAILURES:
             return _finish(self.result, stopped="waiting for the lessons to change", topics=0)
         claude = self.params.claude
         if not claude:

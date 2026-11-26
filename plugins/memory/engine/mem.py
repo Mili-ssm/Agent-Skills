@@ -36,7 +36,6 @@ import auto_state
 import capture_state
 import check as check_rules
 import config
-import corroborate
 import digest
 import handoff
 import index as index_files
@@ -69,6 +68,7 @@ from check import (
     invalid_changed,
     orphan_notes,
 )
+from corroborate import decide as corroborate_decide
 from index import (
     INDEX_FOLDERS,
     apply_index,
@@ -4226,7 +4226,7 @@ def _linked_in_folder(
 def _linked_in_counted_projects(handle: str) -> list[records.Memory]:
     named = re.compile(rf"^general:\s*['\"]?{re.escape(handle)}['\"]?\s*$", re.MULTILINE)
     found: list[records.Memory] = []
-    projects = corroborate.counted_projects(records.read_registry(data_dir(os.environ)))
+    projects = corroborate_decide.counted_projects(records.read_registry(data_dir(os.environ)))
     for n, project in enumerate(projects, 1):
         folder = records.project_dir(project)
         files = _project_md_files(folder, n, len(projects))
@@ -5251,7 +5251,9 @@ def _rules_stuck(
         1
         for m in choice.unready_lessons
         if (root is not None or m.scope != "project")
-        and corroborate.fill_wont_write(m, root if m.scope == "project" else None, attempts, today)
+        and corroborate_decide.fill_wont_write(
+            m, root if m.scope == "project" else None, attempts, today
+        )
     )
 
 
@@ -5587,7 +5589,7 @@ def _decision_nofill(
     return [
         m
         for m in (records.mark_repository(kept, tracked) if root else kept)
-        if attempts is not None and corroborate.fill_wont_write(m, root, attempts, today)
+        if attempts is not None and corroborate_decide.fill_wont_write(m, root, attempts, today)
     ]
 
 

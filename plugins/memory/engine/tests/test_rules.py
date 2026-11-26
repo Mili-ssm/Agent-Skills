@@ -6,11 +6,11 @@ import subprocess
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import corroborate
 import mem
 import pytest
 import records
 import rules
+from corroborate import decide as corroborate_decide
 from test_rules_session import FIT, FIT_HELD, pad
 
 TODAY = datetime.date.today()
@@ -702,7 +702,7 @@ def test_more_says_stuck_lessons_need_curation(project, gfolder, capsys):
     state.parent.mkdir(parents=True)
     state.write_text(
         json.dumps({
-            "lessons": {f"g:{m.handle}": {"digest": corroborate.claim_digest(m), "count": 2}}
+            "lessons": {f"g:{m.handle}": {"digest": corroborate_decide.claim_digest(m), "count": 2}}
         })
     )
     capsys.readouterr()
@@ -749,9 +749,11 @@ def test_stuck_count_ignores_a_project_twin_of_a_ready_global_lesson(project, gf
     write("Still waiting for the background pass.")
     state = Path(os.environ["MEM_DATA"]) / "corroborate" / "fill-attempts.json"
     state.parent.mkdir(parents=True)
-    key = corroborate.fill_key(project, twin.handle)
+    key = corroborate_decide.fill_key(project, twin.handle)
     state.write_text(
-        json.dumps({"lessons": {key: {"digest": corroborate.claim_digest(twin), "count": 2}}})
+        json.dumps({
+            "lessons": {key: {"digest": corroborate_decide.claim_digest(twin), "count": 2}}
+        })
     )
     capsys.readouterr()
     assert mem.main(["rules", "--more"]) == 0
