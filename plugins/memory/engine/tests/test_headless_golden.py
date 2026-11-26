@@ -52,6 +52,7 @@ def flag_map(argv: list[str]) -> dict[str, tuple[str, ...]]:
                 found[flag] = tuple(values)
             flag, values = token, []
         else:
+            assert flag is not None, f"{token!r} comes before the first flag"
             values.append(token)
     return found
 
@@ -475,6 +476,15 @@ def test_corroborate_runner_arguments(run: Recorder, tmp_path: Path) -> None:
         "timeout": SESSION_TIMEOUT,
         "check": False,
     }
+
+
+def test_corroborate_session_env(run: Recorder, crafted: dict[str, str], tmp_path: Path) -> None:
+    corroborate_run.run_session(["claude"], tmp_path)
+    env = run.kwargs["env"]
+    for gone in ("MEM_X", "MEM_STORE", "CLAUDE_PLUGIN_OPTION_Y"):
+        assert gone not in env
+    assert "KEEP_ME" in env
+    assert crafted["with_mem"] not in env["PATH"].split(os.pathsep)
 
 
 def test_capture_runner_arguments(mem_capture: ModuleType, run: Recorder, tmp_path: Path) -> None:
