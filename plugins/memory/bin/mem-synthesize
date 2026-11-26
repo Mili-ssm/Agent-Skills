@@ -1289,13 +1289,14 @@ def _check_fake_run(store: Path, fake: Path, env: dict) -> None:
     ).stdout
     assert "knowledge/notes/touched.md" in shown.splitlines(), shown  # not held back
     checked = sp.mem(store, env, "check")
-    # keep.md and the missing index are fixture findings; only the fake's note must be clean
-    assert "touched.md" not in checked.stdout + checked.stderr, checked.stdout + checked.stderr
+    report = checked.stdout + checked.stderr
+    # keep.md is a fixture finding: seeing it proves `mem check` ran; only the fake's note must be clean
+    assert "knowledge/keep.md" in report and "notes/touched.md" not in report, report
 
 
 def self_check() -> int:
     """No model: parsers, the dry run, and a whole run with a fake `claude` that writes a valid note and stops
-    (every topic fails, the run goes on, the closing commit holds the note, `mem check` passes, the store keeps its content)."""
+    (every topic fails, the run goes on, the closing commit holds the note, `mem check` reports nothing on it, the store keeps its content)."""
     _check_parsers()
     with tempfile.TemporaryDirectory(prefix="mem-synthesize-check-") as tmp_name:
         tmp = Path(tmp_name)

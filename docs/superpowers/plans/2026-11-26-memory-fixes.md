@@ -76,6 +76,7 @@ Unregistered loaders (pre-mortem 2026-11-26): `test_capture.py` (`mem_capture_br
 | `test_auto_curation.py` and `test_store_precedence.py` register with `sys.modules[...] =` and never remove the entry | Open, low: pre-existing, no failure seen |
 | The `mem-synthesize` self-check cannot assert a store-wide `mem check` exit 0 (fixture findings); it asserts no finding names the fake note | Accepted |
 | The self-check pytest needs `uv` (it runs `bin/mem`) | Accepted: the suite already needs `uv` |
+| Review round 2, low, deferred: the TLS spy forwards attribute writes no code path makes; the multibyte timeout test is still timing-based (2.0 s margin, about 2 s per run); the guard skips its own file wholesale; the self-check reads the note from `HEAD`, so a later trailing commit in `run()` would break it | Deferred: no failure seen; revisit if one flakes or `run()` changes |
 | Review round 1 findings rejected: `math.isclose` for a float constant (Ruff RUF069 forbids `==`); the `__all__` re-export comment (the repo's recipe) | Ruling |
 
 ## Kill criteria
