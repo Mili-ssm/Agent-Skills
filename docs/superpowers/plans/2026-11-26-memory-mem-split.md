@@ -68,7 +68,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 - [x] As Task 2; `_merge_pair` patch retargeted.
 
 ### Task 7: `commands/curate.py`
-- [ ] As Task 2; `_decisions`, `_write_marks`, `orphan_notes` patches; `orphan_notes` and the due queries next to their callers (refactor plan).
+- [x] As Task 2; `_decisions`, `_write_marks` patches retargeted (`orphan_notes` already patched `link_rules`); `orphan_notes` and the due queries already live in `notes/links.py` and `notes/due.py`; `PAIR_WORK` stays in `mem.py` for Task 8 (only `session_index` reads it); `_got_worse` lives in `curate` (hooks may import it).
 
 ### Task 8: `commands/hooks.py`
 - [ ] As Task 2; `PAIR_WORK` patch; session-index hook timed before and after (p50, p95).

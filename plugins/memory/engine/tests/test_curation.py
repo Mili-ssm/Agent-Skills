@@ -8,6 +8,7 @@ from typing import TypedDict, Unpack
 
 import mem
 import pytest
+from commands import common, curate
 from corroborate import decide as corroborate_decide
 from memories import records
 
@@ -503,7 +504,7 @@ def test_curate_seen_often_is_a_global_lesson_candidate(project, capsys):
 
 def test_seen_often_skips_global_memories(gfolder, capsys):
     put(gfolder, "gl", "Zebra crossing lights flicker", observed=5)
-    found = mem._decisions(records.load_memories(gfolder, "global"), TODAY)
+    found = curate._decisions(records.load_memories(gfolder, "global"), TODAY)
     keys = found.keys()  # Decisions.keys() is a method, not a dict view
     assert found.seen == [] and not any(k.startswith("seen:") for k in keys)
     assert "seen 3 times or more" not in run(capsys, "curate", "--global")[1]
@@ -548,7 +549,7 @@ def test_decisions_keys(project):
         extra=f"refuted: '{days_ago(10)}'\n",
     )
     put(project, "again", "Pottery glaze firing chart", created=days_ago(2))
-    keys = mem._decisions(_load(project), TODAY).keys()
+    keys = curate._decisions(_load(project), TODAY).keys()
     assert keys == {
         "refuted:again|dead": "refuted again",
         "pair:k1|k2": "same or opposite",
@@ -578,7 +579,7 @@ def test_decisions_since_on_an_unchanged_store_finds_no_pairs(project):
         ("k2", "Retries never need idempotency keys on payment calls"),
     ):
         _age(put(project, h, c, created=days_ago(30)), 30)
-    d = mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(100))
+    d = curate._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(100))
     assert _pair_keys(d) == set() and d.pairs_checked
 
 
@@ -596,7 +597,7 @@ def test_decisions_since_finds_a_memory_whose_file_changed(project):
         ),
         0,
     )
-    assert _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
+    assert _pair_keys(curate._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
 
 
 def test_decisions_since_counts_a_memory_without_created_as_changed(project):
@@ -607,14 +608,14 @@ def test_decisions_since_counts_a_memory_without_created_as_changed(project):
     path = put(project, "k2", "Retries never need idempotency keys on payment calls")
     path.write_text(path.read_text().replace(f"created: '{days_ago(1)}'\n", ""))
     _age(path, 30)
-    assert _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
+    assert _pair_keys(curate._decisions(_load(project), TODAY, since=SINCE)) == {"pair:k1|k2"}
 
 
 def test_changed_since_orders_newest_change_first(project):
     for h, n in (("a", 5), ("b", 2), ("c", 8)):
         _age(put(project, h, f"Claim number {h}", created=days_ago(n)), n)
     _age(put(project, "z", "Claim number z", created=days_ago(30)), 30)
-    assert mem._changed_since(_load(project), SINCE) == ["b", "a", "c"]
+    assert curate._changed_since(_load(project), SINCE) == ["b", "a", "c"]
 
 
 def test_decisions_since_spends_the_budget_on_the_newest_change_first(project):
@@ -625,7 +626,9 @@ def test_decisions_since_spends_the_budget_on_the_newest_change_first(project):
         ("o2", "Quartz clocks never drift slowly in cold rooms", 5),
     ):
         _age(put(project, h, c, created=days_ago(n)), n)
-    found = _pair_keys(mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(3)))
+    found = _pair_keys(
+        curate._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(3))
+    )
     assert "pair:n1|n2" in found and "pair:o1|o2" not in found
 
 
@@ -635,7 +638,7 @@ def test_decisions_since_with_no_budget_left_checks_nothing(project):
         30,
     )
     put(project, "k2", "Retries never need idempotency keys on payment calls")
-    d = mem._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(0))
+    d = curate._decisions(_load(project), TODAY, since=SINCE, budget=records.Budget(0))
     assert _pair_keys(d) == set() and not d.pairs_checked
 
 
@@ -655,9 +658,9 @@ def test_decisions_since_finds_a_subset_of_the_keys_without_it(project):
     )
     put(project, "m1", "Quartz clocks drift slowly in cold rooms")
     put(project, "m2", "Quartz clocks never drift slowly in cold rooms")
-    with_since = set(mem._decisions(_load(project), TODAY, since=SINCE).keys())
+    with_since = set(curate._decisions(_load(project), TODAY, since=SINCE).keys())
     assert "pair:m1|m2" in with_since and with_since <= set(
-        mem._decisions(_load(project), TODAY).keys()
+        curate._decisions(_load(project), TODAY).keys()
     )
 
 
@@ -675,7 +678,7 @@ def test_decisions_drops_superseded(project):
         "Cache warmup takes long",
         extra=f"valid_until: '{days_ago(3)}'\nsuperseded_by: a\n",
     )
-    d = mem._decisions(_load(project), TODAY)
+    d = curate._decisions(_load(project), TODAY)
     assert d.keys() == {} and d.pairs_checked
 
 
@@ -1378,7 +1381,7 @@ def test_count_names_its_parts(project, gfolder, capsys):
 
 
 def _set_pass(folder, days):
-    mem._write_passes(os.environ, [folder], TODAY - datetime.timedelta(days=days))
+    curate._write_passes(os.environ, [folder], TODAY - datetime.timedelta(days=days))
 
 
 def test_old_pairs_are_not_searched_after_a_pass_without_marks(project, gfolder, capsys):
@@ -1413,7 +1416,7 @@ def test_marks_file_malformed_reads_as_none(tmp_path, raw):
     data = tmp_path / "mem-data"
     data.mkdir(exist_ok=True)
     (data / "curated-items.json").write_text(raw)
-    assert mem.read_marks(os.environ) == {}
+    assert curate.read_marks(os.environ) == {}
 
 
 def test_done_global_keeps_project_marks(project, gfolder, tmp_path, capsys):
@@ -1441,8 +1444,8 @@ def _session(project, gfolder):
         project,
         gfolder,
         TODAY,
-        passes=mem.read_passes(os.environ),
-        marks=mem.read_marks(os.environ),
+        passes=curate.read_passes(os.environ),
+        marks=curate.read_marks(os.environ),
     )
 
 
@@ -1490,7 +1493,7 @@ def test_count_failure_keeps_the_rules(project, gfolder, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(mem, "_decisions", boom)
+    monkeypatch.setattr(curate, "_decisions", boom)
     text = _session(project, gfolder)
     assert "Curation due" not in text and "This project: 1 memories." in text
     assert text.splitlines()[1:] == clean.splitlines()[1:]
@@ -1511,7 +1514,7 @@ def test_session_index_near_the_budget_is_fast(project, gfolder):
     _set_pass(project, 10)
     loaded = records.load_memories(project, "project")
     budget = records.Budget(mem.PAIR_WORK)
-    assert mem._decisions(
+    assert curate._decisions(
         loaded, TODAY, since=TODAY - datetime.timedelta(days=10), budget=budget
     ).pairs_checked
     start = time.perf_counter()
@@ -1567,14 +1570,14 @@ def test_a_folder_whose_count_failed_says_at_least(project, gfolder, monkeypatch
     put(project, "r1", "Always run the linter before committing", extra="reach: general\n")
     put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
     put(gfolder, "g", "General lesson about widgets", observed=4)
-    real = mem._decisions
+    real = curate._decisions
 
     def flaky(loaded, today, **kw):
         if loaded and loaded[0].scope == "global":
             raise RuntimeError("boom")
         return real(loaded, today, **kw)
 
-    monkeypatch.setattr(mem, "_decisions", flaky)
+    monkeypatch.setattr(curate, "_decisions", flaky)
     text = _session(project, gfolder)
     assert (
         "Curation due: at least 1 item (1 expired)" in text and "This project: 1 memories." in text
@@ -1586,14 +1589,14 @@ def test_done_that_fails_writing_marks_keeps_the_old_pass_date(
 ):
     put(project, "exp", "Cache warmup takes long", extra=f"valid_until: '{days_ago(3)}'\n")
     _set_pass(project, 10)
-    old = mem.read_passes(os.environ)
+    old = curate.read_passes(os.environ)
 
     def boom(*a, **k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(mem, "_write_marks", boom)
+    monkeypatch.setattr(curate, "_write_marks", boom)
     assert run(capsys, "curate", "--done")[0] == EXIT_REFUSED
-    assert mem.read_passes(os.environ) == old
+    assert curate.read_passes(os.environ) == old
 
 
 def test_write_marks_does_not_drop_keys_it_could_not_read(tmp_path, monkeypatch):
@@ -1601,8 +1604,8 @@ def test_write_marks_does_not_drop_keys_it_could_not_read(tmp_path, monkeypatch)
     other, covered = tmp_path / "a", tmp_path / "b"
     other.mkdir()
     covered.mkdir()
-    mem._write_marks(env, {other: ["x"]})
-    marks = mem._marks_file(env)
+    curate._write_marks(env, {other: ["x"]})
+    marks = curate._marks_file(env)
     if marks is None:
         pytest.fail("no marks file")
     path = marks
@@ -1615,16 +1618,16 @@ def test_write_marks_does_not_drop_keys_it_could_not_read(tmp_path, monkeypatch)
 
     monkeypatch.setattr(type(path), "read_text", failing)
     with pytest.raises(OSError):
-        mem._write_marks(env, {covered: ["y"]})
+        curate._write_marks(env, {covered: ["y"]})
     monkeypatch.undo()
-    assert mem.read_marks(env) == {str(other.resolve()): frozenset({"x"})}
+    assert curate.read_marks(env) == {str(other.resolve()): frozenset({"x"})}
     path.write_text("not json", encoding="utf-8")  # malformed stays lenient
-    mem._write_marks(env, {covered: ["y"]})
-    assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"y"})}
+    curate._write_marks(env, {covered: ["y"]})
+    assert curate.read_marks(env) == {str(covered.resolve()): frozenset({"y"})}
     path.write_bytes(b"\xff\xfe\x00bad")  # not UTF-8: malformed too, not unreadable
-    assert mem.read_marks(env) == {}
-    mem._write_marks(env, {covered: ["z"]})
-    assert mem.read_marks(env) == {str(covered.resolve()): frozenset({"z"})}
+    assert curate.read_marks(env) == {}
+    curate._write_marks(env, {covered: ["z"]})
+    assert curate.read_marks(env) == {str(covered.resolve()): frozenset({"z"})}
 
 
 def test_marks_file_not_utf8_keeps_the_session_index(project, gfolder, tmp_path, capsys):
@@ -1653,7 +1656,7 @@ def _state_pair(folder, scope):
         kind="state",
         created=days_ago(2),
     )
-    return mem._decisions(records.load_memories(folder, scope), TODAY)
+    return curate._decisions(records.load_memories(folder, scope), TODAY)
 
 
 def test_newer_state_is_a_project_matter(project, gfolder):
@@ -1697,8 +1700,8 @@ def test_stuck_short_form_is_listed_with_its_fix(project, gfolder, capsys):
     out = run(capsys, "curate", "--project")[1]
     assert "will not write its short form" in out and "mem memory edit" in out and "--short" in out
     assert "  m:nf  Cache keys need explicit versions" in out.splitlines()
-    assert mem._decisions(
-        _load(project), TODAY, attempts=mem._fill_attempts(os.environ), root=project.parent
+    assert curate._decisions(
+        _load(project), TODAY, attempts=common._fill_attempts(os.environ), root=project.parent
     ).keys() == {"nofill:nf": "no short form"}
 
 

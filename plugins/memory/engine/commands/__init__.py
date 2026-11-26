@@ -8,4 +8,5 @@ Modules (the plan, docs/superpowers/plans/2026-11-26-memory-mem-split.md, adds o
 `edit`: `new`, `note` (edit and marks), `rename`, `unify`; `new_note` and the attach-to-section helpers
 `sources`: `fetch-sources` and `import`; download, HTML and PDF text extraction, and the store import
 `memory`: `remember`, `confirm` (and `observe`), `refute`, `forget`, `triage`, `supersede`, `merge`, `distinct`, `restore`, `promote`, `memories`, `rules`, `memory` (edit) and `settle`
+`curate`: `curate`, and the session-start curation decisions (passes, marks, pair and note queues)
 """
