@@ -7,7 +7,7 @@ Status: accepted · Date: 2026-11-26
 - `engine/mem.py` has 10,502 lines, 697 top-level symbols and 42 `cmd_*` handlers; handlers sit far from their logic (`cmd_search` near the parser, its `rank` 8,700 lines above). It took 174 commits in nine days (architect measurement 2026-11-26).
 - Refactor plan A5 ([plan](../superpowers/plans/2026-11-23-memory-refactor.md) item "Split the rest of `mem.py`"): one feature per pull request, handlers move with their logic, `mem.py` stays the facade and the parser, a line ceiling on `mem.py`.
 - ADR 0034 layers: `core → memories → syntheses → notes` import no feature package; `FROZEN_EDGES` only shrinks; no package imports `mem`. The command clusters import up to five feature packages (memory lifecycle: `corroborate`, `digest`, `settle`; hooks: `capture`, `session`, `settle`), so no existing package can hold them.
-- Handlers call `build_parser().error` at ten sites: moved as they are, they would import `mem` back.
+- Handlers call `build_parser().error` at twelve sites: moved as they are, they would import `mem` back.
 - Start-up is not binding: `import mem` costs 79–95 ms; the hooks wrap `mem` in `timeout 3`/`timeout 4`.
 
 ## Decision

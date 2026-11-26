@@ -41,7 +41,7 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 ## Review Focus
 
 1. A `monkeypatch.setattr(mem, name, …)` that no longer reaches the moved code (R1: `mem.time` in `test_fetch_sources.py` would sleep for real, slow but green).
-2. Messages and exit codes of the ten `build_parser().error` sites after `UsageError` (golden first).
+2. Messages and exit codes of the twelve `build_parser().error` sites after `UsageError` (golden first).
 3. Module-level handler dicts (`_PS_`, `_SETTLE_`, `_PROJECTS_`, `_TERMS_HANDLERS`) moving with their handlers.
 4. Start-up: the session-index hook timed (p50, p95) before and after the hooks task; `sources` stays lazily imported.
 5. Each task re-moves from `dev`'s tip and checks every moved function's AST against it (174 commits in nine days; no other work on `mem.py` during A5).
@@ -50,10 +50,10 @@ Order inside `commands/` (acyclic): `common → admin, read, edit → sources, s
 ---
 
 ### Task 1: Preparation (no code moves)
-- [ ] `research/pipeline.py` uses `memories.records.tokenize` instead of `mem.tokenize` (drops the frozen edge `research → mem`); `UsageError` plus dispatch handling, with a golden test of stderr and exit 2 for every former `build_parser().error` site first; `_MOVED` becomes a name → module dict and `__getattr__` looks it up directly; `test_import_graph.py` rules for `commands` (only `mem` imports it); the guard test (an AST scan of tests and evals failing on `setattr(mem, n)` / `monkeypatch.setattr(mem, "n")` when `n` is not a def, class or assignment in `mem.py`; a temporary allow-list, today `time`, `apply_index`, `invalid_changed`, `orphan_notes`, that each task shrinks and that is empty after Task 9); delete the dead `mem._read_note` patch (`tests/test_resolve.py`, already a no-op); every `__file__`-relative path made explicit and tested (`mem stats` "mem.py lines" counts `mem.py` by name and its test asserts the exact value; `_TEMPLATES` moves to `commands/common.py` as `parents[1] / "templates"`); `evals/signal/score.py` and `evals/research/run_trial.py` import `tokenize`, `split_frontmatter`, `FrontmatterError` from `memories`/`notes` directly, plus an import-smoke test of `evals/**/*.py`; goldens store the full stderr (usage line included) and `SystemExit.code` from `main()`; the `mem.py` line ceiling test; `--help` goldens of `mem` and every subcommand. Check: suite; goldens; each new guard proven by a temporary violation.
+- [x] `research/pipeline.py` uses `memories.records.tokenize` instead of `mem.tokenize` (drops the frozen edge `research → mem`); `UsageError` plus dispatch handling, with a golden test of stderr and exit 2 for every former `build_parser().error` site (twelve) first; `_MOVED` becomes a name → module dict and `__getattr__` looks it up directly; `test_import_graph.py` rules for `commands` (only `mem` imports it); the guard test (an AST scan of tests and evals failing on `setattr(mem, n)` / `monkeypatch.setattr(mem, "n")` when `n` is not a def, class or assignment in `mem.py`; a temporary allow-list, today `time`, `apply_index`, `invalid_changed`, `orphan_notes`, that each task shrinks and that is empty after Task 9); delete the dead `mem._read_note` patch (`tests/test_resolve.py`, already a no-op); every `__file__`-relative path made explicit and tested (`mem stats` "mem.py lines" counts `mem.py` by name and its test asserts the exact value; `_TEMPLATES` moves to `commands/common.py` as `parents[1] / "templates"`); `evals/signal/score.py` and `evals/research/run_trial.py` import `tokenize`, `split_frontmatter`, `FrontmatterError` from `memories`/`notes` directly, plus an import-smoke test of `evals/**/*.py`; goldens store the full stderr (usage line included) and `SystemExit.code` from `main()`; the `mem.py` line ceiling test; `--help` goldens of `mem` and every subcommand. Check: suite; goldens; each new guard proven by a temporary violation.
 
 ### Task 2: `commands/common.py` and `commands/admin.py`
-- [ ] Verbatim moves; `_MOVED` entries; ceiling lowered. Check: suite, goldens, help goldens, graph rules.
+- [x] Verbatim moves; `_MOVED` entries; ceiling lowered. Check: suite, goldens, help goldens, graph rules.
 
 ### Task 3: `notes/search.py` and `commands/read.py`
 - [ ] As Task 2; `build_corpus` patches retargeted.
