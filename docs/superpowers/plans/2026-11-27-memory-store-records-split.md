@@ -93,7 +93,7 @@ Pre-mortem 2026-11-27 amendments (measured: package graph acyclic; the risk is g
 | Module | Holds | From |
 |---|---|---|
 | `notes/fields.py` | `Problem`, `Validator`, `_DATE`, `_MONTH`, `_IMPERATIVES`, `_INSTRUCTION_FIX`, `instruction_word`, `_string` … `_disputed`, `_PART_OF`, `_DISPUTE_KEYS`, `LEVELS`, `OPTIONAL_FIELDS`, `SCHEMAS` | check.py |
-| `notes/links.py` | `rule_index_fresh` … `orphan_notes` with their own `_FENCE`, `_CODE_SPAN`, `_LINK`, `_REFDEF`, `_SCHEME` | check.py |
+| `notes/links.py` | `rule_links` … `orphan_notes` (index freshness went back to `check.py`, commit a91b7f1) with their own `_FENCE`, `_CODE_SPAN`, `_LINK`, `_REFDEF`, `_SCHEME` | check.py |
 | `notes/due.py` | `_REQUIREMENTS` … `due_requirements`, `RETEST_DAYS`, `REREAD_DAYS`, `MODEL_SPECIFIC_ROOT` | check.py |
 | `notes/check.py` | the rule catalog (names, flat, domain, schema, consistency, topics, placeholders, size, handles, syntheses, supersession), `RULES`, `check`, `invalid_changed` (~770 lines, cohesive) | stays |
 | `syntheses/document.py` | `Section`, `Synthesis`, load, validate, source numbering, `shown`, `source_kinds` | notes/syntheses.py |
@@ -124,6 +124,9 @@ Owner rule: size is a balance (neither one 10k-line file nor a hundred 100-line 
 
 | Finding | Ruling |
 |---|---|
+| `_FENCE`, `_SCHEME` identical in `syntheses/units.py` and `notes/links.py` (Task 4 review) | deferred: pre-existing duplicate; `notes` may import `syntheses.units` if a third copy appears |
+| Underscore names used across sibling modules after the splits (`document._scan/_read/_write`, `edit._bump/_clean/_guard_shrink`, `_Ref`, `_REF_LINK`) | deferred: make public in a later pass, one rename per commit |
+| ADR/plan `check.py (1,396 lines)` flagged as wrong (reviewer read the post-part-A tree) | rejected: 1,396 at 7861bde, before part A |
 
 ## Kill criteria
 
