@@ -59,10 +59,10 @@ Import edges (no cycle): `run` imports `pipeline`; `backfill` imports `run`, `re
 | `bin/mem-synthesize` | `import synth_pipeline as sp` (L44), `import backfill as bf` (L41); the code to move | 0/ok/0 |
 | `bin/mem-auto` | `import synth_pipeline as sp`; `SourceFileLoader("mem_synthesize", HERE/"mem-synthesize")` as `ms` (`ms.state_dir`, `session_env`, `history_commit`, `topics_without_synthesis`, `run`, `default_store`) | 0/ok/0 |
 | `bin/mem-settle` | same as `mem-auto` (`ms.state_dir`, `session_env`, `default_store`; `sp.mem/brief/parse/MEM/NO_COST`) | 0/ok/0 |
-| `bin/mem-capture` | `importlib.import_module("synth_pipeline")` inside a function (dynamic) | 0/ok/0 |
+| `bin/mem-capture` | `importlib.import_module("synth_pipeline")` at module level, guarded by `IMPORT_ERROR` (keep the guard: a broken engine must not fail `mem-capture` hard) | 0/ok/0 |
 | `engine/backfill.py` | `import synth_pipeline as sp`; moves whole | 0/ok/0 |
 | `engine/synth_pipeline.py` | `BRIEFS = parent / "synth_briefs"` (L32); comment naming `synth_briefs/` (L190); moves whole | 0/ok/0 |
-| `engine/research_pipeline.py`, `engine/corroborate_run.py` | `import synth_pipeline as sp` | 0/ok/0 |
+| `engine/research_pipeline.py`, `engine/corroborate_run.py` | `import synth_pipeline as sp`; `research_pipeline` also reads `sp.BRIEFS` (its own brief files live in `synth_briefs/`) | 0/ok/0 |
 | `engine/safe_io.py`, `engine/tests/test_shortcheck.py` | prose mentions only (no import) | not touched |
 | `engine/tests/test_backfill.py` | `import backfill as bf`, `import synth_pipeline as sp`; fixture `ms` = `SourceFileLoader` of the script (`ms.*`, 20 uses); `setattr(bf, "save_done")` L346; argv `"mem-synthesize"` L331 | 0/ok/0 |
 | `engine/tests/test_synthesize_references.py` | `sp`; `ms` fixture from `test_backfill`; `setattr(sp, "run_session"/"lean_loop")` L81-82, `setattr(ms.bf, "select")` L187, `setattr(ms, "backfill_one")` L226, L238 | 0/ok/0 |
@@ -110,6 +110,7 @@ No `hooks/` file imports them (`session-end.sh` launches `bin/mem-auto`/`mem-set
 
 | Finding | Ruling |
 |---|---|
+| Task 1 review: the dry-run goldens build their fixture with `mem.py`, so they run on 3.12+ only; the `--help`, bad-argument and broken-engine goldens run on 3.11 too | Accepted: the 3.11 floor is covered by the self-checks |
 | Pre-mortem: `bin/` scripts already need PyYAML at import time through `synth_pipeline`/`backfill` → `syntheses`; the lazy `_syntheses()` did nothing | Recorded; the import becomes top-level (Global Constraints) |
 
 ## Kill criteria

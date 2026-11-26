@@ -106,7 +106,11 @@ DRY_BACKFILL = (
 
 
 def _env(**extra: str) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if k not in {"FORCE_COLOR", "MEM_STORE"}}
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"FORCE_COLOR", "PYTHON_COLORS", "MEM_STORE"}
+    }
     env.update(NO_COLOR="1", COLUMNS="80", **extra)
     return env
 
