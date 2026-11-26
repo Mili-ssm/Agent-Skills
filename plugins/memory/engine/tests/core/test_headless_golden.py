@@ -209,6 +209,7 @@ SYNTH_MEM_ALLOWED = (
     "Bash(mem show*)",
     "Bash(mem memories*)",
     "Bash(mem search*)",
+    "Bash(mem rules --unread*)",
     "Bash(mem find*)",
     "Bash(mem check*)",
     "Bash(mem synthesis list*)",
