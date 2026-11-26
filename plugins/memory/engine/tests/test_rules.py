@@ -1,18 +1,26 @@
 import dataclasses
 import datetime
+import json
 import os
-from pathlib import Path
 import subprocess
+from pathlib import Path
+from typing import TypedDict, Unpack
 
-import pytest
-
+import corroborate
 import mem
+import pytest
 import records
 import rules
 from test_rules_session import FIT, FIT_HELD, pad
 
 TODAY = datetime.date.today()
 K1, K2, K3 = "0123456789ab", "ba9876543210", "aaaaaaaaaaaa"
+OVERFLOW = 4  # lessons left out when FIT + 4 are offered
+SOME_LOADED = 16
+FIVE_LOADED = 5
+THREE_LINES = 3
+TWO_LINES = 2
+EXIT_USAGE = 2
 
 
 @pytest.fixture
@@ -31,21 +39,48 @@ def project(tmp_path, monkeypatch):
     return root
 
 
-def write(claim, *, short=None, topic=None, scope="global", sessions=("a", "b"), weight="light", extra=(), pending=False):
-    """A transcript lesson; each session is seen in its own project, so a global one holds in two projects."""
-    args = ["remember", "--kind", "lesson", "--claim", claim, "--origin", "transcript", "--weight", weight,
-            "--reach", "general"]
-    if scope == "global":
+class WriteOptions(TypedDict, total=False):
+    short: str | None
+    topic: str | None
+    scope: str
+    sessions: tuple[str, ...]
+    weight: str
+    extra: tuple[str, ...]
+    pending: bool
+
+
+def _write_args(claim, options):
+    args = [
+        "remember",
+        "--kind",
+        "lesson",
+        "--claim",
+        claim,
+        "--origin",
+        "transcript",
+        "--weight",
+        options.get("weight", "light"),
+        "--reach",
+        "general",
+    ]
+    if options.get("scope", "global") == "global":
         args.append("--global")
-    for i, s in enumerate(sessions):
+    for i, s in enumerate(options.get("sessions", ("a", "b"))):
         args += ["--source", f"session {s} project {[K1, K2, K3][i]}"]
-    if short:
-        args += ["--short", short]
-    if topic:
-        args += ["--topic", topic]
-    assert mem.main([*args, *extra]) == 0
+    if options.get("short"):
+        args += ["--short", options["short"]]
+    if options.get("topic"):
+        args += ["--topic", options["topic"]]
+    return [*args, *options.get("extra", ())]
+
+
+def write(claim, **options: Unpack[WriteOptions]):
+    """A transcript lesson; each session is seen in its own project, so a global one holds in two projects."""
+    assert mem.main(_write_args(claim, options)) == 0
     for m in records.load_memories(records.Path(os.environ["MEM_MEMORIES"]), "global"):
-        if m.triage == "pending" and not pending:  # a lesson that left quarantine awaits the owner's triage
+        if m.triage == "pending" and not options.get(
+            "pending"
+        ):  # a lesson that left quarantine awaits the owner's triage
             assert mem.main(["triage", "accept", m.handle]) == 0
 
 
@@ -58,22 +93,51 @@ def confirm(handle):
 
 
 def test_what_loads_and_what_does_not(project, gfolder):
-    write("Confirmed global lesson one.", short="Confirmed global rule.", topic="testing", sessions=("a",), weight="strong")
+    write(
+        "Confirmed global lesson one.",
+        short="Confirmed global rule.",
+        topic="testing",
+        sessions=("a",),
+        weight="strong",
+    )
     confirm(load(gfolder, "global")["Confirmed global lesson one."].handle)
-    write("Project lesson seen twice.", short="Twice in the project.", topic="process", scope="project")
-    write("Project lesson seen once.", short="Once in the project.", scope="project", sessions=("a",))
+    write(
+        "Project lesson seen twice.",
+        short="Twice in the project.",
+        topic="process",
+        scope="project",
+    )
+    write(
+        "Project lesson seen once.", short="Once in the project.", scope="project", sessions=("a",)
+    )
     write("Turned off lesson.", short="Turned off rule.")
     write("Quarantined lesson.", short="Quarantined rule.", sessions=("a",))
     write("Lesson without a short form.")
-    mem.main(["remember", "--global", "--kind", "lesson", "--claim", "Hand written lesson.", "--short", "Hand rule."])
+    mem.main([
+        "remember",
+        "--global",
+        "--kind",
+        "lesson",
+        "--claim",
+        "Hand written lesson.",
+        "--short",
+        "Hand rule.",
+    ])
     g = load(gfolder, "global")
     off = g["Turned off lesson."]
     assert mem.main(["memory", "edit", f"m:{off.handle}", "--global", "--no-load"]) == 0
     g = load(gfolder, "global")
-    p = load(project / ".memory", "project") if (project / ".memory").is_dir() else load(records.project_dir(project), "project")
+    p = (
+        load(project / ".memory", "project")
+        if (project / ".memory").is_dir()
+        else load(records.project_dir(project), "project")
+    )
     assert records.quarantined(g["Quarantined lesson."])
     choice = rules.choose(list(p.values()), list(g.values()), TODAY)
-    assert {m.claim for m in choice.loaded} == {"Confirmed global lesson one.", "Project lesson seen twice."}
+    assert {m.claim for m in choice.loaded} == {
+        "Confirmed global lesson one.",
+        "Project lesson seen twice.",
+    }
     assert choice.left == [] and choice.unready == 1
 
 
@@ -84,13 +148,24 @@ def test_order_inside_a_group():
     ordered = [
         dataclasses.replace(plain, handle="a", owner_confirmed=day),
         dataclasses.replace(plain, handle="b", weight="medium"),
-        dataclasses.replace(plain, handle="c", sources=_sources("s1", "s2", "s3", keys=(K1, K2, K3))),
-        dataclasses.replace(plain, handle="d", sources=_sources("s1", "s2", "s3", keys=(K1, K2, K1))),
+        dataclasses.replace(
+            plain, handle="c", sources=_sources("s1", "s2", "s3", keys=(K1, K2, K3))
+        ),
+        dataclasses.replace(
+            plain, handle="d", sources=_sources("s1", "s2", "s3", keys=(K1, K2, K1))
+        ),
         dataclasses.replace(plain, handle="e"),
         dataclasses.replace(plain, handle="f", last_observed=None),
     ]
     shuffled = [ordered[i] for i in (3, 5, 1, 0, 4, 2)]
-    assert [m.handle for m in rules.choose([], shuffled, TODAY).loaded] == ["a", "b", "c", "d", "e", "f"]
+    assert [m.handle for m in rules.choose([], shuffled, TODAY).loaded] == [
+        "a",
+        "b",
+        "c",
+        "d",
+        "e",
+        "f",
+    ]
     twins = [dataclasses.replace(plain, handle="y"), dataclasses.replace(plain, handle="x")]
     assert [m.handle for m in rules.choose([], twins, TODAY).loaded] == ["x", "y"]
 
@@ -98,52 +173,105 @@ def test_order_inside_a_group():
 def test_project_lessons_come_first_and_take_at_most_three():
     base = _base()
     n = FIT
-    proj = [dataclasses.replace(base, scope="project", handle=f"p{i}", short=pad(f"Project {i}."),
-                                sources=_sources("s1", "s2", keys=(K1, K1))) for i in range(5)]
-    glob = [dataclasses.replace(base, scope="global", handle=f"g{i:02}", short=pad(f"Global {i}."), weight="strong",
-                                owner_confirmed=TODAY) for i in range(n)]
-    size = lambda m: len(rules.line(m)) + 1  # noqa: E731
-    room = (rules.RULES_LIMIT - 3 * size(proj[0])) // size(glob[0])  # what the three project lessons leave to the globals
+    proj = [
+        dataclasses.replace(
+            base,
+            scope="project",
+            handle=f"p{i}",
+            short=pad(f"Project {i}."),
+            sources=_sources("s1", "s2", keys=(K1, K1)),
+        )
+        for i in range(5)
+    ]
+    glob = [
+        dataclasses.replace(
+            base,
+            scope="global",
+            handle=f"g{i:02}",
+            short=pad(f"Global {i}."),
+            weight="strong",
+            owner_confirmed=TODAY,
+        )
+        for i in range(n)
+    ]
+    size = lambda m: len(rules.line(m)) + 1
+    room = (rules.RULES_LIMIT - 3 * size(proj[0])) // size(
+        glob[0]
+    )  # what the three project lessons leave to the globals
     assert 0 < room < n
     choice = rules.choose(proj, glob, TODAY)
-    assert [m.handle for m in choice.loaded] == ["p0", "p1", "p2", *(f"g{i:02}" for i in range(room))]
-    assert {m.handle for m, why in choice.left} == {"p3", "p4", *(f"g{i:02}" for i in range(room, n))}
+    assert [m.handle for m in choice.loaded] == [
+        "p0",
+        "p1",
+        "p2",
+        *(f"g{i:02}" for i in range(room)),
+    ]
+    assert {m.handle for m, why in choice.left} == {
+        "p3",
+        "p4",
+        *(f"g{i:02}" for i in range(room, n)),
+    }
 
 
 def test_lines_carry_the_standing_written_by_code():
     base = _base()
-    confirmed = dataclasses.replace(base, short="Run the checks before reporting a change.", owner_confirmed=TODAY)
-    global_two_projects = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", "s2", keys=(K1, K2)))
-    project_three = dataclasses.replace(base, scope="project", short="Y.", sources=_sources("s1", "s2", "s3", keys=(K1, K1, K1)))
-    assert rules.line(confirmed) == "- Run the checks before reporting a change. (the user vouched for it)"
+    confirmed = dataclasses.replace(
+        base, short="Run the checks before reporting a change.", owner_confirmed=TODAY
+    )
+    global_two_projects = dataclasses.replace(
+        base, scope="global", short="X.", sources=_sources("s1", "s2", keys=(K1, K2))
+    )
+    project_three = dataclasses.replace(
+        base, scope="project", short="Y.", sources=_sources("s1", "s2", "s3", keys=(K1, K1, K1))
+    )
+    assert (
+        rules.line(confirmed)
+        == "- Run the checks before reporting a change. (the user vouched for it)"
+    )
     assert rules.line(global_two_projects).endswith("(held in 2 projects)")
     assert rules.line(project_three).endswith("(held in 3 sessions)")
-    one_project = dataclasses.replace(base, scope="global", short="X.", sources=_sources("s1", keys=(K1,)))
-    one_session = dataclasses.replace(base, scope="project", short="Y.", sources=_sources("s1", keys=(K1,)))
+    one_project = dataclasses.replace(
+        base, scope="global", short="X.", sources=_sources("s1", keys=(K1,))
+    )
+    one_session = dataclasses.replace(
+        base, scope="project", short="Y.", sources=_sources("s1", keys=(K1,))
+    )
     assert rules.line(one_project).endswith("(held in 1 project)")
     assert rules.line(one_session).endswith("(held in 1 session)")
 
 
 def test_loaded_lines_never_pass_the_limit_of_characters():
     base = _base()
-    many = [dataclasses.replace(base, handle=f"g{i}", short=pad(f"{i:02}"), owner_confirmed=TODAY) for i in range(FIT + 4)]
+    many = [
+        dataclasses.replace(base, handle=f"g{i}", short=pad(f"{i:02}"), owner_confirmed=TODAY)
+        for i in range(FIT + 4)
+    ]
     choice = rules.choose([], many, TODAY)
     assert sum(len(rules.line(m)) + 1 for m in choice.loaded) <= rules.RULES_LIMIT
     assert len(choice.loaded) + len(choice.left) == FIT + 4
     assert all(why == "over the limit" for _, why in choice.left)
-    assert len(choice.loaded) == FIT and len(choice.left) == 4  # the characters bind: one more line would pass the limit
+    assert (
+        len(choice.loaded) == FIT and len(choice.left) == OVERFLOW
+    )  # the characters bind: one more line would pass the limit
 
 
 def test_no_limit_of_number_only_of_characters():
     base = _base()
-    many = [dataclasses.replace(base, handle=f"g{i:02}", short=pad(f"Rule {i:02}"), owner_confirmed=TODAY) for i in range(30)]
+    many = [
+        dataclasses.replace(
+            base, handle=f"g{i:02}", short=pad(f"Rule {i:02}"), owner_confirmed=TODAY
+        )
+        for i in range(30)
+    ]
     choice = rules.choose([], many, TODAY)
     assert (rules.RULES_LIMIT, rules.INDEX_LIMIT) == (3200, 1600)
     assert not hasattr(rules, "RULES_MAX") and not hasattr(rules, "MORE_LIMIT")
-    assert len(choice.loaded) > 16
+    assert len(choice.loaded) > SOME_LOADED
     assert sum(len(rules.line(m)) + 1 for m in choice.loaded) <= rules.RULES_LIMIT
     assert [m.handle for m in choice.loaded] == [f"g{i:02}" for i in range(FIT)]
-    assert [(m.handle, why) for m, why in choice.left] == [(f"g{i:02}", "over the limit") for i in range(FIT, 30)]
+    assert [(m.handle, why) for m, why in choice.left] == [
+        (f"g{i:02}", "over the limit") for i in range(FIT, 30)
+    ]
 
 
 def test_pending_triage_is_counted_not_loaded():
@@ -153,7 +281,10 @@ def test_pending_triage_is_counted_not_loaded():
     ready = dataclasses.replace(base, handle="r")
     choice = rules.choose([], [waiting, noshort, ready], TODAY)
     assert [m.handle for m in choice.loaded] == ["r"]
-    assert [(m.handle, why) for m, why in choice.left] == [("w", "awaits triage"), ("n", "awaits triage")]
+    assert [(m.handle, why) for m, why in choice.left] == [
+        ("w", "awaits triage"),
+        ("n", "awaits triage"),
+    ]
     assert choice.unready == 0
 
 
@@ -163,25 +294,36 @@ def test_the_line_after_the_rules_counts_only_what_did_not_fit():
     over = dataclasses.replace(base, handle="o", topic="shell")
     assert rules.more_line(rules.Choice(left=[(waiting, rules.PENDING)])) is None
     text = rules.more_line(rules.Choice(left=[(waiting, rules.PENDING), (over, rules.OVER)]))
-    assert text == "1 more lesson by topic: shell 1 (mem rules --more <topic>, when a topic fits your task)"
+    assert (
+        text
+        == "1 more lesson by topic: shell 1 (mem rules --more <topic>, when a topic fits your task)"
+    )
     assert "waiting" not in text
 
 
 def test_the_project_group_is_split_by_position():
     base = _base()
-    twins = [dataclasses.replace(base, scope="project", handle=f"p{i}", owner_confirmed=TODAY) for i in range(5)]
+    twins = [
+        dataclasses.replace(base, scope="project", handle=f"p{i}", owner_confirmed=TODAY)
+        for i in range(5)
+    ]
     choice = rules.choose(twins, [], TODAY)
-    assert len(choice.loaded) == 5 and choice.left == []
+    assert len(choice.loaded) == FIVE_LOADED and choice.left == []
 
 
 def test_quarantine_and_turned_off_lessons_are_nowhere(project, gfolder, capsys):
     write("Quarantined lesson.", short="Quarantined rule.", topic="secret", sessions=("a",))
     write("Turned off lesson.", short="Turned off rule.", topic="secret")
     g = load(gfolder, "global")
-    assert mem.main(["memory", "edit", f"m:{g['Turned off lesson.'].handle}", "--global", "--no-load"]) == 0
+    assert (
+        mem.main(["memory", "edit", f"m:{g['Turned off lesson.'].handle}", "--global", "--no-load"])
+        == 0
+    )
     base = _base()
-    shown = [dataclasses.replace(base, handle=f"s{i}", short=pad(f"Shown {i}."), owner_confirmed=TODAY)
-             for i in range(FIT + 1)]
+    shown = [
+        dataclasses.replace(base, handle=f"s{i}", short=pad(f"Shown {i}."), owner_confirmed=TODAY)
+        for i in range(FIT + 1)
+    ]
     g = load(gfolder, "global")
     choice = rules.choose([], [*g.values(), *shown], TODAY)
     assert len(choice.left) == 1 and choice.unready == 0
@@ -190,14 +332,20 @@ def test_quarantine_and_turned_off_lessons_are_nowhere(project, gfolder, capsys)
     capsys.readouterr()
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out
-    assert "secret" not in out and "Quarantined lesson" not in out and "Turned off lesson" not in out
+    assert (
+        "secret" not in out and "Quarantined lesson" not in out and "Turned off lesson" not in out
+    )
 
 
 def test_a_project_record_linked_to_a_loaded_global_one_loads_once():
     base = _base()
     glob = dataclasses.replace(base, scope="global", handle="g", owner_confirmed=TODAY)
-    proj = dataclasses.replace(base, scope="project", handle="p", general="g", owner_confirmed=TODAY)
-    other = dataclasses.replace(base, scope="project", handle="q", general="nobody", owner_confirmed=TODAY)
+    proj = dataclasses.replace(
+        base, scope="project", handle="p", general="g", owner_confirmed=TODAY
+    )
+    other = dataclasses.replace(
+        base, scope="project", handle="q", general="nobody", owner_confirmed=TODAY
+    )
     choice = rules.choose([proj, other], [glob], TODAY)
     assert sorted(m.handle for m in choice.loaded) == ["g", "q"]
     assert choice.left == []
@@ -206,9 +354,13 @@ def test_a_project_record_linked_to_a_loaded_global_one_loads_once():
 def test_a_project_record_linked_to_a_global_one_that_cannot_load_still_loads():
     base = _base()
     glob = dataclasses.replace(base, scope="global", handle="g", owner_confirmed=TODAY, short=None)
-    waiting = dataclasses.replace(base, scope="global", handle="w", owner_confirmed=TODAY, triage="pending")
+    waiting = dataclasses.replace(
+        base, scope="global", handle="w", owner_confirmed=TODAY, triage="pending"
+    )
     p1 = dataclasses.replace(base, scope="project", handle="p", general="g", owner_confirmed=TODAY)
-    p2 = dataclasses.replace(base, scope="project", handle="r", general="m:w", owner_confirmed=TODAY)
+    p2 = dataclasses.replace(
+        base, scope="project", handle="r", general="m:w", owner_confirmed=TODAY
+    )
     choice = rules.choose([p1, p2], [glob, waiting], TODAY)
     assert sorted(m.handle for m in choice.loaded) == ["p", "r"]
     assert [m.handle for m, _ in choice.left] == ["w"] and choice.unready == 1
@@ -216,25 +368,38 @@ def test_a_project_record_linked_to_a_global_one_that_cannot_load_still_loads():
 
 def _left(topics):
     base = _base()
-    return rules.Choice(left=[(dataclasses.replace(base, handle=f"h{i}", topic=t), "over the limit")
-                              for i, t in enumerate(topics)])
+    return rules.Choice(
+        left=[
+            (dataclasses.replace(base, handle=f"h{i}", topic=t), "over the limit")
+            for i, t in enumerate(topics)
+        ]
+    )
 
 
 def test_more_line_names_topics_by_frequency_and_fits():
     topics = ["testing"] * 3 + ["process"] * 2 + ["shell", None]
     choice = _left(topics)
-    assert rules.more_line(choice) == "7 more lessons by topic: testing 3, process 2, shell 1, other 1 (mem rules --more <topic>, when a topic fits your task)"
+    assert (
+        rules.more_line(choice)
+        == "7 more lessons by topic: testing 3, process 2, shell 1, other 1 (mem rules --more <topic>, when a topic fits your task)"
+    )
     five = _left(["a"] * 5 + ["b"] * 4 + ["c"] * 3 + ["d"] * 2 + ["e"])
-    assert rules.more_line(five) == "15 more lessons by topic: a 5, b 4, c 3, d 2, other 1 (mem rules --more <topic>, when a topic fits your task)"
+    assert (
+        rules.more_line(five)
+        == "15 more lessons by topic: a 5, b 4, c 3, d 2, other 1 (mem rules --more <topic>, when a topic fits your task)"
+    )
     long = _left([f"{c}" * 24 for c in "abcdefg" for _ in range(2)])
     text = rules.more_line(long)
+    assert text is not None
     assert len(text) <= rules.INDEX_LIMIT and "other" in text
 
 
 def test_more_line_singular_and_without_topics():
     assert rules.more_line(_left([None])) == "1 more lesson: mem rules --more"
     assert rules.more_line(_left([None, None])) == "2 more lessons: mem rules --more"
-    assert rules.more_line(_left(["testing"])).startswith("1 more lesson by topic: testing 1")
+    singular = rules.more_line(_left(["testing"]))
+    assert singular is not None
+    assert singular.startswith("1 more lesson by topic: testing 1")
 
 
 def test_nothing_qualifies_gives_an_empty_block_and_no_line():
@@ -249,14 +414,20 @@ def test_more_with_a_topic_prints_only_that_group(project, gfolder, capsys):
     capsys.readouterr()
     assert mem.main(["rules", "--more", "testing"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert len(out) == 3 and all(x.split("\t")[2] == "over the limit" and x.split("\t")[4] == "testing" for x in out[:2])
+    assert len(out) == THREE_LINES and all(
+        x.split("\t")[2] == "over the limit" and x.split("\t")[4] == "testing" for x in out[:2]
+    )
     assert out[2] == "mem show m:<handle> prints a whole lesson."
     assert mem.main(["rules", "--more", "shell"]) == 0
-    assert len(capsys.readouterr().out.splitlines()) == 2
+    assert len(capsys.readouterr().out.splitlines()) == TWO_LINES
     assert mem.main(["rules", "--more", "other"]) == 0
     assert capsys.readouterr().out == "No lessons left out under other.\n"
     assert mem.main(["rules", "--more"]) == 0
-    assert [x.split("\t")[4] for x in capsys.readouterr().out.splitlines()[:-1]] == ["testing", "testing", "shell"]
+    assert [x.split("\t")[4] for x in capsys.readouterr().out.splitlines()[:-1]] == [
+        "testing",
+        "testing",
+        "shell",
+    ]
 
 
 def test_mem_rules_and_more(project, gfolder, capsys):
@@ -265,20 +436,34 @@ def test_mem_rules_and_more(project, gfolder, capsys):
     write("Needs a short form.")
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
-    assert capsys.readouterr().out == ("No rules loaded.\n1 established lesson has no short form yet: "
-                                       "the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).\n")
+    assert capsys.readouterr().out == (
+        "No rules loaded.\n1 established lesson has no short form yet: "
+        "the background pass writes them when auto_capture is on (mem-corroborate status shows the last one).\n"
+    )
     # more than fit, each with a topic
     for i in range(FIT_HELD + 2):
-        write(f"Lesson {i} about things in general.", short=pad(f"Rule {i}"), topic="testing" if i % 2 else None)
+        write(
+            f"Lesson {i} about things in general.",
+            short=pad(f"Rule {i}"),
+            topic="testing" if i % 2 else None,
+        )
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == rules.HEADER and len(out) == 1 + FIT_HELD + 1 and out[-1].startswith("2 more lessons")
-    assert all(x.endswith("(held in 2 projects)") for x in out[1:1 + FIT_HELD])
+    assert (
+        out[0] == rules.HEADER
+        and len(out) == 1 + FIT_HELD + 1
+        and out[-1].startswith("2 more lessons")
+    )
+    assert all(x.endswith("(held in 2 projects)") for x in out[1 : 1 + FIT_HELD])
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert len(out) == 2 + 1 + 1
-    assert all(x.startswith("m:") and x.split("\t")[1:4] == ["global", "over the limit", "(held in 2 projects)"] for x in out[:2])
+    assert all(
+        x.startswith("m:")
+        and x.split("\t")[1:4] == ["global", "over the limit", "(held in 2 projects)"]
+        for x in out[:2]
+    )
     assert out[2] == "mem show m:<handle> prints a whole lesson."
     assert out[-1].startswith("1 established lesson has no short form")
     assert mem.main(["rules", "--more", "nonexistent"]) == 0
@@ -286,15 +471,29 @@ def test_mem_rules_and_more(project, gfolder, capsys):
 
 
 def _sources(*sessions, keys):
-    return [f"session {s} project {k}" for s, k in zip(sessions, keys)]
+    return [f"session {s} project {k}" for s, k in zip(sessions, keys, strict=True)]
 
 
 def _base():
     """One valid, established, loadable global record to derive the others from."""
-    return records.Memory(scope="global", path=None, handle="base", kind="lesson", claim="A claim.",
-                          created=datetime.date(2026, 1, 1), observed=1, status="active", context=None,
-                          valid_until=None, sources=_sources("s1", "s2", keys=(K1, K2)), body="", error=None,
-                          origin="transcript", weight="light", short="A short rule.")
+    return records.Memory(
+        scope="global",
+        path=Path("base.md"),
+        handle="base",
+        kind="lesson",
+        claim="A claim.",
+        created=datetime.date(2026, 1, 1),
+        observed=1,
+        status="active",
+        context=None,
+        valid_until=None,
+        sources=_sources("s1", "s2", keys=(K1, K2)),
+        body="",
+        error=None,
+        origin="transcript",
+        weight="light",
+        short="A short rule.",
+    )
 
 
 def test_an_index_only_lesson_never_loads_and_is_counted_with_its_reason():
@@ -306,10 +505,17 @@ def test_an_index_only_lesson_never_loads_and_is_counted_with_its_reason():
     assert rules.eligible(idx, TODAY)
     choice = rules.choose([], [idx, noshort, ready, waiting], TODAY)
     assert [m.handle for m in choice.loaded] == ["r"]
-    assert sorted((m.handle, why) for m, why in choice.left) == [("i", "index only"), ("n", "index only"), ("w", "awaits triage")]
+    assert sorted((m.handle, why) for m, why in choice.left) == [
+        ("i", "index only"),
+        ("n", "index only"),
+        ("w", "awaits triage"),
+    ]
     assert choice.unready == 0
     assert [m.handle for m, _ in rules.not_fitted(choice)] == ["i", "n"]
-    assert rules.more_line(choice) == "2 more lessons by topic: shell 1, other 1 (mem rules --more <topic>, when a topic fits your task)"
+    assert (
+        rules.more_line(choice)
+        == "2 more lessons by topic: shell 1, other 1 (mem rules --more <topic>, when a topic fits your task)"
+    )
 
 
 def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
@@ -320,7 +526,12 @@ def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert len(out) == 3 and "Niche" not in "".join(out[:2]) and out[-1] == "1 more lesson by topic: docs 1 (mem rules --more <topic>, when a topic fits your task)"
+    assert (
+        len(out) == THREE_LINES
+        and "Niche" not in "".join(out[:2])
+        and out[-1]
+        == "1 more lesson by topic: docs 1 (mem rules --more <topic>, when a topic fits your task)"
+    )
     assert mem.main(["rules", "--more", "docs"]) == 0
     row, closing = capsys.readouterr().out.splitlines()
     assert row.split("\t")[:5] == [f"m:{h}", "global", "index only", "(held in 2 projects)", "docs"]
@@ -329,8 +540,12 @@ def test_mem_rules_more_lists_index_only_lessons(project, gfolder, capsys):
 
 def test_an_index_only_global_lesson_does_not_hide_its_twin_in_the_project():
     base = _base()
-    glob = dataclasses.replace(base, scope="global", handle="g", owner_confirmed=TODAY, load="index", topic="ui")
-    twin = dataclasses.replace(base, scope="project", handle="p", general="g", owner_confirmed=TODAY)
+    glob = dataclasses.replace(
+        base, scope="global", handle="g", owner_confirmed=TODAY, load="index", topic="ui"
+    )
+    twin = dataclasses.replace(
+        base, scope="project", handle="p", general="g", owner_confirmed=TODAY
+    )
     choice = rules.choose([twin], [glob], TODAY)
     assert [m.handle for m in choice.loaded] == ["p"]
     assert [(m.handle, why) for m, why in choice.left] == [("g", "index only")]
@@ -343,24 +558,44 @@ def test_mem_rules_prints_the_index_line_when_no_rule_loads(project, gfolder, ca
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out
-    assert out.splitlines() == ["No rules loaded.", "1 more lesson by topic: shell 1 (mem rules --more <topic>, when a topic fits your task)"]
+    assert out.splitlines() == [
+        "No rules loaded.",
+        "1 more lesson by topic: shell 1 (mem rules --more <topic>, when a topic fits your task)",
+    ]
 
 
-def test_mem_rules_says_it_is_switched_off_and_still_prints_what_would_load(project, gfolder, capsys, monkeypatch):
+def test_mem_rules_says_it_is_switched_off_and_still_prints_what_would_load(
+    project, gfolder, capsys, monkeypatch
+):
     write("A lesson that would load.", short="A rule that would load.")
     monkeypatch.setenv("MEM_LOADED_RULES", "off")
     capsys.readouterr()
     assert mem.main(["rules"]) == 0
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "Loaded rules are switched off (plugin option loaded_rules): nothing below loads at session start."
+    assert (
+        out[0]
+        == "Loaded rules are switched off (plugin option loaded_rules): nothing below loads at session start."
+    )
     assert out[1] == rules.HEADER and out[2].startswith("- A rule that would load.")
 
 
 def test_a_medium_general_lesson_is_released_without_triage_and_a_strong_one_waits(gfolder):
     def remember(claim, weight, sessions):
-        args = ["remember", "--global", "--kind", "lesson", "--claim", claim, "--origin", "transcript",
-                "--reach", "general", "--weight", weight]
-        for s, key in zip(sessions, (K1, K2, K1)):
+        args = [
+            "remember",
+            "--global",
+            "--kind",
+            "lesson",
+            "--claim",
+            claim,
+            "--origin",
+            "transcript",
+            "--reach",
+            "general",
+            "--weight",
+            weight,
+        ]
+        for s, key in zip(sessions, (K1, K2, K1), strict=False):
             args += ["--source", f"session {s} project {key}"]
         assert mem.main(args) == 0
 
@@ -383,17 +618,32 @@ def test_a_released_medium_lesson_loads_once_it_has_a_short_form(gfolder):
 def _ranked(*specs):
     """Loadable lessons in the given order: (handle, topic)."""
     base = _base()
-    return rules.Choice(loaded=[dataclasses.replace(base, handle=h, short=f"Rule {h}.", topic=t) for h, t in specs])
+    return rules.Choice(
+        loaded=[dataclasses.replace(base, handle=h, short=f"Rule {h}.", topic=t) for h, t in specs]
+    )
 
 
 def test_grouped_puts_lessons_under_their_topic_in_rank_order():
-    choice = _ranked(("a", "testing"), ("b", "shell"), ("c", "testing"), ("d", None), ("e", "shell"))
+    choice = _ranked(
+        ("a", "testing"), ("b", "shell"), ("c", "testing"), ("d", None), ("e", "shell")
+    )
     m = {x.handle: rules.line(x) for x in choice.loaded}
-    assert rules.grouped(choice) == ["testing:", m["a"], m["c"], "shell:", m["b"], m["e"], "other:", m["d"]]
+    assert rules.grouped(choice) == [
+        "testing:",
+        m["a"],
+        m["c"],
+        "shell:",
+        m["b"],
+        m["e"],
+        "other:",
+        m["d"],
+    ]
 
 
 def test_grouped_and_flat_print_the_same_lessons():
-    choice = _ranked(("a", "testing"), ("b", "shell"), ("c", "testing"), ("d", None), ("e", "shell"))
+    choice = _ranked(
+        ("a", "testing"), ("b", "shell"), ("c", "testing"), ("d", None), ("e", "shell")
+    )
     only = lambda lines: sorted(x for x in lines if x.startswith("- "))
     assert only(rules.block(choice, "grouped")) == only(rules.block(choice, "flat"))
     assert rules.block(choice, "grouped")[0] == rules.HEADER
@@ -403,7 +653,11 @@ def test_flat_is_unchanged():
     choice = _ranked(("a", "testing"), ("b", None))
     today = [rules.HEADER, *map(rules.line, choice.loaded)]
     assert rules.block(choice) == today and rules.block(choice, "flat") == today
-    assert rules.block(choice, "nonsense") == today and rules.LAYOUTS == ("flat", "grouped", "digest")
+    assert rules.block(choice, "nonsense") == today and rules.LAYOUTS == (
+        "flat",
+        "grouped",
+        "digest",
+    )
 
 
 def test_no_heading_when_nothing_loads():
@@ -411,7 +665,9 @@ def test_no_heading_when_nothing_loads():
 
 
 def test_a_lesson_whose_topic_is_other_shares_the_last_heading():
-    assert not records.valid_topic("other")  # the topic `other` is refused, so no lesson can carry it
+    assert not records.valid_topic(
+        "other"
+    )  # the topic `other` is refused, so no lesson can carry it
     choice = _ranked(("a", None), ("b", "shell"))
     assert rules.grouped(choice).count("other:") == 1
 
@@ -432,21 +688,23 @@ def test_rules_command_takes_the_layout(project, gfolder, capsys, monkeypatch):
     assert "testing:\n- Testing rule." in grouped and "other:\n- Plain rule." in grouped
     with pytest.raises(SystemExit) as e:
         mem.main(["rules", "--layout", "wrong"])
-    assert e.value.code == 2
+    assert e.value.code == EXIT_USAGE
     monkeypatch.setenv("MEM_RULES_LAYOUT", "grouped")
     assert out() == grouped
     assert out("--layout", "flat") == flat
 
 
 def test_more_says_stuck_lessons_need_curation(project, gfolder, capsys):
-    import json
-    import corroborate
     write("Needs a short form.")
     write("Also needs one.")
     m = next(iter(load(gfolder, "global").values()))
     state = Path(os.environ["MEM_DATA"]) / "corroborate" / "fill-attempts.json"
     state.parent.mkdir(parents=True)
-    state.write_text(json.dumps({"lessons": {f"g:{m.handle}": {"digest": corroborate.claim_digest(m), "count": 2}}}))
+    state.write_text(
+        json.dumps({
+            "lessons": {f"g:{m.handle}": {"digest": corroborate.claim_digest(m), "count": 2}}
+        })
+    )
     capsys.readouterr()
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out
@@ -454,33 +712,47 @@ def test_more_says_stuck_lessons_need_curation(project, gfolder, capsys):
     assert "the background pass writes the other" in out
 
 
-def test_more_names_lessons_the_fill_never_attempts_and_counts_only_the_unready(project, gfolder, capsys):
+def test_more_names_lessons_the_fill_never_attempts_and_counts_only_the_unready(
+    project, gfolder, capsys
+):
     # a strong project lesson nobody confirmed is never filled: it needs curation, not the background pass
     write("Strong project lesson.", scope="project", weight="strong", sessions=("a", "b"))
     path = next(iter(load(records.project_dir(project), "project").values())).path
-    path.write_text(path.read_text().replace("- session b project ba9876543210\n", "- session b project ba9876543210\n"
-                                              "- session c project aaaaaaaaaaaa\n- session d project 0123456789ab\n"))
+    path.write_text(
+        path.read_text().replace(
+            "- session b project ba9876543210\n",
+            "- session b project ba9876543210\n"
+            "- session c project aaaaaaaaaaaa\n- session d project 0123456789ab\n",
+        )
+    )
     capsys.readouterr()
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out
-    assert "1 established lesson has no short form yet: the automatic fill will not write it, so it needs curation" in out
+    assert (
+        "1 established lesson has no short form yet: the automatic fill will not write it, so it needs curation"
+        in out
+    )
     assert "background pass writes them" not in out
 
 
 def test_stuck_count_ignores_a_project_twin_of_a_ready_global_lesson(project, gfolder, capsys):
-    import json
-    import corroborate
     write("Same lesson, global.", short="Global rule.", topic="testing")
     g = load(gfolder, "global")["Same lesson, global."]
-    write("Same lesson, project.", scope="project")  # twin that the fill gave up on, hidden by the ready global one
+    write(
+        "Same lesson, project.", scope="project"
+    )  # twin that the fill gave up on, hidden by the ready global one
     path = next(iter(load(records.project_dir(project), "project").values())).path
-    path.write_text(path.read_text().replace("status: active\n", f"status: active\ngeneral: m:{g.handle}\n"))
+    path.write_text(
+        path.read_text().replace("status: active\n", f"status: active\ngeneral: m:{g.handle}\n")
+    )
     twin = next(iter(load(records.project_dir(project), "project").values()))
     write("Still waiting for the background pass.")
     state = Path(os.environ["MEM_DATA"]) / "corroborate" / "fill-attempts.json"
     state.parent.mkdir(parents=True)
     key = corroborate.fill_key(project, twin.handle)
-    state.write_text(json.dumps({"lessons": {key: {"digest": corroborate.claim_digest(twin), "count": 2}}}))
+    state.write_text(
+        json.dumps({"lessons": {key: {"digest": corroborate.claim_digest(twin), "count": 2}}})
+    )
     capsys.readouterr()
     assert mem.main(["rules", "--more"]) == 0
     out = capsys.readouterr().out
