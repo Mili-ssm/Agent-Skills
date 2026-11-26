@@ -274,10 +274,10 @@ def test_reword_respects_the_lock(w, monkeypatch):
     worse_one(w)
     reword_answers(w, monkeypatch)
     lock = auto_state.take_run_lock(w.cdir)
+    assert lock is not None
     try:
         result = reword(w)
     finally:
-        assert lock is not None
         os.close(lock)
     assert "run is going" in result["stopped"] and result["written"] == 0 and calls(w) == 0
     assert (
