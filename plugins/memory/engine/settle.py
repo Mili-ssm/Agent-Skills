@@ -20,7 +20,7 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 
-import auto_state
+import jobs
 import records
 import safe_io
 import store_git
@@ -141,7 +141,7 @@ def _ensure_ignored(folder: Path) -> None:
 def save_state(folder: Path, state: dict) -> None:
     if not (folder / STATE_NAME).exists():
         _ensure_ignored(folder)
-    auto_state.write_json(folder / STATE_NAME, state)
+    jobs.write_json(folder / STATE_NAME, state)
 
 
 def _counts_as_new(m: records.Memory, judged: set[str], today: datetime.date) -> bool:

@@ -40,6 +40,7 @@ import corroborate
 import digest
 import handoff
 import index as index_files
+import jobs
 import notes as note_files
 import project_syntheses
 import records
@@ -3129,9 +3130,7 @@ def _corroborate_failure_line(data: Path | None, now: float) -> str | None:
     """The line `mem session-index` adds after a failed corroboration pass (`mem-corroborate ack` clears it)."""
     if data is None:
         return None
-    found = auto_state.failure(
-        auto_state.read_json(data / "corroborate" / auto_state.STATUS_NAME), now
-    )
+    found = jobs.failure(jobs.read_json(data / "corroborate" / jobs.STATUS_NAME), now)
     if found is None:
         return None
     reason = " ".join(str(found["reason"]).split())[:200]
@@ -5522,9 +5521,7 @@ def _fill_attempts(env: Mapping[str, str]) -> dict:
     malformed state reads as no attempts, so curation never fails on it."""
     data = data_dir(env)
     lessons = (
-        auto_state.read_json(data / "corroborate" / "fill-attempts.json").get("lessons")
-        if data
-        else None
+        jobs.read_json(data / "corroborate" / "fill-attempts.json").get("lessons") if data else None
     )
     return lessons if isinstance(lessons, dict) else {}
 

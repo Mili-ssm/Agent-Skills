@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex
 
-import auto_state
+import jobs
 import settle
 
 if TYPE_CHECKING:
@@ -46,9 +46,7 @@ def minutes_of(value: object) -> float:
 def failure_line(data: Path | None, store: Path | None, now: float) -> str | None:
     if data is None or store is None:
         return None
-    found = auto_state.failure(
-        auto_state.read_json(settle_dir(data, store) / auto_state.STATUS_NAME), now
-    )
+    found = jobs.failure(jobs.read_json(settle_dir(data, store) / jobs.STATUS_NAME), now)
     if found is None:
         return None
     when = datetime.datetime.fromtimestamp(float(found.get("at") or now)).date().isoformat()
@@ -67,7 +65,7 @@ def settled_line(folder: Path | None) -> str | None:
     the state file, so a store that never settled stays untouched."""
     if folder is None or not (folder / settle.LOG_NAME).is_file():
         return None
-    acked = auto_state.read_json(folder / settle.STATE_NAME).get("acked", 0)
+    acked = jobs.read_json(folder / settle.STATE_NAME).get("acked", 0)
     fresh = [
         s
         for s in settle.settlings(folder)
