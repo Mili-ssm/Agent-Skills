@@ -12,10 +12,9 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import auto_state
-import jobs
 import mem
 import pytest
+from core import auto_state, jobs
 from synthesize import pipeline as sp
 
 PRIVATE_MODE = 0o700

@@ -4,8 +4,8 @@ import subprocess
 
 import mem
 import pytest
+from core.safe_io import sandbox_refusal
 from research import checks as research_checks
-from safe_io import sandbox_refusal
 from synthesize import pipeline as sp
 
 USAGE_ERROR = 2  # the exit code of a refused `mem` call

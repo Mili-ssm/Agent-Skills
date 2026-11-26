@@ -6,11 +6,10 @@ import threading
 import time
 from pathlib import Path
 
-import auto_state
-import jobs
 import mem
 import pytest
 import store_git
+from core import auto_state, jobs
 
 REAL_RUN = subprocess.run
 SHORT_LOCK_WAIT = 0.2

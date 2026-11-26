@@ -34,8 +34,8 @@ if TYPE_CHECKING:
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "engine"))
-import auto_state as au
-import jobs
+from core import auto_state as au
+from core import jobs
 from synthesize import pipeline as sp
 from synthesize import run as synth_run
 from synthesize import topics as synth_topics

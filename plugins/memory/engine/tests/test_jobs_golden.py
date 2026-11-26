@@ -13,9 +13,8 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-import auto_state
-import jobs
 import pytest
+from core import auto_state, jobs
 from corroborate import state as corroborate_state
 from research import pipeline as research_pipeline
 from settle import state as settle_state

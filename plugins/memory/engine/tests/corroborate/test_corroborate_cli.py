@@ -5,8 +5,8 @@ import json
 import shutil
 import sys
 
-import jobs
 import pytest
+from core import jobs
 from corroborate import cli as corroborate_cli
 from corroborate import digest as corroborate_digest
 from corroborate import reword as corroborate_reword

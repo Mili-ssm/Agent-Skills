@@ -13,8 +13,8 @@ import re
 import time
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
-import headless
 import syntheses
+from core import headless
 
 from synthesize import pipeline as sp
 

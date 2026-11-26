@@ -12,8 +12,8 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-import jobs
 import records
+from core import jobs
 from digest import lessons as dg
 
 from corroborate import decide as corroborate_decide

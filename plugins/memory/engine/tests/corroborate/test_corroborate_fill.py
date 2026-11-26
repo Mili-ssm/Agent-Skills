@@ -8,9 +8,9 @@ import stat
 import subprocess
 from pathlib import Path
 
-import jobs
 import pytest
 import records
+from core import jobs
 from corroborate import cli as corroborate_cli
 from corroborate import decide as corroborate_decide
 from corroborate import fill as corroborate_fill

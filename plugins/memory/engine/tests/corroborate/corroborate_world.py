@@ -8,9 +8,9 @@ import subprocess
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import jobs
 import pytest
 import records
+from core import jobs
 from corroborate import decide as corroborate_decide
 from corroborate import reword as corroborate_reword
 

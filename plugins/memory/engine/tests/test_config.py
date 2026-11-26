@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-import config
+from core import config
 
 
 def _marked(folder: Path) -> Path:

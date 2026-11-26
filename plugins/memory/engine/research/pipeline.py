@@ -27,10 +27,8 @@ import time
 from pathlib import Path
 from typing import Any, Required, TypedDict, Unpack
 
-import config
-import headless
-import jobs
 import mem
+from core import config, headless, jobs
 from notes import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
 

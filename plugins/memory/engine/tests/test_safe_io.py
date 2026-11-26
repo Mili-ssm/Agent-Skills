@@ -3,12 +3,11 @@ import os
 import stat
 from pathlib import Path
 
-import jobs
 import mem
 import project_syntheses as ps
 import pytest
 import records
-import safe_io
+from core import jobs, safe_io
 from settle import verdicts as settle_verdicts
 
 TODAY = datetime.date(2026, 11, 24)

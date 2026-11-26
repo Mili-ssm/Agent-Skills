@@ -7,8 +7,7 @@ import re
 import time
 from typing import TYPE_CHECKING
 
-import config
-import jobs
+from core import config, jobs
 
 from synthesize import pipeline as sp
 

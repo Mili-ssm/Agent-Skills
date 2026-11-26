@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, SupportsFloat, SupportsIndex
 
-import jobs
+from core import jobs
 
 from settle import verdicts as settle_verdicts
 

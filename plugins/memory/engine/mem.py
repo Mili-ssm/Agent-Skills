@@ -32,16 +32,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack, cast
 
-import auto_state
 import check as check_rules
-import config
 import index as index_files
-import jobs
 import notes as note_files
 import project_syntheses
 import records
 import rules
-import safe_io
 import shortcheck
 import store_git
 import syntheses
@@ -62,6 +58,7 @@ from check import (
     invalid_changed,
     orphan_notes,
 )
+from core import auto_state, config, jobs, safe_io
 from corroborate import decide as corroborate_decide
 from digest import lessons as digest_lessons
 from index import (

@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import jobs
+from core import jobs
 
 
 def auto_dir(data: Path, store: Path) -> Path:

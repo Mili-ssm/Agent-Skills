@@ -18,9 +18,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple, Protocol, Required, TypedDict, Unpack
 
-import config
-import safe_io
 import yaml
+from core import config, safe_io
 from notes import safe_load
 
 if TYPE_CHECKING:

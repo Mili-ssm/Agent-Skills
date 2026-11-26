@@ -1,0 +1,1 @@
+"""Infrastructure of the background jobs: config and store resolution (`config`), safe writes (`safe_io`), the `claude -p` launcher (`headless`), the job lifecycle (`jobs`) and the `mem-auto` state (`auto_state`). Imports stdlib and `core` only."""

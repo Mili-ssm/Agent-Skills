@@ -11,8 +11,8 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
-import headless
 import pytest
+from core import headless
 from corroborate import run as corroborate_run
 from research import pipeline as research_pipeline
 from synthesize import pipeline as synth_pipeline

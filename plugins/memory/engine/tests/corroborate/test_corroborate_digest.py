@@ -5,9 +5,9 @@ import os
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import jobs
 import mem
 import records
+from core import jobs
 from corroborate import digest as corroborate_digest
 from corroborate_world import TODAY, calls, globals_, run, snapshot, w
 from digest import lessons as digest_module

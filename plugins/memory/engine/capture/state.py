@@ -12,7 +12,7 @@ import shutil
 import time
 from pathlib import Path
 
-import jobs
+from core import jobs
 
 MAX_WINDOWS = 3  # windows read in one trigger
 MAX_NEW_PER_TRIGGER = 5  # new memories one trigger may write

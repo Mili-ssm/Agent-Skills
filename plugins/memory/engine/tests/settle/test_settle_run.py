@@ -8,9 +8,9 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import jobs
 import mem
 import pytest
+from core import jobs
 from settle import state as settle_state
 from settle import verdicts as settle_verdicts
 

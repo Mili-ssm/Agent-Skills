@@ -14,10 +14,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-import headless
-import jobs
 import records
 from capture import state as cs
+from core import headless, jobs
 from synthesize import pipeline as sp
 
 from corroborate import decide as corroborate_decide

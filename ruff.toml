@@ -47,9 +47,8 @@ ignore = [
 # bin/ scripts run with the system python3 (not uv), so they keep to 3.11 syntax and stdlib.
 [per-file-target-version]
 "plugins/memory/bin/*" = "py311"
-"plugins/memory/engine/headless.py" = "py311"
-"plugins/memory/engine/jobs.py" = "py311"
 "plugins/memory/engine/capture/*" = "py311"
+"plugins/memory/engine/core/*" = "py311"
 "plugins/memory/engine/corroborate/*" = "py311"
 "plugins/memory/engine/digest/*" = "py311"
 "plugins/memory/engine/settle/*" = "py311"

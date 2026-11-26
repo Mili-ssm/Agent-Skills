@@ -20,10 +20,9 @@ import logging
 import os
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 
-import jobs
 import records
-import safe_io
 import store_git
+from core import jobs, safe_io
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
