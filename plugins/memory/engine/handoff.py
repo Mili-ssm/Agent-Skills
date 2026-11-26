@@ -119,7 +119,7 @@ def _accepts(root: Path, candidate: str, token: str) -> bool:
         target = Path(os.path.realpath(root / candidate))  # an absolute path replaces root
         if root != target and root not in target.parents:
             return candidate == token
-        return target.is_file()
+        return os.path.isfile(target)
     except (OSError, ValueError):
         return True
 
