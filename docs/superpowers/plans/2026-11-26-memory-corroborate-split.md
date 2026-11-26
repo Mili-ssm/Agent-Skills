@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task, with the Plan loop of the owner's routing rules (`agent-skills:implementer` per task, `agent-skills:skeptical-reviewer` after each task commit). Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: planned, pre-mortem amendments applied · Branch: `refactor/memory-corroborate-split` (stacked on `refactor/memory-config`, PR #199) · Date: 2026-11-26
+Status: in progress — Tasks 1, 2a, 2b committed (752b633, f2c6abe); Task 2 review running; next Task 3 · Branch: `refactor/memory-corroborate-split` (stacked on `refactor/memory-config`, PR #199) · Date: 2026-11-26
 
 **Goal:** `bin/mem-corroborate` becomes a thin launcher; its logic lives in engine modules, every touched file is clean under ADR 0031, and behavior is unchanged. Then A2 can put all seven `claude -p` launchers behind `headless.py`.
 
@@ -42,19 +42,19 @@ Status: planned, pre-mortem amendments applied · Branch: `refactor/memory-corro
 
 **Files:** Create: `engine/corroborate_run.py`, `engine/corroborate_fill.py`, `engine/corroborate_reword.py`, `engine/corroborate_digest.py`, `engine/corroborate_cli.py`. Modify: `bin/mem-corroborate`, `engine/tests/test_mem_corroborate.py` (loaders and patch targets only).
 
-- [ ] **Step 1:** Move each function, class and constant verbatim to its module (sections as named in Architecture); qualify cross-module calls per Global Constraints; the launcher becomes header, `sys.path`, guarded `import corroborate_cli` (plus what the failed-status path needs) and `main`.
-- [ ] **Step 2:** In `test_mem_corroborate.py` replace launcher loads used for attribute access with engine imports and point each `monkeypatch.setattr` at the module that now defines the name; keep subprocess runs of the launcher as they are.
-- [ ] **Step 3:** Prove Review Focus 1: for each patched name, remove its patch in a scratch copy and see its test fail; list the results in the report.
-- [ ] **Step 3b:** Add a test of the engine-unloadable path: `fake_plugin` with a stub `yaml` that raises on import; `auto` writes `status.json` failed with reason `engine import error`, appends its log line with the same keys as base, exits as base; `status` and `ack` still work. Run it at base first (it must pass there).
-- [ ] **Step 4:** Suite passes; `--self-check` passes; `mem-corroborate --help` and each subcommand's `--help` byte-identical to base. Commit with the `SKIP` of the exception.
+- [x] **Step 1:** Move each function, class and constant verbatim to its module (sections as named in Architecture); qualify cross-module calls per Global Constraints; the launcher becomes header, `sys.path`, guarded `import corroborate_cli` (plus what the failed-status path needs) and `main`.
+- [x] **Step 2:** In `test_mem_corroborate.py` replace launcher loads used for attribute access with engine imports and point each `monkeypatch.setattr` at the module that now defines the name; keep subprocess runs of the launcher as they are.
+- [x] **Step 3:** Prove Review Focus 1: for each patched name, remove its patch in a scratch copy and see its test fail; list the results in the report.
+- [x] **Step 3b:** Add a test of the engine-unloadable path: `fake_plugin` with a stub `yaml` that raises on import; `auto` writes `status.json` failed with reason `engine import error`, appends its log line with the same keys as base, exits as base; `status` and `ack` still work. Run it at base first (it must pass there).
+- [x] **Step 4:** Suite passes; `--self-check` passes; `mem-corroborate --help` and each subcommand's `--help` byte-identical to base. Commit with the `SKIP` of the exception.
 
 ### Task 2a: `corroborate_state.py` and `corroborate_run.py` except `execute`, clean
 
-- [ ] **Step 1:** Format, small rules, types, structural findings outside `execute`; suite after each function; repeat Task 1 Step 3 at the end. Commit (stage the clean file(s) only; `corroborate_run.py` with `execute` still unclean uses the exception's `SKIP`).
+- [x] **Step 1:** Format, small rules, types, structural findings outside `execute`; suite after each function; repeat Task 1 Step 3 at the end. Commit (stage the clean file(s) only; `corroborate_run.py` with `execute` still unclean uses the exception's `SKIP`).
 
 ### Task 2b: `execute` clean
 
-- [ ] **Step 1:** Decompose `execute` (about 310 lines, closures) along its phases; suite after each step; repeat Task 1 Step 3. Commit with every hook.
+- [x] **Step 1:** Decompose `execute` (about 310 lines, closures) along its phases; suite after each step; repeat Task 1 Step 3. Commit with every hook.
 
 ### Task 3: `corroborate_fill.py` clean
 
