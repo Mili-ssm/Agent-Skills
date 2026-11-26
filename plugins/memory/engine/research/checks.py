@@ -46,7 +46,7 @@ MAX_REDIRECTS = 3
 TIMEOUT = 10  # per socket operation
 TOTAL_DEADLINE = 20  # per `fetch_text` call, all hops together
 ROWS_PER_URL = 4  # `check_rows` considers at most this many rows per allowed URL
-MEM_ENTRY = [str(Path(__file__).resolve().parent.parent / "bin" / "mem")]
+MEM_ENTRY = [str(Path(__file__).resolve().parents[2] / "bin" / "mem")]
 
 
 # ---- step 2: web input ----

@@ -13,8 +13,8 @@ from typing import Any
 
 import headless
 import pytest
-import research_pipeline
 from corroborate import run as corroborate_run
+from research import pipeline as research_pipeline
 from synthesize import pipeline as synth_pipeline
 from synthesize import references as backfill
 from synthesize import run as sr

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BIN = ROOT / "bin"
 ENGINE = ROOT / "engine"
 BANNED = ("override", "batched", "TypeAliasType")
-# `bin/mem-research` imports research_pipeline -> mem.py (3.12 `type` statements, pyyaml): until the refactor plan task
+# `bin/mem-research` imports research.pipeline -> mem.py (3.12 `type` statements, pyyaml): until the refactor plan task
 # "`bin/` holds launchers only" runs every script through uv, it is outside the floor.
 EXCLUDED = {"mem-research"}
 

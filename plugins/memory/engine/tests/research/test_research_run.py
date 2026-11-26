@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 import records
-import research_pipeline as rp
+from research import pipeline as rp
 
-PLUGIN = Path(__file__).resolve().parents[2]
+PLUGIN = Path(__file__).resolve().parents[3]
 RESEARCH = PLUGIN / "bin" / "mem-research"
 HANDLE = "attention-replaces-recurrence"
 CLAIM = "Self-attention can replace recurrence for sequence transduction"

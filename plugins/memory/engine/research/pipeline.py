@@ -2,7 +2,7 @@
 
 Plan 2026-11-17-memory-seamless, stage 1b. Five steps, three of them model sessions and none with a shell:
 1 memory (Python runs `mem search`; a Haiku session reads the results and writes `need.json`; at most one more round),
-2 web input (`research_checks.web_input`: only what passes the secret and forbidden-terms checks), 3 web (a Haiku
+2 web input (`research.checks.web_input`: only what passes the secret and forbidden-terms checks), 3 web (a Haiku
 session with WebSearch and WebFetch only, in an empty folder, with no `mem` and no `MEM_*` around it), 4 check (Python
 fetches each page and picks the passages), 5 verdict (a Haiku session reads the passages as data and writes
 `verdicts.json`), 6 apply (Python enforces quotes, URLs and stances, then runs three fixed `mem` commands).
@@ -31,9 +31,10 @@ import config
 import headless
 import jobs
 import mem
-import research_checks as rc
 from notes import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
+
+from research import checks as rc
 
 logger = logging.getLogger(__name__)
 

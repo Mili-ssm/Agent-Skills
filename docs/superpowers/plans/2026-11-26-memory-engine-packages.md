@@ -39,7 +39,7 @@ Order (fewest importers first; each task is one pull request on the previous bra
 - `monkeypatch` targets: a module object patched through an alias keeps working; string targets (`"corroborate_run.x"`), `sys.modules` keys and `importlib.import_module("name")` strings change; every changed patch is proven by removing it in a scratch copy.
 - `ruff.toml` `[per-file-target-version]` entries follow moved files (`engine/headless.py`, `engine/jobs.py` → `engine/core/...`; packages that `bin/` imports at `py311`).
 - `test_import_graph.py` gets one rule per package as it lands: `core` imports only stdlib and `core`; `store` imports only stdlib, `core` and `store`; a feature package imports no other feature package except edges present at base (listed in the task's commit, then frozen). Each rule proven by a temporary violating import.
-- Test placement: a test file moves into `tests/<package>/` only when it imports no other test file (pytest prepend mode puts only its own folder on `sys.path`); shared helpers that tests import from other test files (`test_find_new`, `test_rules_session`, `test_check`, `test_curation`, `test_search_stats`, `test_show`, `test_mem_capture`, `test_capture_auto`, `test_case_log`, `test_store_git`) move first into helper modules at `tests/` root, like `corroborate_world.py`; basenames stay unique. Check: every moved test file passes alone.
+- Test placement: a test file moves into `tests/<package>/` only when it imports no other test file (pytest prepend mode puts only its own folder on `sys.path`); shared helpers that tests import from other test files (`test_find_new`, `test_rules_session`, `test_check`, `test_curation`, `test_search_stats`, `test_show`, `test_mem_capture`, `test_capture_auto`, `test_case_log`, `test_store_git`) move first into helper modules, beside the tests that use them (a helper moves with its package's tests, as `tests/corroborate/corroborate_world.py` did); basenames stay unique. Check: every moved test file passes alone.
 - Tests: `uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto` (2,663 passed, 5 skipped at base) on default Python and `--python 3.12.0`; collected count unchanged by moves; self-checks of `mem-auto`, `mem-settle`, `mem-corroborate`, `mem-synthesize`, `mem-capture` (if it has one) on 3.11.15 and default.
 - No CHANGELOG line (pure refactor). Commits pass every hook; no `SKIP`.
 
@@ -57,7 +57,7 @@ Order (fewest importers first; each task is one pull request on the previous bra
 - [x] First commit: `test_import_graph.py` builds MODULES from every `engine/**/*.py` outside tests (dotted names, packages by `__init__.py`) and asserts its size equals the file count; `test_notes_imports_no_other_engine_module` uses the same set; the frozen edge list above becomes a test. Then clean `corroborate.py`; move the seven modules; importers, patches, `ruff.toml`, tests to `tests/corroborate/`; rule. Check: suite, goldens of `mem-corroborate` (`tests/test_corroborate_cli.py` and the self-check), collected count.
 
 ### Task 2: `research/`
-- [ ] Move `research_checks`, `research_pipeline`; a rule that no package except `research` (frozen, until A5) imports root `mem` or `run`; importers (`bin/mem-research`), tests to `tests/research/`; rule. Check: suite; `bin/mem-research --help` byte-identical.
+- [x] Move `research_checks`, `research_pipeline`; a rule that no package except `research` (frozen, until A5) imports root `mem` or `run`; importers (`bin/mem-research`), tests to `tests/research/`; rule. Check: suite; `bin/mem-research --help` byte-identical.
 
 ### Task 3: `capture/`, `settle/`, `digest/`, `session/`
 - [ ] Clean `capture.py`; one commit per package; tests beside each; rules. Check: suite; `mem session-index` output on a fixture store byte-identical (a golden first if none exists).
@@ -80,6 +80,9 @@ Order (fewest importers first; each task is one pull request on the previous bra
 | Test-cleanup review: `== ""` became `not x` (Ruff PLC1901) in test_reword, test_quarantine, test_settle (also passes on None); `INDEX_TOPICS`/literal 80 in test_digest; `EXIT_REFUSED` means 3 in one test file and 2 in others; test_fetch_sources' `mem.time` stub has no `monotonic` | Open, low: the values are strings; a stub miss fails loudly |
 | `project_syntheses.write_part` takes `NewPart` (`Part` already names the parsed part) | Accepted |
 | Intermittent errors in `test_capture_auto`, `test_capture_sweep`, `test_compact_log` when several suites run at once from worktrees: they share the real uv cache by design (`tests/conftest.py`), `bin/mem` runs `uv run` (inferred, not reproduced) | Open, low: only in parallel agent runs; a per-session `UV_CACHE_DIR` costs about 0.35 s per `bin/mem` launch |
+| Task 1 review: `corroborate`'s allowed dependencies listed `config` and `auto_state` (not base edges); a relative import would hide an edge from every rule | Fixed: the list equals the measured imports; `test_engine_uses_no_relative_imports` (proven) |
+| Task 1 review: the module-count assertion compares two sets from the same glob | Open, low: it catches name collisions, not a file the glob skips |
+| Task 1 review: frozen edge `digest → store` is not a literal import at base | Rejected: base `digest.py` imports `records`, `rules`, `shortcheck`, which are `store` modules in this plan |
 | Store-only lint debt (28 test files, about 304 findings) | Task 5 runs together with A6 (`records` split), which touches the same tests |
 
 ## Kill criteria

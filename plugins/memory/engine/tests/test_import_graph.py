@@ -216,12 +216,15 @@ def test_packages_are_planned_and_edges_frozen():
 # feature packages in later tasks of backlog A14, which rename them here).
 PACKAGE_DEPENDENCIES = {
     "corroborate": {
-        "records", "config", "jobs", "safe_io", "auto_state", "headless", "rules", "shortcheck",
+        "records", "jobs", "safe_io", "headless", "rules", "shortcheck",
         "capture", "capture_state", "digest", "synthesize",
+    },
+    "research": {
+        "records", "config", "jobs", "safe_io", "headless", "notes", "synthesize", "mem",
     },
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
-PACKAGE_IMPORTERS = {"corroborate": {"mem"}}
+PACKAGE_IMPORTERS = {"corroborate": {"mem"}, "research": {"mem"}}
 
 
 def test_package_imports_only_its_dependencies():
@@ -247,3 +250,31 @@ def test_package_is_imported_only_by_its_importers():
             and any(dep.split(".")[0] == package for dep in deps)
         )
         assert not extra, f"modules importing {package} that may not: {extra}"
+
+
+# Root modules: the entry points `mem` and `run`. Only `research` may import them (frozen edge, until A5 splits
+# `mem.py` and `research` stops using `mem.tokenize`); a package that imports an entry point couples a feature
+# to the launcher.
+ENTRY_MODULES = {"mem", "run"}
+ENTRY_IMPORTERS = {"research"}
+
+
+def test_only_research_imports_the_entry_modules():
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    extra = sorted(
+        f"{name} -> {dep}"
+        for name, deps in graph.items()
+        if (own := name.split(".")[0]) in PACKAGES and own not in ENTRY_IMPORTERS
+        for dep in deps & ENTRY_MODULES
+    )
+    assert not extra, f"packages importing `mem` or `run`: {extra}"
+
+
+def test_engine_uses_no_relative_imports():
+    """A relative import (`from . import x`) would hide an edge from every rule above, which read absolute names."""
+    relative = sorted(
+        name
+        for name, tree in _trees().items()
+        if any(isinstance(node, ast.ImportFrom) and node.level > 0 for node in ast.walk(tree))
+    )
+    assert not relative, f"relative imports in: {relative}"
