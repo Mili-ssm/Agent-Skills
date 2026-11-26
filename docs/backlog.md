@@ -74,7 +74,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Not started |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Not started |
 | medium | A7 | Refactor: import direction | Open: only session_env, moved into A2 (tokenize and both cycles done on branch refactor/memory-a7-a1-a3) |
-| high | A4 | Refactor: `mem-corroborate` logic into the engine | Not started |
+| high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean on branch refactor/memory-corroborate-split ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` logic pending |
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
 | low | — | Refactor A7 deferred findings (untested TLS branch, `plan_commands` non-string `quote`, naming nits; [plan](superpowers/plans/2026-11-26-memory-import-direction.md) § Deferred findings) | Open |
@@ -84,7 +84,7 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 | high | Stage 4 | Kill read into ADR 0023 `## Review` | Around 2026-12-01 |
 | medium | Q5 | Remove `sleep` negatives and wall-clock asserts: lock waits done in #193; left: `test_auto_curation` negative windows (1.5–2 s) are only 1.1–1.5× its hook latency under load (1.31 s; `test_settle_run` has about 3×), a synchronous "decided not to start" record in `mem-auto` would give a real signal ([plan](superpowers/plans/2026-11-25-faster-tests.md)) | Partly done |
 | medium | Q7 | One mutation run on `records.py` and `check.py` | Open |
-| low | Q8, Q9 | Split large test files; small test gaps | Open |
+| low | Q8, Q9 | Split large test files; small test gaps | Open (Q8: `test_mem_corroborate.py` done with A4 on branch refactor/memory-corroborate-split; other large files and Q9 open) |
 | medium | P6 | `subagent-start.sh` skips `memory-synthesizer` | Open |
 | medium | P7 | One home for curation rules (agent or skill) | Open |
 | medium | D6 | Split `plugins/memory/README.md` | Open |
