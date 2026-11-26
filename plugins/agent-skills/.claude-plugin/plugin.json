@@ -8,7 +8,7 @@
     "offload_policy": {
       "type": "boolean",
       "title": "Offload table at session start",
-      "description": "Loads the offload table (about 700 tokens) into the context at session start and after a compaction, so the main conversation delegates the right work to the cheap workers. Turn it off when your own CLAUDE.md or account instructions already hold the table.",
+      "description": "Loads the offload table (about 2800 characters) at session start, after /clear and after a compaction, and skips itself when ~/.claude/CLAUDE.md already holds the table. Turn it off when the table reaches the session another way (a project CLAUDE.md, an imported file, account instructions).",
       "default": true
     }
   }

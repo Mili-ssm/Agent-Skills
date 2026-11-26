@@ -73,7 +73,7 @@
       "type": "boolean",
       "title": "Offload table",
       "default": true,
-      "description": "Load the table that says which work to hand to subagents (about 520 tokens) at session start and after a compaction. Turn it off when your own CLAUDE.md or account instructions already hold the table."
+      "description": "Loads the table that says which work to hand to subagents (about 2100 characters) at session start, after /clear and after a compaction, and skips itself when ~/.claude/CLAUDE.md already holds the table. Turn it off when the table reaches the session another way (a project CLAUDE.md, an imported file, account instructions)."
     },
     "research_depth": {
       "type": "string",
