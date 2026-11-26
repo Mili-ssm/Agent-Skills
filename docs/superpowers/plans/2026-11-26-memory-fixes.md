@@ -77,6 +77,8 @@ Unregistered loaders (pre-mortem 2026-11-26): `test_capture.py` (`mem_capture_br
 | The `mem-synthesize` self-check cannot assert a store-wide `mem check` exit 0 (fixture findings); it asserts no finding names the fake note | Accepted |
 | The self-check pytest needs `uv` (it runs `bin/mem`) | Accepted: the suite already needs `uv` |
 | Review round 2, low, deferred: the TLS spy forwards attribute writes no code path makes; the multibyte timeout test is still timing-based (2.0 s margin, about 2 s per run); the guard skips its own file wholesale; the self-check reads the note from `HEAD`, so a later trailing commit in `run()` would break it | Deferred: no failure seen; revisit if one flakes or `run()` changes |
+| Process review: trailing unfinished markup (`x<p`, an open comment) is kept as text on CPython 3.12.0 and 3.13.5 and dropped on 3.12.12, 3.14 and 3.15 | Open, low: stdlib behavior, same on `dev`; the script/style handoff was narrowed to `raw_tag` so it cannot add to it |
+| `test_curation.py::test_session_index_near_the_budget_is_fast` failed once under `-n auto` on 3.12.0 (wall-clock assert), passed alone | Open, low: pre-existing timing test (backlog Q5 class) |
 | Review round 1 findings rejected: `math.isclose` for a float constant (Ruff RUF069 forbids `==`); the `__all__` re-export comment (the repo's recipe) | Ruling |
 
 ## Kill criteria

@@ -360,7 +360,8 @@ def html_text(markup: str) -> str:
     parser = _Text()
     parser.feed(markup)
     parser.close()
-    if parser.rawdata:  # CPython 3.12.0 leaves the text after an unclosed script/style here; later patches hand it over
+    # CPython 3.12.0 leaves the text after an unclosed script/style in rawdata; later patches hand it over
+    if parser.raw_tag and parser.rawdata:
         parser.handle_data(parser.rawdata)
     text = "".join(parser.parts)
     if parser.raw_tag:  # a script/style never closed: its "content" runs to the end; resume at the next tag start (known limit: script source before it may leak into the text)
