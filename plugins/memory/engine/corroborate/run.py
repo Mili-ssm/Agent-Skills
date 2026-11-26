@@ -75,7 +75,7 @@ SESSION_VARS = (
 )
 
 
-# `settle_state.maybe_start` starts a run from these
+# `settle.state.maybe_start` starts a run from these
 SETTLE_VARS = ("MEM_SETTLE_AUTO", "MEM_SETTLE_MINUTES", "MEM_SETTLE_CLAUDE")
 
 

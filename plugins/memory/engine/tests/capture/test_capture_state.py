@@ -122,7 +122,7 @@ def test_failure_line_survives_a_malformed_at(tmp_path):
     assert line.startswith("Automatic capture failed on ") and "r; log:" in line
 
 
-def test_capture_state_imports_without_yaml_records_or_capture():
+def test_capture_state_imports_without_yaml_records_or_capture_extract():
     engine = str(Path(capture_state.__file__).parent.parent)
     code = (
         "import sys\nfor n in ('yaml', 'records', 'capture.extract'):\n    sys.modules[n] = None\n"
