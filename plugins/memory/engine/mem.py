@@ -209,6 +209,11 @@ def __getattr__(name: str) -> object:
 
 logger = logging.getLogger(__name__)
 
+
+class UsageError(Exception):
+    """The options of a command contradict each other: the dispatch prints the message as the parser's error (exit 2)."""
+
+
 _KEY_VALUE_CELLS = 2  # a two-cell table row: name and value
 _MIN_TITLE_WORDS = 4  # a title shorter than this is too generic to match as a phrase
 _SECTION_LEVEL = 2  # the heading level of a `## ` section
@@ -2521,7 +2526,7 @@ class _ShowPart:
 def _show_refused_options(args: argparse.Namespace) -> bool:
     """Whether the options of `mem show` are refused (a message is already printed); `--ranges` alone exits."""
     if args.ranges and not args.outline:
-        build_parser().error("--ranges needs --outline")
+        raise UsageError("--ranges needs --outline")
     if args.outline and args.section:
         print("mem: --outline and --section cannot be used together", file=sys.stderr)
         return True
@@ -4444,7 +4449,7 @@ def _memory_edit_flags_refused(args: argparse.Namespace) -> int | None:
         return 2
     asks = (args.claim, args.context, args.body_file, args.short, args.topic)
     if all(a is None for a in asks) and not args.no_load and not args.load and not args.index_only:
-        build_parser().error(
+        raise UsageError(
             "memory edit needs --claim, --context, --body-file, --short, --topic, --no-load, --index-only or --load"
         )
     return None
@@ -6872,7 +6877,7 @@ def _terms_list(_args: argparse.Namespace, _path: Path, terms: Sequence[records.
 def _terms_add(args: argparse.Namespace, path: Path, terms: Sequence[records.Term]) -> int:
     text = " ".join(args.term.split())
     if args.kind and not args.soft:
-        build_parser().error("--kind needs --soft")
+        raise UsageError("--kind needs --soft")
     if (
         not text
         or text.startswith("#")
@@ -7824,7 +7829,7 @@ def _synthesis_one_call(args: argparse.Namespace, action: str) -> bool:
     )
     one_call = any(note_group)
     if one_call and not all(note_group):
-        build_parser().error(
+        raise UsageError(
             "--note-slug, --note-claim, --note-body-file, --confidence and --level go together"
         )
     return one_call
@@ -8360,9 +8365,9 @@ def _commit_note_edit(root: Path, snap: _NoteSnapshot, new: str) -> None:
 def _note_edit_options(args: argparse.Namespace) -> tuple[str | None, list[str] | None]:
     """The claim and the topics of `note edit`, normalized; the parser's error when the options do not fit."""
     if args.section is None and args.claim is None and args.topics is None:
-        build_parser().error("note edit needs --section, --claim or --topics")
+        raise UsageError("note edit needs --section, --claim or --topics")
     if (args.section is None) != (args.body_file is None):
-        build_parser().error("--section and --body-file go together")
+        raise UsageError("--section and --body-file go together")
     claim = " ".join(args.claim.split()) if args.claim is not None else None
     topics = (
         list(dict.fromkeys(t.strip() for t in args.topics.split(",") if t.strip()))
@@ -8449,9 +8454,9 @@ def _note_mark_require_options(args: argparse.Namespace, clear: bool) -> None:
     """The parser's error when the options of `note confirm | dispute` do not fit."""
     given = [args.fact, args.source, args.quote]
     if clear and any(v is not None for v in given):
-        build_parser().error("--clear goes alone")
+        raise UsageError("--clear goes alone")
     if not clear and any(v is None for v in given):
-        build_parser().error(
+        raise UsageError(
             f"note {args.note_command} needs --fact, --source and --quote"
             + (" (or --clear)" if args.note_command == "dispute" else "")
         )
@@ -8928,7 +8933,7 @@ def _stats_usage_entries() -> int:
 def cmd_stats(args: argparse.Namespace) -> int:
     root = args.root
     if args.paths and not args.orphans:
-        build_parser().error("PATH needs --orphans")
+        raise UsageError("PATH needs --orphans")
     if args.orphans:
         return _stats_orphans(args)
     notes = discover_notes(root)
@@ -9001,9 +9006,9 @@ class _QueryHits:
 
 def _search_check_args(args: argparse.Namespace, queries: list[str]) -> None:
     if not all(tokenize(q) for q in queries):
-        build_parser().error("query has no searchable words: use letters or digits")
+        raise UsageError("query has no searchable words: use letters or digits")
     if args.links and args.offset:
-        build_parser().error("--offset cannot be used with --links")
+        raise UsageError("--offset cannot be used with --links")
 
 
 def _search_filters(args: argparse.Namespace) -> dict[str, Any]:
@@ -9244,7 +9249,7 @@ def cmd_search(args: argparse.Namespace) -> int:
 
 def cmd_passages(args: argparse.Namespace) -> int:
     if not tokenize(args.query):
-        build_parser().error("query has no searchable words: use letters or digits")
+        raise UsageError("query has no searchable words: use letters or digits")
     try:
         notes = {n.rel for n in discover_notes(args.root) if n.type == "literature"}
     except (FrontmatterError, OSError) as exc:
@@ -10488,14 +10493,18 @@ def _dispatch_store(args: argparse.Namespace) -> int | None:
 
 
 def _dispatch(argv: list[str] | None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
     if args.command == "read":
         args.command = "show"
     if refusal := safe_io.sandbox_refusal(args.command, vars(args)):
         print(f"mem: {refusal}", file=sys.stderr)
         return 2
-    code = _dispatch_store(args)
-    return args.func(args) if code is None else code
+    try:
+        code = _dispatch_store(args)
+        return args.func(args) if code is None else code
+    except UsageError as exc:  # the parser's usage line and exit code 2, as argparse prints them
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":
