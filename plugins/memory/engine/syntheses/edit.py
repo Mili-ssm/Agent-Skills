@@ -431,25 +431,34 @@ def _merged_sources(old_src: str | None, items: list[str]) -> str | None:
     return "Sources: " + ", ".join(items) if items else None
 
 
+def append_text(
+    section_text: str, text: str, *, store: Path | None = None, is_summary: bool = False
+) -> str:
+    """The section text after `text` is added at its end, before its `Sources:` line; links of a closing `Sources:`
+    line in `text` join the section's own line. Pure: nothing is read or written."""
+    text = _clean(text)
+    if not text:
+        raise ValueError("the text to append is empty")
+    _check_body(text)
+    old_src, new_src = _sources_line(section_text), _sources_line(text)
+    main, added = _without_sources(section_text, old_src), _without_sources(text, new_src)
+    items = _new_source_items(old_src, new_src)
+    src = _merged_sources(old_src, items)
+    if not added and not items:
+        raise ValueError("the text to append adds nothing")
+    new = "\n\n".join(p for p in (main, added, src) if p)
+    if store is not None and not is_summary and (problems := validate_section(new, store)):
+        raise ValueError("; ".join(problems))
+    return new
+
+
 def append_section(
     path: Path, section: str, text: str, today: datetime.date, *, store: Path | None = None
 ) -> None:
     """Add text at the end of a section, before its `Sources:` line; links of a closing `Sources:` line in `text`
     join the section's own line."""
     syn, target = _target(path, section)
-    text = _clean(text)
-    if not text:
-        raise ValueError("the text to append is empty")
-    _check_body(text)
-    old_src, new_src = _sources_line(target.text), _sources_line(text)
-    main, added = _without_sources(target.text, old_src), _without_sources(text, new_src)
-    items = _new_source_items(old_src, new_src)
-    src = _merged_sources(old_src, items)
-    if not added and not items:
-        raise ValueError("the text to append adds nothing")
-    new = "\n\n".join(p for p in (main, added, src) if p)
-    if store is not None and section != SUMMARY and (problems := validate_section(new, store)):
-        raise ValueError("; ".join(problems))
+    new = append_text(target.text, text, store=store, is_summary=section == SUMMARY)
     _replace(syn, target, new, today, "append")
 
 

@@ -198,7 +198,7 @@ FROZEN_EDGES = {
     ("research", "synthesize"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize", "entry", "commands",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize", "entry", "commands", "integrate",
 }  # fmt: skip
 
 
@@ -237,11 +237,12 @@ PACKAGE_DEPENDENCIES = {
     "corroborate": {"core", "memories", "capture", "digest", "synthesize"},
     "capture": {"core", "memories"},
     "settle": {"core", "memories"},
+    "integrate": {"core", "memories", "syntheses", "notes"},
     "digest": {"memories"},
     "session": {"core", "notes"},
     "research": {"core", "memories", "notes", "synthesize"},
-    "entry": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize"},
-    "commands": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize"},
+    "entry": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize", "integrate"},
+    "commands": {"core", "memories", "syntheses", "notes", "corroborate", "research", "capture", "settle", "digest", "session", "synthesize", "integrate"},
 }  # fmt: skip
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
@@ -249,6 +250,7 @@ PACKAGE_IMPORTERS = {
     "research": {"mem", "commands"},
     "capture": {"mem", "corroborate", "commands"},
     "settle": {"mem", "commands"},
+    "integrate": {"mem", "commands"},
     "digest": {"mem", "corroborate", "commands"},
     "session": {"mem", "commands"},
     "entry": {"run"},
