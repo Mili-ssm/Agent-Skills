@@ -150,7 +150,8 @@ Task 5 moved `add_references` past its fifth parameter to `**options`; the synth
 
 - `**options` keys are type-checked only: an unknown key passed to `records.write_memory`, `add_sighting`, `match_memories`, `research_pipeline` steps or `mem-synthesize`'s `run`/`run_backfill` is ignored at runtime (PEP 692 trade-off; callers are type-checked).
 - `bin/mem-synthesize --self-check` fails on its last assertion (`mem history commit` makes no "after one, two" commit); it fails the same at `65e901a`, before this plan.
-- Split reviews due (owner rule: code files over 1,000 lines): `bin/mem-synthesize` grew 564 → 1,339 lines (about 400 from formatting, 24 → 81 functions) and belongs to A4 (logic into the engine); `evals/synthesis/run_trials.py` grew 2,162 → about 3,700 lines.
+- Split reviews due (owner rule: code files over 1,000 lines): `bin/mem-synthesize` grew 564 → 1,339 lines (about 400 from formatting, 24 → 81 functions) and belongs to A4 (logic into the engine); `evals/synthesis/run_trials.py` grew 2,162 → 4,345 lines.
+- No CHANGELOG line for `signal.sh`: `mem` already resolved the default store itself, so its new export changes nothing a user sees (dropped after the Task 7 review). Inside sessions the hooks own the config file (written from the `store` option, removed when it is cleared), so the default store exported by the hooks never competes with it; ruling 1 matters for commands run by hand.
 - Low review notes: `records._parse` special-cases `FieldTypeError`'s name to keep stored error text; formatter-placed comments inside `Memory` fields; `research_pipeline.budget_of` raises `TypeError` for a non-string (argparse never passes one); `run_trials.one_row` raises `ValueError` before the budget call when arm M has no control; single-use helpers in `mem-synthesize`; `mem --root` help omits the default store (pre-existing).
 
 ## Kill criteria

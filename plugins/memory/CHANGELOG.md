@@ -7,7 +7,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Changed
 
 - Every entry point now finds the store the same way: `--root`, then `MEM_STORE`, then the first line of the `store` config file, then the default store. Background commands and `mem-research`/`mem-synthesize` use the store named in the config file when `MEM_STORE` is unset, as `mem` already did.
-- The default store counts only when it holds its `mem-store.yaml` marker. A folder there without the marker is no longer used (`mem` says it is ignored and how to adopt it: add the file by hand only if you own that folder and mean to write to it).
+- The default store counts only when it holds its `mem-store.yaml` marker. A folder there without the marker is no longer used (`mem` says it is not used and how to adopt it: add the file by hand only if you own that folder and mean to write to it).
 - With no `HOME` and no `XDG_DATA_HOME`, no entry point uses a default store (`mem-research` and `mem-synthesize` no longer fall back to the home folder from the system user database).
 
 ## [0.15.0] - 2026-11-26
