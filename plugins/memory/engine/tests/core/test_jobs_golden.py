@@ -3,6 +3,7 @@ prune, failure line, run lock. Every expected value is a literal, never computed
 checks that the copies agree on the same inputs: that cross-check is Task 2 scaffolding, so Task 4 may retarget which
 function a golden calls, never an expected value."""
 
+import importlib
 import importlib.machinery
 import importlib.util
 import json
@@ -32,7 +33,12 @@ FRESH_DAYS, OLD_DAYS = 29, 31
 ENV_NAMES = ("MEM_DATA", "XDG_STATE_HOME", "HOME")
 
 
+ENTRIES = {"mem-auto": "entry.auto"}  # launchers: the module they run lives in `engine/entry`
+
+
 def load_bin(name: str) -> ModuleType:
+    if name in ENTRIES:
+        return importlib.import_module(ENTRIES[name])
     path = PLUGIN / "bin" / name
     loader = importlib.machinery.SourceFileLoader(
         f"jobs_golden_{name.replace('-', '_')}", str(path)

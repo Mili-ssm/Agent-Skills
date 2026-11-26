@@ -112,7 +112,6 @@ def _banned_uses(tree: ast.AST) -> set[str]:
 
 def test_scripts_are_found() -> None:
     assert {p.name for p in _scripts()} >= {
-        "mem-auto",
         "mem-capture",
         "mem-settle",
     }

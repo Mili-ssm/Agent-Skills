@@ -116,8 +116,8 @@ def _env(**extra: str) -> dict[str, str]:
 
 
 def _command(script: str) -> list[str]:
-    """`bin/mem-synthesize` is a uv launcher: the test Python runs its entry through `engine/run.py` instead."""
-    if script == "mem-synthesize":
+    """The uv launchers run through `engine/run.py` under the test Python instead."""
+    if script in {"mem-synthesize", "mem-auto"}:
         return [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", script]
     return [sys.executable, str(BIN / script)]
 

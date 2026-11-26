@@ -13,7 +13,11 @@ import sys
 if __name__ == "__main__":
     # One static import per name, so the import graph sees each edge; the other entries stay unloaded.
     name = sys.argv[2] if sys.argv[1:2] == ["--bin"] and sys.argv[2:3] else ""
-    if name == "mem-corroborate":
+    if name == "mem-auto":
+        from entry import auto
+
+        main = auto.main
+    elif name == "mem-corroborate":
         from entry import corroborate
 
         main = corroborate.main
