@@ -111,12 +111,8 @@ def _banned_uses(tree: ast.AST) -> set[str]:
 
 
 def test_scripts_are_found() -> None:
-    assert {p.name for p in _scripts()} >= {
-        "mem-capture",
-        "mem-settle",
-    }
-    assert ENGINE / "synthesize" / "run.py" in _closure(BIN / "mem-settle")
-    assert ENGINE / "core" / "jobs.py" in _closure(BIN / "mem-settle")
+    assert {p.name for p in _scripts()} >= {"mem-capture"}
+    assert ENGINE / "core" / "jobs.py" in _closure(BIN / "mem-capture")
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)

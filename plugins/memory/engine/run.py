@@ -25,6 +25,10 @@ if __name__ == "__main__":
         from entry import research
 
         main = research.main
+    elif name == "mem-settle":
+        from entry import settle
+
+        main = settle.main
     elif name == "mem-synthesize":
         from entry import synthesize
 

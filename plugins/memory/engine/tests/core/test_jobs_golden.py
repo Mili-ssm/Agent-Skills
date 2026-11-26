@@ -33,7 +33,10 @@ FRESH_DAYS, OLD_DAYS = 29, 31
 ENV_NAMES = ("MEM_DATA", "XDG_STATE_HOME", "HOME")
 
 
-ENTRIES = {"mem-auto": "entry.auto"}  # launchers: the module they run lives in `engine/entry`
+ENTRIES = {
+    "mem-auto": "entry.auto",
+    "mem-settle": "entry.settle",
+}  # launchers: the module they run lives in `engine/entry`
 
 
 def load_bin(name: str) -> ModuleType:

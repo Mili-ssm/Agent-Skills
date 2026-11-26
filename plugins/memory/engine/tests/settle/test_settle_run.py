@@ -4,6 +4,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +16,7 @@ from settle import state as settle_state
 from settle import verdicts as settle_verdicts
 
 PLUGIN = Path(__file__).resolve().parents[3]
-SETTLE = PLUGIN / "bin" / "mem-settle"
+SETTLE = [sys.executable, str(PLUGIN / "engine" / "run.py"), "--bin", "mem-settle"]
 SESSION_ENV = PLUGIN / "hooks" / "session-env.sh"
 SESSION_END = PLUGIN / "hooks" / "session-end.sh"
 # Negative waits: how long to wait before concluding that a trigger did NOT start a detached run. Measured 2026-11-25
@@ -93,7 +94,7 @@ def seed(w, new=True):
 
 def settle_run(w, *args, mode="good", env=None):
     return subprocess.run(
-        [str(SETTLE), "run", "--store", str(w.store), "--claude", str(w.fake), *args],
+        [*SETTLE, "run", "--store", str(w.store), "--claude", str(w.fake), *args],
         env={**os.environ, "FAKE_MODE": mode, **(env or {})},
         capture_output=True,
         text=True,
@@ -187,7 +188,7 @@ def test_a_bad_session_is_a_failure_that_applies_nothing_and_shows_at_session_st
     ]
     assert len(line) == 1 and why in line[0] and "mem-settle ack" in line[0]
     subprocess.run(
-        [str(SETTLE), "ack", "--store", str(world.store)],
+        [*SETTLE, "ack", "--store", str(world.store)],
         env=os.environ,
         check=True,
         capture_output=True,
@@ -223,7 +224,7 @@ def test_a_held_lock_makes_a_second_run_exit_silently(world):
 def test_dry_run_starts_and_changes_nothing(world):
     seed(world)
     done = subprocess.run(
-        [str(SETTLE), "run", "--dry-run", "--store", str(world.store), "--minutes", "0"],
+        [*SETTLE, "run", "--dry-run", "--store", str(world.store), "--minutes", "0"],
         env=os.environ,
         capture_output=True,
         text=True,
