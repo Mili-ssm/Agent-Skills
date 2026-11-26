@@ -20,7 +20,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
-2. Quick fixes: P1 (measured), A7, tool-fold's dead `summarize` export.
+2. Quick fix: P1 (measured).
 3. Memory refactor tasks 1–2 (A1–A3).
 4. Memory kill read, around 2026-12-01.
 
@@ -71,12 +71,13 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 |---|---|---|---|
 | medium | — | Release #185 (Unreleased entry in `CHANGELOG.md`) | Waiting for a release |
 | high | A1 | Refactor: pure `config.py` | Not started |
-| high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers | Not started |
+| high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Not started |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle | Not started |
-| medium | A7 | Refactor: import direction | Not started |
+| medium | A7 | Refactor: import direction | Open: only session_env, moved into A2 (tokenize and both cycles done on branch refactor/memory-a7-a1-a3) |
 | high | A4 | Refactor: `mem-corroborate` logic into the engine | Not started |
 | medium | A6 | Refactor: split `records.py` | Not started |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Not started |
+| low | — | Refactor A7 deferred findings (untested TLS branch, `plan_commands` non-string `quote`, naming nits; [plan](superpowers/plans/2026-11-26-memory-import-direction.md) § Deferred findings) | Open |
 | low | — | Refactor: measure `find_claude` in the session-end hook | Not started |
 | low | — | Split `bin/mem-capture` (1,265 lines after its lint refactor) into engine modules | Not started |
 | low | A11 | Refactor: parked signal code, after the kill read | Not started |
@@ -102,7 +103,6 @@ Owner order: refactor → seamless stage 3 → kill read → Codex port (new ADR
 |---|---|---|
 | medium | Q6 | Tests for `agents.tsx` before A8 |
 | medium | A8 | Split `agents.tsx` at the next tool-fold change |
-| low | — | Remove the dead `summarize` export |
 | low | Q8, D9 | Split large test files; shorten README lines |
 
 ## Mod `plan-progress`

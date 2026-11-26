@@ -183,51 +183,6 @@ export function describeStep(tool: string, input: Record<string, unknown>): { ki
 
 const plural = (count: number, word: string): string => `${count} ${word}${count === 1 ? '' : 's'}`
 
-/** `Explored 3 files, 2 searches · Edited 1 file · Ran 2 commands`, as Codex groups calls. */
-export function summarize(
-  counts: AgentRun['counts'],
-  extra: { files?: readonly string[]; skills?: readonly string[] } = {},
-): string {
-  const n = (kind: StepKind): number => counts[kind] ?? 0
-  const parts: string[] = []
-  // Every call counted once: how much the agent did, before what kind of things.
-  const total = Object.values(counts).reduce((sum, count) => sum + (count ?? 0), 0)
-  if (total > 1) {
-    parts.push(plural(total, 'call'))
-  }
-  const explored = [
-    n('read') > 0 ? plural(n('read'), 'file') : '',
-    n('list') > 0 ? plural(n('list'), 'listing') : '',
-    n('search') > 0 ? plural(n('search'), 'search').replace('searchs', 'searches') : '',
-  ].filter(Boolean)
-  if (explored.length > 0) {
-    parts.push(`Explored ${explored.join(', ')}`)
-  }
-  if (n('edit') > 0) {
-    // Distinct files where they were recorded, else the edits.
-    parts.push(`Edited ${plural(extra.files?.length || n('edit'), 'file')}`)
-  }
-  if (n('run') > 0) {
-    parts.push(`Ran ${plural(n('run'), 'command')}`)
-  }
-  if (n('web') > 0) {
-    parts.push(`Browsed ${plural(n('web'), 'page')}`)
-  }
-  if (n('agent') > 0) {
-    parts.push(`Spawned ${plural(n('agent'), 'agent')}`)
-  }
-  if (n('other') > 0) {
-    parts.push(`Used ${plural(n('other'), 'tool')}`)
-  }
-  // Skills by name: they say what kind of work it was.
-  if (extra.skills !== undefined && extra.skills.length > 0) {
-    parts.push(extra.skills.join(', '))
-  } else if (n('skill') > 0) {
-    parts.push(plural(n('skill'), 'skill'))
-  }
-  return parts.join(' · ')
-}
-
 /**
  * How a call changes the agent's own task list, for its `3/7` progress: TodoWrite states the whole
  * list; TaskCreate adds one task; TaskUpdate to `completed` finishes one (once per task id).

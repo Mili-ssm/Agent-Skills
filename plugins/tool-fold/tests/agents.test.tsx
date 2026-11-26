@@ -14,7 +14,6 @@ import {
   iconOf,
   progressSvg,
   stateOf,
-  summarize,
 } from '../hooks/agents'
 import { median } from '../hooks/estimates'
 
@@ -80,9 +79,6 @@ test('steps are named and grouped as Codex does', () => {
   )
   expect(commandOf('cd /home/mili/Rust/octree_viewer_v3\ncargo test -p viewer')).toBe('cargo test -p viewer')
   expect(commandOf('S=/tmp/claude-1000/x/scratchpad python3 merge.py')).toBe('python3 merge.py')
-  expect(summarize({ read: 3, search: 2, edit: 1, run: 1 })).toBe(
-    '7 calls · Explored 3 files, 2 searches · Edited 1 file · Ran 1 command',
-  )
   // Distinct files rather than edits; skills by name.
   expect(
     countsLine({ counts: { read: 6, search: 3, edit: 6, run: 20 }, files: ['a', 'b', 'c', 'd'], skills: ['qa-review'], failures: 1 }),
