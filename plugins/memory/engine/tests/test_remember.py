@@ -7,9 +7,11 @@ import mem
 import pytest
 import records
 
-TWO = 2
-THREE = 3
-FOUR = 4
+EXIT_USAGE = 2
+EXIT_DUPLICATE = 3
+EXIT_FORBIDDEN = 4
+TERMS_FILE_LINES = 3
+OBSERVED_AFTER_OBSERVE = 2
 
 
 def git(cwd, *args):
@@ -66,7 +68,7 @@ def test_outside_git_exits_2_and_writes_nothing(tmp_path, monkeypatch, capsys):
     monkeypatch.delenv(
         "MEM_PROJECT"
     )  # the suite points it at a scratch folder; here no project may resolve
-    assert remember() == TWO
+    assert remember() == EXIT_USAGE
     assert (
         capsys.readouterr().err.strip()
         == "mem: not inside a git repository: pass --global, or set MEM_PROJECT to the project folder."
@@ -77,7 +79,7 @@ def test_outside_git_exits_2_and_writes_nothing(tmp_path, monkeypatch, capsys):
 def test_same_claim_exits_3_and_force_writes_a_second(repo, capsys):
     assert remember() == 0
     capsys.readouterr()
-    assert remember() == THREE
+    assert remember() == EXIT_DUPLICATE
     err = capsys.readouterr().err
     assert "m:retries-need-idempotency-keys\tRetries need idempotency keys." in err
     assert 'run "mem observe m:retries-need-idempotency-keys"' in err and "--force" in err
@@ -101,7 +103,7 @@ def test_negation_is_not_a_duplicate_but_is_listed(repo, capsys):
 def test_global_without_folder_exits_2(hub_root, monkeypatch, capsys):
     (hub_root / "mem-store.yaml").unlink()
     monkeypatch.setenv("MEM_STORE", str(hub_root))
-    assert remember("--global") == TWO
+    assert remember("--global") == EXIT_USAGE
     assert capsys.readouterr().err.strip() == (
         'mem: no folder for global memories: set the plugin\'s "memories" option, '
         'or MEM_MEMORIES, or use a store made with "mem init".'
@@ -125,7 +127,9 @@ def test_global_write_creates_a_missing_terms_file(gfolder, tmp_path):
     assert remember("--global") == 0
     assert any(gfolder.glob("*.md"))
     text = terms.read_text()
-    assert len(text.splitlines()) == THREE and all(ln.startswith("#") for ln in text.splitlines())
+    assert len(text.splitlines()) == TERMS_FILE_LINES and all(
+        ln.startswith("#") for ln in text.splitlines()
+    )
 
 
 def test_empty_forbidden_file_allows_global_write(gfolder, tmp_path):
@@ -148,7 +152,7 @@ def test_forbidden_term_exits_4(gfolder, tmp_path, capsys, monkeypatch, where):
         monkeypatch.setattr("sys.stdin", io.StringIO("seen at acme\n"))
         monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
         extra = ["--body-file", "-"]
-    assert remember("--global", *extra, claim=claim) == FOUR
+    assert remember("--global", *extra, claim=claim) == EXIT_FORBIDDEN
     assert (
         capsys.readouterr().err.strip()
         == "mem: the text contains a forbidden term (line 2 of the forbidden-terms list); nothing was written."
@@ -162,7 +166,7 @@ def test_observe_raises_the_count(repo, capsys):
     assert mem.main(["observe", "m:retries-need-idempotency-keys"]) == 0
     assert capsys.readouterr().out == "m:retries-need-idempotency-keys\tobserved 2\n"
     [m] = records.load_memories(repo / ".memory", "project")
-    assert m.observed == TWO
+    assert m.observed == OBSERVED_AFTER_OBSERVE
 
 
 def test_observe_falls_back_to_global(repo, gfolder, tmp_path, capsys):
@@ -174,12 +178,12 @@ def test_observe_falls_back_to_global(repo, gfolder, tmp_path, capsys):
 
 
 def test_observe_unknown_exits_2(repo, capsys):
-    assert mem.main(["observe", "m:nope"]) == TWO
+    assert mem.main(["observe", "m:nope"]) == EXIT_USAGE
     assert capsys.readouterr().err.strip() == "mem: no memory named m:nope"
 
 
 def test_finding_needs_a_source(repo, capsys):
-    assert remember(kind="finding") == TWO
+    assert remember(kind="finding") == EXIT_USAGE
     assert "finding" in capsys.readouterr().err and not (repo / ".memory").exists()
     assert remember("--source", "https://example.org/a", kind="finding") == 0
     [m] = records.load_memories(repo / ".memory", "project")
@@ -201,7 +205,7 @@ def test_body_file_from_stdin_and_empty_body(repo, monkeypatch):
 def test_argparse_rejects_bad_values(repo, argv):
     with pytest.raises(SystemExit) as e:
         mem.main(["remember", "--kind", "lesson", "--claim", "c", *argv])
-    assert e.value.code == TWO
+    assert e.value.code == EXIT_USAGE
 
 
 def test_usage_log_has_command_and_scope_but_never_the_claim(repo):
@@ -226,7 +230,7 @@ def test_init_refuses_a_foreign_folder_but_accepts_git_files(tmp_path, capsys):
     foreign = tmp_path / "f"
     foreign.mkdir()
     (foreign / "notes.txt").write_text("x")
-    assert mem.main(["init", str(foreign)]) == TWO
+    assert mem.main(["init", str(foreign)]) == EXIT_USAGE
     assert capsys.readouterr().err.strip() == f"mem: {foreign} is not empty and is not a store"
     ok = tmp_path / "g"
     ok.mkdir()
@@ -250,7 +254,7 @@ def test_project_inside_a_marker_less_store_is_refused(tmp_path, monkeypatch, ca
     root.mkdir(exist_ok=True)
     git(root, "init", "-q")
     monkeypatch.setenv("MEM_PROJECT", str(root))
-    assert remember() == TWO
+    assert remember() == EXIT_USAGE
     assert capsys.readouterr().err.strip() == (
         "mem: this project is the store, which is read-only: it has no "
         "mem-store.yaml; a memory cannot be written here."
@@ -269,7 +273,7 @@ def test_observe_in_a_marker_less_store_is_refused(tmp_path, monkeypatch, capsys
     monkeypatch.setenv("MEM_PROJECT", str(store))
     (store / ".memory").mkdir()
     (store / ".memory" / "x.md").write_text("---\nkind: lesson\nclaim: X thing.\n---\n")
-    assert mem.main(["observe", "m:x"]) == TWO
+    assert mem.main(["observe", "m:x"]) == EXIT_USAGE
     assert "read-only" in capsys.readouterr().err
     assert "observed" not in (store / ".memory" / "x.md").read_text()
 
@@ -279,7 +283,7 @@ def test_named_memories_folder_inside_a_marker_less_store_is_refused(tmp_path, m
     folder = store / "mine"
     monkeypatch.setenv("MEM_MEMORIES", str(folder))
     forbid(tmp_path)
-    assert remember("--global") == TWO
+    assert remember("--global") == EXIT_USAGE
     assert (
         capsys.readouterr().err.strip()
         == "mem: the memories folder is inside the store, which is read-only: it has no mem-store.yaml."
@@ -287,7 +291,7 @@ def test_named_memories_folder_inside_a_marker_less_store_is_refused(tmp_path, m
     assert not folder.exists()
     folder.mkdir()
     (folder / "x.md").write_text("---\nkind: lesson\nclaim: X thing.\n---\n")
-    assert mem.main(["observe", "m:x"]) == TWO
+    assert mem.main(["observe", "m:x"]) == EXIT_USAGE
     assert "observed" not in (folder / "x.md").read_text()
 
 
@@ -301,11 +305,11 @@ def test_symlinked_project_memory_folder_into_a_marker_less_store_is_refused(
     git(proj, "init", "-q")
     (proj / ".memory").symlink_to(target, target_is_directory=True)
     monkeypatch.setenv("MEM_PROJECT", str(proj))
-    assert remember() == TWO
+    assert remember() == EXIT_USAGE
     assert "read-only" in capsys.readouterr().err
     assert list(target.iterdir()) == []
     (target / "x.md").write_text("---\nkind: lesson\nclaim: X thing.\n---\n")
-    assert mem.main(["observe", "m:x"]) == TWO
+    assert mem.main(["observe", "m:x"]) == EXIT_USAGE
     assert "observed" not in (target / "x.md").read_text()
 
 
@@ -318,7 +322,7 @@ def test_symlinked_global_memories_folder_into_a_marker_less_store_is_refused(
     link.symlink_to(target, target_is_directory=True)
     monkeypatch.setenv("MEM_MEMORIES", str(link))
     forbid(tmp_path)
-    assert remember("--global") == TWO
+    assert remember("--global") == EXIT_USAGE
     assert "read-only" in capsys.readouterr().err
     assert list(target.iterdir()) == []
 
@@ -328,7 +332,7 @@ def test_init_refuses_an_existing_store_without_marker(tmp_path, capsys):
         folder = tmp_path / entry.replace(".", "_")
         folder.mkdir()
         (folder / entry).mkdir() if "." not in entry else (folder / entry).write_text("{}\n")
-        assert mem.main(["init", str(folder)]) == TWO
+        assert mem.main(["init", str(folder)]) == EXIT_USAGE
         assert capsys.readouterr().err.strip() == (
             f"mem: {folder} already holds a store without mem-store.yaml; it stays "
             "read-only (add the file by hand only if you own it and mean to write to it)."
@@ -347,7 +351,7 @@ def test_global_write_fails_closed_on_an_unreadable_forbidden_list(gfolder, tmp_
     f = tmp_path / "mem-config" / "agent-memory" / "forbidden-terms"
     f.parent.mkdir(parents=True)
     f.write_bytes(b"\xff\xfe\x80\n")
-    assert remember("--global") == TWO
+    assert remember("--global") == EXIT_USAGE
     assert (
         capsys.readouterr().err.strip()
         == f"mem: the forbidden-terms list cannot be read ({f}); nothing was written."
@@ -360,7 +364,7 @@ def test_global_write_fails_closed_when_no_folder_locates_the_forbidden_list(
 ):
     monkeypatch.delenv("HOME", raising=False)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    assert remember("--global") == TWO
+    assert remember("--global") == EXIT_USAGE
     err = capsys.readouterr().err
     assert "HOME" in err and "XDG_CONFIG_HOME" in err and "nothing was written" in err
     assert not gfolder.exists()
@@ -371,7 +375,7 @@ def test_global_write_fails_closed_when_no_folder_locates_the_forbidden_list(
 def test_check_terms_refuses_the_global_scope_when_no_folder_locates_the_list(monkeypatch, capsys):
     monkeypatch.delenv("HOME", raising=False)
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
-    assert mem._check_terms(["anything"], "lesson", False) == TWO
+    assert mem._check_terms(["anything"], "lesson", False) == EXIT_USAGE
     assert "nothing was written" in capsys.readouterr().err
 
 
@@ -392,7 +396,7 @@ def test_a_global_memory_edit_fails_closed_when_no_folder_locates_the_list(
         "--claim",
         "Retries always need idempotency keys to stay safe.",
     ])
-    assert code == TWO and "nothing was written" in capsys.readouterr().err
+    assert code == EXIT_USAGE and "nothing was written" in capsys.readouterr().err
     assert path.read_bytes() == before
 
 
@@ -400,7 +404,7 @@ def test_forbidden_term_split_between_claim_and_body(gfolder, tmp_path, capsys, 
     forbid(tmp_path, "acme corp")
     monkeypatch.setattr("sys.stdin", io.StringIO("corp\n"))
     monkeypatch.setattr("sys.stdin.isatty", lambda: False, raising=False)
-    assert remember("--global", "--body-file", "-", claim="Seen at Acme") == FOUR
+    assert remember("--global", "--body-file", "-", claim="Seen at Acme") == EXIT_FORBIDDEN
 
 
 def test_failed_exclusion_warns_but_writes(repo, capsys, monkeypatch):
@@ -420,7 +424,7 @@ def test_failed_exclusion_warns_but_writes(repo, capsys, monkeypatch):
 def test_distinct_non_latin_claims_are_not_duplicates(repo, capsys):
     assert remember(claim="重试需要键") == 0
     assert remember(claim="超时需要设置") == 0
-    assert remember(claim="重试需要键") == THREE
+    assert remember(claim="重试需要键") == EXIT_DUPLICATE
 
 
 def test_claim_whitespace_is_collapsed_and_empty_is_rejected(repo, capsys):
@@ -429,19 +433,19 @@ def test_claim_whitespace_is_collapsed_and_empty_is_rejected(repo, capsys):
     assert out.count("\n") == 1 and out.startswith("m:line-one-two-three\t")
     assert "claim: Line one two three" in (repo / ".memory" / "line-one-two-three.md").read_text()
     assert "context: a b c" in (repo / ".memory" / "line-one-two-three.md").read_text()
-    assert remember(claim=" \n\t ") == TWO
+    assert remember(claim=" \n\t ") == EXIT_USAGE
 
 
 def test_rejected_call_leaves_no_exclude_line(repo, capsys):
-    assert remember(claim=" ") == TWO
-    assert remember(claim="A finding.", kind="finding") == TWO
+    assert remember(claim=" ") == EXIT_USAGE
+    assert remember(claim="A finding.", kind="finding") == EXIT_USAGE
     assert not (repo / ".memory").exists()
     ex = repo / ".git" / "info" / "exclude"
     assert not ex.exists() or ".memory" not in ex.read_text()
 
 
 def test_document_needs_a_source_and_takes_a_path(repo, capsys):
-    assert remember(kind="document") == TWO
+    assert remember(kind="document") == EXIT_USAGE
     assert "document" in capsys.readouterr().err and not (repo / ".memory").exists()
     assert remember("--source", "docs/spec.pdf", kind="document") == 0
     text = (repo / ".memory" / "retries-need-idempotency-keys.md").read_text()
@@ -450,7 +454,7 @@ def test_document_needs_a_source_and_takes_a_path(repo, capsys):
 
 def test_document_in_global_scope_checks_forbidden_terms_in_sources(gfolder, tmp_path, capsys):
     forbid(tmp_path, "acme")
-    assert remember("--global", "--source", "/srv/ACME/spec.pdf", kind="document") == FOUR
+    assert remember("--global", "--source", "/srv/ACME/spec.pdf", kind="document") == EXIT_FORBIDDEN
     assert remember("--global", "--source", "/srv/other/spec.pdf", kind="document") == 0
 
 
@@ -476,7 +480,7 @@ def test_a_secret_is_refused_in_every_field_and_nothing_is_written(repo, capsys,
             if field[0] != "--claim"
             else ["remember", "--kind", "lesson", *field]
         )
-        assert mem.main(argv) == FOUR
+        assert mem.main(argv) == EXIT_FORBIDDEN
         err = capsys.readouterr().err
         assert (
             err == f"mem: the text looks like it contains a secret ({name}); nothing was written.\n"
@@ -487,13 +491,15 @@ def test_a_secret_is_refused_in_every_field_and_nothing_is_written(repo, capsys,
 def test_a_secret_in_the_body_is_refused(repo, tmp_path, monkeypatch, capsys):
     path = tmp_path / "body.md"
     path.write_text(f"Notes\n{SECRETS['GitHub token']}\n", encoding="utf-8")
-    assert remember("--body-file", str(path)) == FOUR
+    assert remember("--body-file", str(path)) == EXIT_FORBIDDEN
     assert "GitHub token" in capsys.readouterr().err and not (repo / ".memory").exists()
 
 
 def test_a_secret_is_refused_in_the_global_scope(repo, gfolder, tmp_path, capsys):
     forbid(tmp_path)
-    assert remember("--global", claim=f"Key {SECRETS['AWS access key id']} works.") == FOUR
+    assert (
+        remember("--global", claim=f"Key {SECRETS['AWS access key id']} works.") == EXIT_FORBIDDEN
+    )
     assert "AWS access key id" in capsys.readouterr().err and not gfolder.exists()
 
 
@@ -521,7 +527,7 @@ def test_a_secret_in_a_reason_is_refused(repo, capsys):
     for command in ("refute", "forget"):
         assert (
             mem.main([command, "m:retries-need-idempotency-keys", "--because", SECRETS["API key"]])
-            == FOUR
+            == EXIT_FORBIDDEN
         )
         assert "API key" in capsys.readouterr().err
     assert "API key" not in (repo / ".memory" / "retries-need-idempotency-keys.md").read_text()

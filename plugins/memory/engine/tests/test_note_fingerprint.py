@@ -5,13 +5,13 @@ import mem
 import pytest
 import syntheses
 
-ONE = "../knowledge/computing/one-note.md"
-TWO = "../knowledge/computing/two-note.md"
+FIRST_NOTE = "../knowledge/computing/one-note.md"
+SECOND_NOTE = "../knowledge/computing/two-note.md"
 FREE = "../knowledge/computing/free-note.md"
 SYN = "syntheses/attention.md"
-SOURCES = f"Sources: [one]({ONE}), [two]({TWO}), [free]({FREE})"
+SOURCES = f"Sources: [one]({FIRST_NOTE}), [two]({SECOND_NOTE}), [free]({FREE})"
 BODY = (
-    f"Sentence about one.[o]({ONE}) Sentence about two.[t]({TWO}) A plain sentence.\n\n"
+    f"Sentence about one.[o]({FIRST_NOTE}) Sentence about two.[t]({SECOND_NOTE}) A plain sentence.\n\n"
     f"| col | val |\n|---|---|\n| row | x |\n\n{SOURCES}"
 )
 
@@ -129,29 +129,31 @@ def edit(run, tmp_path, old, new):
 
 
 def test_fingerprint_shape_and_whole_part_fallback():
-    assert syntheses.note_fingerprint(BODY, ONE).startswith("u:")
+    assert syntheses.note_fingerprint(BODY, FIRST_NOTE).startswith("u:")
     assert syntheses.note_fingerprint(
         BODY, "../knowledge/computing/./one-note.md"
-    ) == syntheses.note_fingerprint(BODY, ONE)
+    ) == syntheses.note_fingerprint(BODY, FIRST_NOTE)
     assert syntheses.note_fingerprint(
         BODY, "../knowledge/computing/one%2Dnote.md"
-    ) == syntheses.note_fingerprint(BODY, ONE)
+    ) == syntheses.note_fingerprint(BODY, FIRST_NOTE)
     assert syntheses.note_fingerprint(
         BODY, "../knowledge/computing/one-note.md#part"
-    ) == syntheses.note_fingerprint(BODY, ONE)
-    assert syntheses.note_fingerprint(BODY, ONE) != syntheses.note_fingerprint(BODY, TWO)
+    ) == syntheses.note_fingerprint(BODY, FIRST_NOTE)
+    assert syntheses.note_fingerprint(BODY, FIRST_NOTE) != syntheses.note_fingerprint(
+        BODY, SECOND_NOTE
+    )
     assert syntheses.note_fingerprint(BODY, FREE) == syntheses.fingerprint(BODY)  # (g)
 
 
 def test_is_current_by_prefix():
-    fp = syntheses.note_fingerprint(BODY, ONE)
-    assert syntheses.is_current(fp, BODY, ONE) and not syntheses.is_current(fp, BODY)
+    fp = syntheses.note_fingerprint(BODY, FIRST_NOTE)
+    assert syntheses.is_current(fp, BODY, FIRST_NOTE) and not syntheses.is_current(fp, BODY)
     assert syntheses.is_current(syntheses.fingerprint(BODY), BODY)
-    assert syntheses.is_current(syntheses.fingerprint_legacy(BODY), BODY, ONE)
+    assert syntheses.is_current(syntheses.fingerprint_legacy(BODY), BODY, FIRST_NOTE)
 
 
 def test_attach_stamps_per_note(made):
-    assert stamp(made, "one-note") == syntheses.note_fingerprint(part(made), ONE)
+    assert stamp(made, "one-note") == syntheses.note_fingerprint(part(made), FIRST_NOTE)
     assert stamp(made, "one-note").startswith("u:")
     assert stamp(made, "free-note") == syntheses.fingerprint(part(made))  # (g)
     assert mem.check(made) == []
@@ -206,7 +208,7 @@ def test_old_whole_part_stamp_keeps_its_meaning(made, run, tmp_path):  # (d)
 def test_a_note_that_was_stale_stays_stale_after_refs(made, run, tmp_path):  # (e)
     set_stamp(made, "one-note", stamp(made, "one-note"), "u:0123456789")
     assert not current(made, "one-note")
-    refs = text_in(tmp_path, "alpha | 3 | add " + ONE + "\n", "refs.txt")
+    refs = text_in(tmp_path, "alpha | 3 | add " + FIRST_NOTE + "\n", "refs.txt")
     assert run("synthesis", "refs", "s:attention", "--file", refs)[0] == 0
     assert stamp(made, "one-note") == "u:0123456789" and not current(made, "one-note")
     assert current(made, "two-note")
@@ -222,9 +224,9 @@ def test_refs_restamps_a_current_member_and_restore_returns_it(made, run, tmp_pa
         }
 
     before = files()
-    refs = text_in(tmp_path, "alpha | 3 | add " + ONE + "\n", "refs.txt")
+    refs = text_in(tmp_path, "alpha | 3 | add " + FIRST_NOTE + "\n", "refs.txt")
     assert run("synthesis", "refs", "s:attention", "--file", refs)[0] == 0
-    assert stamp(made, "one-note") == syntheses.note_fingerprint(part(made), ONE)
+    assert stamp(made, "one-note") == syntheses.note_fingerprint(part(made), FIRST_NOTE)
     assert current(made, "one-note") and current(made, "two-note")
     assert files() != before
     assert run("restore", "s:attention")[0] == 0
@@ -233,11 +235,13 @@ def test_refs_restamps_a_current_member_and_restore_returns_it(made, run, tmp_pa
 
 
 def test_duplicate_units_count_as_a_multiset(tmp_path):  # (h)
-    twice = f"Same words.[o]({ONE}) Same words.[o]({ONE})\n\n{SOURCES}"
-    once = f"Same words.[o]({ONE})\n\n{SOURCES}"
-    assert syntheses.note_fingerprint(twice, ONE) != syntheses.note_fingerprint(once, ONE)
-    assert syntheses.note_fingerprint(twice, ONE) == syntheses.note_fingerprint(
-        twice.replace("Same words.", "Same  words."), ONE
+    twice = f"Same words.[o]({FIRST_NOTE}) Same words.[o]({FIRST_NOTE})\n\n{SOURCES}"
+    once = f"Same words.[o]({FIRST_NOTE})\n\n{SOURCES}"
+    assert syntheses.note_fingerprint(twice, FIRST_NOTE) != syntheses.note_fingerprint(
+        once, FIRST_NOTE
+    )
+    assert syntheses.note_fingerprint(twice, FIRST_NOTE) == syntheses.note_fingerprint(
+        twice.replace("Same words.", "Same  words."), FIRST_NOTE
     )
 
 

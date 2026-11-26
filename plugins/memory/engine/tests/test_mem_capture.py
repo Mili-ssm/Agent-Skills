@@ -575,7 +575,7 @@ CLAIM2 = "Pin the tool version in the lockfile: in one session an unpinned updat
 OWNER2 = (
     "Please pin the tool version in the lockfile, an unpinned update broke the build yesterday."
 )
-TWO = (OWNER, OWNER2, "run the suite again")
+OWNER_LINES = (OWNER, OWNER2, "run the suite again")
 SECOND = {
     **GOOD,
     "claim": CLAIM2,
@@ -682,7 +682,9 @@ def test_same_as_adds_this_session_and_establishes_a_medium_record(world):
 
 def test_a_second_run_counts_nothing_twice(world):
     first = go(
-        world, [GOOD, SECOND], transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", TWO)
+        world,
+        [GOOD, SECOND],
+        transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", OWNER_LINES),
     )
     assert first.returncode == 0, first.stderr
     handles = [x["handle"] for x in written(world)]
@@ -736,7 +738,7 @@ def test_a_secret_is_refused_and_the_next_candidate_is_still_written(world):
     done = go(
         world,
         [secret, SECOND],
-        transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", TWO),
+        transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", OWNER_LINES),
     )
     assert done.returncode == 0, done.stderr
     r = result(world)
@@ -778,7 +780,9 @@ def test_without_write_nothing_is_stored(world):
 def test_a_failing_mem_is_a_skipped_outcome_and_not_a_failed_run(world):
     (world.project / ".memory").write_text("a file where the memory folder should be")
     done = go(
-        world, [GOOD, SECOND], transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", TWO)
+        world,
+        [GOOD, SECOND],
+        transcript_path=transcript(world.tmp / "sessions" / "abc.jsonl", OWNER_LINES),
     )
     assert done.returncode == 0, done.stderr
     assert [(x["outcome"], x["handle"]) for x in written(world)] == [("skipped", None)] * 2

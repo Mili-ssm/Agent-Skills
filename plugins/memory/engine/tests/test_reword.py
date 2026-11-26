@@ -23,7 +23,8 @@ from test_rules_session import FIT, gfolder, pad
 __all__ = ["gfolder", "project"]
 
 USAGE_ERROR = 2  # exit code of mem for a refused edit
-TWO = 2
+VERSIONS_AFTER_REWORD = 2
+ATTEMPTS_AFTER_TWO_RUNS = 2
 
 
 def queue_rows(capsys):
@@ -41,7 +42,7 @@ def test_reworded_marks_the_lesson(project, gfolder):
     assert edit(f"m:{m.handle}", "--short", "Second text.", "--reworded") == 0
     got = reload(m)
     assert got.reworded == TODAY and got.short_by == "model" and got.short == "Second text."
-    assert len(got.versions) == TWO
+    assert len(got.versions) == VERSIONS_AFTER_REWORD
 
 
 def test_a_short_form_written_by_hand_keeps_the_mark(project, gfolder):
@@ -416,7 +417,9 @@ def test_two_refusals_for_one_version_give_up(project, gfolder):
     assert NONE_YET == {"lessons": {}, "failures": {}}
     twice, giveup = corroborate_decide.reword_state_after(once, items, {"g:a": "same_text"}, TODAY)
     assert (
-        entry_of(twice, m)["count"] == TWO and giveup == ["g:a"] and entry_of(once, m)["count"] == 1
+        entry_of(twice, m)["count"] == ATTEMPTS_AFTER_TWO_RUNS
+        and giveup == ["g:a"]
+        and entry_of(once, m)["count"] == 1
     )
 
 
@@ -465,7 +468,7 @@ def test_a_missing_proposal_counts_an_attempt(project, gfolder):
     twice, giveup = corroborate_decide.reword_state_after(
         once, items, {"g:a": "no_proposal"}, TODAY
     )
-    assert entry_of(twice, m)["count"] == TWO and giveup == ["g:a"]
+    assert entry_of(twice, m)["count"] == ATTEMPTS_AFTER_TWO_RUNS and giveup == ["g:a"]
 
 
 @pytest.mark.parametrize("word", ["changed", "failed_edit"])

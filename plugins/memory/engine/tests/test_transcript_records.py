@@ -8,9 +8,12 @@ import mem
 import pytest
 import records
 
-TWO = 2
-THREE = 3
-FOUR = 4
+EXIT_USAGE = 2
+EXIT_DUPLICATE = 3
+OBSERVED_AFTER_SECOND_SIGHTING = 2
+OBSERVED_AFTER_THIRD_SIGHTING = 3
+OBSERVED_AFTER_FOURTH_SIGHTING = 4
+FILES_PER_REFUSED_HANDLE = 2
 D = datetime.date(2026, 3, 1)
 
 
@@ -88,7 +91,7 @@ def test_observed_alone_never_establishes(project):
     m = make(project)
     for i in range(3):
         m = records.observe(m, days(i + 1))
-    assert m.observed == FOUR and records.standing(m) == "unconfirmed"
+    assert m.observed == OBSERVED_AFTER_FOURTH_SIGHTING and records.standing(m) == "unconfirmed"
 
 
 def test_a_lapsed_one_is_revived_by_a_new_session(project):
@@ -186,11 +189,11 @@ def test_remember_confirm_and_the_tag(project, capsys):
     until = (datetime.date.today() + datetime.timedelta(days=60)).isoformat()
     assert mem.main(["confirm", f"m:{handle}"]) == 0
     assert (
-        mem.main(["confirm", f"m:{handle}", "--until", until]) == TWO
+        mem.main(["confirm", f"m:{handle}", "--until", until]) == EXIT_USAGE
     )  # only a new session confirms it
     assert "from transcript, unconfirmed" in line_of(capsys, handle)
     before = (project / f"{handle}.md").read_text()
-    assert mem.main(["confirm", f"m:{handle}", "--source", "session a"]) == THREE
+    assert mem.main(["confirm", f"m:{handle}", "--source", "session a"]) == EXIT_DUPLICATE
     assert (project / f"{handle}.md").read_text() == before
     assert mem.main(["confirm", f"m:{handle}", "--source", "session b", "--note", "x"]) == 0
     line = line_of(capsys, handle)
@@ -330,7 +333,7 @@ def test_confirm_source_must_be_a_session(project):
     assert remember_t() == 0
     before = state_of(project, HANDLE)
     text = (project / f"{HANDLE}.md").read_text()
-    assert mem.main(["confirm", f"m:{HANDLE}", "--source", "https://example.org/x"]) == TWO
+    assert mem.main(["confirm", f"m:{HANDLE}", "--source", "https://example.org/x"]) == EXIT_USAGE
     assert state_of(project, HANDLE) == before and (project / f"{HANDLE}.md").read_text() == text
     m = reload(next(x for x in records.load_memories(project, "project")))
     with pytest.raises(ValueError):
@@ -359,7 +362,7 @@ def test_session_spelling_counts_once(project):
 def test_confirm_with_a_respelled_session_changes_nothing(project):
     assert remember_t() == 0
     before = state_of(project, HANDLE)
-    assert mem.main(["confirm", f"m:{HANDLE}", "--source", "SESSION  A"]) == THREE
+    assert mem.main(["confirm", f"m:{HANDLE}", "--source", "SESSION  A"]) == EXIT_DUPLICATE
     assert state_of(project, HANDLE) == before
 
 
@@ -367,7 +370,7 @@ def test_until_does_not_extend_an_unconfirmed_one(project, capsys):
     assert remember_t() == 0
     before = state_of(project, HANDLE)
     capsys.readouterr()
-    assert mem.main(["confirm", f"m:{HANDLE}", "--until", "2099-01-01"]) == TWO
+    assert mem.main(["confirm", f"m:{HANDLE}", "--until", "2099-01-01"]) == EXIT_USAGE
     err = capsys.readouterr().err
     assert len([ln for ln in err.splitlines() if ln.strip()]) == 1 and "another session" in err
     assert state_of(project, HANDLE) == before
@@ -434,20 +437,20 @@ def test_a_merge_keeps_the_session_of_a_transcript_record(project):
 def test_remember_of_an_identical_claim_adds_the_session(project, capsys):
     assert remember_t() == 0
     capsys.readouterr()
-    assert remember_t(source="session b") == THREE
+    assert remember_t(source="session b") == EXIT_DUPLICATE
     cap = capsys.readouterr()
     assert cap.out == f"m:{HANDLE}\tsighting\n" and "added" in cap.err
     sources, until, standing = state_of(project, HANDLE)
     assert (sources, until, standing) == (["session a", "session b"], None, "established")
     assert len(list(project.glob("*.md"))) == 1
-    assert remember_t(source="session  B") == THREE
+    assert remember_t(source="session  B") == EXIT_DUPLICATE
     cap = capsys.readouterr()
     assert cap.out == f"m:{HANDLE}\talready counted\n" and "already counted" in cap.err
     assert state_of(project, HANDLE)[0] == ["session a", "session b"]
     # any other case exits 3 as before: nothing on stdout, nothing added
     assert (
         mem.main(["remember", "--kind", "lesson", "--claim=Pagination cursors must be opaque."])
-        == THREE
+        == EXIT_DUPLICATE
     )
     assert not capsys.readouterr().out
     assert state_of(project, HANDLE)[0] == ["session a", "session b"]
@@ -466,7 +469,7 @@ def test_a_repeated_session_writes_no_undo_entry(project):
             if "log" in p.name.lower() and p.is_file()
         ],
     )
-    assert mem.main(["confirm", f"m:{HANDLE}", "--source", "session a"]) == THREE
+    assert mem.main(["confirm", f"m:{HANDLE}", "--source", "session a"]) == EXIT_DUPLICATE
     after = (
         names(),
         [
@@ -483,7 +486,7 @@ def test_a_repeated_session_writes_no_undo_entry(project):
 
 def test_an_explicit_end_date_needs_an_established_record(project, capsys):
     capsys.readouterr()
-    assert remember_t("--valid-until", "2099-01-01") == TWO
+    assert remember_t("--valid-until", "2099-01-01") == EXIT_USAGE
     err = capsys.readouterr().err
     assert len([ln for ln in err.splitlines() if ln.strip()]) == 1 and "30 days" in err
     assert not list(project.glob("*.md"))
@@ -516,7 +519,7 @@ def test_a_new_session_revives_a_lapsed_record_and_writes_no_second_file(project
     )
     path.write_text(raw)
     assert not records.is_live(reload(old), TODAY)
-    assert remember_t(claim=old.claim, source="session b") == THREE
+    assert remember_t(claim=old.claim, source="session b") == EXIT_DUPLICATE
     assert len(list(project.glob("*.md"))) == 1
     got = reload(old)
     assert records.sessions(got) == ["session a", "session b"] and records.is_live(got, TODAY)
@@ -531,7 +534,7 @@ def test_refuted_and_forgotten_records_are_not_revived(project):
         old = make(project, claim=claim, weight="strong")
         old.path.write_text(old.path.read_text().replace("status: active", f"status: {status}"))
         assert remember_t(claim=claim, source="session b") == 0
-        assert len(list(project.glob(f"{old.handle}*.md"))) == TWO
+        assert len(list(project.glob(f"{old.handle}*.md"))) == FILES_PER_REFUSED_HANDLE
         assert records.sessions(reload(old)) == ["session a"]
 
 
@@ -543,12 +546,15 @@ def test_confirm_source_is_free_for_a_memory_that_is_not_from_a_transcript(proje
         == 0
     )
     m = next(x for x in records.load_memories(project, "project") if x.handle == h)
-    assert m.sources == ["https://example.org/x"] and m.observed == TWO
+    assert m.sources == ["https://example.org/x"] and m.observed == OBSERVED_AFTER_SECOND_SIGHTING
     assert (
         mem.main(["confirm", f"m:{h}", "--source", "https://example.org/y"]) == 0
     )  # another source still counts
     m = next(x for x in records.load_memories(project, "project") if x.handle == h)
-    assert m.sources == ["https://example.org/x", "https://example.org/y"] and m.observed == THREE
+    assert (
+        m.sources == ["https://example.org/x", "https://example.org/y"]
+        and m.observed == OBSERVED_AFTER_THIRD_SIGHTING
+    )
 
 
 def test_a_session_id_has_a_length_cap():
@@ -578,13 +584,13 @@ def test_a_source_counts_once_on_any_record(project, capsys):
     ):
         assert mem.main(["confirm", f"m:{m.handle}", f"--source={source}", "--note=x"]) in {
             0,
-            THREE,
+            EXIT_DUPLICATE,
         }
         capsys.readouterr()
         before = (m.path.read_text(), reload(m).observed, reload(m).sources)
         again = mem.main(["confirm", f"m:{m.handle}", f"--source={source}", "--note=x"])
         out = capsys.readouterr().out
-        assert again == THREE and "already a source" in out
+        assert again == EXIT_DUPLICATE and "already a source" in out
         assert (m.path.read_text(), reload(m).observed, reload(m).sources) == before
 
 
@@ -601,7 +607,7 @@ def test_a_retired_record_gets_no_sighting(project, capsys):
         assert mem.main([verb, f"m:{m.handle}"]) == 0
         capsys.readouterr()
         before = (m.path.read_text(), reload(m).observed)
-        assert mem.main(["confirm", f"m:{m.handle}", "--source=session z"]) == TWO
+        assert mem.main(["confirm", f"m:{m.handle}", "--source=session z"]) == EXIT_USAGE
         assert (m.path.read_text(), reload(m).observed) == before
         assert reload(m).status in capsys.readouterr().err
 
@@ -622,11 +628,11 @@ def test_a_repeated_source_still_lets_until_through_on_an_ordinary_memory(projec
             "--until",
             "2030-01-01",
         ])
-        == THREE
+        == EXIT_DUPLICATE
     )
     m = next(x for x in records.load_memories(project, "project") if x.handle == h)
     assert (
         m.valid_until == datetime.date(2030, 1, 1)
-        and m.observed == TWO
+        and m.observed == OBSERVED_AFTER_SECOND_SIGHTING
         and m.sources == ["https://example.org/x"]
     )

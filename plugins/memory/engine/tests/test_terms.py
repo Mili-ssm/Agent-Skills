@@ -9,7 +9,7 @@ from conftest import usage_log_path
 RC_FORBIDDEN = 4
 RC_SOFT = 5
 RC_USAGE = 2
-TERM_COPIES = 2
+ZETA_ENTRIES = 2
 TERM_LINES = 3
 
 ARGS = ["remember", "--global", "--kind", "lesson"]
@@ -128,7 +128,7 @@ def test_terms_list_add_remove(tmp_path, capsys):
         mem.main(["terms", "add", "Zeta", "--soft"]) == 0
         and capsys.readouterr().out == "already listed\n"
     )
-    assert terms.read_text().count("Zeta") == RC_USAGE
+    assert terms.read_text().count("Zeta") == ZETA_ENTRIES
     assert mem.main(["terms", "add", "Zeta"]) == 0  # the hard class is another one
     capsys.readouterr()
     assert mem.main(["terms", "remove", "Zeta"]) == 0
