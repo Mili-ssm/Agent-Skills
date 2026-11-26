@@ -1,6 +1,6 @@
 """Generic pieces of the background jobs (`bin/mem-auto`, `bin/mem-settle`, capture, corroborate): the status and lock
 file names, the private state folder, the run lock, private JSON files and the failure of the last runs. Standard
-library and `safe_io` only (the bin scripts run it without uv)."""
+library and `safe_io` only."""
 
 from __future__ import annotations
 

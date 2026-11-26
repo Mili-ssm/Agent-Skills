@@ -1,7 +1,6 @@
 """The spec and the runner of `claude -p` sessions, shared by every builder that starts one.
 
-Stdlib only and Python 3.11-safe: `bin/mem-capture` and `bin/mem-settle` import it under the system `python3`.
-It imports no plugin module."""
+Standard library only; it imports no plugin module."""
 
 from __future__ import annotations
 

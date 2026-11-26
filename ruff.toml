@@ -44,20 +44,6 @@ ignore = [
     "RUF201", # rule codes in selectors: this file keeps codes, the owner's usual style
 ]
 
-# bin/ scripts run with the system python3 (not uv), so they keep to 3.11 syntax and stdlib.
-[per-file-target-version]
-"plugins/memory/bin/*" = "py311"
-"plugins/memory/engine/capture/*" = "py311"
-"plugins/memory/engine/core/*" = "py311"
-"plugins/memory/engine/corroborate/*" = "py311"
-"plugins/memory/engine/digest/*" = "py311"
-"plugins/memory/engine/entry/*" = "py311"
-"plugins/memory/engine/settle/*" = "py311"
-"plugins/memory/engine/memories/*" = "py311"
-"plugins/memory/engine/notes/*" = "py311"
-"plugins/memory/engine/syntheses/*" = "py311"
-"plugins/memory/engine/synthesize/*" = "py311"
-
 [lint.per-file-ignores]
 "**/tests/**" = ["F811"] # pytest fixtures imported and then named as parameters
 

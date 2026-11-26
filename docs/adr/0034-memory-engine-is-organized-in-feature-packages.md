@@ -49,3 +49,7 @@ The last revisit trigger fired: `store/` reached 19 modules in two families with
 - `patch_all` (`tests/patching.py`) patches every `memories.*`, `syntheses.*` and `notes.*` binding of a name.
 - `notes/check.py` (1,396 lines) and the old `notes/syntheses.py` (1,316) were split by cohesion, not to a line cap; `check.py` keeps the whole rule catalog (~800 lines). Owner rule 2026-11-26: size is a balance, neither one 10k-line file nor a hundred 100-line files; split a file that mixes reasons to change or abstraction levels, or a part likely to grow or change often; merge small parts that rarely change. Measured norm: CPython 3.14 stdlib median 269 lines, p90 1,165, p99 3,409; rustc's tidy rejects files over 3,000 lines.
 - Behavior and goldens are unchanged; the collected count grew only by new guard tests.
+
+## Review 2026-11-26
+
+[ADR 0035](0035-memory-bin-scripts-run-through-uv.md) supersedes 0033: every `bin/` file is now a bash launcher and `engine/run.py` runs under `uv`, so the `bin/` scripts no longer run on the system `python3` and no `bin/` file inserts `engine/` into `sys.path`. The bodies of the old scripts live in `engine/entry/`, a layer above the feature packages. The Decision above stands.
