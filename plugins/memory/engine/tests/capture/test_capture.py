@@ -553,7 +553,7 @@ def test_capture_imports_the_records_module_only():
     } | {
         a.name
         for n in ast.walk(ast.parse(Path(capture_extract.__file__).read_text(encoding="utf-8")))
-        if isinstance(n, ast.ImportFrom) and n.module == "store"
+        if isinstance(n, ast.ImportFrom) and n.module == "memories"
         for a in n.names
     }
     assert "mem" not in names and "records" in names

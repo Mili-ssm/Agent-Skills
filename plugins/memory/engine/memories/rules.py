@@ -8,14 +8,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from store import fingerprints as digest_text
-from store import records
+from memories import fingerprints, sightings
+from memories.model import is_live, valid_short
 
 if TYPE_CHECKING:
     import datetime
     from collections.abc import Sequence
 
-    from store.records import Memory
+    from memories.model import Memory
 
 HEADER = (
     "memory: lessons learned in earlier sessions. Apply them with judgment: follow one unless you have a reason "
@@ -44,12 +44,12 @@ class Choice:
 
 def eligible(m: Memory, today: datetime.date) -> bool:
     """Every condition to load except `triage` and `short`."""
-    if m.error is not None or not records.is_live(m, today) or m.origin != "transcript":
+    if m.error is not None or not is_live(m, today) or m.origin != "transcript":
         return False
-    if records.standing(m) != "established" or records.quarantined(m) or m.load == "no":
+    if sightings.standing(m) != "established" or sightings.quarantined(m) or m.load == "no":
         return False
     return (
-        m.scope == "global" or bool(m.owner_confirmed) or len(records.sessions(m)) >= MIN_SESSIONS
+        m.scope == "global" or bool(m.owner_confirmed) or len(sightings.sessions(m)) >= MIN_SESSIONS
     )
 
 
@@ -58,8 +58,8 @@ def _rank(m: Memory) -> tuple:
     return (
         m.owner_confirmed is None,
         _WEIGHT.get(m.weight or "medium", 1),
-        -len(records.projects(m)),
-        -len(records.sessions(m)),
+        -len(sightings.projects(m)),
+        -len(sightings.sessions(m)),
         seen is None,
         -(seen.toordinal() if seen else 0),
         m.handle,
@@ -72,9 +72,9 @@ def standing_words(m: Memory) -> str:
     if m.owner_confirmed:
         return "(the user vouched for it)"
     n, unit = (
-        (len(records.projects(m)), "project")
+        (len(sightings.projects(m)), "project")
         if m.scope == "global"
-        else (len(records.sessions(m)), "session")
+        else (len(sightings.sessions(m)), "session")
     )
     return f"(held in {n} {unit}{'' if n == 1 else 's'})"
 
@@ -91,7 +91,7 @@ def _sorted_out(candidates: Sequence[Memory], out: Choice) -> list[Memory]:
             out.left.append((m, PENDING))
         elif m.load == "index":
             out.left.append((m, INDEX))
-        elif not records.valid_short(m.short):
+        elif not valid_short(m.short):
             out.unready += 1
             out.unready_lessons.append(m)
         else:
@@ -119,7 +119,7 @@ def choose(project: Sequence[Memory], global_: Sequence[Memory], today: datetime
     names = {
         m.handle
         for m in globals_
-        if m.triage != "pending" and records.valid_short(m.short) and m.load is None
+        if m.triage != "pending" and valid_short(m.short) and m.load is None
     }
     projects_ = [
         m
@@ -168,12 +168,12 @@ def _digest_plan(
     plan: list[tuple[str, str | None, list[tuple[Memory, str | None]]]] = []
     for topic, ms in _by_topic(choice).items():
         lessons = topics.get(topic)
-        head = digest_text.heading(digest, topic, lessons) if lessons else None
+        head = fingerprints.heading(digest, topic, lessons) if lessons else None
         items: list[tuple[Memory, str | None]]
         if lessons and head is not None and heads_open and used_heads + len(head) <= HEADINGS_LIMIT:
             used_heads += len(head)
             items = [
-                (m, digest_text.line(digest, topic, m, lessons) if m.scope == "global" else None)
+                (m, fingerprints.line(digest, topic, m, lessons) if m.scope == "global" else None)
                 for m in ms
             ]
             items = [*(x for x in items if x[1] is not None), *(x for x in items if x[1] is None)]
@@ -268,7 +268,7 @@ def index_lines(
         counts = dict(topic_counts(Choice(left=left)))
         if other := sum(1 for m, _ in left if not m.topic):
             counts["other"] = other
-        heads = {t: digest_text.heading(digest, t, topics[t]) for t in counts if t in topics}
+        heads = {t: fingerprints.heading(digest, t, topics[t]) for t in counts if t in topics}
         if any(h is not None for h in heads.values()):
             names = sorted(counts.items(), key=lambda t: (-t[1], t[0]))
             entries = [

@@ -49,7 +49,7 @@ from core import headless, jobs
 IMPORT_ERROR: Exception | None = None
 try:  # `auto` must still be able to write a failed status when the engine cannot be imported (e.g. no yaml)
     capture = importlib.import_module("capture.extract")
-    records = importlib.import_module("store.records")
+    records = importlib.import_module("memories.records")
     sp = importlib.import_module("synthesize.pipeline")
 except Exception as _exc:  # ruff: ignore[blind-except] - any failure to load is reported, never raised
     IMPORT_ERROR = _exc

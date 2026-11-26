@@ -11,7 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Required, TypedDict, Unpack
 
-from store import syntheses
+from syntheses import document
+from syntheses import units as synthesis_units
 
 from synthesize import pipeline as sp
 from synthesize import references as bf
@@ -179,7 +180,10 @@ class _BackfillRun:
         return True
 
     def _mark_done(self, found: list) -> None:
-        now = {x.handle: syntheses.fingerprint(x.text) for x in syntheses.load_one(self.path).parts}
+        now = {
+            x.handle: synthesis_units.fingerprint(x.text)
+            for x in document.load_one(self.path).parts
+        }
         # A part is marked done when the answer had no unreadable line (every selected part, even one without a line:
         # the session judged it had nothing to link) or when a readable line names it; with an unreadable line the
         # other parts may be the ones it was about, so they are sent again next run.
@@ -394,7 +398,7 @@ def run_backfill(
     out = options.get("out", run.say)
     env = run.session_env(store)
     names = [h.removeprefix("s:") for h in handles] or [
-        s.path.stem for s in syntheses.load(store / "syntheses")
+        s.path.stem for s in document.load(store / "syntheses")
     ]
     missing = [n for n in names if not (store / "syntheses" / f"{n}.md").is_file()]
     if missing:

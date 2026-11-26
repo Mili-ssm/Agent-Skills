@@ -1,5 +1,5 @@
 import pytest
-from store import shortcheck
+from memories import model
 
 HEDGED = "the claim is hedged and the short form is not"
 
@@ -54,20 +54,20 @@ HEDGED = "the claim is hedged and the short form is not"
     ],
 )
 def test_problems(claim, short, expected):
-    assert shortcheck.problems(claim, short) == expected
+    assert model.short_problems(claim, short) == expected
 
 
 def test_two_problems_are_both_reported_hedge_first():
     claim = "Smaller briefs might avoid the turn limit."
     short = "Smaller briefs must avoid the turn limit."
-    assert shortcheck.problems(claim, short) == [
+    assert model.short_problems(claim, short) == [
         HEDGED,
         'the short form says "must" and the claim does not',
     ]
 
 
 def test_case_and_punctuation_do_not_hide_a_word():
-    assert shortcheck.problems("MAY, perhaps, help.", "Never. Help.") == [
+    assert model.short_problems("MAY, perhaps, help.", "Never. Help.") == [
         HEDGED,
         'the short form says "never" and the claim does not',
     ]

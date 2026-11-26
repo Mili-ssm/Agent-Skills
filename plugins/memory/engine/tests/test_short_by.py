@@ -2,7 +2,7 @@
 
 import mem
 import pytest
-from store import records
+from memories import records
 
 CLAIM = "A cache may hide a stale value after a deploy, so consider clearing it."
 SHORT = "Consider clearing the cache after a deploy; it may hide a stale value."

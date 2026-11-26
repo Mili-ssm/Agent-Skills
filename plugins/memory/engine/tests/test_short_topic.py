@@ -1,6 +1,7 @@
 import mem
 import pytest
-from store import records
+from memories import records
+from patching import patch_all
 
 CLAIM = "Always run the project's checks before reporting that a change works."
 SHORT = "Run the checks before reporting a change."
@@ -234,7 +235,7 @@ def test_the_removal_notice_is_printed_only_after_the_write(gfolder, capsys, mon
     def refuse(*a, **k):
         raise ValueError("write refused")
 
-    monkeypatch.setattr(records, "update", refuse)
+    patch_all(monkeypatch, "update", refuse)
     assert (
         mem.main(["memory", "edit", f"m:{h}", "--global", "--claim", CLAIM + " Then say so."])
         == RC_USAGE

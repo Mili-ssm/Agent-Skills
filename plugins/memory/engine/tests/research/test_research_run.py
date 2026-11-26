@@ -9,8 +9,8 @@ import threading
 from pathlib import Path
 
 import pytest
+from memories import records
 from research import pipeline as rp
-from store import records
 
 PLUGIN = Path(__file__).resolve().parents[3]
 RESEARCH = PLUGIN / "bin" / "mem-research"

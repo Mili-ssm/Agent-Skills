@@ -10,7 +10,7 @@ from core import jobs
 from corroborate import digest as corroborate_digest
 from corroborate_world import TODAY, calls, globals_, run, snapshot, w
 from digest import lessons as digest_module
-from store import records
+from memories import records
 
 __all__ = ["w"]  # re-exported: pytest finds the fixture in this module by its name
 

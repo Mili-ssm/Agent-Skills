@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import mem
 import pytest
-from store import records
+from memories import records
+from patching import patch_all
 
 TODAY = datetime.date.today()
 CLAIM = "Zebra caches expire silently under load."
@@ -250,7 +251,7 @@ def test_reject_failing_on_a_project_record_says_what_changed_and_keeps_the_glob
                 raise OSError("disk full")
         return real(memory, today, **changes)
 
-    monkeypatch.setattr(records, "update", update)
+    patch_all(monkeypatch, "update", update)
     assert mem.main(["triage", "reject", m.handle]) == USAGE_EXIT
     err = capsys.readouterr().err
     assert "disk full" in err and f"m:{calls[0]}" in err and "global record is still active" in err
@@ -274,7 +275,7 @@ def test_reject_failing_to_retire_the_global_record_says_the_projects_were_unlin
             raise OSError("read-only")
         return real(memory, today, **changes)
 
-    monkeypatch.setattr(records, "update", update)
+    patch_all(monkeypatch, "update", update)
     assert mem.main(["triage", "reject", m.handle]) == USAGE_EXIT
     err = capsys.readouterr().err
     assert "read-only" in err and f"m:{on_a}" in err and "unlinked" in err

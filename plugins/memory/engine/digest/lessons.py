@@ -18,8 +18,8 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-from store import records, rules, shortcheck
-from store.fingerprints import heading, heading_print, line, line_print
+from memories import model, records, rules
+from memories.fingerprints import heading, heading_print, line, line_print
 
 if TYPE_CHECKING:
     import datetime
@@ -333,7 +333,7 @@ def line_problem(text: str, m: records.Memory) -> str | None:
     found = _form_problem(text, records.SHORT_LIMIT)
     if found:
         return found
-    return "; ".join(shortcheck.problems(m.claim, text)) or None
+    return "; ".join(model.short_problems(m.claim, text)) or None
 
 
 def _work_pairs(w: Work, p: Mapping) -> list[tuple[str, records.Memory, str, str]]:

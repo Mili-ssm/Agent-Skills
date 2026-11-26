@@ -14,7 +14,8 @@ import time
 from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
 from core import headless
-from store import syntheses
+from syntheses import document
+from syntheses import units as synthesis_units
 
 from synthesize import pipeline as sp
 
@@ -35,11 +36,11 @@ def select(path: Path, done: dict[str, str]) -> list[dict]:
     Each: `handle`, `units` (all its units), `bare` (those without reference), `sources` (note targets, as on its
     `Sources:` line), `fingerprint`."""
     chosen = []
-    for section in syntheses.load_one(path).parts:
-        sources = [t for t in section.sources if syntheses._is_ref(t)]
-        found, _ = syntheses.units(section.text)
+    for section in document.load_one(path).parts:
+        sources = [t for t in section.sources if synthesis_units._is_ref(t)]
+        found, _ = synthesis_units.units(section.text)
         bare = [u for u in found if not u.refs]
-        fingerprint = syntheses.fingerprint(section.text)
+        fingerprint = synthesis_units.fingerprint(section.text)
         if sources and bare and done.get(section.handle) != fingerprint:
             chosen.append({
                 "handle": section.handle,
@@ -64,7 +65,7 @@ def write_input(path: Path, parts: list[dict], work: Path) -> tuple[Path, Path]:
     units.write_text("\n".join(lines) + "\n", encoding="utf-8")
     seen = dict.fromkeys(t for p in parts for t in p["sources"])
     notes.write_text(
-        "".join(f"{t} -> {syntheses._resolved(path.parent, t)}\n" for t in seen), encoding="utf-8"
+        "".join(f"{t} -> {document._resolved(path.parent, t)}\n" for t in seen), encoding="utf-8"
     )
     return units, notes
 

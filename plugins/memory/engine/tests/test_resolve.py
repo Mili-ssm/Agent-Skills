@@ -2,7 +2,7 @@ import json
 
 import mem
 from conftest import usage_log_path
-from store import notes
+from notes import note as notes_mod
 from test_find_new import write_note
 from test_search_stats import add
 
@@ -145,7 +145,9 @@ def test_handle_resolution_parses_no_note(hub_root, capsys, monkeypatch):
         raise AssertionError("parsed a note")
 
     monkeypatch.setattr(mem, "_read_note", fail)
-    monkeypatch.setattr(notes, "_read_note", fail)  # discover_notes lives in notes since the split
+    monkeypatch.setattr(
+        notes_mod, "_read_note", fail
+    )  # discover_notes lives in notes since the split
     code, out, _ = show(hub_root, capsys, "2017-vaswani-attention", "--outline")
     assert code == 0 and out.startswith(f"== {LIT}")
 

@@ -72,25 +72,26 @@ CANDIDATES = [
         "name": "root-worktree",
         "question": "El comando `mem` busca la carpeta `.memory/` de un proyecto. Si la sesión está dentro de un worktree "
         "enlazado de git, ¿en qué archivo se decide qué carpeta se toma como raíz del proyecto?",
-        "expect": "memory/engine/store/records.py",
-        # mem.py cmd_session_index / _project_synthesis_context call records.project_root(cwd, env), which returns
-        # MEM_PROJECT or records._main_worktree(cwd) (the first entry of `git worktree list --porcelain`).
+        "expect": "memory/engine/memories/locations.py",
+        # mem.py cmd_session_index / _project_synthesis_context call records.project_root(cwd, env) (the facade re-exports
+        # memories/locations.py), which returns
+        # MEM_PROJECT or locations._main_worktree(cwd) (the first entry of `git worktree list --porcelain`).
     },
     {
         "name": "synthesis-shrink",
         "question": "`mem synthesis edit` rechaza un texto nuevo que borra demasiado de la sección que se reescribe. "
         "¿En qué archivo está la regla que decide cuánto texto se puede perder?",
-        "expect": "memory/engine/store/syntheses.py",
-        # mem.py cmd_synthesis edit (syntheses.edit_section(..., shrink=args.shrink), mem.py ~4332) -> syntheses.edit_section
+        "expect": "memory/engine/syntheses/edit.py",
+        # mem.py cmd_synthesis edit (synthesis_edit.edit_section(..., shrink=args.shrink), mem.py ~4332) -> synthesis_edit.edit_section
         # -> _guard_shrink, which compares word counts with SHRINK_RATIO = 0.8.
     },
     {
         "name": "git-wait",
         "question": "Al comprobar si una parte de una síntesis de proyecto sigue vigente se llama a git. ¿En qué archivo "
         "se fija cuántos segundos se espera como máximo a esa llamada?",
-        "expect": "memory/engine/store/project_syntheses.py",
+        "expect": "memory/engine/syntheses/project.py",
         # mem.py _part_line / _project_synthesis_block call project_syntheses.freshness -> _git(), whose subprocess.run
-        # passes timeout=GIT_TIMEOUT (= 2) defined at the top of project_syntheses.py.
+        # passes timeout=GIT_TIMEOUT (= 2) defined at the top of syntheses/project.py.
     },
     {
         "name": "default-store",

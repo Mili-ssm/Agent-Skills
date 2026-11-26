@@ -1,6 +1,7 @@
 """Import direction among engine modules: leaves stay below mem, and no module imports another in a cycle."""
 
 import ast
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -23,6 +24,12 @@ MODULES = {_module_name(path) for path in ENGINE_FILES}
 PACKAGES = {path.parent.name for path in ENGINE_FILES if path.name == "__init__.py"}
 
 
+# The check family: pure rules and queries over a notes folder.
+PURE_CHECK_MODULES = ["notes.check", "notes.fields", "notes.links", "notes.due"]
+NOTE_MODULES = ["notes.note", "notes.index", *PURE_CHECK_MODULES]
+SYNTHESES_MODULES = ["syntheses.document", "syntheses.units", "syntheses.edit", "syntheses.project"]
+
+
 def test_modules_cover_every_engine_file():
     """One module name per file: a file whose name collides with another would hide from every rule below."""
     assert len(MODULES) == len(ENGINE_FILES), sorted(MODULES)
@@ -34,7 +41,7 @@ def _source(name: str) -> Path:
     return path / "__init__.py" if path.is_dir() else path.with_suffix(".py")
 
 
-@pytest.mark.parametrize("module", ["store.notes", "store.index", "store.check", "session.notices"])
+@pytest.mark.parametrize("module", [*NOTE_MODULES, *SYNTHESES_MODULES, "session.notices"])
 def test_module_imports_without_mem(module):
     code = f"import sys, {module}; assert 'mem' not in sys.modules, sorted(sys.modules)"
     result = subprocess.run(
@@ -43,11 +50,11 @@ def test_module_imports_without_mem(module):
     assert result.returncode == 0, result.stderr
 
 
-def test_notes_imports_no_other_engine_module():
+def test_note_module_imports_only_core_yaml_load():
     code = (
-        "import sys; before = set(sys.modules); from store import notes; "
+        "import sys; before = set(sys.modules); from notes import note; "
         f"engine = {sorted(MODULES)!r}; "
-        "loaded = (set(sys.modules) - before) & set(engine) - {'store', 'store.notes'}; assert not loaded, loaded"
+        "loaded = (set(sys.modules) - before) & set(engine) - {'notes', 'notes.note', 'core', 'core.yaml_load'}; assert not loaded, loaded"
     )
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
@@ -55,9 +62,10 @@ def test_notes_imports_no_other_engine_module():
     assert result.returncode == 0, result.stderr
 
 
-def test_check_stays_pure():
-    """check.py itself imports no git or subprocess code (a library it loads may use subprocess)."""
-    tree = ast.parse((ENGINE / "store" / "check.py").read_text(encoding="utf-8"))
+@pytest.mark.parametrize("module", PURE_CHECK_MODULES)
+def test_check_stays_pure(module):
+    """The check family imports no git or subprocess code (a library it loads may use subprocess)."""
+    tree = ast.parse(_source(module).read_text(encoding="utf-8"))
     imported = {
         a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names
     }
@@ -70,8 +78,8 @@ def test_check_stays_pure():
         if isinstance(n, ast.ImportFrom) and n.module
         for a in n.names
     }
-    assert not {"store_git", "store.store_git", "subprocess"} & imported
-    code = "import sys; from store import check; assert 'store.store_git' not in sys.modules"
+    assert not {"store_git", "core.store_git", "subprocess"} & imported
+    code = f"import sys, {module}; assert 'core.store_git' not in sys.modules"
     result = subprocess.run(
         [sys.executable, "-c", code], check=False, cwd=ENGINE, capture_output=True, text=True
     )
@@ -157,28 +165,18 @@ def test_engine_modules_use_no_dynamic_import():
     assert not dynamic, "dynamic imports in engine modules:\n" + "\n".join(dynamic)
 
 
-STORE_MODULES = tuple(
-    f"store.{name}"
-    for name in (
-        "records",
-        "syntheses",
-        "project_syntheses",
-        "store_git",
-        "index",
-        "notes",
-        "check",
-        "rules",
-        "shortcheck",
-        "fingerprints",
-    )
+MEMORY_AND_NOTE_MODULES = (
+    tuple(f"memories.{name}" for name in ("records", "rules", "fingerprints"))
+    + tuple(f"notes.{name}" for name in ("index", "note", "check"))
+    + tuple(SYNTHESES_MODULES)
 )
 
 
-def test_store_modules_never_import_synthesize():
+def test_memory_and_note_modules_never_import_synthesize():
     """The store sits below the synthesis feature: no store module reaches `synthesize`, directly or through others."""
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     reached: dict[str, list[str]] = {}
-    for store in STORE_MODULES:
+    for store in MEMORY_AND_NOTE_MODULES:
         seen: set[str] = set()
         todo = [store]
         while todo:
@@ -201,12 +199,12 @@ FROZEN_EDGES = {
     ("research", "mem"),
 }
 PLANNED_PACKAGES = {
-    "corroborate", "research", "capture", "settle", "digest", "session", "core", "store", "synthesize",
+    "corroborate", "research", "capture", "settle", "digest", "session", "core", "memories", "syntheses", "notes", "synthesize",
 }  # fmt: skip
 
 
 def test_packages_are_planned_and_edges_frozen():
-    """Packages import each other only along FROZEN_EDGES (any package may import `core`); `core` imports no other package."""
+    """Packages import each other only along FROZEN_EDGES (any package may import the base layers `core`, `memories`, `syntheses` and `notes`); `core` imports no other package."""
     assert PACKAGES <= PLANNED_PACKAGES, sorted(PACKAGES - PLANNED_PACKAGES)
     graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
     new_edges = sorted(
@@ -215,24 +213,29 @@ def test_packages_are_planned_and_edges_frozen():
         if (own := name.split(".")[0]) in PACKAGES
         for dep in deps
         if (target := dep.split(".")[0]) in PACKAGES
-        and target not in {own, "core", "store"}
+        # itself and the base layers (`core`, `memories`, `syntheses`, `notes`) are not cross-package edges
+        and target not in {own, "core", "memories", "syntheses", "notes"}
         and (own, target) not in FROZEN_EDGES
     )
     assert not new_edges, f"cross-package edges outside the frozen list: {new_edges}"
 
 
 # Engine modules a package may import besides its own and stdlib: its low-level dependencies and the
-# frozen edges to other features; `core` imports only itself and the standard library, `store` stdlib, `core`
-# and itself. `store` and `core` are base layers: any package may import them.
+# frozen edges to other features. `core`, `memories`, `syntheses` and `notes` are base layers that any package may
+# import: `core` imports only itself and the standard library, `memories` only those and `core`, `syntheses` those
+# and `memories`, `notes` those and `syntheses`; `memories` never imports `syntheses` or `notes`, and `syntheses`
+# never imports `notes` (the owner ruling that split the old `store`, ADR 0034).
 PACKAGE_DEPENDENCIES = {
     "core": set(),
-    "store": {"core"},
-    "corroborate": {"core", "store", "capture", "digest", "synthesize"},
-    "capture": {"core", "store"},
-    "settle": {"core", "store"},
-    "digest": {"store"},
-    "session": {"store"},
-    "research": {"core", "store", "synthesize", "mem"},
+    "memories": {"core"},
+    "syntheses": {"core", "memories"},
+    "notes": {"core", "memories", "syntheses"},
+    "corroborate": {"core", "memories", "capture", "digest", "synthesize"},
+    "capture": {"core", "memories"},
+    "settle": {"core", "memories"},
+    "digest": {"memories"},
+    "session": {"core", "notes"},
+    "research": {"core", "memories", "notes", "synthesize", "mem"},
 }
 # Engine modules that may import a package (tests, `bin/` and the eval harnesses are outside the engine).
 PACKAGE_IMPORTERS = {
@@ -296,3 +299,30 @@ def test_engine_uses_no_relative_imports():
         if any(isinstance(node, ast.ImportFrom) and node.level > 0 for node in ast.walk(tree))
     )
     assert not relative, f"relative imports in: {relative}"
+
+
+def test_store_modules_import_the_defining_module_not_the_records_facade():
+    """`memories/records.py` re-exports for the importers outside `memories`; inside it every module names the module that defines what it uses."""
+    graph = {name: _imported_engine_modules(tree, name) for name, tree in _trees().items()}
+    extra = sorted(
+        name
+        for name, deps in graph.items()
+        if name.startswith("memories.")
+        and name != "memories.records"
+        and "memories.records" in deps
+    )
+    assert not extra, f"store modules importing the records facade: {extra}"
+
+
+def test_package_docstring_maps_every_module():
+    """An agent reads a package's `__init__.py` docstring as its module map: one `` `name`: role`` line per module, none for a missing one."""
+    problems = []
+    for init in sorted(ENGINE.glob("*/__init__.py")):
+        doc = ast.get_docstring(ast.parse(init.read_text(encoding="utf-8"))) or ""
+        listed = set(re.findall(r"^`(\w+)`: \S", doc, re.MULTILINE))
+        files = {p.stem for p in init.parent.glob("*.py")} - {"__init__"}
+        problems += [f"{init.parent.name}: no entry for {name}" for name in sorted(files - listed)]
+        problems += [
+            f"{init.parent.name}: entry for missing {name}" for name in sorted(listed - files)
+        ]
+    assert not problems, problems

@@ -1,24 +1,32 @@
-"""The check rules, `check()`, `orphan_notes` and the due queries. Pure: no git, environment or writes; never mem."""
+"""The check rule catalog and `check()`. Pure: no git, environment or writes; never mem."""
 
 from __future__ import annotations
 
 import collections
-import datetime
 import os
 import re
-import urllib.parse
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING
 
-from store import index as index_mod
-from store import notes as notes_mod
-from store import syntheses
-from store.index import INDEX_FOLDERS, INDEX_START, index_targets
-from store.notes import (
+from syntheses import document
+
+from notes import index as index_mod
+from notes import note as notes_mod
+from notes.due import rule_requirements
+from notes.fields import (
+    _INSTRUCTION_FIX,
+    _PART_OF,
+    OPTIONAL_FIELDS,
+    SCHEMAS,
+    Problem,
+    _authors,
+    instruction_word,
+)
+from notes.index import INDEX_START, index_targets
+from notes.links import rule_links
+from notes.note import (
     FrontmatterError,
     ancestors,
-    descendants,
     discover_notes,
     key_line,
     load_topics,
@@ -28,19 +36,11 @@ from store.notes import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable
 
-    from store.notes import Note
-    from store.syntheses import Section, Synthesis
+    from syntheses.document import Section, Synthesis
 
-
-class Problem(NamedTuple):
-    path: str
-    line: int
-    message: str
-
-    def __str__(self) -> str:
-        return f"{self.path}:{self.line}: {self.message}"
+    from notes.note import Note
 
 
 NAME_PATTERNS: dict[str, re.Pattern] = {
@@ -50,209 +50,12 @@ NAME_PATTERNS: dict[str, re.Pattern] = {
 }
 RESERVED_TOPIC = "general"
 _TOPIC_ID = re.compile(r"[a-z][a-z0-9]*(-[a-z0-9]+)*")
-_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-_MONTH = re.compile(r"[0-9]{4}-(0[1-9]|1[0-2])")
 _NAME_FIX = {
     "literature": "rename to year-firstauthor-slug.md",
     "knowledge": "rename to lowercase-words-with-hyphens.md, starting with a letter",
     "research": "rename the folder to YYYY-MM-slug",
 }
 
-# Rule 11. Noun/verb homographs (check, test, cache, index, scale, prompt, query, start, stop,
-# move, pin, separate, split, run, read, write, log, record, set, limit, measure, document,
-# store) are left out on purpose, so a real claim is not rejected. Known limitation: a claim
-# that starts with one of these words (use-after-free-...) is rejected too.
-_IMPERATIVES = frozenset({
-    "add",
-    "always",
-    "apply",
-    "ask",
-    "avoid",
-    "choose",
-    "compare",
-    "consider",
-    "curate",
-    "define",
-    "do",
-    "dont",
-    "ensure",
-    "fix",
-    "give",
-    "include",
-    "isolate",
-    "keep",
-    "make",
-    "never",
-    "prefer",
-    "put",
-    "remove",
-    "replace",
-    "require",
-    "show",
-    "tell",
-    "treat",
-    "try",
-    "use",
-    "validate",
-    "verify",
-    "wrap",
-})
-_INSTRUCTION_FIX = 'rename to a declarative claim such as "x-is-y" and update links'
-
-
-def instruction_word(stem: str) -> str | None:
-    """The imperative that makes a knowledge file stem read as an instruction, else None.
-
-    Looked at: the first token and the token right after a "so" or "then" token.
-    """
-    tokens = stem.split("-")
-    positions = [0] + [i + 1 for i, t in enumerate(tokens[:-1]) if t in {"so", "then"}]
-    return next((tokens[i] for i in positions if tokens[i] in _IMPERATIVES), None)
-
-
-Validator = Callable[[Any], "str | None"]
-
-
-def _string(v: Any) -> str | None:
-    return None if isinstance(v, str) and v.strip() else "set a non-empty string"
-
-
-def _enum(*allowed: str) -> Validator:
-    def check_enum(v: Any) -> str | None:
-        return None if v in allowed else f"use one of {', '.join(allowed)}"
-
-    return check_enum
-
-
-def _year(v: Any) -> str | None:
-    return None if isinstance(v, int) and not isinstance(v, bool) else "set an integer year"
-
-
-def _url(v: Any) -> str | None:
-    ok = isinstance(v, str) and v.startswith(("http://", "https://"))
-    return None if ok else "start the url with http:// or https://"
-
-
-def _date(v: Any) -> str | None:
-    if isinstance(v, str) and _DATE.fullmatch(v):
-        try:
-            datetime.date.fromisoformat(v)
-            return None
-        except ValueError:
-            pass
-    return "use a real date as a YYYY-MM-DD string"
-
-
-def _month(v: Any) -> str | None:
-    return None if isinstance(v, str) and _MONTH.fullmatch(v) else 'use a "YYYY-MM" string'
-
-
-def _authors(v: Any) -> str | None:
-    ok = isinstance(v, list) and v and all(isinstance(a, str) and a.strip() for a in v)
-    return None if ok else "set a list of one or more non-empty strings"
-
-
-def _topics(v: Any) -> str | None:
-    ok = isinstance(v, list) and all(isinstance(t, str) for t in v)
-    return None if ok else "set a list of topic ids from topics.yaml"
-
-
-_PART_OF = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*#[a-z0-9]+(?:-[a-z0-9]+)*")
-
-
-def _part_of(v: Any) -> str | None:
-    return (
-        None
-        if isinstance(v, str) and _PART_OF.fullmatch(v)
-        else "use <synthesis handle>#<section handle>"
-    )
-
-
-def _part_hash(v: Any) -> str | None:
-    return (
-        None
-        if isinstance(v, str) and re.fullmatch(r"(?:u:)?[0-9a-f]{10}", v)
-        else "set the 10-hex fingerprint of the section (`u:` first for a per-note one)"
-    )
-
-
-def _handle_value(v: Any) -> str | None:
-    return None if isinstance(v, str) and v.strip() else "use the handle of a note"
-
-
-def _handle_list(v: Any) -> str | None:
-    ok = isinstance(v, list) and all(isinstance(h, str) and h.strip() for h in v)
-    return None if ok else "set a list of note handles"
-
-
-_DISPUTE_KEYS = ("date", "fact", "source", "quote")
-
-
-def _disputed(v: Any) -> str | None:
-    hint = (
-        "set a non-empty list of {date, fact, source, quote} entries (mem note dispute writes them)"
-    )
-    if not isinstance(v, list) or not v:
-        return hint
-    for entry in v:
-        if not isinstance(entry, dict) or set(entry) != set(_DISPUTE_KEYS):
-            return hint
-        if (
-            _date(entry["date"]) is not None
-            or any(not isinstance(entry[k], str) or not entry[k].strip() for k in _DISPUTE_KEYS[1:])
-            or _url(entry["source"]) is not None
-        ):
-            return hint
-    return None
-
-
-LEVELS = ("basic", "beginner", "intermediate", "advanced", "expert", "niche")
-# Fields a note may omit. Empty since 2026-11-07: `level` became required once every note had one (ADR 0004).
-OPTIONAL_FIELDS: frozenset[str] = frozenset({
-    "part_of",
-    "part_of_hash",
-    "superseded_by",
-    "distinct_from",
-    "disputed",
-})
-
-# Field order follows the spec tables; `new` writes fields in this order.
-SCHEMAS: dict[str, dict[str, Validator]] = {
-    "literature": {
-        "title": _string,
-        "authors": _authors,
-        "year": _year,
-        "kind": _enum("paper", "book", "article", "web", "talk", "repo", "dataset"),
-        "level": _enum(*LEVELS),
-        "url": _url,
-        "topics": _topics,
-        "added": _date,
-        "superseded_by": _handle_value,
-        "distinct_from": _handle_list,
-    },
-    "knowledge": {
-        "claim": _string,
-        "topics": _topics,
-        "confidence": _enum("high", "medium", "low"),
-        "level": _enum(*LEVELS),
-        "origin": _enum("literature", "research", "experience"),
-        "updated": _date,
-        "part_of": _part_of,
-        "part_of_hash": _part_hash,
-        "superseded_by": _handle_value,
-        "distinct_from": _handle_list,
-        "disputed": _disputed,
-    },
-    "research": {
-        "title": _string,
-        "question": _string,
-        "status": _enum("idea", "active", "paused", "done", "abandoned"),
-        "started": _month,
-        "topics": _topics,
-        "superseded_by": _handle_value,
-        "distinct_from": _handle_list,
-    },
-}
 
 REQUIRED_HEADINGS: dict[str, list[str]] = {
     "literature": ["TL;DR", "What the source says", "Our interpretation", "Relevance"],
@@ -738,428 +541,6 @@ def rule_placeholders(root: Path, notes: list[Note], topics: dict | None) -> lis
     ]
 
 
-def rule_index_fresh(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
-    """Rule 9: generated index blocks are current."""
-    if topics is None:
-        return []
-    problems = []
-    for path, block, default in index_targets(root, notes, topics):
-        problem = _index_problem(path.relative_to(root).as_posix(), path, block, default)
-        if problem is not None:
-            problems.append(problem)
-    return problems
-
-
-def _index_start_line(text: str) -> int:
-    start = text.find(INDEX_START)
-    return text.count("\n", 0, start) + 1 if start >= 0 else 1
-
-
-def _index_problem(rel: str, path: Path, block: str, default: object) -> Problem | None:
-    if not path.is_file():
-        return Problem(rel, 1, "missing readme: run mem index") if default is not None else None
-    try:
-        text = notes_mod._read_text(path)
-    except FrontmatterError as exc:
-        return Problem(rel, 1, f"unreadable index README ({exc}): save it as UTF-8 text")
-    try:
-        current = index_mod._with_index(text, block) == text
-    except FrontmatterError as exc:
-        return Problem(rel, _index_start_line(text), str(exc))
-    return None if current else Problem(rel, _index_start_line(text), "index stale: run mem index")
-
-
-_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
-# A code span never crosses a blank line (paragraph boundary).
-_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)+?)(?<!`)\1(?!`)", re.DOTALL)
-# Target: <...> (spaces allowed) or bare with one level of balanced parentheses; optional title.
-_LINK = re.compile(
-    r"\[[^\]]*\]\(\s*(?:<([^<>\n]*)>|((?:[^()\s]|\([^()\s]*\))+))"
-    r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)"""
-)
-# A reference definition, `[label]: target "title"`: a link to its target for `[text][label]` uses.
-_REFDEF = re.compile(
-    r"""^ {0,3}\[[^\]]+\]:[ \t]*(?:<([^<>\n]*)>|(\S+))(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$"""
-)
-_SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.-]*:")
-
-
-def _target_spans(line: str, refs: bool) -> list[tuple[int, int]]:
-    """(start, end) of the target of each inline link in `line`, and of its reference definition when `refs`."""
-    found = [m.span(1 if m.group(1) is not None else 2) for m in _LINK.finditer(line)]
-    if refs and (m := _REFDEF.match(line)):
-        found.append(m.span(1 if m.group(1) is not None else 2))
-    return found
-
-
-def _blank(match: re.Match) -> str:
-    return "\n" * match.group(0).count("\n")
-
-
-def _in_fence(lines: list[str]) -> list[bool]:
-    """Per line: True when it is a fence line or inside a fenced code block."""
-    flags: list[bool] = []
-    fence: str | None = None
-    for line in lines:
-        m = _FENCE.match(line)
-        if fence is None:
-            if m:
-                fence = m.group(1)
-            flags.append(fence is not None)
-        else:
-            if (
-                m
-                and m.group(1)[0] == fence[0]
-                and len(m.group(1)) >= len(fence)
-                and line.strip() == m.group(1)
-            ):
-                fence = None
-            flags.append(True)
-    return flags
-
-
-def _strip_code(text: str) -> str:
-    """Blank out fenced blocks and inline code spans, keeping line numbers."""
-    lines = text.split("\n")
-    kept = ["" if fenced else line for line, fenced in zip(lines, _in_fence(lines), strict=True)]
-    return _CODE_SPAN.sub(_blank, "\n".join(kept))
-
-
-# Path parts of a research/<id> folder (the depth at which its `code/` is skipped).
-_RESEARCH_FOLDER_DEPTH = 2
-# Path parts of an index README: <folder>/README.md and <literature|knowledge>/<domain>/README.md.
-_FOLDER_README_PARTS = 2
-_DOMAIN_README_PARTS = 3
-
-
-def _markdown_files(root: Path) -> list[Path]:
-    found = []
-    for dirpath, dirnames, filenames in os.walk(root):
-        rel = Path(dirpath).relative_to(root).parts
-        dirnames[:] = sorted(
-            d
-            for d in dirnames
-            if not d.startswith(".")
-            and not (len(rel) == _RESEARCH_FOLDER_DEPTH and rel[0] == "research" and d == "code")
-            and not (rel == ("tools", "tests") and d == "fixtures")
-        )
-        found += [
-            Path(dirpath) / f
-            for f in sorted(filenames)
-            if f.endswith(".md") and not f.startswith(".")
-        ]
-    return found
-
-
-def _relative_links(text: str, refs: bool = False) -> Iterator[tuple[int, str, str]]:
-    """(line, target, decoded file part) of each relative link outside code; anchors and URLs are skipped.
-
-    Reference definitions count as links only with `refs` (`check` keeps its own scan)."""
-    for lineno, line in enumerate(_strip_code(text).split("\n"), 1):
-        for start, end in _target_spans(line, refs):
-            target = line[start:end]
-            if target.startswith(("#", "mailto:")) or _SCHEME.match(target):
-                continue
-            file_part = urllib.parse.unquote(target.split("#", 1)[0])
-            if file_part:
-                yield lineno, target, file_part
-
-
-def rule_links(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
-    """Rule 6: relative links resolve to existing files."""
-    problems = []
-    for path in _markdown_files(root):
-        try:
-            text = notes_mod._read_text(path)
-        except FrontmatterError:
-            continue
-        rel = path.relative_to(root).as_posix()
-        for lineno, target, file_part in _relative_links(text):
-            try:
-                exists = (path.parent / file_part).exists()
-            except (OSError, ValueError):
-                exists = False
-            if not exists:
-                problems.append(
-                    Problem(rel, lineno, f"broken link {target}: fix the path or remove the link")
-                )
-    return problems
-
-
-def _is_index_readme(rel: str) -> bool:
-    parts = rel.split("/")
-    return parts[-1] == "README.md" and (
-        (len(parts) == _FOLDER_README_PARTS and parts[0] in INDEX_FOLDERS)
-        or (len(parts) == _DOMAIN_README_PARTS and parts[0] in {"literature", "knowledge"})
-    )
-
-
-def _link_targets(path: Path, text: str) -> Iterator[str]:
-    """Normalized files that `path` links to, a folder standing for its README.md; self links are skipped."""
-    for _, _, file_part in _relative_links(text):
-        target = os.path.normpath(path.parent / file_part)
-        if Path(target).is_dir():
-            target = os.path.join(target, "README.md")
-        if target != os.path.normpath(path):
-            yield target
-
-
-def orphan_notes(root: Path) -> list[str]:
-    """Typed notes no other Markdown file links to, not counting the generated index READMEs; sorted."""
-    linked: set[str] = set()
-    for path in _markdown_files(root):
-        if _is_index_readme(path.relative_to(root).as_posix()):
-            continue
-        try:
-            text = notes_mod._read_text(path)
-        except FrontmatterError:
-            continue
-        linked.update(_link_targets(path, text))
-    return sorted(
-        n.rel for n in discover_notes(root) if os.path.normpath(root / n.rel) not in linked
-    )
-
-
-# --- requirements --------------------------------------------------------------
-
-_REQUIREMENTS = "docs/requirements.md"
-_INTENT_ID = re.compile(r"I-[0-9]+")
-_CONCRETE_ID = re.compile(r"C-[0-9]+")
-# Cells of a concrete requirement row: ID, Requirement, Serves, Rests on, Revisit when, Review by.
-REQUIREMENT_CELLS = 6
-
-
-def _backtick_run(line: str, i: int) -> str:
-    """The run of backticks that starts at `line[i]`."""
-    return "`" * (len(line) - i - len(line[i:].lstrip("`")))
-
-
-def _split_cells(line: str) -> list[str]:
-    """Cells of a table row, split on '|' outside inline code spans (a literal '|' in a cell is unsupported)."""
-    line = line.strip().removeprefix("|").removesuffix("|")
-    cells, start, i = [], 0, 0
-    while i < len(line):
-        if line[i] == "`":
-            run = _backtick_run(line, i)
-            close = line.find(run, i + len(run))
-            i = close + len(run) if close != -1 else i + len(run)
-        elif line[i] == "|":
-            cells.append(line[start:i].strip())
-            start = i = i + 1
-        else:
-            i += 1
-    cells.append(line[start:].strip())
-    return cells
-
-
-def _requirement_rows(root: Path) -> list[tuple[int, list[str]]] | None:
-    """(line, cells) of the table rows whose first cell is an I-n or C-n id; None when the file is absent."""
-    path = root / _REQUIREMENTS
-    if not path.is_file():
-        return None
-    try:
-        text = notes_mod._read_text(path)
-    except FrontmatterError:
-        return None
-    rows = []
-    for number, line in enumerate(text.split("\n"), 1):
-        if line.lstrip().startswith("|"):
-            cells = _split_cells(line)
-            if _INTENT_ID.fullmatch(cells[0]) or _CONCRETE_ID.fullmatch(cells[0]):
-                rows.append((number, cells))
-    return rows
-
-
-def _iso_date(value: str) -> datetime.date | None:
-    if not _DATE.fullmatch(value):
-        return None
-    try:
-        return datetime.date.fromisoformat(value)
-    except ValueError:
-        return None
-
-
-def rule_requirements(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
-    """Rule 12: docs/requirements.md rows are well formed (checked only when the file exists)."""
-    rows = _requirement_rows(root)
-    if not rows:
-        return []
-    problems = []
-    seen: set[str] = set()
-    intents = {cells[0] for _, cells in rows if _INTENT_ID.fullmatch(cells[0])}
-    for number, cells in rows:
-        ident = cells[0]
-        if ident in seen:
-            problems.append(
-                Problem(
-                    _REQUIREMENTS,
-                    number,
-                    f"duplicate id {ident}: give each requirement a unique id",
-                )
-            )
-        seen.add(ident)
-        if _CONCRETE_ID.fullmatch(ident):
-            problems += _concrete_row_problems(number, cells, intents)
-    return problems
-
-
-def _concrete_row_problems(number: int, cells: list[str], intents: set[str]) -> list[Problem]:
-    ident = cells[0]
-    if len(cells) != REQUIREMENT_CELLS:
-        return [
-            Problem(
-                _REQUIREMENTS,
-                number,
-                f"{ident} has {len(cells)} cells: use exactly {REQUIREMENT_CELLS} "
-                "(ID, Requirement, Serves, Rests on, Revisit when, Review by)",
-            )
-        ]
-    problems = []
-    if _iso_date(cells[5]) is None:
-        problems.append(
-            Problem(
-                _REQUIREMENTS,
-                number,
-                f"{ident} has an invalid 'Review by' date "
-                f"'{cells[5]}': use a real date as YYYY-MM-DD",
-            )
-        )
-    served = [c.strip() for c in cells[2].split(",")]
-    unknown = [c for c in served if c not in intents]
-    if unknown:
-        problems.append(
-            Problem(
-                _REQUIREMENTS,
-                number,
-                f"{ident} serves unknown intent "
-                f"{', '.join(repr(u) for u in unknown)}: list existing I-ids, comma-separated",
-            )
-        )
-    return problems
-
-
-# Model-specific advice ages; see docs/requirements.md C-13.
-MODEL_SPECIFIC_ROOT = "llm"
-# Days after `updated` before such a note is listed for re-testing; see docs/requirements.md C-13.
-RETEST_DAYS = 365
-# Days after `added` (the date the source was last read) before a vendor web page is listed for re-reading;
-# see docs/requirements.md C-15.
-REREAD_DAYS = 182
-
-
-def _retest_lines(notes: list[Note], topics: dict, today: datetime.date) -> list[str]:
-    if MODEL_SPECIFIC_ROOT not in topics:
-        return []
-    scope = descendants(topics, MODEL_SPECIFIC_ROOT)
-    # Only notes homed in llm's domain: a math note tagged llm-evaluation states statistics, not model behaviour.
-    home = f"knowledge/{root_of(topics, MODEL_SPECIFIC_ROOT)}/"
-    lines = []
-    for note in notes:
-        if (
-            note.type != "knowledge"
-            or note.error is not None
-            or not isinstance(note.meta, dict)
-            or not note.rel.startswith(home)
-        ):
-            continue
-        listed = note.meta.get("topics")
-        updated = (
-            _iso_date(note.meta["updated"]) if isinstance(note.meta.get("updated"), str) else None
-        )
-        if (
-            updated is None
-            or not isinstance(listed, list)
-            or not scope.intersection(t for t in listed if isinstance(t, str))
-        ):
-            continue
-        if (today - updated).days > RETEST_DAYS:
-            lines.append(
-                f"{note.rel}:1: re-test: updated {updated}; "
-                "advice that depends on model behaviour ages (spec 5.4)"
-            )
-    return lines
-
-
-def _reread_lines(notes: list[Note], topics: dict, today: datetime.date) -> list[str]:
-    if MODEL_SPECIFIC_ROOT not in topics:
-        return []
-    scope = descendants(topics, MODEL_SPECIFIC_ROOT)
-    home = f"literature/{root_of(topics, MODEL_SPECIFIC_ROOT)}/"
-    lines = []
-    for note in notes:
-        if (
-            note.type != "literature"
-            or note.error is not None
-            or not isinstance(note.meta, dict)
-            or not note.rel.startswith(home)
-            or note.meta.get("kind") != "web"
-        ):
-            continue
-        listed = note.meta.get("topics")
-        added = _iso_date(note.meta["added"]) if isinstance(note.meta.get("added"), str) else None
-        if (
-            added is None
-            or not isinstance(listed, list)
-            or not scope.intersection(t for t in listed if isinstance(t, str))
-        ):
-            continue
-        if (today - added).days > REREAD_DAYS:
-            lines.append(
-                f"{note.rel}:1: re-read: added {added}; vendor documentation changes (spec 5.3)"
-            )
-    return lines
-
-
-def due_retests(root: Path, today: datetime.date) -> list[str]:
-    """Lines for knowledge notes on llm topics not updated within RETEST_DAYS, sorted by path."""
-    try:
-        topics = load_topics(root)
-    except FrontmatterError:  # `check` reports an unusable topics.yaml
-        return []
-    return (
-        _retest_lines(discover_notes(root), topics, today) if MODEL_SPECIFIC_ROOT in topics else []
-    )
-
-
-def due_rereads(root: Path, today: datetime.date) -> list[str]:
-    """Lines for llm web literature notes whose `added` is over REREAD_DAYS old, sorted by path."""
-    try:
-        topics = load_topics(root)
-    except FrontmatterError:  # `check` reports an unusable topics.yaml
-        return []
-    return (
-        _reread_lines(discover_notes(root), topics, today) if MODEL_SPECIFIC_ROOT in topics else []
-    )
-
-
-def due_counts(root: Path, today: datetime.date) -> tuple[int, int]:
-    """(notes to re-test, notes to re-read) from one scan; the same notes the two line lists above report."""
-    try:
-        topics = load_topics(root)
-    except FrontmatterError:
-        return 0, 0
-    if MODEL_SPECIFIC_ROOT not in topics:
-        return 0, 0
-    notes = discover_notes(root)
-    return len(_retest_lines(notes, topics, today)), len(_reread_lines(notes, topics, today))
-
-
-def due_requirements(root: Path, today: datetime.date) -> list[str]:
-    """One line per concrete requirement whose 'Review by' date is today or earlier, in file order."""
-    lines = []
-    for number, cells in _requirement_rows(root) or []:
-        if (
-            _CONCRETE_ID.fullmatch(cells[0])
-            and len(cells) == REQUIREMENT_CELLS
-            and (due := _iso_date(cells[5]))
-            and due <= today
-        ):
-            lines.append(
-                f"{_REQUIREMENTS}:{number}: {cells[0]} due for review since {due}: {cells[1]}"
-            )
-    return lines
-
-
 MAX_FILE_BYTES = 5 * 1024 * 1024
 _UNTRACKED_DIRS = frozenset({
     "__pycache__",
@@ -1227,7 +608,7 @@ def rule_syntheses(root: Path, notes: list[Note], topics: dict | None) -> list[P
     """Rule 15: each synthesis parses, repeats no section handle, uses known topics and ends every part with a
     valid `Sources:` line; a reference names a source and has a sentence before it, and no reference or source
     names a superseded note."""
-    loaded = syntheses.load(root / syntheses.SYNTHESES_DIR)
+    loaded = document.load(root / document.SYNTHESES_DIR)
     superseded = {
         (root / n.rel).resolve(): n.meta["superseded_by"]
         for n in notes
@@ -1268,14 +649,14 @@ def _part_of_problem(note: Note, loaded: list[Synthesis]) -> Problem | None:
 
 
 def _section_messages(sec: Section, root: Path, superseded: dict) -> list[str]:
-    if sec.handle == syntheses.SUMMARY:
-        return syntheses.summary_problems(sec.text)
-    msgs = syntheses.validate_section(sec.text, root)
-    base = (root / syntheses.SYNTHESES_DIR).resolve()
-    cited = [("reference", t) for t in dict.fromkeys(syntheses.references(sec.text))]
+    if sec.handle == document.SUMMARY:
+        return document.summary_problems(sec.text)
+    msgs = document.validate_section(sec.text, root)
+    base = (root / document.SYNTHESES_DIR).resolve()
+    cited = [("reference", t) for t in dict.fromkeys(document.references(sec.text))]
     cited += [("source", t) for t in sec.sources]
     for kind, target in cited:
-        successor = superseded.get(syntheses._resolved(base, target))
+        successor = superseded.get(document._resolved(base, target))
         if successor:
             msgs.append(f"{kind} {target} is superseded by {successor}: point to it")
     return msgs
@@ -1342,6 +723,37 @@ def rule_supersession(root: Path, notes: list[Note], topics: dict | None) -> lis
                     )
                 )
     return problems
+
+
+def rule_index_fresh(root: Path, notes: list[Note], topics: dict | None) -> list[Problem]:
+    """Rule 9: generated index blocks are current."""
+    if topics is None:
+        return []
+    problems = []
+    for path, block, default in index_targets(root, notes, topics):
+        problem = _index_problem(path.relative_to(root).as_posix(), path, block, default)
+        if problem is not None:
+            problems.append(problem)
+    return problems
+
+
+def _index_start_line(text: str) -> int:
+    start = text.find(INDEX_START)
+    return text.count("\n", 0, start) + 1 if start >= 0 else 1
+
+
+def _index_problem(rel: str, path: Path, block: str, default: object) -> Problem | None:
+    if not path.is_file():
+        return Problem(rel, 1, "missing readme: run mem index") if default is not None else None
+    try:
+        text = notes_mod._read_text(path)
+    except FrontmatterError as exc:
+        return Problem(rel, 1, f"unreadable index README ({exc}): save it as UTF-8 text")
+    try:
+        current = index_mod._with_index(text, block) == text
+    except FrontmatterError as exc:
+        return Problem(rel, _index_start_line(text), str(exc))
+    return None if current else Problem(rel, _index_start_line(text), "index stale: run mem index")
 
 
 RULES = [

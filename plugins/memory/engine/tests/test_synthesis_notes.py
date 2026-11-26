@@ -2,7 +2,7 @@
 
 import mem
 import pytest
-from store import syntheses
+from syntheses import document, units
 
 NOTE = "../knowledge/computing/attention-replaces-recurrence.md"
 SRC = f"Sources: [attention]({NOTE})"
@@ -85,9 +85,9 @@ def test_one_call_writes_section_and_note_with_part_of_and_hash(run, made, tmp_p
     assert out.splitlines()[0] == "s:attention#why-it-works\tadded"
     assert out.splitlines()[1] == "knowledge/computing/attention-is-cheap.md"
     text = note_path(hub_root).read_text(encoding="utf-8")
-    section = syntheses.load_one(made).sections[-1]
+    section = document.load_one(made).sections[-1]
     assert 'part_of: "attention#why-it-works"' in text or "part_of: attention#why-it-works" in text
-    assert syntheses.fingerprint(section.text) in text
+    assert units.fingerprint(section.text) in text
     assert "topics: [ml, computing]" in text
     assert run("check")[:2] == (0, "")
     code, out, _ = run("show", "attention-is-cheap")
@@ -145,7 +145,7 @@ def test_check_reports_a_part_of_whose_section_is_missing(run, made, tmp_path, h
     ],
 )
 def test_sources_line_accepts_a_note_https_or_experience(hub_root, line, ok):
-    assert (syntheses.validate_section(f"Text.\n\n{line}\n", hub_root) == []) is ok
+    assert (document.validate_section(f"Text.\n\n{line}\n", hub_root) == []) is ok
 
 
 def test_new_knowledge_on_a_covered_topic_is_written_with_a_hint(run, made, hub_root, capsys):
@@ -383,7 +383,7 @@ def test_append_adds_text_before_sources_and_merges_links(run, made, tmp_path, h
         body(tmp_path, f"Second.\n\nSources: {SRC[9:]}, experience 2026-11-17\n", "a.md"),
     )
     assert (code, out) == (0, "s:attention#part\tappended\n")
-    sec = syntheses.load_one(made).sections[-1]
+    sec = document.load_one(made).sections[-1]
     assert sec.text == f"First.\n\nSecond.\n\n{SRC}, experience 2026-11-17"
     assert run("check")[:2] == (0, "")
 

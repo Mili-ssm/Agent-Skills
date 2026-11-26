@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING, NamedTuple
 
 import yaml
 from core import safe_io
+from core.yaml_load import safe_load
+from memories.model import PROJECT_DIR
 
-from store import records, syntheses
+from syntheses import document, edit
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -75,7 +77,7 @@ Unavailable = UnavailableError  # the name mem.py uses
 
 
 def folder(memory_dir: Path) -> Path:
-    return memory_dir / syntheses.SYNTHESES_DIR
+    return memory_dir / document.SYNTHESES_DIR
 
 
 def _render_stamp(paths: Sequence[str], date: datetime.date, commit: str | None) -> str:
@@ -99,12 +101,12 @@ def _check_frontmatter(path: Path) -> None:
         return ProjectSynthesisError(f"{path.name}: {why}")
 
     try:
-        text = syntheses._read(path)
+        text = document._read(path)
     except (OSError, UnicodeDecodeError) as e:
         raise fail(f"cannot be read ({type(e).__name__})") from None
-    m = syntheses._FRONTMATTER.match(text)
+    m = document._FRONTMATTER.match(text)
     try:
-        meta = records.safe_load(m.group(1)) if m else None
+        meta = safe_load(m.group(1)) if m else None
     except yaml.YAMLError:
         meta = None
     if not isinstance(meta, dict) or not isinstance(meta.get("title"), str):
@@ -124,7 +126,7 @@ def _parse_part(
     stamp = _parse_stamp(content[-1]) if content else None
     if stamp is None:
         raise fail(f"the part `{heading}` (line {i + 1}) does not end with a stamp")
-    handle = syntheses.section_handle(heading)
+    handle = document.section_handle(heading)
     if not handle or any(p.handle == handle for p in seen):
         raise fail(f"the heading `{heading}` (line {i + 1}) has an empty or repeated handle")
     return Part(handle, heading, "\n".join(content[:-1]).strip("\n"), stamp, i + 1)
@@ -132,7 +134,7 @@ def _parse_part(
 
 def _parse(path: Path) -> list[Part]:
     _check_frontmatter(path)
-    lines, heads = syntheses._scan(syntheses._read(path))
+    lines, heads = document._scan(document._read(path))
     parts: list[Part] = []
     for n, (i, heading) in enumerate(heads):
         end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
@@ -203,9 +205,9 @@ def _bad_path(p: str) -> bool:
     if any(c in p for c in (",", "|", "\\", "\n")):
         return True
     norm = posixpath.normpath(p)
-    return norm in {"..", records.PROJECT_DIR} or norm.startswith((
+    return norm in {"..", PROJECT_DIR} or norm.startswith((
         "../",
-        records.PROJECT_DIR + "/",
+        PROJECT_DIR + "/",
     ))
 
 
@@ -246,20 +248,20 @@ def _clean_part(heading: str, body: str) -> tuple[str, str, str]:
         raise ProjectSynthesisError(
             "the heading must not start with `#`: the tool writes the `## `"
         )
-    handle = syntheses.section_handle(heading)
+    handle = document.section_handle(heading)
     if not handle:
         raise ProjectSynthesisError("the heading has no letters or digits")
-    return heading, handle, _check_body(syntheses._clean(body))
+    return heading, handle, _check_body(edit._clean(body))
 
 
 def _check_body(body: str) -> str:
     if not body:
         raise ProjectSynthesisError("the text is empty")
-    if syntheses._scan("---\nx: 1\n---\n" + body)[1]:
+    if document._scan("---\nx: 1\n---\n" + body)[1]:
         raise ProjectSynthesisError(
             "the text contains a `## ` heading: a part is one heading and its text"
         )
-    probe = syntheses._scan("---\nx: 1\n---\n" + body + "\n## probe")[1]
+    probe = document._scan("---\nx: 1\n---\n" + body + "\n## probe")[1]
     if not probe or probe[-1][1] != "probe":
         raise ProjectSynthesisError("the text leaves a code fence open: close it")
     if any(_parse_stamp(ln.rstrip()) for ln in body.split("\n")):
@@ -270,7 +272,7 @@ def _check_body(body: str) -> str:
 def _merged(path: Path, handle: str, block: list[str], today: datetime.date) -> str:
     """The file's text with `block` replacing the part of `handle`, or appended when there is none."""
     old = _parse(path)
-    lines, heads = syntheses._scan(syntheses._read(path))
+    lines, heads = document._scan(document._read(path))
     same = next((p for p in old if p.handle == handle), None)
     if same:
         n = next(k for k, (i, _) in enumerate(heads) if i + 1 == same.line)
@@ -280,7 +282,7 @@ def _merged(path: Path, handle: str, block: list[str], today: datetime.date) -> 
         while lines and not lines[-1].strip():
             lines.pop()
         lines += ["", *block, ""]
-    return syntheses._bump("\n".join(lines), today)
+    return edit._bump("\n".join(lines), today)
 
 
 def write_part(memory_dir: Path, worktree: Path, part: NewPart, today: datetime.date) -> str:
@@ -301,7 +303,7 @@ def write_part(memory_dir: Path, worktree: Path, part: NewPart, today: datetime.
     else:
         folder(memory_dir).mkdir(parents=True, exist_ok=True)
         new = _frontmatter(part.name, today) + "\n" + "\n".join(block) + "\n"
-    syntheses._write(path, new)
+    document._write(path, new)
     return handle
 
 
@@ -322,12 +324,12 @@ def confirm_part(
         raise ProjectSynthesisError(
             f"{e}; confirming would stamp a false fresh: write the part again with new paths"
         ) from None
-    lines, heads = syntheses._scan(syntheses._read(path))
+    lines, heads = document._scan(document._read(path))
     n = next(k for k, (i, _) in enumerate(heads) if i + 1 == part.line)
     end = heads[n + 1][0] if n + 1 < len(heads) else len(lines)
     last = max(k for k in range(heads[n][0] + 1, end) if lines[k].strip())
     lines[last] = _render_stamp(part.stamp.paths, today, head_commit(worktree))
-    syntheses._write(path, syntheses._bump("\n".join(lines), today))
+    document._write(path, edit._bump("\n".join(lines), today))
 
 
 def _names(out: subprocess.CompletedProcess, status: bool) -> list[str]:
@@ -362,7 +364,7 @@ def freshness(worktree: Path, stamp: Stamp) -> str:
     prefix = _git(worktree, "rev-parse", "--show-prefix")
     if prefix is None:
         return UNKNOWN
-    own = prefix.stdout.strip() + records.PROJECT_DIR + "/"
+    own = prefix.stdout.strip() + PROJECT_DIR + "/"
     touched = [n for n in _names(diff, False) + _names(status, True) if not n.startswith(own)]
     if touched or any(not (worktree / p).exists() for p in stamp.paths):
         return CHANGED

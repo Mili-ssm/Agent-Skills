@@ -4,7 +4,7 @@ import time
 
 import mem
 import pytest
-from store import syntheses
+from syntheses import document
 
 NOTE = "../knowledge/computing/attention-replaces-recurrence.md"
 SRC = f"Sources: [attention]({NOTE})"
@@ -191,7 +191,7 @@ def test_a_part_without_valid_sources_is_refused_and_file_unchanged(run, made, t
         )[0]
         == 0
     )
-    assert syntheses.validate_section(text, made.parent.parent)
+    assert document.validate_section(text, made.parent.parent)
 
 
 def test_a_section_body_may_not_hold_a_heading(run, made, tmp_path):
@@ -200,8 +200,8 @@ def test_a_section_body_may_not_hold_a_heading(run, made, tmp_path):
 
 
 def test_validate_section_accepts_a_note_link(hub_root):
-    assert syntheses.validate_section(f"x\n\n{SRC}\n", hub_root) == []
-    assert syntheses.section_handle("Why  it's: Ünicode!") == "why-it-s-unicode"
+    assert document.validate_section(f"x\n\n{SRC}\n", hub_root) == []
+    assert document.section_handle("Why  it's: Ünicode!") == "why-it-s-unicode"
 
 
 def test_list_and_stats(run, made, tmp_path):
@@ -378,8 +378,13 @@ def test_init_creates_the_folder_and_accepts_it_again(tmp_path, capsys):
 
 
 def test_syntheses_and_records_import_nothing_from_mem():
-    for name in ("syntheses.py", "records.py"):
-        src = (mem.Path(__file__).resolve().parent.parent.parent / "store" / name).read_text(
+    for folder, name in (
+        ("syntheses", "document.py"),
+        ("syntheses", "units.py"),
+        ("syntheses", "edit.py"),
+        ("memories", "records.py"),
+    ):
+        src = (mem.Path(__file__).resolve().parent.parent.parent / folder / name).read_text(
             encoding="utf-8"
         )
         assert not re.search(r"^\s*(import|from) mem\b", src, re.MULTILINE)
@@ -393,8 +398,8 @@ def test_load_never_raises(tmp_path):
         "---\ntitle: T\ntopics: x\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n",
         encoding="utf-8",
     )
-    assert [s.error is not None for s in syntheses.load(folder)] == [True, True]
-    assert syntheses.load(tmp_path / "none") == []
+    assert [s.error is not None for s in document.load(folder)] == [True, True]
+    assert document.load(tmp_path / "none") == []
 
 
 def test_a_secret_in_a_section_or_the_summary_is_refused(run, made, tmp_path):

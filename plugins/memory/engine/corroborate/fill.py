@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from core import jobs
-from store import records, rules, shortcheck
+from memories import model, records, rules
 
 from corroborate import decide as corroborate_decide
 from corroborate import run as corroborate_run
@@ -386,7 +386,7 @@ def _fill_run_folder(cdir: Path) -> Path:
 
 def fill_auto(claude: str | None, budget: float) -> dict:
     """Writes the short forms of the lessons that lack one, with nobody reading them first: a writer session, the
-    code check (`shortcheck`), a second session that checks the survivors against their claims, then `apply_fill`.
+    code check (`short_problems`), a second session that checks the survivors against their claims, then `apply_fill`.
     Every doubt ends in not writing. A session with no usable answer is a failed session: no lesson is charged an
     attempt and nothing is applied. The result holds numbers and `stopped` only; the same dict is the saved status."""
     cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
@@ -521,7 +521,7 @@ def _writer_session(
             reason[i] = "no proposal"
         elif "problem" in item:
             reason[i] = item["problem"]
-        elif found := shortcheck.problems(x.m.claim, item["short"]):
+        elif found := model.short_problems(x.m.claim, item["short"]):
             reason[i] = found[0]
         else:
             passed.append((i, item))

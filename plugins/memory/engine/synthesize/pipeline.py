@@ -19,7 +19,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Required, TypedDict, Unpack
 
 from core import headless
-from store import records, syntheses
+from memories import records
+from syntheses import document
+from syntheses import units as synthesis_units
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -289,13 +291,15 @@ def units_text(synthesis: Path) -> str:
     """What the checker's `{UNITS_FILE}` holds: per part (not the Summary) `## <handle>`, one line per unit
     `<number> | <text without references> | <targets, or ->`, then `Sources: <note targets>`."""
     lines = []
-    for section in syntheses.load_one(synthesis).parts:
-        found, _ = syntheses.units(section.text)
+    for section in document.load_one(synthesis).parts:
+        found, _ = synthesis_units.units(section.text)
         lines.append(f"## {section.handle}")
         lines += [
             f"{u.n} | {' '.join(u.plain.split())} | {', '.join(u.refs) or '-'}" for u in found
         ]
-        lines.append("Sources: " + ", ".join(t for t in section.sources if syntheses._is_ref(t)))
+        lines.append(
+            "Sources: " + ", ".join(t for t in section.sources if synthesis_units._is_ref(t))
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -407,7 +411,7 @@ def scope_text(report: dict, fixer_answer: str) -> str:
 
 
 def section_handle(heading: str) -> str:
-    """As `syntheses.section_handle` of the engine: the handle `mem` gives a part."""
+    """As `document.section_handle` of the engine: the handle `mem` gives a part."""
     ascii_text = unicodedata.normalize("NFKD", heading).encode("ascii", "ignore").decode()
     return re.sub(r"[^a-z0-9]+", "-", ascii_text.lower()).strip("-")
 

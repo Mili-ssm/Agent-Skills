@@ -37,7 +37,8 @@ from typing import NamedTuple
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_trials as rt
 import trial_env
-from store import syntheses
+from syntheses import document
+from syntheses import units as synthesis_units
 from synthesize import pipeline as sp
 
 logger = logging.getLogger(__name__)
@@ -63,18 +64,18 @@ def collect(store: Path) -> tuple[list[Pair], dict[str, dict]]:
     pairs: list[Pair] = []
     facts: dict[str, dict] = {}
     for path in sorted((store / "syntheses").glob("*.md")):
-        syn = syntheses.load_one(path)
+        syn = document.load_one(path)
         if syn.error:
             continue
         parts = {}
         for section in syn.parts:
-            found, _ = syntheses.units(section.text)
+            found, _ = synthesis_units.units(section.text)
             units = [
                 (u.n, " ".join(u.plain.split()), list(dict.fromkeys(rt._norm(t) for t in u.refs)))
                 for u in found
             ]
             parts[section.handle] = {
-                "sources": [t for t in section.sources if syntheses._is_ref(t)],
+                "sources": [t for t in section.sources if synthesis_units._is_ref(t)],
                 "units": units,
             }
             pairs += [

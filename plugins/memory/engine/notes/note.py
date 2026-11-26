@@ -1,4 +1,4 @@
-"""Notes: frontmatter, the YAML loaders, `Note`, topics and handles. Imports no other engine module."""
+"""Notes: frontmatter, the YAML loaders, `Note`, topics and handles. From the engine, imports only `core.yaml_load`."""
 
 from __future__ import annotations
 
@@ -9,16 +9,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from core.yaml_load import BaseLoader
 
 _DROPPED_TAGS = {"tag:yaml.org,2002:timestamp", "tag:yaml.org,2002:bool"}
 
 
-# The C parser is several times faster; searching reads every note. libyaml accepts a tab after a colon
-# (`a:\tb`) and words parse errors differently. This is the one place that picks it.
-_BaseLoader: type[yaml.SafeLoader] = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
-
-
-class HubLoader(_BaseLoader):
+class HubLoader(BaseLoader):
     """SafeLoader that keeps dates and on/off/yes/no as strings."""
 
 
@@ -54,11 +50,6 @@ HubLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_du
 
 def load_yaml(text: str) -> Any:
     return yaml.load(text, Loader=HubLoader)
-
-
-def safe_load(text: str):
-    """Plain SafeLoader values (dates stay dates) from the same C parser; HubLoader's rules do not apply."""
-    return yaml.load(text, Loader=_BaseLoader)
 
 
 class FrontmatterError(Exception):

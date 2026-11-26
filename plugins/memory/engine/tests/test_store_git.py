@@ -8,8 +8,7 @@ from pathlib import Path
 
 import mem
 import pytest
-from core import auto_state, jobs
-from store import store_git
+from core import auto_state, jobs, store_git
 
 REAL_RUN = subprocess.run
 SHORT_LOCK_WAIT = 0.2

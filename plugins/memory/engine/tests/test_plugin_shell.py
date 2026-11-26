@@ -7,8 +7,8 @@ from pathlib import Path
 
 import mem
 import pytest
+from core import store_git
 from session import handoff
-from store import store_git
 from test_capture_auto import hook as capture_hook
 from test_capture_auto import world
 from test_mem_capture import FAKE
@@ -577,7 +577,7 @@ def test_session_end_hook_commits_the_store(hub_root, tmp_path):
             "python3",
             "-c",
             (
-                f"import sys; sys.path.insert(0, {sys_path!r}); from store import store_git; import pathlib; "
+                f"import sys; sys.path.insert(0, {sys_path!r}); from core import store_git; import pathlib; "
                 f"store_git.init(pathlib.Path({str(hub_root)!r}))"
             ),
         ],

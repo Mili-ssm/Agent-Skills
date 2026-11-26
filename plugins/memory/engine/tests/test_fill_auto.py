@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from corroborate import decide as corroborate_decide
-from store import records
+from memories import records
 
 TODAY = datetime.date(2026, 11, 22)
 FILL_CAP = 30
