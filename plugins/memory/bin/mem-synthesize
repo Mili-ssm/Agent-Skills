@@ -655,7 +655,8 @@ def _synthesize(
         json.dumps({
             "pluginConfigs": {"memory": {"options": {"store": str(store)}}},
             "disableAllHooks": True,
-        })
+        }),
+        encoding="utf-8",
     )  # no session-end hook may commit between our two
     label = ", ".join(topics)
     history_commit(store, env, f"mem-synthesize: before {label}", log)
@@ -805,18 +806,19 @@ class _BackfillRun:
             return "failed: session error"
         return None
 
-    def _unit_text(self, part: str, number: int) -> str:
-        by_part = {p["handle"]: p for p in self.parts}
+    @staticmethod
+    def _unit_text(by_part: dict[str, dict], part: str, number: int) -> str:
         if part not in by_part:
             return "?"
         return next((u.plain for u in by_part[part]["units"] if u.n == number), "?")
 
     def _proposals(self, found: list) -> list[str]:
         proposals = []
+        by_part = {p["handle"]: p for p in self.parts}
         for part, number, target in found:
             if target == "none":
                 self.row["none"] += 1
-                text = self._unit_text(part, number)
+                text = self._unit_text(by_part, part, number)
                 self.log(f"{self.handle}: none: {part} | {number} | {' '.join(text.split())}")
             else:
                 proposals.append(f"{part} | {number} | add {target}")
@@ -825,7 +827,7 @@ class _BackfillRun:
     def _apply(self, proposals: list[str]) -> bool:
         """Apply the proposals with `mem synthesis refs`; False when the command failed (`status` says so)."""
         file = self.work / "proposals.txt"
-        file.write_text("".join(f"{ln}\n" for ln in proposals))
+        file.write_text("".join(f"{ln}\n" for ln in proposals), encoding="utf-8")
         out = sp.mem(
             self.store, self.env, "synthesis", "refs", f"s:{self.handle}", "--file", str(file)
         )
@@ -1024,7 +1026,7 @@ def _backfill_sessions(
     )
     settings = root / "settings.json"
     settings.write_text(
-        json.dumps({"disableAllHooks": True})
+        json.dumps({"disableAllHooks": True}), encoding="utf-8"
     )  # no session-end hook may commit between our two
     label = ", ".join(due)
     history_commit(store, env, f"mem-synthesize: before backfill {label}", log)
@@ -1168,11 +1170,12 @@ def _fake_claude(tmp: Path, store: Path) -> Path:
     """A `claude` that touches a file in the store and stops; the store gets a committed fixture."""
     fake = tmp / "fake-claude"
     fake.write_text(
-        '#!/bin/sh\ntouch "$MEM_STORE/knowledge/touched.md"\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n'
+        '#!/bin/sh\ntouch "$MEM_STORE/knowledge/touched.md"\necho \'{"type":"result","is_error":false,"result":"STOP: fake","total_cost_usd":0.0}\'\n',
+        encoding="utf-8",
     )
     fake.chmod(0o755)
     (store / "knowledge").mkdir(exist_ok=True)
-    (store / "knowledge" / "keep.md").write_text("kept\n")
+    (store / "knowledge" / "keep.md").write_text("kept\n", encoding="utf-8")
     _commit_all(store, "fixture")
     return fake
 
@@ -1213,14 +1216,15 @@ def _check_guard(store: Path, env: dict) -> None:
         )
         assert added.returncode == 0, added.stderr
     demo = store / "syntheses" / "demo.md"
-    before = demo.read_text()
+    before = demo.read_text(encoding="utf-8")
     demo.write_text(
-        before.replace("Alpha text one.", "Alpha fixed.").replace("Second sentence here.", "Cut.")
+        before.replace("Alpha text one.", "Alpha fixed.").replace("Second sentence here.", "Cut."),
+        encoding="utf-8",
     )
-    after = demo.read_text()
+    after = demo.read_text(encoding="utf-8")
     bad, back = sp.guard_parts(store, env, "demo", before, after, ["alpha"])
     assert (bad, back) == (["beta"], ["beta"]), (bad, back)
-    now = sp.split_parts(demo.read_text())
+    now = sp.split_parts(demo.read_text(encoding="utf-8"))
     assert (
         now["beta"].strip() == sp.split_parts(before)["beta"].strip()
         and "Alpha fixed." in now["alpha"]
@@ -1240,7 +1244,7 @@ def _check_fake_run(store: Path, fake: Path) -> None:
     assert (
         "failed: STOP: fake" in lines[1] and lines[1].count("failed") == FAILED_WORDS_PER_FAKE_ROW
     ), lines
-    assert (store / "knowledge" / "keep.md").read_text() == "kept\n"
+    assert (store / "knowledge" / "keep.md").read_text(encoding="utf-8") == "kept\n"
     log = subprocess.run(
         ["git", "log", "--format=%s"], cwd=store, capture_output=True, text=True, check=False
     ).stdout
