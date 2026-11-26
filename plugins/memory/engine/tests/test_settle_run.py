@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-import auto_state
+import jobs
 import mem
 import pytest
 import settle
@@ -211,7 +211,7 @@ def test_a_failed_run_is_not_retried_within_the_minutes(world):
 
 def test_a_held_lock_makes_a_second_run_exit_silently(world):
     seed(world)
-    fd = auto_state.take_run_lock(world.state)
+    fd = jobs.take_run_lock(world.state)
     assert fd is not None
     try:
         done = settle_run(world)

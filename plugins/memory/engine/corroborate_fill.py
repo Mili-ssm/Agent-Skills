@@ -15,10 +15,10 @@ import time
 from pathlib import Path
 from typing import NamedTuple
 
-import auto_state as au
 import corroborate
 import corroborate_run
 import corroborate_state
+import jobs
 import records
 import rules
 import shortcheck
@@ -210,7 +210,7 @@ class _Filler:
 
     def __init__(self, run: Path, user_read: bool) -> None:
         _data, projects, gfolder, names = corroborate_run._fill_world()
-        au.private_dir(run)
+        jobs.private_dir(run)
         corroborate_state.write_private(
             run / "fill", ""
         )  # marks the run: its undo leaves the pass's `seen.json` alone
@@ -340,7 +340,7 @@ def fill_items(args) -> int:
         print(f"mem-corroborate: {path} is not a JSON list of items", file=sys.stderr)
         return 2
     cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
-    lock = au.take_run_lock(cdir)
+    lock = jobs.take_run_lock(cdir)
     if lock is None:
         print("mem-corroborate: a run is going: try again later", file=sys.stderr)
         return 1
@@ -356,7 +356,7 @@ def fill_items(args) -> int:
 
 def _fill_state(cdir: Path) -> dict:
     """The automatic fill's memory, read defensively: a missing or broken file is an empty state."""
-    data = au.read_json(cdir / ATTEMPTS_NAME)
+    data = jobs.read_json(cdir / ATTEMPTS_NAME)
     lessons = data.get("lessons")
     failures = data.get("failures")
     lessons = (
@@ -402,7 +402,7 @@ def fill_auto(claude: str | None, budget: float) -> dict:
         "cost": 0.0,
         "stopped": None,
     }
-    lock = au.take_run_lock(cdir)
+    lock = jobs.take_run_lock(cdir)
     if lock is None:
         return {**result, "stopped": "a run is going"}
     try:
@@ -435,7 +435,7 @@ class _Auto:
     fingerprint: str
 
     def save(self) -> None:
-        au.write_json(self.cdir / ATTEMPTS_NAME, self.state)
+        jobs.write_json(self.cdir / ATTEMPTS_NAME, self.state)
 
 
 class _Verdicts(NamedTuple):

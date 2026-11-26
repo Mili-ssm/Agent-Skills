@@ -27,9 +27,9 @@ import time
 from pathlib import Path
 from typing import Any, Required, TypedDict, Unpack
 
-import auto_state as au
 import config
 import headless
+import jobs
 import mem
 import research_checks as rc
 import synth_pipeline as sp
@@ -90,11 +90,7 @@ class StepOptions(TypedDict, total=False):
 # ---- places and environments ----
 
 
-def state_dir() -> Path:
-    if os.environ.get("MEM_DATA"):
-        return Path(os.environ["MEM_DATA"])
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "agent-memory"
+state_dir = jobs.state_dir
 
 
 def default_store() -> Path | None:
@@ -253,11 +249,11 @@ class Run:
 
     def save(self, **changes: Any) -> None:
         self.status.update(changes)
-        au.write_json(self.folder / au.STATUS_NAME, self.status)
+        jobs.write_json(self.folder / jobs.STATUS_NAME, self.status)
 
     def step_dir(self, name: str) -> Path:
         folder = self.folder / name
-        au.private_dir(folder / "work")
+        jobs.private_dir(folder / "work")
         return folder
 
     def session(
@@ -650,10 +646,10 @@ def research(store: Path, question: str, **options: Unpack[ResearchOptions]) -> 
         )
         return 2
     base = runs_dir(store)
-    au.private_dir(base)
+    jobs.private_dir(base)
     _prune_old_runs(base)
     folder = base / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-    au.private_dir(folder)
+    jobs.private_dir(folder)
     budget = options["budget"]
     run = Run(folder, budget, options["seconds"])
     run.save(

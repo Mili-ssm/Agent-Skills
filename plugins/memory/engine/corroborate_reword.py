@@ -13,10 +13,10 @@ import time
 from pathlib import Path
 from typing import NamedTuple, TypedDict, Unpack
 
-import auto_state as au
 import corroborate
 import corroborate_run
 import corroborate_state
+import jobs
 import records
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ REWORD_CHECK_OUT = "reword-check.json"
 
 def _reword_state(cdir: Path) -> dict:
     """The step's memory, read defensively: a missing or broken file is an empty state."""
-    data = au.read_json(cdir / REWORD_ATTEMPTS_NAME)
+    data = jobs.read_json(cdir / REWORD_ATTEMPTS_NAME)
     lessons = data.get("lessons")
     failures = data.get("failures")
     lessons = (
@@ -169,7 +169,7 @@ def reword_auto(claude: str | None, budget: float, **options: Unpack[RewordOptio
 
 def _reword_guarded(params: _Params, result: dict) -> dict:
     cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
-    lock = au.take_run_lock(cdir)
+    lock = jobs.take_run_lock(cdir)
     if lock is None:
         return {**result, "stopped": "a run is going"}
     try:
@@ -180,7 +180,7 @@ def _reword_guarded(params: _Params, result: dict) -> dict:
 
 def _reword_applier(cdir: Path, gfolder: Path | None) -> corroborate_run.Applier:
     run = _reword_run_folder(cdir)
-    au.private_dir(run)
+    jobs.private_dir(run)
     corroborate_state.write_private(
         run / "fill", ""
     )  # marks the run: its undo leaves the pass's `seen.json` alone
@@ -296,7 +296,7 @@ class _RewordPass:
 
     def _save_state(self) -> None:
         if self.params.apply:
-            au.write_json(self.cdir / REWORD_ATTEMPTS_NAME, self.state)
+            jobs.write_json(self.cdir / REWORD_ATTEMPTS_NAME, self.state)
 
     def _count_failure(self) -> None:
         self.failures["count"] += 1

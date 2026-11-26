@@ -7,6 +7,7 @@ unmarked default folder is not a store; HOME-less: no passwd fallback). Paths ar
 
 import importlib.machinery
 import importlib.util
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -343,6 +344,7 @@ def test_mem_synthesize_default_store(world):
     spec = importlib.util.spec_from_loader("mem_synthesize_precedence", loader)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     loader.exec_module(module)
     assert module.default_store() == at(case.synth)
 

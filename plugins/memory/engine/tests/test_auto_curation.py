@@ -7,11 +7,13 @@ import os
 import shutil
 import stat
 import subprocess
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
 import auto_state
+import jobs
 import mem
 import pytest
 import synth_pipeline as sp
@@ -171,7 +173,7 @@ def test_at_the_threshold_one_run_records_status_and_cost_then_the_count_restart
 
 def test_a_run_that_holds_the_lock_makes_a_second_one_exit_silently(world):
     memories(world, 5)
-    fd = auto_state.take_run_lock(world.state)
+    fd = jobs.take_run_lock(world.state)
     assert fd is not None
     try:
         r = run(world)
@@ -217,14 +219,14 @@ def test_a_success_after_a_failure_keeps_the_failure_until_ack(world):
 
 
 def test_a_running_status_two_hours_old_counts_as_failed_and_a_recent_one_does_not(world):
-    auto_state.private_dir(world.state)
+    jobs.private_dir(world.state)
     status_file = world.state / "status.json"
     base = session_text(world)
-    auto_state.write_json(
+    jobs.write_json(
         status_file, {"state": "running", "started": time.time() - 600, "log": "/x/log.txt"}
     )
     assert session_text(world) == base
-    auto_state.write_json(
+    jobs.write_json(
         status_file, {"state": "running", "started": time.time() - 7200, "log": "/x/log.txt"}
     )
     assert "Automatic curation failed on" in session_text(
@@ -236,8 +238,8 @@ def test_a_running_status_two_hours_old_counts_as_failed_and_a_recent_one_does_n
 
 
 def test_the_subagent_start_text_has_no_failure_line(world):
-    auto_state.private_dir(world.state)
-    auto_state.write_json(
+    jobs.private_dir(world.state)
+    jobs.write_json(
         world.state / "status.json", {"failure": {"at": time.time(), "reason": "x", "log": "/l"}}
     )
     os.environ["MEM_DATA"] = str(world.data)
@@ -256,7 +258,7 @@ def test_state_folders_are_private(world):
 def test_old_run_folders_are_pruned(world):
     memories(world, 3)
     old = world.state / "runs" / "19990101-000000"
-    auto_state.private_dir(old)
+    jobs.private_dir(old)
     past = time.time() - 31 * 86400
     os.utime(old, (past, past))
     run(world)
@@ -377,7 +379,7 @@ def test_session_end_commit_skips_while_a_run_holds_the_lock(world):
     (world.store / "scratch-x.txt").write_text(
         "x\n"
     )  # a valid change: an invalid note would be held back
-    held = auto_state.take_run_lock(world.state)
+    held = jobs.take_run_lock(world.state)
     assert held is not None
     try:
         hook(
@@ -507,6 +509,7 @@ def _auto_module():
     spec = importlib.util.spec_from_loader("mem_auto_under_test", loader)
     assert spec is not None
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = mod
     loader.exec_module(mod)
     return mod
 

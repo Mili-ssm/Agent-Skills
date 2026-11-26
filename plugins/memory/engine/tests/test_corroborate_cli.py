@@ -5,11 +5,11 @@ import json
 import shutil
 import sys
 
-import auto_state
 import corroborate_cli
 import corroborate_digest
 import corroborate_reword
 import corroborate_run
+import jobs
 import pytest
 from corroborate_world import (
     CORR,
@@ -266,7 +266,7 @@ def test_auto_with_an_engine_that_cannot_load_writes_its_failed_status(w):
     env = {"PYTHONPATH": str(stub), OPTION: "true"}
     done = run(w, cmd="auto", env=env, corr=launcher)
     assert done.returncode == 0 and not done.stdout and not done.stderr
-    status = auto_state.read_json(w.cdir / "status.json")
+    status = jobs.read_json(w.cdir / "status.json")
     assert status["state"] == "failed" and status["failure"]["reason"] == "engine import error"
     log = [json.loads(x) for x in (w.cdir / "log.jsonl").read_text().splitlines()]
     assert (

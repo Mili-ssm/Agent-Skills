@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "engine"))
 import backfill as bf
 import config
+import jobs
 import synth_pipeline as sp
 
 logger = logging.getLogger(__name__)
@@ -151,11 +152,7 @@ def default_store() -> Path | None:
     return config.resolve_store(None, os.environ)
 
 
-def state_dir() -> Path:
-    if os.environ.get("MEM_DATA"):
-        return Path(os.environ["MEM_DATA"])
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "agent-memory"
+state_dir = jobs.state_dir
 
 
 def session_env(store: Path) -> dict:

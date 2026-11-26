@@ -12,11 +12,11 @@ import tempfile
 from pathlib import Path
 from typing import NamedTuple
 
-import auto_state as au
 import corroborate
 import corroborate_run
 import corroborate_state
 import digest as dg
+import jobs
 import records
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ DIGEST_CHECK_OUT = "digest-check.json"
 
 def _digest_state(cdir: Path) -> dict:
     """The step's memory, read defensively: a missing or broken file is an empty state."""
-    data = au.read_json(cdir / DIGEST_ATTEMPTS_NAME)
+    data = jobs.read_json(cdir / DIGEST_ATTEMPTS_NAME)
     tries = data.get("tries")
     failures = data.get("failures")
     tries = (
@@ -171,7 +171,7 @@ def digest_auto(
 
 def _digest_guarded(params: _Params, result: dict) -> dict:
     cdir = corroborate_state.corroborate_dir(corroborate_state.data_dir())
-    lock = au.take_run_lock(cdir)
+    lock = jobs.take_run_lock(cdir)
     if lock is None:
         return {**result, "stopped": "a run is going"}
     try:
@@ -231,7 +231,7 @@ class _DigestPass:
             if pruned_digest != self.stored:
                 dg.write(self.data, pruned_digest)
             if pruned_state != self.state:
-                au.write_json(self.cdir / DIGEST_ATTEMPTS_NAME, pruned_state)
+                jobs.write_json(self.cdir / DIGEST_ATTEMPTS_NAME, pruned_state)
         return _finish(self.result)
 
     def _attempt(self, claude: str) -> dict:
@@ -252,7 +252,7 @@ class _DigestPass:
 
     def _save_state(self, new: dict) -> None:
         if self.params.apply:
-            au.write_json(self.cdir / DIGEST_ATTEMPTS_NAME, new)
+            jobs.write_json(self.cdir / DIGEST_ATTEMPTS_NAME, new)
 
     def _failed_session(self, why: str) -> dict:
         self.failures["count"] += 1

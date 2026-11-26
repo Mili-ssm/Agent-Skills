@@ -1,4 +1,4 @@
-"""mem-corroborate: the state folder, the journal and undo, and the commands that need nothing else (stdlib, `auto_state`, `safe_io`; no yaml)."""
+"""mem-corroborate: the state folder, the journal and undo, and the commands that need nothing else (stdlib, `jobs`, `safe_io`; no yaml)."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import sys
 import time
 from pathlib import Path
 
-import auto_state as au
+import jobs
 import safe_io
 
 DEFAULT_BUDGET = 0.25  # USD per session
@@ -24,11 +24,7 @@ STAMP_RE = re.compile(r"[A-Za-z0-9._-]+")
 CURATION_LOG = ".curation-log"
 
 
-def data_dir() -> Path:
-    if os.environ.get("MEM_DATA"):
-        return Path(os.environ["MEM_DATA"])
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "agent-memory"
+data_dir = jobs.state_dir
 
 
 def corroborate_dir(data: Path) -> Path:
@@ -44,19 +40,15 @@ def budget_of(value) -> float:
 
 
 def save_status(cdir: Path, **changes) -> dict:
-    au.private_dir(cdir)
-    data = {**au.read_json(cdir / au.STATUS_NAME), **changes}
+    jobs.private_dir(cdir)
+    data = {**jobs.read_json(cdir / jobs.STATUS_NAME), **changes}
     for key in [k for k, v in data.items() if k == "failure" and v is None]:
         del data[key]
-    au.write_json(cdir / au.STATUS_NAME, data)
+    jobs.write_json(cdir / jobs.STATUS_NAME, data)
     return data
 
 
-def append_log(cdir: Path, line: dict) -> None:
-    au.private_dir(cdir)
-    fd = os.open(cdir / "log.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-    with os.fdopen(fd, "a", encoding="utf-8") as f:
-        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+append_log = jobs.append_log
 
 
 def write_private(path: Path, text: str) -> None:
@@ -132,7 +124,7 @@ class Journal:
             self.seen[key] = old is None
             if old is not None:
                 folder_b = self.run / "before"
-                au.private_dir(folder_b)
+                jobs.private_dir(folder_b)
                 write_private_bytes(folder_b / self.before_name(path), old)
         row = {"action": action, "file": key, "created": self.seen[key], "hash": digest(now)}
         fd = os.open(self.run / "journal.jsonl", os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
@@ -224,16 +216,16 @@ def undo_run(run: Path) -> tuple[bool, str]:
 
 def forget_run(cdir: Path, run: Path) -> None:
     """After an undo: the next run does the work again, so drop the saved fingerprint and the marks this run added."""
-    seen = au.read_json(cdir / "seen.json")
+    seen = jobs.read_json(cdir / "seen.json")
     if not seen:
         return
-    added = au.read_json(run / "seen-added.json").get("marked")
+    added = jobs.read_json(run / "seen-added.json").get("marked")
     marks = seen.get("refused")
     seen.pop("fingerprint", None)
     seen.pop("retry", None)
     if isinstance(marks, dict) and isinstance(added, list):
         seen["refused"] = {k: v for k, v in marks.items() if k not in added}
-    au.write_json(cdir / "seen.json", seen)
+    jobs.write_json(cdir / "seen.json", seen)
 
 
 def cmd_undo(args) -> int:
@@ -245,7 +237,7 @@ def cmd_undo(args) -> int:
     if not run.is_dir():
         print(f"mem-corroborate: no run {args.stamp}", file=sys.stderr)
         return 2
-    lock = au.take_run_lock(cdir)
+    lock = jobs.take_run_lock(cdir)
     if lock is None:
         print("mem-corroborate: a run is going: try again later", file=sys.stderr)
         return 1
@@ -265,7 +257,7 @@ def cmd_undo(args) -> int:
 
 
 def cmd_status() -> int:
-    data = au.read_json(corroborate_dir(data_dir()) / au.STATUS_NAME)
+    data = jobs.read_json(corroborate_dir(data_dir()) / jobs.STATUS_NAME)
     if not data:
         print("no corroboration run yet")
         return 0
@@ -274,11 +266,11 @@ def cmd_status() -> int:
     if (
         shown == "running"
         and isinstance(started, (int, float))
-        and time.time() - started > au.STALE_RUNNING_SECONDS
+        and time.time() - started > jobs.STALE_RUNNING_SECONDS
     ):
         shown = "failed (a run that did not finish)"
     print(f"last run: state {shown}, cost {float(data.get('cost') or 0):.3f} USD")
-    failure = au.failure(data, time.time())
+    failure = jobs.failure(data, time.time())
     if failure:
         print(f"unacknowledged failure: {failure.get('reason')} (mem-corroborate ack clears it)")
     fill = data.get("fill")
@@ -294,14 +286,14 @@ def cmd_status() -> int:
 
 def cmd_ack() -> int:
     cdir = corroborate_dir(data_dir())
-    current = au.read_json(cdir / au.STATUS_NAME)
+    current = jobs.read_json(cdir / jobs.STATUS_NAME)
     if current:
         changes: dict = {"failure": None}
         started = current.get("started")
         if (
             current.get("state") == "running"
             and isinstance(started, (int, float))
-            and time.time() - started > au.STALE_RUNNING_SECONDS
+            and time.time() - started > jobs.STALE_RUNNING_SECONDS
         ):
             changes["state"] = "failed"
         save_status(cdir, **changes)

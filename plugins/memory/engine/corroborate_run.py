@@ -14,11 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-import auto_state as au
 import capture_state as cs
 import corroborate
 import corroborate_state
 import headless
+import jobs
 import records
 import synth_pipeline as sp
 
@@ -614,7 +614,7 @@ class _Judged:
 
 def _make_run_folder(cdir: Path) -> Path:
     run = cdir / "runs" / f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
-    au.private_dir(run)
+    jobs.private_dir(run)
     return run
 
 
@@ -858,7 +858,7 @@ def _next_state(
 
 
 def _run_pass(ctx: _Run) -> dict:
-    seen = au.read_json(ctx.cdir / "seen.json")
+    seen = jobs.read_json(ctx.cdir / "seen.json")
     refused_seen = seen["refused"] if isinstance(seen.get("refused"), dict) else {}
     world = _read_world(ctx.data)
     lessons = world.collect()
@@ -890,7 +890,7 @@ def _run_pass(ctx: _Run) -> dict:
     corroborate_state.write_private(
         root / "seen-added.json", json.dumps({"marked": sorted(marked)})
     )
-    au.write_json(ctx.cdir / "seen.json", {"refused": marks, **state})
+    jobs.write_json(ctx.cdir / "seen.json", {"refused": marks, **state})
     if gave_up:
         raise StopError(
             "gave up after repeated failures",
@@ -965,7 +965,7 @@ def execute(
     lock = None
     try:
         if not dry_run:
-            lock = au.take_run_lock(ctx.cdir)
+            lock = jobs.take_run_lock(ctx.cdir)
             if lock is None:
                 ctx.line["skipped"] = "another run holds the lock"
                 ctx.finish_log()

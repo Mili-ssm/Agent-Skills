@@ -108,3 +108,16 @@ def test_imports_are_python_311_safe(script: Path) -> None:
         ast.parse(source, filename=str(path), feature_version=(3, 11))
         banned = _banned_uses(ast.parse(source))
         assert not banned, f"{script.name} -> {path.name} uses {sorted(banned)}"
+
+
+@pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)
+def test_a_module_loaded_from_a_file_is_registered_before_it_runs(script: Path) -> None:
+    """Before Python 3.13, `@dataclass` in a module run by `exec_module` looks the module up in `sys.modules`: an
+    unregistered module fails at import on the 3.11 floor while passing on a newer interpreter."""
+    lines = script.read_text(encoding="utf-8").splitlines()
+    for at, line in enumerate(lines):
+        if ".exec_module(" in line:
+            before = "\n".join(lines[max(0, at - 3) : at])
+            assert "sys.modules[" in before, (
+                f"{script.name}:{at + 1} runs a module not in sys.modules"
+            )

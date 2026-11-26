@@ -8,12 +8,12 @@ import stat
 import subprocess
 from pathlib import Path
 
-import auto_state
 import corroborate
 import corroborate_cli
 import corroborate_fill
 import corroborate_run
 import corroborate_state
+import jobs
 import pytest
 import records
 from corroborate_world import (
@@ -869,7 +869,7 @@ def test_the_run_folder_keeps_the_fill_marker_and_the_applied_handles(w, monkeyp
 def test_fill_auto_with_the_lock_taken_writes_nothing(w, monkeypatch):
     one_lesson(w)
     answers(w, monkeypatch)
-    lock = auto_state.take_run_lock(w.cdir)
+    lock = jobs.take_run_lock(w.cdir)
     assert lock is not None
     try:
         result = auto(w)
@@ -991,19 +991,17 @@ def test_status_shows_the_last_fill_and_its_failure(w, capsys):
         "cost": 0.1,
         "stopped": "over budget",
     }
-    auto_state.write_json(w.cdir / "status.json", {"state": "ok", "cost": 0.1, "fill": fill})
+    jobs.write_json(w.cdir / "status.json", {"state": "ok", "cost": 0.1, "fill": fill})
     assert corroborate_state.cmd_status() == 0
     out = capsys.readouterr().out
     assert "last fill: 2 written, 2 refused, 1 to triage, stopped: over budget\n" in out
     quiet = {**fill, "written": 0, "refused_code": 0, "refused_check": 0, "stopped": None}
-    auto_state.write_json(
+    jobs.write_json(
         w.cdir / "status.json", {"state": "ok", "fill": quiet}
     )  # a run that only held a lesson
     assert corroborate_state.cmd_status() == 0
     assert "last fill: 0 written, 0 refused, 1 to triage\n" in capsys.readouterr().out
-    auto_state.write_json(
-        w.cdir / "status.json", {"state": "ok", "fill": {**quiet, "to_triage": 0}}
-    )
+    jobs.write_json(w.cdir / "status.json", {"state": "ok", "fill": {**quiet, "to_triage": 0}})
     assert corroborate_state.cmd_status() == 0
     assert "last fill" not in capsys.readouterr().out
 
@@ -1077,7 +1075,7 @@ def test_a_failing_apply_three_times_in_a_row_makes_the_step_wait(w, monkeypatch
         assert auto(w)["stopped"] == "the apply failed"
         state = attempts(w)
         assert state["failures"]["count"] == n + 1
-        auto_state.write_json(w.cdir / "fill-attempts.json", {**state, "lessons": {}})
+        jobs.write_json(w.cdir / "fill-attempts.json", {**state, "lessons": {}})
     before = calls(w)
     result = auto(w)
     assert result["stopped"] == "waiting for the lessons to change" and calls(w) == before
@@ -1215,7 +1213,7 @@ def test_the_attempts_file_is_private_and_a_failed_write_keeps_the_old_one(w, mo
     def broken(*_args):
         raise OSError("disk")
 
-    monkeypatch.setattr(auto_state.os, "replace", broken)
+    monkeypatch.setattr(os, "replace", broken)
     with pytest.raises(OSError):
         auto(w)
     assert path.read_text() == before
