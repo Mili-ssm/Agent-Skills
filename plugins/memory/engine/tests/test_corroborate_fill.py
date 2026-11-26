@@ -1215,7 +1215,7 @@ def test_the_attempts_file_is_private_and_a_failed_write_keeps_the_old_one(w, mo
     def broken(*_args):
         raise OSError("disk")
 
-    monkeypatch.setattr(auto_state.os, "replace", broken)
+    monkeypatch.setattr(os, "replace", broken)
     with pytest.raises(OSError):
         auto(w)
     assert path.read_text() == before
