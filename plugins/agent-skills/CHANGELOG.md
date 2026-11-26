@@ -7,6 +7,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Changed
 
 - `architecture-principles`: the smell catalog names flat sprawl (many modules in one folder, a shared filename prefix in place of packages) and its remedy, grouping by feature.
+- `architecture-principles`: a new § File size treats file size as a balance, not a limit; the `architect` reads it when it measures file sizes, and measures the call graph before proposing a split.
+- `implementer`: when its task moves, renames, splits or merges modules, it checks that the tests guarding the old names still fail when violated, and reports any it could not prove. Unmeasured (ADR 0013, Review 2026-11-26).
 
 ## [1.2.0] - 2026-11-26
 
