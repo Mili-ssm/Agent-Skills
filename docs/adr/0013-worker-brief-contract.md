@@ -69,3 +69,7 @@ Inside the Superpowers plan loop (ADR 0019) the brief points to the task brief f
 ## Review 2026-11-26
 
 Lessons from the memory engine restructure land in prompt bodies, unmeasured: one `implementer` rule for moves, renames, splits and merges (its text lives in `agents/implementer.md`), and `architecture-principles/references/smells.md` § File size, which the `architect` reads when it measures file sizes. No `description` changed, so no trigger case moves. Kill criteria: an implementer trace that edits a file outside its brief to run a guard check, or an architect report that flags a cohesive file as a god module by size alone, reverts the line concerned.
+
+## Review 2026-11-27
+
+ADR 0039 reduces the brief to four parts (goal with acceptance criteria, scope, decisions with reasons, checks) and has it name files the worker can open instead of restating them; the stop rule and the report format move into every worker's own definition (`shared/fragments/stop-rule.md`, `report-budget.md`), so a brief states one only to change it. The six parts named in this Decision are superseded on that point; the rest stands.

@@ -277,6 +277,7 @@ Five working days after the owner runs the release, rerun the four scripts and r
 | Report budget | landed sizes in the baseline table | each of the five agents' median landed report is at its target or at least 25% under its baseline | follow-ups exceed 15% of dispatches (baseline 5.6%), or the owner reports a finding that a short report hid |
 | Brief by reference | `implementer` brief 3,573 characters; its stop rate from stage 0 | median brief ≤ 2,400 characters | its stop rate exceeds 1.5 times the baseline |
 | Reviewer | 6.0 dispatches per 100 main calls (410 runs over 6,824 calls); a high finding in 15% of reports; 3.5 calls spent opening reported files per report | 4.8 dispatches per 100 main calls or fewer, and 2.5 calls or fewer per report | reports with a high finding fall below 12%, or a defect reaches the owner that a skipped review would have covered |
+| Codex fork (stage 5) | 29 of 30 role spawns forked; first request median 118k input tokens | role children start as `paginated` with a first request under 40k input tokens | a role child still forks, or Codex workers stop for missing context in more than 10% of reports |
 | Waiting (only if D3 changed the text) | 1,000 text-only calls while a dispatch was pending, 15% of main calls | 10% or less | the owner misses progress messages, or parallel dispatches fall |
 
 Escalations, each a separate measured item and Claude Code only:
@@ -299,7 +300,7 @@ A plan task costs the main a dispatch and its re-reading three times over (imple
 
 ## Results
 
-**Evals (2026-11-27).** Every case held its record; the full table, the reviewer's report sizes (2,228 to 2,516 characters landed, baseline 4,750) and the regression found and fixed in review round 1 are in ADR 0039 § Measurement 2026-11-27. Spend 6.7 USD.
+**Evals (2026-11-27).** Every case held its record; the full table, the reviewer's report sizes (2,228 to 2,516 characters landed, baseline 4,750) and the regression found and fixed in review round 1 are in ADR 0039 § Measurement 2026-11-27. Spend 6.9 USD.
 
 **Waiting for a worker (2026-11-27, `claude-code-guide` on code.claude.com docs).** No documented per-dispatch parameter makes the main wait for one subagent. The subagent frontmatter `background: true` only forces background ("even when Claude asks to wait for it"; `sub-agents.md`). `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` removes `run_in_background` from Bash, PowerShell and subagent tools alike (`env-vars.md`). A finished subagent resumes through `SendMessage` with its ID or name, keeping its history (`sub-agents.md`, "Resume subagents"). A `SubagentStop` hook returning `decision: "block"` with a `reason` delivers the reason as the subagent's next instruction (`hooks.md`); a subagent's own `hooks` field is "Ignored for plugin subagents" (`sub-agents.md`), so the stage 7 escalation hook must live in the plugin's `hooks/`, not in an agent file. Codex has `wait_agent` (wait for a mailbox update from any live agent) and `followup_task` (send a task to an existing agent, starting a turn if it is idle): the `Left out:` bullet works there too.
 

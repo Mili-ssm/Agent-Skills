@@ -16,6 +16,7 @@ Status: accepted · Date: 2026-11-27 · Amends 0013, 0017
 3. `skeptical-reviewer` reviews each change once, with no size threshold; round 2 runs only when a fix touches a file or behavior no finding named; low findings are one hedged line each; the plan-loop fix worker verifies findings first and lists the refuted ones (D1).
 4. The offload policy counts calls before tokens: batch independent commands and tool calls; delegate from about eight calls of inline work (twelve for code); rows with their own threshold keep it; no filler messages while waiting (D3).
 5. The Codex port tells Codex to spawn every worker with `fork_turns: "none"` and to wait with `wait_agent`.
+6. A workflow, `plugins/agent-skills/workflows/plan-task.js`, is piloted for one plan task (D2): `implementer`, `skeptical-reviewer` on its commits and one verified fix round, returning only the final result. The owner starts it; the plan loop of `routing.md` changes only after the pilot comparison (plan stage 8) and an ADR, because ADR 0019 chose the loop.
 
 ## Alternatives
 
@@ -40,7 +41,7 @@ The after-read (plan stage 7, five working days after the release) hits a "Rever
 
 ## Measurement 2026-11-27
 
-Eval protocol, Sonnet main model, `--runs 2`, `--scaffold --allow-tools Bash Edit Write`, `claude plugin eval` 2.1.332, branch `feat/main-context-budget` at `a52a2da` (stages 1–5 and review round 1). Records: ADR 0032 Measurement 2026-11-26 (`-with-policy`, `-with-hook`), ADR 0017 (`offload-skeptical-reviewer-quality`). Spend: 6.7 USD, of which 1.6 USD on a first run stopped and discarded after review round 1 changed the measured text.
+Eval protocol, Sonnet main model, `--runs 2`, `--scaffold --allow-tools Bash Edit Write`, `claude plugin eval` 2.1.332, branch `feat/main-context-budget` at `a52a2da` (stages 1–5 and review round 1). Records: ADR 0032 Measurement 2026-11-26 (`-with-policy`, `-with-hook`), ADR 0017 (`offload-skeptical-reviewer-quality`). Spend: 6.9 USD, of which 1.6 USD on a first run stopped and discarded after review round 1 changed the measured text.
 
 | Case | `-with-policy` | `-with-hook` | Record |
 |---|---|---|---|
@@ -53,8 +54,9 @@ Eval protocol, Sonnet main model, `--runs 2`, `--scaffold --allow-tools Bash Edi
 | `offload-skeptical-reviewer-quality` | 2/2 | — | 3/3, 4/6 |
 | `offload-check-runner` (no policy) | 0/2, then 1/6 at 6 runs | — | none recorded; `dev` at 6 runs the same day: 1/6 |
 | `neg-*` (5 cases) | 10/10 silent | — | 10/10 |
-| Canary: `offload-summarizer` · `-with-hook` (first run) | table absent 0/2 · present 2/2 | — | same |
+| Canary: `offload-summarizer` (no table, passes only when delegated) · `offload-summarizer-with-hook` | 0/2 · 2/2, both on the final text | — | same |
 
 - The first run, before review round 1, had `offload-skeptical-reviewer-with-policy` at 0/2 (`delegated` 0/2): the main wrote a 60-line, two-file change and replied without a review. The call-economy rule then said "this rule covers the rest", and a change that small probably fell under its eight-call threshold (inferred: the eval deleted the traces). Round 1 added "`skeptical-reviewer` has no size threshold: it reviews every change", and the case returned to 2/2.
-- Report size: the reviewer's report as it lands in the main measured 2,228, 2,444, 2,452 and 2,516 characters (342 to 407 words with the frame) in four runs (`-quality`, `-with-hook`), against a 4,750-character median baseline and a 2,900 target. The other agents' sizes are left to the after-read (stage 7), because the cases dispatch them with briefs of their own.
-- Two runs per case are too few to claim equivalence or a gain. `implementer` stays at its record: the main writes the 60-line task itself in every arm, before and after.
+- Report size: in four runs (`-quality`, `-with-hook`) the reviewer's report text measured 1,680, 1,902, 1,910 and 2,039 characters (261 to 328 whitespace-separated tokens, table pipes included), 2,228 to 2,516 as it lands in the main with the hand-back frame. Against the baseline of 3,605 characters of text and 4,750 landed, that is about 47% shorter, under the 2,900 landed target. The 270-word cap (1,782 characters at 6.6 per word) held in one run of four; the largest was 1.21 times the cap, below the 1.3 times that triggers the stage 7 hook escalation. The other agents' sizes are left to the after-read (stage 7), because the cases dispatch them with briefs of their own.
+- Two runs per case are too few to claim equivalence or a gain. `implementer` stays at its record: the main never delegated the 60-line task (`delegated` 0/2 in every arm, before and after).
+- `offload-skeptical-reviewer-quality` ran with its graders changed in `a52a2da` (`hedged.md` also judges low lines; `clean-file.md` counts low findings, including a `Left out: K` line); its records 3/3 and 4/6 were scored by the older graders.
