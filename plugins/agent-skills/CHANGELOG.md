@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Worker agents (`skeptical-reviewer`, `implementer`, `fixer`, `check-runner`, `ui-verifier`, `pre-mortem`, `summarizer`, `researcher`) now cap their final report in words through one shared rule (`Left out:` names what was cut; a brief may lower the cap, never raise it), because line caps did not bound length and the main conversation re-reads every report. `doc-curator` gains a stop rule. Reinstall `user-agents/Explore.md` to get its 600-word cap (it replaces "30 lines").
+
 ### Fixed
 
 - Codex: the offload policy now tells Codex to spawn every worker with `fork_turns` set to `"none"`. Without it Codex copies the whole parent conversation into each worker: in local rollouts (Codex 0.171, Nov 2026) 29 of 30 worker spawns did so, and a worker's first request carried a median of 118k input tokens instead of 25.6k, about 1.3M instead of 0.4M input tokens per worker over its run. The role's model and effort were honored either way. Re-copy `user-config/offload-policy.codex.md` into your Codex instructions.

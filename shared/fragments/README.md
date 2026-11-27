@@ -20,6 +20,10 @@ rendered text
 - An unmarked copy is the fragment's full text occupying whole lines (a match inside a longer line does not count).
 - Rendering keeps a file's newline style: a CRLF file stays CRLF; in a file that mixes CRLF and LF, lines outside blocks keep their endings and block content is written with LF.
 
+## Unmarked copies
+
+`user-agents/Explore.md` is installed raw at user scope and takes no markers, so it carries the text of `report-budget` by hand with its cap filled in (600 words). Edit it there when the fragment changes.
+
 ## Commands
 
 Run from `scripts/`; add `--root PATH` to target another repository.

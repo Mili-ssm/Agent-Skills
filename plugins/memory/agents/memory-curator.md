@@ -53,6 +53,14 @@ Report, in place of the Report section below: `applied N, left M`, then one row 
 
 ## Report
 
+<!-- shared:report-budget cap="300 words" -->
+Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 300 words:
+- Open with the result in one or two lines, then what the caller must act on.
+- Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
+- A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
+<!-- /shared:report-budget -->
+
 | Item | Proposed action | Reason |
 |---|---|---|
 

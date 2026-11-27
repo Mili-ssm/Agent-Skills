@@ -40,6 +40,8 @@ Follow the compression workflow in `docs-principles`. Agent-specific additions:
 - When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
 - Delegation rules in your instruction files (copilot-instructions.md, AGENTS.md) address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+
 ## Output
 
 Keep the report ≤ 25 findings, grouped by type (false and stale first, because wrong facts mislead most), the rest as counts per type. Metrics only for files edited or proposed for compression.
