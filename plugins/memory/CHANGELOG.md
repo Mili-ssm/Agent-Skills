@@ -7,7 +7,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 ### Added
 
 - On Codex, plugin options are read from one file per option under `~/.config/agent-memory/` (first line; `$XDG_CONFIG_HOME` honoured), because Codex sets no plugin option variables; a set variable wins (ADR 0038).
-- The five `memory-*` subagents are generated as Codex roles (`ports/codex/memory/agents/*.toml`, from `scripts/port.py`); copy them to `~/.codex/agents/` (README, Codex step 5). The synthesizer finds its skill in Codex's plugin cache there (ADR 0038).
+- The five `memory-*` subagents are generated as Codex roles (`codex-agents/*.toml` inside the plugin, from `scripts/port.py`); copy them to `~/.codex/agents/` (README, Codex step 5). The synthesizer finds its skill in Codex's plugin cache there (ADR 0038).
+- `mem install-command` also installs `mem-research` and `mem-synthesize` launchers, which the Codex roles call; each file is handled on its own and a file that is not ours stays untouched. Re-run it once after updating.
 
 ## [0.18.0] - 2026-11-27
 

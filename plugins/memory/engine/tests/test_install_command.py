@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -34,9 +35,10 @@ def _install(bin_dir: Path, *extra: str) -> int:
 
 def _fake_plugin(root: Path, tag: str) -> None:
     (root / "bin").mkdir(parents=True)
-    exe = root / "bin" / "mem"
-    exe.write_text(f'#!/usr/bin/env bash\necho "{tag}:$*"\n')
-    exe.chmod(0o755)
+    for name in install.LAUNCHERS:
+        exe = root / "bin" / name
+        exe.write_text(f'#!/usr/bin/env bash\necho "{name}:{tag}:$*"\n')
+        exe.chmod(0o755)
 
 
 def _run_launcher(launcher: Path, home: Path, tmp_path: Path):
@@ -49,11 +51,13 @@ def _run_launcher(launcher: Path, home: Path, tmp_path: Path):
 def test_install_writes_an_executable_launcher_with_the_marker(tmp_path, home, capsys):
     bin_dir = tmp_path / "bin"
     assert _install(bin_dir) == 0
-    target = bin_dir / "mem"
-    assert os.access(target, os.X_OK) and target.stat().st_mode & 0o777 == EXEC_MODE
-    assert target.read_text().splitlines()[1] == install.MARKER
     out = capsys.readouterr()
-    assert str(target) in out.out and "not on PATH" in out.err
+    for name in install.LAUNCHERS:
+        target = bin_dir / name
+        assert os.access(target, os.X_OK) and target.stat().st_mode & 0o777 == EXEC_MODE
+        assert target.read_text().splitlines()[1] == install.MARKER
+        assert str(target) in out.out
+    assert "not on PATH" in out.err
     assert _install(bin_dir) == 0  # idempotent
 
 
@@ -67,11 +71,44 @@ def test_install_refuses_a_foreign_file_and_remove_keeps_it(tmp_path, home, caps
     assert "not an agent-memory launcher" in capsys.readouterr().err
 
 
+def test_a_foreign_file_blocks_only_its_own_launcher(tmp_path, home):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "mem-research").write_text("#!/bin/sh\necho mine\n")
+    assert _install(bin_dir) == 1
+    assert (bin_dir / "mem-research").read_text() == "#!/bin/sh\necho mine\n"
+    assert (bin_dir / "mem").exists() and (bin_dir / "mem-synthesize").exists()
+    assert _install(bin_dir, "--remove") == 1
+    assert not (bin_dir / "mem").exists() and not (bin_dir / "mem-synthesize").exists()
+    assert (bin_dir / "mem-research").exists()
+
+
+def test_every_mem_command_the_agents_and_skills_name_gets_a_launcher():
+    root = install.plugin_root()
+    text = "".join(
+        p.read_text(encoding="utf-8")
+        for p in [*(root / "agents").glob("*.md"), *(root / "skills").rglob("*")]
+        if p.is_file()
+    )
+    named = {m for m in re.findall(r"\bmem-[a-z]+\b", text) if (root / "bin" / m).is_file()}
+    assert {"mem-research", "mem-synthesize"} <= named
+    assert named <= set(install.LAUNCHERS)
+
+
 def test_remove_deletes_our_launcher_and_is_idempotent(tmp_path, home):
     assert _install(tmp_path / "bin") == 0
     assert _install(tmp_path / "bin", "--remove") == 0
-    assert not (tmp_path / "bin" / "mem").exists()
+    assert not any((tmp_path / "bin").iterdir())
     assert _install(tmp_path / "bin", "--remove") == 0
+
+
+def test_each_launcher_runs_its_own_plugin_command(tmp_path, home, monkeypatch):
+    root = tmp_path / "root"
+    _fake_plugin(root, "p")
+    monkeypatch.setattr(install, "plugin_root", lambda: root)
+    assert _install(tmp_path / "bin") == 0
+    for name in install.LAUNCHERS:
+        assert _run_launcher(tmp_path / "bin" / name, home, tmp_path).stdout == f"{name}:p:a b\n"
 
 
 @pytest.mark.parametrize(
@@ -90,9 +127,9 @@ def test_launcher_follows_the_record_then_the_embedded_root_then_fails(
     (tmp_path / "data").mkdir()
     record = tmp_path / "data" / install.RECORD_NAME
     record.write_bytes(f"{recorded}{suffix}".encode())
-    assert _run_launcher(launcher, home, tmp_path).stdout == "recorded:a b\n"
+    assert _run_launcher(launcher, home, tmp_path).stdout == "mem:recorded:a b\n"
     shutil.rmtree(recorded)  # the record points at a removed copy
-    assert _run_launcher(launcher, home, tmp_path).stdout == "embedded:a b\n"
+    assert _run_launcher(launcher, home, tmp_path).stdout == "mem:embedded:a b\n"
     shutil.rmtree(embedded)
     r = _run_launcher(launcher, home, tmp_path)
     assert r.returncode == NOT_FOUND and "mem: no plugin copy found" in r.stderr
@@ -114,7 +151,7 @@ def test_launcher_reads_the_record_from_xdg_state_without_mem_data(tmp_path, hom
         text=True,
         check=False,
     )
-    assert r.stdout == "recorded:x\n"
+    assert r.stdout == "mem:recorded:x\n"
 
 
 def test_record_root_writes_once_and_skips_a_symlink(tmp_path, home, monkeypatch):

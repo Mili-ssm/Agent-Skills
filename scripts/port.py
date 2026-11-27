@@ -309,6 +309,14 @@ CODEX = Target(
 TARGETS = (COPILOT, CODEX)
 # Plugins a catalog lists beside agent-skills, served from their source folder with no generated copy (ADR 0036).
 SOURCE_PLUGINS: dict[str, dict[str, str]] = {"codex": {"memory": "plugins/memory"}}
+# Where the Codex roles of a source plugin are generated: inside the plugin, because Codex's plugin cache holds only
+# that folder (the Claude plugin loads agents/*.md only, so these .toml files are inert for it).
+ROLES_DIR = "codex-agents"
+
+
+def role_dirs() -> list[str]:
+    """Folders of generated Codex roles inside source plugins."""
+    return [f"{folder}/{ROLES_DIR}" for folder in SOURCE_PLUGINS["codex"].values()]
 
 
 def catalog_plugins(target: Target) -> list[tuple[str, str]]:
@@ -778,17 +786,15 @@ class Generator:
 
     def agents_for(self, target: Target) -> None:
         """One agent file per Claude agent: a Copilot .agent.md or a Codex role .toml (also for `SOURCE_PLUGINS`)."""
-        groups = [(target.dir, self.src.agents)]
+        for doc in self.src.agents.values():
+            self.agent_file(doc, target, target.dir, f"{target.dir}/agents")
         if target is CODEX:
-            groups += [
-                (f"{PORTS}/codex/{n}", self.src.source_agents[n]) for n in SOURCE_PLUGINS["codex"]
-            ]
-        for folder, agents in groups:
-            for doc in agents.values():
-                self.agent_file(doc, target, folder)
+            for plugin, folder in SOURCE_PLUGINS["codex"].items():
+                for doc in self.src.source_agents[plugin].values():
+                    self.agent_file(doc, target, folder, f"{folder}/{ROLES_DIR}")
 
-    def agent_file(self, doc: Doc, target: Target, folder: str) -> None:
-        """One agent's file under `folder`."""
+    def agent_file(self, doc: Doc, target: Target, folder: str, role_dir: str) -> None:
+        """One agent's file: a Copilot .agent.md under `folder`, a Codex role .toml in `role_dir`."""
         name, fm = doc.name, doc.fm
         description = self.t(fm["description"], target, f"agents/{name}.md:description")
         instructions = self.instructions(doc, target)
@@ -818,7 +824,7 @@ class Generator:
             ]
             if not needs_codex_shell(fm):
                 lines += ["", "[features]", "shell_tool = false"]
-            self.put_instruction(f"{folder}/agents/{name}.toml", "\n".join(lines) + "\n", target)
+            self.put_instruction(f"{role_dir}/{name}.toml", "\n".join(lines) + "\n", target)
 
     def catalogs(self) -> None:
         """One marketplace file per tool: agent-skills, plus the source plugins of `SOURCE_PLUGINS`."""
@@ -969,6 +975,19 @@ def generate(src: Sources) -> tuple[dict[str, Blob], list[str]]:
 # --- writing and drift ------------------------------------------------------------------------
 
 
+def prune(base: Path, folder: str, files: dict[str, Blob]) -> int:
+    """Delete the files under `base/folder` that are not generated, then empty folders; return the files removed."""
+    removed = 0
+    root = base / folder
+    for path in sorted(root.rglob("*"), reverse=True) if root.is_dir() else []:
+        if path.is_file() and path.relative_to(base).as_posix() not in files:
+            path.unlink()
+            removed += 1
+        elif path.is_dir() and not any(path.iterdir()):
+            path.rmdir()
+    return removed
+
+
 def sync(files: dict[str, Blob], base: Path) -> tuple[int, int]:
     """Make `base` hold exactly `files` under ports/ and write the single files; return (written, removed)."""
     written = 0
@@ -984,14 +1003,7 @@ def sync(files: dict[str, Blob], base: Path) -> tuple[int, int]:
         path.write_bytes(blob.data)
         path.chmod(0o755 if blob.executable else 0o644)
         written += 1
-    removed = 0
-    ports = base / PORTS
-    for path in sorted(ports.rglob("*"), reverse=True) if ports.is_dir() else []:
-        if path.is_file() and path.relative_to(base).as_posix() not in files:
-            path.unlink()
-            removed += 1
-        elif path.is_dir() and not any(path.iterdir()):
-            path.rmdir()
+    removed = sum(prune(base, folder, files) for folder in (PORTS, *role_dirs()))
     return written, removed
 
 
@@ -1011,7 +1023,8 @@ def drift(fresh: Path) -> list[str]:
             errors.append(f"{rel}: executable bit differs; run python3 scripts/port.py")
     errors.extend(
         f"{p.relative_to(ROOT).as_posix()}: extra file, not generated; run python3 scripts/port.py"
-        for p in sorted((ROOT / PORTS).rglob("*"))
+        for folder in (PORTS, *role_dirs())
+        for p in sorted((ROOT / folder).rglob("*"))
         if p.is_file() and p.relative_to(ROOT).as_posix() not in wanted
     )
     return errors
@@ -1207,9 +1220,9 @@ class Verifier:
         )
         self.common(check, doc, COPILOT, body)
 
-    def codex_agent(self, doc: Doc, folder: str = CODEX.dir) -> None:
+    def codex_agent(self, doc: Doc, role_dir: str = f"{CODEX.dir}/agents") -> None:
         fm = doc.fm
-        rel = f"{folder}/agents/{doc.name}.toml"
+        rel = f"{role_dir}/{doc.name}.toml"
         text = self.read(rel)
         if text is None:
             return
@@ -1403,7 +1416,7 @@ class Verifier:
         """The Codex roles generated from the agents of the `SOURCE_PLUGINS` plugins."""
         for plugin, agents in self.src.source_agents.items():
             for doc in agents.values():
-                self.codex_agent(doc, f"{PORTS}/codex/{plugin}")
+                self.codex_agent(doc, f"{SOURCE_PLUGINS['codex'][plugin]}/{ROLES_DIR}")
 
     def run(self) -> list[str]:
         for doc in self.src.agents.values():

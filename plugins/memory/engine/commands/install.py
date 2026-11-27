@@ -1,4 +1,4 @@
-"""`mem install-command` (ADR 0036): put `mem` on PATH for every tool, and the plugin-root record it follows.
+"""`mem install-command` (ADR 0036): put `mem` (and `mem-research`, `mem-synthesize`) on PATH for every tool, and the plugin-root record it follows.
 
 The plugin lives in a versioned cache folder that moves with every update, so the launcher does not embed one path:
 it reads `<state dir>/plugin-root`, which each session start refreshes (`record_root`), and falls back to the root
@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 MARKER = "# agent-memory launcher (mem install-command)"
 RECORD_NAME = "plugin-root"
 _EXEC_MODE = 0o755
+# Commands the Codex roles and skills call by name; each launcher runs the plugin's `bin/<name>`.
+LAUNCHERS = ("mem", "mem-research", "mem-synthesize")
 
 # Bash twin of `jobs.state_dir()`: MEM_DATA, else $XDG_STATE_HOME/agent-memory (default ~/.local/state); empty is unset.
 _LAUNCHER = """#!/usr/bin/env bash
@@ -33,14 +35,14 @@ rec="${{rec%$'\\r'}}"
 emb={embedded}
 marker={marker_q}
 for cand in "$rec" "$emb"; do
-  [ -n "$cand" ] && [ -x "$cand/bin/mem" ] || continue
-  [ "$cand/bin/mem" -ef "$0" ] && continue
+  [ -n "$cand" ] && [ -x "$cand/bin/{name}" ] || continue
+  [ "$cand/bin/{name}" -ef "$0" ] && continue
   line=""
-  {{ IFS= read -r line; IFS= read -r line; }} < "$cand/bin/mem" 2>/dev/null
+  {{ IFS= read -r line; IFS= read -r line; }} < "$cand/bin/{name}" 2>/dev/null
   [ "$line" = "$marker" ] && continue
-  exec "$cand/bin/mem" "$@"
+  exec "$cand/bin/{name}" "$@"
 done
-printf 'mem: no plugin copy found; start a Claude Code or Codex session once, or reinstall with %s/bin/mem install-command\n' "$emb" >&2
+printf '{name}: no plugin copy found; start a Claude Code or Codex session once, or reinstall with %s/bin/mem install-command\n' "$emb" >&2
 exit 127
 """
 
@@ -77,8 +79,9 @@ def record_root() -> None:
         _write_record()
 
 
-def launcher_text(root: Path) -> str:
+def launcher_text(root: Path, name: str = "mem") -> str:
     return _LAUNCHER.format(
+        name=name,
         marker=MARKER,
         marker_q=shlex.quote(MARKER),
         record=RECORD_NAME,
@@ -96,9 +99,9 @@ def _is_ours(path: Path) -> bool:
     return len(lines) > 1 and lines[1] == MARKER
 
 
-def cmd_install_command(args: argparse.Namespace) -> int:
-    bin_dir = Path(args.bin_dir).expanduser() if args.bin_dir else default_bin_dir()
-    target = bin_dir / "mem"
+def _one(bin_dir: Path, name: str, remove: bool) -> int:
+    """Install or remove the launcher `name`; a file that is not ours stays untouched (returns 1)."""
+    target = bin_dir / name
     exists = target.exists() or target.is_symlink()
     if exists and not _is_ours(target):
         print(
@@ -106,27 +109,40 @@ def cmd_install_command(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 1
-    if args.remove:
+    if remove:
         if exists:
             target.unlink()
         print(f"removed {target}" if exists else f"nothing to remove at {target}")
         return 0
     bin_dir.mkdir(parents=True, exist_ok=True)
-    safe_io.replace_file(target, launcher_text(plugin_root()).encode(), _EXEC_MODE)
+    safe_io.replace_file(target, launcher_text(plugin_root(), name).encode(), _EXEC_MODE)
     print(f"installed {target}")
+    return 0
+
+
+def _warn_off_path(bin_dir: Path) -> None:
     on_path = str(bin_dir.resolve()) in {
         str(Path(p).resolve()) for p in os.environ.get("PATH", "").split(os.pathsep) if p
     }
     if not on_path:
         print(f"warning: {bin_dir} is not on PATH; add it so `mem` resolves", file=sys.stderr)
-    return 0
+
+
+def cmd_install_command(args: argparse.Namespace) -> int:
+    bin_dir = Path(args.bin_dir).expanduser() if args.bin_dir else default_bin_dir()
+    failed = sum(_one(bin_dir, name, args.remove) for name in LAUNCHERS)
+    if not args.remove:
+        _warn_off_path(bin_dir)
+    return 1 if failed else 0
 
 
 def add_parser(sub: Any) -> None:
     cmd = sub.add_parser(
         "install-command",
-        help="install `mem` as a command on PATH (a launcher that follows the plugin)",
+        help="install `mem`, `mem-research` and `mem-synthesize` as commands on PATH (launchers that follow the plugin)",
     )
-    cmd.add_argument("--remove", action="store_true", help="delete the launcher this command wrote")
+    cmd.add_argument(
+        "--remove", action="store_true", help="delete the launchers this command wrote"
+    )
     cmd.add_argument("--bin-dir", metavar="DIR", help="where to put it (default: ~/.local/bin)")
     cmd.set_defaults(func=cmd_install_command)

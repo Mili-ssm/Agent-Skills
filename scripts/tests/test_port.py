@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tomllib
 from types import SimpleNamespace
@@ -365,7 +366,7 @@ def test_codex_rewrites_leave_copilot_and_unkeyed_text_alone(sources):
 
 # --- memory agents as Codex roles (ADR 0038) ----------------------------------------------------
 
-MEMORY_ROLES = port.ROOT / "ports" / "codex" / "memory" / "agents"
+MEMORY_ROLES = port.ROOT / "plugins" / "memory" / "codex-agents"
 MEMORY_AGENT_COUNT = 5
 MEMORY_AGENT_FILES = sorted((port.ROOT / "plugins" / "memory" / "agents").glob("*.md"))
 
@@ -429,15 +430,15 @@ def _fake_repo(tmp_path, monkeypatch):
 @pytest.mark.parametrize("change", ["stale", "missing", "model"])
 def test_check_fails_when_a_memory_role_is_stale(tmp_path, monkeypatch, capsys, change):
     _fake_repo(tmp_path, monkeypatch)
-    role = tmp_path / "ports" / "codex" / "memory" / "agents" / "memory-curator.toml"
+    role = tmp_path / "plugins" / "memory" / "codex-agents" / "memory-curator.toml"
     if change == "stale":
         role.write_text(role.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
     elif change == "missing":
         role.unlink()
     else:
         role.write_text(
-            role.read_text(encoding="utf-8").replace(
-                'model_reasoning_effort = "low"', 'model_reasoning_effort = "high"'
+            re.sub(
+                r'(?m)^model = ".*"$', 'model = "other-model"', role.read_text(encoding="utf-8")
             ),
             encoding="utf-8",
         )
