@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from unittest import mock
 
 import pytest
 from entry import integrate as entry
@@ -77,6 +78,15 @@ def test_self_check_never_uses_the_callers_mem_variables(tmp_path, monkeypatch, 
     assert entry.self_check() == 0
     assert list(sentinel.iterdir()) == []
     assert "self-check passed" in capsys.readouterr().out
+
+
+def test_self_check_clears_every_mem_variable_it_does_not_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("MEM_SOMETHING_ELSE", "caller")
+    monkeypatch.setenv("MEM_PROJECT", "caller")
+    with mock.patch.dict(os.environ):
+        entry._isolate(tmp_path)
+        assert "MEM_SOMETHING_ELSE" not in os.environ
+        assert os.environ["MEM_PROJECT"] == str(tmp_path / "project")
 
 
 def test_self_check_restores_the_environment(monkeypatch):

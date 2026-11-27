@@ -4,11 +4,13 @@ on canned snapshots of a store (relative path -> text)."""
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 import sys
 from pathlib import Path
 from typing import Any
 
+import pytest
 from syntheses import units
 
 TRIAL = Path(__file__).resolve().parents[3] / "evals" / "integrate" / "run_trial.py"
@@ -17,6 +19,7 @@ SYN = "db-indexing"
 PART = f"{SYN}#structures"
 OTHER_PART = f"{SYN}#selection"
 FIRST, SECOND = "First fact.", "Second fact."
+MIN_APPEND_SEEDS = 15
 
 
 def _load() -> Any:
@@ -95,7 +98,7 @@ def _after(*attached: tuple[str, str], part: str = BASE_PART) -> dict[str, str]:
     return _store({"structures": part, "selection": BASE_PART}, _member(part), *attached)
 
 
-RECORD = {"cost": 0.1, "estimate": 0.2, "undo_identical": True}
+RECORD = {"cost": 0.1, "estimate": {"sessions": 0.2, "audit": 0.05}, "undo_identical": True}
 
 
 def _grade(trial: Any, before: dict, after: dict, *notes: dict, record: dict | None = None) -> dict:
@@ -199,8 +202,10 @@ def _graded(**changes: Any) -> dict:
         "other_changes": [],
         "stale_to_current": [],
         "undo_identical": True,
+        "integrated": 20,
+        "run_failures": [],
         "cost": 0.1,
-        "estimate": 0.2,
+        "estimate": {"sessions": 0.2, "audit": 0.05},
     }
     return {**ok, **changes}
 
@@ -211,7 +216,7 @@ def _by_name(result: dict) -> dict:
 
 def test_totals_verdict_kills_on_one_wrong_attachment():
     trial = _load()
-    assert trial.totals_verdict(_graded(), unbacked=0)["verdict"] == "pass"
+    assert trial.totals_verdict(_graded(), unbacked=0, audit_cost=0.05)["verdict"] == "pass"
     bad = trial.totals_verdict(_graded(wrong_attachments=[{"note": "n"}]), unbacked=0)
     assert bad["verdict"].startswith("kill") and _by_name(bad)["wrong attachment"] == {
         "name": "wrong attachment",
@@ -228,13 +233,13 @@ def test_totals_verdict_each_other_criterion():
         "another note changed": _graded(other_changes=[{"note": "x"}]),
         "stale to current": _graded(stale_to_current=["x"]),
         "undo": _graded(undo_identical=False),
-        "cost": _graded(cost=0.41),
+        "cost": _graded(cost=0.46),
     }
     for name, graded in cases.items():
-        result = trial.totals_verdict(graded, unbacked=0)
+        result = trial.totals_verdict(graded, unbacked=0, audit_cost=0.05)
         assert result["verdict"].startswith("kill") and _by_name(result)[name]["ok"] is False, name
     assert trial.totals_verdict(_graded(), unbacked=2)["verdict"].startswith("kill")
-    assert trial.totals_verdict(_graded(), unbacked=1)["verdict"] == "pass"
+    assert trial.totals_verdict(_graded(), unbacked=1, audit_cost=0.05)["verdict"] == "pass"
 
 
 def test_totals_verdict_waits_for_the_audit():
@@ -246,3 +251,160 @@ def test_totals_verdict_waits_for_the_audit():
     )
     killed = trial.totals_verdict(_graded(wrong_attachments=[{"note": "n"}]))
     assert killed["verdict"].startswith("kill")  # a failed criterion needs no audit
+
+
+def test_cost_bar_holds_the_sessions_alone_until_the_audit_cost_is_known():
+    trial = _load()
+    open_bar = trial.totals_verdict(_graded(), unbacked=0)
+    assert open_bar["verdict"] == "pending: cost" and _by_name(open_bar)["cost"]["ok"] is None
+    over = trial.totals_verdict(
+        _graded(cost=0.41), unbacked=0
+    )  # twice the sessions estimate is 0.40
+    assert over["verdict"] == "kill: cost"
+
+
+def test_cost_bar_closes_on_the_total_against_twice_the_sum():
+    trial = _load()  # sessions 0.2 + audit 0.05: the bar is 0.50
+    assert trial.totals_verdict(_graded(cost=0.4), unbacked=0, audit_cost=0.1)["verdict"] == "pass"
+    late = trial.totals_verdict(_graded(cost=0.4), unbacked=0, audit_cost=0.11)
+    assert late["verdict"] == "kill: cost" and _by_name(late)["cost"]["count"] == pytest.approx(
+        0.51
+    )
+
+
+def test_an_audit_estimate_is_sized_from_the_listing_not_the_seed_file():
+    trial = _load()
+    seed = trial.load_seed()
+    listing = trial.expected_listing(seed)
+    appended = [e for e in seed["notes"] if e["label"] == "append"]
+    assert listing.count("### Item ") == len(appended) > MIN_APPEND_SEEDS
+    both = trial.estimates(seed, 0.1)
+    assert (
+        both["sessions"] == pytest.approx(0.1) and both["total"] == both["sessions"] + both["audit"]
+    )
+    assert both["audit"] == trial.audit_estimate_usd(trial.AUDIT_PROMPT.format(items=listing))
+
+
+def test_a_run_with_a_failed_session_is_void_not_a_pass():
+    trial = _load()
+    result = trial.totals_verdict(
+        _graded(run_failures=["alpha: the session failed"]), unbacked=0, audit_cost=0.05
+    )
+    assert result["verdict"] == "void: run failures: alpha: the session failed"
+
+
+def test_a_run_that_integrated_nothing_is_void_not_a_pass():
+    trial = _load()
+    result = trial.totals_verdict(_graded(integrated=0), unbacked=0, audit_cost=0.05)
+    assert result["verdict"] == "void: no note was integrated"
+
+
+def test_undo_comparison_skips_the_git_folder_and_the_curation_log_only(tmp_path):
+    trial = _load()
+    for rel, text in {
+        ".gitignore": "x",
+        ".git/HEAD": "y",
+        ".curation-log": "z",
+        "knowledge/a/.curation-log": "z",
+        ".gitattributes": "w",
+        "knowledge/a/n.md": "n",
+    }.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text, encoding="utf-8")
+    assert set(trial.file_bytes(tmp_path)) == {".gitignore", ".gitattributes", "knowledge/a/n.md"}
+
+
+def test_a_note_cited_in_a_part_its_label_does_not_allow_is_wrong_whatever_part_of_says():
+    trial = _load()
+    before = _before(_note("n-away", "Away claim."), _note("n-never", "Never claim."))
+    stray = BASE_PART.replace(
+        "\n\nSources", f"\n\nAway claim.{_ref('n-away')} Never claim.{_ref('n-never')}\n\nSources"
+    )
+    after = _store(
+        {"structures": _appended("n-away", "Away claim."), "selection": stray},
+        _member(BASE_PART),
+        _note("n-away", "Away claim.", part_of=PART, stamp="x"),
+        _note("n-never", "Never claim."),  # no part_of: only its citation shows
+    )
+    graded = _grade(
+        trial,
+        before,
+        after,
+        _label("n-away", "append", PART),
+        _label("n-never", "on-topic-no-fit"),
+    )
+    found = {w["note"]: w["why"] for w in graded["wrong_attachments"]}
+    assert set(found) == {"n-away", "n-never"}
+    assert OTHER_PART in found["n-away"] and OTHER_PART in found["n-never"]
+
+
+def test_another_note_is_compared_by_raw_bytes_and_a_created_note_is_reported():
+    trial = _load()
+    before = _before(_note("quiet", "Quiet claim."))
+    path = "knowledge/indexing/quiet.md"
+    crlf = before[path].replace("\n", "\r\n")
+    found = _grade(trial, before, {**before, path: crlf})["other_changes"]
+    assert [(c["note"], c["fields"]) for c in found] == [("quiet", ["body"])]
+    created = _grade(trial, before, {**before, **dict([_note("surprise", "New.")])})[
+        "other_changes"
+    ]
+    assert [(c["note"], c["fields"]) for c in created] == [("surprise", ["created"])]
+
+
+def test_snapshot_keeps_the_line_endings_on_disk(tmp_path):
+    trial = _load()
+    (tmp_path / "knowledge" / "t").mkdir(parents=True)
+    (tmp_path / "knowledge" / "t" / "n.md").write_bytes(b"---\r\nclaim: x\r\n---\r\n\r\nBody\r\n")
+    assert trial.snapshot(tmp_path)["knowledge/t/n.md"].endswith("Body\r\n")
+
+
+def test_seed_handles_describe_the_subject_only():
+    trial = _load()
+    seed = trial.load_seed()
+    hints = {
+        "dup",
+        "same",
+        "nofit",
+        "wrong",
+        "stale",
+        "old",
+        "disputed",
+        "duplicate",
+        "superseded",
+        "append",
+        "fit",
+    }
+    handles = [n["slug"] for n in (*seed["members"], *seed["notes"])]
+    assert len(handles) == len(set(handles))
+    assert [h for h in handles if hints & set(h.split("-"))] == []
+
+
+def test_seed_keeps_its_label_counts():
+    trial = _load()
+    labels = [n["label"] for n in trial.load_seed()["notes"]]
+    minimum = {"append": 16, "belongs-existing-sentence": 5, "duplicate-of-existing": 3}
+    minimum |= {"on-topic-no-fit": 4, "superseded": 2, "disputed": 2}
+    assert all(labels.count(k) >= v for k, v in minimum.items()), minimum
+
+
+def test_verdict_command_closes_a_saved_result(tmp_path, capsys):
+    trial = _load()
+    graded = _graded(
+        by_label={label: {"seeded": 1, "attached": 1, "wrong": 0} for label in trial.LABELS},
+        appended=[],
+        wrong_sentences=[],
+        undo_differences=[],
+    )
+    saved = {
+        **graded,
+        "run": {"run_id": "r1", "failures": []},
+        "verdict": "pending: unbacked sentences",
+    }
+    path = tmp_path / "result.json"
+    path.write_text(json.dumps(saved), encoding="utf-8")
+    assert trial.main(["verdict", str(path), "--unbacked", "0", "--audit-cost", "0.05"]) == 0
+    assert capsys.readouterr().out.strip().endswith("verdict: pass")
+    assert trial.main(["verdict", str(path), "--unbacked", "3"]) == 0
+    assert capsys.readouterr().out.strip().endswith("verdict: kill: unbacked sentences")
+    with pytest.raises(SystemExit):
+        trial.main(["verdict", str(path)])  # --unbacked is required

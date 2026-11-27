@@ -595,6 +595,8 @@ def _fake_claude(tmp: Path, replies: list[str]) -> Path:
 def _isolate(tmp: Path) -> None:
     """Point every state folder at `tmp`, so the check never touches the owner's data. Changes `os.environ`:
     call it inside `mock.patch.dict(os.environ)`."""
+    for name in [k for k in os.environ if k.startswith("MEM_")]:
+        os.environ.pop(name)  # every one the check does not set below
     for name, folder in (
         ("MEM_DATA", "data"),
         ("XDG_DATA_HOME", "share"),
@@ -602,10 +604,6 @@ def _isolate(tmp: Path) -> None:
         ("XDG_CONFIG_HOME", "cfg"),
     ):
         os.environ[name] = str(tmp / folder)
-    for name in [k for k in os.environ if k.startswith("MEM_SETTLE_")]:
-        os.environ.pop(name)
-    for name in ("MEM_STORE", "MEM_MEMORIES"):
-        os.environ.pop(name, None)
 
 
 def _check_flow(place_check: tuple[str, str] | None) -> None:

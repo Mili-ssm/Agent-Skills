@@ -122,8 +122,8 @@
  ],
  "notes": [
   {
-   "slug": "partial-index-small",
-   "claim": "Partial indexes cover only the rows that match a condition, so they stay small.",
+   "slug": "radix-shared-prefix",
+   "claim": "A radix tree index stores keys grouped by their shared prefixes.",
    "label": "append",
    "part": "s:db-indexing#structures"
   },
@@ -147,7 +147,7 @@
   },
   {
    "slug": "lsm-buffered-writes",
-   "claim": "LSM-tree indexes buffer writes in memory and merge them into sorted files later.",
+   "claim": "LSM-tree indexes keep recent entries in a memory table and merge them into sorted files on disk.",
    "label": "append",
    "part": "s:db-indexing#structures"
   },
@@ -171,19 +171,19 @@
   },
   {
    "slug": "leading-wildcard",
-   "claim": "A leading wildcard in a text pattern defeats an ordinary B-tree index.",
+   "claim": "A text search whose pattern starts with a wildcard cannot use an ordinary index and scans the table.",
    "label": "append",
    "part": "s:db-indexing#selection"
   },
   {
    "slug": "foreign-key-index",
-   "claim": "Foreign key columns are common candidates for an index.",
+   "claim": "Foreign key columns often need an index so that deleting a parent row does not scan the child table.",
    "label": "append",
    "part": "s:db-indexing#selection"
   },
   {
-   "slug": "check-query-plan",
-   "claim": "Compare the query plan before and after adding an index to confirm that it is used.",
+   "slug": "start-from-slow-queries",
+   "claim": "Choosing indexes starts from the slowest queries of the workload, not from the table definitions.",
    "label": "append",
    "part": "s:db-indexing#selection"
   },
@@ -200,8 +200,8 @@
    "part": "s:db-indexing#maintenance"
   },
   {
-   "slug": "fill-factor",
-   "claim": "A fill factor below one hundred percent leaves room in pages and reduces page splits.",
+   "slug": "monitor-index-size",
+   "claim": "Watching the size of each index over time shows growth before it becomes a problem.",
    "label": "append",
    "part": "s:db-indexing#maintenance"
   },
@@ -218,8 +218,8 @@
    "part": "s:db-indexing#maintenance"
   },
   {
-   "slug": "schedule-reindex",
-   "claim": "Reindexing on a schedule is unnecessary for indexes that stay compact.",
+   "slug": "reorganize-vs-rebuild",
+   "claim": "Reorganizing an index in place is lighter than a full rebuild but reclaims less space.",
    "label": "append",
    "part": "s:db-indexing#maintenance"
   },
@@ -259,21 +259,21 @@
    "sentence": 3
   },
   {
-   "slug": "dup-covering",
+   "slug": "index-only-answer",
    "claim": "A covering index answers a query without reading the table.",
    "label": "duplicate-of-existing",
    "part": "s:db-indexing#selection",
    "sentence": 5
   },
   {
-   "slug": "dup-rebuild",
+   "slug": "reindex-compactness",
    "claim": "Rebuilding a bloated index restores its compactness.",
    "label": "duplicate-of-existing",
    "part": "s:db-indexing#maintenance",
    "sentence": 4
   },
   {
-   "slug": "dup-hash-order",
+   "slug": "hash-unordered-sort",
    "claim": "A hash index gives no ordering, so it cannot help a sort.",
    "label": "duplicate-of-existing",
    "part": "s:db-indexing#structures",
@@ -290,8 +290,8 @@
    "label": "on-topic-no-fit"
   },
   {
-   "slug": "restore-backups",
-   "claim": "Backups should be restored regularly to prove that they work.",
+   "slug": "tls-in-transit",
+   "claim": "Database connections should use TLS to protect data in transit.",
    "label": "on-topic-no-fit"
   },
   {

@@ -14,6 +14,7 @@ Labels (fixed by the commit that adds `seed.json`, before any paid run): `append
 `on-topic-no-fit`, `duplicate-of-existing`, `superseded`, `disputed`. See README.md for the kill criteria.
 
 Usage: run_trial.py --self-check | --dry-run | --budget USD --claude PATH [--out DIR]
+       run_trial.py verdict RESULT_JSON --unbacked N [--audit-cost USD]
 The paid run needs the owner's cap (`--budget`) and is never started by `--self-check` or `--dry-run`."""
 
 from __future__ import annotations
@@ -52,7 +53,8 @@ MIN_SEEDED = 30
 MIN_APPEND = 15
 MAX_UNBACKED = 1
 COST_FACTOR = 2
-LOGS = (".git", ".curation-log")
+GIT_DIR = ".git"
+CURATION_LOG = ".curation-log"
 SNAPSHOT_GLOBS = ("knowledge/*/*.md", "syntheses/*.md")
 
 # Cost estimate. `shared/models.toml` holds only relative costs (no prices), so the Haiku price is a named
@@ -74,13 +76,19 @@ labels = {n["slug"]: n for n in json.load(open(os.environ["FAKE_SEED"]))["notes"
 found = re.search(r"(/\\S+/(place|check)\\.json)", " ".join(sys.argv))
 kind, data = found.group(2), json.load(open(found.group(1)))
 lines = []
+wrong_slug, _, wrong_kind = os.environ.get("FAKE_WRONG", "").partition(":")
 if kind == "place":
     fingerprints = {p["part"]: p["fingerprint"] for p in data["parts"]}
     for note in data["notes"]:
         slug, label = note["note"], labels.get(note["note"], {})
-        if slug == os.environ.get("FAKE_WRONG"):
-            part = next(iter(fingerprints))
-            lines.append(f"{slug} | {part} | append | {fingerprints[part]}")
+        if slug == wrong_slug:
+            home = label.get("part", next(iter(fingerprints)))
+            part = {
+                "first-part": next(iter(fingerprints)),
+                "other-part": next(p for p in fingerprints if p != home),
+            }.get(wrong_kind, home)
+            mode = f"unit {3 - label.get('sentence', 1)}" if wrong_kind == "other-sentence" else "append"
+            lines.append(f"{slug} | {part} | {mode} | {fingerprints[part]}")
         elif label.get("label") == "append":
             lines.append(f"{slug} | {label['part']} | append | {fingerprints[label['part']]}")
         elif "sentence" in label:
@@ -107,21 +115,26 @@ class NoteFile(NamedTuple):
 
 
 def snapshot(store: Path) -> dict[str, str]:
-    """Relative path -> text of every note and synthesis file."""
+    """Relative path -> text of every note and synthesis file; the line endings are kept as they are on disk."""
     return {
-        p.relative_to(store).as_posix(): p.read_text(encoding="utf-8")
+        p.relative_to(store).as_posix(): p.read_bytes().decode("utf-8")
         for pattern in SNAPSHOT_GLOBS
         for p in sorted(store.glob(pattern))
         if p.name != "README.md"
     }
 
 
+def _is_log(rel: Path) -> bool:
+    return GIT_DIR in rel.parts or rel.name == CURATION_LOG
+
+
 def file_bytes(store: Path) -> dict[str, bytes]:
-    """Every file of the store by relative path, minus the logs (`.git`, `.curation-log`)."""
+    """Every file of the store by relative path, minus the `.git` folder and the curation log files (`.gitignore`
+    and every other dotfile are compared)."""
     return {
         p.relative_to(store).as_posix(): p.read_bytes()
         for p in sorted(store.rglob("*"))
-        if p.is_file() and not any(part.startswith(LOGS) for part in p.relative_to(store).parts)
+        if p.is_file() and not _is_log(p.relative_to(store))
     }
 
 
@@ -131,7 +144,10 @@ def _note_files(snap: dict[str, str]) -> dict[str, NoteFile]:
         if not rel.startswith("knowledge/"):
             continue
         try:
-            meta, body, _ = split_frontmatter(text)
+            meta, _, line = split_frontmatter(text)
+            body = "\n".join(
+                text.removeprefix("\ufeff").split("\n")[line - 1 :]
+            )  # raw: line endings kept
         except FrontmatterError:
             meta, body = {}, text
         out[Path(rel).stem] = NoteFile(meta if isinstance(meta, dict) else {}, body)
@@ -185,12 +201,42 @@ def _judge(entry: dict, placed: Placed | None) -> str | None:
     return None
 
 
-def _wrong(entries: list[dict], placed: dict[str, Placed]) -> tuple[list[dict], list[dict]]:
+def _cited(
+    entries: list[dict], rels: dict[str, str], parts: dict[str, str]
+) -> dict[str, list[str]]:
+    """Seeded note -> every part of the store after the run whose units cite it, whatever its `part_of` says."""
+    out: dict[str, list[str]] = {}
+    for entry in entries:
+        if entry["slug"] not in rels:
+            continue
+        target = f"../{rels[entry['slug']]}"
+        out[entry["slug"]] = [
+            key
+            for key in parts
+            if any(target in (posixpath.normpath(r) for r in u.refs) for u in _units(parts, key))
+        ]
+    return out
+
+
+def _stray(entry: dict, cited: list[str]) -> str | None:
+    """Why a citation in a part the label does not allow is a wrong attachment, or None."""
+    allowed = set() if entry["label"] in NEVER_LABELS else {entry["part"].removeprefix("s:")}
+    elsewhere = [key for key in cited if key not in allowed]
+    return (
+        f"cited in {', '.join(elsewhere)}, the label allows {sorted(allowed) or 'no part'}"
+        if elsewhere
+        else None
+    )
+
+
+def _wrong(
+    entries: list[dict], placed: dict[str, Placed], cited: dict[str, list[str]]
+) -> tuple[list[dict], list[dict]]:
     """(wrong attachments, notes joined to another sentence of the right part)."""
     wrong, sentence = [], []
     for entry in entries:
         where = placed.get(entry["slug"])
-        why = _judge(entry, where)
+        why = _judge(entry, where) or _stray(entry, cited.get(entry["slug"], []))
         if why:
             wrong.append({"note": entry["slug"], "label": entry["label"], "why": why})
         elif where and entry["label"] in UNIT_LABELS and where.sentence != entry.get("sentence"):
@@ -233,6 +279,7 @@ def _other_changes(
             fields = sorted([*fields, "body"])
         if fields:
             out.append({"note": slug, "fields": fields})
+    out += [{"note": slug, "fields": ["created"]} for slug in sorted(after.keys() - before.keys())]
     return out
 
 
@@ -273,7 +320,8 @@ def grade(
         for s in integrated
     }
     entries = seed["notes"]
-    wrong, wrong_sentences = _wrong(entries, placed)
+    cited = _cited(entries, rels, parts_after)
+    wrong, wrong_sentences = _wrong(entries, placed, cited)
     by_label = {
         label: {
             "seeded": sum(e["label"] == label for e in entries),
@@ -295,6 +343,7 @@ def grade(
             notes_before, notes_after, (parts_before, parts_after), rels
         ),
         "undo_identical": record.get("undo_identical"),
+        "run_failures": record.get("run_failures", []),
         "cost": record["cost"],
         "estimate": record.get("estimate"),
         "cost_per_note": record["cost"] / len(integrated) if integrated else None,
@@ -305,10 +354,37 @@ def _criterion(name: str, count: object, ok: bool | None) -> dict:
     return {"name": name, "count": count, "ok": ok}
 
 
-def totals_verdict(graded: dict, unbacked: int | None = None) -> dict:
-    """The kill criteria, each as pass/fail (`ok` None: not known yet) with its count. `unbacked` is the number of
-    appended sentences the Sonnet audit found not backed by their notes (None before the audit)."""
+def _cost_criterion(graded: dict, audit_cost: float | None) -> dict:
+    """The cost bar: twice the estimate. The run's total (sessions plus audit) against twice the sum of both
+    estimates once the audit cost is known; before, the sessions alone against twice their own estimate (it can fail
+    but not pass: the bar is not closed)."""
     cost, estimate = graded["cost"], graded.get("estimate")
+    if estimate is None:
+        return _criterion("cost", round(cost, 4), None)
+    if audit_cost is None:
+        within = cost <= COST_FACTOR * estimate["sessions"]
+        return _criterion("cost", round(cost, 4), False if not within else None)
+    total = cost + audit_cost
+    return _criterion(
+        "cost", round(total, 4), total <= COST_FACTOR * (estimate["sessions"] + estimate["audit"])
+    )
+
+
+def _void_reason(graded: dict) -> str | None:
+    """Why the run proves nothing (a session failed, or no note was integrated), or None."""
+    if graded["run_failures"]:
+        return "run failures: " + "; ".join(graded["run_failures"])
+    if not graded["integrated"]:
+        return "no note was integrated"
+    return None
+
+
+def totals_verdict(
+    graded: dict, unbacked: int | None = None, audit_cost: float | None = None
+) -> dict:
+    """The kill criteria, each as pass/fail (`ok` None: not known yet) with its count. `unbacked` is the number of
+    appended sentences the Sonnet audit found not backed by their notes and `audit_cost` the audit's cost in USD
+    (None before the audit). A run with a failed session, or with no note integrated, is `void`, never a pass."""
     undo = graded.get("undo_identical")
     # a note joined to another sentence of the right part is a wrong attachment too (its reference lands on a
     # sentence that does not state the claim); `wrong_sentences` keeps its own list for the report
@@ -329,13 +405,14 @@ def totals_verdict(graded: dict, unbacked: int | None = None) -> dict:
             "stale to current", len(graded["stale_to_current"]), not graded["stale_to_current"]
         ),
         _criterion("undo", None if undo is None else int(not undo), undo),
-        _criterion(
-            "cost", round(cost, 4), None if estimate is None else cost <= COST_FACTOR * estimate
-        ),
+        _cost_criterion(graded, audit_cost),
     ]
     failed = [c["name"] for c in criteria if c["ok"] is False]
     unknown = [c["name"] for c in criteria if c["ok"] is None]
-    if failed:
+    void = _void_reason(graded)
+    if void:
+        verdict = "void: " + void
+    elif failed:
         verdict = "kill: " + ", ".join(failed)
     elif unknown:
         verdict = "pending: " + ", ".join(unknown)
@@ -358,16 +435,28 @@ Reply with one line per item, nothing else: `N | backed | reason` or `N | not ba
 """
 
 
+def _audit_items(items: list[tuple[str, list[str]]], bodies: dict[str, str]) -> str:
+    blocks = []
+    for n, (sentence, slugs) in enumerate(items, 1):
+        cited = "\n".join(
+            f"Note {slug}:\n{bodies[slug].strip()}" for slug in slugs if slug in bodies
+        )
+        blocks.append(f"### Item {n}\nSentence: {sentence}\n{cited}")
+    return "\n\n".join(blocks)
+
+
 def audit_listing(graded: dict, after: dict[str, str]) -> str:
     """The appended sentences with the text of their notes, numbered for the audit session."""
-    notes = _note_files(after)
-    blocks = []
-    for n, item in enumerate(graded["appended"], 1):
-        cited = "\n".join(
-            f"Note {slug}:\n{notes[slug].body.strip()}" for slug in item["notes"] if slug in notes
-        )
-        blocks.append(f"### Item {n}\nSentence: {item['sentence']}\n{cited}")
-    return "\n\n".join(blocks)
+    bodies = {slug: note.body for slug, note in _note_files(after).items()}
+    return _audit_items([(item["sentence"], item["notes"]) for item in graded["appended"]], bodies)
+
+
+def expected_listing(seed: dict) -> str:
+    """The audit listing of a run that appends the claim of every `append` note: sizes the audit for the estimate."""
+    appended = [e for e in seed["notes"] if e["label"] == APPEND]
+    return _audit_items(
+        [(e["claim"], [e["slug"]]) for e in appended], {e["slug"]: _note_body(e) for e in appended}
+    )
 
 
 def audit_prompt(graded: dict, after: dict[str, str]) -> str:
@@ -401,6 +490,13 @@ def audit_estimate_usd(prompt: str) -> float:
     return session_usd(len(prompt) // CHARS_PER_TOKEN, sonnet_price_ratio())
 
 
+def estimates(seed: dict, sessions: float) -> dict[str, float]:
+    """The cost estimate in two parts: the `mem-integrate` sessions and the Sonnet audit (sized from the audit
+    listing), with their sum."""
+    audit = audit_estimate_usd(AUDIT_PROMPT.format(items=expected_listing(seed)))
+    return {"sessions": sessions, "audit": audit, "total": sessions + audit}
+
+
 # --- the store --------------------------------------------------------------------------------------------------
 
 
@@ -418,11 +514,15 @@ def _write(work: Path, name: str, text: str) -> str:
     return str(path)
 
 
-def _new_note(store: Path, env: dict, work: Path, note: dict, topic: str) -> None:
-    body = (
+def _note_body(note: dict) -> str:
+    return (
         f"## Claim\n\n{note['claim']}\n\n## Evidence\n\nObserved in practice.\n\n"
         "## Applies when\n\nAlways.\n\n## Does not apply when\n\nNever.\n"
     )
+
+
+def _new_note(store: Path, env: dict, work: Path, note: dict, topic: str) -> None:
+    body = _note_body(note)
     _mem(
         store, env, "new", "knowledge", "--slug", note["slug"], "--claim", note["claim"],
         "--topics", topic, "--confidence", "low", "--level", "basic", "--origin", "experience",
@@ -581,7 +681,8 @@ def trial(seed: dict, store: Path, env: dict, claude: str, budget: float) -> Tri
     differences = undo_differences(before_bytes, file_bytes(store))
     record = {
         "cost": run["cost"],
-        "estimate": dry["estimate"],
+        "run_failures": run["failures"],
+        "estimate": estimates(seed, dry["estimate"]),
         "undo_identical": undone.returncode == 0 and not differences,
     }
     graded = grade(before_text, after_text, seed, record)
@@ -603,11 +704,13 @@ def table(result: Trial) -> str:
     for c in result.verdict["criteria"]:
         mark = {True: "pass", False: "FAIL", None: "pending"}[c["ok"]]
         lines.append(f"{c['name']:<24} {c['count']!s:>7}  {mark}")
+    estimate = graded["estimate"]
     lines += [
         "",
         (
             f"integrated {graded['integrated']} notes, appended {len(graded['appended'])} sentences, "
-            f"cost {graded['cost']:.3f} USD (estimate {graded['estimate']:.3f}), run {result.run['run_id']}"
+            f"sessions cost {graded['cost']:.3f} USD (estimate {estimate['sessions']:.3f}; audit estimate "
+            f"{estimate['audit']:.3f}), run {result.run['run_id']}"
         ),
         f"of the wrong attachments, joined to another sentence of the right part: {len(graded['wrong_sentences'])}",
         f"verdict: {result.verdict['verdict']}",
@@ -646,32 +749,59 @@ def cmd_dry_run() -> int:
         dry = dry_run(env, build_store(work, env, seed))
     finally:
         trial_env.clean(work)
-    audit = audit_estimate_usd(AUDIT_PROMPT + "x" * len(json.dumps(seed["notes"])))
+    estimate = estimates(seed, dry["estimate"])
     print(
         f"dry run: {dry['syntheses']} synthesis, {dry['notes']} notes, {dry['sessions']} sessions (place, check), "
         f"input about {dry['input_tokens']} tokens"
     )
     print(
-        f"estimate: {dry['estimate']:.3f} USD for the run (Haiku at {HAIKU_INPUT_PER_MTOK}/{HAIKU_OUTPUT_PER_MTOK} USD "
-        f"per million input/output tokens, list price read {PRICE_DATE}; models.toml holds no prices); "
-        f"kill above {COST_FACTOR * dry['estimate']:.3f}"
+        f"estimate, sessions: {estimate['sessions']:.3f} USD (Haiku at {HAIKU_INPUT_PER_MTOK}/{HAIKU_OUTPUT_PER_MTOK} "
+        f"USD per million input/output tokens, list price read {PRICE_DATE}; models.toml holds no prices)"
     )
-    print(f"Sonnet audit, apart (paid, not run here): about {audit:.3f} USD")
     print(
-        f"paid run: --budget {COST_FACTOR * dry['estimate']:.2f} --claude PATH needs the owner's cap"
+        f"estimate, Sonnet audit (paid, not run here; sized from the audit listing): {estimate['audit']:.3f} USD"
     )
+    print(
+        f"estimate, total: {estimate['total']:.3f} USD; kill above {COST_FACTOR * estimate['total']:.3f} "
+        f"(the run's sessions plus the audit); until the audit ran, the sessions alone are held to "
+        f"{COST_FACTOR * estimate['sessions']:.3f}"
+    )
+    print(
+        f"paid run: --budget {COST_FACTOR * estimate['sessions']:.2f} --claude PATH needs the owner's cap"
+    )
+    return 0
+
+
+def cmd_verdict(argv: list[str]) -> int:
+    """`verdict RESULT_JSON --unbacked N [--audit-cost USD]`: the table and the final verdict of a saved result, with
+    the audit's answer; no model call."""
+    parser = argparse.ArgumentParser(prog="run_trial.py verdict", description=cmd_verdict.__doc__)
+    parser.add_argument("result", type=Path, help="the results JSON a paid run saved")
+    parser.add_argument(
+        "--unbacked", type=int, required=True, help="appended sentences the audit found not backed"
+    )
+    parser.add_argument(
+        "--audit-cost", type=float, help="the audit session's cost in USD; closes the cost bar"
+    )
+    args = parser.parse_args(argv)
+    data = json.loads(args.result.read_text(encoding="utf-8"))
+    verdict = totals_verdict(data, args.unbacked, args.audit_cost)
+    print(table(Trial(data, verdict, data["run"], {})))
     return 0
 
 
 def cmd_paid(args: argparse.Namespace) -> int:
     seed = load_seed()
     work = trial_env.work_dir("integrate-trial-")
-    env = trial_env.make_env(work)
-    result = trial(seed, build_store(work, env, seed), env, args.claude, args.budget)
-    print(table(result))
-    print(
-        f"results: {save(result, args.out)}\nwork folder kept (synthetic text, git-ignored): {work}"
-    )
+    try:
+        env = trial_env.make_env(work)
+        result = trial(seed, build_store(work, env, seed), env, args.claude, args.budget)
+        print(table(result))
+        print(f"results: {save(result, args.out)}")
+    finally:
+        trial_env.clean(
+            work
+        )  # the work folder and the session folders under the user's Claude projects folder
     return 0
 
 
@@ -680,43 +810,68 @@ def _fake_env(work: Path, wrong: str | None) -> tuple[dict, str]:
     env["FAKE_SEED"] = str(SEED)
     if wrong:
         env["FAKE_WRONG"] = wrong
-    fake = work / f"fake-claude-{wrong or 'right'}"
+    fake = work / f"fake-claude-{(wrong or 'right').replace(':', '-')}"
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
     return env, str(fake)
 
 
+# One wrong fake answer per way a session can place a note wrongly: (note, how, what the label says).
+WRONG_ANSWERS = (
+    ("pooling-limits", "first-part", "a forbidden label (on-topic-no-fit) attached"),
+    ("sorted-range-equality", "append", "append where the label names a sentence"),
+    ("sorted-range-equality", "other-sentence", "unit N on another sentence than the label's"),
+    ("fulltext-word-map", "other-part", "a row for another part than the label's"),
+)
+
+
+def _check_right(seed: dict, work: Path, base: Path) -> None:
+    env, fake = _fake_env(work, None)
+    right = trial(seed, base, env, fake, 1.0)
+    print(table(right))
+    g = right.graded
+    assert not right.run["failures"], right.run["failures"]
+    assert g["integrated"] == sum(
+        by["seeded"] for k, by in g["by_label"].items() if k in {APPEND, *UNIT_LABELS}
+    ), g["by_label"]
+    assert not (
+        g["wrong_attachments"]
+        or g["wrong_sentences"]
+        or g["other_changes"]
+        or g["stale_to_current"]
+    ), g
+    assert g["undo_identical"], g["undo_differences"]
+    assert right.verdict["verdict"] == "pending: unbacked sentences, cost", right.verdict
+
+
+def _check_wrong(seed: dict, work: Path, copy: Path, slug: str, how: str) -> None:
+    env, fake = _fake_env(work, f"{slug}:{how}")
+    wrong = trial(seed, copy, env, fake, 1.0)
+    found = {
+        w["note"] for w in [*wrong.graded["wrong_attachments"], *wrong.graded["wrong_sentences"]]
+    }
+    assert found == {slug}, (
+        how,
+        wrong.graded["wrong_attachments"],
+        wrong.graded["wrong_sentences"],
+    )
+    assert wrong.verdict["verdict"] == "kill: wrong attachment", (how, wrong.verdict)
+
+
 def self_check() -> int:
     """No model, no cost: the whole flow against a fake `claude` that answers from the seed labels (the grading
-    must come out clean), and again with one wrong answer (the grader must catch it)."""
+    must come out clean), and again once per wrong answer in `WRONG_ANSWERS` (the grader must kill each)."""
     seed = load_seed()
     work = trial_env.work_dir("integrate-trial-check-")
     try:
         env, _ = _fake_env(work, None)
         base = build_store(work, env, seed)
-        copy = work / "store-wrong"
-        shutil.copytree(base, copy)
-        env_right, fake_right = _fake_env(work, None)
-        right = trial(seed, base, env_right, fake_right, 1.0)
-        print(table(right))
-        g = right.graded
-        assert not right.run["failures"], right.run["failures"]
-        assert g["integrated"] == sum(
-            by["seeded"] for k, by in g["by_label"].items() if k in {APPEND, *UNIT_LABELS}
-        ), g["by_label"]
-        assert not (
-            g["wrong_attachments"]
-            or g["wrong_sentences"]
-            or g["other_changes"]
-            or g["stale_to_current"]
-        ), g
-        assert g["undo_identical"], g["undo_differences"]
-        assert right.verdict["verdict"] == "pending: unbacked sentences", right.verdict
-        env_wrong, fake_wrong = _fake_env(work, "pooling-limits")
-        wrong = trial(seed, copy, env_wrong, fake_wrong, 1.0)
-        found = [w["note"] for w in wrong.graded["wrong_attachments"]]
-        assert found == ["pooling-limits"], wrong.graded["wrong_attachments"]
-        assert wrong.verdict["verdict"] == "kill: wrong attachment", wrong.verdict
+        copies = [work / f"store-wrong-{n}" for n in range(len(WRONG_ANSWERS))]
+        for copy in copies:
+            shutil.copytree(base, copy)
+        _check_right(seed, work, base)
+        for copy, (slug, how, _) in zip(copies, WRONG_ANSWERS, strict=True):
+            _check_wrong(seed, work, copy, slug, how)
         assert trial_env.TARGET in work.parents
     finally:
         trial_env.clean(work)
@@ -724,7 +879,9 @@ def self_check() -> int:
     return 0
 
 
-def main() -> int:
+def main(argv: list[str]) -> int:
+    if argv[:1] == ["verdict"]:
+        return cmd_verdict(argv[1:])
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument(
         "--self-check", action="store_true", help="no model: the flow with a fake claude"
@@ -739,7 +896,7 @@ def main() -> int:
     parser.add_argument(
         "--out", type=Path, default=OUT_DEFAULT, help="results folder (default under target/)"
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.self_check:
         return self_check()
     if args.dry_run:
@@ -755,4 +912,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     os.environ.pop("MEM_STORE", None)
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))
