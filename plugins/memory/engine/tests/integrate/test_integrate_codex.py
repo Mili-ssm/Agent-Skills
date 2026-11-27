@@ -6,6 +6,7 @@ from pathlib import Path
 
 import codex_fake
 import pytest
+from core import runner as runners
 from integrate_world import (  # ruff: ignore[unused-import]  (a fixture)
     store_with_part,
     world,
@@ -48,6 +49,27 @@ def test_a_codex_session_without_a_result_ends_the_run_like_a_missing_cost(world
     code, out = world.run()
     assert code == 0 and "failed: place session ended without a result" in out
     assert len(codex.calls) == 1 and not world.attached("n-new")
+
+
+@pytest.mark.parametrize(
+    ("step", "shown"),
+    [
+        ({"failed": "model overloaded", "exit": 1}, "model overloaded; exit 1"),
+        ({"error": "quota exceeded", "stderr": "rate limited", "exit": 3}, "stderr: rate limited"),
+    ],
+)
+def test_the_codex_failure_reason_reaches_the_failure_line(world, codex, step, shown):
+    codex.plan(step)
+    _, out = world.run()
+    assert "place session ended without a result: " in out and shown in out
+
+
+def test_a_codex_timeout_reaches_the_failure_line(world, codex, monkeypatch):
+    monkeypatch.setattr(
+        runners, "run_codex", lambda *a, **k: runners.CodexRaw("", True, None, "slow")
+    )
+    _, out = world.run()
+    assert "the session timed out" in out
 
 
 def test_the_token_cap_stops_the_second_session(world, codex, monkeypatch):

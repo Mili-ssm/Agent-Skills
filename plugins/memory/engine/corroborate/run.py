@@ -711,9 +711,12 @@ def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> N
         )
         raise StopError(
             "session error",
-            f"the {doing} session {no_result}"
-            if not done["has_result"]
-            else f"the {doing} session failed",
+            (
+                f"the {doing} session {no_result}"
+                if not done["has_result"]
+                else f"the {doing} session failed"
+            )
+            + codex_pass.reason(done),
         )
 
 
@@ -756,7 +759,6 @@ def _judge_file(groups_file: str, lessons: list) -> _Judged:
 def _judge_sessions(
     ctx: _Run, root: Path, lessons: list, by_id: dict, refused_seen: dict
 ) -> _Judged:
-    ctx.spend.runner = ctx.line["runner"] = runners.resolve_runner(None)  # once per run
     if ctx.spend.runner == "claude" and not ctx.claude:
         raise StopError("no claude", "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
     if missing := missing_codex(ctx.spend):
@@ -907,7 +909,16 @@ def _next_state(
     return state, False
 
 
+def _resolve_runner(ctx: _Run) -> None:
+    """After the lock (the run folder of a failure needs it); a malformed setting fails the run naming its source."""
+    try:
+        ctx.spend.runner = ctx.line["runner"] = runners.resolve_runner(None)
+    except ValueError as exc:
+        raise StopError("runner setting", str(exc)) from exc
+
+
 def _run_pass(ctx: _Run) -> dict:
+    _resolve_runner(ctx)  # once per run, before any early stop
     seen = jobs.read_json(ctx.cdir / "seen.json")
     refused_seen = seen["refused"] if isinstance(seen.get("refused"), dict) else {}
     world = _read_world(ctx.data)

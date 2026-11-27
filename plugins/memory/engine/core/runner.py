@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -144,6 +145,41 @@ def codex_command(
     ]
 
 
+def _real_codex_home() -> Path:
+    return Path(
+        os.environ.get("CODEX_HOME") or Path(os.environ.get("HOME") or Path.home()) / ".codex"
+    )
+
+
+def sync_auth(run_dir: Path) -> bool:
+    """After a Codex run: when Codex replaced the `auth.json` symlink of `codex_env` with a regular file (write a
+    temp file, rename it over), that file holds the token Codex refreshed and the real one may hold a rotated-out
+    refresh token. A regular, valid-JSON, newer file replaces the real `auth.json` atomically (mode 0600, same
+    folder); a real path that is a symlink is left alone. An in-place write needs nothing: it went through the link.
+    Never logs the token. True when it synced."""
+    fresh = run_dir / "codex-home" / "auth.json"
+    real = _real_codex_home() / "auth.json"
+    try:
+        if fresh.is_symlink() or not fresh.is_file() or real.is_symlink():
+            return False
+        if real.exists() and fresh.stat().st_mtime <= real.stat().st_mtime:
+            return False
+        content = fresh.read_text(encoding="utf-8")
+        json.loads(content)
+        fd, tmp = tempfile.mkstemp(dir=real.parent, prefix=".auth-")
+    except (OSError, ValueError):
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
+        Path(tmp).chmod(0o600)
+        Path(tmp).replace(real)
+    except OSError:
+        Path(tmp).unlink(missing_ok=True)
+        return False
+    return True
+
+
 def codex_env(run_dir: Path) -> dict[str, str]:
     """`session_env()` with HOME and the XDG folders inside `run_dir`, and a clean `CODEX_HOME` there.
 
@@ -153,8 +189,7 @@ def codex_env(run_dir: Path) -> dict[str, str]:
     `<run_dir>/codex-home` (mode 0700) holds only a symlink to the real `auth.json`; the credential is never
     copied, and without a real `auth.json` the link is left out and Codex reports the missing login itself."""
     env = headless.session_env()
-    real_home = Path(os.environ.get("HOME") or Path.home())
-    real_codex = Path(os.environ.get("CODEX_HOME") or real_home / ".codex")
+    real_codex = _real_codex_home()
     clean = run_dir / "codex-home"
     clean.mkdir(mode=PRIVATE_MODE, parents=True, exist_ok=True)
     link = clean / "auth.json"

@@ -327,3 +327,74 @@ def test_run_codex_timeout_keeps_partial(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setattr(subprocess, "run", expire)
     raw = runner.run_codex(["codex"], "p", cwd=tmp_path, env={}, timeout=1)
     assert raw == runner.CodexRaw("partial ", True, None, "slow")
+
+
+def _auth_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, Path]:
+    """(run folder, real auth.json, the per-run auth.json) with the real file holding an old token."""
+    real_home = tmp_path / "codex"
+    real_home.mkdir()
+    real = real_home / "auth.json"
+    real.write_text('{"token": "old"}', encoding="utf-8")
+    os.utime(real, (1, 1))
+    monkeypatch.setenv("CODEX_HOME", str(real_home))
+    run_dir = tmp_path / "run"
+    runner.codex_env(run_dir)
+    return run_dir, real, run_dir / "codex-home" / "auth.json"
+
+
+def _replace_auth(fresh: Path, content: str) -> None:
+    tmp = fresh.with_name("auth.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(fresh)  # write-temp-then-rename: the symlink becomes a regular file
+
+
+def test_sync_auth_in_place_write_needs_no_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    fresh.write_text('{"token": "new"}', encoding="utf-8")  # through the link
+    assert fresh.is_symlink()
+    assert runner.sync_auth(run_dir) is False
+    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "new"}
+
+
+def test_sync_auth_rename_replace_updates_the_real_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    _replace_auth(fresh, '{"token": "new"}')
+    assert runner.sync_auth(run_dir) is True
+    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "new"}
+    assert (
+        stat.S_IMODE(real.stat().st_mode) == stat.S_IRUSR | stat.S_IWUSR and not real.is_symlink()
+    )
+    assert [p.name for p in real.parent.iterdir()] == ["auth.json"]
+
+
+def test_sync_auth_ignores_invalid_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    _replace_auth(fresh, "{not json")
+    assert runner.sync_auth(run_dir) is False
+    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "old"}
+
+
+def test_sync_auth_ignores_an_older_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    _replace_auth(fresh, '{"token": "new"}')
+    os.utime(fresh, (1, 1))
+    os.utime(real, (5, 5))
+    assert runner.sync_auth(run_dir) is False
+    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "old"}
+
+
+def test_sync_auth_refuses_a_symlinked_real_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    target = tmp_path / "elsewhere.json"
+    target.write_text('{"token": "old"}', encoding="utf-8")
+    real.unlink()
+    real.symlink_to(target)
+    _replace_auth(fresh, '{"token": "new"}')
+    assert runner.sync_auth(run_dir) is False
+    assert json.loads(target.read_text(encoding="utf-8")) == {"token": "old"}

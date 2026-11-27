@@ -205,7 +205,8 @@ class Job:
             f"wall={time.monotonic() - start:.1f}s answer={' '.join(done['answer'].split())[:200]}"
         )
         if not done["has_result"] or done["error"]:
-            self.fail(f"{name} session {'failed' if done['has_result'] else self.no_result}")
+            why = "failed" if done["has_result"] else self.no_result
+            self.fail(f"{name} session {why}{codex_pass.reason(done)}")
             return None
         return done["answer"], done["cost"]
 

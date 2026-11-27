@@ -75,6 +75,40 @@ def test_a_codex_session_without_a_result_ends_the_run(w, codex, step):
     assert not globals_(w)
 
 
+@pytest.mark.parametrize(
+    ("step", "shown"),
+    [
+        ({"failed": "model overloaded", "exit": 1}, "model overloaded; exit 1"),
+        ({"error": "quota exceeded", "stderr": "rate limited", "exit": 3}, "stderr: rate limited"),
+    ],
+)
+def test_the_codex_failure_reason_reaches_the_status_and_the_log(w, codex, step, shown):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan(step)
+    run(w)
+    assert (
+        status(w)["failure"]["reason"] == "session error"
+    )  # the status keeps a fixed reason; the run log has the detail
+    logged = (next((w.cdir / "runs").iterdir()) / "log.txt").read_text()
+    assert "the proposing session ended without a result: " in logged and shown in logged
+
+
+def test_a_malformed_runner_setting_fails_the_run_naming_its_source(w, codex, monkeypatch):
+    monkeypatch.setenv("MEM_RUNNER", "gpt")
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    run(w)
+    assert status(w)["failure"]["reason"] == "runner setting" and not codex.calls
+    assert "MEM_RUNNER: runner 'gpt'" in (next((w.cdir / "runs").iterdir()) / "log.txt").read_text()
+
+
+def test_an_early_stop_still_logs_the_codex_runner(w, codex):
+    run(w)  # no lessons: the run is skipped before any session
+    line = log_lines(w)[-1]
+    assert line["skipped"] and line["runner"] == "codex"
+
+
 def test_the_token_cap_stops_the_second_session(w, codex, monkeypatch):
     monkeypatch.setenv("MEM_CODEX_TOKENS", str(TOKENS))
     a, b = two_projects(w)

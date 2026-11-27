@@ -60,12 +60,44 @@ def test_a_codex_session_without_a_result_is_a_failure_that_applies_nothing(worl
     assert "status: superseded" not in (world.folder / "old-one.md").read_text()
 
 
+@pytest.mark.parametrize(
+    ("step", "shown"),
+    [
+        ({"failed": "model overloaded", "exit": 1}, "model overloaded; exit 1"),
+        ({"error": "quota exceeded", "stderr": "rate limited", "exit": 3}, "stderr: rate limited"),
+    ],
+)
+def test_the_codex_failure_reason_reaches_the_status(world, codex, step, shown):
+    seed(world)
+    codex.plan(step)
+    settle_run(world)
+    reason = status(world)["reason"]
+    assert "the session ended without a result: " in reason and shown in reason
+
+
+def test_a_codex_timeout_reaches_the_status(world, codex, monkeypatch):
+    monkeypatch.setattr(
+        runners, "run_codex", lambda *a, **k: runners.CodexRaw("", True, None, "slow")
+    )
+    seed(world)
+    assert settle.cmd_run(world.store, "", None, 0) == 0
+    assert "the session timed out" in status(world)["reason"]
+
+
+def test_codex_tokens_at_the_cap_fail_the_run_too(world, codex, monkeypatch):
+    monkeypatch.setenv("MEM_CODEX_TOKENS", str(TOKENS))
+    seed(world)
+    codex.plan({"py": WRITE_VERDICTS, "answer": "1", "tokens": TOKENS})
+    settle_run(world)
+    assert f"reached the cap {TOKENS}" in status(world)["reason"]
+
+
 def test_codex_tokens_over_the_cap_fail_the_run(world, codex, monkeypatch):
     monkeypatch.setenv("MEM_CODEX_TOKENS", "100")
     seed(world)
     codex.plan({"py": WRITE_VERDICTS, "answer": "1", "tokens": TOKENS})
     settle_run(world)
-    assert "over the cap 100" in status(world)["reason"]
+    assert "reached the cap 100" in status(world)["reason"]
 
 
 def test_no_codex_binary_is_a_failure(world, codex, monkeypatch):

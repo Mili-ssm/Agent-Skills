@@ -2,7 +2,8 @@
 runner plan recorded (`thread.started`, an `agent_message`, `turn.completed` with usage), from a plan of steps.
 
 A step is a dict: `answer` (the final message), `tokens` (billed input plus output), `exit` (the return code),
-`silent` (no output at all), `py` (Python run in the session's folder first, to write the output file). Every call
+`silent` (no output at all), `failed` (a `turn.failed` event with that message, no `turn.completed`), `error` (an
+`error` event with that message), `stderr` (text written to stderr), `py` (Python run in the session's folder first, to write the output file). Every call
 appends `{argv, env, cwd, prompt}` to the log file."""
 
 from __future__ import annotations
@@ -32,11 +33,18 @@ if step.get("silent"):
     sys.exit(step.get("exit", 0))
 if step.get("py"):
     exec(step["py"])
+if step.get("stderr"):
+    print(step["stderr"], file=sys.stderr)
 events = [{{"type": "thread.started", "thread_id": "t"}}, {{"type": "turn.started"}}]
 if step.get("answer") is not None:
     events.append({{"type": "item.completed", "item": {{"id": "i", "type": "agent_message", "text": step["answer"]}}}})
+if step.get("error"):
+    events.append({{"type": "error", "message": step["error"]}})
 total = step.get("tokens", 1000)
-events.append({{"type": "turn.completed", "usage": {{"input_tokens": total - {OUTPUT_TOKENS}, "cached_input_tokens": 0,
+if step.get("failed"):
+    events.append({{"type": "turn.failed", "error": {{"message": step["failed"]}}}})
+else:
+        events.append({{"type": "turn.completed", "usage": {{"input_tokens": total - {OUTPUT_TOKENS}, "cached_input_tokens": 0,
                 "output_tokens": {OUTPUT_TOKENS}, "reasoning_output_tokens": 0}}}})
 for e in events:
     print(json.dumps(e))

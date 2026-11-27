@@ -234,7 +234,9 @@ def _ask_model(job: Job, claude: str, budget: float, pairs: list) -> Path | None
     )
     if not done["has_result"]:
         job.out.failures.append(
-            "the session ended without a result" if job.runner == "codex" else sp.NO_COST
+            "the session ended without a result" + codex_pass.reason(done)
+            if job.runner == "codex"
+            else sp.NO_COST
         )
         return None
     if done["error"]:
@@ -381,8 +383,8 @@ def _attempt(
     job = _open_job(state, out, previous, now)
     job.log(f"start: budget {budget:.2f}")
     work_steps(job, claude, budget)
-    if out.runner == "codex" and out.tokens > codex_pass.token_cap():
-        out.failures.append(f"{out.tokens} tokens are over the cap {codex_pass.token_cap()}")
+    if out.runner == "codex" and codex_pass.over_cap(out.tokens):
+        out.failures.append(f"{out.tokens} tokens reached the cap {codex_pass.token_cap()}")
     if out.cost > budget + 1e-9:
         out.failures.append(f"cost {out.cost:.2f} USD is over the budget {budget:.2f}")
     _finish(state, out)

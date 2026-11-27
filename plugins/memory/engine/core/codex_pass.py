@@ -41,6 +41,11 @@ def over_cap(tokens: int) -> bool:
     return tokens >= token_cap()
 
 
+def reason(done: dict) -> str:
+    """`: <why>` for a failed Codex session (exit code, timeout, stderr tail), else ''; a Claude dict has no `failure`."""
+    return f": {done['failure']}" if done.get("failure") else ""
+
+
 def refusal(pass_name: str) -> str:
     return (
         f"{pass_name}: runs on Claude only (ADR 0037: Codex cannot remove the shell from this step); "
@@ -79,9 +84,12 @@ def ask(session: headless.Session, work: Path, *, writes: bool, timeout: float) 
     for sub in ("home", "xdg"):
         (work / sub).mkdir(mode=PRIVATE_MODE, exist_ok=True)
     cmd = runner.codex_command(session, codex, work, writes=writes)
-    raw = runner.run_codex(
-        cmd, session.prompt, cwd=work, env=runner.codex_env(work), timeout=timeout
-    )
+    try:
+        raw = runner.run_codex(
+            cmd, session.prompt, cwd=work, env=runner.codex_env(work), timeout=timeout
+        )
+    finally:
+        runner.sync_auth(work)  # a refreshed token must not be lost, success or not
     out = runner.parse_codex(raw.stdout, raw.returncode, raw.stderr, raw.timed_out)
     return {
         "has_result": out.has_result,
