@@ -14,7 +14,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Fixed
 
-- Corroborate on Codex now reads and writes its files (it used to finish `ok` having done nothing), and a session that writes no result counts as failed.
+- Corroborate on Codex now reads and writes its files (it used to finish `ok` having done nothing), and a Codex session that leaves no output file now fails the run and names the file.
 
 ## [0.18.0] - 2026-11-27
 

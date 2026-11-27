@@ -85,7 +85,10 @@ def _propose_in(
         out,
     )
     if not done["has_result"] or done["error"]:
-        print("mem-corroborate: the session failed; nothing was written", file=sys.stderr)
+        print(
+            f"mem-corroborate: the session failed{corroborate_run.because(done)}; nothing was written",
+            file=sys.stderr,
+        )
         return None
     kept, reasons = corroborate_decide.validate_fill(
         corroborate_run.read_object(out), [i for i, _m in candidates]
@@ -522,7 +525,7 @@ def _writer_session(
     """The writer's proposals through the code check: (id -> why refused, the (id, item) pairs that passed)."""
     lines = corroborate_decide.fill_lines([(i, x.m) for i, x in ctx.lessons.items()])
     limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, budget)
-    payload, cost, ok = corroborate_run._ask(
+    payload, cost, ok, why = corroborate_run._ask(
         claude,
         scratch,
         "write",
@@ -534,7 +537,7 @@ def _writer_session(
     ctx.result["cost"] += cost
     ctx.result["tokens"] = ctx.spend.tokens
     if not (ok and isinstance(payload, dict) and isinstance(payload.get("items"), list)):
-        raise _SessionError("the writer session gave no usable answer")
+        raise _SessionError(f"the writer session gave no usable answer{why}")
     kept, _dropped_reasons = corroborate_decide.validate_fill(payload, list(ctx.lessons))
     reason: dict[str, str] = {}
     passed: list[tuple[str, dict]] = []
@@ -561,7 +564,7 @@ def _checker_session(
         (i, ctx.lessons[i].m.claim, ctx.lessons[i].m.context, item["short"]) for i, item in passed
     ])
     limits = corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, budget)
-    payload, cost, ok = corroborate_run._ask(
+    payload, cost, ok, why = corroborate_run._ask(
         claude,
         scratch,
         "check",
@@ -574,7 +577,7 @@ def _checker_session(
     ctx.result["tokens"] = ctx.spend.tokens
     checked = corroborate_decide.validate_check(payload, [i for i, _x in passed]) if ok else None
     if checked is None:
-        raise _SessionError("the checker session gave no usable answer")
+        raise _SessionError(f"the checker session gave no usable answer{why}")
     return checked
 
 

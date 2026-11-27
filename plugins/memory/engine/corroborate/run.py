@@ -249,9 +249,9 @@ def run_session(cmd: list[str], work: Path) -> dict:
     return sp.parse(raw)
 
 
-CODEX_ADDENDUM = (
-    "Codex: read the input file and write the output file named above, in the current folder, with your shell; "
-    "run no other command. 'Use no other tool' above means no tool beyond that. Then end with a one-word final message, `done`."
+CODEX_IO_ADDENDUM = (
+    "Codex: read the input file and write the output file named above in the current folder with your shell; "
+    "run no other command, and use no tool beyond that. Then end with the one-word final message `done`."
 )
 
 
@@ -259,13 +259,18 @@ def run_on(spend: Spend, work: Path, spec: headless.Session, out: Path | None = 
     """One session on the run's runner; the `sp.parse` dict, with `tokens` from Codex. Codex writes its output file
     `out` in `work`, which is its whole sandbox; a Codex session that leaves no `out` has failed."""
     if spend.runner == "codex":
-        spec = replace(spec, prompt=f"{spec.prompt}\n\n{CODEX_ADDENDUM}")
+        spec = replace(spec, prompt=f"{spec.prompt}\n\n{CODEX_IO_ADDENDUM}")
         done = codex_pass.ask(spec, work, writes=True, timeout=SESSION_TIMEOUT)
         spend.tokens += done["tokens"]
         if out is not None and done["has_result"] and not out.is_file():
             done |= {"has_result": False, "error": True, "failure": f"it wrote no {out.name}"}
         return done
     return run_session(headless.command(spec), work)
+
+
+def because(done: dict) -> str:
+    """`: <why>` for a session that failed with a reason (a Codex session that wrote no output file), else ''."""
+    return f": {done['failure']}" if done.get("failure") else ""
 
 
 def missing_codex(spend: Spend) -> str | None:
@@ -1104,15 +1109,16 @@ def _ask(
     name: str,
     limits: SessionLimits,
     job: AskJob,
-) -> tuple[object, float, bool]:
-    """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error).
+) -> tuple[object, float, bool, str]:
+    """One session in its own folder: (the JSON it wrote or None, its cost, whether it ended with a result and no error,
+    why it failed: ': <reason>' or '' when it gave none).
     Callers pass `claude`, `scratch` and `name` positionally (`name` stays third: a test wraps the call). `job.spend`:
     the run's runner and Codex tokens (the configured runner when None); a session that would start past the token
     cap does not start and counts as failed."""
     template, text, text_key, out_name, spend = job
     spend = spend or Spend(runners.resolve_runner(None))
     if spend.spent_up:
-        return None, 0.0, False
+        return None, 0.0, False, ""
     work = scratch / name
     work.mkdir(mode=0o700)
     corroborate_state.write_private(work / "input.txt", text)
@@ -1126,7 +1132,7 @@ def _ask(
             out,
         )
     except OSError:  # a binary that is missing or cannot run is a failed session
-        return None, 0.0, False
+        return None, 0.0, False, ""
     cost = done["cost"] if done["has_result"] else 0.0
     ok = done["has_result"] and not done["error"]
-    return (read_object(out) if ok else None), cost, ok
+    return (read_object(out) if ok else None), cost, ok, because(done)
