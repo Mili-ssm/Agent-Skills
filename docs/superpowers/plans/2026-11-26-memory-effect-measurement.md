@@ -6,9 +6,9 @@ Owner rulings (2026-11-26): proceed with the order the review of that day propos
 
 ## Where to resume
 
-Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan: 1.92 USD (pilot 1.46, settle trial 0.065, two replay probes 0.39) of the 5 USD the owner allowed (3 for the lessons trial, 2 for the settle trial).
+Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan: 4.94 USD (pilot 1.46, settle trial 0.065, two replay probes 0.39, first replay run 3.016 under its own cap of 6 USD set 2026-11-27).
 
-Next, in order: 1. the owner sets a cap for the replay (three points are ready, estimate 4 to 6 USD; see Results); 2. `replay_run.py run target/lessons-replay/points.json --max-cost <cap>`; 3. locate the failing message of the eight remaining cases and add their points, each through `replay.py check` and `replay_run.py capture` first.
+Next: the first paid replay ran on 2026-11-27 (3 points, no verdict below six; see Results). Then: locate the failing message of the eight remaining cases and add their points, each through `replay.py check` and `replay_run.py capture` first.
 
 ## Tasks
 
@@ -193,3 +193,17 @@ Harness: `plugins/memory/evals/lessons_effect/replay.py`, `replay_run.py`, `repl
 All three points are scored by code (a command pattern in the next message), so no judge call is needed for them. Estimated cost from the measured 4.1 USD per million tokens of a first cache write: about 1.2, 1.4 and 1.6 USD a point with gate and comparison, 4 to 6 USD in all; three points are below the six the reading rule needs, so this run can only fill the table and show whether failures repeat (the gate), not give a verdict.
 
 Not done: the failing message of the other eight cases is not located; no judge rule has been tried on a real message; arm S (the lesson at the session start) is not built.
+
+### Replay of real failures, first paid run, 2026-11-27 (3.016 USD, owner's cap 6)
+
+`replay_run.py run target/lessons-replay/points.json --max-cost 6`, Sonnet, all three points scored by code. Gate: 3 runs without the lesson's line; comparison: 5 runs per arm (R0 without the line, R with it).
+
+| Point | Context (tokens) | Gate: failure repeats | R0 followed | R followed | Cost USD |
+|---|---|---|---|---|---|
+| description-examples | 119,200 | 3 of 3 | 0 of 5 | 2 of 5 | 0.895 |
+| two-sources-disagree | 189,827 | 3 of 3 | 0 of 5 | 5 of 5 | 1.193 |
+| pattern-on-real-files | 142,077 | 3 of 3 | 0 of 5 | 0 of 5 | 0.928 |
+
+Sentences removed before the judge: R0 0, R 0 (no judge call; code scoring). Kill criteria: none met (every gate repeats the failure; cost under the estimate of 4 to 6).
+
+Reading: below the six points the rule needs, so **no verdict**. As a table only: every real failure repeats when replayed (the scenario has the headroom the pilot lacked), and the lesson's line is ahead by 2 runs or more in 2 of 3 points (+2, +5) and behind in none; `pattern-on-real-files` shows no effect. Next: points for the eight remaining cases (step 3 below) before a reading.
