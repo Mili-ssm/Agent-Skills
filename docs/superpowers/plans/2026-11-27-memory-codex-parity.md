@@ -34,7 +34,7 @@ Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); exec
 
 ---
 
-### Task 1: Probe Codex before code
+### Task 1: Probe Codex before code (done 2026-11-27, § Task 1 results)
 
 **Files:** results table in this plan (§ Task 1 results). No code.
 
@@ -45,7 +45,28 @@ Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); exec
 - [ ] On one real rollout: where the owner's prompt text lives (`event_msg` `user_message` vs `response_item` `message` role `user`), which user-role items are injected (environment context, AGENTS.md, skills), tool call and output item types, `compacted` items.
 - [ ] Check: the table exists; if the marker never appears and `SessionStart` has no `transcript_path`, stop and re-plan (ADR 0038 Revisit); if `SessionEnd` never fires in the extension, Task 4 relies on the sweep alone and its live check must pass on the next day's start.
 
-### Task 2: Plugin options from config files on Codex
+## Task 1 results (2026-11-27)
+
+`codex-cli` 0.171.0-alpha.13.2 (VS Code extension binary 26.1120), throwaway `CODEX_HOME` with a probe plugin whose hooks dumped their input; `codex exec` and the TUI (tmux). The owner's own VS Code rollout read for comparison (first 50 characters of user items only). The owner's `~/.codex` unchanged before and after.
+
+| Question | Observed |
+|---|---|
+| Events | `SessionStart`, `SessionEnd`, `SubagentStart` in exec and TUI; `PreCompact` then `PostCompact` on `/compact` (TUI; `trigger` `manual`) |
+| Payload | `session_id`, `transcript_path`, `cwd`, `hook_event_name`; plus `model`, `permission_mode` (start events), `turn_id` (compaction, subagent); `source` `startup`; `reason` `other`; no `thread_source` key |
+| `transcript_path` | exists already at `SessionStart` and at `SessionEnd` |
+| `claude` in a hook | on `PATH` |
+| `SessionEnd` timeout | clamped to 3 s |
+| Detached process after `SessionEnd` | a `setsid nohup` process survived 20 s after exit, in exec and TUI (VS Code: Task 4 live check) |
+| Subagent | `SubagentStart` carries the parent `session_id` and the subagent's own `transcript_path`, `agent_id`, `agent_type`; the subagent rollout is a separate file in the same day folder, `session_meta.payload.thread_source` `subagent` (parent: `user`) |
+| Rollout user items | the prompt is a `response_item` `message` role `user`; the same items also carry injected `<environment_context>` and, when present, `# AGENTS.md instructions` (owner's VS Code rollout); skills are developer messages. Duplicates of the prompt: `event_msg` `user_message` (VS Code) or `event_msg` `item_completed` `UserMessage` (CLI): ignored |
+| Tool items | `custom_tool_call` (`exec`) with `custom_tool_call_output`; `function_call`/`function_call_output` (subagent tools) |
+| Compaction in the rollout | a `compacted` item (`message`, `replacement_history`) |
+| Re-trust | after `codex.json` changed, **no** hook of the plugin ran until re-trusted (including `SessionStart`): a release that changes `codex.json` turns the session index off until the owner re-trusts |
+| `originator` / `source` | VS Code `codex_vscode`/`vscode`; TUI `codex-tui`/`cli`; exec `codex_exec`/`exec` |
+
+Consequences for later tasks: Task 3 takes owner text only from `response_item` role `user`, dropping items that start with `<environment_context>` or `# AGENTS.md instructions`, and skips rollouts whose `thread_source` is not `user`; Task 4 needs no subagent filter in the hooks (the payload has no `thread_source`) but the sweep reads it from `session_meta`; Task 7 documents re-trust as a required step of every update that changes `codex.json`.
+
+### Task 2: Plugin options from config files on Codex (done: f093542, 6ead686)
 
 **Files:**
 - Create: `plugins/memory/hooks/codex-options.sh`
