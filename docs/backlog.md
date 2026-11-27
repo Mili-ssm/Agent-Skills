@@ -63,7 +63,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 
 ## Plugin `memory`
 
-Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 → kill read → Codex port (core released in 0.17.0 on 2026-11-27, ADR 0036, [plan](superpowers/plans/2026-11-27-memory-codex-port.md); left: an extension session after trusting the hooks; next: background passes choose a runner, ADR 0037 accepted, [plan](superpowers/plans/2026-11-27-memory-runner.md)), stage 7 remote, stage 9, stage 8.
+Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 → kill read → Codex port (core released in 0.17.0 on 2026-11-27, ADR 0036, [plan](superpowers/plans/2026-11-27-memory-codex-port.md); left: an extension session after trusting the hooks; background passes choose a runner: settle and corroborate on Codex, experimental, built 2026-11-27 (ADR 0037 Review, [plan](superpowers/plans/2026-11-27-memory-runner.md)); release pending), stage 7 remote, stage 9, stage 8.
 
 | Pri | ID | Task | State |
 |---|---|---|---|

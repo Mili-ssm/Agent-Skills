@@ -24,6 +24,14 @@ Codex loads this same folder through `.codex-plugin/plugin.json`: the session in
 
 4. Run `mem install-command` once (above); until then the session text gives the full path of `mem`.
 
+### Background passes on Codex models (experimental; ADR 0037)
+
+The passes the engine starts run on Claude by default. Two may run on Codex models instead: **settle** and **corroborate** (sessions that only read a file and write a verdict). Choose per call with `--runner claude|codex`, or set a default: `MEM_RUNNER`, the file `~/.config/agent-memory/runner` (one word), or the plugin option `runner`, in that order of precedence. Integrate, synthesis, the `mem-auto` curator, research and capture always run on Claude: a `codex` default is ignored there with a one-line note, and an explicit `--runner codex` exits 2, because `codex exec` cannot take the shell away from a session (and integrate placed 0 of 17 new sentences on Codex in the trial).
+
+How a Codex session runs: `codex exec` found at run time (`MEM_CODEX`, `PATH`, else the newest VS Code extension binary), with `HOME` and `XDG_*` in the run folder, a private `CODEX_HOME` holding only a link to your `auth.json` (a token Codex refreshes there is copied back; the folder is removed after the run), `--ignore-user-config` and hooks disabled, so your `AGENTS.md`, plugins and this plugin's hooks stay out. Budgets are tokens, not money: `MEM_CODEX_TOKENS` per run (default 500000; Codex's own prompt costs about 44k input tokens per call).
+
+Trial, 2026-11-27 (seeded store copy, `evals/settle/run_trial.py`): settle on Codex, with a Codex-only rule that a merge must lose nothing, gave 0 wrong actions of 40 in 3 runs (median 16 of 20 should-act pairs acted on, as Claude); without that rule it merged one pair wrongly in 2 of 2 runs. Corroborate was tested only against a simulated Codex. Numbers: [runner plan](../../docs/superpowers/plans/2026-11-27-memory-runner.md).
+
 ## Requirements
 
 [`uv`](https://docs.astral.sh/uv/) on the path. Without it `mem` and the background passes (`mem-auto`, `mem-capture`, `mem-corroborate`, `mem-integrate`, `mem-research`, `mem-settle`, `mem-synthesize`) exit 127, and the session start text says so; no system `python3` is needed (ADR 0035). Every `bin/` file is a small launcher that starts `engine/run.py` through `uv`, so Python caches the compiled engine and one environment serves all of them; with a read-only plugin folder it still works, compiling each time. After a plugin update the first run needs the network once, to build that environment.
