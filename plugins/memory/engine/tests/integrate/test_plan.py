@@ -173,3 +173,10 @@ def test_agreed_garbage_or_empty_decides_nothing():
 def test_agreed_handles_fences():
     assert agreed(_proposed(), f"```text\n{R1}\n```") == [_proposed()[0]]
     assert agreed(_proposed(), "```\nnone\n```") == []
+
+
+def test_agreed_a_prose_line_voids_the_answer():
+    # A header such as "Rejected:" may sit above rows the check session refused: a line that is not row-shaped
+    # (no ` | `) makes the answer untrustworthy, so nothing is kept.
+    assert agreed(_proposed(), f"Accepted:\n{R1}\nRejected:\n{R2}") is None
+    assert agreed(_proposed(), f"{R1}\nThe second row does not fit.") is None

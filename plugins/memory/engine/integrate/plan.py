@@ -79,10 +79,18 @@ def offered_of(cand: dict) -> Offered:
 _LABEL = re.compile(r"\s*row:\s*", re.IGNORECASE)
 
 
-def _scan(rows: list[Row], check_answer: str) -> tuple[list[Row], bool, list[str]]:
-    """(accepted rows, whether a `none` line came, ignored lines): a stray line is ignored, never a reason to refuse."""
+class _Scan(NamedTuple):
+    accepted: list[Row]
+    none: bool  # a `none` line came
+    prose: bool  # a line that is not row-shaped (no ` | `): a header or a sentence
+    ignored: list[str]
+
+
+def _scan(rows: list[Row], check_answer: str) -> _Scan:
+    """The check answer read line by line: a row-shaped stray line (a cut row, a row not proposed) is ignored; a
+    prose line is recorded, because a header such as "Rejected:" may sit above rows the session refused."""
     accepted: list[Row] = []
-    none = False
+    none = prose = False
     ignored: list[str] = []
     for raw in check_answer.splitlines():
         text = raw.strip()
@@ -96,19 +104,20 @@ def _scan(rows: list[Row], check_answer: str) -> tuple[list[Row], bool, list[str
             accepted.append(row)
         else:
             ignored.append(text)
-    return accepted, none, ignored
+            prose = prose or " | " not in text
+    return _Scan(accepted, none, prose, ignored)
 
 
 def agreed(rows: list[Row], check_answer: str) -> list[Row] | None:
     """The rows the check answer lists too; stray lines (a `row:` label is stripped first) are ignored, so only a
-    row that was proposed can be kept. None when the answer decided nothing (no row and no `none`) or `none` comes
-    with a row."""
-    accepted, none, _ = _scan(rows, check_answer)
-    if (none and accepted) or not (none or accepted):
+    row that was proposed can be kept. None when the answer decided nothing (no row and no `none`), `none` comes
+    with a row, or a line is prose rather than a row."""
+    scan = _scan(rows, check_answer)
+    if scan.prose or (scan.none and scan.accepted) or not (scan.none or scan.accepted):
         return None
-    return [row for row in rows if row in accepted]
+    return [row for row in rows if row in scan.accepted]
 
 
 def ignored_lines(rows: list[Row], check_answer: str) -> list[str]:
     """The lines of the check answer `agreed` ignored, for the log."""
-    return _scan(rows, check_answer)[2]
+    return _scan(rows, check_answer).ignored
