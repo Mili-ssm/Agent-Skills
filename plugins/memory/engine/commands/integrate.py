@@ -82,6 +82,7 @@ class _Build:
     env: Mapping[str, str]
     parts: dict[str, _Part | str] = field(default_factory=dict)
     joined: dict[Path, _Joined] = field(default_factory=dict)
+    named: set[Path] = field(default_factory=set)
     counts: dict[str, _Counts] = field(default_factory=dict)
     lines: list[str] = field(default_factory=list)
 
@@ -108,6 +109,7 @@ def _is_knowledge_rel(rel: str) -> bool:
         len(parts) == len(("knowledge", "topic", "name.md"))
         and parts[0] == "knowledge"
         and parts[2] != "README.md"
+        and not any(p.startswith(".") for p in parts)
     )
 
 
@@ -153,11 +155,12 @@ def _note_of_row(build: _Build, row: Row) -> tuple[Path, str, dict[str, Any]] | 
     if isinstance(found, str):
         return found
     path, rel = found
+    if path in build.named:
+        return "named twice in the file"
+    build.named.add(path)
     meta = note_files.split_frontmatter(note_files._read_text(path))[0]
     if not isinstance(meta, dict):
         return "not a knowledge note"
-    if path in build.joined:
-        return "named twice in the file"
     return _state_refusal(meta) or (path, rel, meta)
 
 
@@ -191,12 +194,12 @@ def _new_text(build: _Build, row: Row, part: _Part, joined: tuple[str, str, str]
 
 def _apply_row(build: _Build, row: Row) -> str | None:
     """Apply one row to the working text of its part; the reason it is refused, or None."""
-    part = _part_of_row(build, row)
-    if isinstance(part, str):
-        return part
     note = _note_of_row(build, row)
     if isinstance(note, str):
         return note
+    part = _part_of_row(build, row)
+    if isinstance(part, str):
+        return part
     path, rel, meta = note
     if not part.old or units.fingerprint(part.old) != row.fingerprint:
         return "part changed since it was read"

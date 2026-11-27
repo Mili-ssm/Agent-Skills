@@ -214,7 +214,11 @@ def test_malformed_row_is_a_usage_error_and_writes_nothing(store_with_part):
     store = store_with_part
     before = store.snapshot()
     code, _, err = store.integrate("n-new | s:alpha | append")
-    assert code == USAGE_EXIT and err.startswith("mem: line 1: ")
+    assert code == USAGE_EXIT
+    assert err == (
+        "mem: line 1: not `NOTE | s:HANDLE#SECTION | append | FINGERPRINT` or "
+        "`... | unit N | ...`: n-new | s:alpha | append\n"
+    )
     assert store.snapshot() == before
 
 
@@ -336,6 +340,27 @@ def test_same_note_in_two_rows_is_refused_as_named_twice(store_with_part):
     lines = out.splitlines()
     assert "applied\tn-new\ts:alpha#basics\tappend" in lines
     assert "refused\tn-new\tnamed twice in the file" in lines
+
+
+def test_note_named_in_an_earlier_refused_row_is_refused_as_named_twice(store_with_part):
+    store = store_with_part
+    _, out, _ = store.integrate(row("n-new", store, "unit 9"), row("n-new", store))
+    lines = out.splitlines()
+    assert "refused\tn-new\tno such unit 9" in lines
+    assert "refused\tn-new\tnamed twice in the file" in lines
+    assert not any(x.startswith("applied\t") for x in lines)
+
+
+@pytest.mark.parametrize(
+    "rel",
+    [
+        "knowledge/computing/.hidden/n-new.md",
+        "knowledge/.computing/n-new.md",
+        "knowledge/computing/.n-new.md",
+    ],
+)
+def test_hidden_path_is_not_a_knowledge_note(rel):
+    assert not integrate_command._is_knowledge_rel(rel)
 
 
 @pytest.mark.parametrize("content", ["", "\n\n", "# only a comment\n\n"])
