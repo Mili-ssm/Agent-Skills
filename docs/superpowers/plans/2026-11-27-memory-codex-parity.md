@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: proposed 2026-11-27, amended after a pre-mortem the same day; waiting for the owner's review · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) (proposed)
+Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
 
 **Goal:** Codex sessions get what Claude sessions get from the memory plugin, except what Codex cannot carry: automatic capture and history commit, plugin options, and the memory agents.
 
@@ -38,7 +38,7 @@ Status: proposed 2026-11-27, amended after a pre-mortem the same day; waiting fo
 
 **Files:** results table in this plan (§ Task 1 results). No code.
 
-- [ ] Throwaway `CODEX_HOME` with the plugin installed from a local marketplace, a hook that dumps its stdin JSON and `command -v claude` to a file, run in `codex exec`, the TUI (`tmux`, `--no-daemon`) and **the VS Code extension** (the owner's host: `originator: codex_vscode`; the owner opens and closes a thread, then the window), for `SessionStart`, `SessionEnd`, `PreCompact`: record `transcript_path`, `cwd`, `source`/`trigger`, whether `transcript_path` exists when the hook runs, and whether `SessionEnd` fires at all in the extension.
+- [ ] Throwaway `CODEX_HOME` with the plugin installed from a local marketplace, a hook that dumps its stdin JSON and `command -v claude` to a file, run in `codex exec`, the TUI (`tmux`, `--no-daemon`) (the VS Code extension, the owner's host, `originator: codex_vscode`, is checked in Task 4's live check with the real hooks and the hook log, so no probe hook enters the owner's `~/.codex`), for `SessionStart`, `SessionEnd`, `PreCompact`: record `transcript_path`, `cwd`, `source`/`trigger`, whether `transcript_path` exists when the hook runs, and whether `SessionEnd` fires at all in the extension.
 - [ ] `SessionEnd` hook starts `setsid nohup sh -c 'sleep 20; touch <marker>'`: does the marker appear after `codex exec` exits, and after the TUI exits?
 - [ ] Spawn one Codex subagent: record its rollout's `session_meta.payload.thread_source` / `source`.
 - [ ] Change `codex.json` in the throwaway home: do the already-trusted hooks keep running until re-trust, or does the whole set stop?
@@ -85,7 +85,7 @@ Status: proposed 2026-11-27, amended after a pre-mortem the same day; waiting fo
 
 - [ ] Tests: `test_codex_json_declares_session_end_and_pre_compact` (timeouts 3 and 5, `MEM_HOST=codex`); `test_pre_compact_prints_nothing_on_codex`; `test_sweep_on_codex_day_folder_picks_codex_sessions_only`; `test_sweep_reads_previous_day_folders`; `test_other_project_rollouts_do_not_consume_examined`; `test_subagent_rollouts_not_swept`; `test_sweep_skips_folder_without_memory_dir` (Review Focus 3); `validate.py` checks the Codex manifest still.
 - [ ] Implement; run engine suite, `python3 scripts/validate.py`, `claude plugin validate plugins/memory`: PASS. Commit.
-- [ ] Live check in the throwaway `CODEX_HOME`: one `codex exec` session in a folder with a memory folder and `auto_capture` file = `true` leaves a capture status line (`mem-capture` log) and a history commit; a session killed at its end (no `SessionEnd`) is captured by a session start the next day; nothing written to the real store or the owner's `~/.codex` (before/after snapshot).
+- [ ] Live check in the throwaway `CODEX_HOME`: one `codex exec` session in a folder with a memory folder and `auto_capture` file = `true` leaves a capture status line (`mem-capture` log) and a history commit; the owner closes a thread and then the window in the VS Code extension and the hook log shows (or not) a `session-end` record with `host=codex`; a session killed at its end (no `SessionEnd`) is captured by a session start the next day; nothing written to the real store or the owner's `~/.codex` (before/after snapshot).
 
 ### Task 5: Memory agents as Codex roles
 
