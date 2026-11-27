@@ -514,10 +514,30 @@ def test_a_paid_run_that_raises_saves_what_it_spent_and_fails(tmp_path, monkeypa
     monkeypatch.setattr(trial, "dry_run", lambda *_: {"estimate": 0.1})
     monkeypatch.setattr(trial, "snapshot", snap)
     monkeypatch.setattr(trial, "_integrate", lambda *_a: ran)
-    args = argparse.Namespace(claude="x", budget=1.0, out=tmp_path / "out")
+    args = argparse.Namespace(claude="x", budget=1.0, runner="claude", out=tmp_path / "out")
     assert trial.cmd_paid(args) == 1
     (saved,) = (tmp_path / "out").glob("integrate-failed-*.json")
     data = json.loads(saved.read_text(encoding="utf-8"))
     assert data["cost"] == pytest.approx(0.5) and data["failures"] == ["alpha"]
     assert "boom" in data["error"] and data["run_id"] == "r1"
     assert "boom" in capsys.readouterr().err
+
+
+TOKENS = 777
+
+
+def test_a_codex_run_reports_tokens_instead_of_cost(tmp_path, monkeypatch):
+    trial = _load()
+    seen: list[tuple] = []
+
+    def fake(_env, _store, *args):
+        seen.append(args)
+        return subprocess.CompletedProcess(
+            [], 0, f"tokens: {TOKENS} of 500000 (codex); run r2\n", ""
+        )
+
+    monkeypatch.setattr(trial, "_integrate", fake)
+    spent: dict = {}
+    run = trial.run_integrate({}, tmp_path, ("", 1.0, "codex"), spent)
+    assert run["tokens"] == TOKENS and run["cost"] == pytest.approx(0.0) and run["run_id"] == "r2"
+    assert seen[0][seen[0].index("--runner") + 1] == "codex"

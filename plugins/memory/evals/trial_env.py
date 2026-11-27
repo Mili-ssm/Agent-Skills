@@ -54,6 +54,27 @@ def make_env(work: Path) -> dict:
     return env
 
 
+def newest_codex() -> str | None:
+    """The newest `codex` binary of the VS Code extension, by version folder; None when there is none."""
+    found = sorted(
+        (Path.home() / ".vscode" / "extensions").glob("openai.chatgpt-*/bin/linux-x86_64/codex"),
+        key=lambda p: [int(n) for n in re.findall(r"\d+", p.parts[-4])],
+    )
+    return str(found[-1]) if found else None
+
+
+def apply_runner(env: dict, runner: str) -> None:
+    """Pick the runner for the passes a trial starts. `make_env` drops the runner settings, so the Codex arm
+    names its binary and the real `CODEX_HOME` (its `auth.json` is linked into each run's private codex home)."""
+    if runner != "codex":
+        return
+    codex = newest_codex()
+    if codex is None:
+        raise SystemExit("--runner codex: no codex binary found under ~/.vscode/extensions")
+    env["MEM_CODEX"] = codex
+    env["CODEX_HOME"] = str(Path.home() / ".codex")
+
+
 def leftover_folders(work: Path) -> list[Path]:
     """The `~/.claude/projects` folders the sessions created for `work` and the projects inside it."""
     encoded = re.sub(r"[^A-Za-z0-9]", "-", str(work.resolve()))

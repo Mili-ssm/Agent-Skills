@@ -50,3 +50,20 @@ All go through `core/headless.py` (`Session`, `command`, `run_raw`, `session_env
 - The trial shows more wrong actions with `codex` than with `claude` on the same inputs.
 - A Codex run reads or writes outside its run folder in any test or trial.
 - Codex runs of a week cost more plan credits than the same week on Claude would in money, by the owner's judgment.
+
+## Task 5 results (2026-11-27)
+
+Harnesses: `--runner claude|codex` on `evals/settle/run_trial.py` and `evals/integrate/run_trial.py`; the Codex arm sets `MEM_CODEX` (newest VS Code extension binary, `codex-cli` 26.1120) and the real `CODEX_HOME` in its env (`trial_env.apply_runner`). One run per arm, same inputs: settle on `target/settle-trial` (55 base, 40 derived, `--runs 2`), integrate on `seed.json` (33 loose notes). Results files: `target/iso/` (git-ignored).
+
+| Pass | Arm | Acted / placed | Wrong | Retrieval misses | Failures | Wall | Claude USD | Codex tokens |
+|---|---|---|---|---|---|---|---|---|
+| settle | claude | 18 of 20 should-act | 0 of 40 | 0 | 0 | 75 s | 0.033 | 0 |
+| settle | codex | 20 of 20 should-act | 1 of 40 (a `version` row merged) | 0 | 0 | 75 s | 0 | 126138 |
+| integrate | claude | 22 notes integrated, 14 sentences appended (17 `append` seeds: 14 joined) | 0 | n/a | 0 | 38 s | 0.014 | 0 |
+| integrate | codex | 7 notes integrated, 0 appended (all 17 `append` seeds left loose; 4 of 5 restatements and 3 of 3 duplicates joined) | 0 | n/a | 0 | 18 s | 0 | 61521 |
+
+Integrate criteria 3 (unbacked sentences, a paid Sonnet audit) and 7 (cost) stay `pending` for both arms: the audit was not run.
+
+**Verdict by the rule: Codex fails on settle** (1 wrong action against 0 for Claude), so kill criterion 4 ("more wrong actions with `codex` than with `claude` on the same inputs") fired for settle. Integrate meets the rule (0 wrong, no runner failure) but Codex placed far fewer notes (7 against 22) and appended none: a recall gap, not a wrong action. No run failed on the runner itself in either pass. Task 5 stays open. One run per arm gives no variance: the single wrong action may be noise (Codex also acted on 20 of 20 against Claude's 18), so a rerun at more runs needs the owner's decision.
+
+Isolation checks (before/after snapshots): real store files and mtimes identical; `~/.local/state/agent-memory` identical; `~/.codex/sessions` no new file; `git status` shows only the harness files. Not attributable: `~/.codex/logs_2.sqlite-wal/-shm` and `models_cache.json` changed during the window (the VS Code extension runs there too); no file under `~/.codex/sessions` appeared. Claude spend of the trial: 0.047 USD of the 2 USD cap.
