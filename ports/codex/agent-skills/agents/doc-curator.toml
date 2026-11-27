@@ -31,6 +31,7 @@ Follow the compression workflow in `docs-principles`. Agent-specific additions:
 - Keep the owner's style unless it breaks a density rule.
 - Keep each doc in its original language.
 - Propose one ADR per decision found in prose.
+- When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
 - Delegation rules in AGENTS.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 
 ## Output

@@ -38,6 +38,7 @@ Follow the review workflow in `security-principles`. Agent-specific additions:
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 - Prefer the safer fix when trade-offs exist, and say what it costs.
 - For a search by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.
+- When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
 
 ## Output
 
