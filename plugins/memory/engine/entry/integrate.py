@@ -8,18 +8,23 @@ both answered, and that `placement_rows` kept, are written by Python to a rows f
 `mem synthesis integrate FILE` (one logged group per synthesis). The sessions only Read their input folder, so no
 model text reaches the store. State: `<state folder>/integrate/<id>/` (`done.json`, `<run id>/record.json`, logs).
 
-Usage: mem-integrate run [--store PATH] [--claude PATH] [--budget USD] [--dry-run]
+Usage: mem-integrate run [--store PATH] [--claude PATH] [--budget USD] [--dry-run] | --self-check
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
+import tempfile
 import time
+from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -51,6 +56,8 @@ SESSION_VARS = (
     "CLAUDE_CODE_MESSAGING_SOCKET",
     "CLAUDE_CODE_MESSAGING_TOKEN",
 )
+UNREADABLE = re.compile(r"permission denied|cannot read|could not read|no such file", re.IGNORECASE)
+UNREADABLE_FAILURE = "the session could not read its input file"
 COLUMNS = ("synthesis", "notes", "placed", "checked", "applied", "refused", "cost")
 
 
@@ -274,11 +281,22 @@ def apply_rows(job: Job, work: Path, synthesis: str, rows: list[Row]) -> tuple[i
     return count["applied"], count["refused"]
 
 
+def ask_readable(
+    job: Job, name: str, work: Path, cand: dict, data: Any
+) -> tuple[str, float] | None:
+    """`Job.ask`, and None with a failure recorded when the answer says the session could not read its file."""
+    asked = job.ask(name, work, data)
+    if asked is not None and UNREADABLE.search(asked[0]):
+        job.fail(f"{cand['synthesis']}: {UNREADABLE_FAILURE}")
+        return None
+    return asked
+
+
 def place_and_check(job: Job, work: Path, cand: dict, tally: Tally) -> list[Row] | None:
     """The rows both sessions agree on; None (a failure recorded) when a session failed or an answer is malformed.
 
     The place answer is the only malformed one that stops the synthesis; a malformed check answer keeps none."""
-    placed = job.ask("place", work, place_input(cand))
+    placed = ask_readable(job, "place", work, cand, place_input(cand))
     if placed is None:
         return None
     tally.cost += placed[1]
@@ -291,7 +309,7 @@ def place_and_check(job: Job, work: Path, cand: dict, tally: Tally) -> list[Row]
     job.log("place refusals: " + "; ".join(refusals))
     if not rows:
         return []
-    checked = job.ask("check", work, check_input(cand, rows))
+    checked = ask_readable(job, "check", work, cand, check_input(cand, rows))
     if checked is None:
         return None
     tally.cost += checked[1]
@@ -407,9 +425,172 @@ def cmd_dry_run(store: Path, budget_arg: str | None) -> int:
     return 0
 
 
+class SelfCheckError(Exception):
+    """A self-check step failed; the message says which."""
+
+
+def _require(ok: object, reason: str) -> None:
+    if not ok:
+        raise SelfCheckError(reason)
+
+
+FAKE_CLAUDE = """#!/usr/bin/env python3
+import json
+plan_file, count_file = {plan!r}, {count!r}
+plan = json.load(open(plan_file))
+try:
+    n = int(open(count_file).read())
+except OSError:
+    n = 0
+open(count_file, "w").write(str(n + 1))
+answer = plan[n] if n < len(plan) else "none"
+print(json.dumps({{"type": "result", "is_error": False, "result": answer,
+                  "total_cost_usd": 0.0, "modelUsage": {{}}}}))
+"""
+CHECK_PART = "Values have exactly one owner.[old-note](../knowledge/notes/old-note.md)"
+NOTE_BODY = (
+    "## Claim\n\n{claim}\n\n## Evidence\n\nObserved.\n\n## Applies when\n\nAlways.\n\n"
+    "## Does not apply when\n\nNever.\n"
+)
+
+
+def _check_briefs() -> None:
+    for name in ("place", "check"):
+        try:
+            text = sp.brief(name, briefs=INTEGRATE_BRIEFS, INPUT_FILE="/tmp/input.json")
+        except AssertionError as exc:
+            raise SelfCheckError(f"the {name} brief: {exc}") from exc
+        _require("/tmp/input.json" in text, f"the {name} brief does not name its input file")
+
+
+def _check_parser() -> None:
+    row = "n | s:a#b | append | ab12cd34ef"
+    _require(answers.answer_lines(f"```\n{row}\n```") == [row], "a good answer was refused")
+    _require(answers.answer_lines("none") == ["none"], "`none` was refused")
+    _require(answers.answer_lines("I think n fits.") is None, "a malformed answer was accepted")
+    _require(answers.answer_lines(f"none\n{row}") is None, "`none` with a row was accepted")
+
+
+def _mem(store: Path, env: dict, *args: str) -> str:
+    found = sp.mem(store, env, *args)
+    _require(
+        found.returncode == 0, f"mem {' '.join(args[:2])} failed: {found.stderr.strip()[:200]}"
+    )
+    return found.stdout
+
+
+def _build_store(tmp: Path) -> tuple[Path, dict]:
+    """A store with synthesis `alpha` (part `basics`, member `old-note`) and one loose note, `new-note`."""
+    store = tmp / "store"
+    _require(
+        subprocess.run(
+            [str(sp.MEM), "init", str(store)], capture_output=True, check=False
+        ).returncode
+        == 0,
+        "mem init failed",
+    )
+    env = run_env(store)
+    for slug, claim in (("old-note", "Ownership is tracked."), ("new-note", "Moves are default.")):
+        body = tmp / f"{slug}.md"
+        body.write_text(NOTE_BODY.format(claim=claim), encoding="utf-8")
+        _mem(
+            store, env, "new", "knowledge", "--slug", slug, "--claim", claim, "--topics", "notes",
+            "--confidence", "low", "--level", "basic", "--origin", "experience",
+            "--body-file", str(body),
+        )  # fmt: skip
+    summary, part = tmp / "summary.md", tmp / "part.md"
+    summary.write_text("Rust ownership.\n", encoding="utf-8")
+    part.write_text(
+        f"{CHECK_PART}\n\nSources: [old-note](../knowledge/notes/old-note.md)\n",
+        encoding="utf-8",
+    )
+    _mem(
+        store, env, "synthesis", "new", "--title", "Alpha", "--topics", "notes", "--slug", "alpha",
+        "--summary-file", str(summary),
+    )  # fmt: skip
+    _mem(
+        store, env, "synthesis", "add", "s:alpha", "--section", "Basics", "--body-file", str(part)
+    )  # fmt: skip
+    _mem(store, env, "synthesis", "attach", "old-note", "s:alpha#basics")
+    return store, env
+
+
+def _fake_claude(tmp: Path, replies: list[str]) -> Path:
+    (tmp / "plan.json").write_text(json.dumps(replies), encoding="utf-8")
+    script = tmp / "fake-claude"
+    script.write_text(
+        FAKE_CLAUDE.format(plan=str(tmp / "plan.json"), count=str(tmp / "count")), encoding="utf-8"
+    )
+    script.chmod(0o755)
+    return script
+
+
+def _isolate(tmp: Path) -> None:
+    """Point every state folder at `tmp`, so the check never touches the owner's data."""
+    for name, folder in (
+        ("MEM_DATA", "data"),
+        ("XDG_DATA_HOME", "share"),
+        ("MEM_PROJECT", "project"),
+        ("XDG_CONFIG_HOME", "cfg"),
+    ):
+        os.environ[name] = str(tmp / folder)
+    os.environ.pop("MEM_MEMORIES", None)
+
+
+def _check_flow(place_check: tuple[str, str] | None) -> None:
+    with tempfile.TemporaryDirectory(prefix="mem-integrate-check-") as tmp_name:
+        _isolate(Path(tmp_name))
+        _flow(Path(tmp_name), place_check)
+
+
+def _flow(tmp: Path, place_check: tuple[str, str] | None) -> None:
+    store, env = _build_store(tmp)
+    cands = json.loads(_mem(store, env, "synthesis", "integrate", "--candidates"))
+    _require(cands and cands[0]["parts"], "the fixture store offers no candidate")
+    row = f"new-note | s:alpha#basics | append | {cands[0]['parts'][0]['fingerprint']}"
+    replies = list(place_check or (row, row))
+    claude = _fake_claude(tmp, replies)
+    captured = io.StringIO()
+    with redirect_stdout(captured):
+        code = cmd_run(store, str(claude), None)
+    _require(code == 0, f"the run exited {code}")
+    folder = state_folder(store)
+    run_id = max(p.name for p in folder.iterdir() if p.is_dir())
+    record = run_state.read_record(folder, run_id)
+    _require(record is not None, "the run left no record")
+    failures = record.failures if record else []
+    _require(
+        not any(UNREADABLE_FAILURE in f for f in failures),
+        f"a session could not read its input file: {failures}",
+    )
+    _require(not failures, f"the run failed: {failures}")
+    attached = next(iter(store.glob("knowledge/*/new-note.md"))).read_text(encoding="utf-8")
+    _require(
+        re.search(r"(?m)^part_of: \"?alpha#basics", attached), "the agreed row was not applied"
+    )
+    _require(
+        record is not None and [g.kind for g in record.groups] == ["integrate"],
+        "the run did not record one integrate group",
+    )
+
+
+def self_check(answers_given: tuple[str, str] | None = None) -> int:
+    """No cost: the briefs fill, the answer parser on canned input, then the whole flow (a run against a fake
+    `claude`) on a small store built in a temp folder. `answers_given` replaces the fake's place and check answers."""
+    try:
+        _check_briefs()
+        _check_parser()
+        _check_flow(answers_given)
+    except SelfCheckError as exc:
+        print(f"self-check failed: {exc}")
+        return 1
+    print("self-check passed")
+    return 0
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
-    parser.add_argument("command", choices=["run"])
+    parser.add_argument("command", nargs="?", choices=["run"])
     parser.add_argument("--store", type=Path, help="default: the store `mem` resolves")
     parser.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
@@ -418,11 +599,19 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run", action="store_true", help="list what would run; start and change nothing"
     )
+    parser.add_argument(
+        "--self-check", action="store_true", help="no model: prove the briefs, parser and flow"
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = _parser().parse_args(argv)
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.self_check:
+        return self_check()
+    if not args.command:
+        parser.error("a command is required")
     store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-integrate: no store at {store}", file=sys.stderr)
