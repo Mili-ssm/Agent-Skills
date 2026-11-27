@@ -2,7 +2,7 @@
 """Synthesis trials: is a synthesis written by Haiku and fixed in a lean Haiku loop as accurate and complete as one
 written by Sonnet with one Haiku fact-check and one Sonnet fix, and at what cost?
 
-Plan: docs/superpowers/plans/2026-11-17-memory-prompts-and-loop.md (its "Loop design" and decision rule bind this script).
+Plan: docs/superpowers/plans/done/2026-11-17-memory-prompts-and-loop.md (its "Loop design" and decision rule bind this script).
 Arm S: writer sonnet -> check -> sonnet fixer, no second check. Arm L: writer sonnet -> lean loop. Arm M: writer haiku
 (high effort) -> lean loop. Lean loop: check (one line per unsupported claim) -> one haiku fixer that changes only the
 listed sentences -> one check scoped to the parts and sentences the fixer reports -> when it still lists claims, one

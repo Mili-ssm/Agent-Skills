@@ -6,11 +6,11 @@ What should improve across the whole repository (all plugins, scripts, docs and 
 
 ## Conclusion
 
-> Done 2026-11-25 on branch `feat/repo-tooling` ([plan](../superpowers/plans/2026-11-25-repo-tooling-and-shared-text.md), ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12.
+> Done 2026-11-25 on branch `feat/repo-tooling` ([plan](../superpowers/plans/done/2026-11-25-repo-tooling-and-shared-text.md), ADR 0029): Q1, Q2, Q3, A9, A10, B9–B12.
 
 The repository is healthy at plugin level: no imports cross plugins, every check is green (on 2026-11-24: memory 2,214 passed / 5 skipped in 294 s, tool-fold 154, plan-progress 9, `validate.py` and `port.py --check` OK). The debt sits in four places:
 
-1. **Security of the memory engine** (S1–S7): one high, three medium, three low. S1–S4 and S6 are fixed in [PR #182](https://github.com/Mili-ssm/Agent-Skills/pull/182) (plan `docs/superpowers/plans/2026-11-24-memory-security.md` there); S5 and S7 stay open (§ Security, still open).
+1. **Security of the memory engine** (S1–S7): one high, three medium, three low. S1–S4 and S6 are fixed in [PR #182](https://github.com/Mili-ssm/Agent-Skills/pull/182) (plan `docs/superpowers/plans/done/2026-11-24-memory-security.md` there); S5 and S7 stay open (§ Security, still open).
 2. **The memory refactor plan has not started**: none of its tasks is done, and `bin/` copies a background-job lifecycle the study did not count.
 3. **The commit gate is untested and unenforced**: `validate.py` and `port.py` have no tests, and nothing runs them automatically.
 4. **Docs and prompts drift**: the memory state table already contradicts the release, and three homes (descriptions, `routing.md`, `offload-policy.md`) restate the same triggers.

@@ -1,6 +1,6 @@
 """The lean synthesis pipeline shared by `bin/mem-synthesize` and `evals/synthesis/run_trials.py`.
 
-Lean loop (measured in docs/superpowers/plans/2026-11-17-memory-prompts-and-loop.md): check (one line per unsupported
+Lean loop (measured in docs/superpowers/plans/done/2026-11-17-memory-prompts-and-loop.md): check (one line per unsupported
 claim) -> one fixer that changes only the listed sentences -> one check scoped to the parts and sentences the fixer
 reports -> when it still lists claims, one delete-only step removes those sentences; no third pass. Every step is its
 own `claude -p` session. Standard library and the engine's own modules (`records`, `syntheses`: PyYAML)."""
