@@ -9,6 +9,7 @@ Token figures marked "est." are characters divided by CHARS_PER_TOKEN.
 """
 
 import json
+import math
 import re
 import statistics
 import sys
@@ -50,6 +51,9 @@ MUTATING = re.compile(
     r"|\btee\s+(-\S+\s+)*[^-\s]"
     # a redirect to a file; not `2>&1`, `>&2`, `> /dev/null`, `->`, `=>`
     r"|(?<![-=>&|])>>?(?![>&=])\s*(?!/dev/null\b)[^\s&|;)]"
+    # `&>file`, `&>>file` and the clobber redirect `>|file`
+    r"|&>>?\s*(?!/dev/null\b)[^\s&|;)]"
+    r"|>\|\s*(?!/dev/null\b)[^\s&|;)]"
 )
 TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 GIT = re.compile(r"(git|gh)\b")
@@ -389,8 +393,8 @@ def table(headers: Sequence[str], rows: Iterable[Sequence[object]]) -> None:
 
 
 def share(part: float, whole: float) -> str:
-    """Format part of whole as a percentage."""
-    return f"{100 * part / whole:.1f}%" if whole else "0.0%"
+    """Format part of whole as a percentage, or "none" when whole is 0."""
+    return f"{100 * part / whole:.1f}%" if whole else "none"
 
 
 def tokens(chars: float) -> str:
@@ -596,7 +600,8 @@ def bash_runs(session: list[Call], minimum: int = THRESHOLDS[0]) -> list[list[Ca
 
 def percentile(ordered: list[int], fraction: float) -> int:
     """Return the nearest-rank percentile of an ascending list, or 0 for none."""
-    return ordered[min(len(ordered) - 1, int(len(ordered) * fraction))] if ordered else 0
+    # round() absorbs float error such as 0.29 * 100 = 28.999999999999996 before the ceiling
+    return ordered[max(0, math.ceil(round(len(ordered) * fraction, 9)) - 1)] if ordered else 0
 
 
 def shell_run_figures(sessions: list[list[Call]]) -> None:

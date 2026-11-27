@@ -5,6 +5,7 @@ import json
 from contextlib import redirect_stdout
 from pathlib import Path
 
+import pytest
 import usage_dispatch_value as dv
 
 SINCE = "2000-01-01T00:00:00"
@@ -82,16 +83,20 @@ def test_both_texts_count_and_the_report_is_the_handback_body(tmp_path: Path) ->
         tmp_path / "a.jsonl",
         [dispatch_call(1), launched(), notification_attachment(), handback_user()],
     )
-    dispatch = dv.parse_main(path, SINCE, set()).dispatches["t1"]
-    assert dispatch.texts == {"handback", "notification"}
+    main = dv.parse_main(path, SINCE, set())
+    dispatch = main.dispatches["t1"]
+    assert len(main.seen_notice) == 2  # ruff: ignore[magic-value-comparison]
     assert dispatch.side_chars >= len(HANDBACK) + len(NOTIFICATION)
+    assert dispatch.texts == {"handback", "notification"}
     assert dispatch.report_text == "## Result: DONE\nsee foo.md"
 
 
 def test_report_comes_from_the_notification_when_it_is_the_only_text(tmp_path: Path) -> None:
     """A notification that arrives first gives the text until the hand-back replaces it."""
     path = write(tmp_path / "a.jsonl", [dispatch_call(1), launched(), notification_attachment()])
-    dispatch = dv.parse_main(path, SINCE, set()).dispatches["t1"]
+    main = dv.parse_main(path, SINCE, set())
+    dispatch = main.dispatches["t1"]
+    assert len(main.seen_notice) == 1
     assert dispatch.report_text == "## Result: DONE\nsee foo.md"
     assert dispatch.texts == {"notification"}
 
@@ -108,8 +113,8 @@ def test_a_notice_repeated_as_record_and_attachment_counts_once(tmp_path: Path) 
         [dispatch_call(1), launched(), notification_attachment(), again],
     )
     main = dv.parse_main(path, SINCE, set())
-    assert main.dispatches["t1"].texts == {"notification"}
     assert len(main.seen_notice) == 1
+    assert main.dispatches["t1"].texts == {"notification"}
 
 
 def reopen_main(command: str) -> tuple[dv.Main, dv.Dispatch]:
@@ -143,11 +148,63 @@ def test_waiting_counts_a_dispatch_that_never_reported() -> None:
     assert dv.waiting_calls(main, dispatch) == [1, 2]
 
 
+def test_waiting_stops_at_the_end_of_the_session() -> None:
+    """Text-only calls after the last tool call are the final answer, not a wait."""
+    main = dv.Main(calls=[dv.Call(has_tool=True), dv.Call(has_tool=True), dv.Call(), dv.Call()])
+    dispatch = dv.Dispatch("t1", "implementer", "", 1, "")
+    assert dv.waiting_calls(main, dispatch) == []
+
+
 def test_blocked_and_missing_input_reports() -> None:
     """A report that opens BLOCKED or stops for missing input counts; a DONE report does not."""
     assert dv.opens_blocked("## Result: BLOCKED — turn budget\nrest")
     assert dv.opens_blocked("Status: stopped\nMissing input: no acceptance criteria")
     assert not dv.opens_blocked("## Result: DONE\nnothing was blocked here")
+
+
+def test_a_report_that_only_mentions_missing_input_is_not_blocked() -> None:
+    """`Missing input validation` in a DONE report is a topic, not a stop."""
+    done = "## Result: DONE\nMissing input validation was added to the parser.\nrest"
+    assert not dv.opens_blocked(done)
+    assert not dv.opens_blocked("Missing input validation was added.\nrest")
+    assert not dv.opens_blocked("## Result: DONE\nIt needs context from the caller, so I added it.")
+
+
+def test_empty_sets_print_none_not_zero() -> None:
+    """A median, mean or share of nothing is not 0."""
+    assert dv.median([]) is None
+    assert dv.mean([]) is None
+    assert dv.share([]) is None
+    assert dv.show(None, ".0f") == "none"
+    assert dv.show(2.0, ".1f") == "2.0"
+
+
+def assistant_record(mid: str, second: int) -> dict[str, object]:
+    """Return a subagent API call stamped at the given second of 2026-01-01."""
+    return {
+        "type": "assistant",
+        "timestamp": f"2026-01-01T00:00:{second:02d}Z",
+        "message": {
+            "id": mid,
+            "model": "claude-sonnet-5",
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+            "content": [],
+        },
+    }
+
+
+def test_run_turns_include_calls_before_the_window(tmp_path: Path) -> None:
+    """A run that started before the window keeps its earlier turns; cost counts the window only."""
+    path = write(
+        tmp_path / "agent-x.jsonl",
+        [assistant_record("a", 1), assistant_record("b", 2), assistant_record("c", 30)],
+    )
+    run = dv.parse_run(path, "2026-01-01T00:00:10")
+    assert run is not None
+    assert run.turns == 3  # ruff: ignore[magic-value-comparison]
+    one_call = dv.usd({"input_tokens": 1, "output_tokens": 1}, "sonnet")[0]
+    assert run.cost == pytest.approx(one_call)
+    assert dv.parse_run(path, "2026-01-01T00:01:00") is None
 
 
 def test_turn_cap_is_read_from_the_agent_frontmatter() -> None:

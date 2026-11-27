@@ -41,7 +41,7 @@ import statistics
 import sys
 import time
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import partial
@@ -80,8 +80,10 @@ FRAME_END = "The report follows:\n"
 HANDBACK_END = "\n</agent-message>"
 RESULT = re.compile(r"<result>(.*?)</result>", re.DOTALL)
 BLOCKED = re.compile(r"^[#*\s]*(?:result:?\s*)?\**blocked\b", re.IGNORECASE)
+# A line that opens with the stop itself (`Missing input: …`, `Needs context`), not one that mentions it.
 MISSING_INPUT = re.compile(
-    r"missing (?:input|acceptance|scope|brief)|needs? (?:more )?context|cannot proceed",
+    r"^[#*\s]*(?:status:?\s*)?\**(?:missing (?:input|acceptance|scope|brief)|needs? (?:more )?context"
+    r"|cannot proceed)\**\s*(?:[:\u2014\u2013-]|$)",
     re.IGNORECASE,
 )
 OPENING_LINES = 3
@@ -369,29 +371,46 @@ class Run:
     cost: float = 0.0
 
 
-def parse_run(path: Path, since_iso: str) -> Run | None:
-    """Read one subagent transcript with its meta file; None when it has no API call in the window."""
+def result_chars(record: Rec) -> int:
+    """Return the characters of the tool results of a user record."""
+    return sum(
+        len(flat(b.get("content"))) for b in blocks(record) if b.get("type") == "tool_result"
+    )
+
+
+def new_run(path: Path) -> Run:
+    """Return an empty Run named by the meta file beside a subagent transcript."""
     try:
         meta: Rec = json.loads(path.with_suffix(".meta.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         meta = {}
-    run = Run(
+    return Run(
         agent_kind(meta.get("agentType") or "workflow"),
         str(meta.get("toolUseId", "")),
         path.stem.removeprefix("agent-"),
     )
+
+
+def parse_run(path: Path, since_iso: str) -> Run | None:
+    """Read one subagent transcript with its meta file; None when it has no API call in the window.
+
+    Cost, tool calls and kept characters count the window only; the turns count every API call of
+    the run, because a run that started before the window still spent its earlier turns.
+    """
+    run = new_run(path)
     seen_mid: set[str] = set()
     seen_tool: set[str] = set()
-    for record in records(path, since_iso):
-        if record.get("type") == "assistant":
+    earlier: set[str] = set()  # API calls stamped before the window
+    for record in records(path, ""):
+        if (record.get("timestamp") or "") < since_iso:
+            message: Rec = record.get("message") or {}
+            if record.get("type") == "assistant" and message.get("id") and message.get("usage"):
+                earlier.add(message["id"])
+        elif record.get("type") == "assistant":
             collect_assistant(run, record, seen_mid, seen_tool)
         elif record.get("type") == "user":
-            run.kept_chars += sum(
-                len(flat(b.get("content")))
-                for b in blocks(record)
-                if b.get("type") == "tool_result"
-            )
-    run.turns = len(seen_mid)
+            run.kept_chars += result_chars(record)
+    run.turns = len(seen_mid | earlier)
     return run if seen_mid else None
 
 
@@ -421,7 +440,8 @@ def waiting_calls(main: Main, dispatch: Dispatch) -> list[int]:
     """Return the indexes of the main calls without a tool call between the dispatch and its report.
 
     A dispatch that never reported counts the text-only calls that follow it until the main's next
-    tool call: after that the main is no longer waiting for it.
+    tool call: after that the main is no longer waiting for it. Text-only calls that run to the end
+    of the session are its final answer, not a wait, and count for nothing.
     """
     if dispatch.report_call is not None:
         end = dispatch.report_call
@@ -429,9 +449,9 @@ def waiting_calls(main: Main, dispatch: Dispatch) -> list[int]:
     waiting: list[int] = []
     for index in range(dispatch.call + 1, len(main.calls)):
         if main.calls[index].has_tool:
-            break
+            return waiting
         waiting.append(index)
-    return waiting
+    return []
 
 
 def reopened(main: Main, dispatch: Dispatch) -> tuple[int, float, int]:
@@ -470,14 +490,24 @@ def is_redo(main: Main, dispatch: Dispatch) -> bool:
     )
 
 
-def median(values: list[float]) -> float:
-    """Return the median, or 0 for no values."""
-    return statistics.median(values) if values else 0.0
+def median(values: Sequence[float]) -> float | None:
+    """Return the median, or None for no values."""
+    return statistics.median(values) if values else None
 
 
-def share(values: list[bool]) -> float:
-    """Return the percentage of true values."""
-    return 100 * sum(values) / len(values) if values else 0.0
+def mean(values: Sequence[float]) -> float | None:
+    """Return the mean, or None for no values."""
+    return statistics.fmean(values) if values else None
+
+
+def share(values: Sequence[bool]) -> float | None:
+    """Return the percentage of true values, or None for no values."""
+    return 100 * sum(values) / len(values) if values else None
+
+
+def show(value: float | None, spec: str) -> str:
+    """Format a figure, or "none" when its set was empty."""
+    return "none" if value is None else format(value, spec)
 
 
 def table(title: str, header: list[str], rows: list[list[str]]) -> None:
@@ -513,14 +543,14 @@ def section_a(runs: list[Run], dispatches: dict[str, Dispatch], order: list[str]
         ratios = [tokens(r.kept_chars) / max(tokens(d.side_chars), 1) for r, d in linked]
         rows.append([
             name, str(len(group)), str(len(linked)),
-            f"{median([r.tool_uses for r in group]):.0f}",
-            f"{median([tokens(r.kept_chars) for r in group]):.0f}",
-            f"{median([tokens(d.side_chars) for _, d in linked]):.0f}",
-            f"{median(ratios):.1f}",
-            f"{share([x < 1 for x in ratios]):.0f}", f"{share([x < RATIO_HIGH for x in ratios]):.0f}",
-            f"{share([r.tool_uses <= FEW_TOOLS for r in group]):.0f}",
-            f"{share([r.tool_uses <= SOME_TOOLS for r in group]):.0f}",
-            f"{sum(r.cost for r in group):.1f}", f"{median([r.cost for r in group]):.2f}",
+            show(median([r.tool_uses for r in group]), ".0f"),
+            show(median([tokens(r.kept_chars) for r in group]), ".0f"),
+            show(median([tokens(d.side_chars) for _, d in linked]), ".0f"),
+            show(median(ratios), ".1f"),
+            show(share([x < 1 for x in ratios]), ".0f"), show(share([x < RATIO_HIGH for x in ratios]), ".0f"),
+            show(share([r.tool_uses <= FEW_TOOLS for r in group]), ".0f"),
+            show(share([r.tool_uses <= SOME_TOOLS for r in group]), ".0f"),
+            f"{sum(r.cost for r in group):.1f}", show(median([r.cost for r in group]), ".2f"),
         ])  # fmt: skip
     table("A. Value per dispatch (tokens est.; kept_out is an upper bound)", header, rows)
 
@@ -536,8 +566,8 @@ def section_b(items: list[Item], order: list[str]) -> None:
         counts = [float(len(w)) for _, w in waits]
         unreported = sum(1 for _, d in group if d.report_call is None)
         rows.append([
-            name, str(len(waits)), str(unreported), f"{median(counts):.0f}",
-            f"{statistics.fmean(counts) if counts else 0:.2f}", f"{sum(counts):.0f}",
+            name, str(len(waits)), str(unreported), show(median(counts), ".0f"),
+            show(mean(counts), ".2f"), f"{sum(counts):.0f}",
             f"{sum(m.calls[i].cache_read_usd for m, w in waits for i in w):.2f}",
         ])  # fmt: skip
     table(
@@ -560,11 +590,11 @@ def section_c(items: list[Item], order: list[str]) -> None:
     for name, group in by_kind(items, lambda i: i[1].kind, order):
         found = [reopened(m, d) for m, d in group if d.report_call is not None]
         rows.append([
-            name, str(len(found)), f"{share([n > 0 for n, _, _ in found]):.0f}",
-            f"{statistics.fmean([n for n, _, _ in found]) if found else 0:.2f}",
+            name, str(len(found)), show(share([n > 0 for n, _, _ in found]), ".0f"),
+            show(mean([n for n, _, _ in found]), ".2f"),
             f"{sum(t for _, t, _ in found):.0f}",
             str(sum(c for _, _, c in found)),
-            f"{statistics.fmean([c for _, _, c in found]) if found else 0:.2f}",
+            show(mean([c for _, _, c in found]), ".2f"),
         ])  # fmt: skip
     table(
         "C. Paths of a report re-opened by the main within 15 calls (tokens est.)",
@@ -589,7 +619,7 @@ def section_d(items: list[Item], order: list[str]) -> None:
         redo = [is_redo(m, d) for m, d in reported]
         round2 = [bool(re.search(r"round 2", d.prompt, re.IGNORECASE)) for _, d in group]
         rows.append([
-            name, str(len(reported)), f"{share(redo):.1f}", str(sum(redo)),
+            name, str(len(reported)), show(share(redo), ".1f"), str(sum(redo)),
             str(len(group)), str(sum(round2)),
         ])  # fmt: skip
     table(
@@ -615,7 +645,12 @@ def section_f(items: list[Item], order: list[str]) -> None:
     rows: list[list[str]] = []
     for name, group in by_kind(items, lambda i: i[1].kind, order):
         secs = [s for _, d in group if (s := duration(d)) is not None]
-        rows.append([name, str(len(secs)), f"{median(secs):.0f}", f"{max(secs, default=0):.0f}"])
+        rows.append([
+            name,
+            str(len(secs)),
+            show(median(secs), ".0f"),
+            show(max(secs, default=None), ".0f"),
+        ])
     table("F. Seconds from dispatch to report", ["agent", "measured", "median", "max"], rows)
 
 
@@ -653,9 +688,9 @@ def section_g(items: list[Item], runs: list[Run], order: list[str], total_calls:
         capped = [x for r in kind_runs if (x := near_cap(r, caps)) is not None]
         rows.append([
             name, str(len(texts)),
-            f"{median([len(t) for t in texts]):.0f}", f"{median([len(t.split()) for t in texts]):.0f}",
-            f"{share([opens_blocked(t) for t in texts]):.1f}",
-            str(caps.get(name, "-")), str(len(capped)), f"{share(capped):.1f}",
+            show(median([len(t) for t in texts]), ".0f"), show(median([len(t.split()) for t in texts]), ".0f"),
+            show(share([opens_blocked(t) for t in texts]), ".1f"),
+            str(caps.get(name, "-")), str(len(capped)), show(share(capped), ".1f"),
         ])  # fmt: skip
     table(
         "G. Report text without its frame, blocked share, and runs within "

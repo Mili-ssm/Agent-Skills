@@ -9,6 +9,7 @@ The trigger of a dispatch is guessed from words in its brief, so read the kinds 
 """
 
 import json
+import math
 import re
 import statistics
 import sys
@@ -130,10 +131,10 @@ def severity_cell(report: str) -> int:
     return SEVERITY_CELL
 
 
-# A section label such as `Low:` or `Not checked:`: no `.` or digit before the colon (a count in
-# parentheses is allowed) and whitespace or the line end after it, so a finding line like
-# `Makefile:3 — …` or `a.py:12 — …` is not a label.
-LABEL = re.compile(r"[A-Z][A-Za-z ]*(?:\(\d+\))?:(?!\S)")
+# A section label of the report format: `Low:`, `Not checked:` or `Left out:` (a count in parentheses
+# is allowed), then whitespace or the line end. Only these end a Low block, so a finding line like
+# `Makefile: typo`, `Makefile:3 — …` or `a.py:12 — …` does not.
+LABEL = re.compile(r"(?:Low|Not checked|Left out)(?: ?\(\d+\))?:(?!\S)")
 LEFT_OUT = re.compile(r"Left out:\s*(\d+)\s+low\b", re.IGNORECASE)
 
 
@@ -163,7 +164,8 @@ def spread(values: list[int]) -> str:
     """Format the median and the 90th percentile."""
     if not values:
         return "none"
-    return f"median {statistics.median(values):.0f}, p90 {sorted(values)[int(0.9 * len(values))]}"
+    p90 = sorted(values)[max(0, math.ceil(round(0.9 * len(values), 9)) - 1)]  # nearest rank
+    return f"median {statistics.median(values):.0f}, p90 {p90}"
 
 
 def main() -> None:
