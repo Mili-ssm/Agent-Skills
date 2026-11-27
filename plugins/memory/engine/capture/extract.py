@@ -17,6 +17,17 @@ from typing import Any
 
 from memories import records
 
+from capture import codex_rollout
+from capture.event_lines import (
+    AGENT_LIMIT,
+    HUMAN_LIMIT,
+    REPORT_LIMIT,
+    flat,
+    result_event,
+    text_of,
+    tool_use_line,
+)
+
 logger = logging.getLogger(__name__)
 
 SIGNALS: tuple[str, ...] = (
@@ -61,12 +72,6 @@ CLAIM_MAX = 400
 EVIDENCE_MIN = 15
 CONTEXT_LIMIT = 300
 
-_HUMAN_LIMIT = 2000  # an owner's words are kept longer than a subagent report
-_REPORT_LIMIT = 800
-_AGENT_LIMIT = 1500
-_ARG_LIMIT = 200
-_ERROR_LIMIT = 400
-_TOOL_ARGS = ("command", "file_path", "description")
 _OWNER_SIGNALS = (
     "owner_correction",
     "decision_with_reason",
@@ -82,37 +87,8 @@ _KIND_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR|TOO
 _BODY_RE = re.compile(r"^\[\d+\] (OWNER ANSWER|OWNER|REPORT|AGENT|TOOL ERROR \S+|TOOL \S+): (.*)$")
 
 
-def _flat(text: str, limit: int) -> str:
-    # cut before normalizing so memory does not follow the size of the line; a text that is mostly
-    # whitespace can come out shorter than `limit` with its tail lost, which is accepted
-    return " ".join(text[: limit * 8].split())[:limit].strip()
-
-
-def _text_of(content: object) -> str:
-    """Text of a string or of the text blocks of a list; "" otherwise."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for b in content:
-            if isinstance(b, str):
-                parts.append(b)
-            elif (
-                isinstance(b, dict)
-                and b.get("type", "text") == "text"
-                and isinstance(b.get("text"), str)
-            ):
-                parts.append(b["text"])
-        return " ".join(parts)
-    return ""
-
-
 def _blocks(content: object) -> list[dict]:
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
-
-
-def _name(value: object) -> str:
-    return value if isinstance(value, str) and value else "?"
 
 
 def _is_human(origin: object) -> bool:
@@ -140,27 +116,10 @@ def _attachment_events(entry: dict) -> list[str]:
         "origin", entry.get("origin")
     )  # the origin of a queued command sits on the attachment
     human = origin is None or _is_human(origin)
-    text = _flat(_text_of(att.get("prompt")), _HUMAN_LIMIT if human else _REPORT_LIMIT)
+    text = flat(text_of(att.get("prompt")), HUMAN_LIMIT if human else REPORT_LIMIT)
     if not text:
         return []
     return [f"OWNER: {text}" if human else f"REPORT: {text}"]
-
-
-def _tool_arg(inp: object) -> str:
-    if not isinstance(inp, dict):
-        return ""
-    for key in _TOOL_ARGS:
-        value = inp.get(key)
-        if isinstance(value, str):
-            return value
-    return ""
-
-
-def _tool_use_line(b: dict, names: dict) -> str:
-    name = _name(b.get("name"))
-    if isinstance(b.get("id"), str):
-        names[b["id"]] = name
-    return f"TOOL {name}: {_flat(_tool_arg(b.get('input')), _ARG_LIMIT)}"
 
 
 def _assistant_events(content: object, names: dict) -> list[str]:
@@ -170,23 +129,12 @@ def _assistant_events(content: object, names: dict) -> list[str]:
     )
     for b in blocks:
         if b.get("type") == "text" and isinstance(b.get("text"), str):
-            text = _flat(b["text"], _AGENT_LIMIT)
+            text = flat(b["text"], AGENT_LIMIT)
             if text:
                 out.append(f"AGENT: {text}")
         elif b.get("type") == "tool_use":
-            out.append(_tool_use_line(b, names))
+            out.append(tool_use_line(b, names))
     return out
-
-
-def _result_event(b: dict, name: str, state: dict) -> str | None:
-    if b.get("is_error"):
-        state[name] = True
-        return f"TOOL ERROR {name}: {_flat(_text_of(b.get('content')), _ERROR_LIMIT)}"
-    was_failing = state.get(name)
-    state[name] = False
-    if name == "AskUserQuestion":
-        return f"OWNER ANSWER: {_flat(_text_of(b.get('content')), _REPORT_LIMIT)}"
-    return f"TOOL OK {name}" if was_failing else None
 
 
 def _result_events(content: object, names: dict, state: dict) -> list[str]:
@@ -194,7 +142,7 @@ def _result_events(content: object, names: dict, state: dict) -> list[str]:
     for b in _blocks(content):
         if b.get("type") != "tool_result":
             continue
-        event = _result_event(b, names.get(b.get("tool_use_id"), "?"), state)
+        event = result_event(b, names.get(b.get("tool_use_id"), "?"), state)
         if event is not None:
             out.append(event)
     return out
@@ -203,12 +151,12 @@ def _result_events(content: object, names: dict, state: dict) -> list[str]:
 def _user_text_events(entry: dict, content: object) -> list[str]:
     if entry.get("isMeta") or entry.get("isCompactSummary"):
         return []
-    text = _text_of(content)
+    text = text_of(content)
     if not text.strip():
         return []
     origin = entry.get("origin")
     human = _is_human(origin) or (origin is None and not text.lstrip().startswith("<"))
-    body = _flat(text, _HUMAN_LIMIT if human else _REPORT_LIMIT)
+    body = flat(text, HUMAN_LIMIT if human else REPORT_LIMIT)
     if body and human:
         return [f"OWNER: {body}"]
     if body and origin is not None:
@@ -230,9 +178,9 @@ def _events(entry: dict, names: dict, state: dict) -> list[str]:
     return _result_events(content, names, state) + _user_text_events(entry, content)
 
 
-def _decode(raw: str, names: dict, state: dict) -> list[str]:
+def _decode(raw: str, names: dict, state: dict, decoder: Any = _events) -> list[str]:
     entry = json.loads(raw)
-    return _events(entry, names, state) if isinstance(entry, dict) else []
+    return decoder(entry, names, state) if isinstance(entry, dict) else []
 
 
 class _Window:
@@ -276,13 +224,21 @@ class _Scan:
         self.last = since_line
         self.skipped = 0
         self.more = False
+        self.decoder: Any = _events
+        self.prime_marks = ("tool_use", "tool_result")
+
+    def choose(self, first_line: str) -> None:
+        """Pick the decoder once per file from its first line: a Codex rollout or a Claude transcript."""
+        if codex_rollout.is_rollout(first_line):
+            self.decoder = codex_rollout.events
+            self.prime_marks = ("_call", "session_meta")
 
     def prime(self, raw: str) -> None:
         """Learn tool names and failure state from a line before the window; nothing else matters."""
-        if "tool_use" not in raw and "tool_result" not in raw:
+        if not any(mark in raw for mark in self.prime_marks):
             return
         try:
-            _decode(raw, self.names, self.state)
+            _decode(raw, self.names, self.state, self.decoder)
         except Exception:
             # not counted: the earlier window already reported it
             logger.debug("capture: unreadable line before the window", exc_info=True)
@@ -293,7 +249,7 @@ class _Scan:
             return False  # a line still being written is read once it is finished
         self.last = n
         try:  # no line of any content may stop the extract
-            events = _decode(raw, self.names, self.state)
+            events = _decode(raw, self.names, self.state, self.decoder)
         except json.JSONDecodeError:
             return True  # a line that is not JSON is ordinary
         except Exception:
@@ -318,6 +274,8 @@ def extract(transcript: Path, since_line: int = 0, forward: bool = False) -> tup
     scan = _Scan(since_line, forward)
     with open(transcript, encoding="utf-8", errors="replace") as f:
         for n, raw in enumerate(f, 1):
+            if n == 1:
+                scan.choose(raw)
             if n <= since_line:
                 scan.prime(raw)
             elif not scan.read(n, raw):

@@ -1002,7 +1002,11 @@ def _cwd_value(raw: bytes) -> str | None:
         item = json.loads(raw)
     except ValueError:
         return None
-    value = item.get("cwd") if isinstance(item, dict) else None
+    if not isinstance(item, dict):
+        return None
+    payload = item.get("payload")  # a Codex rollout keeps it in `session_meta` and `turn_context`
+    nested = payload.get("cwd") if isinstance(payload, dict) else None
+    value = item.get("cwd") or nested
     return value if isinstance(value, str) and value else None
 
 
