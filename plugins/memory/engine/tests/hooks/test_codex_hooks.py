@@ -7,6 +7,8 @@ import subprocess
 import time
 from pathlib import Path
 
+from session import handoff
+
 PLUGIN = Path(__file__).resolve().parents[3]
 HOOKS = PLUGIN / "hooks"
 SESSION_END_TIMEOUT = 3
@@ -85,8 +87,7 @@ def test_pre_compact_prints_nothing_on_codex(tmp_path):
 def test_pre_compact_claude_output_unchanged(tmp_path):
     root = _plugin_copy(tmp_path)
     done = _run(root, tmp_path, "pre-compact.sh", None)
-    assert done.returncode == 0 and done.stdout.startswith("End the summary with this block")
-    assert done.stdout.rstrip().endswith("so that the next context can record them.")
+    assert done.returncode == 0 and done.stdout == handoff.INSTRUCTION + "\n"
 
 
 def test_session_end_and_pre_compact_read_option_files_on_codex(tmp_path):

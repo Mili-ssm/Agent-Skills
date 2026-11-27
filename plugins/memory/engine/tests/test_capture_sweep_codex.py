@@ -113,3 +113,50 @@ def test_sweep_skips_folder_without_memory_dir(world, monkeypatch):
     assert (
         capture_state.swept_size(world.data, "rollout-idle") is not None
     )  # settled without a model run
+
+
+def _count_first_lines(mod, monkeypatch):
+    opened = []
+    real = mod._first_line
+    monkeypatch.setattr(mod, "_first_line", lambda path: opened.append(path.stem) or real(path))
+    return opened
+
+
+def test_subagent_rollouts_are_read_once_not_every_start(world, mod, here, monkeypatch):
+    kids = [rollout(world, f"child{n}", source="subagent", age=DAY + n) for n in range(3)]
+    start(mod, world, monkeypatch, transcript=here)
+    opened = _count_first_lines(mod, monkeypatch)
+    start(mod, world, monkeypatch, transcript=here)
+    assert not {k.stem for k in kids} & set(opened)
+
+
+def test_other_project_rollout_stays_for_its_own_project(world, mod, here, monkeypatch):
+    elsewhere = world.tmp / "elsewhere"
+    elsewhere.mkdir()
+    other = rollout(world, "other", cwd=elsewhere)
+    start(mod, world, monkeypatch, transcript=here)
+    assert capture_state.swept_size(world.data, other.stem) is None
+
+
+def test_oversized_first_line_is_not_a_codex_session(world, mod, tmp_path):
+    big = tmp_path / "big.jsonl"
+    big.write_text("x" * (mod.FIRST_LINE_LIMIT + 10) + "\n", encoding="utf-8")
+    assert not mod._first_line(big)
+    assert not mod._is_codex_rollout(big)
+
+
+def test_day_folder_boundary_is_today_and_the_max_age_days_before(world, mod, here, monkeypatch):
+    days = capture_state.SWEEP_MAX_AGE_DAYS
+    rollout(world, "edge", days_ago=days, age=days * DAY - 60)
+    rollout(world, "beyond", days_ago=days + 1, age=days * DAY - 60)
+    start(mod, world, monkeypatch, transcript=here)
+    assert swept(world) == ["rollout-edge"]
+
+
+def test_day_folders_cross_month_and_year(world, mod, here, monkeypatch):
+    now = datetime.datetime(2027, 1, 2, 12).timestamp()
+    folders = mod._sweep_folders(here, now)
+    assert folders[0].parts[-3:] == ("2027", "01", "02")
+    assert folders[3].parts[-3:] == ("2026", "12", "30")
+    assert folders[-1].parts[-3:] == ("2026", "12", "26")
+    assert len(folders) == capture_state.SWEEP_MAX_AGE_DAYS + 1
