@@ -8,14 +8,12 @@ change anywhere, nothing is restored. Groups go newest first; the first refusal 
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from memories.journal import CURATION_LOG
-
 from integrate import state as run_state
+from integrate.log import log_entries
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -39,36 +37,9 @@ class UndoResult:
     )  # group ids a hand `mem restore` had undone
 
 
-def _log_objects(store: Path) -> list[tuple[int, dict[str, Any]]]:
-    """(line number, entry) of every log line that is a JSON object with a handle; lines are split on a line feed
-    only and numbered from 0, the way `mem restore` numbers them."""
-    try:
-        lines = (store / CURATION_LOG).read_text(encoding="utf-8").split("\n")
-    except OSError:
-        return []
-    found = []
-    for number, line in enumerate(lines):
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(entry, dict) and isinstance(entry.get("handle"), str):
-            found.append((number, entry))
-    return found
-
-
 def _entries(store: Path) -> list[tuple[bool, dict[str, Any]]]:
-    """Every log entry that holds a text (`before`), oldest first, with whether a restore marker has cancelled it
-    (`line` added). A marker `{"action": "restore", "handle": H, "undone": N}` cancels the entry on line N."""
-    objects = _log_objects(store)
-    cancelled = {
-        e["undone"]
-        for _, e in objects
-        if e.get("action") == "restore" and isinstance(e.get("undone"), int)
-    }
-    return [
-        (n in cancelled, {**e, "line": n}) for n, e in objects if isinstance(e.get("before"), str)
-    ]
+    """The log entries that hold a text (`before`), oldest first, with whether a restore marker has cancelled them."""
+    return [(gone, e) for gone, e in log_entries(store) if isinstance(e.get("before"), str)]
 
 
 def _live_entries(store: Path) -> list[dict[str, Any]]:

@@ -26,6 +26,7 @@ from integrate_store import (  # ruff: ignore[unused-import]  (fixtures)
 CUTOFF = LONG_AGO + 1000
 FAILED_COST = 0.25
 OWNER_ONLY = 0o600
+LINE_SEP = chr(0x2028)  # `splitlines()` cuts a line here
 
 
 def test_record_lists_groups_with_handles_and_ids(tmp_path):
@@ -161,3 +162,30 @@ def test_new_since_newest_entry_must_be_an_integrate_write(store_after_integrate
     log.write_text("".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
     _append_entry(store, "edit")  # no integrate entry at all, sha matches
     assert _new_since(store, capsys) == 1
+
+
+def test_new_since_ignores_a_run_that_was_undone(store_after_integrate, capsys):
+    store = store_after_integrate
+    assert store.mem("restore", "s:alpha")[0] == 0  # what `mem-integrate --undo` calls
+    assert _new_since(store, capsys) == 0  # every restored file is back to its text before the run
+
+
+def test_new_since_counts_an_owner_edit_after_an_undo(store_after_integrate, capsys):
+    store = store_after_integrate
+    assert store.mem("restore", "s:alpha")[0] == 0
+    path = store.note_path("n-new")
+    path.write_text(path.read_text(encoding="utf-8") + "\nAn owner edit.\n", encoding="utf-8")
+    assert _new_since(store, capsys) == 1
+
+
+def test_new_since_reads_a_log_entry_with_u2028(store_after_integrate, capsys):
+    store = store_after_integrate
+    log = store.root / ".curation-log"
+    entries = store.log_lines()
+    for entry in entries:
+        if entry["action"] == "integrate" and "before" in entry:
+            entry["before"] += LINE_SEP + "tail"
+    text = "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in entries)
+    log.write_text(text, encoding="utf-8")
+    assert LINE_SEP in text
+    assert _new_since(store, capsys) == 0  # still read as the newest integrate entry

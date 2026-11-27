@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, TypedDict, Unpack
 
 from core import auto_state, safe_io, store_git
 from corroborate import decide as corroborate_decide
+from integrate.log import log_entries
 from memories import records, rules
 from notes import fields as note_fields
 from notes import note as note_files
@@ -757,24 +758,32 @@ def _curate_apply(args: argparse.Namespace) -> int:
 
 
 def _integrate_stamps(store: Path) -> dict[str, str]:
-    """`{hub-relative path: digest}` of each file whose newest `.curation-log` entry is an `integrate` write."""
-    try:
-        lines = (store / records.CURATION_LOG).read_text(encoding="utf-8").splitlines()
-    except OSError:
-        return {}
-    newest: dict[str, dict] = {}
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(entry, dict) and isinstance(entry.get("handle"), str):
-            newest[entry["handle"]] = entry
-    return {
+    """`{hub-relative path: digest}` of the text of each file that `mem synthesis integrate` left, or an undo of it
+    put back, per the curation log read as a stack: the digest is the `after` of the file's newest live entry when
+    that is an `integrate` entry, or that of the `before` text when the file's newest entry is a restore marker
+    cancelling an `integrate` entry."""
+    entries = log_entries(store)
+    by_line = {e["line"]: e for _, e in entries}
+    newest_live: dict[str, dict] = {}
+    newest_any: dict[str, dict] = {}
+    for gone, entry in entries:
+        newest_any[entry["handle"]] = entry
+        if entry.get("action") != "restore" and not gone:
+            newest_live[entry["handle"]] = entry
+    stamps = {
         handle: str(entry.get("after"))
-        for handle, entry in newest.items()
+        for handle, entry in newest_live.items()
         if entry.get("action") == "integrate"
     }
+    for handle, marker in newest_any.items():
+        undone = by_line.get(marker.get("undone")) if marker.get("action") == "restore" else None
+        if (
+            undone is not None
+            and undone.get("action") == "integrate"
+            and isinstance(undone.get("before"), str)
+        ):
+            stamps[handle] = hashlib.sha256(undone["before"].encode("utf-8")).hexdigest()
+    return stamps
 
 
 def _written_by_integrate(path: Path, store: Path, stamps: dict[str, str]) -> bool:
