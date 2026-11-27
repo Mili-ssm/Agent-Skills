@@ -160,3 +160,15 @@ def test_day_folders_cross_month_and_year(world, mod, here, monkeypatch):
     assert folders[3].parts[-3:] == ("2026", "12", "30")
     assert folders[-1].parts[-3:] == ("2026", "12", "26")
     assert len(folders) == capture_state.SWEEP_MAX_AGE_DAYS + 1
+
+
+def test_rollout_without_thread_source_is_an_owner_session(world, mod, here, monkeypatch):
+    path = rollout(world, "older-codex")
+    rows = path.read_text(encoding="utf-8").splitlines()
+    first = json.loads(rows[0])
+    del first["payload"]["thread_source"]  # older Codex releases wrote no thread_source
+    stat = path.stat()
+    path.write_text("\n".join([json.dumps(first), *rows[1:]]) + "\n", encoding="utf-8")
+    os.utime(path, (stat.st_atime, stat.st_mtime))
+    start(mod, world, monkeypatch, transcript=here)
+    assert swept(world) == ["rollout-older-codex"]

@@ -95,7 +95,7 @@ Consequences for later tasks: Task 3 takes owner text only from `response_item` 
 - [ ] Implement; the decoder is chosen once per file from its first line.
 - [ ] Run the capture tests and the full engine suite: PASS. Commit.
 
-### Task 4: Codex hooks for session end, pre-compact and sweep
+### Task 4: Codex hooks for session end, pre-compact and sweep (done: 713a184, 58fa808 and a round-2 fix; deferred low: another project's rollouts are re-read (first line, ~29 KB) at every start, since the shared store keys swept sizes by file only; a session started 8+ days ago but changed within 7 is not scanned; VS Code and next-day checks are the owner's after the release)
 
 **Files:**
 - Modify: `plugins/memory/hooks/codex.json` (add `SessionEnd` → `MEM_HOST=codex session-end.sh`, timeout 3; `PreCompact` → `MEM_HOST=codex pre-compact.sh`, timeout 5), `pre-compact.sh` (no handoff text when `MEM_HOST=codex`, capture only), `engine/entry/capture.py` (sweep on Codex: the day folders of the last `SWEEP_MAX_AGE_DAYS` days, filtered by `session_meta.payload.cwd` and `thread_source == user` before a file counts as examined; Review Focus 5, 6, 7)

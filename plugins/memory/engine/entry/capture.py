@@ -1165,7 +1165,13 @@ def _to_examine(store: Path, size: int, item: Path, codex: bool, project: Path |
     if not codex:
         return True
     meta = _rollout_meta(item)
-    if meta is None or meta.get("thread_source") != "user":
+    if (
+        meta is None
+    ):  # unreadable now (or not a rollout): not remembered, a later start reads it again
+        return False
+    if (
+        meta.get("thread_source", "user") != "user"
+    ):  # a missing key is an owner thread, as the decoder reads it
         cs.save_swept_size(store, item.stem, size)
         return False
     return _in_project(meta, project)
