@@ -19,7 +19,7 @@ Pick the worker by the task and send it a self-contained brief with the row's fi
 | A bounded implementation task with clear acceptance | `agent-skills:implementer` | task, owned files, checks, acceptance criteria, constraints |
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` | checks, files in scope, behavior that must not change |
 | Verify a changed web UI in a browser | `agent-skills:ui-verifier` | URL or start command, flows with acceptance criteria, viewports |
-| Review what changed in the project since its last review (code, docs, files, a deletion, an image description) | `agent-skills:skeptical-reviewer` | paths or diff, intent, owner rules that apply, what is already verified, round (1 or 2), findings already rejected |
+| Review what changed in the project since its last review (code, docs, files, a deletion, an image description) | `agent-skills:skeptical-reviewer` | paths, diff, commit range or task file (named, not pasted), intent, owner rules not already in `CLAUDE.md` or `AGENTS.md`, what is already verified, round (1 or 2; round 2 only when the fix reaches beyond the findings), findings already rejected; a change already reviewed is not sent again |
 
 - Long runs go in the background, so this conversation keeps working until the result arrives.
 - Independent tasks (for example one researcher per question) run in parallel in one message; dependent steps run in order, for example implementer, then check-runner, then fixer.

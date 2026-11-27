@@ -14,7 +14,7 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Spawn it together with the checks and collect its result before your final answer, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Spawn it together with the checks and collect its result before your final answer, triage every finding yourself and verify the medium/high ones in one call that prints every cited range. A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (round 2 is the last); otherwise confirm the fix by reading it and the checks | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
