@@ -88,13 +88,15 @@ class _Scan(NamedTuple):
 
 def _scan(rows: list[Row], check_answer: str) -> _Scan:
     """The check answer read line by line: a row-shaped stray line (a cut row, a row not proposed) is ignored; a
-    prose line is recorded, because a header such as "Rejected:" may sit above rows the session refused."""
+    prose line (no ` | `, or a `#` heading) is recorded, because a heading such as "Rejected:" may sit above rows the
+    session refused. Limit: a heading that holds ` | ` is not caught; it matters only if a refused row is repeated
+    exactly under it."""
     accepted: list[Row] = []
     none = prose = False
     ignored: list[str] = []
     for raw in check_answer.splitlines():
         text = raw.strip()
-        if not text or text.startswith(("```", "#")):
+        if not text or text.startswith("```"):
             continue
         if text == "none":
             none = True

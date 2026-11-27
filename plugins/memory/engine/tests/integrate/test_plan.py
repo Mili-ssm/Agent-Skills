@@ -160,7 +160,9 @@ def test_agreed_never_accepts_a_row_not_proposed():
 
 def test_agreed_none_is_empty_and_none_with_a_row_is_void():
     assert agreed(_proposed(), "none") == []
-    assert agreed(_proposed(), "# why\nnone") == []
+    assert (
+        agreed(_proposed(), "# why\nnone") is None
+    )  # a `#` line may be a heading: it voids a check answer
     assert agreed(_proposed(), f"none\n{R1}") is None
 
 
@@ -180,3 +182,5 @@ def test_agreed_a_prose_line_voids_the_answer():
     # (no ` | `) makes the answer untrustworthy, so nothing is kept.
     assert agreed(_proposed(), f"Accepted:\n{R1}\nRejected:\n{R2}") is None
     assert agreed(_proposed(), f"{R1}\nThe second row does not fit.") is None
+    assert agreed(_proposed(), f"{R1}\n## Rejected:\n{R2}") is None
+    assert agreed(_proposed(), f"# Accepted\n{R1}") is None
