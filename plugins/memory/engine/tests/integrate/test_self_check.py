@@ -7,12 +7,13 @@ from unittest import mock
 
 import pytest
 from entry import integrate as entry
+from entry import integrate_self_check as check
 from integrate import state as run_state
-from integrate_store import (  # ruff: ignore[unused-import]  (a fixture)
+from integrate_world import (  # ruff: ignore[unused-import]  (fixtures)
     store_with_part,
+    world,
 )
 from synthesize import pipeline as sp
-from test_run import world  # ruff: ignore[unused-import]  (a fixture)
 
 UNREADABLE_ANSWERS = [
     "Permission denied: cannot open the file",
@@ -29,19 +30,19 @@ def test_briefs_fill_without_leftover_placeholders(name):
 
 
 def test_self_check_passes_on_canned_answers(capsys):
-    assert entry.self_check() == 0
+    assert check.self_check(entry) == 0
     assert capsys.readouterr().out.strip().splitlines()[-1] == "self-check passed"
 
 
 @pytest.mark.parametrize("answer", UNREADABLE_ANSWERS)
 def test_self_check_fails_when_a_session_could_not_read_its_file(answer, capsys):
-    assert entry.self_check((answer, "none")) == 1
+    assert check.self_check(entry, (answer, "none")) == 1
     out = capsys.readouterr().out
     assert "could not read its input file" in out and "self-check passed" not in out
 
 
 def test_self_check_fails_on_a_flow_that_applies_nothing(capsys):
-    assert entry.self_check(("none", "none")) == 1
+    assert check.self_check(entry, ("none", "none")) == 1
     assert "not applied" in capsys.readouterr().out
 
 
@@ -75,7 +76,7 @@ def test_self_check_never_uses_the_callers_mem_variables(tmp_path, monkeypatch, 
     sentinel.mkdir()
     for name in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT", "MEM_SETTLE_TRIGGER"):
         monkeypatch.setenv(name, str(sentinel))
-    assert entry.self_check() == 0
+    assert check.self_check(entry) == 0
     assert list(sentinel.iterdir()) == []
     assert "self-check passed" in capsys.readouterr().out
 
@@ -84,7 +85,7 @@ def test_self_check_clears_every_mem_variable_it_does_not_set(tmp_path, monkeypa
     monkeypatch.setenv("MEM_SOMETHING_ELSE", "caller")
     monkeypatch.setenv("MEM_PROJECT", "caller")
     with mock.patch.dict(os.environ):
-        entry._isolate(tmp_path)
+        check._isolate(tmp_path)
         assert "MEM_SOMETHING_ELSE" not in os.environ
         assert os.environ["MEM_PROJECT"] == str(tmp_path / "project")
 
@@ -92,7 +93,7 @@ def test_self_check_clears_every_mem_variable_it_does_not_set(tmp_path, monkeypa
 def test_self_check_restores_the_environment(monkeypatch):
     monkeypatch.setenv("MEM_PROJECT", "kept")
     before = dict(os.environ)
-    entry.self_check()
+    check.self_check(entry)
     assert dict(os.environ) == before
 
 
@@ -100,6 +101,6 @@ def test_self_check_reports_any_failure_instead_of_a_traceback(monkeypatch, caps
     def boom() -> None:
         raise OSError("disk on fire")
 
-    monkeypatch.setattr(entry, "_check_parser", boom)
-    assert entry.self_check() == 1
+    monkeypatch.setattr(check, "_check_parser", boom)
+    assert check.self_check(entry) == 1
     assert capsys.readouterr().out.strip() == "self-check failed: OSError: disk on fire"

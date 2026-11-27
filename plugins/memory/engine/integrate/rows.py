@@ -69,6 +69,12 @@ def row_of(line: str) -> Row | None:
     return rows[0] if len(rows) == 1 and not bad else None
 
 
+def row_line(row: Row) -> str:
+    """The row as a line of a rows file, built from its parsed fields (the inverse of `row_of`)."""
+    action = "append" if row.unit is None else f"unit {row.unit}"
+    return f"{row.note} | {row.target} | {action} | {row.fingerprint}"
+
+
 def _refusal(text: str, env: Mapping[str, str]) -> str | None:
     if secret_in([text]):
         return "secret in the claim"

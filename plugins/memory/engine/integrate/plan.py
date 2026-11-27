@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NamedTuple
 
+from integrate import answers
 from integrate.rows import row_of
 
 if TYPE_CHECKING:
@@ -61,3 +62,24 @@ def placement_rows(lines: Sequence[str], offered: Offered) -> tuple[list[Row], l
         placed.add(row.note)
         kept.append(row)
     return kept, refused
+
+
+def offered_of(cand: dict) -> Offered:
+    """What a candidate of `mem synthesis integrate --candidates` offered the session: its notes and parts."""
+    syn = cand["synthesis"]
+    return Offered(
+        frozenset(n["handle"] for n in cand["notes"]),
+        {
+            f"s:{syn}#{p['section']}": PartInfo(p["fingerprint"], len(p["units"]))
+            for p in cand["parts"]
+        },
+    )
+
+
+def agreed(rows: list[Row], check_answer: str) -> list[Row] | None:
+    """The rows the check answer lists too; None when that answer is malformed (it keeps none)."""
+    lines = answers.answer_lines(check_answer)
+    if lines is None:
+        return None
+    accepted = {row_of(x) for x in lines if x != "none" and not x.startswith("#")}
+    return [row for row in rows if row in accepted]
