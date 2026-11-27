@@ -117,13 +117,30 @@ Consequences for later tasks: Task 3 takes owner text only from `response_item` 
 - [ ] Tests: each memory agent yields one TOML with `name`, `description`, `developer_instructions`, `model` from the tier table, `model_reasoning_effort` from its `effort`; read-only agents' instructions carry the tool-limit rule the `agent-skills` port uses; `port.py --check` fails when the TOML is stale; no generated role contains `~/.claude` (the synthesizer's skill lookup, `agents/memory-synthesizer.md`, gains a Codex path: `~/.codex/plugins/cache`).
 - [ ] Implement; run `python3 scripts/port.py`, `uv run --with pytest pytest scripts/tests -q`, `python3 scripts/validate.py`: PASS. Commit.
 
-### Task 6: Live checks left from ADR 0037
+### Task 6: Live checks left from ADR 0037 (done 2026-11-27, § Task 6 results)
 
 **Files:** results in this plan; fixes only if a check fails (then a new task).
 
 - [ ] Corroborate on real Codex: one run on a store copy (`evals/trial_env.py`), `--runner codex`, token cap default; record tokens, verdicts, and that the real store is unchanged.
 - [ ] A pass started from inside a Codex session (sandbox `workspace-write`): `mem-settle run --runner codex --minutes 0` from a Codex turn; record whether the nested `codex exec` runs (network, sandbox) and what it prints.
 - [ ] Check: the results table; a failure becomes a documented limit or a new task.
+
+## Task 6 results (2026-11-27)
+
+Raw notes: session scratchpad `task6/RESULTS.md` (not kept). About 95k Codex tokens, no Claude calls; the owner's store, state, config and `~/.codex` unchanged.
+
+| Check | Observed |
+|---|---|
+| Corroborate on real Codex (`mem-corroborate run --runner codex`, isolated copy, 4 invented lessons) | exit 0, ~15k tokens, nothing written: the propose brief ends "Write nothing else and use no other tool" (`corroborate/run.py`, 7 briefs), and `gpt-6-luna` refused to read its input or write its output; the run still ended `ok`, "0 of 0 groups applied" |
+| A Codex pass started from inside a Codex session (`workspace-write`) | the nested `codex exec` starts but has no network: status `failed` after ~18 s ("error sending request"), the pair stays pending; a limit, documented in Task 7 |
+
+### Task 6b: Corroborate on Codex reads and writes its files
+
+**Files:** `plugins/memory/engine/corroborate/` (the Codex session path), its tests.
+
+- [ ] A Codex-only addendum, as settle's `CODEX_ADDENDUM` (ADR 0037), tells Codex sessions to read the input file and write the output file in the work folder with its shell and run no other command; Claude briefs byte-identical.
+- [ ] A Codex session that leaves no output file counts as a failed session (status `failed` with its reason), never `ok` with 0 of 0.
+- [ ] Check: unit tests (Codex prompt carries the addendum, Claude prompt does not; a missing output file fails the run); one live rerun on the same isolated 4-lesson copy groups the 2 paraphrases.
 
 ### Task 7: Docs and release prep
 
