@@ -18,7 +18,7 @@ Delegate before pulling large sources, logs or command output into this context,
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
-A worker sees none of this conversation, so its brief carries everything it needs:
+Spawn every worker with `fork_turns` set to `"none"`, because the default copies this whole conversation into the worker and makes its first request about four times larger. The worker then sees none of this conversation, so its brief carries everything it needs:
 
 1. **Goal** and acceptance criteria it can check itself.
 2. **Scope**: the paths it owns, and what it must not touch.

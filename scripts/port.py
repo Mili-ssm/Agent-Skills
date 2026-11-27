@@ -192,6 +192,16 @@ CODEX_REWRITES: dict[str, tuple[tuple[str, str], ...]] = {
             "Run it in the background with the checks,",
             "Spawn it together with the checks and collect its result before your final answer,",
         ),
+        # `spawn_agent` defaults to `fork_turns: "all"` (Codex 0.171 tool schema): the child then starts from a copy
+        # of the whole parent history. Local rollouts, Nov 2026: first request 118k input tokens forked vs 25.6k fresh.
+        (
+            "A worker sees none of this conversation,",
+            (
+                'Spawn every worker with `fork_turns` set to `"none"`, because the default copies this whole conversation '
+                "into the worker and makes its first request about four times larger. "
+                "The worker then sees none of this conversation,"
+            ),
+        ),
     ),
     "user-config/routing.md": (
         (

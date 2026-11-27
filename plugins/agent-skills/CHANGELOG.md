@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- Codex: the offload policy now tells Codex to spawn every worker with `fork_turns` set to `"none"`. Without it Codex copies the whole parent conversation into each worker: in local rollouts (Codex 0.171, Nov 2026) 29 of 30 worker spawns did so, and a worker's first request carried a median of 118k input tokens instead of 25.6k, about 1.3M instead of 0.4M input tokens per worker over its run. The role's model and effort were honored either way. Re-copy `user-config/offload-policy.codex.md` into your Codex instructions.
+
 ## [1.4.2] - 2026-11-27
 
 ### Fixed
