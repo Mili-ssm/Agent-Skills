@@ -37,8 +37,10 @@ Probe rows (fixed in `check_probe.py` before task 2, commit b91378d; ruling 0d81
 
 Rule: met in every counted run (at least 13 of 17 appends, 7 of 8 units, no wrong row). Replaying the two void answers through the tolerant parser kept 19 and 25 rows offline, with the cut line ignored.
 
-Trial (task 4, new brief, strict parser): **pass**, 16 notes integrated, 8 of 17 appends placed, 0 wrong; Sonnet audit 8 of 8 backed (0.155 USD); sessions 0.012 USD. Why 9 appends were not placed was not read (the run folder is removed by the harness).
+Trial (task 4; brief dd4b7ae, strict parser, before da76d54): **pass**, 16 notes integrated, 8 of 17 appends placed, 0 wrong; Sonnet audit 8 of 8 backed (0.155 USD); sessions 0.012 USD. Why 9 appends were not placed was not read (the run folder is removed by the harness).
 
-Held-out (task 4b, copy of the real store, `MEM_DATA` and `--store` in the scratchpad): `mem-integrate run` found 1 synthesis (`llm-agents`, 4 loose notes); place answered `none`, nothing applied (0.007 USD). Stress on the same copy, check only: each of the 4 notes forced as an append into each of the 8 parts (32 wrong rows): 0 of 32 accepted in 2 runs; a third run was void because the input (each row carries its whole part) reached about 340k tokens. That size is an artifact of 32 forced rows, but it shows check input grows with rows times part size: see backlog.
+Held-out (task 4b, copy of the real store; brief dd4b7ae, strict parser; the gate "no applied append judged wrong" held trivially, since none was applied, so the stress run below is the evidence for check on real parts; `MEM_DATA` and `--store` in the scratchpad): `mem-integrate run` found 1 synthesis (`llm-agents`, 4 loose notes); place answered `none`, nothing applied (0.007 USD). Stress on the same copy, check only: each of the 4 notes forced as an append into each of the 8 parts (32 wrong rows): 0 of 32 accepted in 2 runs; a third run was void because the input (each row carries its whole part) reached about 340k tokens. That size is an artifact of 32 forced rows, but it shows check input grows with rows times part size: see backlog.
 
-Spent on this plan: about 0.40 USD of the 1 USD cap (diagnosis 0.03, probes 0.15, trial with audit 0.17, real copy 0.055).
+Parser revision after review (2026-11-27): a prose line (no ` | `, such as a "Rejected:" heading above refused rows) voids the check answer, since the tolerant parser of da76d54 would have kept rows listed under it. Replaying the 12 saved answers of the new brief offline through the final parser: 0 void, the kept counts equal the right rows recorded, no wrong row kept.
+
+Spent on this plan: about 0.42 USD of the 1 USD cap (diagnosis 0.03, probes 0.165, trial with audit 0.17, real copy 0.055).
