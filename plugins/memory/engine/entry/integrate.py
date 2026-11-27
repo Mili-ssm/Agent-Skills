@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import io
 import json
+import logging
 import os
 import re
 import shutil
@@ -38,6 +39,8 @@ from synthesize import run as synth_run
 
 if TYPE_CHECKING:
     from integrate.rows import Row
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BUDGET = 0.50  # USD per run
 SESSION_TIMEOUT = 600
@@ -102,8 +105,10 @@ def session_cmd(
             prompt=brief,
             model="haiku",
             settings=settings,
+            effort="medium",
             tools=("Read",),
             allowed=(f"Read(/{work}/**)",),
+            disallowed=("Bash", "WebSearch", "WebFetch"),
             max_budget=max_budget,
         )
     )
@@ -144,6 +149,9 @@ class Job:
     folder: Path
     record: run_state.RunRecord
     tallies: list[Tally] = field(default_factory=list)
+    current: Tally | None = (
+        None  # the synthesis being worked on: every session's cost lands in its row
+    )
 
     @property
     def root(self) -> Path:
@@ -176,6 +184,8 @@ class Job:
         (work / f"{name}.jsonl").write_text(raw, encoding="utf-8")
         done = sp.parse(raw)
         self.record.cost += done["cost"]
+        if self.current is not None:
+            self.current.cost += done["cost"]
         self.log(
             f"{name}: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
             f"wall={time.monotonic() - start:.1f}s answer={' '.join(done['answer'].split())[:200]}"
@@ -260,8 +270,9 @@ def agreed(rows: list[Row], check_answer: str) -> list[Row] | None:
     return [row for row in rows if row in accepted]
 
 
-def apply_rows(job: Job, work: Path, synthesis: str, rows: list[Row]) -> tuple[int, int]:
-    """Applies the rows with one `mem synthesis integrate`; (applied, refused) and the group recorded."""
+def apply_rows(job: Job, work: Path, synthesis: str, rows: list[Row]) -> tuple[int, int] | None:
+    """Applies the rows with one `mem synthesis integrate`; (applied, refused) and the group recorded, or None
+    (a failure recorded) when the command failed."""
     rows_file = work / "rows.txt"
     rows_file.write_text("\n".join(row_line(r) for r in rows) + "\n", encoding="utf-8")
     found = sp.mem(job.store, job.env, "synthesis", "integrate", str(rows_file))
@@ -270,7 +281,7 @@ def apply_rows(job: Job, work: Path, synthesis: str, rows: list[Row]) -> tuple[i
         job.fail(
             f"mem synthesis integrate failed: {(found.stderr or found.stdout).strip()[:FAILURE_CUT]}"
         )
-        return 0, 0
+        return None
     lines = found.stdout.splitlines()
     for line in lines:
         if line.startswith("group\t"):
@@ -299,7 +310,6 @@ def place_and_check(job: Job, work: Path, cand: dict, tally: Tally) -> list[Row]
     placed = ask_readable(job, "place", work, cand, place_input(cand))
     if placed is None:
         return None
-    tally.cost += placed[1]
     lines = answers.answer_lines(placed[0])
     if lines is None:
         job.fail(f"{cand['synthesis']}: the place answer is not rows or none")
@@ -312,7 +322,6 @@ def place_and_check(job: Job, work: Path, cand: dict, tally: Tally) -> list[Row]
     checked = ask_readable(job, "check", work, cand, check_input(cand, rows))
     if checked is None:
         return None
-    tally.cost += checked[1]
     kept = agreed(rows, checked[0])
     if kept is None:
         job.fail(f"{cand['synthesis']}: the check answer is not rows or none")
@@ -325,13 +334,16 @@ def integrate_synthesis(job: Job, index: int, cand: dict) -> None:
     syn = cand["synthesis"]
     tally = Tally(syn, notes=len(cand["notes"]))
     job.tallies.append(tally)
+    job.current = tally
     work = job.root / "work" / str(index)
     kept = place_and_check(job, work, cand, tally)
     if kept is None:
         return  # nothing is marked done: a failed session is tried again
     if kept:
-        applied, refused = apply_rows(job, work, syn, kept)
-        tally.applied, tally.refused = applied, tally.refused + refused
+        counts = apply_rows(job, work, syn, kept)
+        if counts is None:
+            return  # a failed apply marks nothing done: the notes are offered again
+        tally.applied, tally.refused = counts[0], tally.refused + counts[1]
     for note in cand["notes"]:
         run_state.mark_done(job.folder, note["handle"], note["digest"])
 
@@ -383,15 +395,13 @@ def cmd_run(store: Path, claude: str | None, budget_arg: str | None) -> int:
 
 
 def _guarded(job: Job) -> None:
-    synth_run.history_commit(job.store, job.env, "mem-integrate: before", job.log)
     try:
+        synth_run.history_commit(job.store, job.env, "mem-integrate: before", job.log)
         work_steps(job)
     except (
-        OSError,
-        ValueError,
-        KeyError,
-        TypeError,
-    ) as exc:  # a failure line; the groups so far stay recorded
+        Exception
+    ) as exc:  # anything after the lock ends as a failure line; the groups so far stay recorded
+        logger.debug("integrate run failed", exc_info=True)
         job.fail(f"{type(exc).__name__}: {exc}"[:FAILURE_CUT])
     finally:
         synth_run.history_commit(job.store, job.env, "mem-integrate: after", job.log)
