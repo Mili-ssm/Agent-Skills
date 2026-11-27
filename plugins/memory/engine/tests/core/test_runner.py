@@ -75,8 +75,9 @@ def test_invalid_in_config_file(clean: Path) -> None:
 
 
 def test_find_codex_env_first(clean: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("MEM_CODEX", "/x/codex")
-    assert runner.find_codex() == "/x/codex"
+    mine = codex_file(clean / "mine" / "codex")
+    monkeypatch.setenv("MEM_CODEX", str(mine))
+    assert runner.find_codex() == str(mine)
 
 
 def test_find_codex_on_path_before_extension(clean: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,7 +162,6 @@ def test_codex_env(clean: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_PLUGIN_ROOT", "/p")
     run = clean / "run"
     env = runner.codex_env(run)
-    assert env["CODEX_HOME"] == str(clean / "home" / ".codex")
     assert env["HOME"] == str(run / "home")
     for var in ("XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"):
         assert Path(env[var]).is_relative_to(run)
@@ -169,9 +169,59 @@ def test_codex_env(clean: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     assert str(real_bin) not in env["PATH"].split(os.pathsep)
 
 
-def test_codex_env_keeps_explicit_codex_home(clean: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("CODEX_HOME", "/elsewhere")
-    assert runner.codex_env(clean / "run")["CODEX_HOME"] == "/elsewhere"
+def test_codex_home_is_clean_with_only_an_auth_symlink(
+    clean: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = clean / "home" / ".codex"
+    real.mkdir(parents=True)
+    (real / "auth.json").write_text("{}", encoding="utf-8")
+    (real / "AGENTS.md").write_text("owner rules", encoding="utf-8")
+    run = clean / "run"
+    home = Path(runner.codex_env(run)["CODEX_HOME"])
+    assert home == run / "codex-home"
+    assert stat.S_IMODE(home.stat().st_mode) == runner.PRIVATE_MODE
+    assert [p.name for p in home.iterdir()] == ["auth.json"]
+    assert (home / "auth.json").is_symlink()
+    assert (home / "auth.json").readlink() == real / "auth.json"
+    runner.codex_env(run)  # a second call keeps the same folder
+
+
+def test_codex_home_uses_an_explicit_real_codex_home(
+    clean: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elsewhere = clean / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "auth.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("CODEX_HOME", str(elsewhere))
+    env = runner.codex_env(clean / "run")
+    assert (Path(env["CODEX_HOME"]) / "auth.json").readlink() == elsewhere / "auth.json"
+
+
+def test_codex_home_without_a_real_auth_has_no_link(clean: Path) -> None:
+    home = Path(runner.codex_env(clean / "run")["CODEX_HOME"])
+    assert home.is_dir()
+    assert list(home.iterdir()) == []
+
+
+def test_unmapped_pair_names_it() -> None:
+    with pytest.raises(ValueError, match=r"opus.*max"):
+        runner.codex_command(session("opus", "max"), "codex", Path("/r"), writes=False)
+
+
+def test_no_effort_maps_to_medium() -> None:
+    assert runner.codex_model(session("sonnet", None)) == ("gpt-6.1-terra", "low")
+
+
+def test_mem_codex_missing_or_not_executable_falls_through(
+    clean: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MEM_CODEX", str(clean / "nope"))
+    assert runner.find_codex() is None
+    plain = clean / "plain"
+    plain.write_text("", encoding="utf-8")
+    monkeypatch.setenv("MEM_CODEX", str(plain))
+    on_path = codex_file(clean / "emptybin" / "codex")
+    assert runner.find_codex() == str(on_path)
 
 
 def stream(*events: dict) -> str:
@@ -199,20 +249,23 @@ def test_parse_codex_success() -> None:
         stream({"type": "thread.started"}, MESSAGE, COMMAND, FINAL, COMPLETED), 0
     )
     assert out == runner.Outcome(True, "done", TOKENS, 0.0, [("ls", 2)], "")
+    assert not runner.parse_codex(
+        stream(MESSAGE, {"type": "error", "message": "x"}, FINAL, COMPLETED), 0
+    ).error
 
 
 def test_parse_codex_turn_failed() -> None:
     failed = {"type": "turn.failed", "error": {"message": "boom"}}
     out = runner.parse_codex(stream(MESSAGE, {"type": "error", "message": "net"}, failed), 1)
     assert not out.has_result
-    assert out.error == "net; boom"
+    assert out.error == "net; boom; exit 1"
 
 
 def test_parse_codex_truncated_by_timeout() -> None:
-    out = runner.parse_codex(stream(MESSAGE) + '{"type": "turn.compl', None)
+    out = runner.parse_codex(stream(MESSAGE) + '{"type": "turn.compl', None, timed_out=True)
     assert not out.has_result
     assert out.text == "first"
-    assert out.error == "the session did not complete"
+    assert out.error == "the session timed out"
 
 
 def test_parse_codex_no_agent_message() -> None:
@@ -224,6 +277,14 @@ def test_parse_codex_no_agent_message() -> None:
 
 def test_parse_codex_nonzero_exit_is_not_a_result() -> None:
     assert not runner.parse_codex(stream(FINAL, COMPLETED), 3).has_result
+
+
+def test_parse_codex_error_carries_the_last_stderr_lines() -> None:
+    err = "\n".join(f"line {n}" for n in range(9)) + "\nerror: unknown flag\n"
+    out = runner.parse_codex("", 2, err)
+    assert out.error.startswith("the session did not complete; exit 2; stderr: ")
+    assert out.error.endswith("line 8 | error: unknown flag")
+    assert "line 3" not in out.error
 
 
 def test_claude_outcome() -> None:
@@ -238,7 +299,7 @@ def test_claude_outcome() -> None:
 
 def test_claude_outcome_error_and_missing() -> None:
     bad = runner.claude_outcome(stream({"type": "result", "result": "limit", "is_error": True}))
-    assert bad.has_result
+    assert not bad.has_result
     assert bad.error == "limit"
     assert runner.claude_outcome("not json\n") == runner.Outcome(False, error="no result event")
 
@@ -247,14 +308,22 @@ def test_run_codex_passes_prompt_on_stdin(tmp_path: Path) -> None:
     raw = runner.run_codex(
         ["cat"], "hello", cwd=tmp_path, env={"PATH": os.environ.get("PATH", "")}, timeout=30
     )
-    assert raw == runner.CodexRaw("hello", False, 0)
+    assert raw == runner.CodexRaw("hello", False, 0, "")
+
+
+def test_run_codex_captures_stderr_and_decodes_utf8(tmp_path: Path) -> None:
+    cmd = ["sh", "-c", "printf '\\303\\251 \\377'; printf 'bad flag' >&2; exit 2"]
+    raw = runner.run_codex(
+        cmd, "", cwd=tmp_path, env={"PATH": os.environ.get("PATH", "")}, timeout=30
+    )
+    assert raw == runner.CodexRaw("\u00e9 \ufffd", False, 2, "bad flag")
 
 
 def test_run_codex_timeout_keeps_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def expire(cmd: list[str], **kwargs: object) -> None:
         assert kwargs["input"] == "p"
-        raise subprocess.TimeoutExpired(cmd, 1, output=b"partial \xe2\x82")
+        raise subprocess.TimeoutExpired(cmd, 1, output=b"partial \xe2\x82", stderr=b"slow")
 
     monkeypatch.setattr(subprocess, "run", expire)
     raw = runner.run_codex(["codex"], "p", cwd=tmp_path, env={}, timeout=1)
-    assert raw == runner.CodexRaw("partial ", True, None)
+    assert raw == runner.CodexRaw("partial ", True, None, "slow")

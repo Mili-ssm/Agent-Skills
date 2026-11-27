@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 RUNNERS = ("claude", "codex")
+PRIVATE_MODE = 0o700
 
 # (claude tier, effort) -> (codex model, codex effort). A copy of what `scripts/port.py` derives from
 # `shared/models.toml` (the installed plugin has no `shared/`); `scripts/tests/test_runner_models.py` keeps them equal.
@@ -68,10 +69,12 @@ def _extension_version(binary: Path) -> tuple[int, ...]:
 
 
 def find_codex(env: Mapping[str, str] | None = None) -> str | None:
-    """`MEM_CODEX`, then `codex` on PATH, then the newest VS Code extension's binary. Found at run time, never stored."""
+    """`MEM_CODEX` (when it is an executable file), then `codex` on PATH, then the newest VS Code extension's binary.
+    Found at run time, never stored; a `MEM_CODEX` that is missing or not executable falls through."""
     env = os.environ if env is None else env
-    if env.get("MEM_CODEX"):
-        return env["MEM_CODEX"]
+    chosen = env.get("MEM_CODEX")
+    if chosen and Path(chosen).is_file() and os.access(chosen, os.X_OK):
+        return chosen
     on_path = shutil.which("codex", path=env.get("PATH"))
     if on_path:
         return on_path
@@ -84,6 +87,15 @@ def find_codex(env: Mapping[str, str] | None = None) -> str | None:
     return str(max(found, key=_extension_version)) if found else None
 
 
+def codex_model(session: headless.Session) -> tuple[str, str]:
+    """The Codex (model, effort) of a session; no effort counts as `medium`. `ValueError` names an unmapped pair."""
+    pair = (session.model, session.effort or "medium")
+    try:
+        return CODEX_MODELS[pair]
+    except KeyError:
+        raise ValueError(f"no Codex model for (model, effort) = {pair!r}") from None
+
+
 def codex_command(
     session: headless.Session, codex: str, run_dir: Path, *, writes: bool
 ) -> list[str]:
@@ -93,7 +105,7 @@ def codex_command(
     equivalent and are ignored: the sandbox (`read-only` or `workspace-write` limited to `run_dir`) and the
     environment from `codex_env` are the isolation, and the token cap is enforced by the caller from `Outcome.tokens`.
     """
-    model, effort = CODEX_MODELS[session.model, session.effort or "medium"]
+    model, effort = codex_model(session)
     return [
         codex,
         "exec",
@@ -116,13 +128,22 @@ def codex_command(
 
 
 def codex_env(run_dir: Path) -> dict[str, str]:
-    """`session_env()` with HOME and the XDG folders inside `run_dir`, and `CODEX_HOME` kept real so auth works.
+    """`session_env()` with HOME and the XDG folders inside `run_dir`, and a clean `CODEX_HOME` there.
 
     Codex's model shell is a login shell that re-sources `~/.profile`, which would put `mem` back on PATH
-    (observed 2026-11-27); with HOME in the run folder it finds nothing."""
+    (observed 2026-11-27); with HOME in the run folder it finds nothing. The real `CODEX_HOME` would also load the
+    owner's `AGENTS.md` and plugins into the prompt (`project_doc_max_bytes=0` does not drop them), so
+    `<run_dir>/codex-home` (mode 0700) holds only a symlink to the real `auth.json`; the credential is never
+    copied, and without a real `auth.json` the link is left out and Codex reports the missing login itself."""
     env = headless.session_env()
     real_home = Path(os.environ.get("HOME") or Path.home())
-    env["CODEX_HOME"] = os.environ.get("CODEX_HOME") or str(real_home / ".codex")
+    real_codex = Path(os.environ.get("CODEX_HOME") or real_home / ".codex")
+    clean = run_dir / "codex-home"
+    clean.mkdir(mode=PRIVATE_MODE, parents=True, exist_ok=True)
+    link = clean / "auth.json"
+    if (real_codex / "auth.json").is_file() and not link.is_symlink():
+        link.symlink_to(real_codex / "auth.json")
+    env["CODEX_HOME"] = str(clean)
     env["HOME"] = str(run_dir / "home")
     for var, sub in (
         ("XDG_CONFIG_HOME", "config"),
@@ -138,13 +159,20 @@ class CodexRaw(NamedTuple):
     stdout: str
     timed_out: bool
     returncode: int | None
+    stderr: str = ""
+
+
+def _text(data: str | bytes | None) -> str:
+    if isinstance(data, bytes):
+        return codecs.getincrementaldecoder("utf-8")(errors="replace").decode(data, final=False)
+    return data or ""
 
 
 def run_codex(
     cmd: list[str], prompt: str, *, cwd: Path, env: dict[str, str], timeout: float
 ) -> CodexRaw:
-    """Run a Codex session with the prompt on stdin (closed after it); a timeout returns the partial stdout with
-    `timed_out=True` and no return code, an `OSError` propagates."""
+    """Run a Codex session with the prompt on stdin (closed after it); output decoded as UTF-8 with replacement. A
+    timeout returns the partial output with `timed_out=True` and no return code, an `OSError` propagates."""
     try:
         done = subprocess.run(
             cmd,
@@ -154,26 +182,26 @@ def run_codex(
             input=prompt,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
-        partial = exc.stdout
-        if isinstance(partial, bytes):
-            partial = codecs.getincrementaldecoder("utf-8")(errors="replace").decode(
-                partial, final=False
-            )
-        return CodexRaw(partial or "", True, None)
-    return CodexRaw(done.stdout, False, done.returncode)
+        return CodexRaw(_text(exc.stdout), True, None, _text(exc.stderr))
+    return CodexRaw(done.stdout, False, done.returncode, done.stderr)
 
 
 @dataclass(frozen=True)
 class Outcome:
     """What a builder needs from one session, whichever runner ran it.
 
-    `has_result`: the session ended with a final answer (Claude: a `result` event; Codex: also exit 0).
-    `text`: that answer. `tokens`: billed input plus output tokens (the cap of a Codex pass). `cost_usd`: Claude's
-    reported cost, 0.0 for Codex. `commands`: (command, exit code or None) the session ran, Codex only (Claude's
-    tool calls are tallied by the synthesizer). `error`: why it failed, empty when it did not."""
+    `has_result`: a usable final answer exists (Claude: a `result` event that is not an error; Codex: also a
+    completed turn and exit 0). `error`: why the run failed, non-empty exactly when `has_result` is False, for both
+    runners. `text`: the final answer (Claude: also the error text of a failed run). `tokens`: Codex: input (cached
+    included) plus output, so the cap of a Codex pass counts Codex's own ~44k-token prompt on every call; Claude:
+    informational only (Claude budgets stay in USD). `cost_usd`: Claude's reported cost, 0.0 for Codex. `commands`:
+    (command, exit code or None) the session ran, Codex only (Claude's tool calls are tallied by the
+    synthesizer)."""
 
     has_result: bool
     text: str = ""
@@ -209,7 +237,7 @@ def claude_outcome(stdout: str) -> Outcome:
     text = final.get("result") or ""
     failed = bool(final.get("is_error"))
     return Outcome(
-        True,
+        not failed,
         text=text,
         tokens=_count(
             final.get("usage"), "input_tokens", "cache_creation_input_tokens", "output_tokens"
@@ -256,16 +284,32 @@ class _Tally:
             self.commands.append((item.get("command") or "", item.get("exit_code")))
 
 
-def parse_codex(stdout: str, returncode: int | None) -> Outcome:
+def _tail(stderr: str, lines: int = 5) -> str:
+    return " | ".join(line.strip() for line in stderr.strip().splitlines()[-lines:] if line.strip())
+
+
+def _failure(tally: _Tally, returncode: int | None, stderr: str, timed_out: bool) -> str:
+    reasons = list(tally.errors)
+    if timed_out:
+        reasons.append("the session timed out")
+    elif not reasons:
+        reasons.append("no final message" if tally.completed else "the session did not complete")
+    if returncode not in {0, None}:
+        reasons.append(f"exit {returncode}")
+    if tail := _tail(stderr):
+        reasons.append(f"stderr: {tail}")
+    return "; ".join(reasons)
+
+
+def parse_codex(
+    stdout: str, returncode: int | None, stderr: str = "", timed_out: bool = False
+) -> Outcome:
     """Normalize `codex exec --json` events. `has_result` needs a `turn.completed`, an agent message and exit 0;
+    `error` is empty then, else the event errors, a timeout, the exit code and the last lines of `stderr`.
     `tokens` sums `input_tokens` and `output_tokens` (cached and reasoning tokens are parts of those)."""
     tally = _Tally()
     for event in _events(stdout):
         tally.add(event)
-    has_result = tally.completed and bool(tally.text) and returncode == 0
-    error = "; ".join(tally.errors)
-    if not has_result and not error:
-        error = "no final message" if tally.completed else "the session did not complete"
-        if returncode not in {0, None}:
-            error += f" (exit {returncode})"
+    has_result = tally.completed and bool(tally.text) and returncode == 0 and not timed_out
+    error = "" if has_result else _failure(tally, returncode, stderr, timed_out)
     return Outcome(has_result, tally.text, tally.tokens, 0.0, tally.commands, error)

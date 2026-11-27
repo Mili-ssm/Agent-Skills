@@ -23,7 +23,7 @@ DEFAULT_TOKEN_CAP = (
     500_000  # about 44k input tokens of Codex's own prompt per call, observed 2026-11-27
 )
 NO_CODEX = "no codex binary (MEM_CODEX, PATH or the VS Code extension)"
-PRIVATE_MODE = 0o700
+PRIVATE_MODE = runner.PRIVATE_MODE
 REFUSED_EXIT = 2
 
 
@@ -48,18 +48,24 @@ def refusal(pass_name: str) -> str:
     )
 
 
-def refuse_codex(pass_name: str) -> int | None:
-    """For a pass that stays on Claude: when the resolved runner is `codex`, prints `refusal` to stderr and returns
-    the exit code to end with; else None. A malformed setting does not refuse: these passes run on Claude whatever
-    it says."""
+def refuse_codex(pass_name: str, explicit: str | None = None) -> int | None:
+    """For a pass that stays on Claude. An `explicit` request for `codex` (the pass's own `--runner`) prints
+    `refusal` to stderr and returns the exit code to end with. A `codex` that only comes from a default
+    (`MEM_RUNNER`, the config file, `MEM_RUNNER_OPTION`) never disables the pass: one line on stderr says the
+    default is ignored, the pass runs on Claude, and None is returned. A malformed setting is ignored silently."""
+    if explicit == "codex":
+        print(refusal(pass_name), file=sys.stderr)
+        return REFUSED_EXIT
     try:
         chosen = runner.resolve_runner(None)
     except ValueError:
         return None
-    if chosen != "codex":
-        return None
-    print(refusal(pass_name), file=sys.stderr)
-    return REFUSED_EXIT
+    if chosen == "codex":
+        print(
+            f"{pass_name}: the default runner codex is ignored for this pass; it runs on Claude (ADR 0037)",
+            file=sys.stderr,
+        )
+    return None
 
 
 def ask(session: headless.Session, work: Path, *, writes: bool, timeout: float) -> dict:
@@ -74,7 +80,7 @@ def ask(session: headless.Session, work: Path, *, writes: bool, timeout: float) 
     raw = runner.run_codex(
         cmd, session.prompt, cwd=work, env=runner.codex_env(work), timeout=timeout
     )
-    out = runner.parse_codex(raw.stdout, raw.returncode)
+    out = runner.parse_codex(raw.stdout, raw.returncode, raw.stderr, raw.timed_out)
     return {
         "has_result": out.has_result,
         "error": not out.has_result,
