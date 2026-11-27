@@ -56,7 +56,7 @@ codex plugin marketplace add Mili-ssm/Agent-Skills
 ```
 
 ```bash
-codex plugin install agent-skills@mili-ssm
+codex plugin add agent-skills@mili-ssm
 ```
 
 Codex plugins cannot carry agents, so copy the role files from the installed plugin:
