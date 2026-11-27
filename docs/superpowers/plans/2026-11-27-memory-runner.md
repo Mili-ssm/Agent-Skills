@@ -26,7 +26,7 @@ All go through `core/headless.py` (`Session`, `command`, `run_raw`, `session_env
 - [x] 2. Runner layer in `engine/core` (`runner.py`): resolution (flag → `MEM_RUNNER` → config file → `MEM_RUNNER_OPTION` → `claude`), the Codex binary found at run time (`MEM_CODEX`, `PATH`, newest extension folder), Codex argv from a `Session`, output normalized (`has_result` = final message and exit 0; cost 0 plus tokens; a token cap every budget site uses), the Codex environment (`HOME`/`XDG_CONFIG_HOME` = run folder, no `MEM_STORE`, no `mem` on `PATH`); the model table with a repository test against `shared/models.toml`. Check: unit tests per runner; Claude argv byte-identical to today (existing tests).
 - [x] 3. Builders on the runner layer, one commit each: settle, integrate, corroborate; the others refuse `codex` with a clear message (synthesis, curator, research, capture). Budget sites counted in tokens for Codex: `entry/auto.py`, `entry/integrate.py`, `entry/settle.py`, `corroborate/run.py`. Check: each builder's tests gain a Codex case, including a test that the Codex environment finds no store; the full engine suite passes.
 - [x] 4. Settings: `--runner` on each pass command; `runner` in the Claude plugin's `userConfig`, passed as `MEM_RUNNER_OPTION` by `session-env.sh` (shell commands) and explicitly by `session-end.sh`, `session-index.sh` and `pre-compact.sh` (passes they start); the config file read by `engine/core/config.py`; `trial_env.make_env` clears `MEM_RUNNER*`. Check: precedence tests, including a hook-started pass; `claude plugin validate plugins/memory`.
-- [ ] 5. Trial on a store copy (`evals/` harness, `trial_env.py`): settle and integrate on the same inputs with each runner; compare decisions, failures, time and tokens/cost. Rule fixed before the run: the same seeded inputs and ground truth for both arms (settle: the 40 derived records of stage W; integrate: its trial set), each arm given `--runner`; Codex passes when its wrong actions are not more than Claude's and no run fails on the runner itself; after the run, `~/.codex/sessions` of the trial home holds nothing outside the run.
+- [x] 5. (closed 2026-11-27 by owner decision, see § Task 5 final: settle passes on Codex with its addendum; integrate is Claude-only; corroborate not tried on real Codex) Trial on a store copy (`evals/` harness, `trial_env.py`): settle and integrate on the same inputs with each runner; compare decisions, failures, time and tokens/cost. Rule fixed before the run: the same seeded inputs and ground truth for both arms (settle: the 40 derived records of stage W; integrate: its trial set), each arm given `--runner`; Codex passes when its wrong actions are not more than Claude's and no run fails on the runner itself; after the run, `~/.codex/sessions` of the trial home holds nothing outside the run.
 - [ ] 6. Docs and release: README (setting, precedence, what stays on Claude and why), CHANGELOG, platform-parity, backlog; ADR 0037 accepted with the trial in a `## Review`.
 
 ## Task 1 results (2026-11-27)
@@ -94,3 +94,20 @@ Spend: Claude about 0.10 USD (settle 0.078, integrate 0.025), within the 0.5 cap
 - Settle: Codex passes (median wrong 0 <= 0, no runner failure; the one wrong action in run 3 is the earlier `version` merge), but Claude regresses: median acted 16 of 20 (< 17), against 18 in the first trial.
 - Integrate: Claude regresses (median appends 0, two runs void because the reply carried a prose line before the rows; the Claude replies seen held the right rows, e.g. 6 appends for one part, so the subject text made it add a comment); Codex median appends 0 (< 8), so the subject field did not close the recall gap either.
 - Task 5 stays open. Not established: whether the settle drop of Claude (16/17/16 against one earlier run of 18) is the brief or noise; the earlier single run gives no variance.
+
+## Task 5 final (2026-11-27)
+
+Owner decision 2026-11-27: Codex ships as experimental. The shared settle brief stays as before the reverted fix (Claude's recall is kept); Codex sessions of settle append a Codex-only addendum (`entry/settle.py` `CODEX_ADDENDUM`: a pair where one claim states anything the other lacks is not a merge, choose `nothing`). Integrate is Claude-only (Codex placed 0 of 17 appends in 4 runs); its Codex path is removed. Corroborate is not tried on real Codex: unit-tested with the fake only.
+
+Pre-registered before the run: settle on Codex, 3 runs, same inputs as the first trial (`target/settle-trial` with `derived.json`, `--runs 2`), harness `evals/settle/run_trial.py --runner codex`; Codex plan credits only, no Claude spend. Rule: Codex settle passes when the median wrong actions <= 0 and no run fails on the runner itself.
+
+### Results (3 runs, Codex only; raw logs in `target/final/`, git-ignored)
+
+| Run | Should-act acted (of 20) | Wrong (of 40) | Runner failures | Tokens | Wall |
+|---|---|---|---|---|---|
+| 1 | 16 | 0 | 0 | 146246 | 83 s |
+| 2 | 15 | 0 | 0 | 154513 | 86 s |
+| 3 | 16 | 0 | 0 | 145029 | 80 s |
+| Median | 16 | 0 | 0 | 146246 | 83 s |
+
+**Verdict by the rule: Codex settle passes** (median wrong 0 <= 0, no run failed on the runner). Cost of the addendum: Codex's recall falls to a median 16 of 20 (19 without it, rerun), the same level as Claude's rerun, in exchange for no wrong action in 3 runs (the unfixed brief gave 1 wrong in run 3 of the earlier rerun). Task 5 is ticked: settle is the Codex-experimental pass; integrate is out of Codex scope by decision; corroborate is untested on real Codex (fake-codex unit tests only).
