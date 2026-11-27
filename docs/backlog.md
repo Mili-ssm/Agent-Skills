@@ -93,7 +93,8 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 | medium | D6 | Split `plugins/memory/README.md` | Open |
 | low | S5 | Capture-born rules load without owner triage | Open |
 | low | — | Two hardening notes on note writes | Decide when touched |
-| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); paid trial passed 2026-11-27, 0 of 17 appends placed (why: open); sibling updates deferred until 20 unattached notes or two contradicting notes |
+| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); paid trial passed 2026-11-27, 0 of 17 appends placed; cause (check brief) fixed for 0.16.1, [plan](superpowers/plans/2026-11-27-memory-integrate-check-append.md); sibling updates deferred until 20 unattached notes or two contradicting notes |
+| low | Seamless 3 | Check input size: each append row carries its whole part text, so many rows on large parts can exceed what a Haiku session reads (a 32-row stress on the real store reached about 340k tokens) | Open; [plan](superpowers/plans/2026-11-27-memory-integrate-check-append.md) § Results; when a real run fails on it, or before `mem-integrate` joins `mem-auto` |
 | low | Seamless 3 | One home for what `mem-integrate` and `mem-settle` share (session builder, budget, constants) and for the join logic now in `commands/integrate.py` | Open; when either runner is next touched |
 | low | Seamless 4, 5 | Split a synthesis; join `mem-auto` | After their trials |
 | low | Stages 7, 8, 9, 10 | Remote sync; Rust decision; capture experiment; project syntheses results | Open |

@@ -5,9 +5,9 @@ The answer is data: a row is kept only when every field matches an offered note,
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from integrate import answers
 from integrate.rows import row_of
 
 if TYPE_CHECKING:
@@ -76,10 +76,50 @@ def offered_of(cand: dict) -> Offered:
     )
 
 
+_LABEL = re.compile(r"\s*row:\s*", re.IGNORECASE)
+
+
+class _Scan(NamedTuple):
+    accepted: list[Row]
+    none: bool  # a `none` line came
+    prose: bool  # a line that is not row-shaped (no ` | `): a header or a sentence
+    ignored: list[str]
+
+
+def _scan(rows: list[Row], check_answer: str) -> _Scan:
+    """The check answer read line by line: a row-shaped stray line (a cut row, a row not proposed) is ignored; a
+    prose line (no ` | `, or a `#` heading) is recorded, because a heading such as "Rejected:" may sit above rows the
+    session refused. Limit: a heading that holds ` | ` is not caught; it matters only if a refused row is repeated
+    exactly under it."""
+    accepted: list[Row] = []
+    none = prose = False
+    ignored: list[str] = []
+    for raw in check_answer.splitlines():
+        text = raw.strip()
+        if not text or text.startswith("```"):
+            continue
+        if text == "none":
+            none = True
+            continue
+        row = row_of(_LABEL.sub("", text, count=1) if _LABEL.match(text) else text)
+        if row is not None and row in rows:
+            accepted.append(row)
+        else:
+            ignored.append(text)
+            prose = prose or " | " not in text
+    return _Scan(accepted, none, prose, ignored)
+
+
 def agreed(rows: list[Row], check_answer: str) -> list[Row] | None:
-    """The rows the check answer lists too; None when that answer is malformed (it keeps none)."""
-    lines = answers.answer_lines(check_answer)
-    if lines is None:
+    """The rows the check answer lists too; stray lines (a `row:` label is stripped first) are ignored, so only a
+    row that was proposed can be kept. None when the answer decided nothing (no row and no `none`), `none` comes
+    with a row, or a line is prose rather than a row."""
+    scan = _scan(rows, check_answer)
+    if scan.prose or (scan.none and scan.accepted) or not (scan.none or scan.accepted):
         return None
-    accepted = {row_of(x) for x in lines if x != "none" and not x.startswith("#")}
-    return [row for row in rows if row in accepted]
+    return [row for row in rows if row in scan.accepted]
+
+
+def ignored_lines(rows: list[Row], check_answer: str) -> list[str]:
+    """The lines of the check answer `agreed` ignored, for the log."""
+    return _scan(rows, check_answer).ignored

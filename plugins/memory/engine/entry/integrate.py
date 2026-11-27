@@ -3,7 +3,8 @@
 
 `run`: takes the `mem-auto` run lock (busy: nothing starts), commits the store, asks `mem synthesis integrate
 --candidates`, drops the notes the done list already holds, and per synthesis runs (1) a place session that answers
-`note | part | append|unit N | fingerprint` lines and (2) a check session that lists the rows it accepts. Only rows
+`note | part | append|unit N | fingerprint` lines and (2) a check session that lists the rows it accepts (its stray
+lines are ignored and logged: only a row the place session proposed can be kept). Only rows
 both answered, and that `placement_rows` kept, are written by Python to a rows file and applied with ONE
 `mem synthesis integrate FILE` (one logged group per synthesis). The sessions only Read their input folder, so no
 model text reaches the store. State: `<state folder>/integrate/<id>/` (`done.json`, `<run id>/record.json`, logs).
@@ -291,10 +292,17 @@ def ask_readable(
     return asked
 
 
+def log_ignored(job: Job, ignored: list[str]) -> None:
+    if ignored:
+        shown = "; ".join(x[:80] for x in ignored[:3])
+        job.log(f"check: {len(ignored)} lines ignored: {shown}")
+
+
 def place_and_check(job: Job, work: Path, cand: dict, tally: Tally) -> list[Row] | None:
     """The rows both sessions agree on; None (a failure recorded) when a session failed or an answer is malformed.
 
-    A malformed place answer or a malformed check answer fails the synthesis: nothing is applied for it."""
+    A malformed place answer fails the synthesis: nothing is applied for it. A check answer's stray lines are
+    ignored (only rows place proposed can be kept); one that decides nothing fails it too."""
     placed = ask_readable(job, "place", work, cand, place_input(cand))
     if placed is None:
         return None
@@ -311,6 +319,7 @@ def place_and_check(job: Job, work: Path, cand: dict, tally: Tally) -> list[Row]
     if checked is None:
         return None
     kept = plan.agreed(rows, checked[0])
+    log_ignored(job, plan.ignored_lines(rows, checked[0]))
     if kept is None:
         job.fail(f"{cand['synthesis']}: the check answer is not rows or none")
         return None
