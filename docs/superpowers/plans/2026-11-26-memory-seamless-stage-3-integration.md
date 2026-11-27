@@ -1,6 +1,6 @@
 # Memory seamless, stage 3: integration and sibling updates Implementation Plan
 
-Status: in progress, reduced scope (owner, 2026-11-27: Tasks 1, 2, 5, 6, 7 and 8 as cut under "Reduced scope"; Tasks 3 and 4 deferred) · Date: 2026-11-26 · Branch: feat/memory-seamless-integrate (created at Task 1, Step 0)
+Status: built in the reduced scope, waiting for the owner's cap for the paid trial (Task 8, Step 6) · Date: 2026-11-26, built 2026-11-27 · Branch: feat/memory-seamless-integrate
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -11,6 +11,30 @@ Status: in progress, reduced scope (owner, 2026-11-27: Tasks 1, 2, 5, 6, 7 and 8
 **Tech Stack:** Python 3.12+, pytest, `claude -p` read-only Haiku sessions (`core/headless.py`), uv launchers (ADR 0035).
 
 **Spec:** `docs/superpowers/plans/2026-11-17-memory-seamless.md` § "Stage 3: integration and sibling updates" (Stage 3 design; the pre-mortem amendments A1–A7 replace design rows where they differ; "Stage 3, T1 only": T1 is built as per-note `u:` fingerprints, `note_fingerprint` and `is_current` in `engine/syntheses/units.py`; `changed_units`/`citing_units` do not exist and are not planned). ADR 0034, 0035, 0031.
+
+## State on 2026-11-27 (where to resume)
+
+Built, each task reviewed in two rounds: Tasks 1, 2, 5, 6a, 6b, 6c, 7 and 8 in the reduced scope below; Tasks 3 and 4 not built. Next: the owner's cap for the paid trial (Step 6 of Task 8), then `python3 plugins/memory/evals/integrate/run_trial.py --budget <cap>`, the Sonnet audit of the appended sentences, and `run_trial.py verdict`.
+
+| Check | Result |
+|---|---|
+| Engine suite | 3,234 passed, 5 skipped (3,040 before the stage) |
+| `mem-integrate --self-check`, `evals/integrate/run_trial.py --self-check` | pass; the trial's four wrong fake answers each give `kill` |
+| Rehearsal on a copy of the real store with a fake `claude` (Step 5b), twice | 1 synthesis with 4 candidate notes; a run changed 16 files (the synthesis, the 4 notes, 11 re-stamped members); `mem check` printed nothing before and after; `--undo` returned every file byte for byte, logs aside; the real store equal to the copy taken before the rehearsal |
+| Trial dry run | 1 synthesis, 29 notes offered, 2 sessions: 0.149 USD, plus the Sonnet audit estimated at 1.489 USD from the catalog's relative cost: 1.638 USD; the bar is twice that |
+
+What differs from the task text, by ruling during the build:
+
+| Where | As built | Why |
+|---|---|---|
+| Task 2 | A rows file is one group even across syntheses (the runner writes one file per synthesis); a note named twice in a file, an empty claim, a hidden path are refused; a `unit N` row adds the note to the part's `Sources:` line when it is not there | Review findings; `mem restore` undoes the newest change, so a group is the unit of undo |
+| Task 5 | `answers.answer_lines` and `plan.placement_rows` only; `none` mixed with rows, a comment-only answer or a row glued to a fence make the whole answer unusable | The sibling half is not built; a contradictory answer applies nothing |
+| Task 6b | Two sessions per synthesis (place, check); a failed session, a malformed answer or a failed apply leaves its notes for the next run | Reduced scope; a note must not be marked done when nothing was decided |
+| Task 6c | Two briefs; an answer that says it could not read its file is a failure line with nothing applied | Kill criterion of the pre-mortem |
+| Task 7 | `--undo` reads the log as a stack (a restore marker cancels the entry it undid), verifies after each restore what `mem restore` reports, and tells a restored group from a partly restored one, which it refuses and lists | Review: undoing a newer run blocked an older one on the same synthesis; a restore that stops half way must not let a rerun undo an older change |
+| Task 8 | Labels without `contradicts-sibling`; another note may change only `updated` and `part_of_hash`; a wrong sentence in the right part kills; a run with a failed session or nothing integrated is `void`; `verdict` closes the result after the audit | Reduced scope and review |
+
+Known limits, left open: a `mem` command run by hand between `--undo`'s check and its restore can be undone in the group's place (the output says so; live commands take no lock); rows carry no note digest, so a note reworded between `--candidates` and the apply lands with its new wording; `sp.mem` calls have no timeout and a timed-out session's spend is not counted (both shared with `mem-settle`); `entry/integrate.py` repeats four small helpers of `entry/settle.py`; the `superseded` and `disputed` seeds test only the candidates filter; the Haiku price constants of the trial are dated, not calibrated.
 
 ## Pre-mortem 2026-11-26
 

@@ -6,7 +6,7 @@ Owner, 2026-11-17: the global memory should work as an internal mechanism of the
 
 ## Where to resume: stages 2 to 5
 
-Stage 2 is merged (PR 136, 2026-11-24 check); start with stage 3. Stages 3 and 4 need stage 2's inline references, and stage 5 only wires what the others measured. One branch per stage; a merge into `main` needs the owner's word each time.
+Stage 2 is merged (PR 136, 2026-11-24 check). Stage 3 is built in a reduced scope on 2026-11-27, the attachment path without sibling updates (`mem synthesis integrate`, `mem-integrate run`, `--undo`, its trial harness; [task plan and state](2026-11-26-memory-seamless-stage-3-integration.md#state-on-2026-11-27-where-to-resume)); its paid trial waits for the owner's cap. Stages 3 and 4 need stage 2's inline references, and stage 5 only wires what the others measured. One branch per stage; a merge into `main` needs the owner's word each time.
 
 ### State on 2026-11-18
 
