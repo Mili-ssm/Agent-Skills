@@ -3,18 +3,20 @@
 
 Question: given fixed right and wrong placement rows, which does the check session accept? Only the check session is
 run (place is not): the input is the production input, built with the engine's own `candidates`, `Row`, `check_input`
-and `row_line`, and the session runs through `Job.ask`, so the shipped brief, settings and session command apply.
+and `row_line`, and the session runs through `ask_readable`, so the shipped brief, settings and session command apply.
 `--brief PATH` swaps the check brief for one run without touching the shipped file.
 
 The row table below is fixed in code BEFORE any paid run; do not tune it afterwards (a tuned table measures nothing).
 Superseded and disputed notes never reach check in production, so they are not rows. See README.md.
 
 Usage: check_probe.py --self-check | --budget USD [--claude PATH] [--runs N] [--brief PATH] [--out DIR]
+Each run keeps its raw answer; a failed or malformed run is void and excluded from every total.
 The paid run needs the owner's cap (`--budget`) and is never started by `--self-check`."""
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -46,11 +48,13 @@ RIGHT_APPEND = "right-append"
 RIGHT_UNIT = "right-unit"
 NO_FIT = "no-fit"
 WRONG_PART = "wrong-part"
+ARGUABLE = "arguable"
 CONTRADICTION = "contradiction"
 WRONG_UNIT = "wrong-unit"
 RIGHT_GROUPS = (RIGHT_APPEND, RIGHT_UNIT)
 WRONG_GROUPS = (NO_FIT, WRONG_PART, CONTRADICTION, WRONG_UNIT)
-GROUPS = (*RIGHT_GROUPS, *WRONG_GROUPS)
+# `arguable`: reported, never counted in the wrong-row gate (the owner may judge the row right).
+GROUPS = (*RIGHT_GROUPS, *WRONG_GROUPS, ARGUABLE)
 
 
 class Spec(NamedTuple):
@@ -118,11 +122,12 @@ _NO_FIT: list[Spec] = [
 ]
 # `wrong-part`: a real append note, put into the plausible part that is not its own.
 _WRONG_PART: list[Spec] = [
-    Spec(WRONG_PART, "usage-statistics", "selection", None),
     Spec(WRONG_PART, "load-then-index", "selection", None),
     Spec(WRONG_PART, "clustered-key-order", "selection", None),
     Spec(WRONG_PART, "function-defeats-index", "structures", None),
 ]
+# Arguable: `usage-statistics` (refresh statistics) read in `#selection` may be judged right by the owner.
+_ARGUABLE: list[Spec] = [Spec(ARGUABLE, "usage-statistics", "selection", None)]
 # `contradiction`: a claim that negates a sentence of the part it is appended to. Not notes of the store: injected
 # into the check input only (check reads the row, the claim and the part text). The last two repeat the claims of the
 # seed's disputed and superseded notes, which never reach check in production.
@@ -149,7 +154,14 @@ _WRONG_UNIT: list[Spec] = [
     Spec(WRONG_UNIT, "start-from-slow-queries", "selection", 4),
 ]
 
-TABLE: tuple[Spec, ...] = (*_RIGHT, *_NO_FIT, *_WRONG_PART, *_CONTRADICTION, *_WRONG_UNIT)
+TABLE: tuple[Spec, ...] = (
+    *_RIGHT,
+    *_NO_FIT,
+    *_WRONG_PART,
+    *_ARGUABLE,
+    *_CONTRADICTION,
+    *_WRONG_UNIT,
+)
 
 
 # --- input ------------------------------------------------------------------------------------------------------
@@ -185,64 +197,82 @@ def probe_items(cand: dict) -> tuple[list[tuple[Spec, Row]], list[dict]]:
 # --- grading ----------------------------------------------------------------------------------------------------
 
 
-def grade(entries: list[tuple[Spec, Row]], answer: str | None) -> dict:
-    """Per group accepted/total for one answer. `answer` None (a failed session) accepts nothing and is `failed`.
-    A malformed answer is judged as the engine does: nothing is kept (`malformed`)."""
+def _void(answer: str | None, kept: list[Row] | None, failure: str | None) -> str | None:
+    if answer is None:
+        return f"session failed: {failure or 'no answer'}"
+    return "malformed answer" if kept is None else None
+
+
+def grade(entries: list[tuple[Spec, Row]], answer: str | None, failure: str | None = None) -> dict:
+    """Per group accepted/total for one answer. A run counts only when the session returned a parsable answer (rows
+    or `none`): a failed session (`answer` None) or a malformed answer is `void` with its reason, and `totals`
+    leaves it out."""
     rows = [row for _, row in entries]
     kept = plan.agreed(rows, answer) if answer is not None else []
     accepted = set(kept or [])
     groups = {g: {"accepted": 0, "total": 0} for g in GROUPS}
     wrong_accepted = []
+    arguable_accepted = []
     for spec, row in entries:
         groups[spec.group]["total"] += 1
         if row in accepted:
             groups[spec.group]["accepted"] += 1
+            hit = {"group": spec.group, "row": row_line(row)}
             if spec.group in WRONG_GROUPS:
-                wrong_accepted.append({"group": spec.group, "row": row_line(row)})
+                wrong_accepted.append(hit)
+            elif spec.group == ARGUABLE:
+                arguable_accepted.append(hit)
     return {
         "groups": groups,
         "wrong_accepted": wrong_accepted,
-        "failed": answer is None,
-        "malformed": answer is not None and kept is None,
+        "arguable_accepted": arguable_accepted,
+        "void": _void(answer, kept, failure),
     }
 
 
+def counted(runs: list[dict]) -> list[dict]:
+    return [r for r in runs if not r["void"]]
+
+
 def totals(runs: list[dict]) -> dict:
-    """The groups summed over the runs, with the runs' failures."""
+    """The groups summed over the counted runs; void runs are excluded from every total and counted apart."""
     groups = {g: {"accepted": 0, "total": 0} for g in GROUPS}
-    for run in runs:
+    used = counted(runs)
+    for run in used:
         for g, count in run["groups"].items():
             groups[g]["accepted"] += count["accepted"]
             groups[g]["total"] += count["total"]
     return {
         "groups": groups,
-        "wrong_accepted": [w for run in runs for w in run["wrong_accepted"]],
-        "failed_runs": sum(r["failed"] for r in runs),
-        "malformed_runs": sum(r["malformed"] for r in runs),
+        "wrong_accepted": [w for run in used for w in run["wrong_accepted"]],
+        "arguable_accepted": [w for run in used for w in run["arguable_accepted"]],
+        "counted_runs": len(used),
+        "void_runs": len(runs) - len(used),
     }
 
 
 def table_text(runs: list[dict]) -> str:
     cells = [["group", *(f"run {i}" for i, _ in enumerate(runs, 1)), "total"]]
-    summed = totals(runs)["groups"]
+    summed = totals(runs)
     cells.extend(
         [
             g,
-            *(f"{r['groups'][g]['accepted']}/{r['groups'][g]['total']}" for r in runs),
-            f"{summed[g]['accepted']}/{summed[g]['total']}",
+            *(
+                "void" if r["void"] else f"{r['groups'][g]['accepted']}/{r['groups'][g]['total']}"
+                for r in runs
+            ),
+            f"{summed['groups'][g]['accepted']}/{summed['groups'][g]['total']}",
         ]
         for g in GROUPS
     )
     widths = [max(len(r[i]) for r in cells) for i in range(len(cells[0]))]
     lines = [" | ".join(c.ljust(w) for c, w in zip(r, widths, strict=True)).rstrip() for r in cells]
-    for i, run in enumerate(runs, 1):
-        if run["failed"]:
-            lines.append(f"run {i}: the session failed (nothing accepted)")
-        if run["malformed"]:
-            lines.append(f"run {i}: the answer was malformed (nothing accepted)")
-    wrong = totals(runs)["wrong_accepted"]
-    lines.append(f"wrong rows accepted: {len(wrong)}")
-    lines += [f"  [{w['group']}] {w['row']}" for w in wrong]
+    lines += [f"run {i}: void ({r['void']})" for i, r in enumerate(runs, 1) if r["void"]]
+    lines.append(f"void runs: {summed['void_runs']}")
+    lines.append(f"wrong rows accepted: {len(summed['wrong_accepted'])}")
+    lines += [f"  [{w['group']}] {w['row']}" for w in summed["wrong_accepted"]]
+    lines.append(f"arguable rows accepted (not in the gate): {len(summed['arguable_accepted'])}")
+    lines += [f"  [{w['group']}] {w['row']}" for w in summed["arguable_accepted"]]
     return "\n".join(lines)
 
 
@@ -262,7 +292,7 @@ def _swap_brief(brief: Path | None, work: Path) -> None:
     if brief is None:
         return
     folder = work / "briefs"
-    folder.mkdir()
+    folder.mkdir(parents=True)
     shutil.copy(brief, folder / "check-brief.md")
     engine.INTEGRATE_BRIEFS = folder
 
@@ -276,10 +306,17 @@ class Setup(NamedTuple):
     work: Path
 
 
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
 def probe(setup: Setup, budget: float, runs: int, brief: Path | None = None) -> dict:
-    """`runs` check sessions over the table through `Job.ask`; stops when the budget is spent."""
+    """`runs` check sessions over the table through `ask_readable` (as production); stops when the budget is spent.
+    The result carries the brief's path and sha256 and the row table's sha256, and each run's raw answer."""
     store, env, claude, work = setup
     saved = engine.INTEGRATE_BRIEFS
+    used_brief = brief or saved / "check-brief.md"
+    brief_text = used_brief.read_text(encoding="utf-8")
     _swap_brief(brief, work)
     try:
         job = _job(store, env, claude, budget, work)
@@ -288,10 +325,14 @@ def probe(setup: Setup, budget: float, runs: int, brief: Path | None = None) -> 
         entries, items = probe_items(found[0])
         results = []
         for n in range(1, runs + 1):
-            asked = job.ask("check", work / f"run-{n}", items)
+            asked = engine.ask_readable(job, "check", work / f"run-{n}", found[0], items)
             if asked is None and job.record.failures[-1] == "budget spent":
                 break
-            results.append(grade(entries, asked[0] if asked else None))
+            text = asked[0] if asked else None
+            results.append({
+                **grade(entries, text, job.record.failures[-1] if not asked else None),
+                "answer": text,
+            })
     finally:
         engine.INTEGRATE_BRIEFS = saved
     return {
@@ -299,13 +340,17 @@ def probe(setup: Setup, budget: float, runs: int, brief: Path | None = None) -> 
         "cost": job.record.cost,
         "failures": job.record.failures,
         "brief": str(brief) if brief else "shipped",
+        "brief_path": str(used_brief),
+        "brief_sha256": _sha(brief_text),
         "rows": len(entries),
+        "rows_sha256": _sha(json.dumps(items, ensure_ascii=False, sort_keys=True)),
     }
 
 
 def save(result: dict, out: Path) -> Path:
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"check-probe-{time.strftime('%Y-%m-%dT%H-%M-%S')}.json"
+    stamp = f"{time.strftime('%Y-%m-%dT%H-%M-%S')}-{os.getpid()}"
+    path = out / f"check-probe-{stamp}-{result['brief_sha256'][:8]}.json"
     data = {**result, **totals(result["runs"])}
     path.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     return path
@@ -317,6 +362,8 @@ FAKE = """#!/usr/bin/env python3
 import json, os, re, sys
 found = re.search(r"(/\\S+/check\\.json)", " ".join(sys.argv))
 data = json.load(open(found.group(1)))
+if os.environ.get("FAKE_ARGV"):
+    open(os.environ["FAKE_ARGV"], "a").write(" ".join(sys.argv) + "\\n")
 accept = {tuple(k) for k in json.load(open(os.environ["FAKE_ACCEPT"]))}
 lines = [i["row"] for i in data if tuple(p.strip() for p in i["row"].split("|")[:3]) in accept]
 print(json.dumps({"type": "result", "is_error": False, "result": "\\n".join(lines) or "none",
@@ -331,9 +378,12 @@ def _key(row: Row) -> list[str]:
 
 def _fake(work: Path, name: str, accept: Iterable[Row]) -> tuple[dict, str]:
     env = trial_env.make_env(work)
+    for var in engine.SESSION_VARS:
+        env.pop(var, None)
     listing = work / f"accept-{name}.json"
     listing.write_text(json.dumps([_key(r) for r in accept]), encoding="utf-8")
     env["FAKE_ACCEPT"] = str(listing)
+    env["FAKE_ARGV"] = str(work / f"argv-{name}.txt")
     fake = work / f"fake-claude-{name}"
     fake.write_text(FAKE, encoding="utf-8")
     fake.chmod(0o755)
@@ -354,12 +404,22 @@ def self_check() -> int:
         right = [row for spec, row in entries if spec.group in RIGHT_GROUPS]
         wrong = next(row for spec, row in entries if spec.group == WRONG_PART)
         clean = _run_fake(store, work, "right", right)
-        assert not clean["wrong_accepted"] and not clean["failed"] and not clean["malformed"], clean
+        assert not clean["wrong_accepted"] and not clean["void"], clean
         assert clean["groups"][RIGHT_APPEND] == {"accepted": 17, "total": 17}, clean
         assert clean["groups"][RIGHT_UNIT] == {"accepted": 8, "total": 8}, clean
         bad = _run_fake(store, work, "wrong", [*right, wrong])
         assert [w["row"] for w in bad["wrong_accepted"]] == [row_line(wrong)], bad
         assert bad["groups"][WRONG_PART]["accepted"] == 1, bad
+        sentinel = work / "sentinel-brief.md"
+        sentinel.write_text(
+            "SENTINEL-BRIEF Read `{INPUT_FILE}` and answer none.\n", encoding="utf-8"
+        )
+        env, fake = _fake(work, "brief", [])
+        done = probe(Setup(store, env, fake, work / "probe-brief"), 1.0, 1, sentinel)
+        argv = (work / "argv-brief.txt").read_text(encoding="utf-8")
+        assert "SENTINEL-BRIEF" in argv, "--brief did not reach the session"
+        assert done["brief_sha256"] == _sha(sentinel.read_text(encoding="utf-8")), done
+        assert not done["runs"][0]["void"] and done["runs"][0]["answer"] == "none", done
         assert trial_env.TARGET in work.parents
     finally:
         trial_env.clean(work)

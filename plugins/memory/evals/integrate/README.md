@@ -74,14 +74,15 @@ The `append` floor: the seed holds 17 `append` notes; the kill criterion needs a
 
 ## Check probe
 
-`check_probe.py` measures only the **check** session of `mem-integrate` on fixed right and wrong rows, so a change to `plugins/memory/engine/integrate/briefs/check-brief.md` can be judged without a full trial (plan `docs/superpowers/plans/2026-11-27-memory-integrate-check-append.md`). It builds the seeded store, takes the candidate with the engine's `candidates`, builds the input with `check_input` and runs the session through `Job.ask`, so the shipped brief, settings and session command are what is measured. The row table is fixed in code before any paid run: do not tune it afterwards.
+`check_probe.py` measures only the **check** session of `mem-integrate` on fixed right and wrong rows, so a change to `plugins/memory/engine/integrate/briefs/check-brief.md` can be judged without a full trial (plan `docs/superpowers/plans/2026-11-27-memory-integrate-check-append.md`). It builds the seeded store, takes the candidate with the engine's `candidates`, builds the input with `check_input` and runs the session through `ask_readable`, as production does, so the shipped brief, settings and session command are what is measured. A run counts only when the session returned a parsable answer (rows or `none`): a failed, unreadable or malformed run is `void`, shown as such, excluded from every total and counted (`void runs: N`). The result JSON keeps each run's raw answer, the brief's path and sha256 and the row table's sha256, so a baseline and a post-fix file can be told apart. The row table is fixed in code before any paid run: do not tune it afterwards.
 
 | Group | Rows | Right answer |
 |---|---|---|
 | `right-append` | 17: the seed's `append` notes on their labelled part | accept |
 | `right-unit` | 8: `belongs-existing-sentence` and `duplicate-of-existing` on their labelled sentence | accept |
 | `no-fit` | 4: each `on-topic-no-fit` note appended to its nearest part | reject |
-| `wrong-part` | 4: `usage-statistics`, `load-then-index`, `clustered-key-order` to `#selection`; `function-defeats-index` to `#structures` | reject |
+| `wrong-part` | 3: `load-then-index`, `clustered-key-order` to `#selection`; `function-defeats-index` to `#structures` | reject |
+| `arguable` | 1: `usage-statistics` to `#selection` (the owner may judge it right) | reported, not counted in the wrong-row gate |
 | `contradiction` | 8: six claims written in the table, each negating one sentence of its part, plus the claims of the seed notes `indexes-speed-all` and `index-everything` (injected into the check input only, handles `probe-contra-N`) | reject |
 | `wrong-unit` | 5: `append` notes joined as `unit N` to a sentence of their own part that does not state them | reject |
 

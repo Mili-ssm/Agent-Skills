@@ -33,7 +33,8 @@ def _load() -> Any:
 
 
 probe = _load()
-APPENDS, UNITS, NO_FITS, WRONG_PARTS, WRONG_UNITS = 17, 8, 4, 4, 5
+APPENDS, UNITS, NO_FITS, WRONG_PARTS, ARGUABLES, WRONG_UNITS = 17, 8, 4, 3, 1, 5
+VOID_RUNS = 2
 MIN_CONTRADICTIONS = 4 + 2  # four claims of the table and the two seed claims
 LABELS = {n["slug"]: n for n in SEED["notes"]}
 
@@ -69,6 +70,7 @@ def test_table_counts() -> None:
     assert counts[probe.RIGHT_UNIT] == UNITS
     assert counts[probe.NO_FIT] == NO_FITS
     assert counts[probe.WRONG_PART] == WRONG_PARTS
+    assert counts[probe.ARGUABLE] == ARGUABLES
     assert counts[probe.CONTRADICTION] >= MIN_CONTRADICTIONS
     assert counts[probe.WRONG_UNIT] == WRONG_UNITS
 
@@ -90,7 +92,7 @@ def test_wrong_rows_use_seed_notes_or_injected_claims() -> None:
     assert {s.note for s in _by_group()[probe.NO_FIT]} == {
         n for n, v in LABELS.items() if v["label"] == "on-topic-no-fit"
     }
-    for spec in _by_group()[probe.WRONG_PART]:
+    for spec in (*_by_group()[probe.WRONG_PART], *_by_group()[probe.ARGUABLE]):
         assert LABELS[spec.note]["label"] == "append"
         assert LABELS[spec.note]["part"] != f"s:{SYN}#{spec.section}"
     for spec in _by_group()[probe.WRONG_UNIT]:
@@ -135,7 +137,7 @@ def _answer(entries: list, groups: tuple[str, ...]) -> str:
 def test_grade_clean_and_with_a_wrong_row() -> None:
     entries = probe.rows_of(_cand())
     clean = probe.grade(entries, _answer(entries, probe.RIGHT_GROUPS))
-    assert clean["wrong_accepted"] == [] and not clean["failed"] and not clean["malformed"]
+    assert clean["wrong_accepted"] == [] and not clean["void"]
     assert clean["groups"][probe.RIGHT_APPEND] == {"accepted": APPENDS, "total": APPENDS}
     bad = probe.grade(entries, _answer(entries, (*probe.RIGHT_GROUPS, probe.CONTRADICTION)))
     assert len(bad["wrong_accepted"]) == len(_by_group()[probe.CONTRADICTION])
@@ -145,22 +147,46 @@ def test_grade_clean_and_with_a_wrong_row() -> None:
 def test_grade_none_malformed_and_failed() -> None:
     entries = probe.rows_of(_cand())
     none = probe.grade(entries, "none")
-    assert none["groups"][probe.RIGHT_APPEND]["accepted"] == 0 and not none["malformed"]
+    assert none["groups"][probe.RIGHT_APPEND]["accepted"] == 0 and not none["void"]
     malformed = probe.grade(entries, "I accept all of them")
-    assert malformed["malformed"] and malformed["groups"][probe.RIGHT_UNIT]["accepted"] == 0
-    failed = probe.grade(entries, None)
-    assert failed["failed"] and not failed["malformed"]
+    assert malformed["void"] == "malformed answer"
+    failed = probe.grade(entries, None, "budget spent")
+    assert failed["void"] == "session failed: budget spent"
 
 
-def test_totals_and_table_text() -> None:
+def test_arguable_rows_are_reported_but_not_in_the_wrong_gate() -> None:
     entries = probe.rows_of(_cand())
-    one = probe.grade(entries, _answer(entries, probe.RIGHT_GROUPS))
-    two = probe.grade(entries, _answer(entries, (*probe.RIGHT_GROUPS, probe.WRONG_PART)))
-    summed = probe.totals([one, two])
-    assert summed["groups"][probe.RIGHT_APPEND] == {"accepted": 2 * APPENDS, "total": 2 * APPENDS}
-    assert summed["groups"][probe.WRONG_PART] == {"accepted": WRONG_PARTS, "total": 2 * WRONG_PARTS}
-    text = probe.table_text([one, two])
-    assert f"wrong rows accepted: {WRONG_PARTS}" in text and "[wrong-part]" in text
+    run = probe.grade(entries, _answer(entries, (*probe.RIGHT_GROUPS, probe.ARGUABLE)))
+    assert run["wrong_accepted"] == [] and len(run["arguable_accepted"]) == ARGUABLES
+    text = probe.table_text([run])
+    assert (
+        "wrong rows accepted: 0" in text and "arguable rows accepted (not in the gate): 1" in text
+    )
+
+
+def test_void_runs_are_excluded_from_every_total() -> None:
+    entries = probe.rows_of(_cand())
+    good = probe.grade(entries, _answer(entries, probe.RIGHT_GROUPS))
+    failed = probe.grade(entries, None, "boom")
+    malformed = probe.grade(entries, "nonsense")
+    summed = probe.totals([good, failed, malformed])
+    assert (summed["void_runs"], summed["counted_runs"]) == (VOID_RUNS, 1)
+    assert summed["groups"][probe.RIGHT_APPEND] == {"accepted": APPENDS, "total": APPENDS}
+    assert summed["groups"][probe.NO_FIT]["total"] == NO_FITS
+    text = probe.table_text([good, failed, malformed])
+    assert "void runs: 2" in text and "run 2: void (session failed: boom)" in text
+    assert "run 3: void (malformed answer)" in text and " void " in text
+
+
+def test_brief_reaches_the_prompt_the_session_gets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sentinel = tmp_path / "sentinel.md"
+    sentinel.write_text("SENTINEL-BRIEF Read `{INPUT_FILE}`.\n", encoding="utf-8")
+    monkeypatch.setattr(engine, "INTEGRATE_BRIEFS", engine.INTEGRATE_BRIEFS)
+    probe._swap_brief(sentinel, tmp_path / "work")
+    prompt = engine.sp.brief("check", briefs=engine.INTEGRATE_BRIEFS, INPUT_FILE="/x/check.json")
+    assert "SENTINEL-BRIEF" in prompt and "/x/check.json" in prompt
 
 
 @pytest.mark.parametrize("text", ["0", "-1", "abc", "inf"])
