@@ -57,7 +57,7 @@ Known weakness: in `pipe-status` a session that does nothing also leaves `HEAD` 
 
 Pilot of 2026-11-27 (3 runs, 24 sessions, 1.46 USD): both arms avoided the failure in 3 of 3 runs of every scenario, so all four have no headroom and the pilot says nothing about the lessons; mean cost 0.055 USD without the block and 0.060 USD with it. Table and what follows from it: [the plan's results](../../../../docs/superpowers/plans/2026-11-26-memory-effect-measurement.md#results).
 
-## Replay of real failures (parts A and B built; no paid run yet)
+## Replay of real failures (parts A and B built; first paid run 2026-11-27)
 
 Design: the plan's section "Replay of real failures (task 8)". A real transcript is copied up to the entry before a known failing assistant message; part B resumes the copy headless in two arms (R0: the session's own lessons block printed again at the cut; R: the same block plus one lesson line) and score the next message. `replay.py` is part A, which needs no model: the copy, the arm files, the worktree, the per-point checks and the code scorer. `replay_run.py` is part B: one replay session, the wire capture, the gated run and the judge; its `--self-check` runs against a fake `claude` and a local server (`replay_selfcheck.py`) and never starts a model.
 
