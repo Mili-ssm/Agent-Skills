@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import NamedTuple, TypedDict, Unpack
 
 from core import jobs
+from core import runner as runners
 from memories import records
 
 from corroborate import decide as corroborate_decide
@@ -277,6 +278,7 @@ class _RewordPass:
         if self.failures["fingerprint"] != self.fingerprint:
             self.failures["count"] = 0
         self.applier: corroborate_run.Applier | None = None
+        self.spend = corroborate_run.Spend(runners.resolve_runner(None))  # one cap for all sessions
 
     def run(self) -> dict:
         claude = self.params.claude
@@ -344,6 +346,7 @@ class _RewordPass:
             corroborate_decide.reword_blocks(self.candidates),
             "lessons",
             REWORD_WRITER_OUT,
+            self.spend,
         )
         payload, cost, ok = corroborate_run._ask(claude, scratch, "write", limits, job)
         self.result["cost"] += cost
@@ -357,7 +360,9 @@ class _RewordPass:
             (i, m.claim, m.context, short) for i, m, short in kept
         ])
         limits = corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, self.params.budget)
-        job = corroborate_run.AskJob(corroborate_run.CHECK_BRIEF, text, "pairs", REWORD_CHECK_OUT)
+        job = corroborate_run.AskJob(
+            corroborate_run.CHECK_BRIEF, text, "pairs", REWORD_CHECK_OUT, self.spend
+        )
         payload, cost, ok = corroborate_run._ask(claude, scratch, "check", limits, job)
         self.result["cost"] += cost
         checked = (

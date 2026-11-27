@@ -1,5 +1,6 @@
 """mem-integrate: joins loose knowledge notes to the parts of syntheses with two cheap read-only sessions each
-(plan 2026-11-26-memory-seamless-stage-3-integration). Not measured: opt-in by running it.
+(plan 2026-11-26-memory-seamless-stage-3-integration). Not measured: opt-in by running it. Claude only: a Codex
+default is ignored, `--runner codex` exits 2 (Codex placed 0 of 17 appends in 4 runs, ADR 0037 trial 2026-11-27).
 
 `run`: takes the `mem-auto` run lock (busy: nothing starts), commits the store, asks `mem synthesis integrate
 --candidates`, drops the notes the done list already holds, and per synthesis runs (1) a place session that answers
@@ -31,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core import auto_state, headless, jobs
+from core import auto_state, codex_pass, headless, jobs, runner
 from integrate import answers, plan
 from integrate import state as run_state
 from integrate import undo as run_undo
@@ -103,24 +104,28 @@ def run_env(store: Path) -> dict:
     return env
 
 
+def session_spec(
+    claude: str, work: Path, brief: str, settings: Path, max_budget: float
+) -> headless.Session:
+    return headless.Session(
+        claude=claude,
+        prompt=brief,
+        model="haiku",
+        settings=settings,
+        effort="medium",
+        tools=("Read",),
+        allowed=(f"Read(/{work}/**)",),
+        disallowed=("Bash", "WebSearch", "WebFetch"),
+        max_budget=max_budget,
+    )
+
+
 def session_cmd(
     claude: str, work: Path, brief: str, settings: Path, max_budget: float
 ) -> list[str]:
     """One Haiku session. Only Read exists and only inside `work` (`//` is an absolute path in a rule); no shell,
     no web, no write; hooks are disabled by `settings`."""
-    return headless.command(
-        headless.Session(
-            claude=claude,
-            prompt=brief,
-            model="haiku",
-            settings=settings,
-            effort="medium",
-            tools=("Read",),
-            allowed=(f"Read(/{work}/**)",),
-            disallowed=("Bash", "WebSearch", "WebFetch"),
-            max_budget=max_budget,
-        )
-    )
+    return headless.command(session_spec(claude, work, brief, settings, max_budget))
 
 
 @dataclass
@@ -178,7 +183,7 @@ class Job:
 
     def ask(self, name: str, work: Path, data: Any) -> tuple[str, float] | None:
         """Runs session `name` over `data` written to `work`; (answer, cost), or None with a failure recorded."""
-        if self.budget - self.record.cost <= EPSILON:
+        if self.spent_up():
             self.fail("budget spent")
             return None
         work.mkdir(parents=True, exist_ok=True)
@@ -187,11 +192,8 @@ class Job:
         settings = self.root / "settings.json"
         settings.write_text(json.dumps({"disableAllHooks": True}), encoding="utf-8")
         brief = sp.brief(name, briefs=INTEGRATE_BRIEFS, INPUT_FILE=str(input_file))
-        cmd = session_cmd(self.claude, work, brief, settings, self.budget - self.record.cost)
         start = time.monotonic()
-        raw = headless.run_raw(cmd, cwd=work, env=self.env, timeout=SESSION_TIMEOUT).stdout
-        (work / f"{name}.jsonl").write_text(raw, encoding="utf-8")
-        done = sp.parse(raw)
+        done = self.run_session(work, brief, settings, work / f"{name}.jsonl")
         self.record.cost += done["cost"]
         if self.current is not None:
             self.current.cost += done["cost"]
@@ -203,6 +205,16 @@ class Job:
             self.fail(f"{name} session {'failed' if done['has_result'] else sp.NO_COST}")
             return None
         return done["answer"], done["cost"]
+
+    def spent_up(self) -> bool:
+        return self.budget - self.record.cost <= EPSILON
+
+    def run_session(self, work: Path, brief: str, settings: Path, log: Path) -> dict:
+        """One session, its stream written to `log`; the `sp.parse` dict."""
+        cmd = session_cmd(self.claude, work, brief, settings, self.budget - self.record.cost)
+        raw = headless.run_raw(cmd, cwd=work, env=self.env, timeout=SESSION_TIMEOUT).stdout
+        log.write_text(raw, encoding="utf-8")
+        return sp.parse(raw)
 
 
 def candidates(job: Job) -> list[dict] | None:
@@ -378,10 +390,17 @@ def cmd_run(store: Path, claude: str | None, budget_arg: str | None) -> int:
     try:
         run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
         record = run_state.RunRecord(run_id, time.strftime("%Y-%m-%dT%H:%M:%S%z"))
-        job = Job(store, run_env(store), claude or "", budget_of(budget_arg), folder, record)
+        job = Job(
+            store,
+            run_env(store),
+            claude or "",
+            budget_of(budget_arg),
+            folder,
+            record,
+        )
         jobs.private_dir(job.root)
         run_state.write_record(folder, record)
-        if not claude:
+        if not job.claude:
             job.fail("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
         else:
             _guarded(job)
@@ -495,6 +514,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--budget", type=_budget_arg, help=f"USD per run (default {DEFAULT_BUDGET})"
     )
+    runner.add_flag(parser)
     parser.add_argument(
         "--dry-run", action="store_true", help="list what would run; start and change nothing"
     )
@@ -523,6 +543,12 @@ def main(argv: list[str] | None = None) -> int:
         return integrate_self_check.self_check(sys.modules[__name__])
     if not args.command and not args.undo:
         parser.error("a command or --undo RUN is required")
+    if (
+        refused := codex_pass.refuse_codex(
+            "mem-integrate", args.runner, why=codex_pass.WHY_INTEGRATE
+        )
+    ) is not None:
+        return refused
     store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-integrate: no store at {store}", file=sys.stderr)

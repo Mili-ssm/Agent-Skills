@@ -5,6 +5,11 @@
   "author": { "name": "mili-ssm" },
   "repository": "https://github.com/Mili-ssm/Agent-Skills",
   "userConfig": {
+    "runner": {
+      "type": "string",
+      "title": "Runner",
+      "description": "Runner for background passes that support it (settle, corroborate; experimental): claude or codex. Empty: claude. Integrate and the passes that need the shell always run on Claude (ADR 0037)."
+    },
     "store": {
       "type": "directory",
       "title": "Store",

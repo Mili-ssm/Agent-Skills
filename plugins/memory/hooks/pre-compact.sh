@@ -25,9 +25,9 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ]; then
     set -- auto --trigger pre-compact
     [ -n "$claude" ] && set -- "$@" --claude "$claude"
     if command -v setsid >/dev/null 2>&1; then
-      (setsid nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+      (MEM_RUNNER_OPTION="${CLAUDE_PLUGIN_OPTION_RUNNER:-}" setsid nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
     else
-      (nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+      (MEM_RUNNER_OPTION="${CLAUDE_PLUGIN_OPTION_RUNNER:-}" nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
     fi
   fi
 fi

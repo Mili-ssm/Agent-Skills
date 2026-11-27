@@ -687,20 +687,26 @@ def dry_run(env: dict, store: Path) -> dict:
 RUN_COST = re.compile(r"^cost: ([\d.]+) USD of [\d.]+; run (\S+)", re.MULTILINE)
 
 
-def run_integrate(env: dict, store: Path, claude: str, budget: float, spent: dict) -> dict:
+def run_integrate(env: dict, store: Path, call: tuple[str, float], spent: dict) -> dict:
     """The paid run. `spent` receives what is known as soon as the run returns (output, cost, failures), so a later
     exception cannot lose it."""
+    claude, budget = call
+    began = time.monotonic()
     found = _integrate(env, store, "run", "--claude", claude, "--budget", f"{budget:.4f}")
+    seconds = round(time.monotonic() - began, 1)
     cost = RUN_COST.search(found.stdout)
     spent["output"] = found.stdout + found.stderr
     spent["failures"] = re.findall(r"(?m)^failed: (.*)$", found.stdout)
+    spent["seconds"] = seconds
     if cost:
-        spent["cost"], spent["run_id"] = float(cost.group(1)), cost.group(2)
+        spent["cost"] = float(cost.group(1))
+        spent["run_id"] = cost.group(2)
     assert found.returncode == 0 and cost, f"mem-integrate run: {found.stdout}{found.stderr}"
     return {
-        "cost": float(cost.group(1)),
+        "cost": spent["cost"],
+        "seconds": seconds,
         "run_id": cost.group(2),
-        "failures": re.findall(r"(?m)^failed: (.*)$", found.stdout),
+        "failures": spent["failures"],
     }
 
 
@@ -726,7 +732,7 @@ class Trial(NamedTuple):
 def _flow(seed: dict, store: Path, env: dict, call: tuple[str, float], spent: dict) -> Trial:
     dry = dry_run(env, store)
     before_text, before_bytes = snapshot(store), file_bytes(store)
-    run = run_integrate(env, store, *call, spent)
+    run = run_integrate(env, store, call, spent)
     after_text = snapshot(store)
     undone = _integrate(env, store, "--undo", run["run_id"])
     differences = undo_differences(before_bytes, file_bytes(store))
@@ -741,12 +747,12 @@ def _flow(seed: dict, store: Path, env: dict, call: tuple[str, float], spent: di
     return Trial(graded, totals_verdict(graded), {**run, "dry": dry}, after_text)
 
 
-def trial(seed: dict, store: Path, env: dict, claude: str, budget: float) -> Trial:
+def trial(seed: dict, store: Path, env: dict, call: tuple[str, float]) -> Trial:
     """The flow on a built store: dry run, run, grade, undo and compare. Any exception leaves as
     `TrialFailedError` carrying what the run had spent."""
     spent: dict = {}
     try:
-        return _flow(seed, store, env, (claude, budget), spent)
+        return _flow(seed, store, env, call, spent)
     except Exception as exc:
         raise TrialFailedError(spent, exc) from exc
 
@@ -884,7 +890,7 @@ def cmd_paid(args: argparse.Namespace) -> int:
     work = trial_env.work_dir("integrate-trial-")
     try:
         env = trial_env.make_env(work)
-        result = trial(seed, build_store(work, env, seed), env, args.claude, args.budget)
+        result = trial(seed, build_store(work, env, seed), env, (args.claude or "", args.budget))
         print(table(result))
         print(f"results: {save(result, args.out)}")
     except TrialFailedError as failed:
@@ -922,7 +928,7 @@ WRONG_ANSWERS = (
 
 def _check_right(seed: dict, work: Path, base: Path) -> None:
     env, fake = _fake_env(work, None)
-    right = trial(seed, base, env, fake, 1.0)
+    right = trial(seed, base, env, (fake, 1.0))
     print(table(right))
     g = right.graded
     assert not right.run["failures"], right.run["failures"]
@@ -941,7 +947,7 @@ def _check_right(seed: dict, work: Path, base: Path) -> None:
 
 def _check_wrong(seed: dict, work: Path, copy: Path, slug: str, how: str) -> None:
     env, fake = _fake_env(work, f"{slug}:{how}")
-    wrong = trial(seed, copy, env, fake, 1.0)
+    wrong = trial(seed, copy, env, (fake, 1.0))
     found = {
         w["note"] for w in [*wrong.graded["wrong_attachments"], *wrong.graded["wrong_sentences"]]
     }

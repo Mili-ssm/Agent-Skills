@@ -482,3 +482,19 @@ def test_a_broken_state_file_reads_as_empty(w, content):
             or got["failures"]["fingerprint"] == KEPT_FINGERPRINT
         )
     )
+
+
+def test_the_two_sessions_of_a_reword_share_one_spend(w, monkeypatch):
+    worse_one(w)
+    reword_answers(w, monkeypatch)
+    spends = []
+    real = corroborate_run._ask
+
+    def watch(*args, **kw):
+        spends.append(args[4].spend)
+        return real(*args, **kw)
+
+    monkeypatch.setattr(corroborate_run, "_ask", watch)
+    reword(w)
+    assert len(spends) == WRITER_AND_CHECKER_CALLS
+    assert isinstance(spends[0], corroborate_run.Spend) and spends[0] is spends[1]

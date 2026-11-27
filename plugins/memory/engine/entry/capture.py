@@ -38,7 +38,8 @@ from typing import Any
 
 from capture import extract as capture
 from capture import state as cs
-from core import headless, jobs
+from core import codex_pass, headless, jobs
+from core import runner as runners
 from memories import records
 from synthesize import pipeline as sp
 
@@ -1164,6 +1165,7 @@ def main() -> int:
     run.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
+    runners.add_flag(run)
     run.add_argument(
         "--no-rules",
         action="store_true",
@@ -1185,6 +1187,7 @@ def main() -> int:
     auto_cmd.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
+    runners.add_flag(auto_cmd)
     auto_cmd.set_defaults(func=cmd_auto)
     sweep_cmd = commands.add_parser(
         "sweep", help="what the session start launches: read sessions of the folder left open"
@@ -1192,10 +1195,17 @@ def main() -> int:
     sweep_cmd.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
+    runners.add_flag(sweep_cmd)
     sweep_cmd.set_defaults(func=cmd_sweep)
     ack = commands.add_parser(
         "ack", help="clear the failure line left by a failed automatic capture"
     )
     ack.set_defaults(func=lambda _args: cmd_ack())
     args = parser.parse_args()
+    if (
+        args.command != "ack"
+        and (refused := codex_pass.refuse_codex("mem-capture", getattr(args, "runner", None)))
+        is not None
+    ):
+        return refused
     return args.func(args)
