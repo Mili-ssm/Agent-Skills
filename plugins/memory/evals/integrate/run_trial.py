@@ -13,7 +13,7 @@ session is part of the PAID run and this script never starts it.
 Labels (fixed by the commit that adds `seed.json`, before any paid run): `append`, `belongs-existing-sentence`,
 `on-topic-no-fit`, `duplicate-of-existing`, `superseded`, `disputed`. See README.md for the kill criteria.
 
-Usage: run_trial.py --self-check | --dry-run | --budget USD --claude PATH [--runner claude|codex] [--out DIR]
+Usage: run_trial.py --self-check | --dry-run | --budget USD --claude PATH [--out DIR]
        run_trial.py verdict RESULT_JSON --audit-reply FILE [--audit-cost USD]
 The paid run needs the owner's cap (`--budget`) and is never started by `--self-check` or `--dry-run`."""
 
@@ -685,30 +685,25 @@ def dry_run(env: dict, store: Path) -> dict:
 
 
 RUN_COST = re.compile(r"^cost: ([\d.]+) USD of [\d.]+; run (\S+)", re.MULTILINE)
-RUN_TOKENS = re.compile(r"^tokens: (\d+) of \d+ \(codex\); run (\S+)", re.MULTILINE)
 
 
-def run_integrate(env: dict, store: Path, call: tuple[str, float, str], spent: dict) -> dict:
+def run_integrate(env: dict, store: Path, call: tuple[str, float], spent: dict) -> dict:
     """The paid run. `spent` receives what is known as soon as the run returns (output, cost, failures), so a later
     exception cannot lose it."""
-    claude, budget, runner = call
+    claude, budget = call
     began = time.monotonic()
-    found = _integrate(
-        env, store, "run", "--claude", claude, "--runner", runner, "--budget", f"{budget:.4f}"
-    )
+    found = _integrate(env, store, "run", "--claude", claude, "--budget", f"{budget:.4f}")
     seconds = round(time.monotonic() - began, 1)
-    codex = RUN_TOKENS.search(found.stdout) if runner == "codex" else None
-    cost = codex or RUN_COST.search(found.stdout)  # Codex reports tokens, not money
+    cost = RUN_COST.search(found.stdout)
     spent["output"] = found.stdout + found.stderr
     spent["failures"] = re.findall(r"(?m)^failed: (.*)$", found.stdout)
     spent["seconds"] = seconds
     if cost:
-        spent["cost"] = 0.0 if codex else float(cost.group(1))
+        spent["cost"] = float(cost.group(1))
         spent["run_id"] = cost.group(2)
     assert found.returncode == 0 and cost, f"mem-integrate run: {found.stdout}{found.stderr}"
     return {
         "cost": spent["cost"],
-        "tokens": int(codex.group(1)) if codex else 0,
         "seconds": seconds,
         "run_id": cost.group(2),
         "failures": spent["failures"],
@@ -734,7 +729,7 @@ class Trial(NamedTuple):
     after: dict[str, str]
 
 
-def _flow(seed: dict, store: Path, env: dict, call: tuple[str, float, str], spent: dict) -> Trial:
+def _flow(seed: dict, store: Path, env: dict, call: tuple[str, float], spent: dict) -> Trial:
     dry = dry_run(env, store)
     before_text, before_bytes = snapshot(store), file_bytes(store)
     run = run_integrate(env, store, call, spent)
@@ -752,7 +747,7 @@ def _flow(seed: dict, store: Path, env: dict, call: tuple[str, float, str], spen
     return Trial(graded, totals_verdict(graded), {**run, "dry": dry}, after_text)
 
 
-def trial(seed: dict, store: Path, env: dict, call: tuple[str, float, str]) -> Trial:
+def trial(seed: dict, store: Path, env: dict, call: tuple[str, float]) -> Trial:
     """The flow on a built store: dry run, run, grade, undo and compare. Any exception leaves as
     `TrialFailedError` carrying what the run had spent."""
     spent: dict = {}
@@ -895,10 +890,7 @@ def cmd_paid(args: argparse.Namespace) -> int:
     work = trial_env.work_dir("integrate-trial-")
     try:
         env = trial_env.make_env(work)
-        trial_env.apply_runner(env, args.runner)
-        result = trial(
-            seed, build_store(work, env, seed), env, (args.claude or "", args.budget, args.runner)
-        )
+        result = trial(seed, build_store(work, env, seed), env, (args.claude or "", args.budget))
         print(table(result))
         print(f"results: {save(result, args.out)}")
     except TrialFailedError as failed:
@@ -936,7 +928,7 @@ WRONG_ANSWERS = (
 
 def _check_right(seed: dict, work: Path, base: Path) -> None:
     env, fake = _fake_env(work, None)
-    right = trial(seed, base, env, (fake, 1.0, "claude"))
+    right = trial(seed, base, env, (fake, 1.0))
     print(table(right))
     g = right.graded
     assert not right.run["failures"], right.run["failures"]
@@ -955,7 +947,7 @@ def _check_right(seed: dict, work: Path, base: Path) -> None:
 
 def _check_wrong(seed: dict, work: Path, copy: Path, slug: str, how: str) -> None:
     env, fake = _fake_env(work, f"{slug}:{how}")
-    wrong = trial(seed, copy, env, (fake, 1.0, "claude"))
+    wrong = trial(seed, copy, env, (fake, 1.0))
     found = {
         w["note"] for w in [*wrong.graded["wrong_attachments"], *wrong.graded["wrong_sentences"]]
     }
@@ -1003,9 +995,6 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--budget", type=_amount, help="USD for the paid run (the owner's cap)")
     parser.add_argument("--claude", help="the claude binary of the paid run")
     parser.add_argument(
-        "--runner", choices=("claude", "codex"), default="claude", help="the runner under test"
-    )
-    parser.add_argument(
         "--out", type=Path, default=OUT_DEFAULT, help="results folder (default under target/)"
     )
     args = parser.parse_args(argv)
@@ -1013,7 +1002,7 @@ def main(argv: list[str]) -> int:
         return self_check()
     if args.dry_run:
         return cmd_dry_run()
-    if not (args.budget and args.budget > 0 and (args.claude or args.runner == "codex")):
+    if not (args.budget and args.budget > 0 and args.claude):
         parser.error(
             "a paid run needs --budget USD (the owner's cap) and --claude PATH; or use --dry-run"
         )
