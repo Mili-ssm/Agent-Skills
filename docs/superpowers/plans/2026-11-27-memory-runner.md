@@ -115,3 +115,13 @@ Pre-registered before the run: settle on Codex, 3 runs, same inputs as the first
 | Median | 16 | 0 | 0 | 146246 | 83 s |
 
 **Verdict by the rule: Codex settle passes** (median wrong 0 <= 0, no run failed on the runner). Cost of the addendum: Codex's recall falls to a median 16 of 20 (19 without it, rerun), the same level as Claude's rerun, in exchange for no wrong action in 3 runs (the unfixed brief gave 1 wrong in run 3 of the earlier rerun). Task 5 is ticked: settle is the Codex-experimental pass; integrate is out of Codex scope by decision; corroborate is untested on real Codex (fake-codex unit tests only).
+
+## Known limits after the code review (2026-11-27)
+
+Fixed: `sync_auth` copied any newer valid JSON from the run folder (the sandbox's writable root) over the real `auth.json`; it now requires the same `tokens.account_id` and non-empty tokens.
+
+Deferred (low, or bounded by the session timeout):
+- The token cap is checked between sessions only: `codex exec` takes no token limit, so one session is bounded by its timeout (600 s), not the cap; one `mem-corroborate` run gives fill, reword, digest and the pass one cap each.
+- When the real `auth.json` is a symlink, a refreshed token stays in the run folder until runs are pruned.
+- A timeout kills `codex`, not its shell children; the last 5 stderr lines go unredacted into the status file.
+- Unprobed: whether the sandbox lets a session write the real `auth.json` through the run folder's link.

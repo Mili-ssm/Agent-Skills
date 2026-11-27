@@ -329,12 +329,22 @@ def test_run_codex_timeout_keeps_partial(tmp_path: Path, monkeypatch: pytest.Mon
     assert raw == runner.CodexRaw("partial ", True, None, "slow")
 
 
+def _auth(account: str, token: str) -> str:
+    return json.dumps({
+        "tokens": {"account_id": account, "access_token": token, "refresh_token": token}
+    })
+
+
+OLD_AUTH = _auth("acct", "old")
+NEW_AUTH = _auth("acct", "new")
+
+
 def _auth_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path, Path]:
     """(run folder, real auth.json, the per-run auth.json) with the real file holding an old token."""
     real_home = tmp_path / "codex"
     real_home.mkdir()
     real = real_home / "auth.json"
-    real.write_text('{"token": "old"}', encoding="utf-8")
+    real.write_text(OLD_AUTH, encoding="utf-8")
     os.utime(real, (1, 1))
     monkeypatch.setenv("CODEX_HOME", str(real_home))
     run_dir = tmp_path / "run"
@@ -352,19 +362,19 @@ def test_sync_auth_in_place_write_needs_no_sync(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
-    fresh.write_text('{"token": "new"}', encoding="utf-8")  # through the link
+    fresh.write_text(NEW_AUTH, encoding="utf-8")  # through the link
     assert fresh.is_symlink()
     assert runner.sync_auth(run_dir) is False
-    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "new"}
+    assert json.loads(real.read_text(encoding="utf-8")) == json.loads(NEW_AUTH)
 
 
 def test_sync_auth_rename_replace_updates_the_real_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
-    _replace_auth(fresh, '{"token": "new"}')
+    _replace_auth(fresh, NEW_AUTH)
     assert runner.sync_auth(run_dir) is True
-    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "new"}
+    assert json.loads(real.read_text(encoding="utf-8")) == json.loads(NEW_AUTH)
     assert (
         stat.S_IMODE(real.stat().st_mode) == stat.S_IRUSR | stat.S_IWUSR and not real.is_symlink()
     )
@@ -375,16 +385,30 @@ def test_sync_auth_ignores_invalid_json(tmp_path: Path, monkeypatch: pytest.Monk
     run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
     _replace_auth(fresh, "{not json")
     assert runner.sync_auth(run_dir) is False
-    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "old"}
+    assert json.loads(real.read_text(encoding="utf-8")) == json.loads(OLD_AUTH)
+
+
+@pytest.mark.parametrize(
+    "planted",
+    [_auth("other", "new"), "{}", json.dumps({"tokens": {"account_id": "acct"}})],
+    ids=["other-account", "empty", "no-tokens"],
+)
+def test_sync_auth_refuses_a_file_that_is_not_a_refresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, planted: str
+) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    _replace_auth(fresh, planted)  # a model could write anything in its writable root
+    assert runner.sync_auth(run_dir) is False
+    assert json.loads(real.read_text(encoding="utf-8")) == json.loads(OLD_AUTH)
 
 
 def test_sync_auth_ignores_an_older_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
-    _replace_auth(fresh, '{"token": "new"}')
+    _replace_auth(fresh, NEW_AUTH)
     os.utime(fresh, (1, 1))
     os.utime(real, (5, 5))
     assert runner.sync_auth(run_dir) is False
-    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "old"}
+    assert json.loads(real.read_text(encoding="utf-8")) == json.loads(OLD_AUTH)
 
 
 def test_sync_auth_refuses_a_symlinked_real_file(
@@ -392,23 +416,23 @@ def test_sync_auth_refuses_a_symlinked_real_file(
 ) -> None:
     run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
     target = tmp_path / "elsewhere.json"
-    target.write_text('{"token": "old"}', encoding="utf-8")
+    target.write_text(OLD_AUTH, encoding="utf-8")
     real.unlink()
     real.symlink_to(target)
-    _replace_auth(fresh, '{"token": "new"}')
+    _replace_auth(fresh, NEW_AUTH)
     assert runner.sync_auth(run_dir) is False
-    assert json.loads(target.read_text(encoding="utf-8")) == {"token": "old"}
+    assert json.loads(target.read_text(encoding="utf-8")) == json.loads(OLD_AUTH)
 
 
 def test_drop_codex_home_leaves_no_credential_copy(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
-    _replace_auth(fresh, '{"token": "new"}')
+    _replace_auth(fresh, NEW_AUTH)
     runner.sync_auth(run_dir)
     runner.drop_codex_home(run_dir)
     assert not (run_dir / "codex-home").exists()
-    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "new"}
+    assert json.loads(real.read_text(encoding="utf-8")) == json.loads(NEW_AUTH)
 
 
 def test_drop_codex_home_keeps_a_token_it_could_not_sync(
@@ -418,7 +442,7 @@ def test_drop_codex_home_keeps_a_token_it_could_not_sync(
     target = real.with_name("auth-target.json")
     real.rename(target)
     real.symlink_to(target)  # a symlinked real auth.json: sync_auth refuses it
-    _replace_auth(fresh, '{"token": "new"}')
+    _replace_auth(fresh, NEW_AUTH)
     assert runner.sync_auth(run_dir) is False
     runner.drop_codex_home(run_dir)
-    assert json.loads(fresh.read_text(encoding="utf-8")) == {"token": "new"}
+    assert json.loads(fresh.read_text(encoding="utf-8")) == json.loads(NEW_AUTH)
