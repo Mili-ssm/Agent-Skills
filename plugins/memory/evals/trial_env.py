@@ -2,6 +2,7 @@
 
 The sessions get their own config, data and work folders there and never the owner's real store or global
 memories; the installed plugin's `bin/` is dropped from PATH so sessions run the `mem` under test."""
+
 from __future__ import annotations
 
 import os
@@ -24,12 +25,30 @@ def work_dir(prefix: str) -> Path:
 def make_env(work: Path) -> dict:
     # The plugin's hooks turn CLAUDE_PLUGIN_OPTION_* into MEM_* variables, so an inherited option would point a
     # session at the owner's store or global memories: drop both families.
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT")
-           # MEM_SETTLE_*: an inherited trigger would start real settling runs on a trial's writes
-           and not k.startswith(("CLAUDE_PLUGIN_OPTION_", "MEM_SETTLE_"))}
-    env.update(XDG_CONFIG_HOME=str(work / "cfg"), XDG_DATA_HOME=str(work / "xdg-data"), MEM_DATA=str(work / "data"))
-    env["PATH"] = os.pathsep.join(p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p)
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k
+        not in {
+            "MEM_STORE",
+            "MEM_MEMORIES",
+            "MEM_PROJECT",
+            "MEM_RUNNER",
+            "MEM_RUNNER_OPTION",
+            "MEM_CODEX",
+            "MEM_CODEX_TOKENS",
+        }
+        # MEM_SETTLE_*: an inherited trigger would start real settling runs on a trial's writes
+        and not k.startswith(("CLAUDE_PLUGIN_OPTION_", "MEM_SETTLE_"))
+    }
+    env.update(
+        XDG_CONFIG_HOME=str(work / "cfg"),
+        XDG_DATA_HOME=str(work / "xdg-data"),
+        MEM_DATA=str(work / "data"),
+    )
+    env["PATH"] = os.pathsep.join(
+        p for p in env.get("PATH", "").split(os.pathsep) if "/plugins/cache/" not in p
+    )
     (work / "cfg" / "agent-memory").mkdir(parents=True, exist_ok=True)
     (work / "cfg" / "agent-memory" / "forbidden-terms").write_text("")
     return env
@@ -59,7 +78,9 @@ def _snapshot(folder: Path) -> dict[str, int]:
     """Every file under the owner's store with its modification time; empty when there is no store."""
     if not folder.is_dir():
         return {}
-    return {str(p.relative_to(folder)): p.stat().st_mtime_ns for p in folder.rglob("*") if p.is_file()}
+    return {
+        str(p.relative_to(folder)): p.stat().st_mtime_ns for p in folder.rglob("*") if p.is_file()
+    }
 
 
 def self_check(prefix: str) -> int:
@@ -73,15 +94,27 @@ def self_check(prefix: str) -> int:
     project = work / "self-check-project"
     project.mkdir()
     subprocess.run(["git", "init", "-q"], cwd=project, check=True)
-    out = subprocess.run([str(PLUGIN / "bin" / "mem"), "session-index"], cwd=project, env=env, check=True,
-                         capture_output=True, text=True).stdout
+    out = subprocess.run(
+        [str(PLUGIN / "bin" / "mem"), "session-index"],
+        cwd=project,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
     assert "Store:" not in out, f"a store was found from the real home:\n{out}"
     assert "Global memories:" not in out, f"global memories were found outside target/:\n{out}"
-    assert not any(k.startswith("CLAUDE_PLUGIN_OPTION_") for k in env), "a plugin option reaches the session"
+    assert not any(k.startswith("CLAUDE_PLUGIN_OPTION_") for k in env), (
+        "a plugin option reaches the session"
+    )
     assert Path(env["XDG_DATA_HOME"]).resolve().is_relative_to(TARGET.parent), env["XDG_DATA_HOME"]
-    assert not any("/plugins/cache/" in p for p in env["PATH"].split(os.pathsep)), "installed plugin on PATH"
+    assert not any("/plugins/cache/" in p for p in env["PATH"].split(os.pathsep)), (
+        "installed plugin on PATH"
+    )
     found = shutil.which("mem", path=env["PATH"])
-    assert found is None or Path(found).resolve() == (PLUGIN / "bin" / "mem").resolve(), f"another mem on PATH: {found}"
+    assert found is None or Path(found).resolve() == (PLUGIN / "bin" / "mem").resolve(), (
+        f"another mem on PATH: {found}"
+    )
     assert _snapshot(real) == before, "a file of the owner's store changed"
     clean(work)
     print("self-check passed")

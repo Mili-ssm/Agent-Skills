@@ -6,7 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Added
 
-- Codex runner for the background passes settle, integrate and corroborate (including the automatic fill): they run on `codex exec` in a sandboxed run folder when the runner is `codex`, with a per-run token cap (`MEM_CODEX_TOKENS`, default 500000) in place of a USD budget, and record `tokens` and `runner` in their status and logs. Synthesis, the curator, research and capture refuse `codex` and run on Claude only. The `runner` setting and `--runner` flag come in a later change; until then `MEM_RUNNER` selects it.
+- Codex runner for the background passes settle, integrate and corroborate (including the automatic fill): they run on `codex exec` in a sandboxed run folder when the runner is `codex`, with a per-run token cap (`MEM_CODEX_TOKENS`, default 500000) in place of a USD budget, and record `tokens` and `runner` in their status and logs. Synthesis, the curator, research and capture refuse `codex` and run on Claude only. Choose the runner with the plugin option `runner`, the config file `~/.config/agent-memory/runner` (first line), the environment variable `MEM_RUNNER` or `--runner` on the pass command, highest first; empty means `claude`. A `codex` default is ignored, with one line on stderr, by the passes that stay on Claude; an explicit `--runner codex` on them exits 2.
 
 ### Changed
 

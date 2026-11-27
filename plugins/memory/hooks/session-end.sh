@@ -16,9 +16,9 @@ if [ "${CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE:-}" = "true" ] && [ -n "$here" ]; then
   set -- auto --trigger session-end
   [ -n "$claude" ] && set -- "$@" --claude "$claude"
   if command -v setsid >/dev/null 2>&1; then
-    (setsid nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+    (MEM_RUNNER_OPTION="${CLAUDE_PLUGIN_OPTION_RUNNER:-}" setsid nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
   else
-    (nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
+    (MEM_RUNNER_OPTION="${CLAUDE_PLUGIN_OPTION_RUNNER:-}" nohup "$here/../bin/mem-capture" "$@" <<<"$input" >/dev/null 2>&1 &) 2>/dev/null
   fi
 fi
 # The commit and the automatic runs leave the hook: Claude Code gives all SessionEnd hooks one shared 1.5 s budget that
@@ -50,9 +50,9 @@ if [ -n "$here" ]; then
     fi
     wait'
   if command -v setsid >/dev/null 2>&1; then
-    (setsid nohup bash -c "$wrapper" _ "$here" "$claude" "$auto" "$settle" >/dev/null 2>&1 </dev/null &)
+    (MEM_RUNNER_OPTION="${CLAUDE_PLUGIN_OPTION_RUNNER:-}" setsid nohup bash -c "$wrapper" _ "$here" "$claude" "$auto" "$settle" >/dev/null 2>&1 </dev/null &)
   else
-    (nohup bash -c "$wrapper" _ "$here" "$claude" "$auto" "$settle" >/dev/null 2>&1 </dev/null &)
+    (MEM_RUNNER_OPTION="${CLAUDE_PLUGIN_OPTION_RUNNER:-}" nohup bash -c "$wrapper" _ "$here" "$claude" "$auto" "$settle" >/dev/null 2>&1 </dev/null &)
   fi
 fi
 exit 0
