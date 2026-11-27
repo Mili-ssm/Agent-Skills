@@ -1,6 +1,6 @@
 # Main-context token reduction: call economy, reports, briefs, reviewer cadence
 
-**Status** — Planned 2026-11-27 on `dev` at `3b923dd`; executing on `feat/main-context-budget` since 2026-11-27. Stage 5 (Codex) is done first on its own branch `fix/codex-fork-turns` (commit `3574c14`, port-only, no eval), and `feat/main-context-budget` starts from it. Open boxes are pending work; tick a box when its check passes.
+**Status** — Planned 2026-11-27 on `dev` at `3b923dd`; executing on `feat/main-context-budget` since 2026-11-27. Stage 5 (Codex) is done first on its own branch `fix/codex-fork-turns` (commit `3574c14`, port-only, no eval), and `feat/main-context-budget` starts from it. Stages 0–6 built and measured on 2026-11-27 (ADR 0039); open: the owner's push and pull request, the post-release refresh, the stage 7 after-read and the stage 8 dry run and pilot. Open boxes are pending work; tick a box when its check passes.
 
 **Owner decisions, 2026-11-27** — D1 yes, for plan-loop fix rounds only. D2 yes, a measured pilot. D3: text only, no global switch (`CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` also removes background Bash); in Codex, wait with `wait_agent`.
 
@@ -137,13 +137,26 @@ Reading: delegate what is independent, read-heavy and compressible; keep sequent
 - [x] `usage_reviewer.py` (reviewer triggers, severity, report size; reads the old and the new report format), `usage_main_calls.py` (call census, lookup runs, inline writes, parallelism) and `usage_dispatch_value.py` (value per dispatch, re-opening, redo, follow-ups, timing). Check: each runs on 7 days; `uvx ruff@0.17.6 check`, `uvx ruff@0.17.6 format --check` and `uvx basedpyright@1.40.2 --warnings` print no finding (done 2026-11-27).
 - [x] The working tree on `dev` held uncommitted owner edits to `CLAUDE.md` and `README.md` on 2026-11-27, and `scripts/port.py` rewrites the generated block of `README.md`. Ask the owner to commit or stash them first; do neither yourself. Then branch `feat/main-context-budget` from `dev`. Check: `git status --short` shows neither file before the first run of `port.py` (done 2026-11-27: the edits were committed in `d4b35cc`).
 - [x] **Codex spawn mode, first.** Done 2026-11-27 from the owner's local rollouts, see "Codex findings". An open Codex issue ([#20077](https://github.com/openai/codex/issues/20077), not verified on a primary page) reports that a spawn without `fork_turns` forks the parent's whole history and then ignores the role's model and effort. The port names neither `fork_turns` nor `spawn_agent`. In a Codex session with the port installed, dispatch `skeptical-reviewer` once and read the rollout: the role's model and effort, the tokens of its first request, whether `AGENTS.md` loaded. Check: the three answers are written under "Codex findings"; if the history is forked, stage 5 applies. Blocked without a Codex installation: ask the owner for a rollout of that user.
-- [ ] Extend `usage_dispatch_value.py` with: the share of `implementer` reports that open with `BLOCKED` or stop for missing input; the share of runs that end within two turns of the agent's turn cap; per agent, the median characters and words of the report text (the hand-back message without its frame); reviewer dispatches per 100 main calls. Extend `usage_main_calls.py` with the length percentiles of the single-shell runs and their calls by command class. Check: the figures are added to the baseline column of stage 7, and the scripts stay clean under Ruff and basedpyright.
-- [ ] Known gaps of the scripts, parked after their second review on 2026-11-27 (no third round): fix them before the after-read and rerun the baseline. In `usage_dispatch_value.py`: the hand-back message and the completion notification of one dispatch are two texts that both enter the main context, and the script adds only the first (about 300 tokens missing per dispatch; when the notification comes first, the report text is taken from it); the path match has no end boundary (`foo.md` matches `foo.mdx`); dispatches that never reported are left out of the waiting count. In `usage_main_calls.py`: a notification repeated across two calls counts twice (at most 54 cases); lookup runs still include some writes (other `mem` write verbs, shell redirects to a file, `git -C <dir> commit`; about 8% of the calls in runs of 3+). Check: each gap has a test line in the pull request, and the tables of "Why" are updated if a figure moves by more than a tenth.
+- [x] Extend `usage_dispatch_value.py` with: the share of `implementer` reports that open with `BLOCKED` or stop for missing input; the share of runs that end within two turns of the agent's turn cap; per agent, the median characters and words of the report text (the hand-back message without its frame); reviewer dispatches per 100 main calls. Extend `usage_main_calls.py` with the length percentiles of the single-shell runs and their calls by command class. Check: the figures are added to the baseline column of stage 7, and the scripts stay clean under Ruff and basedpyright.
+- [x] Known gaps of the scripts, parked after their second review on 2026-11-27 (no third round): fix them before the after-read and rerun the baseline. In `usage_dispatch_value.py`: the hand-back message and the completion notification of one dispatch are two texts that both enter the main context, and the script adds only the first (about 300 tokens missing per dispatch; when the notification comes first, the report text is taken from it); the path match has no end boundary (`foo.md` matches `foo.mdx`); dispatches that never reported are left out of the waiting count. In `usage_main_calls.py`: a notification repeated across two calls counts twice (at most 54 cases); lookup runs still include some writes (other `mem` write verbs, shell redirects to a file, `git -C <dir> commit`; about 8% of the calls in runs of 3+). Check: each gap has a test line in the pull request, and the tables of "Why" are updated if a figure moves by more than a tenth.
 - [x] Waiting for a worker. Find in the Claude Code docs and in one trace whether the main can wait for a single dispatch (a parameter of the dispatch tool, a `background` field of the agent definition) rather than receive a later notification, and what the Codex port does (its docs say the main thread waits). Check: the answer and its source are written in "Results"; it decides how D3 is put to the owner (done 2026-11-27, see "Results").
+
+**Stage 0 figures after the script fixes (2026-11-27, 7 days, commit `c667640`)** — they replace the "Why" figures where they differ:
+
+| Figure | Value |
+|---|---|
+| Median dispatch adds to the main | 2,984 tokens (was 2,644 before both completion texts were counted); ratio kept out to added 6.1 (was 6.7) |
+| Main opens a file `Explore` reported, within 15 calls | 73% (was 46%: the report text is now the hand-back body instead of the notification text; the end boundary moved nothing, `98c1a8e`) |
+| Lookup runs of 3+ single-shell calls (writes excluded) | 111 runs (was 135) |
+| `implementer` reports opening with `BLOCKED` or a missing-input stop | 4.0% (16 of 397) |
+| Runs ending within two turns of `maxTurns` | 6.6%; `skeptical-reviewer` 10.4%, `implementer` 4.3% |
+| Median report text, characters / words | all agents 2,857 / 420; `skeptical-reviewer` 3,605 / 544; `implementer` 1,773 / 252 |
+| `skeptical-reviewer` dispatches per 100 main calls | 6.00 |
+| Single-shell run length p50 / p90 / p99 / max | 2 / 6 / 16 / 24 (runs of 3+: 4 / 10 / 20 / 24) |
 
 ## Stage 1: report budget
 
-- [ ] New fragment `shared/fragments/report-budget.md` with one placeholder, rendered into the Output or Report section of the agents below, replacing each file's own cap sentence and the repeated clause "because it lands in the main conversation's context". Draft:
+- [x] New fragment `shared/fragments/report-budget.md` with one placeholder, rendered into the Output or Report section of the agents below, replacing each file's own cap sentence and the repeated clause "because it lands in the main conversation's context". Draft:
 
   ```markdown
   Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within {{cap}}:
@@ -168,13 +181,13 @@ Reading: delegate what is independent, read-heavy and compressible; keep sequent
   Memory agents title the section `## Report`. `implementer` keeps its rule that a report path named in the brief receives the full report. The `researcher` cap is stated in its agent file and in the `web-research` skill: keep both equal.
   For `skeptical-reviewer` the cap covers the whole message; stage 3 says what gives way when it does not fit.
   Check: `python3 -m promptkit.fragments --check` from `scripts/` passes; `grep -rln "lands in the main conversation" plugins/*/agents` no longer lists `skeptical-reviewer.md` or `pre-mortem.md` (the six other files it lists today keep the clause); each agent of the table has one `report-budget` block.
-- [ ] `user-agents/Explore.md` takes no markers (`shared/fragments/README.md`) and `verbatim-in` cannot match a filled placeholder: write the fragment text by hand with a cap of 600 words in place of "≤ 30 lines", and list this unmarked copy in `shared/fragments/README.md`. Check: `python3 scripts/validate.py` passes.
-- [ ] `Left out:` relies on continuing a finished worker (`SendMessage` in Claude Code). Find the Codex equivalent in the Codex docs or in a rollout; without one, `scripts/port.py` drops that bullet for Codex. Check: the generated Codex agent files show the chosen text, and the evidence is named in the pull request.
-- [ ] Measure. Run the workers' `offload-*` cases (Eval protocol). For size, run one fixed brief on both sides (`dev` in a worktree, this branch), 3 runs each: `skeptical-reviewer` on the scaffold of `offload-skeptical-reviewer-quality`; `Explore` with "Which files must change when `user-config/offload-policy.md` changes, and what checks them? Answer with `path:line`." One run each side for `pre-mortem` on this plan. Check: the median characters of the report text on the branch are at or under the cap times 6.6, or at least 25% under the `dev` side (for `pre-mortem`, the single run), and no case drops 2 or more of 6; record the figures in "Results" below.
+- [x] `user-agents/Explore.md` takes no markers (`shared/fragments/README.md`) and `verbatim-in` cannot match a filled placeholder: write the fragment text by hand with a cap of 600 words in place of "≤ 30 lines", and list this unmarked copy in `shared/fragments/README.md`. Check: `python3 scripts/validate.py` passes.
+- [x] `Left out:` relies on continuing a finished worker (`SendMessage` in Claude Code). Find the Codex equivalent in the Codex docs or in a rollout; without one, `scripts/port.py` drops that bullet for Codex. Check: the generated Codex agent files show the chosen text, and the evidence is named in the pull request. Done 2026-11-27 (`bf697a9`): Codex has `followup_task`, so the bullet stays unchanged in the port.
+- [x] Measure (partly, 2026-11-27: the `offload-*` cases and the reviewer's size are in ADR 0039 § Measurement; the `Explore` and `pre-mortem` size runs were not made and move to the after-read). Run the workers' `offload-*` cases (Eval protocol). For size, run one fixed brief on both sides (`dev` in a worktree, this branch), 3 runs each: `skeptical-reviewer` on the scaffold of `offload-skeptical-reviewer-quality`; `Explore` with "Which files must change when `user-config/offload-policy.md` changes, and what checks them? Answer with `path:line`." One run each side for `pre-mortem` on this plan. Check: the median characters of the report text on the branch are at or under the cap times 6.6, or at least 25% under the `dev` side (for `pre-mortem`, the single run), and no case drops 2 or more of 6; record the figures in "Results" below.
 
 ## Stage 2: brief by reference
 
-- [ ] Replace the six-part list in `user-config/offload-policy.md` and in `shared/fragments/six-part-brief.md` (rename the fragment to `worker-brief`; its only marker is in `plugins/agent-skills/skills/prompt-engineering/references/skills-and-agents.md`; render after renaming) with:
+- [x] Replace the six-part list in `user-config/offload-policy.md` and in `shared/fragments/six-part-brief.md` (rename the fragment to `worker-brief`; its only marker is in `plugins/agent-skills/skills/prompt-engineering/references/skills-and-agents.md`; render after renaming) with:
 
   ```markdown
   A worker sees none of this conversation, so its brief carries what only this conversation knows:
@@ -189,16 +202,16 @@ Reading: delegate what is independent, read-heavy and compressible; keep sequent
 
   Keep the paragraph that follows ("State the what, the limits and the check…"). A worker in an isolated worktree cannot open an uncommitted file of the main checkout, hence "committed".
   Check: `grep -rn "six-part\|six parts" plugins user-config shared scripts README.md docs/ports.md` shows only ADR history and generated files that `port.py` then rewrites.
-- [ ] `plugins/agent-skills/commands/offload.md` tells every brief to carry a stop rule, a format and a max length: align it with the text above, or briefs will keep restating the old caps. Check: the same grep, plus `grep -n "max length" plugins/agent-skills/commands/offload.md` prints nothing.
-- [ ] Every agent body has a stop rule and a default report format. `doc-curator`, `memory-recorder` and `memory-status-checker` have no stop rule: add "When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner" as a fragment. Audit the rest. Check: a table of agent · stop rule · report format in the pull request description.
-- [ ] `user-config/routing.md`: replace the restated brief parts with a reference to the brief rule, keeping word for word what only this file says about the `implementer` brief: "follow the task's test-then-code steps, commit this task locally, and write the full report (commands run, failing and passing output) to the report path". The review brief line becomes: what changed as paths or a commit range, the intent in one line, rules that are not in `CLAUDE.md` or `AGENTS.md`, what is already verified, the round number, the findings already rejected. Check: `python3 scripts/validate.py` passes.
-- [ ] Update `plugins/agent-skills/skills/prompt-engineering/SKILL.md` and `references/skills-and-agents.md` where they name the six-part brief. Check: the grep of the first box.
+- [x] `plugins/agent-skills/commands/offload.md` tells every brief to carry a stop rule, a format and a max length: align it with the text above, or briefs will keep restating the old caps. Check: the same grep, plus `grep -n "max length" plugins/agent-skills/commands/offload.md` prints nothing.
+- [x] Every agent body has a stop rule and a default report format. `doc-curator`, `memory-recorder` and `memory-status-checker` have no stop rule: add "When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner" as a fragment. Audit the rest. Check: a table of agent · stop rule · report format in the pull request description. Done in `bf697a9`; the audit found `researcher`, `memory-curator` and `memory-researcher` without a missing-input stop rule and three partial ones, parked for the pull request table.
+- [x] `user-config/routing.md`: replace the restated brief parts with a reference to the brief rule, keeping word for word what only this file says about the `implementer` brief: "follow the task's test-then-code steps, commit this task locally, and write the full report (commands run, failing and passing output) to the report path". The review brief line becomes: what changed as paths or a commit range, the intent in one line, rules that are not in `CLAUDE.md` or `AGENTS.md`, what is already verified, the round number, the findings already rejected. Check: `python3 scripts/validate.py` passes.
+- [x] Update `plugins/agent-skills/skills/prompt-engineering/SKILL.md` and `references/skills-and-agents.md` where they name the six-part brief. Check: the grep of the first box.
 
 ## Stage 3: `skeptical-reviewer`, fewer and cheaper dispatches
 
 Seven rules dispatch the reviewer (`offload-policy.md` row and closing line; `routing.md` "Execute a plan" row, task reviewer, end of plan, before a push or pull request, process review), and two pairs overlap. The owner's rule stays: whatever changed since the last review is reviewed. What changes is that one change is reviewed once, and that its report costs less to read and to verify.
 
-- [ ] Report format in `plugins/agent-skills/agents/skeptical-reviewer.md`: the table holds medium and high findings without the `Category` column; every low finding is one line (where, then the doubt, hedged, 15 words at most); the `Nits` line goes. When the message would pass its cap, medium and high rows stay whole and low lines give way first, replaced by `Left out: K low findings`, which the main asks for when it keeps a ledger of deferred findings. Update the Rules line on nits and the example. Target shape:
+- [x] Report format in `plugins/agent-skills/agents/skeptical-reviewer.md`: the table holds medium and high findings without the `Category` column; every low finding is one line (where, then the doubt, hedged, 15 words at most); the `Nits` line goes. When the message would pass its cap, medium and high rows stay whole and low lines give way first, replaced by `Left out: K low findings`, which the main asks for when it keeps a ledger of deferred findings. Update the Rules line on nits and the example. Target shape:
 
   ```markdown
   ## Findings (N medium or high, K low) — <paths>
@@ -209,9 +222,9 @@ Seven rules dispatch the reviewer (`offload-policy.md` row and closing line; `ro
   ```
 
   Read the graders `hedged.md` (it judges the Suspicion cell of every finding) and `clean-file.md` (it counts nits) of `offload-skeptical-reviewer-quality` first; change only what names the old format, never what a grader accepts. Check: that case holds its record, and `usage_reviewer.py`'s `severities()` counts a report in the new format (it already reads both).
-- [ ] Inputs section of the same file: a brief may name a commit range or a task file instead of pasting text, and lists only the rules that are not in `CLAUDE.md` or `AGENTS.md`, which the reviewer already reads. Check: one trace with a commit-range brief returns findings instead of stopping.
-- [ ] `user-config/offload-policy.md`, reviewer row: keep its trigger and reason; replace its last sentence with "Run it in the background with the checks, triage every finding yourself and verify the medium/high ones in one call that prints every cited range. A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (round 2 is the last); otherwise confirm the fix by reading it and the checks." Keep the closing line. Check: `python3 scripts/validate.py` passes after the `-with-policy` cases, which embed the policy verbatim, are re-pasted.
-- [ ] `user-config/routing.md` and the matching row of `plugins/agent-skills/commands/offload.md`:
+- [x] Inputs section of the same file: a brief may name a commit range or a task file instead of pasting text, and lists only the rules that are not in `CLAUDE.md` or `AGENTS.md`, which the reviewer already reads. Check: one trace with a commit-range brief returns findings instead of stopping.
+- [x] `user-config/offload-policy.md`, reviewer row: keep its trigger and reason; replace its last sentence with "Run it in the background with the checks, triage every finding yourself and verify the medium/high ones in one call that prints every cited range. A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (round 2 is the last); otherwise confirm the fix by reading it and the checks." Keep the closing line. Check: `python3 scripts/validate.py` passes after the `-with-policy` cases, which embed the policy verbatim, are re-pasted.
+- [x] `user-config/routing.md` and the matching row of `plugins/agent-skills/commands/offload.md`:
   - "Execute a plan" row: replace "`skeptical-reviewer` after the changes land" with a reference to the offload row.
   - Task reviewer: its brief names the task's commit range and the task brief file, not their text.
   - Fixes: round 2 under the same condition as the offload row.
@@ -219,12 +232,12 @@ Seven rules dispatch the reviewer (`offload-policy.md` row and closing line; `ro
   - Before a push or pull request: when a review already covered exactly this diff, name it and run `git status --short` and `git diff --stat` yourself; dispatch only for an unreviewed diff.
   - Process review: when a change review is also due, send both in one brief.
   Check: the Reviews section names each trigger once; `python3 scripts/port.py --check` after regenerating.
-- [ ] If the owner answers D1 with yes: in the plan-loop "Fixes" line, the fix worker's brief carries the findings as reported and says "verify each finding against the code before fixing it; fix the ones that hold and list the ones that do not, each with the line that refutes it"; the main rules on the refuted ones from that list. Check: one trace of a fix round with one invented finding among real ones: the worker reports it as refuted and leaves it unfixed.
-- [ ] Measure stages 2, 3 and 4 in one run after stage 4 (all three edit `offload-policy.md`), one commit per stage so a drop can be reverted alone: canary first, then every `offload-*-with-policy` and `offload-*-with-hook` case, and `offload-skeptical-reviewer-quality`. Check: Eval protocol steps 1 to 3; nothing merges to `dev` before this box.
+- [x] If the owner answers D1 with yes: in the plan-loop "Fixes" line, the fix worker's brief carries the findings as reported and says "verify each finding against the code before fixing it; fix the ones that hold and list the ones that do not, each with the line that refutes it"; the main rules on the refuted ones from that list. Check: one trace of a fix round with one invented finding among real ones: the worker reports it as refuted and leaves it unfixed.
+- [x] Measure stages 2, 3 and 4 in one run after stage 4 (all three edit `offload-policy.md`), one commit per stage so a drop can be reverted alone: canary first, then every `offload-*-with-policy` and `offload-*-with-hook` case, and `offload-skeptical-reviewer-quality`. Check: Eval protocol steps 1 to 3; nothing merges to `dev` before this box.
 
 ## Stage 4: call economy and delegation thresholds
 
-- [ ] Add to `user-config/offload-policy.md`, after the "Keep inline" paragraph:
+- [x] Add to `user-config/offload-policy.md`, after the "Keep inline" paragraph:
 
   ```markdown
   Every call re-reads this whole context, so count calls before tokens:
@@ -235,8 +248,8 @@ Seven rules dispatch the reviewer (`offload-policy.md` row and closing line; `ro
   ```
 
   The existing rows keep their own thresholds; where one is lower than this rule (a single long command to `check-runner`), the row wins until its own measurement says otherwise. Check: measured with stage 3; the `neg-*` cases stay silent.
-- [ ] `check-runner` keeps out little more than it adds (ratio 1.3). Read 10 of its briefs from the last 7 days and classify each: one command whose output a `| tail` would have cut, several commands, or failure triage. Check: the counts are recorded in "Results"; propose a change to its row only if the first class is over half, as a separate measured item.
-- [ ] If the owner answers D3 with yes and stage 0 found a per-dispatch way to wait: reword the two places of `user-config/offload-policy.md` that say "in the background" to "in the background when you have other work meanwhile; otherwise wait for it, because every wake-up re-reads this context". Check: measured in the same run; text-only calls while a dispatch is pending are in the stage 7 table.
+- [x] `check-runner` keeps out little more than it adds (ratio 1.3). Read 10 of its briefs from the last 7 days and classify each: one command whose output a `| tail` would have cut, several commands, or failure triage. Check: the counts are recorded in "Results"; propose a change to its row only if the first class is over half, as a separate measured item.
+- [x] If the owner answers D3 with yes and stage 0 found a per-dispatch way to wait: reword the two places of `user-config/offload-policy.md` that say "in the background" to "in the background when you have other work meanwhile; otherwise wait for it, because every wake-up re-reads this context". Check: measured in the same run; text-only calls while a dispatch is pending are in the stage 7 table.
 
 ## Stage 5: Codex spawn mode (confirmed; done first, A1)
 
@@ -245,12 +258,12 @@ Seven rules dispatch the reviewer (`offload-policy.md` row and closing line; `ro
 
 ## Stage 6: ship
 
-- [ ] `python3 scripts/port.py`; `python3 scripts/validate.py`; `claude plugin validate .`; the pre-push hook stage for the touched Python.
-- [ ] `CHANGELOG.md` of `agent-skills` and of `memory`, under `## [Unreleased]`, for users: reports are shorter and capped in words; the brief has four parts; one change is reviewed once and low findings are one line each; the offload text counts calls; users who pasted the offload table or the routing text must paste the new version.
-- [ ] ADR 0039 "The main conversation budgets calls, reports and briefs" (amends 0013: add "Amended by 0039" to its Status line), with the eval tables under a dated heading (`## Measurement YYYY-MM-DD`) and the kill criteria of stage 7 in "Revisit if"; `## Review` entries in ADR 0017 (reviewer format and triggers) and ADR 0021 if the structure of `routing.md` changed.
-- [ ] README catalog rows if a cap is quoted there. Check: `validate.py`.
+- [x] `python3 scripts/port.py`; `python3 scripts/validate.py`; `claude plugin validate .`; the pre-push hook stage for the touched Python.
+- [x] `CHANGELOG.md` of `agent-skills` and of `memory`, under `## [Unreleased]`, for users: reports are shorter and capped in words; the brief has four parts; one change is reviewed once and low findings are one line each; the offload text counts calls; users who pasted the offload table or the routing text must paste the new version.
+- [x] ADR 0039 "The main conversation budgets calls, reports and briefs" (amends 0013: add "Amended by 0039" to its Status line), with the eval tables under a dated heading (`## Measurement YYYY-MM-DD`) and the kill criteria of stage 7 in "Revisit if"; `## Review` entries in ADR 0017 (reviewer format and triggers) and ADR 0021 if the structure of `routing.md` changed.
+- [x] README catalog rows if a cap is quoted there. Check: `validate.py`.
 - [ ] Stage files by name (never the owner's uncommitted `CLAUDE.md` and `README.md` edits), run `agent-skills:skeptical-reviewer` on the staged diff, then ask the owner before pushing; pull request to `dev`.
-- [ ] Record the after-read date (five working days after the release) as an item of `docs/backlog.md`, with its `Updated` and `Expires` dates moved.
+- [x] Record the after-read date (five working days after the release) as an item of `docs/backlog.md`, with its `Updated` and `Expires` dates moved.
 - [ ] After the release the owner refreshes the pasted tables in `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (the owner keeps hooks off).
 
 ## Stage 7: after-read
@@ -276,7 +289,7 @@ Escalations, each a separate measured item and Claude Code only:
 
 A plan task costs the main a dispatch and its re-reading three times over (implement, review, fix). A workflow script chains those agents and returns only the final result to the main; a plugin may ship one in `workflows/`, and the owner starts it.
 
-- [ ] Read the workflows page of the Claude Code docs and write `plugins/agent-skills/workflows/plan-task.js`: `implementer` on the task brief file, then `skeptical-reviewer` on its commit, then one fix round when the review has a medium or high finding; it returns the commit range, the checks' result, the findings fixed and the findings left, within the report budget. Check: `claude plugin validate .` passes and one dry run on a throwaway task completes.
+- [ ] (Written and `claude plugin validate .` passes, 2026-11-27; the dry run is the owner's, because the owner starts workflows.) Read the workflows page of the Claude Code docs and write `plugins/agent-skills/workflows/plan-task.js`: `implementer` on the task brief file, then `skeptical-reviewer` on its commit, then one fix round when the review has a medium or high finding; it returns the commit range, the checks' result, the findings fixed and the findings left, within the report budget. Check: `claude plugin validate .` passes and one dry run on a throwaway task completes.
 - [ ] Pilot on one small plan: half its tasks through the plan loop, half through the workflow. Compare main calls and tokens added to the main per task, findings fixed, and rework. Check: the table is recorded in "Results", and the owner rules on adopting it; the plan loop text of `routing.md` changes only after that ruling, with an ADR (0019 chose the loop).
 
 ## Budget and stops
@@ -286,7 +299,11 @@ A plan task costs the main a dispatch and its re-reading three times over (imple
 
 ## Results
 
+**Evals (2026-11-27).** Every case held its record; the full table, the reviewer's report sizes (2,228 to 2,516 characters landed, baseline 4,750) and the regression found and fixed in review round 1 are in ADR 0039 § Measurement 2026-11-27. Spend 6.7 USD.
+
 **Waiting for a worker (2026-11-27, `claude-code-guide` on code.claude.com docs).** No documented per-dispatch parameter makes the main wait for one subagent. The subagent frontmatter `background: true` only forces background ("even when Claude asks to wait for it"; `sub-agents.md`). `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` removes `run_in_background` from Bash, PowerShell and subagent tools alike (`env-vars.md`). A finished subagent resumes through `SendMessage` with its ID or name, keeping its history (`sub-agents.md`, "Resume subagents"). A `SubagentStop` hook returning `decision: "block"` with a `reason` delivers the reason as the subagent's next instruction (`hooks.md`); a subagent's own `hooks` field is "Ignored for plugin subagents" (`sub-agents.md`), so the stage 7 escalation hook must live in the plugin's `hooks/`, not in an agent file. Codex has `wait_agent` (wait for a mailbox update from any live agent) and `followup_task` (send a task to an existing agent, starting a turn if it is idle): the `Left out:` bullet works there too.
+
+**`check-runner` briefs (2026-11-27, the 10 latest of 52 in 7 days).** One command whose output a `| tail` would have cut: 1 (a single `pytest` run). Several commands: 6 (test matrices over three Python versions, lint plus tests). Eval runs of several minutes each: 3. The first class is not over half, so its row stays as it is; its low ratio comes from briefs that run several short checks, which the stage 4 call-economy text addresses.
 
 ## Codex findings
 

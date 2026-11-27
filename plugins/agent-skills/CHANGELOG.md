@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- Workflow `plan-task` (pilot, Claude Code only, unmeasured): runs one plan task through `implementer`, `skeptical-reviewer` on its commits and one verified fix round, and returns only the final result to the main conversation. Start it yourself with the task file and its checks; adoption waits for the pilot comparison (ADR 0039).
+
 ### Changed
 
 - The offload text counts calls before tokens: join independent commands, delegate an episode of about eight or more of your own calls (twelve when the worker writes code), give a worker one outcome, and end the turn with a one-line status instead of writing messages while a worker runs. A row's own threshold still wins. Re-paste the offload policy and routing from `user-config/` (Codex: re-copy the `.codex.md` files).

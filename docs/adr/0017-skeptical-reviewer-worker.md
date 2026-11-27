@@ -1,6 +1,6 @@
 # 0017 Skeptical after-action reviewer, Codex pair for Haiku medium
 
-Status: accepted · Date: 2026-11-03 · Amends 0007, 0010, 0012, 0014 · Amended by 0018, 0019
+Status: accepted · Date: 2026-11-03 · Amends 0007, 0010, 0012, 0014 · Amended by 0018, 0019, 0039
 
 ## Context
 
@@ -123,3 +123,7 @@ P1 (project review 2026-11-24): the description no longer says "Not for … PR o
 - `clean-file` (no finding invented on a clean file) fails on both sides, so it is not caused by P1.
 
 B1 (commit aae4bd9 and its review fixes), unmeasured by eval: the body accepts a process-review brief (rules and steps with their evidence, no paths) and adds a `Process` checklist row, instead of stopping on "No paths and no diff". No eval case covers a process review. One trace on 2026-11-26 (headless, `--plugin-dir plugins/agent-skills`, Sonnet main, 0.24 USD): given a six-step process brief with no paths, the agent read the cited commit and ADR and returned four `Process` findings, each with a quote in its Evidence cell, instead of stopping. Kill criterion: the agent stops for missing paths on a process-review brief, or reports a `Process` finding with no command or quote in its Evidence cell.
+
+## Review 2026-11-27
+
+ADR 0039 changes the reviewer's report and cadence: medium and high findings in a table without the `Category` column, one hedged line per low finding (at most five, the rest as `Left out: K low findings`), a 270-word cap; one review per change with no size threshold, and round 2 only when a fix touches a file or behavior no finding named. The `hedged.md` and `clean-file.md` graders of `offload-skeptical-reviewer-quality` judge the new low lines. Measurement: ADR 0039.

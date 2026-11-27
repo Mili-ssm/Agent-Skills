@@ -1,6 +1,6 @@
 # 0013 Worker brief contract
 
-Status: accepted · Date: 2026-10-29 · Amended by 0019
+Status: accepted · Date: 2026-10-29 · Amended by 0019, 0039
 
 ## Context
 
