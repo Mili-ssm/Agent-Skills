@@ -62,12 +62,6 @@ Same method as § Evidence, with a `git archive` copy of the tracked `plugins/me
 | Host detection | decided without a probe: `hooks/codex.json` sets `MEM_HOST=codex` on its commands, so nothing rests on `PLUGIN_ROOT` being absent in Claude |
 | Trust revoked by a changed script | not testable in `exec` (only the bypass flag); moves to task 5 |
 
-## Deferred findings (review of `mem install-command`, 2026-11-27, all low)
-
-- `subagent-start.sh` keeps two copies of the message (one heredoc per host); one unquoted heredoc would hold one copy.
-- Launcher record parsing is untested for CRLF and roots with spaces (both behaved when run by hand).
-- `launcher_missing()` checks only `~/.local/bin/mem` while `subagent-start.sh` uses `command -v mem`; a custom `--bin-dir` off `PATH` makes the Codex hint suggest the default folder.
-
 ## Outside the core (later, each its own decision)
 
 Background passes through `codex exec` (six `claude -p` call sites, `engine/core/headless.py` plus `research/` and `corroborate/`); the four agents as TOML; the compaction handoff (no channel: `PreCompact` ignores output); capture and history commit at `SessionEnd` (3 s cap: detached process); hooks for Copilot and Antigravity.

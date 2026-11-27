@@ -8,6 +8,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 - Experimental Codex runner for the background passes settle and corroborate (including the automatic fill): they run on `codex exec` in a sandboxed run folder when the runner is `codex`, with a per-run token cap (`MEM_CODEX_TOKENS`, default 500000) in place of a USD budget, and record `tokens` and `runner` in their status and logs. On Codex, settle adds a rule to its brief (a pair where one claim states anything the other lacks is never a `merge`), because Codex reads the brief literally; corroborate is not yet tried on real Codex. Synthesis, the curator, research, capture and integrate refuse `codex` and run on Claude only (integrate: Codex appended almost none of 17 in the 2026-11-27 trial). Choose the runner with `--runner` on the pass command, the environment variable `MEM_RUNNER`, the config file `~/.config/agent-memory/runner` (first line) or the plugin option `runner`, highest first; empty means `claude`. A `codex` default is ignored, with one line on stderr, by the passes that stay on Claude; an explicit `--runner codex` on them exits 2.
 
+### Fixed
+
+- `mem install-command`: the launcher reads a plugin-root record with Windows line endings, and Codex now suggests `<plugin root>/bin/mem install-command` whenever no `mem` resolves on `PATH` (also when the launcher sits in a folder off `PATH`).
+
 ### Changed
 
 - Codex setup in the README: the VS Code extension never asks to trust hooks, so trust them once from the CLI's `/hooks` screen. Note for 0.17.0: Claude Code sessions also record the plugin root at session start (`~/.local/state/agent-memory/plugin-root`), which the `mem` launcher reads.

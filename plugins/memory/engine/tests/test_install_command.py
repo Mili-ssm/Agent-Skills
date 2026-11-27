@@ -74,8 +74,14 @@ def test_remove_deletes_our_launcher_and_is_idempotent(tmp_path, home):
     assert _install(tmp_path / "bin", "--remove") == 0
 
 
-def test_launcher_follows_the_record_then_the_embedded_root_then_fails(tmp_path, home, monkeypatch):
-    embedded, recorded = tmp_path / "embedded", tmp_path / "recorded"
+@pytest.mark.parametrize(
+    ("name", "suffix"),
+    [("recorded", ""), ("recorded", "\n"), ("recorded", "\r\n"), ("with space", "\n")],
+)
+def test_launcher_follows_the_record_then_the_embedded_root_then_fails(
+    tmp_path, home, monkeypatch, name, suffix
+):
+    embedded, recorded = tmp_path / "embedded", tmp_path / name
     _fake_plugin(embedded, "embedded")
     _fake_plugin(recorded, "recorded")
     monkeypatch.setattr(install, "plugin_root", lambda: embedded)
@@ -83,7 +89,7 @@ def test_launcher_follows_the_record_then_the_embedded_root_then_fails(tmp_path,
     launcher = tmp_path / "bin" / "mem"
     (tmp_path / "data").mkdir()
     record = tmp_path / "data" / install.RECORD_NAME
-    record.write_text(str(recorded))
+    record.write_bytes(f"{recorded}{suffix}".encode())
     assert _run_launcher(launcher, home, tmp_path).stdout == "recorded:a b\n"
     shutil.rmtree(recorded)  # the record points at a removed copy
     assert _run_launcher(launcher, home, tmp_path).stdout == "embedded:a b\n"
@@ -183,11 +189,13 @@ def test_codex_hint_only_for_codex_without_a_launcher(tmp_path, home, monkeypatc
     mem_cmd = shlex.quote(f"{root}/bin/mem")
     hint = f"memory: mem is not installed as a command; run it as {mem_cmd}, or install it once: {mem_cmd} install-command"
     assert hint in _codex_text(monkeypatch, capsys)
-    assert _install(home / ".local" / "bin") == 0
+    assert _install(home / ".local" / "bin") == 0  # installed but off PATH: still no `mem` command
     capsys.readouterr()
+    assert hint in _codex_text(monkeypatch, capsys)
+    monkeypatch.setenv("PATH", f"{home / '.local' / 'bin'}:/usr/bin:/bin")
     assert "not installed as a command" not in _codex_text(monkeypatch, capsys)
     monkeypatch.delenv("MEM_HOST")
-    (home / ".local" / "bin" / "mem").unlink()
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
     assert "not installed as a command" not in _codex_text(monkeypatch, capsys)
     assert hooks._host() == "claude"
 
