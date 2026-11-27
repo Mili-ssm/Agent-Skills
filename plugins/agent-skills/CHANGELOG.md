@@ -4,7 +4,9 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
-### Changed
+## [1.4.0] - 2026-11-27
+
+### Added
 
 - `architect`, `security-reviewer`, `consistency-auditor`, `doc-curator` and the user-scope `Explore` agent can use the `fff` search tools (`grep`, `find_files`, `multi_grep`) when the `fff` MCP server is connected; without it they launch and work as before (observed in one test run on current Claude Code). Reinstall `user-agents/Explore.md` to pick up its rule. Unmeasured (ADR 0024, Review 2026-11-27).
 
