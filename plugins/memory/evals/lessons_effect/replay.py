@@ -442,8 +442,13 @@ def session_start_blocks(entries: list[dict[str, Any]]) -> list[str]:
     return found
 
 
+# A hook text equal to one the transcript already holds is not sent again (measured with the wire capture
+# on 2026-11-27: the unchanged block never reached the request), so both arms end with this line.
+REPEAT_NOTE = "(memory: the lessons block, printed again after the session was resumed)"
+
+
 def block_r0(copy: Copy) -> str:
-    """The lessons block the original session received at its start, read from the copy."""
+    """The lessons block the original session received at its start, read from the copy, plus `REPEAT_NOTE`."""
     for entry in read_entries(copy.path):
         att = entry.get("attachment")
         if (
@@ -453,7 +458,7 @@ def block_r0(copy: Copy) -> str:
             and att.get("hookEvent") == "SessionStart"
             and BLOCK_PHRASE in _text_of(att)
         ):
-            return _text_of(att)
+            return _text_of(att).rstrip("\n") + "\n" + REPEAT_NOTE + "\n"
     raise ValueError("no SessionStart hook_success attachment holds the lessons block")
 
 
@@ -555,13 +560,19 @@ def deny_hooks() -> list[dict[str, Any]]:
     return [{"matcher": "*", "hooks": [{"type": "command", "command": deny}]}]
 
 
+RESUME_MATCHER = "resume|fork"
+
+
 def arm_settings(work: Path, arm: str, block_text: str) -> Path:
-    """Settings for one arm: a `resume` SessionStart hook that prints the block, and a PreToolUse hook that denies."""
+    """Settings for one arm: a SessionStart hook that prints the block on resume, and a PreToolUse hook that denies.
+
+    A `--resume` with `--fork-session` starts with the source `fork`, not `resume` (measured with the wire
+    capture on 2026-11-27: a `resume` matcher alone never ran), so the matcher names both."""
     block_file = work / f"block-{arm}.txt"
     block_file.write_text(block_text, encoding="utf-8")
     path = write_settings(work, arm, block_file)  # the pilot's hook: `cat <file>`
     settings = json.loads(path.read_text(encoding="utf-8"))
-    settings["hooks"]["SessionStart"][0]["matcher"] = "resume"
+    settings["hooks"]["SessionStart"][0]["matcher"] = RESUME_MATCHER
     settings["hooks"]["PreToolUse"] = deny_hooks()
     path.write_text(json.dumps(settings), encoding="utf-8")
     return path
@@ -724,7 +735,7 @@ def check_copy_shape(base: Path, projects: Path) -> None:
         )
         assert copy.cut_timestamp == "2026-01-02T03:04:05.000Z"
         r0 = block_r0(copy)
-        assert r0 == BLOCK
+        assert r0 == BLOCK.rstrip("\n") + "\n" + REPEAT_NOTE + "\n"
         gained = [
             d
             for d in difflib.ndiff(r0.splitlines(), block_r(r0, LESSON, "beta").splitlines())
@@ -892,7 +903,7 @@ def check_files(base: Path) -> None:
     settings = json.loads(path.read_text(encoding="utf-8"))
     start = settings["hooks"]["SessionStart"][0]
     assert (
-        start["matcher"] == "resume"
+        start["matcher"] == RESUME_MATCHER
         and (base / "block-R.txt").read_text(encoding="utf-8") == "block text\n"
     )
     assert start["hooks"][0]["command"] == f"cat {base / 'block-R.txt'}", start

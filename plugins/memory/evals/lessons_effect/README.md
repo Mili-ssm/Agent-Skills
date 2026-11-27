@@ -88,7 +88,7 @@ Points file: a private JSON list under `target/lessons-replay/` (git-ignored, ne
 | --- | --- |
 | `name`, `question` | Label (also the worktree folder name); the yes/no question for the scorer |
 | `transcript`, `cut_line` | Path; 0-based line of any entry of the failing assistant message (a message split across entries shares its `message.id`) |
-| `markers`, `lesson_line`, `topic` | Words that identify the lesson; the one-line lesson text; the heading it goes under (`null`: appended under `other:`) |
+| `markers`, `lesson_line`, `topic` | Words that identify the lesson; the one-line lesson text; the heading it goes under (`null`, or a heading the block lacks: after the block's last `- ` line) |
 | `rule` | `{"kind": "judge"}` or `{"kind": "code", "pass_when": "any" or "none", "patterns": [{"field": "tool" or "command" or "text" or "input", "regex": "..."}]}`: `tool` matches a tool name, `command` the Bash `command` input, `input` the JSON of any tool input, `text` the message's text blocks; `any` passes when a pattern matches, `none` when none does |
 | `compliant` | A hand-written passing message: `{"text": "...", "tools": [{"name": "...", "input": {...}}]}` |
 | `commit` | Optional git commit for the worktree; default: last `origin/dev` commit before the cut's timestamp |

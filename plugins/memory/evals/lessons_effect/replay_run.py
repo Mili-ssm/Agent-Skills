@@ -976,6 +976,15 @@ def message_difference(a: str, b: str, lesson_line: str) -> tuple[str, bool]:
     )
 
 
+# The environment text names a scratchpad folder that holds the session's own id: different in every session.
+_SESSION_PATH = re.compile(r"( - Scratchpad directory: )[^\\\"]*")
+
+
+def _without_session_paths(messages: Any) -> str:
+    """The messages as one JSON text, with the per-session scratchpad path blanked."""
+    return _SESSION_PATH.sub(r"\1<session>", json.dumps(messages))
+
+
 def compare_requests(
     r0: dict[str, Any], r: dict[str, Any], lesson_line: str
 ) -> tuple[list[str], bool]:
@@ -983,14 +992,14 @@ def compare_requests(
     tools, tools_ok = _same("tools", r0.get("tools"), r.get("tools"))
     system, system_ok = _same("system", r0.get("system"), r.get("system"))
     counts = (len(r0["messages"]), len(r["messages"]))
-    a, b = json.dumps(r0["messages"]), json.dumps(r["messages"])
-    present = replay.BLOCK_PHRASE in a and replay.BLOCK_PHRASE in b
+    a, b = _without_session_paths(r0["messages"]), _without_session_paths(r["messages"])
+    present = replay.REPEAT_NOTE in a and replay.REPEAT_NOTE in b
     difference, diff_ok = message_difference(a, b, lesson_line)
     lines = [
         tools,
         system,
         f"messages: {counts[0]} and {counts[1]}",
-        f"block text: {'present in both' if present else 'missing in at least one'}",
+        f"block printed again: {'in both' if present else 'missing in at least one'}",
         difference,
     ]
     return lines, tools_ok and system_ok and present and diff_ok

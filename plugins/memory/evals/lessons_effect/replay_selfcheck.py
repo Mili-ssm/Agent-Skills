@@ -639,14 +639,14 @@ def request(block: str, **over: Any) -> dict[str, Any]:
 
 
 def check_compare_requests() -> None:
-    r0 = replay.BLOCK
+    r0 = replay.BLOCK.rstrip("\n") + "\n" + replay.REPEAT_NOTE + "\n"
     r = replay.block_r(r0, LESSON, "beta")
     lines, ok = rr.compare_requests(request(r0), request(r), LESSON)
     assert ok and lines == [
         "tools: same",
         "system: same",
         "messages: 2 and 2",
-        "block text: present in both",
+        "block printed again: in both",
         "difference: the lesson line only",
     ], lines
     two_lines = r + f"\n- {LESSON} again"  # more than the lesson line
@@ -673,7 +673,7 @@ def check_compare_requests() -> None:
         assert not ok, lines
         assert not any(LESSON in line or "extra words" in line for line in lines), "text leaked"
     lines, ok = rr.compare_requests(request("no block"), request("no block here"), LESSON)
-    assert not ok and "block text: missing in at least one" in lines
+    assert not ok and "block printed again: missing in at least one" in lines
 
 
 def check_capture(base: Path) -> None:
