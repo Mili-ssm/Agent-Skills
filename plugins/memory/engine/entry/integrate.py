@@ -31,7 +31,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core import auto_state, headless, jobs
+from core import auto_state, codex_pass, headless, jobs
+from core import runner as runners
 from integrate import answers, plan
 from integrate import state as run_state
 from integrate import undo as run_undo
@@ -103,24 +104,28 @@ def run_env(store: Path) -> dict:
     return env
 
 
+def session_spec(
+    claude: str, work: Path, brief: str, settings: Path, max_budget: float
+) -> headless.Session:
+    return headless.Session(
+        claude=claude,
+        prompt=brief,
+        model="haiku",
+        settings=settings,
+        effort="medium",
+        tools=("Read",),
+        allowed=(f"Read(/{work}/**)",),
+        disallowed=("Bash", "WebSearch", "WebFetch"),
+        max_budget=max_budget,
+    )
+
+
 def session_cmd(
     claude: str, work: Path, brief: str, settings: Path, max_budget: float
 ) -> list[str]:
     """One Haiku session. Only Read exists and only inside `work` (`//` is an absolute path in a rule); no shell,
     no web, no write; hooks are disabled by `settings`."""
-    return headless.command(
-        headless.Session(
-            claude=claude,
-            prompt=brief,
-            model="haiku",
-            settings=settings,
-            effort="medium",
-            tools=("Read",),
-            allowed=(f"Read(/{work}/**)",),
-            disallowed=("Bash", "WebSearch", "WebFetch"),
-            max_budget=max_budget,
-        )
-    )
+    return headless.command(session_spec(claude, work, brief, settings, max_budget))
 
 
 @dataclass
@@ -161,6 +166,7 @@ class Job:
     current: Tally | None = (
         None  # the synthesis being worked on: every session's cost lands in its row
     )
+    runner: str = "claude"
 
     @property
     def root(self) -> Path:
@@ -178,7 +184,7 @@ class Job:
 
     def ask(self, name: str, work: Path, data: Any) -> tuple[str, float] | None:
         """Runs session `name` over `data` written to `work`; (answer, cost), or None with a failure recorded."""
-        if self.budget - self.record.cost <= EPSILON:
+        if self.spent_up():
             self.fail("budget spent")
             return None
         work.mkdir(parents=True, exist_ok=True)
@@ -187,22 +193,47 @@ class Job:
         settings = self.root / "settings.json"
         settings.write_text(json.dumps({"disableAllHooks": True}), encoding="utf-8")
         brief = sp.brief(name, briefs=INTEGRATE_BRIEFS, INPUT_FILE=str(input_file))
-        cmd = session_cmd(self.claude, work, brief, settings, self.budget - self.record.cost)
         start = time.monotonic()
-        raw = headless.run_raw(cmd, cwd=work, env=self.env, timeout=SESSION_TIMEOUT).stdout
-        (work / f"{name}.jsonl").write_text(raw, encoding="utf-8")
-        done = sp.parse(raw)
+        done = self.run_session(work, brief, settings, work / f"{name}.jsonl")
         self.record.cost += done["cost"]
+        self.record.tokens += done.get("tokens", 0)
         if self.current is not None:
             self.current.cost += done["cost"]
+        spent = f"tokens={done['tokens']}" if self.runner == "codex" else f"cost={done['cost']:.3f}"
         self.log(
-            f"{name}: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
+            f"{name}: has_result={done['has_result']} error={done['error']} {spent} "
             f"wall={time.monotonic() - start:.1f}s answer={' '.join(done['answer'].split())[:200]}"
         )
         if not done["has_result"] or done["error"]:
-            self.fail(f"{name} session {'failed' if done['has_result'] else sp.NO_COST}")
+            self.fail(f"{name} session {'failed' if done['has_result'] else self.no_result}")
             return None
         return done["answer"], done["cost"]
+
+    def spent_up(self) -> bool:
+        """Claude: no USD left of the budget. Codex: the run's tokens reached the cap."""
+        if self.runner == "codex":
+            return codex_pass.over_cap(self.record.tokens)
+        return self.budget - self.record.cost <= EPSILON
+
+    @property
+    def no_result(self) -> str:
+        return "ended without a result" if self.runner == "codex" else sp.NO_COST
+
+    def run_session(self, work: Path, brief: str, settings: Path, log: Path) -> dict:
+        """One session on the run's runner, its stream written to `log`; the `sp.parse` dict (Codex adds `tokens`)."""
+        if self.runner == "codex":
+            done = codex_pass.ask(
+                session_spec(self.claude, work, brief, settings, self.budget),
+                work,
+                writes=False,
+                timeout=SESSION_TIMEOUT,
+            )
+            log.write_text(done["raw"], encoding="utf-8")
+            return done
+        cmd = session_cmd(self.claude, work, brief, settings, self.budget - self.record.cost)
+        raw = headless.run_raw(cmd, cwd=work, env=self.env, timeout=SESSION_TIMEOUT).stdout
+        log.write_text(raw, encoding="utf-8")
+        return sp.parse(raw)
 
 
 def candidates(job: Job) -> list[dict] | None:
@@ -358,7 +389,12 @@ def report(job: Job) -> None:
         print(table(job.tallies))
     for text in job.record.failures:
         print(f"failed: {text}")
-    print(f"cost: {job.record.cost:.3f} USD of {job.budget:.2f}; run {job.record.run_id}")
+    if job.runner == "codex":
+        print(
+            f"tokens: {job.record.tokens} of {codex_pass.token_cap()} (codex); run {job.record.run_id}"
+        )
+    else:
+        print(f"cost: {job.record.cost:.3f} USD of {job.budget:.2f}; run {job.record.run_id}")
 
 
 def work_steps(job: Job) -> None:
@@ -369,7 +405,21 @@ def work_steps(job: Job) -> None:
             return
 
 
-def cmd_run(store: Path, claude: str | None, budget_arg: str | None) -> int:
+def _no_binary(job: Job) -> str | None:
+    """Why the run cannot start a session, or None."""
+    if job.runner == "codex":
+        return codex_pass.NO_CODEX if runners.find_codex() is None else None
+    return None if job.claude else "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
+
+
+def cmd_run(
+    store: Path, claude: str | None, budget_arg: str | None, runner: str | None = None
+) -> int:
+    try:
+        chosen = runner or runners.resolve_runner(None)  # once per run
+    except ValueError as exc:
+        print(f"mem-integrate: {exc}", file=sys.stderr)
+        return 2
     folder = state_folder(store)
     fd = jobs.take_run_lock(auto_state.auto_dir(synth_run.state_dir(), store))
     if fd is None:
@@ -378,11 +428,21 @@ def cmd_run(store: Path, claude: str | None, budget_arg: str | None) -> int:
     try:
         run_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"
         record = run_state.RunRecord(run_id, time.strftime("%Y-%m-%dT%H:%M:%S%z"))
-        job = Job(store, run_env(store), claude or "", budget_of(budget_arg), folder, record)
+        job = Job(
+            store,
+            run_env(store),
+            claude or "",
+            budget_of(budget_arg),
+            folder,
+            record,
+            runner=chosen,
+        )
+        record.runner = chosen
         jobs.private_dir(job.root)
         run_state.write_record(folder, record)
-        if not claude:
-            job.fail("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
+        missing = _no_binary(job)
+        if missing:
+            job.fail(missing)
         else:
             _guarded(job)
         report(job)
@@ -476,7 +536,11 @@ def cmd_status(store: Path) -> int:
     )
     print(f"run: {record.run_id} (started {record.started})")
     print(f"state: {state}")
-    print(f"cost: {record.cost:.3f} USD")
+    print(
+        f"tokens: {record.tokens} (codex)"
+        if record.runner == "codex"
+        else f"cost: {record.cost:.3f} USD"
+    )
     print(f"groups: {len(record.groups)}")
     print(f"undone: {undone}")
     for text in record.failures:
