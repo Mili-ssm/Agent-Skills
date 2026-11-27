@@ -4,7 +4,8 @@
 # it then starts the background capture (end of this script), which never makes this hook wait or fail.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
 [ "${MEM_HOST:-}" = codex ] && [ -n "$here" ] && { . "$here/codex-options.sh" 2>/dev/null; type codex_options >/dev/null 2>&1 && codex_options; }   # Codex: options from config files (ADR 0038)
-cat <<'TXT'
+# On Codex no handoff text: it ignores a PreCompact hook's output.
+[ "${MEM_HOST:-}" = codex ] || cat <<'TXT'
 End the summary with this block, one line per field, so the next context resumes from it:
 HANDOFF
 task: <the task in progress, in one sentence>
