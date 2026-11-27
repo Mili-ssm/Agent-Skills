@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.4.2] - 2026-11-27
+
+### Fixed
+
+- Prompt-engineering guidance covers Codex traces for role selection, audit-mode writes and context delivery.
+
 ## [1.4.1] - 2026-11-27
 
 ### Fixed

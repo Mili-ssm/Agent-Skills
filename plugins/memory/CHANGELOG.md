@@ -4,6 +4,20 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-11-27
+
+### Added
+
+- Exclude a transcript from future automatic capture with `mem-capture exclude --transcript PATH`. The exclusion covers pending lines and preserves existing memories.
+- Run `mem diagnostics --host codex` for a read-only report on the executing plugin, local roles, hooks, store and dependencies.
+- Recover an interrupted import with `mem import-recover`. It restores files and history, rebuilds the index and refuses to overwrite later edits.
+
+### Fixed
+
+- Codex capture preserves ordinary AGENTS-header text and recognizes failed shell exit codes from the observed tool result envelope.
+- The Codex runner kills the process group on timeout, keeps raw error text out of failure status and rejects over-budget output before applying changes.
+- Memory skills use available Codex roles and fall back to `mem` when a role is missing. Enable the Codex delegation table with `offload_table=true` in the plugin options. Re-trust the plugin hooks after updating.
+
 ## [0.19.0] - 2026-11-27
 
 ### Added
