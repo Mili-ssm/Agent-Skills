@@ -14,6 +14,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Fixed
 
+- Capture skips quietly, with no retry and no failure line, when no `claude` binary is found (a Codex-only machine); the corroboration passes now say why a session did not start (token cap, missing `codex` binary).
 - Corroborate on Codex now reads and writes its files (it used to finish `ok` having done nothing), and a Codex session that leaves no output file now fails the run and names the file.
 
 ## [0.18.0] - 2026-11-27
