@@ -42,3 +42,7 @@ Probes the same day with the extension's `codex-cli 0.171.0-alpha.13.2` settled 
 - The Codex sandbox blocks `uv` when the model runs `mem` and plan task 1 picks the packaged engine.
 - Codex documents plugin options, plugin-shipped agents or `bin/` on `PATH`.
 - A Codex release stops running trusted plugin hooks in the CLI or the extension.
+
+## Review 2026-11-27
+
+Released in memory 0.17.0 the same day. The owner's trial in the VS Code extension: the model used `mem` (through the user command and the adapted `~/.codex/AGENTS.md`), but the session rollout held no memory index: the extension never showed the hook trust prompt and skipped both hooks silently. The CLI's `/hooks` screen (bundled binary run with `--no-daemon`) listed the two hooks from `memory@mili-ssm` as new; trusting them wrote `trusted_hash` entries under `[hooks.state]` in `~/.codex/config.toml`, and the next `codex exec` without any bypass flag logged a `host: codex` index run. The README now gives this step. Kill criterion "trusting the hooks fails in the VS Code extension" did not fire: trust is shared through `config.toml`, only the prompt is missing.
