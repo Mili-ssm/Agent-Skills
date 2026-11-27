@@ -93,7 +93,8 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 | medium | D6 | Split `plugins/memory/README.md` | Open |
 | low | S5 | Capture-born rules load without owner triage | Open |
 | low | — | Two hardening notes on note writes | Decide when touched |
-| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Started 2026-11-26 (owner); T1 merged |
+| medium | Seamless 3 | Integration and sibling updates (T2–T5) | Attachment path built 2026-11-27 (reduced scope); paid trial waits for the owner's cap; sibling updates deferred until 20 unattached notes or two contradicting notes |
+| low | Seamless 3 | One home for what `mem-integrate` and `mem-settle` share (session builder, budget, constants) and for the join logic now in `commands/integrate.py` | Open; when either runner is next touched |
 | low | Seamless 4, 5 | Split a synthesis; join `mem-auto` | After their trials |
 | low | Stages 7, 8, 9, 10 | Remote sync; Rust decision; capture experiment; project syntheses results | Open |
 | low | C52, C49 | Automatic short-form path; usefulness of a loaded lesson | No plan yet |
