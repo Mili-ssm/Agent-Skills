@@ -78,3 +78,19 @@ Rule:
 - Codex passes a pass when its median wrong actions <= Claude's median and no run fails on the runner itself; for integrate also Codex median appends >= 8 of 17.
 - Claude must not regress: settle median wrong 0 and should-act acted >= 17 of 20; integrate median wrong 0 and median appends >= 12 of 17. If Claude regresses, the prompt change is reverted (numbers recorded) even if Codex improved.
 - Task 5 is ticked only if both passes meet the rule.
+
+### Results (3 runs per arm, in parallel; raw output in `target/rerun/`, git-ignored)
+
+| Pass | Arm | Run 1 | Run 2 | Run 3 | Median |
+|---|---|---|---|---|---|
+| settle: should-act acted (of 20) / wrong (of 40) | claude | 16 / 0 | 17 / 0 | 16 / 0 | 16 / 0 |
+| settle | codex | 20 / 0 | 19 / 0 | 18 / 1 | 19 / 0 |
+| integrate: appends (of 17) / wrong | claude | 0 / 0 (void: the reply had a prose line above the rows, so the place answer was "not rows or none") | 0 / 0 (same failure) | 10 / 0 | 0 / 0 |
+| integrate | codex | 0 / 0 (5 notes integrated) | 1 / 0 (8 notes) | 0 / 0 (6 notes) | 0 / 0 |
+
+Spend: Claude about 0.10 USD (settle 0.078, integrate 0.025), within the 0.5 cap. Codex runs failed no run on the runner itself.
+
+**Verdict by the rule: both changes reverted** (`git revert`, commits `6cd9660` and `e2ae50c`).
+- Settle: Codex passes (median wrong 0 <= 0, no runner failure; the one wrong action in run 3 is the earlier `version` merge), but Claude regresses: median acted 16 of 20 (< 17), against 18 in the first trial.
+- Integrate: Claude regresses (median appends 0, two runs void because the reply carried a prose line before the rows; the Claude replies seen held the right rows, e.g. 6 appends for one part, so the subject text made it add a comment); Codex median appends 0 (< 8), so the subject field did not close the recall gap either.
+- Task 5 stays open. Not established: whether the settle drop of Claude (16/17/16 against one earlier run of 18) is the brief or noise; the earlier single run gives no variance.
