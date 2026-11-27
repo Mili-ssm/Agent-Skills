@@ -7,6 +7,7 @@ import collections
 import contextlib
 import dataclasses
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -755,10 +756,39 @@ def _curate_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _integrate_stamps(store: Path) -> dict[str, str]:
+    """`{hub-relative path: digest}` of each file whose newest `.curation-log` entry is an `integrate` write."""
+    try:
+        lines = (store / records.CURATION_LOG).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    newest: dict[str, dict] = {}
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and isinstance(entry.get("handle"), str):
+            newest[entry["handle"]] = entry
+    return {
+        handle: str(entry.get("after"))
+        for handle, entry in newest.items()
+        if entry.get("action") == "integrate"
+    }
+
+
+def _written_by_integrate(path: Path, store: Path, stamps: dict[str, str]) -> bool:
+    """True when `mem synthesis integrate` wrote the file's current text: its mtime says nothing new."""
+    if not path.is_relative_to(store):
+        return False
+    after = stamps.get(path.relative_to(store).as_posix())
+    return after is not None and hashlib.sha256(path.read_bytes()).hexdigest() == after
+
+
 def _curate_new_since(args: argparse.Namespace) -> int:
     """Print how many global memories and notes of the store were written after `--new-since` (epoch seconds) and
-    after the last curation pass of the global memories (its day counts as passed). File times: an edit counts as new.
-    The trigger of `mem-auto`."""
+    after the last curation pass of the global memories (its day counts as passed). File times: an edit counts as new,
+    except a note whose current text is what `mem synthesis integrate` last wrote. The trigger of `mem-auto`."""
     store = args.root
     cutoff = float(args.new_since)
     memories = records.memories_root(
@@ -780,12 +810,17 @@ def _curate_new_since(args: argparse.Namespace) -> int:
             for m in records.load_memories(memories, "global")
             if m.error is None and records.is_live(m, today) and m.origin is None
         ]  # a pipeline's own writes must not start the next run
+    stamps: dict[str, str] = {}
     if store is not None and store.is_dir():
         paths += [store / n.rel for n in note_files.discover_notes(store) if n.error is None]
+        stamps = _integrate_stamps(store)
     count = 0
     for path in paths:
         try:
-            count += path.stat().st_mtime > cutoff
+            newer = path.stat().st_mtime > cutoff
+            count += newer and not (
+                store is not None and _written_by_integrate(path, store, stamps)
+            )
         except OSError:
             continue
     print(count)

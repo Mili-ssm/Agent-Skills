@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -141,4 +142,20 @@ def store_with_part(hub_root, capsys, tmp_path) -> Store:
     assert code == 0, err
     assert s.mem("synthesis", "attach", "existing-note", "s:alpha#basics")[0] == 0
     assert s.mem("check")[0] == 0
+    return s
+
+
+LONG_AGO = 1_000_000  # epoch seconds: older than any `--new-since` cutoff the tests use
+
+
+@pytest.fixture
+def store_after_integrate(store_with_part) -> Store:
+    """`store_with_part` with every file dated long ago, then `n-new` joined to `alpha#basics` by a real
+    `mem synthesis integrate`: only the files that command wrote carry a recent mtime."""
+    s = store_with_part
+    for path in s.root.rglob("*"):
+        if path.is_file():
+            os.utime(path, (LONG_AGO, LONG_AGO))
+    code, _, err = s.integrate(f"n-new | s:alpha#basics | append | {s.fingerprint()}")
+    assert code == 0, err
     return s

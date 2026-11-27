@@ -3,4 +3,5 @@
 `rows`: the row format, its parser (`parse_rows`, `row_of`) and the claim check
 `answers`: the lines of a session's answer, or None when any line is malformed
 `plan`: the placement rows of an answer, kept only when the note, part and fingerprint were offered and the unit is in the part's range
+`state`: the done list and the run record kept in the state folder
 """
