@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # SubagentStart hook: fixed text, no interpreter (a subagent starts many times per task). Exits 0 always.
 # The plugin's own subagents carry their own instructions (some of them write to the memory): no text for them.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+[ "${MEM_HOST:-}" = codex ] && [ -n "$here" ] && { . "$here/codex-options.sh" 2>/dev/null; type codex_options >/dev/null 2>&1 && codex_options; }   # Codex: options from config files (ADR 0038)
 input="$(cat 2>/dev/null)"
 case "$input" in
   *memory-researcher*|*memory-recorder*|*memory-curator*|*memory-synthesizer*|*memory-status-checker*) exit 0 ;;

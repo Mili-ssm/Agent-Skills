@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Added
+
+- On Codex, plugin options are read from one file per option under `~/.config/agent-memory/` (first line; `$XDG_CONFIG_HOME` honoured), because Codex sets no plugin option variables; a set variable wins (ADR 0038).
+
 ## [0.18.0] - 2026-11-27
 
 ### Added

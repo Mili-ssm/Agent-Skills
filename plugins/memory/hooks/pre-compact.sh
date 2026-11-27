@@ -2,6 +2,8 @@
 # PreCompact hook: the handoff instruction for the summary, no interpreter (it runs on every compaction, even without
 # uv). The text is handoff.INSTRUCTION; a test keeps the two equal. Exits 0 always. With the plugin option auto_capture
 # it then starts the background capture (end of this script), which never makes this hook wait or fail.
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+[ "${MEM_HOST:-}" = codex ] && [ -n "$here" ] && { . "$here/codex-options.sh" 2>/dev/null; type codex_options >/dev/null 2>&1 && codex_options; }   # Codex: options from config files (ADR 0038)
 cat <<'TXT'
 End the summary with this block, one line per field, so the next context resumes from it:
 HANDOFF

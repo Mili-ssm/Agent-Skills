@@ -5,6 +5,7 @@
 # Always exit 0, also when uv or mem fail: a failing hook would disturb every session. When mem does not answer
 # and uv is missing, the session text carries one line naming uv; otherwise no error reaches the session.
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)" || here=""
+[ "${MEM_HOST:-}" = codex ] && [ -n "$here" ] && { . "$here/codex-options.sh" 2>/dev/null; type codex_options >/dev/null 2>&1 && codex_options; }   # Codex: options from config files (ADR 0038)
 . "$here/store-env.sh" 2>/dev/null; type export_store_env >/dev/null 2>&1 && export_store_env
 [ "${CLAUDE_PLUGIN_OPTION_LOADED_RULES:-}" = "false" ] && export MEM_LOADED_RULES=off   # option loaded_rules, default on
 case "${CLAUDE_PLUGIN_OPTION_RULES_LAYOUT:-}" in grouped|digest) export MEM_RULES_LAYOUT="$CLAUDE_PLUGIN_OPTION_RULES_LAYOUT" ;; esac   # option rules_layout, default flat
