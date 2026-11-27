@@ -6,6 +6,7 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ### Changed
 
+- The worker brief has four parts (goal, scope, decisions, checks) and points at files the worker can open instead of restating them; the stop rule and report format now live in each worker. If you pasted the offload table or the routing text into your own instructions, paste the new versions from `user-config/`.
 - Worker agents (`skeptical-reviewer`, `implementer`, `fixer`, `check-runner`, `ui-verifier`, `pre-mortem`, `summarizer`, `researcher`) now cap their final report in words through one shared rule (`Left out:` names what was cut; a brief may lower the cap, never raise it), because line caps did not bound length and the main conversation re-reads every report. `doc-curator` gains a stop rule. Reinstall `user-agents/Explore.md` to get its 600-word cap (it replaces "30 lines").
 
 ### Fixed

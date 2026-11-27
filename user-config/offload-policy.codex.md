@@ -18,14 +18,14 @@ Delegate before pulling large sources, logs or command output into this context,
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
-Spawn every worker with `fork_turns` set to `"none"`, because the default copies this whole conversation into the worker and makes its first request about four times larger. The worker then sees none of this conversation, so its brief carries everything it needs:
+Spawn every worker with `fork_turns` set to `"none"`, because the default copies this whole conversation into the worker and makes its first request about four times larger. The worker then sees none of this conversation, so its brief carries what only this conversation knows:
 
-1. **Goal** and acceptance criteria it can check itself.
+1. **Goal** and acceptance criteria it can check itself: one outcome per brief.
 2. **Scope**: the paths it owns, and what it must not touch.
 3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
 4. **Checks**: the commands that prove the result.
-5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
-6. **Report**: format and max length.
+
+Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it, and write out only what exists nowhere but here. Every worker already has its stop rule and its report format: state one only to change it. A brief to `explorer` (built-in role) still states a length, because that agent's report format is not ours on every tool.
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 

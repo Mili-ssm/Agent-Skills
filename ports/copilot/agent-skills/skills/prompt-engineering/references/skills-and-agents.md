@@ -43,13 +43,13 @@ Sources (current as of 2026-10): Anthropic *Skill authoring best practices* (pla
 
 ## Worker briefs
 
-A worker sees none of the conversation. Measured here ([ADR 0013](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0013-worker-brief-contract.md)): with the six parts named in the main conversation's policy, the stop rule went from 0/3 to 3/3 briefs and delegation from 2/3 to 3/3.
+A worker sees none of the conversation. Measured here ([ADR 0013](https://github.com/Mili-ssm/Agent-Skills/blob/main/docs/adr/0013-worker-brief-contract.md)): with the parts named in the main conversation's policy (then six, including the stop rule; now four, because every worker carries its own stop rule and report format), the stop rule went from 0/3 to 3/3 briefs and delegation from 2/3 to 3/3.
 
-1. **Goal** and acceptance criteria it can check itself.
+1. **Goal** and acceptance criteria it can check itself: one outcome per brief.
 2. **Scope**: the paths it owns, and what it must not touch.
 3. **Decisions already taken, each with its reason**, so it neither reopens nor contradicts them.
 4. **Checks**: the commands that prove the result.
-5. **Stop rule**: when the brief does not fit what it finds, it stops and reports the gap instead of improvising.
-6. **Report**: format and max length.
+
+Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it, and write out only what exists nowhere but here. Every worker already has its stop rule and its report format: state one only to change it. A brief to `Explore` still states a length, because that agent's report format is not ours on every tool.
 
 State the what, the limits and the check, not each step. A task whose design is still open is not delegated: settle it first (Cognition, *Don't build multi-agents*: actions carry implicit decisions, and workers that cannot see them make conflicting ones).
