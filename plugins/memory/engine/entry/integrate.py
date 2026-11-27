@@ -32,6 +32,7 @@ from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest import mock
 
 from core import auto_state, headless, jobs
 from integrate import answers, plan
@@ -546,14 +547,16 @@ def _mem(store: Path, env: dict, *args: str) -> str:
 def _build_store(tmp: Path) -> tuple[Path, dict]:
     """A store with synthesis `alpha` (part `basics`, member `old-note`) and one loose note, `new-note`."""
     store = tmp / "store"
-    _require(
-        subprocess.run(
-            [str(sp.MEM), "init", str(store)], capture_output=True, check=False
-        ).returncode
-        == 0,
-        "mem init failed",
-    )
     env = run_env(store)
+    found = subprocess.run(
+        [str(sp.MEM), "init", str(store)],
+        env=env,
+        cwd=tmp,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    _require(found.returncode == 0, f"mem init failed: {found.stderr.strip()[:200]}")
     for slug, claim in (("old-note", "Ownership is tracked."), ("new-note", "Moves are default.")):
         body = tmp / f"{slug}.md"
         body.write_text(NOTE_BODY.format(claim=claim), encoding="utf-8")
@@ -590,7 +593,8 @@ def _fake_claude(tmp: Path, replies: list[str]) -> Path:
 
 
 def _isolate(tmp: Path) -> None:
-    """Point every state folder at `tmp`, so the check never touches the owner's data."""
+    """Point every state folder at `tmp`, so the check never touches the owner's data. Changes `os.environ`:
+    call it inside `mock.patch.dict(os.environ)`."""
     for name, folder in (
         ("MEM_DATA", "data"),
         ("XDG_DATA_HOME", "share"),
@@ -598,11 +602,17 @@ def _isolate(tmp: Path) -> None:
         ("XDG_CONFIG_HOME", "cfg"),
     ):
         os.environ[name] = str(tmp / folder)
-    os.environ.pop("MEM_MEMORIES", None)
+    for name in [k for k in os.environ if k.startswith("MEM_SETTLE_")]:
+        os.environ.pop(name)
+    for name in ("MEM_STORE", "MEM_MEMORIES"):
+        os.environ.pop(name, None)
 
 
 def _check_flow(place_check: tuple[str, str] | None) -> None:
-    with tempfile.TemporaryDirectory(prefix="mem-integrate-check-") as tmp_name:
+    with (
+        tempfile.TemporaryDirectory(prefix="mem-integrate-check-") as tmp_name,
+        mock.patch.dict(os.environ),
+    ):
         _isolate(Path(tmp_name))
         _flow(Path(tmp_name), place_check)
 
@@ -647,6 +657,10 @@ def self_check(answers_given: tuple[str, str] | None = None) -> int:
         _check_flow(answers_given)
     except SelfCheckError as exc:
         print(f"self-check failed: {exc}")
+        return 1
+    except Exception as exc:  # any broken step ends as a line, not a traceback
+        logger.debug("self-check failed", exc_info=True)
+        print(f"self-check failed: {type(exc).__name__}: {exc}")
         return 1
     print("self-check passed")
     return 0

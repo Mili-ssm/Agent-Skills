@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 from entry import integrate as entry
 from integrate import state as run_state
@@ -53,3 +55,41 @@ def test_real_run_session_that_could_not_read_applies_nothing(world):
     assert "the session could not read its input file" in out
     assert len(world.sessions) == 1
     assert run_state.read_done(world.folder) == {}  # offered again after the permissions are fixed
+
+
+def test_real_run_check_session_that_could_not_read_applies_nothing(world):
+    world.answers(world.row("n-new"), "permission denied: /work/check.json")
+    code, out = world.run()
+    assert code == 0 and not world.attached("n-new")
+    record = world.record()
+    assert record.groups == []
+    assert record.failures == ["alpha: the session could not read its input file"]
+    assert "alpha: the session could not read its input file" in out
+    assert len(world.sessions) == 2  # ruff: ignore[magic-value-comparison]  (place, then check)
+    assert run_state.read_done(world.folder) == {}  # the notes are offered again
+
+
+def test_self_check_never_uses_the_callers_mem_variables(tmp_path, monkeypatch, capsys):
+    sentinel = tmp_path / "sentinel"
+    sentinel.mkdir()
+    for name in ("MEM_STORE", "MEM_MEMORIES", "MEM_PROJECT", "MEM_SETTLE_TRIGGER"):
+        monkeypatch.setenv(name, str(sentinel))
+    assert entry.self_check() == 0
+    assert list(sentinel.iterdir()) == []
+    assert "self-check passed" in capsys.readouterr().out
+
+
+def test_self_check_restores_the_environment(monkeypatch):
+    monkeypatch.setenv("MEM_PROJECT", "kept")
+    before = dict(os.environ)
+    entry.self_check()
+    assert dict(os.environ) == before
+
+
+def test_self_check_reports_any_failure_instead_of_a_traceback(monkeypatch, capsys):
+    def boom() -> None:
+        raise OSError("disk on fire")
+
+    monkeypatch.setattr(entry, "_check_parser", boom)
+    assert entry.self_check() == 1
+    assert capsys.readouterr().out.strip() == "self-check failed: OSError: disk on fire"
