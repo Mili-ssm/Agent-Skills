@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from capture import codex_rollout
 from capture import extract as capture
 from capture import state as cs
 from core import codex_pass, headless, jobs
@@ -54,6 +55,8 @@ SESSION_TIMEOUT = 600
 MAX_CANDIDATES_BYTES = 1_000_000
 MIN_OWNER_LINES = 3
 CWD_SCAN_LINES = 200  # lines of a transcript the sweep reads to find its working folder
+DAY_DEPTH = 3  # a Codex day folder sits at sessions/YYYY/MM/DD
+FIRST_LINE_LIMIT = 1 << 20  # a first line longer than this is not a Codex `session_meta`
 RULES_LIMIT = 30_000
 LAPSED_DAYS = (
     60  # a lapsed unconfirmed transcript memory can still be revived by a new sighting this long
@@ -611,7 +614,7 @@ def _read_window(trial: Trial) -> int:
         out["reason"] = "too short"
         return 0
     if not opts.claude:
-        out["reason"] = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
+        out["reason"] = NO_CLAUDE
         return 1
     return _with_work_root(trial, opts.claude, text)
 
@@ -708,6 +711,9 @@ def hook_input() -> tuple[Path, Path] | None:
 def without_paths(reason: str) -> str:
     """`reason` with every token that holds a `/` replaced, so a log line carries no path."""
     return " ".join("(path)" if "/" in token else token for token in reason.split())
+
+
+NO_CLAUDE = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
 
 
 def has_memory_folder(cwd: Path) -> bool:
@@ -876,6 +882,13 @@ class AutoRun:
         res, code = run_window_of(opts)
         self.tally(res)
         more = bool(res["extract"]["more"])
+        if res["reason"] == NO_CLAUDE:  # nothing can run: a skip, not a failure, and no retry
+            self.line["skipped"], self.line["more"] = (
+                NO_CLAUDE,
+                True,
+            )  # `more`: a sweep keeps the file open
+            append_run_log(run, f"window {number}: skipped: {NO_CLAUDE}")
+            return False
         reason = window_failure(res, code)
         append_run_log(
             run,
@@ -1002,7 +1015,11 @@ def _cwd_value(raw: bytes) -> str | None:
         item = json.loads(raw)
     except ValueError:
         return None
-    value = item.get("cwd") if isinstance(item, dict) else None
+    if not isinstance(item, dict):
+        return None
+    payload = item.get("payload")  # a Codex rollout keeps it in `session_meta` and `turn_context`
+    nested = payload.get("cwd") if isinstance(payload, dict) else None
+    value = item.get("cwd") or nested
     return value if isinstance(value, str) and value else None
 
 
@@ -1018,16 +1035,87 @@ def first_cwd(path: Path) -> Path | None:
     return None
 
 
+def _first_line(path: Path) -> str:
+    """The first line, "" when unreadable or longer than FIRST_LINE_LIMIT bytes."""
+    try:
+        with path.open("rb") as f:
+            raw = f.readline(FIRST_LINE_LIMIT + 1)
+    except OSError:
+        return ""
+    return "" if len(raw) > FIRST_LINE_LIMIT else raw.decode("utf-8", "replace")
+
+
+def _is_codex_rollout(path: Path) -> bool:
+    """A Codex rollout sits in a day folder and starts with `session_meta`; a Claude path is decided with no read."""
+    root = _codex_root(path)
+    if root is None:
+        return False
+    line = _first_line(path)
+    # a start rollout whose first line is not written yet is still Codex's
+    return codex_rollout.is_rollout(line) or not line.strip()
+
+
+def _codex_root(transcript: Path) -> Path | None:
+    """The `sessions` folder above a `YYYY/MM/DD` day folder of a Codex rollout, else None."""
+    parents = transcript.parents
+    if len(parents) > DAY_DEPTH and all(p.name.isdigit() for p in parents[:DAY_DEPTH]):
+        return parents[DAY_DEPTH]
+    return None
+
+
+def _sweep_folders(transcript: Path, now: float) -> list[Path]:
+    """Folders that hold the candidates: for a Codex rollout, today's day folder and the SWEEP_MAX_AGE_DAYS
+    before it; else its own folder."""
+    root = _codex_root(transcript) if _is_codex_rollout(transcript) else None
+    if root is None:
+        return [transcript.parent]
+    days = (
+        datetime.date.fromtimestamp(now) - datetime.timedelta(days=n)
+        for n in range(cs.SWEEP_MAX_AGE_DAYS + 1)
+    )
+    return [root / f"{d:%Y}" / f"{d:%m}" / f"{d:%d}" for d in days]
+
+
 def _idle_sessions(transcript: Path, now: float) -> list[tuple[float, int, Path]]:
-    """(mtime, size, path) of the other transcripts of the folder that are idle and not too old."""
+    """(mtime, size, path) of the other transcripts of the folder(s) that are idle and not too old."""
     found = []
-    for item in transcript.parent.iterdir():
-        if item.suffix != ".jsonl" or not item.is_file() or item.stem == transcript.stem:
+    for folder in _sweep_folders(transcript, now):
+        if not folder.is_dir():
             continue
-        info = item.stat()
-        if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
-            found.append((info.st_mtime, info.st_size, item))
+        for item in folder.iterdir():
+            if item.suffix != ".jsonl" or not item.is_file() or item.stem == transcript.stem:
+                continue
+            info = item.stat()
+            if cs.SWEEP_IDLE_SECONDS <= now - info.st_mtime <= cs.SWEEP_MAX_AGE_DAYS * 86400:
+                found.append((info.st_mtime, info.st_size, item))
     return found
+
+
+def _project_of(cwd: Path | None) -> Path | None:
+    return (
+        records.project_root(cwd.resolve(), os.environ)
+        if cwd is not None and cwd.is_dir()
+        else None
+    )
+
+
+def _rollout_meta(item: Path) -> dict | None:
+    """The `session_meta` payload of a Codex rollout, None when the file is not one."""
+    line = _first_line(item)
+    if not codex_rollout.is_rollout(line):
+        return None
+    meta = json.loads(line).get("payload")
+    return meta if isinstance(meta, dict) else None
+
+
+def _in_project(meta: dict, project: Path | None) -> bool:
+    cwd = meta.get("cwd")
+    return (
+        project is not None
+        and isinstance(cwd, str)
+        and bool(cwd)
+        and _project_of(Path(cwd).expanduser()) == project
+    )
 
 
 def _sweep_cwd(store: Path, item: Path) -> Path | None:
@@ -1082,6 +1170,28 @@ def _sweep_limit_reached(store: Path, now: float, used: int, examined: int) -> b
     )
 
 
+def _to_examine(store: Path, size: int, item: Path, codex: bool, project: Path | None) -> bool:
+    """False for a file unchanged since its last sweep (one stat) and, on Codex, for another project's or a
+    subagent's rollout (a day folder mixes them): neither counts as an examination. A rollout that is not an
+    owner thread stays so while the file is unchanged, so its size is remembered; another project's rollout
+    is not (the store is shared: that project's own start must still take it)."""
+    if cs.swept_size(store, item.stem) == size:
+        return False
+    if not codex:
+        return True
+    meta = _rollout_meta(item)
+    if (
+        meta is None
+    ):  # unreadable now (or not a rollout): not remembered, a later start reads it again
+        return False
+    if (
+        meta.get("thread_source", "user") != "user"
+    ):  # a missing key is an owner thread, as the decoder reads it
+        cs.save_swept_size(store, item.stem, size)
+        return False
+    return _in_project(meta, project)
+
+
 def _sweep(claude: str | None) -> None:
     if os.environ.get(cs.OPTION) != "true":
         return
@@ -1090,12 +1200,14 @@ def _sweep(claude: str | None) -> None:
         return
     store, now = data_dir(), time.time()
     found = _idle_sessions(transcript, now)
+    codex = _is_codex_rollout(transcript)
+    project = _project_of(first_cwd(transcript)) if codex else None
     examined = used = 0  # files opened; runs that started a model session
     for _mtime, size, item in sorted(found, key=lambda row: row[0], reverse=True):
         if _sweep_limit_reached(store, now, used, examined):
             break
-        if cs.swept_size(store, item.stem) == size:
-            continue  # unchanged since its last sweep: one stat, not an examination
+        if not _to_examine(store, size, item, codex, project):
+            continue
         examined += 1
         used += _sweep_one(store, now, item, size, claude)
 

@@ -200,6 +200,8 @@ def _digest_locked(params: _Params, cdir: Path, result: dict) -> dict:
 class _DigestPass:
     """One run of the step past the lock: the sessions, the checks, the files and the sheet."""
 
+    writer_why = ""  # why the writer session failed (`_ask`), for the stop text
+
     def __init__(self, params: _Params, cdir: Path, result: dict, inputs: _Inputs) -> None:
         self.params, self.cdir, self.result = params, cdir, result
         self.data, self.stored, self.state, self.topics, self.works = inputs
@@ -288,7 +290,9 @@ class _DigestPass:
         )
         proposed = self._ask_writer(claude, scratch)
         if proposed is None:
-            return _Sessions({}, {}, {}, "the writer session gave no usable answer")
+            return _Sessions(
+                {}, {}, {}, f"the writer session gave no usable answer{self.writer_why}"
+            )
         pairs = dg.pairs(self.works, proposed)
         if not pairs:
             return _Sessions(proposed, {}, {})
@@ -303,7 +307,8 @@ class _DigestPass:
             DIGEST_WRITER_OUT,
             self.spend,
         )
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "write", limits, job)
+        payload, cost, ok, why = corroborate_run._ask(claude, scratch, "write", limits, job)
+        self.writer_why = why
         self.result["cost"] += cost
         try:
             return dg.validate(payload, self.works) if ok else None
@@ -319,11 +324,11 @@ class _DigestPass:
             DIGEST_CHECK_OUT,
             self.spend,
         )
-        payload, cost, ok = corroborate_run._ask(claude, scratch, "check", limits, job)
+        payload, cost, ok, why = corroborate_run._ask(claude, scratch, "check", limits, job)
         self.result["cost"] += cost
         checked = _digest_verdicts(payload) if ok else None
         if checked is None:
-            return _Sessions({}, {}, {}, "the checker session gave no usable answer")
+            return _Sessions({}, {}, {}, f"the checker session gave no usable answer{why}")
         return _Sessions(proposed, *checked)
 
     def _sheet_result(self, sessions: _Sessions, new_digest: dict) -> dict:

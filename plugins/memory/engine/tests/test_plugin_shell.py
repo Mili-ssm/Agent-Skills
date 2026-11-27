@@ -942,6 +942,6 @@ def test_codex_manifest_and_hooks_match_the_claude_plugin():
     codex = json.loads((root / ".codex-plugin" / "plugin.json").read_text())
     assert codex["version"] == claude["version"] and codex["description"] == claude["description"]
     cfg = json.loads((root / codex["hooks"]).read_text())["hooks"]
-    assert sorted(cfg) == ["SessionStart", "SubagentStart"]
-    assert cfg["SessionStart"][0]["hooks"][0]["command"].startswith("MEM_HOST=codex ")
-    assert cfg["SubagentStart"][0]["hooks"][0]["command"].startswith("MEM_HOST=codex ")
+    assert sorted(cfg) == ["PreCompact", "SessionEnd", "SessionStart", "SubagentStart"]
+    for event in cfg:
+        assert cfg[event][0]["hooks"][0]["command"].startswith("MEM_HOST=codex ")

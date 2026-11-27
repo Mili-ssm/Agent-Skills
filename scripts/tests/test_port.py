@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import tomllib
 from types import SimpleNamespace
@@ -361,3 +362,85 @@ def test_codex_rewrites_leave_copilot_and_unkeyed_text_alone(sources):
         text, port.COPILOT, AGENTS, rewrites=key
     )
     assert port.transform("plain", port.CODEX, AGENTS) == "plain"
+
+
+# --- memory agents as Codex roles (ADR 0038) ----------------------------------------------------
+
+MEMORY_ROLES = port.ROOT / "plugins" / "memory" / "codex-agents"
+MEMORY_AGENT_COUNT = 5
+MEMORY_AGENT_FILES = sorted((port.ROOT / "plugins" / "memory" / "agents").glob("*.md"))
+
+
+def test_memory_agents_exist():
+    assert len(MEMORY_AGENT_FILES) == MEMORY_AGENT_COUNT
+    assert sorted(p.stem for p in MEMORY_ROLES.glob("*.toml")) == [
+        p.stem for p in MEMORY_AGENT_FILES
+    ]
+
+
+@pytest.mark.parametrize("source", MEMORY_AGENT_FILES, ids=lambda p: p.stem)
+def test_memory_agent_becomes_a_codex_role(sources, source):
+    doc = sources.source_agents["memory"][source.stem]
+    text = (MEMORY_ROLES / f"{doc.name}.toml").read_text(encoding="utf-8")
+    role = tomllib.loads(text)
+    model, effort = port.CODEX_PAIRS[doc.fm["model"], doc.fm["effort"]]
+    assert role["name"] == doc.name
+    assert role["description"]
+    assert role["model"] == model
+    assert role["model_reasoning_effort"] == effort
+    assert role["developer_instructions"].startswith(
+        port.transform(doc.body, port.CODEX, set(), agent=True, rewrites=f"agents/{doc.name}.md")
+    )
+    assert "~/.claude" not in text
+    assert port.stale_token(text, port.CODEX) is None
+    read_only = bool(port.WRITE_TOOLS & set(port.as_list(doc.fm.get("disallowedTools"))))
+    assert (port.READ_ONLY_RULE in role["developer_instructions"]) == read_only
+
+
+def test_synthesizer_skill_lookup_searches_the_codex_cache():
+    role = tomllib.loads((MEMORY_ROLES / "memory-synthesizer.toml").read_text(encoding="utf-8"))
+    assert f"find {port.CODEX.base} -path" in role["developer_instructions"]
+
+
+def _fake_repo(tmp_path, monkeypatch):
+    for name in (
+        "plugins/agent-skills",
+        "plugins/memory",
+        "ports",
+        "user-config",
+        ".claude-plugin",
+        ".github",
+        ".agents",
+    ):
+        shutil.copytree(port.ROOT / name, tmp_path / name)
+    shutil.copy(port.ROOT / "README.md", tmp_path / "README.md")
+    (tmp_path / "docs").mkdir()
+    shutil.copy(port.ROOT / "docs" / "ports.md", tmp_path / "docs" / "ports.md")
+    monkeypatch.setattr(port, "ROOT", tmp_path)
+    monkeypatch.setattr(port, "PLUGIN", tmp_path / "plugins" / "agent-skills")
+    monkeypatch.setattr(
+        port, "CLAUDE_MARKETPLACE", tmp_path / ".claude-plugin" / "marketplace.json"
+    )
+    monkeypatch.setattr(port, "POLICY", tmp_path / "user-config" / "offload-policy.md")
+    monkeypatch.setattr(port, "ROUTING", tmp_path / "user-config" / "routing.md")
+    monkeypatch.setattr(port, "README", tmp_path / "README.md")
+    monkeypatch.setattr(port, "PORTS_DOC", tmp_path / "docs" / "ports.md")
+
+
+@pytest.mark.parametrize("change", ["stale", "missing", "model"])
+def test_check_fails_when_a_memory_role_is_stale(tmp_path, monkeypatch, capsys, change):
+    _fake_repo(tmp_path, monkeypatch)
+    role = tmp_path / "plugins" / "memory" / "codex-agents" / "memory-curator.toml"
+    if change == "stale":
+        role.write_text(role.read_text(encoding="utf-8") + "# edited\n", encoding="utf-8")
+    elif change == "missing":
+        role.unlink()
+    else:
+        role.write_text(
+            re.sub(
+                r'(?m)^model = ".*"$', 'model = "other-model"', role.read_text(encoding="utf-8")
+            ),
+            encoding="utf-8",
+        )
+    assert port.main(["--check"]) == 1
+    assert "memory-curator.toml" in capsys.readouterr().out
