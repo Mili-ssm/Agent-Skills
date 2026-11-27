@@ -192,6 +192,20 @@ CODEX_REWRITES: dict[str, tuple[tuple[str, str], ...]] = {
             "Run it in the background with the checks,",
             "Spawn it together with the checks and collect its result before your final answer,",
         ),
+        # `spawn_agent` defaults to `fork_turns: "all"` (Codex 0.171 tool schema): the child then starts from a copy
+        # of the whole parent history. Local rollouts, Nov 2026: first request 118k input tokens forked vs 25.6k fresh.
+        (
+            "A worker sees none of this conversation,",
+            (
+                'Spawn every worker with `fork_turns` set to `"none"`, because the default copies this whole conversation '
+                "into the worker and makes its first request nearly five times larger. "
+                "The worker then sees none of this conversation,"
+            ),
+        ),
+        (
+            "end your turn with a one-line status instead of writing messages while you wait",
+            "wait with `wait_agent`, which wakes on any worker's message, instead of writing messages in between",
+        ),
     ),
     "user-config/routing.md": (
         (
@@ -199,6 +213,7 @@ CODEX_REWRITES: dict[str, tuple[tuple[str, str], ...]] = {
             "The owner's manual skill mentions (`$name`) never auto-trigger",
         ),
         ("agent definition or CLAUDE.md", "agent definition or AGENTS.md"),
+        ("rules that are not in `CLAUDE.md` or `AGENTS.md`", "rules that are not in `AGENTS.md`"),
         (
             "dispatched with no model parameter: the agent file fixes its model,",
             "dispatched without overriding its model or effort: the agent's TOML fixes both,",

@@ -36,7 +36,15 @@ The paragraph beginning "Accuracy" in the skill file applies to every part: your
 - English, plain and dense, as the notes are. No names of clients, companies, private systems or people beyond cited authors.
 - Never dispatch subagents.
 
-## Report (under 20 lines)
+## Report
+
+<!-- shared:report-budget cap="150 words" -->
+Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 150 words:
+- Open with the result in one or two lines, then what the caller must act on.
+- Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
+- A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
+<!-- /shared:report-budget -->
 
 ```
 Slug: <slug>

@@ -51,7 +51,19 @@ Send only `merge` rows (the two claims say the same, after you read both whole) 
 
 Report, in place of the Report section below: `applied N, left M`, then one row per item left, `| Item | Proposed action | Reason |`, reason at most 12 words (the command's, or yours for what you did not send). The rows not applied (supersede, refute, forget) are the owner's to decide, so keep their proposal.
 
+<!-- shared:stop-rule -->
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+<!-- /shared:stop-rule -->
+
 ## Report
+
+<!-- shared:report-budget cap="300 words" -->
+Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 300 words:
+- Open with the result in one or two lines, then what the caller must act on.
+- Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
+- A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
+<!-- /shared:report-budget -->
 
 | Item | Proposed action | Reason |
 |---|---|---|

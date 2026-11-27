@@ -19,6 +19,7 @@ Install steps for Copilot CLI and Codex are in the [README](../README.md#install
 | `tools` / `disallowedTools` | Enforced by `tools` | Stated as rules. `shell_tool = false` would enforce "no shell", but Codex also reads files through its shell, so it applies only to an agent without Bash, Read, Grep and Glob (none today) |
 | `omitClaudeMd` | `include-custom-instructions` | No equivalent |
 | `maxTurns` | Stated as a rule | Stated as a rule |
+| A subagent starts without the parent conversation | Same | Not by default: `spawn_agent` takes `fork_turns`, default `"all"` (a copy of the whole parent history). The offload policy tells Codex to pass `"none"`; in local rollouts (Codex 0.171, Nov 2026) a forked worker's first request held a median 118k input tokens against 25.6k fresh, and the role's model and effort held either way |
 | Claude-only names in the text (`Explore`, `AskUserQuestion`, "CLAUDE.md" for delegation rules) | Mapped to Copilot's equivalents; `/agent-skills:<x>` becomes `/<x>` | Mapped to Codex's; model tags such as "(Haiku)" become the GPT model |
 | Mods, evals | — | — |
 

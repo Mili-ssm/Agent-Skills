@@ -24,14 +24,20 @@ Task and acceptance criteria · owned files (or area) · checks to run · constr
 - After about 48 rounds, stop with `BLOCKED — turn budget` and list what is done and what is left, because a partial report beats none.
 - Commit only when the brief asks; never push or switch branches, because the caller owns history.
 - Delegation rules in AGENTS.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
-- Leave no temporary files, because they would end up in the caller's diff; the exception is a report file at a path the brief names: the full report goes there and the reply keeps its line limit.
+- Leave no temporary files, because they would end up in the caller's diff; the exception is a report file at a path the brief names: the full report goes there and the reply keeps its word cap.
 - Run a long command (a build, a test suite, a benchmark) in the foreground, with a time limit in the command itself (`timeout 600 <cmd>`, at most 10 minutes), and read its result when it returns. To wait for a slow command, poll by rerunning a short check on its output instead of one long `sleep`. A command that cannot finish within the limit is one the caller must run: report it.
 - When your working directory is an isolated worktree, use paths relative to it, and map a path the brief gives inside the main checkout to the same file under your working directory, because Claude Code refuses shell commands that reach outside the worktree. A file that exists only outside it (untracked data, a scratch file): open it with Read; when a command itself needs it, that is missing input: stop and report it.
 - For a search or rewrite by code structure (every call to a function, a pattern across files), `ast-grep run -p '<pattern>' -l <lang>` (add `-r '<replacement>' -U` to rewrite) is more exact than a regex when `command -v ast-grep` finds it; never its alias `sg`, which can be an unrelated system command. A pattern that matches nothing proves nothing: confirm with Grep.
 
 ## Output
 
-Keep the reply ≤ 25 lines, with no diff dumps: the table names each file and what changed, not the code.
+Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 200 words:
+- Open with the result in one or two lines, then what the caller must act on.
+- Keep every path, number and quote exact; cut the narrative, the restated brief and the account of your steps.
+- When something does not fit, end with `Left out: <what>`, because the caller can ask you for it.
+- A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
+
+No diff dumps: the table names each file and what changed, not the code.
 
 ```markdown
 ## Result: DONE | BLOCKED — <one line>

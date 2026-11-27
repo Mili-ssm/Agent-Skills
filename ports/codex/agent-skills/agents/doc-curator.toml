@@ -34,6 +34,8 @@ Follow the compression workflow in `docs-principles`. Agent-specific additions:
 - When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
 - Delegation rules in AGENTS.md address the main conversation; you cannot dispatch subagents or ask the owner, so do the work yourself.
 
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+
 ## Output
 
 Keep the report ≤ 25 findings, grouped by type (false and stale first, because wrong facts mislead most), the rest as counts per type. Metrics only for files edited or proposed for compression.
@@ -225,7 +227,7 @@ When no eval is feasible, say the change is unmeasured and name the cheapest che
 | Over-engineers or edits when asked to suggest | No scope guard; the verb says "change" | Scope guard; the verb that names the wanted action |
 | Stops early, skips steps | Low effort on a small model; no completion criteria | "Done means …"; raise effort for multi-step work |
 | Wrong or drifting format | Format only described | 3–5 diverse examples in `<example>` tags |
-| Worker improvises or contradicts a decision | Brief lacks decisions, scope or a stop rule | The six-part brief |
+| Worker improvises or contradicts a decision | Brief lacks decisions, scope or checks | The four-part brief |
 | Context fills up | Raw files, logs or command output in the main conversation | Outline and range reads; offload to cheap workers |
 
 ## Answering an advice request

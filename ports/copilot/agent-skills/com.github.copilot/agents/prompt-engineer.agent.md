@@ -102,7 +102,7 @@ When no eval is feasible, say the change is unmeasured and name the cheapest che
 | Over-engineers or edits when asked to suggest | No scope guard; the verb says "change" | Scope guard; the verb that names the wanted action |
 | Stops early, skips steps | Low effort on a small model; no completion criteria | "Done means …"; raise effort for multi-step work |
 | Wrong or drifting format | Format only described | 3–5 diverse examples in `<example>` tags |
-| Worker improvises or contradicts a decision | Brief lacks decisions, scope or a stop rule | The six-part brief |
+| Worker improvises or contradicts a decision | Brief lacks decisions, scope or checks | The four-part brief |
 | Context fills up | Raw files, logs or command output in the main conversation | Outline and range reads; offload to cheap workers |
 
 ## Answering an advice request

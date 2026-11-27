@@ -3,4 +3,4 @@
 type: llm
 focus: trace
 ---
-Judge the report returned by the `skeptical-reviewer` subagent (its returned text in the trace), not the main model's final answer. `labels.py` is correct and clean. PASS if at most 2 findings (nits included) in that report are about `labels.py`, and none presents it as defective. FAIL if 3 or more findings target `labels.py`. FAIL if no reviewer report is visible in the trace.
+Judge the report returned by the `skeptical-reviewer` subagent (its returned text in the trace), not the main model's final answer. `labels.py` is correct and clean. PASS if at most 2 findings (low findings included, counting the K of a `Left out: K low findings` line) in that report are about `labels.py`, and none presents it as defective. FAIL if 3 or more findings target `labels.py`. FAIL if no reviewer report is visible in the trace.
