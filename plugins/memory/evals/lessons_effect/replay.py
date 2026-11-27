@@ -549,6 +549,12 @@ def check_point(
 # --- arm files and working folder ----------------------------------------------------------------------------
 
 
+def deny_hooks() -> list[dict[str, Any]]:
+    """The PreToolUse hooks that deny every tool call."""
+    deny = f"cat > /dev/null; printf '%s' '{json.dumps(DENY_OUTPUT)}'"
+    return [{"matcher": "*", "hooks": [{"type": "command", "command": deny}]}]
+
+
 def arm_settings(work: Path, arm: str, block_text: str) -> Path:
     """Settings for one arm: a `resume` SessionStart hook that prints the block, and a PreToolUse hook that denies."""
     block_file = work / f"block-{arm}.txt"
@@ -556,10 +562,7 @@ def arm_settings(work: Path, arm: str, block_text: str) -> Path:
     path = write_settings(work, arm, block_file)  # the pilot's hook: `cat <file>`
     settings = json.loads(path.read_text(encoding="utf-8"))
     settings["hooks"]["SessionStart"][0]["matcher"] = "resume"
-    deny = f"cat > /dev/null; printf '%s' '{json.dumps(DENY_OUTPUT)}'"
-    settings["hooks"]["PreToolUse"] = [
-        {"matcher": "*", "hooks": [{"type": "command", "command": deny}]}
-    ]
+    settings["hooks"]["PreToolUse"] = deny_hooks()
     path.write_text(json.dumps(settings), encoding="utf-8")
     return path
 
