@@ -1,6 +1,6 @@
 # 0037 The memory plugin's background passes choose their runner: Claude Code or Codex
 
-Status: proposed · Date: 2026-11-27 · Amends 0036
+Status: accepted · Date: 2026-11-27 · Amends 0036
 
 ## Context
 

@@ -1,6 +1,6 @@
 # Memory plugin: background passes choose a runner (Claude Code or Codex)
 
-Status: proposed 2026-11-27, amended after its pre-mortem the same day; waiting for the owner's review · Decision: [ADR 0037](../../adr/0037-memory-background-passes-choose-a-runner.md)
+Status: ADR 0037 accepted by the owner 2026-11-27; task 1 done, tasks 2-6 in progress · Decision: [ADR 0037](../../adr/0037-memory-background-passes-choose-a-runner.md)
 
 Owner, 2026-11-27: a `runner` choice (`claude` | `codex`) for the background passes, given per call, with a default in configuration and as a plugin option. Design and record first, code after the owner's review.
 
