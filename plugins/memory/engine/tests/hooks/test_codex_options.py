@@ -114,11 +114,16 @@ def test_missing_helper_never_fails_hook(tmp_path):
     shutil.copytree(PLUGIN / "hooks", root / "hooks")
     (root / "hooks" / "codex-options.sh").unlink()
     r = subprocess.run(
-        ["bash", str(root / "hooks" / "subagent-start.sh")],
+        ["bash", str(root / "hooks" / "pre-compact.sh")],
         env={"PATH": os.environ["PATH"], "MEM_HOST": "codex"},
         input="{}",
         capture_output=True,
         text=True,
         check=False,
     )
-    assert r.returncode == 0 and "memory:" in r.stdout
+    assert r.returncode == 0 and not r.stderr
+
+
+def test_home_config_used_without_xdg(tmp_path):
+    got = _run(tmp_path, "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE", {"auto_capture": "true\n"}, xdg=False)
+    assert got == "true"
