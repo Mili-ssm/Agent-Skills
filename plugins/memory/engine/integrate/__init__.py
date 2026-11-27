@@ -4,4 +4,5 @@
 `answers`: the lines of a session's answer, or None when any line is malformed
 `plan`: the placement rows of an answer, kept only when the note, part and fingerprint were offered and the unit is in the part's range
 `state`: the done list and the run record kept in the state folder
+`undo`: undoing a run's groups, each only while it is still the newest change of every file it wrote (`newest_is_group`)
 """

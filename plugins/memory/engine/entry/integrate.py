@@ -8,7 +8,10 @@ both answered, and that `placement_rows` kept, are written by Python to a rows f
 `mem synthesis integrate FILE` (one logged group per synthesis). The sessions only Read their input folder, so no
 model text reaches the store. State: `<state folder>/integrate/<id>/` (`done.json`, `<run id>/record.json`, logs).
 
-Usage: mem-integrate run [--store PATH] [--claude PATH] [--budget USD] [--dry-run] | --self-check
+`--undo RUN` undoes a run's groups newest first (exit 2 when a file changed since: nothing is restored, stdout says
+how many groups remain); `status` prints the last run.
+
+Usage: mem-integrate run [--store PATH] [--claude PATH] [--budget USD] [--dry-run] | status | --undo RUN | --self-check
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ from typing import TYPE_CHECKING, Any
 from core import auto_state, headless, jobs
 from integrate import answers, plan
 from integrate import state as run_state
+from integrate import undo as run_undo
 from integrate.rows import row_of
 from synthesize import pipeline as sp
 from synthesize import run as synth_run
@@ -435,6 +439,56 @@ def cmd_dry_run(store: Path, budget_arg: str | None) -> int:
     return 0
 
 
+UNDO_REFUSED = 2
+
+
+def cmd_undo(store: Path, run_id: str) -> int:
+    """Undoes the groups of run `run_id`; exit 2 on a refusal (stderr names the file) or an unknown run."""
+    fd = jobs.take_run_lock(auto_state.auto_dir(synth_run.state_dir(), store))
+    if fd is None:
+        print("mem-integrate: a run holds the lock; nothing was undone", file=sys.stderr)
+        return UNDO_REFUSED
+    env = run_env(store)
+    try:
+        result = run_undo.undo(
+            store, state_folder(store), run_id, lambda *args: sp.mem(store, env, *args)
+        )
+    finally:
+        os.close(fd)
+    print(f"undone: {result.undone}")
+    print(f"remaining: {result.remaining}")
+    if result.refusal:
+        print(f"mem-integrate: {result.refusal}", file=sys.stderr)
+        return UNDO_REFUSED
+    return 0
+
+
+def cmd_status(store: Path) -> int:
+    """The last run's id, state, cost, groups and failure lines."""
+    folder = state_folder(store)
+    run_id = run_state.last_run_id(folder)
+    record = run_state.read_record(folder, run_id) if run_id else None
+    if record is None:
+        print("mem-integrate: no run yet")
+        return 0
+    undone = sum(g.undone for g in record.groups)
+    state = (
+        "failed"
+        if record.failures
+        else "undone"
+        if record.groups and undone == len(record.groups)
+        else "ok"
+    )
+    print(f"run: {record.run_id} (started {record.started})")
+    print(f"state: {state}")
+    print(f"cost: {record.cost:.3f} USD")
+    print(f"groups: {len(record.groups)}")
+    print(f"undone: {undone}")
+    for text in record.failures:
+        print(f"failed: {text}")
+    return 0
+
+
 class SelfCheckError(Exception):
     """A self-check step failed; the message says which."""
 
@@ -600,11 +654,12 @@ def self_check(answers_given: tuple[str, str] | None = None) -> int:
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=(__doc__ or "").split("\n", 1)[0])
-    parser.add_argument("command", nargs="?", choices=["run"])
+    parser.add_argument("command", nargs="?", choices=["run", "status"])
     parser.add_argument("--store", type=Path, help="default: the store `mem` resolves")
     parser.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
+    parser.add_argument("--undo", metavar="RUN", help="undo the groups of run RUN, newest first")
     parser.add_argument("--budget", help=f"USD per run (default {DEFAULT_BUDGET})")
     parser.add_argument(
         "--dry-run", action="store_true", help="list what would run; start and change nothing"
@@ -615,19 +670,27 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = _parser()
-    args = parser.parse_args(argv)
-    if args.self_check:
-        return self_check()
-    if not args.command:
-        parser.error("a command is required")
-    store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
-    if store is None or not (store / "mem-store.yaml").is_file():
-        print(f"mem-integrate: no store at {store}", file=sys.stderr)
-        return 2
+def _dispatch(args: argparse.Namespace, store: Path) -> int:
+    if args.undo:
+        return cmd_undo(store, args.undo)
+    if args.command == "status":
+        return cmd_status(store)
     if args.dry_run:
         return cmd_dry_run(store, args.budget)
     for name in SESSION_VARS:  # left over from the session that started this process
         os.environ.pop(name, None)
     return cmd_run(store, args.claude, args.budget)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _parser()
+    args = parser.parse_args(argv)
+    if args.self_check:
+        return self_check()
+    if not args.command and not args.undo:
+        parser.error("a command or --undo RUN is required")
+    store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
+    if store is None or not (store / "mem-store.yaml").is_file():
+        print(f"mem-integrate: no store at {store}", file=sys.stderr)
+        return 2
+    return _dispatch(args, store)

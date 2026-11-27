@@ -95,3 +95,12 @@ def read_record(folder: Path, run_id: str) -> RunRecord | None:
         return RunRecord(**_known(RunRecord, data), groups=groups)
     except (TypeError, AttributeError):
         return None
+
+
+def last_run_id(folder: Path) -> str | None:
+    """The newest run in the state folder that has a record (run ids start with their start time)."""
+    try:
+        runs = [p.name for p in folder.iterdir() if (p / RECORD_FILE).is_file()]
+    except OSError:
+        return None
+    return max(runs, default=None)

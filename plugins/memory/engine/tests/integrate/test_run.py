@@ -6,23 +6,20 @@ from __future__ import annotations
 import json
 import os
 import subprocess
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import mem
 import pytest
 from core import auto_state, jobs
 from entry import integrate as entry
 from integrate import state as run_state
-from integrate_store import (  # ruff: ignore[unused-import]  (a fixture)
-    LONG_AGO,
+from integrate_store import LONG_AGO
+from integrate_world import (  # ruff: ignore[unused-import]  (a fixture)
+    flag_values,
     store_with_part,
+    world,
 )
 from synthesize import run as synth_run
-
-if TYPE_CHECKING:
-    from integrate_store import Store
 
 CUTOFF = LONG_AGO + 1000
 ONE_RUN_SESSIONS = 2
@@ -30,118 +27,6 @@ FOUR_SESSIONS = 4
 UNIT_TWO = 2
 FAKE_COST = 0.02
 SMALL_BUDGET = "0.0001"
-
-FAKE = """#!/usr/bin/env python3
-import json, os, sys
-argv = sys.argv[1:]
-plan_file, count_file = os.environ["FAKE_PLAN"], os.environ["FAKE_COUNT"]
-plan = json.load(open(plan_file))
-n = int(open(count_file).read()) if os.path.exists(count_file) else 0
-open(count_file, "w").write(str(n + 1))
-with open(os.environ["FAKE_ARGS"], "a") as f:
-    f.write(json.dumps(argv) + "\\n")
-step = plan[n] if n < len(plan) else {"answer": "none"}
-if step.get("silent"):
-    sys.exit(0)
-print(json.dumps({"type": "result", "is_error": step.get("error", False), "result": step["answer"],
-                  "total_cost_usd": step.get("cost", 0.02), "modelUsage": {}}))
-"""
-
-
-def _flag_values(argv: list[str], flag: str) -> list[str]:
-    start = argv.index(flag) + 1
-    stop = next((i for i in range(start, len(argv)) if argv[i].startswith("--")), len(argv))
-    return argv[start:stop]
-
-
-@dataclass
-class World:
-    store: Store
-    claude: Path
-    tmp: Path
-    capsys: pytest.CaptureFixture[str]
-    work: Path | None = None
-
-    def answers(self, *steps: str | dict) -> None:
-        plan = [s if isinstance(s, dict) else {"answer": s} for s in steps]
-        (self.tmp / "plan.json").write_text(json.dumps(plan), encoding="utf-8")
-
-    @property
-    def sessions(self) -> list[dict]:
-        path = self.tmp / "args.jsonl"
-        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
-        return [
-            {
-                "tools": ",".join(_flag_values(argv, "--tools")),
-                "allowed_tools": _flag_values(argv, "--allowedTools"),
-                "argv": argv,
-            }
-            for argv in map(json.loads, lines)
-        ]
-
-    def run(self, *extra: str) -> tuple[int, str]:
-        self.capsys.readouterr()
-        code = entry.main([
-            "run",
-            "--store",
-            str(self.store.root),
-            "--claude",
-            str(self.claude),
-            *extra,
-        ])
-        return code, self.capsys.readouterr().out
-
-    @property
-    def folder(self) -> Path:
-        return entry.state_folder(self.store.root)
-
-    def record(self) -> run_state.RunRecord:
-        run_id = max(p.name for p in self.folder.iterdir() if p.is_dir())
-        found = run_state.read_record(self.folder, run_id)
-        assert found is not None
-        return found
-
-    def work_file(self, name: str, index: int = 0) -> Path:
-        """A session's input file of the latest run, in that run's folder only."""
-        return self.folder / self.record().run_id / "work" / str(index) / name
-
-    @property
-    def mem_log(self) -> str:
-        return (self.folder / self.record().run_id / "log.txt").read_text(encoding="utf-8")
-
-    def row(self, note: str, action: str = "append", handle: str = "alpha") -> str:
-        return f"{note} | s:{handle}#basics | {action} | {self.store.fingerprint(handle)}"
-
-    def commits(self) -> list[str]:
-        out = subprocess.run(
-            ["git", "-C", str(self.store.root), "log", "--format=%s"],
-            capture_output=True, text=True, check=False,
-        )  # fmt: skip
-        return out.stdout.splitlines()
-
-    def attached(self, slug: str) -> bool:
-        return self.store.meta(slug).get("part_of") == "alpha#basics"
-
-
-@pytest.fixture
-def world(store_with_part, tmp_path, monkeypatch, capsys) -> World:
-    claude = tmp_path / "fake-claude"
-    claude.write_text(FAKE, encoding="utf-8")
-    claude.chmod(0o755)
-    for name, file in (
-        ("FAKE_PLAN", "plan.json"),
-        ("FAKE_COUNT", "count"),
-        ("FAKE_ARGS", "args.jsonl"),
-    ):
-        monkeypatch.setenv(name, str(tmp_path / file))
-    root = store_with_part.root
-    git = ["git", "-C", str(root)]
-    subprocess.run([*git, "init", "-q"], check=True)
-    subprocess.run([*git, "config", "user.email", "t@example.org"], check=True)
-    subprocess.run([*git, "config", "user.name", "t"], check=True)
-    result = World(store_with_part, claude, tmp_path, capsys)
-    result.work = entry.state_folder(root)
-    return result
 
 
 def test_run_integrates_one_note_end_to_end(world):
@@ -177,8 +62,8 @@ def test_session_has_no_write_or_shell_tools(world):
         settings = c["argv"][c["argv"].index("--settings") + 1]
         assert json.loads(Path(settings).read_text(encoding="utf-8")) == {"disableAllHooks": True}
         assert c["argv"][c["argv"].index("--model") + 1] == "haiku"
-        assert _flag_values(c["argv"], "--disallowedTools") == ["Bash", "WebSearch", "WebFetch"]
-        assert _flag_values(c["argv"], "--effort") == ["medium"]
+        assert flag_values(c["argv"], "--disallowedTools") == ["Bash", "WebSearch", "WebFetch"]
+        assert flag_values(c["argv"], "--effort") == ["medium"]
 
 
 def test_run_applies_nothing_on_malformed_answer(world):
@@ -308,7 +193,7 @@ def test_budget_stops_run(world):
     world.answers({"answer": row, "cost": FAKE_COST}, row)
     _, out = world.run("--budget", SMALL_BUDGET)
     assert "budget spent" in out
-    assert _flag_values(world.sessions[0]["argv"], "--max-budget-usd") == [SMALL_BUDGET]
+    assert flag_values(world.sessions[0]["argv"], "--max-budget-usd") == [SMALL_BUDGET]
     assert len(world.sessions) == 1 and not world.attached("n-new")
     assert world.record().groups == []
 
@@ -358,7 +243,7 @@ def test_each_session_gets_the_budget_left(world):
     row = world.row("n-new")
     world.answers({"answer": row, "cost": FAKE_COST}, {"answer": row, "cost": FAKE_COST})
     world.run("--budget", "0.05")
-    left = [float(_flag_values(c["argv"], "--max-budget-usd")[0]) for c in world.sessions]
+    left = [float(flag_values(c["argv"], "--max-budget-usd")[0]) for c in world.sessions]
     assert left == [pytest.approx(0.05), pytest.approx(0.05 - FAKE_COST)]
 
 
