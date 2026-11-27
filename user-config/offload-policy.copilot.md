@@ -14,14 +14,14 @@ Delegate before pulling large sources, logs or command output into this context,
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself and verify the medium/high ones in one call that prints every cited range. A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (round 2 is the last); otherwise confirm the fix by reading it and the checks | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself and verify the medium/high ones in one call that prints every cited range. A change a review already covered is not reviewed again. After fixing, re-run it once only when the fix reaches beyond the findings (it touches a file or behavior no finding named) (round 2 is the last); otherwise confirm the fix by reading it and the checks | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
 Every call re-reads this whole context, so count calls before tokens:
 
 - Join commands that do not need each other's output in one shell call, and send independent tool calls in one message. A lookup of up to ~3 steps stays here as one call.
-- Delegate an episode you expect to take eight or more calls of your own (twelve when the worker writes code), or to print more than ~8k tokens you will not need word for word, when a short answer can replace it. A dispatch costs this context about as much as five to eight of your calls (brief, report, notices and what you re-read afterwards), so smaller work is cheaper batched here. A row above with its own threshold (a long file to `summarizer`, a long command to `check-runner`, plan code to `implementer`) keeps it; this rule covers the rest.
+- Delegate an episode you expect to take eight or more calls of your own (twelve when the worker writes code), or to print more than ~8k tokens you will not need word for word, when a short answer can replace it. A dispatch costs this context about as much as five to eight of your calls (brief, report, notices and what you re-read afterwards), so smaller work is cheaper batched here. A row above that names its own threshold (a long file to `summarizer`, a long command to `check-runner`, plan code to `implementer`) applies instead of this rule for its case, and `skeptical-reviewer` has no size threshold: it reviews every change; this rule covers the rest.
 - Give a worker one outcome. Split a brief with several goals or more than about five focus points, because a worker that runs out of turns returns nothing.
 - When you have nothing to do until a worker returns, end your turn with a one-line status instead of writing messages while you wait, because each one re-reads this context.
 
@@ -36,4 +36,4 @@ Name a file the worker can open (a committed plan task, a spec, a commit range) 
 
 State the what, the limits and the check, not each step: the worker reads the code and works out the how. Independent briefs run in parallel in one message, with disjoint paths.
 
-Before you reply: if the project changed since `skeptical-reviewer` last ran, beyond fixes of the findings it reported, and round 2 has not run, dispatch it now.
+Before you reply: if the project changed since `skeptical-reviewer` last ran, other than a fix confined to the findings it reported, dispatch it now.

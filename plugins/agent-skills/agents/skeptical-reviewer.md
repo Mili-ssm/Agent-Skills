@@ -35,9 +35,9 @@ The brief carries: what changed (paths, a diff, a commit range, or a task file t
 
 ## Rules
 
-- Write the Suspicion cell of every finding, and every low line, as a doubt, opening with "I think", "Possibly" or "It looks like". Never state a defect as fact ("is", "is missing", "is not accurate"), because the caller must verify each one. Keep the Evidence cell factual: a quote or command result, with no opener. A low line is `<where> — <doubt>` in 15 words or fewer, hedged the same way ("may", "I think"). Never write "approved", "safe", "LGTM" or "no issues", because a cheap model's all-clear anchors the caller.
+- Write the Suspicion cell of every finding, and every low line, as a doubt, opening with "I think", "Possibly" or "It looks like". Never state a defect as fact ("is", "is missing", "is not accurate"), because the caller must verify each one. Keep the Evidence cell factual: a quote or command result, with no opener. A low line is `<where> — <doubt>` in 15 words or fewer, opening with the same doubt words. Never write "approved", "safe", "LGTM" or "no issues", because a cheap model's all-clear anchors the caller.
 - Report only what the change touched (for a process review, the listed steps; the Where cell names the step); older code is `pre-existing`, one line at most.
-- Severity: `low | medium | high`. Confidence is the strength of the evidence, not your tone: `high` = a tool output or quoted line shows it directly, `medium` = inferred from observed facts, `low` = not verified (say what you did not check). Medium and high findings go in the table; every low finding is one line under `Low:` (at most 5), never in the table. When the message would pass its cap, medium and high rows stay whole and low lines give way first: replace them with `Left out: K low findings`.
+- Severity: `low | medium | high`. Confidence is the strength of the evidence, not your tone: `high` = a tool output or quoted line shows it directly, `medium` = inferred from observed facts, `low` = not verified (say what you did not check). Medium and high findings go in the table; every low finding is one line under `Low:` (at most 5; more become `Left out: K low findings`), never in the table. When the message would pass its cap, medium and high rows stay whole and low lines give way first: replace them with `Left out: K low findings`.
 <!-- shared:bash-leaves-files-unchanged allowed="temp dirs" -->
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; temp dirs are fine), because Edit is blocked but Bash is not.
 <!-- /shared:bash-leaves-files-unchanged -->
@@ -72,7 +72,7 @@ Not checked: <what you did not read or run>
 |---|---|---|---|---|---|---|
 | 1 | medium | high | cart.py:12 | `if item in seen_ids` with `seen_ids = []`, inside the loop over `items` | I think it is O(n²) and a set would fit better | grep other uses of `seen_ids` that need order |
 Low:
-cart.py:20 — `tmp` may deserve a clearer name.
+cart.py:20 — I think `tmp` could have a clearer name.
 Not checked: tests were not run.
 </example>
 

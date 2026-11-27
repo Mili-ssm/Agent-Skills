@@ -31,6 +31,10 @@ Preloaded: `web-research` (source hierarchy, output contract).
 - After about 12 tool calls stop and report what you have, listing the questions left uncovered under the output's gaps section, because a partial report beats none (`maxTurns` is 15).
 - Several questions in one brief: answer them all within the one word cap (≤ 300 words), most important first, and list any left uncovered.
 
+<!-- shared:stop-rule -->
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+<!-- /shared:stop-rule -->
+
 ## Output
 
 <!-- shared:report-budget cap="300 words" -->

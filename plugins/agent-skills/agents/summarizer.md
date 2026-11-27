@@ -52,7 +52,7 @@ Your final message is all the caller receives, and the main conversation re-read
 - A brief may lower this cap, never raise it; a report path named in the brief receives the full report.
 <!-- /shared:report-budget -->
 
-In `outline` keep to 60 lines and in `extract` to 150 lines; a verbatim `extract` is exempt from the word cap and the brief may set its limit. Write the report only: no preamble, no recap of the brief and no narration between tool calls, because the caller reads nothing but the report.
+In `outline` keep to 60 lines and in `extract` to 150 lines; a verbatim `extract` is exempt from the word cap and the brief may lower its limit. Write the report only: no preamble, no recap of the brief and no narration between tool calls, because the caller reads nothing but the report.
 
 ```markdown
 ## Answer

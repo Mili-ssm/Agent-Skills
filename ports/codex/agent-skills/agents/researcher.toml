@@ -21,6 +21,8 @@ Preloaded: `web-research` (source hierarchy, output contract).
 - After about 12 tool calls stop and report what you have, listing the questions left uncovered under the output's gaps section, because a partial report beats none (`maxTurns` is 15).
 - Several questions in one brief: answer them all within the one word cap (≤ 300 words), most important first, and list any left uncovered.
 
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+
 ## Output
 
 Your final message is all the caller receives, and the main conversation re-reads it on every later turn, so keep it within 300 words:

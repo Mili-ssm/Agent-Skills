@@ -51,6 +51,10 @@ Send only `merge` rows (the two claims say the same, after you read both whole) 
 
 Report, in place of the Report section below: `applied N, left M`, then one row per item left, `| Item | Proposed action | Reason |`, reason at most 12 words (the command's, or yours for what you did not send). The rows not applied (supersede, refute, forget) are the owner's to decide, so keep their proposal.
 
+<!-- shared:stop-rule -->
+When the brief does not fit what you find, stop and report the gap, because you cannot ask the owner.
+<!-- /shared:stop-rule -->
+
 ## Report
 
 <!-- shared:report-budget cap="300 words" -->

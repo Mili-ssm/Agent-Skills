@@ -8,7 +8,7 @@ Delegate this task instead of doing it inline: $ARGUMENTS
 
 If no task was given, ask what to offload in one question first.
 
-Pick the worker by the task and send it a self-contained brief with the row's fields, because workers start without this conversation. Every brief also carries what only this conversation knows: decisions already taken, each with its reason, and what the worker must not touch. Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it; every worker already has its stop rule and report format, so state one only to change it. State the what, the limits and the check, not each step.
+Pick the worker by the task and send it a brief that stands on its own with the files it names, with the row's fields, because workers start without this conversation. Every brief also carries what only this conversation knows: decisions already taken, each with its reason, and what the worker must not touch. Name a file the worker can open (a committed plan task, a spec, a commit range) instead of restating it; every worker already has its stop rule and report format, so state one only to change it. State the what, the limits and the check, not each step.
 
 | Task | Worker | Brief fields |
 |---|---|---|
@@ -19,7 +19,7 @@ Pick the worker by the task and send it a self-contained brief with the row's fi
 | A bounded implementation task with clear acceptance | `agent-skills:implementer` | task, owned files, checks, acceptance criteria, constraints |
 | Mechanical lint/type/test fixes after a change | `agent-skills:fixer` | checks, files in scope, behavior that must not change |
 | Verify a changed web UI in a browser | `agent-skills:ui-verifier` | URL or start command, flows with acceptance criteria, viewports |
-| Review what changed in the project since its last review (code, docs, files, a deletion, an image description) | `agent-skills:skeptical-reviewer` | paths, diff, commit range or task file (named, not pasted), intent, owner rules not already in `CLAUDE.md` or `AGENTS.md`, what is already verified, round (1 or 2; round 2 only when the fix reaches beyond the findings), findings already rejected; a change already reviewed is not sent again |
+| Review what changed in the project since its last review (code, docs, files, a deletion, an image description) | `agent-skills:skeptical-reviewer` | paths, diff, commit range or task file (named, not pasted), intent, owner rules not already in `CLAUDE.md` or `AGENTS.md`, what is already verified, round (1 or 2; round 2 only when the fix reaches beyond the findings: it touches a file or behavior no finding named), for a process review, the rules that applied and the steps taken, each with its evidence, findings already rejected; a change already reviewed is not sent again |
 
 - Long runs go in the background, so this conversation keeps working until the result arrives.
 - Independent tasks (for example one researcher per question) run in parallel in one message; dependent steps run in order, for example implementer, then check-runner, then fixer.
