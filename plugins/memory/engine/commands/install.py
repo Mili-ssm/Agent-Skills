@@ -29,6 +29,7 @@ _LAUNCHER = """#!/usr/bin/env bash
 if [ -n "${{MEM_DATA:-}}" ]; then d="$MEM_DATA"; else d="${{XDG_STATE_HOME:-$HOME/.local/state}}/agent-memory"; fi
 rec=""
 [ -r "$d/{record}" ] && IFS= read -r rec < "$d/{record}"
+rec="${{rec%$'\\r'}}"
 emb={embedded}
 marker={marker_q}
 for cand in "$rec" "$emb"; do
@@ -54,8 +55,8 @@ def default_bin_dir() -> Path:
 
 
 def launcher_missing() -> bool:
-    """True when `mem` is not on PATH and the default launcher is absent."""
-    return shutil.which("mem") is None and not (default_bin_dir() / "mem").exists()
+    """True when no `mem` resolves on PATH (the rule of hooks/subagent-start.sh: `command -v mem`)."""
+    return shutil.which("mem") is None
 
 
 def _write_record() -> None:
