@@ -107,7 +107,7 @@ Plugin option `auto_settle` (exactly `true` turns it on) and `auto_settle_minute
 
 **Where to look:** `mem-settle status`, `mem-settle run --dry-run`, `mem-settle ack` (clears a failure line); state in `<state folder>/settle/<id>/` (runs kept 30 days). The session start text shows one line while unacknowledged settlings exist (`settled since <date>: 2 merged, 1 superseded, 1 left; see mem settle log, undo with mem settle undo <n>, hide with mem settle ack`) and a failure line after a failed run. **Not measured:** the 40-record trial of the plan decides whether it is turned on; kill criteria there.
 
-### Joining loose notes to syntheses (`mem-integrate run`; opt-in by running it; not yet measured)
+### Joining loose notes to syntheses (`mem-integrate run`; opt-in by running it; one trial, 2026-11-27: no wrong placement, no new sentence placed)
 
 `mem-integrate run [--store PATH] [--claude PATH] [--budget USD] [--dry-run]` joins knowledge notes that are part of no synthesis to the parts of the syntheses whose topics cover them.
 
