@@ -4,6 +4,8 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-27
+
 ### Changed
 
 - `skeptical-reviewer`: its description no longer excludes diff review, so it matches the review row that sends it the staged diff before a push or pull request.
