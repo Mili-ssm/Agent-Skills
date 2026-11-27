@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tomllib
-
-import pytest
+from types import SimpleNamespace
+from typing import cast
 
 import port
+import pytest
 
 AGENTS = {"implementer", "fixer", "check-runner"}
 
@@ -43,7 +45,7 @@ def test_rename_agents(text, want):
         ("tab\there\nline two\n", "'''\ntab\there\nline two\n'''"),
         # cannot sit in a literal string: escaped basic string instead
         ("no trailing newline", '"no trailing newline"'),
-        ("has ''' inside\n", '"has \'\'\' inside\\n"'),
+        ("has ''' inside\n", "\"has ''' inside\\n\""),
         ("bell\x07\n", '"bell\\u0007\\n"'),
         ("del\x7f\n", '"del\\u007f\\n"'),
     ],
@@ -95,7 +97,10 @@ def test_copilot_tools(tools, disallowed, want):
 @pytest.mark.parametrize(
     ("fm", "want"),
     [
-        ({"tools": ["Read", "Grep", "Glob"]}, "read files, search file contents, find files by name"),
+        (
+            {"tools": ["Read", "Grep", "Glob"]},
+            "read files, search file contents, find files by name",
+        ),
         ({"tools": ["Read", "Bash"]}, "read files, shell commands"),
         ({"tools": ["Read", "Edit", "Write"]}, "read files, edit files, create files"),
         (
@@ -143,7 +148,12 @@ READ_ONLY_LINE = "- `Explore` runs on Haiku only with the user-scope override (s
         (port.CODEX, "${CLAUDE_PLUGIN_ROOT}/x", {}, f"{port.CODEX_ROOT}/x"),
         (port.CODEX, "~/.claude/plugins/p", {}, f"{port.CODEX_BASE}/p"),
         (port.COPILOT, "~/.claude/plugins/p", {}, f"{port.COPILOT_BASE}/p"),
-        (port.COPILOT, "${CLAUDE_SKILL_DIR}/a.md", {"skill": "s"}, f"{port.COPILOT_ROOT}/skills/s/a.md"),
+        (
+            port.COPILOT,
+            "${CLAUDE_SKILL_DIR}/a.md",
+            {"skill": "s"},
+            f"{port.COPILOT_ROOT}/skills/s/a.md",
+        ),
         (port.CODEX, "use `Explore`", {}, "use `explorer` (built-in role)"),
         (port.COPILOT, "use `Explore`", {}, "use `explore` (built-in agent)"),
         (port.CODEX, "`AskUserQuestion`", {}, port.ASK_USER_TEXT),
@@ -193,22 +203,32 @@ def test_transformed_text_has_no_stale_token(target):
 
 def test_check_passes_with_block(tmp_path, monkeypatch, capsys):
     """Shared-block markers in a skill reference and an agent must not reach the ports, and --check must still pass."""
-    import shutil
-
-    for name in ("plugins/agent-skills", "ports", "user-config", ".claude-plugin", ".github", ".agents"):
+    for name in (
+        "plugins/agent-skills",
+        "plugins/memory",
+        "ports",
+        "user-config",
+        ".claude-plugin",
+        ".github",
+        ".agents",
+    ):
         shutil.copytree(port.ROOT / name, tmp_path / name)
     shutil.copy(port.ROOT / "README.md", tmp_path / "README.md")
     (tmp_path / "docs").mkdir()
     shutil.copy(port.ROOT / "docs" / "ports.md", tmp_path / "docs" / "ports.md")
     monkeypatch.setattr(port, "ROOT", tmp_path)
     monkeypatch.setattr(port, "PLUGIN", tmp_path / "plugins" / "agent-skills")
-    monkeypatch.setattr(port, "CLAUDE_MARKETPLACE", tmp_path / ".claude-plugin" / "marketplace.json")
+    monkeypatch.setattr(
+        port, "CLAUDE_MARKETPLACE", tmp_path / ".claude-plugin" / "marketplace.json"
+    )
     monkeypatch.setattr(port, "POLICY", tmp_path / "user-config" / "offload-policy.md")
     monkeypatch.setattr(port, "ROUTING", tmp_path / "user-config" / "routing.md")
     monkeypatch.setattr(port, "README", tmp_path / "README.md")
     monkeypatch.setattr(port, "PORTS_DOC", tmp_path / "docs" / "ports.md")
 
-    reference = port.PLUGIN / "skills" / "prompt-engineering" / "references" / "skills-and-agents.md"
+    reference = (
+        port.PLUGIN / "skills" / "prompt-engineering" / "references" / "skills-and-agents.md"
+    )
     agent = port.PLUGIN / "agents" / "fixer.md"
     for path, line in (
         (reference, "## Skills"),
@@ -227,7 +247,10 @@ def test_check_passes_with_block(tmp_path, monkeypatch, capsys):
 def test_models_block_is_regenerated_and_requires_markers():
     doc = f"intro\n{port.MODELS_BEGIN}\nstale\n{port.MODELS_END}\noutro\n"
     out = port.models_block(doc, port.CATALOG_DATA)
-    assert out.startswith(f"intro\n{port.MODELS_BEGIN}\n\n") and out.endswith(f"{port.MODELS_END}\noutro\n")
+    assert out is not None
+    assert out.startswith(f"intro\n{port.MODELS_BEGIN}\n\n") and out.endswith(
+        f"{port.MODELS_END}\noutro\n"
+    )
     assert "stale" not in out
     assert "| `fable` | `gpt-6.2-astra` low |" in out
     assert port.models_block("no markers", port.CATALOG_DATA) is None
@@ -239,8 +262,55 @@ def test_ports_doc_block_is_current():
 
 
 def test_unused_max_cells_follow_the_effort_policy():
-    assert port.CODEX_PAIRS[("haiku", "max")] == ("gpt-6.1-terra", "low")
-    assert port.CODEX_PAIRS[("sonnet", "max")] == ("gpt-6.2-sol", "low")
-    assert port.CODEX_PAIRS[("opus", "max")] == ("gpt-6.2-astra", "low")
-    assert port.CODEX_PAIRS[("fable", "max")] == ("gpt-6.2-astra", "xhigh")
+    assert port.CODEX_PAIRS["haiku", "max"] == ("gpt-6.1-terra", "low")
+    assert port.CODEX_PAIRS["sonnet", "max"] == ("gpt-6.2-sol", "low")
+    assert port.CODEX_PAIRS["opus", "max"] == ("gpt-6.2-astra", "low")
+    assert port.CODEX_PAIRS["fable", "max"] == ("gpt-6.2-astra", "xhigh")
     assert port.COPILOT_MODELS["fable"] == "claude-fable-5.2"
+
+
+def codex_catalog(plugins: list[tuple[str, str]]) -> str:
+    entries = [{"name": n, "source": {"source": "local", "path": f"./{f}"}} for n, f in plugins]
+    return json.dumps({"name": port.MARKETPLACE, "plugins": entries})
+
+
+def test_catalog_plugins_add_memory_to_codex_only():
+    assert port.catalog_plugins(port.CODEX) == [
+        ("agent-skills", port.CODEX.dir),
+        ("memory", "plugins/memory"),
+    ]
+    assert port.catalog_plugins(port.COPILOT) == [("agent-skills", port.COPILOT.dir)]
+
+
+def test_generated_catalogs_list_memory_for_codex_only():
+    codex = json.loads((port.ROOT / port.CODEX.catalog).read_text(encoding="utf-8"))
+    copilot = json.loads((port.ROOT / port.COPILOT.catalog).read_text(encoding="utf-8"))
+    assert [p["name"] for p in codex["plugins"]] == ["agent-skills", "memory"]
+    assert codex["plugins"][1]["source"] == {"source": "local", "path": "./plugins/memory"}
+    assert [p["name"] for p in copilot["plugins"]] == ["agent-skills"]
+
+
+@pytest.mark.parametrize(
+    ("plugins", "fragment"),
+    [
+        ([("agent-skills", "ports/codex/agent-skills")], "listed plugins"),
+        ([("agent-skills", "ports/codex/agent-skills"), ("memory", "plugins")], "source"),
+        (
+            [("agent-skills", "ports/codex/agent-skills"), ("memory", "plugins/nope")],
+            "is not a folder",
+        ),
+    ],
+)
+def test_checker_rejects_a_missing_or_mispathed_memory_entry(
+    tmp_path, monkeypatch, plugins, fragment
+):
+    (tmp_path / "plugins" / "memory").mkdir(parents=True)
+    (tmp_path / "ports" / "codex" / "agent-skills").mkdir(parents=True)
+    (tmp_path / ".agents" / "plugins").mkdir(parents=True)
+    (tmp_path / port.CODEX.catalog).write_text(codex_catalog(plugins), encoding="utf-8")
+    monkeypatch.setattr(port, "ROOT", tmp_path)
+    verifier = port.Verifier.__new__(port.Verifier)
+    verifier.errors = []
+    verifier.src = cast("port.Sources", SimpleNamespace(marketplace={"name": port.MARKETPLACE}))
+    verifier.catalog(port.CODEX)
+    assert any(fragment in e for e in verifier.errors), verifier.errors

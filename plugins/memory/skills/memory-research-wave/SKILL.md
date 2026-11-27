@@ -5,6 +5,8 @@ description: Guides a research wave into the `mem` store - a study that reads se
 
 # Research wave
 
+> In Codex the `memory-*` subagents and Claude Code's auto memory named below do not exist: do that work yourself with `mem` (personal matters are not stored in `mem`).
+
 **Core rule:** cheap agents find leads, shell-equipped writers write notes from the full page text, fresh-context fact-checkers compare every claim with the local copies, and one fixer applies what was verified. Never rely on a note that nobody checked: claims in written notes do carry errors, mostly overstatement (figures in [research-notes.md](../memory/references/research-notes.md)).
 
 The note rules (source ranks, `confidence`, `Inference:`, declarative names, no business specifics) live in [research-notes.md](../memory/references/research-notes.md) of the `memory` skill. Do not restate them here; quote them into each brief (step 2).

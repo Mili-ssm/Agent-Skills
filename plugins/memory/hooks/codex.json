@@ -1,0 +1,27 @@
+{
+  "description": "Opens sessions and subagents with the memory text (Codex port: no environment, compaction or session-end hooks)",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MEM_HOST=codex \"${PLUGIN_ROOT}\"/hooks/session-index.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "MEM_HOST=codex \"${PLUGIN_ROOT}\"/hooks/subagent-start.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

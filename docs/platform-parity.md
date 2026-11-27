@@ -128,8 +128,10 @@ Our plugins use the bold rows. "≈" marks a near match whose timing differs.
 | Capture and history commit at end | `SessionEnd`, but 3 s at most: run the commit in a detached process | `sessionEnd` | no session-end event: a debounced `Stop` hook or the next `SessionStart` |
 | Agents (4) and skills (3) | as for `agent-skills`: roles outside the plugin, tool limits as rules | as for `agent-skills` | as for `agent-skills` |
 | Options (`store`, `auto_*`) | a config file read by `mem` | a config file | `variables` |
-| `mem` on PATH | call it by `PLUGIN_ROOT` from hooks; skills need a shim on PATH | not documented how a hook finds the plugin folder; hooks run inside the session sandbox | relative to the plugin root (hooks run there) |
+| `mem` on PATH | not on PATH (probe 2026-11-27): hooks call it by `PLUGIN_ROOT`, the session text gives the absolute path ([ADR 0036](adr/0036-memory-codex-port-core.md)) | not documented how a hook finds the plugin folder; hooks run inside the session sandbox | relative to the plugin root (hooks run there) |
 | Background passes (`claude -p`) | `codex exec` | `copilot -p`, with the same Claude models | `agy -p` |
+
+Codex, probed 2026-11-27 (`codex-cli 0.171.0-alpha.13.2`): trusted plugin hooks run in the CLI too, and a Codex manifest can select its own hooks file; the core port is built from the same folder (ADR 0036; setup in the plugin README § Codex); the observations and their method live in the [Codex port plan](superpowers/plans/2026-11-27-memory-codex-port.md#evidence-probes-of-2026-11-27).
 
 Claude Code itself: a plugin hook's `timeout` does not raise the shared 1.5 s `SessionEnd` budget, so the plugin's 5 s history commit at session end is likely cut short there too; the detached-process fix applies to Claude as well.
 

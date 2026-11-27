@@ -13,6 +13,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from commands import admin, common, curate, edit, hooks, integrate, memory, read, sources, synthesis
+from commands.install import add_parser as _parser_add_install
 from core import config, safe_io
 from memories import matching, records, rules
 from notes import check as check_rules
@@ -257,6 +258,7 @@ _NO_STORE_NEEDED = (
     "signal",
     "projects",
     "project-synthesis",
+    "install-command",
 )
 
 
@@ -1292,6 +1294,7 @@ def build_parser() -> argparse.ArgumentParser:
         _parser_add_registry,
         _parser_add_history,
         _parser_add_memory_edit,
+        _parser_add_install,
     ):
         add(sub)
     return parser
