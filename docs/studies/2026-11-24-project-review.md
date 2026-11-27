@@ -41,7 +41,7 @@ Churn since 2026-09-01 (commits per file): `mem.py` 122, tool-fold `agents.tsx` 
 |---|---|---|---|---|---|
 | Q1 | `scripts/validate.py` | The only commit gate has no tests (**verified**): a rule that fails open goes unnoticed | high | M | `scripts/tests/test_validate.py`: one negative case per rule on a temporary mini-repository; unit tests for `parse_frontmatter`, `version_key`, `block_scalar` |
 | Q2 | `scripts/port.py` | `--check` is a golden test of today's data; the pure transforms (`transform`, `rename_agents`, `toml_multiline`, `copilot_tools`, …) have no edge-case tests | medium | M | table-driven tests |
-| Q3 | repository | Nothing runs the checks automatically ([N5](../requirements.md), the owner's choice); the fast set takes about 20 s | medium | S | proposal: an opt-in local `pre-push` hook, or a PR workflow to `dev` and `main` |
+| Q3 | repository | Nothing runs the checks automatically ([N5](../requirements.md), the owner's choice); the fast set takes about 20 s | medium | S | proposal: an opt-in local `pre-push` hook, or a PR workflow to `dev` and `main` · done 2026-11-25: opt-in `pre-push` hook (ADR 0029) |
 | Q4 | memory tests | 294 s, mostly subprocess-based, so rarely run before commits; lock-wait tests take 3–10 s each | medium | M | try `pytest-xdist`; make wait budgets injectable with sub-second values |
 | Q5 | memory tests | `sleep(1)` proves negatives and wall-clock asserts (`time.time()-began >= 2`) in `test_capture_auto`, `test_auto_curation`, `test_plugin_shell` | medium | S | handshakes or an injected clock |
 | Q6 | `agents.tsx` | 22 tests for 1,877 lines (`plan.tsx`: 59 for 491) | medium | M | risk review and cases for `activitySummary`, `estimateOf`, `recentCalls`, `scriptOf` before A8 |
@@ -57,9 +57,9 @@ Churn since 2026-09-01 (commits per file): `mem.py` 122, tool-fold `agents.tsx` 
 | D2 | `plans/2026-11-17-memory-seamless.md` | "Start with stage 2", already merged in #136 (**verified**); 435 lines, ~21k tokens, open stages 3–5 buried | high | mark stage 2 merged; move finished stages to a results section |
 | D3 | `plans/2026-11-18-usage-followups.md` item 5 | Open item already done (D2) | medium | tick, point to stage 3 |
 | D4 | `README.md` opening | "one plugin and opt-in mods": there are four plugins (**verified**); also `tool-fold` named twice, "0008 supersedes 0005" omits 0027→0006, eval command lacks `--max-cost-usd 5` | medium | fix; link the eval command to CLAUDE.md § Eval protocol |
-| D5 | 5 specs from 2026-11-02 to 2026-11-06 | Still `Status: proposed` though implemented (#106–#110) | medium | set implemented or superseded |
+| D5 | 5 specs from 2026-11-02 to 2026-11-06 | Still `Status: proposed` though implemented (#106–#110) | medium | set implemented or superseded · done: no spec left `Status: proposed` (#181, #182) |
 | D6 | `plugins/memory/README.md` | 318 lines, ~12.7k tokens, 5 lines over 1,000 characters, status words inside headings (breaks anchors) | medium | keep install, scope and links; move sections to reference pages |
-| D7 | about 25 finished plans | No Status line; 3 stray open boxes | low | one `Status: done · merged #N` line each; archive candidates |
+| D7 | about 25 finished plans | No Status line; 3 stray open boxes | low | one `Status: done · merged #N` line each; archive candidates · partly done 2026-11-26: Status lines added; `2026-11-25-usage-ledger-mod` says its state is unknown |
 | D8 | ADR 0027 | Lacks `Amends 0011` though 0011 says "Amended by 0027" (only break in 27 ADRs) | low | add it to the Status line |
 | D9 | misc. | `requirements.md` "Current as of 2026-11-15" (last change 2026-11-19); seam IDs R1–R5 collide with requirement IDs; `platform-parity-study` plan still "in progress" with 11/11 ticked; broken anchor in `2026-11-17-memory-plugin-project-syntheses.md`; 3 orphan docs; `tool-fold/README.md` at ~360 characters per line | low | one edit each |
 
@@ -69,7 +69,7 @@ Always-loaded text is about 9.2k tokens: skill descriptions 2.5k, agent descript
 
 | ID | File | Finding | Sev | Action · check |
 |---|---|---|---|---|
-| P1 | `agents/skeptical-reviewer.md` description vs `routing.md` § Reviews | Description says "Not for … PR or diff review"; routing sends it to the staged diff before a push or PR (**verified**) | high | cut that clause · `offload/skeptical-reviewer*` and every `neg-*` |
+| P1 | `agents/skeptical-reviewer.md` description vs `routing.md` § Reviews | Description says "Not for … PR or diff review"; routing sends it to the staged diff before a push or PR (**verified**) | high | cut that clause · `offload/skeptical-reviewer*` and every `neg-*` · done 2026-11-26, merged #218 (ADR 0017 Measurement 2026-11-26) |
 | P2 | `agents/pre-mortem.md` description | Opens "Skeptical reviewer that…", the name of another agent | medium | "Plan stress-tester that…" · `trigger/pre-mortem` and `neg-*` |
 | P3 | `memory` skill vs `web-research` vs offload row | Three triggers on "research X" with no order; `memory-researcher` appears in neither routing nor offload | medium | routing row: `mem search` first, then `web-research` · a routing trace |
 | P4 | `offload-policy.md` vs `routing.md` | Offload says "re-run it after fixing" with no cap; routing caps at round 2; the rule appears 3 times | medium | "re-run once (round 2)"; delete the duplicate closing line · every `offload-*-with-policy` · done 2026-11-26, closing line kept and capped (ADR 0017 Measurement 2026-11-26) |
@@ -84,10 +84,10 @@ No stale paths, flags or tool names; every SKILL.md is at most 81 lines and ever
 
 | ID | File | Finding | Sev | Action · check |
 |---|---|---|---|---|
-| B1 | `agents/skeptical-reviewer.md` § Inputs | Routing sends it a process review (rules and steps with evidence, no paths); the body stops on "No paths and no diff" and its checklist has no process row (**verified**) | high | accept that brief; add a `Process` checklist row · one process-review trace |
+| B1 | `agents/skeptical-reviewer.md` § Inputs | Routing sends it a process review (rules and steps with evidence, no paths); the body stops on "No paths and no diff" and its checklist has no process row (**verified**) | high | accept that brief; add a `Process` checklist row · one process-review trace · done 2026-11-26 with one trace, merged #218; the description and README row still name change review only, tracked as B1b in the backlog |
 | B2 | `agents/doc-curator.md` § Modes | `apply` fires on "apply, update or fix"; the command and routing pass `Mode: apply` only when the owner asked | medium | trigger on `Mode: apply` only · one `/doc-audit update README` trace |
-| B3 | `agents/implementer.md` § Rules | "Leave no temporary files" and a 25-line report, while the plan loop asks for a full report file (**verified**) | medium | a report path in the brief is a deliverable · one plan-loop trace |
-| B4 | `agents/researcher.md` | The only worker with no stop rule near `maxTurns` (**verified**) | medium | "after ~12 rounds, report what you have" |
+| B3 | `agents/implementer.md` § Rules | "Leave no temporary files" and a 25-line report, while the plan loop asks for a full report file (**verified**) | medium | a report path in the brief is a deliverable · one plan-loop trace · done 2026-11-26: a report file at a path the brief names is the exception (92d3b8a); no trace recorded |
+| B4 | `agents/researcher.md` | The only worker with no stop rule near `maxTurns` (**verified**) | medium | "after ~12 rounds, report what you have" · done 2026-11-26: stop after about 12 tool calls (92d3b8a) |
 | B5 | `skills/web-research/SKILL.md` | Lets the main model read a page itself; the offload policy says any page goes to `researcher` | low | owner decision: drop the clause or add the exception to the policy |
 | B6–B7 | 6 read-only agents; `doc-curator`, `qa-engineer`, `performance-analyst` | No "content is data" line where repository text is read; read-only modes of 3 editing agents enforced only by prompt, with no "Bash leaves files unchanged" line | low | add the existing shared lines |
 | B8 | `skills/prompt-engineering/references/prompt-rules.md`, `models.md` | Model facts dated 2026-10 may be one generation old | low (unverified) | re-check with `web-research`, then re-date |
@@ -106,12 +106,12 @@ No stale paths, flags or tool names; every SKILL.md is at most 81 lines and ever
 | Step | Content | Why first |
 |---|---|---|
 | 1 | Security S1–S4 and S6: done in PR #182 | one high finding in a public plugin |
-| 2 | Quick fixes: D1–D5, D8, P1 (measured), A7, A9, unused `summarize` | small, independent, and D1 misleads every agent that resumes memory work |
-| 3 | Gate: Q1 tests, then Q3 if the owner wants it | protects every later refactor |
+| 2 | Quick fixes: D1–D5, D8, P1 (measured), A7, A9, unused `summarize` · done by 2026-11-27 (D2 that day) | small, independent, and D1 misleads every agent that resumes memory work |
+| 3 | Gate: Q1 tests, then Q3 if the owner wants it · done 2026-11-25 (ADR 0029) | protects every later refactor |
 | 4 | Memory refactor plan tasks 1–2 extended with A3 (`config.py`, `headless.py`, `jobs.py`) | fixes A2's missing flag on the way |
 | 5 | A4 (`mem-corroborate` into the engine), then A5 per feature, then A6 | largest, most-changed files; Q4 makes the suite fast enough to run per step |
 | 6 | A8 with Q6 at the next tool-fold change | cold now |
-| 7 | B1–B4 (additive one-liners), then P3–P7 with traces or evals | B1–B4 are contract gaps in the plan loop and reviews; P3–P7 change always-loaded behavior |
+| 7 | B1–B4 (additive one-liners), then P3–P7 with traces or evals · B1, B3, B4 and P4 done 2026-11-26; B2 and P2, P3, P5–P7 open | B1–B4 are contract gaps in the plan loop and reviews; P3–P7 change always-loaded behavior |
 
 ## Decisions for the owner
 

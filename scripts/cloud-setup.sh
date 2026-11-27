@@ -14,15 +14,24 @@
 warn() { echo "WARN [cloud-setup]: $*" >&2; }
 
 # Path of a file this repo ships, as the marketplace clone holds it ($1 is relative to the repo
-# root): the known clone folder first, else the first match under ~/.claude/plugins, because the
-# clone's folder name is Claude Code's choice. Prints nothing when the file is not there.
+# root): the known clone folder first, else a match under ~/.claude/plugins whose clone declares
+# the `mili-ssm` marketplace, because the clone's folder name is Claude Code's choice and another
+# marketplace may ship a file at the same path. Prints nothing when the file is not there.
 shipped_file() {
-  local known="$HOME/.claude/plugins/marketplaces/mili-ssm/$1"
+  local known="$HOME/.claude/plugins/marketplaces/mili-ssm/$1" match root
   if [ -f "$known" ]; then
     echo "$known"
-  else
-    find "$HOME/.claude/plugins" -path "*/$1" 2>/dev/null | head -1
+    return
   fi
+  while IFS= read -r match; do
+    root="${match%/"$1"}"
+    # The top-level name only: the owner block also says "mili-ssm" and a fork may keep it.
+    if python3 -I -c 'import json, sys; sys.exit(json.load(open(sys.argv[1])).get("name") != "mili-ssm")' \
+      "$root/.claude-plugin/marketplace.json" 2>/dev/null; then
+      echo "$match"
+      return
+    fi
+  done < <(find "$HOME/.claude/plugins" -path "*/$1" 2>/dev/null)
 }
 
 # The marketplace ref (ADR 0027): `Mili-ssm/Agent-Skills#<ref>` follows a branch or tag; unset keeps the

@@ -1,6 +1,6 @@
 # 0023 A memory plugin makes notes and memories reachable from every repository
 
-Status: accepted · Date: 2026-11-17
+Status: accepted · Date: 2026-11-17 · Amended by 0036
 
 ## Context
 
