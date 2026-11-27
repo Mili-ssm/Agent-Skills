@@ -7,14 +7,14 @@ Delegate before pulling large sources, logs or command output into this context,
 | Situation | Delegate to |
 |---|---|
 | Searching or reading more than 3 files, or an unfamiliar codebase | `explorer` (built-in role) |
-| Running tests, lint, typecheck, a build or another read-only command that you expect to take over a minute or to print more than a screen of output (in the background while you keep working) | `check-runner` |
+| Running tests, lint, typecheck, a build or another read-only command that you expect to take over a minute or to print more than a screen of output (spawn it, keep working, and collect its result before your final answer) | `check-runner` |
 | Reading any file over ~200 lines (logs, docs, PDFs, large diffs, source) to answer from it, map it, or pull out a part you cannot locate with grep | `summarizer` |
 | Any web search or web page | `researcher`, one per question, in parallel |
 | Writing the code of a plan task (more than ~20 changed lines), even when it looks easy | `implementer`: write its brief, then review its diff instead of writing the code yourself |
 | Mechanical lint/type/test fixes after a change | `fixer` |
 | Verifying a changed web UI in a browser | `ui-verifier` |
 | Before executing any plan, spec or design | `pre-mortem` |
-| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Run it in the background with the checks, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
+| Before your final answer, whenever you or a worker (e.g. `implementer`) changed the project since its last review: code, docs, files, a deletion. The review is part of done, because the author is anchored on its own reasoning and a fresh context sees what it no longer does. Spawn it together with the checks and collect its result before your final answer, triage every finding yourself, verify medium/high ones, re-run it once after fixing (round 2 is the last) | `skeptical-reviewer` |
 
 Keep inline: decisions, edits under ~20 lines, integrating results, reading a range you located with grep, and a short check with its output cut (`| tail`, `-q`), because a dispatch costs more than its few lines. A task whose design is still open is not delegated: settle it here, or ask the owner, then brief it.
 
