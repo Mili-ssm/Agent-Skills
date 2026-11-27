@@ -108,11 +108,11 @@ Consequences for later tasks: Task 3 takes owner text only from `response_item` 
 - [ ] Implement; run engine suite, `python3 scripts/validate.py`, `claude plugin validate plugins/memory`: PASS. Commit.
 - [ ] Live check in the throwaway `CODEX_HOME`: one `codex exec` session in a folder with a memory folder and `auto_capture` file = `true` leaves a capture status line (`mem-capture` log) and a history commit; the owner closes a thread and then the window in the VS Code extension and the hook log shows (or not) a `session-end` record with `host=codex`; a session killed at its end (no `SessionEnd`) is captured by a session start the next day; nothing written to the real store or the owner's `~/.codex` (before/after snapshot).
 
-### Task 5: Memory agents as Codex roles
+### Task 5: Memory agents as Codex roles (done: fae669f, 3d6beec; deferred low: install-command aborts on an OSError mid-loop; the launcher-coverage test ignores commands with no bin file)
 
 **Files:**
-- Modify: `scripts/port.py` (emit `plugins/memory/agents/*.md` as `ports/codex/memory/agents/*.toml`), `scripts/tests/` (a port test), `plugins/memory/README.md` § Codex (copy step), `docs/ports.md` if it lists outputs
-- Generated: `ports/codex/memory/agents/*.toml`
+- Modify: `scripts/port.py` (emit `plugins/memory/agents/*.md` as `plugins/memory/codex-agents/*.toml`, inside the plugin so a Codex install carries them; moved there in the fix round), `scripts/tests/` (a port test), `plugins/memory/README.md` § Codex (copy step), `docs/ports.md` if it lists outputs
+- Generated: `plugins/memory/codex-agents/*.toml`; also `mem install-command` installs `mem-research` and `mem-synthesize` launchers (the roles call them)
 
 - [ ] Tests: each memory agent yields one TOML with `name`, `description`, `developer_instructions`, `model` from the tier table, `model_reasoning_effort` from its `effort`; read-only agents' instructions carry the tool-limit rule the `agent-skills` port uses; `port.py --check` fails when the TOML is stale; no generated role contains `~/.claude` (the synthesizer's skill lookup, `agents/memory-synthesizer.md`, gains a Codex path: `~/.codex/plugins/cache`).
 - [ ] Implement; run `python3 scripts/port.py`, `uv run --with pytest pytest scripts/tests -q`, `python3 scripts/validate.py`: PASS. Commit.
