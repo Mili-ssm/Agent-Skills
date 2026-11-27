@@ -60,6 +60,8 @@ def test_clean_keeps_the_work_folder_when_diag_dir_is_set(tmp_path, monkeypatch)
     )
     assert spec is not None and spec.loader is not None
     trial_env = importlib.util.module_from_spec(spec)
+    # Registered before it runs (test_module_loaders).
+    monkeypatch.setitem(sys.modules, spec.name, trial_env)
     spec.loader.exec_module(trial_env)
 
     work = tmp_path / "w"
