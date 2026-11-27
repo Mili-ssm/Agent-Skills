@@ -36,10 +36,18 @@ if [ -n "$out" ]; then
 else
   # mem did not answer (no uv, a cold cache, a time-out): the rules still open the session, without the counts.
   command -v uv >/dev/null 2>&1 || echo "memory: uv is not installed, so mem and the plugin's background passes cannot run (https://docs.astral.sh/uv/)."
-  cat <<'TXT'
+  if [ "${MEM_HOST:-}" = "codex" ]; then   # Codex has no auto memory: the same rules without that clause
+    cat <<'TXT'
+memory: the mem command searches notes and memories (skill: memory).
+- Before you act on this project, change something or research a topic: mem search "<topic in English>". It returns decisions, constraints and pitfalls recorded earlier that the files do not show.
+- To remember: what a later session would need (a decision, constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names no business; the project's current situation -> mem remember too.
+TXT
+  else
+    cat <<'TXT'
 memory: the mem command searches notes and memories (skill: memory).
 - Before you act on this project, change something or research a topic: mem search "<topic in English>". It returns decisions, constraints and pitfalls recorded earlier that the files do not show.
 - To remember: preferences and personal matters -> auto memory; what a later session would need (a decision, constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names no business; the project's current situation -> both.
 TXT
+  fi
 fi
 exit 0

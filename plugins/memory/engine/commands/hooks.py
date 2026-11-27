@@ -38,16 +38,32 @@ _INDEX_RULES = (
     "constraint, pitfall or finding) -> mem remember, in English, with --global if it holds in any project and names "
     "no business; the project's current situation -> both."
 )
+# Codex has no auto memory (a Claude Code feature) and no memory:* subagents: its variants of the lines above.
+_INDEX_RULES_CODEX = _INDEX_RULES.replace(
+    "preferences and personal matters -> auto memory; what", "what"
+).replace(
+    "; the project's current situation -> both.",
+    "; the project's current situation -> mem remember too.",
+)
 # Only a project with a live state memory has written state for the status checker to read (ADR 0030).
 _STATUS_LINE = (
     "- Resuming earlier work, or asked where things stand: dispatch memory:memory-status-checker "
     "before reading plans or the backlog yourself."
+)
+_STATUS_LINE_CODEX = (
+    "- Resuming earlier work, or asked where things stand: read the project's state memories with "
+    "`mem memories --kind state` before reading plans or the backlog yourself."
 )
 _INDEX_LIMIT = 1500
 _CLAIM_LIMIT = 100
 
 
 _SUPERSEDED_LINE = re.compile(r"^superseded_by:", re.MULTILINE)
+
+
+def _host() -> str:
+    """The host that runs the hook: `codex` when the hook sets MEM_HOST=codex, otherwise `claude`."""
+    return "codex" if os.environ.get("MEM_HOST") == "codex" else "claude"
 
 
 def _is_superseded_file(path: Path) -> bool:
@@ -188,10 +204,15 @@ def _index_due_line(due: dict[str, int], complete: bool) -> list[str]:
     parts = ", ".join(
         f"{due[label]} {label}" for label in curate._DECISION_LABELS.values() if label in due
     )
+    action = (
+        "run a curation pass with the memory-curation skill"
+        if _host() == "codex"
+        else "dispatch memory:memory-curator"
+    )
     return [
         (
             f"Curation due: {'' if complete else 'at least '}{total} {'item' if total == 1 else 'items'} "
-            f"({parts}) (after the current task: dispatch memory:memory-curator)."
+            f"({parts}) (after the current task: {action})."
         )
     ]
 
@@ -276,9 +297,10 @@ def _index_lines(
     today: datetime.date,
 ) -> list[str]:
     """The head line, the rules, the status line, the notice and the store's due lines."""
-    lines = [" ".join(head), *_INDEX_RULES.split("\n")[1:]]
+    codex = _host() == "codex"
+    lines = [" ".join(head), *(_INDEX_RULES_CODEX if codex else _INDEX_RULES).split("\n")[1:]]
     if any(m.kind == "state" for m in mine):
-        lines.append(_STATUS_LINE)
+        lines.append(_STATUS_LINE_CODEX if codex else _STATUS_LINE)
     if notice:
         lines.append(notice)
     if store is not None:
@@ -508,13 +530,14 @@ def cmd_session_index(args: argparse.Namespace) -> int:
         text = _session_text(args, data, stats)
     except Exception:
         logger.debug("building the session start text failed", exc_info=True)
-        text = _INDEX_RULES
+        text = _INDEX_RULES_CODEX if _host() == "codex" else _INDEX_RULES
         stats.clear()
     print(text)
     if args.hook:
         source = data.get("source")
         common._log_hook({
             "hook": "session-index",
+            "host": _host(),
             "source": source if isinstance(source, str) else None,
             "ms": int((time.monotonic() - started) * 1000),
             "chars": len(text),

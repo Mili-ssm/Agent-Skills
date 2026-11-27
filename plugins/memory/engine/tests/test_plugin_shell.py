@@ -911,3 +911,36 @@ def test_session_index_returns_fast_with_capture_on(world):
     assert (
         done.returncode == 0 and time.monotonic() - started < MEM_BOUND_SECONDS
     )  # mem is bounded by 4 s; the sweep is not waited on
+
+
+def test_session_index_codex_fallback_has_no_auto_memory(tmp_path):
+    r = subprocess.run(
+        [str(HOOKS / "session-index.sh")],
+        input="{}",
+        capture_output=True,
+        text=True,
+        env={
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(tmp_path),
+            "XDG_DATA_HOME": str(tmp_path / "data"),
+            "XDG_CONFIG_HOME": str(tmp_path / "cfg"),
+            "MEM_DATA": str(tmp_path / "d"),
+            "MEM_HOST": "codex",
+        },
+        check=False,
+    )
+    if shutil.which("uv", path="/usr/bin:/bin"):
+        pytest.skip("uv is in a system folder")
+    assert r.returncode == 0 and not r.stderr
+    assert "auto memory" not in r.stdout and "mem remember" in r.stdout
+
+
+def test_codex_manifest_and_hooks_match_the_claude_plugin():
+    root = HOOKS.parent
+    claude = json.loads((root / ".claude-plugin" / "plugin.json").read_text())
+    codex = json.loads((root / ".codex-plugin" / "plugin.json").read_text())
+    assert codex["version"] == claude["version"] and codex["description"] == claude["description"]
+    cfg = json.loads((root / codex["hooks"]).read_text())["hooks"]
+    assert sorted(cfg) == ["SessionStart", "SubagentStart"]
+    assert cfg["SessionStart"][0]["hooks"][0]["command"].startswith("MEM_HOST=codex ")
+    assert cfg["SubagentStart"][0]["hooks"][0]["command"].startswith("MEM_HOST=codex ")
