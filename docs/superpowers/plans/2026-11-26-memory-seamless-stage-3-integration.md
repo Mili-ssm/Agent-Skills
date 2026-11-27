@@ -18,9 +18,9 @@ Built: Tasks 1, 2, 5, 6a, 6b, 6c, 7 and 8 in the reduced scope below; Tasks 3 an
 
 | Check | Result |
 |---|---|
-| Engine suite | 3,248 passed, 5 skipped (3,040 before the stage) |
+| Engine suite | 3,257 passed, 5 skipped (3,040 before the stage) |
 | `mem-integrate --self-check`, `evals/integrate/run_trial.py --self-check` | pass; the trial's four wrong fake answers each give `kill` |
-| Rehearsal on a copy of the real store with a fake `claude` (Step 5b), twice | 1 synthesis with 4 candidate notes; a run changed 16 files (the synthesis, the 4 notes, 11 re-stamped members); `mem check` printed nothing before and after; `--undo` returned every file byte for byte, logs aside; the real store equal to the copy taken before the rehearsal |
+| Rehearsal on a copy of the real store with a fake `claude` (Step 5b), three times, the last at the final commit | 1 synthesis with 4 candidate notes; a run changed 16 files (the synthesis, the 4 notes, 11 re-stamped members); `mem check` printed nothing before and after; `--undo` returned every file byte for byte, logs aside; the real store equal to the copy taken before the rehearsal |
 | Trial dry run | 1 synthesis, 29 notes offered, 2 sessions: 0.149 USD, plus the Sonnet audit as one request, 0.138 USD: 0.287 USD; the bars are twice the sessions part and twice the sum |
 
 What differs from the task text, by ruling during the build:
