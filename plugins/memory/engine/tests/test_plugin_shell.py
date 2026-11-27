@@ -933,6 +933,7 @@ def test_session_index_codex_fallback_has_no_auto_memory(tmp_path):
         pytest.skip("uv is in a system folder")
     assert r.returncode == 0 and not r.stderr
     assert "auto memory" not in r.stdout and "mem remember" in r.stdout
+    assert f"run it as {HOOKS.parent.resolve()}/bin/mem, or install it once" in r.stdout
 
 
 def test_codex_manifest_and_hooks_match_the_claude_plugin():
