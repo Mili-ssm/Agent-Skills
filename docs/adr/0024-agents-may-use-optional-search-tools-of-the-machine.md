@@ -46,3 +46,14 @@ Unmeasured (N6 allows it for prompt changes outside a `description` and the offl
 - A trace shows one of these agents reporting "not found" from an empty `fff` or `ast-grep` result without the Grep confirmation, or spending more tool rounds than before on searches: revert that agent's line (kill criterion).
 - A user reports an agent that fails to launch or loses tools because of the `fff` entries: remove them from `tools`.
 - `fff` ships a command-line binary: prefer it through Bash and drop the MCP entry.
+
+## Review 2026-11-27
+
+Trace check against the kill criterion's first part, over every subagent transcript on the owner's machine on 2026-11-27 (`~/.claude/projects/*/*/subagents/*.jsonl`, 3,864 files; tool calls deduplicated by `tool_use` id; an `fff` result counts as empty when its first 300 characters say no match; a one-off script, not kept):
+
+| Measure | Result |
+|---|---|
+| Runs that called an `fff` tool | 104 (`skeptical-reviewer` 93, `check-runner` 5, `summarizer` 3, `fact-checker` 1, probes 2), about 250 calls |
+| `fff` results with no match | 21 truly empty; each of the 21 followed within its next three calls by `grep` or `rg` through Bash (2 more flagged were auto-broadened results with matches) |
+
+By that proxy (a grep after each empty result; the agents' final report text was not read), the first part of the kill criterion did not fire; the second (more tool rounds than before) was not measured. On the owner's request, `fff` extends to four more agents that search a repository: `architect`, `security-reviewer`, `consistency-auditor`, `doc-curator` (the three tools by name in `tools`, plus the `fff-tools` fragment) and `user-agents/Explore.md` (the same rule as plain text, since fragments do not render there; the fragment's `verbatim-in:` line makes `validate.py` fail when the two drift). The same kill criteria apply to each. Unmeasured for the new agents: read one trace of each after use.

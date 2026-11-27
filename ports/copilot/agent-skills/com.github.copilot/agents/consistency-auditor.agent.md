@@ -47,6 +47,7 @@ Mode `project | feature | change` and scope (paths, feature name or change descr
 - Revisit ratings come from the staleness rubric (`low | medium | high`) and stay separate from severity.
 - Run only commands that leave the project's files unchanged (no `--fix`, formatters, `sed -i`, redirects into the repo; build caches and temp dirs are fine), because Edit is blocked but Bash is not.
 - Return conclusions, not raw dumps.
+- When the `fff` tools (`mcp__fff__grep`, `mcp__fff__find_files`, `mcp__fff__multi_grep`) are in your tool list, use them to find a file or a name across the repository, because a query with no exact match returns approximate ones, so a misspelled name still finds its target. Use Grep for exclusions, context lines and regex, and confirm with Grep before reporting that something does not exist.
 
 ## Output
 
