@@ -1,0 +1,75 @@
+# Project review follow-up, 2026-11-27
+
+**Status** — Reviewed at `d443642` on `dev`. Installation and pre-push instructions corrected. Open boxes identify pending work. The [backlog](../../backlog.md) owns scheduling and the existing B2, Q6, A8 and Q9 identifiers.
+
+## Codex parity and next-session work
+
+Priority for the follow-up: verify decoder output in an isolated CLI run and check generated Codex instructions, then restore interrupted imports. A4 follows these fixes. Owner decision, 2026-11-27: ship with VS Code `SessionEnd` assumed and move the lifecycle log check to the backlog.
+
+**Codex follow-up.** Implementation and isolated trials are recorded below. The VS Code window-close and next-day recovery checks remain open in the [parity plan](2026-11-27-memory-codex-parity.md).
+
+### Platform baseline at d443642
+
+| Surface | Current behavior and evidence |
+|---|---|
+| Memory engine and install | Codex and Claude use the same Python engine and store operations. On the reviewed installation, 346/346 tracked memory files, 90/90 tracked agent-skills Codex files, and all 5 memory and 17 agent-skills user role files matched the repository byte for byte. Repeat the comparison after upgrades. Runtime operation also depends on uv, filesystem access and hook trust. [Codex setup](../../../plugins/memory/README.md#install) |
+| Hooks and options | Codex registers session start/end, subagent start and pre-compaction. Capture can also revisit idle threads on a later start. Config files supply options. Unlike Claude's manifest, the Codex manifest omits the delegation-table hook and the post-compaction handoff check. The shell-triggered settle after a store write is absent. Confirm actual delivery separately in CLI and VS Code after trusting the hooks. [Codex hooks](../../../plugins/memory/hooks/codex.json) · [Claude hooks](../../../plugins/memory/hooks/hooks.json) · [Platform study](../../platform-parity.md) |
+| Model work | Codex sessions can use memory while capture, research, integration, synthesis and automatic curation still use Claude. Settle and corroborate offer experimental Codex runners. A runner launched inside a network-restricted host session can fail independently of engine access. [Runner capabilities and trials](../../../plugins/memory/README.md#background-passes-on-codex-models-experimental-adr-0037) |
+| Agent-skills and Copilot | Codex gets generated skills and separately installed role TOMLs. Some role tool restrictions are expressed as instructions; confirm actual sandbox permissions separately. Copilot ships agent-skills. Its catalog contains no memory plugin. Codex is the priority for this follow-up. [Port mapping](../../ports.md) · [Copilot catalog](../../../.github/plugin/marketplace.json) |
+
+### Corrections and feature investigations
+
+Execution scope: the eight Codex items below. Exclusion is prospective: it covers pending automatic capture, including unread portions of an existing thread, and leaves previously saved records in place. Use disposable stores for trials. Compare the same inputs on both runners. Score capture by speaker, quote support, omitted and invented memories; score corroboration by accepted groups, wrong merges, abstentions and final store contents. Record usage and elapsed time. Keep native capture proposal-only. Limit the capture comparison to one small conversation set per runner and corroboration to one four-lesson store per runner; record a failed arm explicitly. Distinguish synthetic checks, actual host observations and owner-only lifecycle checks.
+
+- [x] **Per-thread capture exclusion.** Exclude a transcript from closing, pre-compaction and later sweeps. Test a second eligible thread and a capture queued while the lock is held.
+- [x] **Role discovery and delegation.** Use an installed Codex role when available and inline `mem` when absent. Confirm table delivery in an isolated CLI session.
+- [x] **CLI and VS Code decoder contract.** A real isolated CLI session ran `false` then `true`. Both recorded a shell result envelope with a separate JSON exit code. The same envelope was observed in VS Code rollout metadata. The updated decoder replayed the CLI rollout and yielded a tool error followed by recovery, and owner AGENTS header text is preserved unless it matches the full injected envelope.
+- [x] **Local diagnostics.** Report executing copy, role files, manifest, observed delivery, store access and runner dependencies without writes.
+- [x] **Codex prompt evaluation.** Add Codex instructions and regenerate ports. Check role selection, project context and audit-mode writes on a small trace.
+- [x] **Runner containment and accounting.** Kill the timed-out Codex process group. Reject completed over-budget turns before application. Report failure metadata without raw error text.
+- [x] **Native capture pilot, proposals only.** Compare validated evidence, coverage, invented records, usage and elapsed time on the same synthetic rollout.
+- [x] **Corroboration trial.** Compare proposals, verifier decisions and final records on the same four lessons. Integration follows its own decision in ADR 0037.
+
+### Implementation and trial evidence
+
+- Exclusion uses the resolved transcript path and the capture lock. The automatic triggers skip excluded paths before reading transcript content. The command waits for an in-flight capture and preserves records already applied. Synthetic tests cover both direct triggers, an older-day sweep, an eligible neighbor and a queued capture.
+- Codex CLI probe with the local plugin installed and hook trust bypassed for the isolated invocation: the rollout contained the delegation table as a developer message. `gpt-6-luna` returned the project marker and selected the installed `memory-status-checker` by name in a tool-free audit. The two fixture files and their directory contents were unchanged. An earlier isolated trace without the role selected the inline fallback. Actual dispatch of both recall roles was observed in the repository session under the owner's instructions.
+- The decoder preserves the two reported owner messages in fixtures and recognizes structured and process-wrapper errors. A metadata-only rollout review confirmed the VS Code environment and AGENTS envelopes. Use the verified shell envelope for exit status and retain the existing checks for structured and text results. A user message identical to a known injected envelope still lacks provenance.
+- `mem diagnostics --host codex` checks the executing plugin copy, manifest, host dependencies, installed role files, store access and last matching hook log entry. Hook trust and session role visibility are reported as unknown. The live read-only result found all five role files and a `session-index` observation.
+- Runner tests cover a child holding a pipe at timeout, a turn exceeding the remaining allowance, and sensitive stderr and event error text. The Codex token check rejects a completed over-budget turn before approval or application. A single model request can spend past the allowance before reporting usage.
+
+| Isolated comparison (2026-11-27) | Claude | Codex |
+|---|---|---|
+| Capture, one synthetic rollout, two owner-backed expected records plus injected and assistant-only distractors | 2 valid proposals, 2 expected topics, 0 invented or omitted fixture topics, 10,088 reported tokens, 12.6 s | 2 valid proposals, 2 expected topics, 0 invented or omitted fixture topics, 64,876 reported tokens, 16.9 s |
+| Corroboration, four seeded lessons in two projects, one expected paraphrase pair | 3 proposed groups, expected pair found, 0 verifier approvals, 0 merges, 17.5 s, USD 0.0041 | 2 proposed groups, expected pair found, 0 verifier approvals, 0 merges, 22.6 s, 106,794 reported tokens |
+
+Capture used the same decoded input and validator on both runners. Both arms attributed evidence to the owner and left the disposable store untouched. Corroboration abstained on the expected pair in both arms after the verifiers ruled it unfaithful. Both copies retained the same record contents. Capture remains proposal-only on Codex. These are single-fixture trials. General capture quality remains unmeasured, and host token accounting differs.
+
+Local checks: 3,521 engine tests passed and 6 skipped. All 275 script tests passed in a separate invocation. Ruff, Basedpyright, port generation check and plugin manifest validation passed. The live extension lifecycle remains unobserved. The owner deferred the log check to the backlog and authorized release.
+
+## Import recovery before further import changes
+
+- [x] **High · Recover interrupted overwrites.** Live imports publish a private rollback journal before the first replacement. After an interrupted import, `mem import-recover` restores changed files and prior history, rebuilds the index, and clears the journal. If any touched path diverged after interruption, recovery reports it before restoring anything. Verified using a real second-replacement I/O error and a subprocess exit after undo-log publication. Recovery and retry were checked on a disposable store. [Import tests](../../../plugins/memory/engine/tests/test_import.py)
+
+- [ ] **Low · Concurrent path changes.** Enumeration and planning reject symlink chains. Copying later resolves the source and destination paths again. The ordinary single-writer flow has leaf-level atomic replacement. Whether another writer can change a parent during import remains an unverified concern. Establish the supported concurrency model before adding filesystem machinery. [Copy path](../../../plugins/memory/engine/commands/sources.py) · [Replacement primitive](../../../plugins/memory/engine/core/safe_io.py)
+
+## Plan progress and audit mode
+
+- [ ] **Medium · Markdown examples count as steps.** In [plan-progress](../../../plugins/plan-progress/hooks/register.tsx), a plan with two headed sections and one finished step showed 1/2. Appending a fenced Markdown example with an unchecked box produced 1/3 in the real parser executed in memory. Filter fenced content before selecting the plan shape. Test both shapes, including a heading inside an example, in [the mod suite](../../../plugins/plan-progress/tests/plan.test.tsx).
+- [ ] **Medium · A summary can survive a task rename.** In the same parser, replacing the only unfinished task title preserved the key `plan.md:0/1:0/1`. The card accepts the stored phrase for that key. Include the inputs that determine the remaining-work description in its identity. Verify that a rename refreshes the description, an identical reread makes no model call, and a late answer for the old title cannot replace the new one.
+- [ ] **Medium · B2, audit mode precedence.** The [command](../../../plugins/agent-skills/commands/doc-audit.md) selects apply only for an explicit leading argument. The [agent](../../../plugins/agent-skills/agents/doc-curator.md) also uses words such as “update” and “fix”. The conflict is visible in the instructions. An unauthorized edit was not observed. Capture one trace with explicit audit mode and “which sections need a fix?” and one authorized apply case confined to a named file. Check tool calls and the resulting diff. Regenerate the ports when the source prompt changes.
+
+Q9 originally proposed one fixture for two functions named `parsePlan`. Give the Markdown examples to plan-progress. [Tool-fold's parser](../../../plugins/tool-fold/hooks/plan.tsx) consumes a numbered model reply with per-step durations and optional completion criteria. Keep its acceptance cases in that format. Host UI behavior remains to be checked after a fix.
+
+## Performance measurements and module boundaries
+
+- [ ] **Medium · Q6 before A8, duplicate model calls in tool-fold.** [Agent activity](../../../plugins/tool-fold/hooks/agents.tsx) tracks requests by tool-use ID, while successful translations are cached by command text after the answer arrives. Two simultaneous IDs for identical text can therefore launch separate requests and retries. The set of IDs grows for the module lifetime. Drive two distinct IDs through a deferred fake model. Count requests, retry calls and delivered descriptions on success and failure. Check that the next call can recover after failure. Measure repeated commands in representative runs before estimating savings.
+- [ ] **Medium · A8, isolate command descriptions.** Agent lifecycle, [waiting](../../../plugins/tool-fold/hooks/waiting.tsx) and [cycle state](../../../plugins/tool-fold/hooks/cycle.ts) import each other. After Q6 covers simultaneous calls, consider extracting translation and its pending/completed state as the first independent change. Verify card updates, retries and session cleanup through the mod entry point.
+- [ ] **Measure · Sparse memory searches.** [Search dispatch](../../../plugins/memory/engine/commands/read.py) builds a shared corpus for the queries in one invocation. With fewer than three visible note hits, the deep-search hint can build another corpus. A batch can repeat this work while earlier queries yield no hint. Time identical common, sparse, missing and batched queries against a fixed store snapshot with usage logging disabled. Count corpus builds and compare result ordering, hint text, median and p95 across repeated invocations. Consider reusing work within the invocation if the overhead is material. No latency or cost reduction was measured during review.
+
+## Documentation corrections and verification baseline
+
+- [x] **Codex installation.** The reviewed CLI (`0.171.0-alpha.13.2`) rejects `codex plugin install`. Its `plugin add --help` accepts `PLUGIN@MARKETPLACE`. The [installation guide](../../../README.md#install) uses that syntax.
+- [x] **Pre-push verification.** The [maintainer instructions](../../../CLAUDE.md#commands) explicitly select the pre-push stage. The project's [hook configuration](../../../.pre-commit-config.yaml) restricts the repository checks to that stage. A prior recorded push caught 13 type errors after a commit-stage check passed. Preserve the local opt-in policy in [ADR 0029](../../adr/0029-shared-text-and-model-catalog.md).
+- **Ports.** At the review revision, all 180 expected generated artifacts matched bytes and executable flags, with zero extra files. [Transform boundary tests](../../../scripts/tests/test_port.py) already exist. The [port generator](../../../scripts/port.py) calls the shared agent validator before applying target-specific checks. These two older concerns require no follow-up on the reviewed evidence.
+- **Review scope.** Read-only fallback agents covered architecture, tests, filesystem safety and documentation. Parser cases and the import failure used in-memory execution. The initial review preceded the requested memory cross-check except for one early Python compatibility lookup, excluded from the findings. Initial memory reads wrote usage telemetry outside the repository. Use `MEM_USAGE_LOG=0` for subsequent read-only lookups. The original review did not exercise live host UI, full suites, disk recovery or performance benchmarks.

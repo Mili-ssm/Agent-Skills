@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import datetime
 import hashlib
+import json
 import shutil
 import time
 from pathlib import Path
@@ -34,6 +35,47 @@ BUDGET_OPTION = "CLAUDE_PLUGIN_OPTION_AUTO_CAPTURE_BUDGET"
 
 def capture_dir(data: Path) -> Path:
     return Path(data) / "capture"
+
+
+def _transcript_key(transcript: Path) -> str:
+    return hashlib.sha256(str(transcript.expanduser().resolve()).encode()).hexdigest()
+
+
+class ExclusionRegistryError(ValueError):
+    """Unreadable or malformed automatic capture exclusions."""
+
+
+def _read_exclusions(data: Path) -> set[str]:
+    """Read the exclusion registry, failing closed if it cannot be decoded or read."""
+    try:
+        contents = (capture_dir(data) / "excluded.json").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return set()
+    value = json.loads(contents)
+    if not isinstance(value, dict) or not isinstance(value.get("transcripts"), list):
+        raise TypeError("invalid capture exclusion registry")
+    items = value["transcripts"]
+    if any(not isinstance(item, str) for item in items):
+        raise TypeError("invalid capture exclusion registry")
+    return set(items)
+
+
+def exclusions(data: Path) -> set[str]:
+    try:
+        return _read_exclusions(data)
+    except (OSError, ValueError, TypeError, RecursionError) as exc:
+        raise ExclusionRegistryError("capture exclusion registry is unreadable or invalid") from exc
+
+
+def is_excluded(data: Path, transcript: Path) -> bool:
+    return _transcript_key(transcript) in exclusions(data)
+
+
+def exclude(data: Path, transcript: Path) -> None:
+    """Add an exclusion while the caller holds the capture lock."""
+    values = exclusions(data)
+    values.add(_transcript_key(transcript))
+    jobs.write_json(capture_dir(data) / "excluded.json", {"transcripts": sorted(values)})
 
 
 def session_path(data: Path, session: str) -> Path:

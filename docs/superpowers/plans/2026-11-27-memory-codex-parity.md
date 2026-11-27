@@ -4,6 +4,8 @@
 
 Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven; tasks 1-7 and 6b done 2026-11-27 (task headers give commits; step boxes were not ticked); released in 0.19.0 (2026-11-27); open: the owner's VS Code and next-day checks (Task 4 live check), which gate the kill criterion on capture · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
 
+Release decision (2026-11-27): the owner accepts `SessionEnd` as a working assumption. Follow the [Codex log check in the backlog](../../backlog.md#plugin-memory) for VS Code delivery and next-start recovery evidence.
+
 **Goal:** Codex sessions get what Claude sessions get from the memory plugin, except what Codex cannot carry: automatic capture and history commit, plugin options, and the memory agents.
 
 **Architecture:** Hooks and engine stay one code path. Codex gets three more hook entries in `hooks/codex.json`, a helper that turns option files into the `CLAUDE_PLUGIN_OPTION_*` variables the scripts already read, and a second transcript decoder behind `capture.extract.extract()`. Agents come from `scripts/port.py` as TOML roles.

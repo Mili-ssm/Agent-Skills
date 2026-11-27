@@ -475,22 +475,36 @@ def _log_group(
     """One `.curation-log` entry per changed file, sharing a `group` id and holding the file's text before the action
     and a digest of its text after it, so `mem restore` can undo them together and refuse when one changed since.
     `moved` names, for a file that was renamed, the path it had before (`from`, hub-relative)."""
+    changes = {path: (before, _sha(path.read_bytes())) for path, before in originals.items()}
+    safe_io.append_text(
+        root / records.CURATION_LOG, _group_entries(root, changes, action, moved, group)
+    )
+
+
+def _group_entries(
+    root: Path,
+    changes: Mapping[Path, tuple[bytes, str]],
+    action: str,
+    moved: Mapping[Path, Path] | None = None,
+    group: str | None = None,
+) -> str:
+    """Serialize a group from original bytes and replacement digests."""
     group = group or uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     out = []
-    for path, before in originals.items():
+    for path, (before, after) in changes.items():
         entry = {
             "t": stamp,
             "action": action,
             "handle": path.relative_to(root).as_posix(),
             "group": group,
             "before": before.decode("utf-8"),
-            "after": _sha(path.read_bytes()),
+            "after": after,
         }
         if moved and path in moved:
             entry["from"] = moved[path].relative_to(root).as_posix()
         out.append(json.dumps(entry, ensure_ascii=False) + "\n")
-    safe_io.append_text(root / records.CURATION_LOG, "".join(out))
+    return "".join(out)
 
 
 def _read_body_text(source: str) -> str:

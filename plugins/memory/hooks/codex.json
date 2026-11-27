@@ -8,6 +8,11 @@
             "type": "command",
             "command": "MEM_HOST=codex \"${PLUGIN_ROOT}\"/hooks/session-index.sh",
             "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "MEM_HOST=codex \"${PLUGIN_ROOT}\"/hooks/offload-policy.sh",
+            "timeout": 5
           }
         ]
       }

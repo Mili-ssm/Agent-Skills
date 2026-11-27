@@ -63,8 +63,11 @@ def test_a_codex_session_without_a_result_is_a_failure_that_applies_nothing(worl
 @pytest.mark.parametrize(
     ("step", "shown"),
     [
-        ({"failed": "model overloaded", "exit": 1}, "model overloaded; exit 1"),
-        ({"error": "quota exceeded", "stderr": "rate limited", "exit": 3}, "stderr: rate limited"),
+        ({"failed": "model overloaded", "exit": 1}, "turn.failed; exit 1"),
+        (
+            {"error": "quota exceeded", "stderr": "rate limited", "exit": 3},
+            "error; exit 3; stderr present",
+        ),
     ],
 )
 def test_the_codex_failure_reason_reaches_the_status(world, codex, step, shown):
@@ -147,3 +150,21 @@ def test_the_codex_brief_carries_the_merge_addendum_and_the_claude_one_does_not(
     (call,) = codex.calls
     assert settle.CODEX_ADDENDUM in call["prompt"]
     assert settle.CODEX_ADDENDUM not in settle.sp.brief("settle", PAIRS_FILE="p", VERDICTS_FILE="v")
+
+
+def test_over_cap_does_not_apply_verdicts(world, codex, monkeypatch):
+    monkeypatch.setenv("MEM_CODEX_TOKENS", "100")
+    seed(world)
+    codex.plan({"py": WRITE_VERDICTS, "answer": "1", "tokens": TOKENS})
+    settle_run(world)
+    assert "status: superseded" not in (world.folder / "old-one.md").read_text()
+    assert status(world)["tokens"] == TOKENS
+
+
+def test_codex_failure_status_and_session_log_omit_error_contents(world, codex):
+    secret = "fixture-sensitive-token"
+    seed(world)
+    codex.plan({"error": secret, "stderr": secret, "exit": 1})
+    settle_run(world)
+    assert secret not in str(status(world))
+    assert all(secret not in f.read_text() for f in world.state.rglob("*") if f.is_file())

@@ -1,7 +1,8 @@
 import json
 import os
 import stat
-import subprocess
+import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -258,7 +259,7 @@ def test_parse_codex_turn_failed() -> None:
     failed = {"type": "turn.failed", "error": {"message": "boom"}}
     out = runner.parse_codex(stream(MESSAGE, {"type": "error", "message": "net"}, failed), 1)
     assert not out.has_result
-    assert out.error == "net; boom; exit 1"
+    assert out.error == "error; turn.failed; exit 1"
 
 
 def test_parse_codex_truncated_by_timeout() -> None:
@@ -279,12 +280,9 @@ def test_parse_codex_nonzero_exit_is_not_a_result() -> None:
     assert not runner.parse_codex(stream(FINAL, COMPLETED), 3).has_result
 
 
-def test_parse_codex_error_carries_the_last_stderr_lines() -> None:
-    err = "\n".join(f"line {n}" for n in range(9)) + "\nerror: unknown flag\n"
-    out = runner.parse_codex("", 2, err)
-    assert out.error.startswith("the session did not complete; exit 2; stderr: ")
-    assert out.error.endswith("line 8 | error: unknown flag")
-    assert "line 3" not in out.error
+def test_parse_codex_reports_stderr_without_its_contents() -> None:
+    out = runner.parse_codex("", 2, "error: unknown flag")
+    assert out.error == "the session did not complete; exit 2; stderr present"
 
 
 def test_claude_outcome() -> None:
@@ -319,14 +317,15 @@ def test_run_codex_captures_stderr_and_decodes_utf8(tmp_path: Path) -> None:
     assert raw == runner.CodexRaw("\u00e9 \ufffd", False, 2, "bad flag")
 
 
-def test_run_codex_timeout_keeps_partial(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def expire(cmd: list[str], **kwargs: object) -> None:
-        assert kwargs["input"] == "p"
-        raise subprocess.TimeoutExpired(cmd, 1, output=b"partial \xe2\x82", stderr=b"slow")
-
-    monkeypatch.setattr(subprocess, "run", expire)
-    raw = runner.run_codex(["codex"], "p", cwd=tmp_path, env={}, timeout=1)
-    assert raw == runner.CodexRaw("partial ", True, None, "slow")
+def test_run_codex_timeout_keeps_partial(tmp_path: Path) -> None:
+    raw = runner.run_codex(
+        [sys.executable, "-u", "-c", "import time; print('partial', flush=True); time.sleep(30)"],
+        "",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        timeout=1,
+    )
+    assert raw == runner.CodexRaw("partial\n", True, None, "")
 
 
 def _auth(account: str, token: str) -> str:
@@ -454,3 +453,37 @@ def test_drop_codex_home_keeps_a_token_it_could_not_sync(
     assert runner.sync_auth(run_dir) is False
     runner.drop_codex_home(run_dir)
     assert json.loads(fresh.read_text(encoding="utf-8")) == json.loads(NEW_AUTH)
+
+
+def test_codex_failure_does_not_expose_sensitive_error_text() -> None:
+    secret = "fixture-secret-token"
+    out = runner.parse_codex(stream({"type": "error", "message": secret}), 1, secret)
+    assert secret not in out.error
+    assert "exit 1" in out.error
+
+
+def test_codex_timeout_terminates_child_holding_pipe(tmp_path: Path) -> None:
+    pidfile = tmp_path / "child.pid"
+    script = (
+        "import subprocess,sys,time; "
+        "p=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)']); "
+        "open(sys.argv[1],'w').write(str(p.pid)); print('ready',flush=True); time.sleep(30)"
+    )
+    start = time.monotonic()
+    raw = runner.run_codex(
+        [sys.executable, "-c", script, str(pidfile)],
+        "",
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        timeout=1,
+    )
+    assert raw.timed_out and "ready" in raw.stdout
+    max_seconds = 5
+    assert time.monotonic() - start < max_seconds
+    pid = int(pidfile.read_text())
+    status = Path(f"/proc/{pid}/stat")
+    try:
+        state = status.read_text(encoding="utf-8").split()[2]
+    except (FileNotFoundError, ProcessLookupError):
+        state = "gone"
+    assert state in {"gone", "Z"}

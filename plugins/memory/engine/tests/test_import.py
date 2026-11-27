@@ -1,13 +1,20 @@
 import hashlib
 import json
-import os
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
-import pytest
-from conftest import FIXTURE, usage_log_path
-
 import mem
+import pytest
+from commands import sources
+from conftest import FIXTURE, usage_log_path
+from notes.note import load_topics
+
+EXPECTED_REPORT_LINES = 7
+EXPECTED_FILES = 2
+EXIT_FAILURE = 2
+INTERRUPTED_EXIT = 37
 
 
 @pytest.fixture
@@ -16,11 +23,15 @@ def source(tmp_path) -> Path:
     shutil.copytree(FIXTURE, src)
     (src / ".hidden").mkdir()
     (src / ".hidden" / "x.md").write_text("hidden\n", encoding="utf-8")
-    (src / "research" / "2026-11-llm-eval-methods" / "data.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (src / "research" / "2026-11-llm-eval-methods" / "data.csv").write_text(
+        "a,b\n1,2\n", encoding="utf-8"
+    )
     (src / "research" / "2026-11-llm-eval-methods" / "__pycache__").mkdir()
     (src / "research" / "2026-11-llm-eval-methods" / "__pycache__" / "m.pyc").write_bytes(b"\x00")
     (src / ".sources" / "2017-vaswani-attention").mkdir(parents=True)
-    (src / ".sources" / "2017-vaswani-attention" / "paper.txt").write_text("text\n", encoding="utf-8")
+    (src / ".sources" / "2017-vaswani-attention" / "paper.txt").write_text(
+        "text\n", encoding="utf-8"
+    )
     return src
 
 
@@ -36,7 +47,9 @@ def snapshot(folder: Path) -> dict:
     for p in sorted(folder.rglob("*")):
         st = p.stat()
         out[p.relative_to(folder).as_posix()] = (
-            hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None, st.st_mtime_ns)
+            hashlib.sha256(p.read_bytes()).hexdigest() if p.is_file() else None,
+            st.st_mtime_ns,
+        )
     return out
 
 
@@ -59,10 +72,14 @@ def test_a_first_import_copies_the_notes_and_makes_them_searchable(source, dest,
     assert lines[4] == "topics: 6 added, 0 kept as they were"
     assert lines[5] == "check: 0 problems"
     assert lines[6] == "flagged: 0 files"
-    assert len(lines) == 7
+    assert len(lines) == EXPECTED_REPORT_LINES
     assert (dest / "knowledge/computing/attention-replaces-recurrence.md").is_file()
-    assert not (dest / "research/2026-11-llm-eval-methods/data.csv").exists()  # data: only with --research-data
-    assert "attention-replaces-recurrence" in (dest / "knowledge/computing/README.md").read_text(encoding="utf-8")
+    assert not (
+        dest / "research/2026-11-llm-eval-methods/data.csv"
+    ).exists()  # data: only with --research-data
+    assert "attention-replaces-recurrence" in (dest / "knowledge/computing/README.md").read_text(
+        encoding="utf-8"
+    )
     assert not (dest / ".hidden").exists()
     assert not (dest / "research/2026-11-llm-eval-methods/__pycache__").exists()
     assert not (dest / ".sources").exists()
@@ -94,19 +111,27 @@ def test_a_changed_destination_file_is_a_conflict_until_overwrite(source, dest, 
     code, out, _ = run(dest, source, capsys)
     assert code == 0
     assert "files: 0 copied, 3 identical, 1 conflicts" in out
-    assert out.split("conflicts:\n")[1].splitlines()[0].strip() == "knowledge/computing/attention-replaces-recurrence.md"
+    assert (
+        out.split("conflicts:\n")[1].splitlines()[0].strip()
+        == "knowledge/computing/attention-replaces-recurrence.md"
+    )
     assert target.read_text(encoding="utf-8") == mine
     code, out, _ = run(dest, source, capsys, "--overwrite")
     assert code == 0
     assert "files: 1 copied, 3 identical, 0 conflicts" in out
     assert "My edit." not in target.read_text(encoding="utf-8")
-    log = [json.loads(line) for line in (dest / ".curation-log").read_text(encoding="utf-8").splitlines()]
+    log = [
+        json.loads(line)
+        for line in (dest / ".curation-log").read_text(encoding="utf-8").splitlines()
+    ]
     assert len(log) == 1 and "My edit." in log[0]["before"] and log[0]["action"] == "import"
     assert usage_log_path().read_text(encoding="ascii").splitlines()[-1].count('"copied": 1') == 1
 
 
 def test_dry_run_changes_nothing_and_reports_the_same(source, dest, capsys):
-    (source / "knowledge/computing/broken.md").write_text("no frontmatter, links [x](../../docs/a.md)\n", encoding="utf-8")
+    (source / "knowledge/computing/broken.md").write_text(
+        "no frontmatter, links [x](../../docs/a.md)\n", encoding="utf-8"
+    )
     before = snapshot(dest)
     code, dry, _ = run(dest, source, capsys, "--dry-run")
     assert code == 0
@@ -117,55 +142,73 @@ def test_dry_run_changes_nothing_and_reports_the_same(source, dest, capsys):
 
 
 def test_topics_are_united_and_a_differing_id_is_kept_and_reported(source, dest, capsys):
-    (dest / "topics.yaml").write_text("# mine\nnotes: {description: General notes}\nml: {description: Mine}\n", encoding="utf-8")
+    (dest / "topics.yaml").write_text(
+        "# mine\nnotes: {description: General notes}\nml: {description: Mine}\n", encoding="utf-8"
+    )
     code, out, _ = run(dest, source, capsys)
     assert code == 0
     assert "topics: 5 added, 1 kept as they were" in out
     assert out.split("topics kept:\n")[1].splitlines()[0].strip() == "ml"
     text = (dest / "topics.yaml").read_text(encoding="utf-8")
     assert text.startswith("# mine\nnotes: {description: General notes}\nml: {description: Mine}\n")
-    topics = mem.load_topics(dest)
-    assert topics["ml"] == {"description": "Mine"} and topics["llm"] == {"parent": "deep-learning", "description": "Large language models"}
+    topics = load_topics(dest)
+    assert topics["ml"] == {"description": "Mine"} and topics["llm"] == {
+        "parent": "deep-learning",
+        "description": "Large language models",
+    }
     assert "notes" in topics
 
 
 def test_with_sources_copies_the_sources_folder(source, dest, capsys):
     code, out, _ = run(dest, source, capsys, "--with-sources")
     assert code == 0
-    assert (dest / ".sources/2017-vaswani-attention/paper.txt").read_text(encoding="utf-8") == "text\n"
+    assert (dest / ".sources/2017-vaswani-attention/paper.txt").read_text(
+        encoding="utf-8"
+    ) == "text\n"
     assert "files: 5 copied" in out
 
 
 def test_generated_listings_are_not_copied(source, dest, capsys):
     (source / "literature" / "README.md").write_text("SOURCE-LISTING\n", encoding="utf-8")
-    (source / "knowledge" / "computing" / "README.md").write_text("SOURCE-LISTING\n", encoding="utf-8")
+    (source / "knowledge" / "computing" / "README.md").write_text(
+        "SOURCE-LISTING\n", encoding="utf-8"
+    )
     code, out, _ = run(dest, source, capsys)
     assert code == 0 and "files: 4 copied" in out
-    assert not (dest / "literature" / "README.md").exists()  # copied listings would be here; none is made without a marker
-    assert "SOURCE-LISTING" not in (dest / "knowledge/computing/README.md").read_text(encoding="utf-8")
+    assert not (
+        dest / "literature" / "README.md"
+    ).exists()  # copied listings would be here; none is made without a marker
+    assert "SOURCE-LISTING" not in (dest / "knowledge/computing/README.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_a_store_without_the_marker_is_refused(source, dest, capsys):
     (dest / "mem-store.yaml").unlink()
     code, out, err = run(dest, source, capsys)
-    assert code == 2 and out == "" and "read-only" in err
+    assert code == EXIT_FAILURE and not out and "read-only" in err
     assert not (dest / "knowledge/computing").exists()
 
 
-def test_source_equal_inside_or_containing_the_destination_is_refused(source, dest, tmp_path, capsys):
+def test_source_equal_inside_or_containing_the_destination_is_refused(
+    source, dest, tmp_path, capsys
+):
     inner = dest / "old"
     inner.mkdir()
     outer = tmp_path
     for src in (dest, inner, outer):
         code, out, err = run(dest, src, capsys)
-        assert code == 2 and out == "" and err.startswith("mem:")
+        assert code == EXIT_FAILURE and not out and err.startswith("mem:")
     code, _, err = run(dest, tmp_path / "missing", capsys)
-    assert code == 2
+    assert code == EXIT_FAILURE
 
 
 def test_a_link_outside_the_three_folders_is_a_check_problem_not_a_failure(source, dest, capsys):
     note = source / "knowledge/computing/attention-replaces-recurrence.md"
-    note.write_text(note.read_text(encoding="utf-8") + "\nSee [the doc](../../docs/spec.md).\n", encoding="utf-8")
+    note.write_text(
+        note.read_text(encoding="utf-8") + "\nSee [the doc](../../docs/spec.md).\n",
+        encoding="utf-8",
+    )
     code, out, _ = run(dest, source, capsys)
     assert code == 0
     assert "check: 1 problems" in out
@@ -175,12 +218,20 @@ def test_a_link_outside_the_three_folders_is_a_check_problem_not_a_failure(sourc
 
 def test_a_file_with_a_secret_is_flagged_and_still_copied(source, dest, capsys):
     note = source / "knowledge/computing/attention-replaces-recurrence.md"
-    note.write_text(note.read_text(encoding="utf-8") + "\nkey: " + "AKIA" + "ABCDEFGHIJKLMNOP" + "\n", encoding="utf-8")
+    note.write_text(
+        note.read_text(encoding="utf-8") + "\nkey: " + "AKIA" + "ABCDEFGHIJKLMNOP" + "\n",
+        encoding="utf-8",
+    )
     code, out, _ = run(dest, source, capsys)
     assert code == 0
     assert "flagged: 1 files" in out
-    assert out.split("flagged:\n")[1].splitlines()[0].strip() == "knowledge/computing/attention-replaces-recurrence.md"
-    assert "AKIA" in (dest / "knowledge/computing/attention-replaces-recurrence.md").read_text(encoding="utf-8")
+    assert (
+        out.split("flagged:\n")[1].splitlines()[0].strip()
+        == "knowledge/computing/attention-replaces-recurrence.md"
+    )
+    assert "AKIA" in (dest / "knowledge/computing/attention-replaces-recurrence.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_a_secret_in_a_non_markdown_research_file_is_flagged(source, tmp_path, capsys):
@@ -202,7 +253,9 @@ def test_a_secret_in_a_non_markdown_research_file_is_flagged(source, tmp_path, c
 def test_a_secret_in_a_bom_marked_utf16_file_is_flagged(source, tmp_path, capsys):
     folder = source / "research" / "2026-11-llm-eval-methods"
     key = "AKIA" + "ABCDEFGHIJKLMNOP"
-    (folder / "le.txt").write_bytes(f"key: {key}\n".encode("utf-16"))  # little-endian BOM on this platform
+    (folder / "le.txt").write_bytes(
+        f"key: {key}\n".encode("utf-16")
+    )  # little-endian BOM on this platform
     (folder / "be.txt").write_bytes(b"\xfe\xff" + f"key: {key}\n".encode("utf-16-be"))
     full = tmp_path / "full"
     assert mem.main(["init", str(full)]) == 0
@@ -240,4 +293,81 @@ def test_import_skips_symlinks_at_any_depth(source, dest, tmp_path, capsys):
     code, out, _ = run(dest, source, capsys)
     assert code == 0
     assert "literature/x/a.md" in out and "literature/y" in out
-    assert not any("TOPSECRET" in p.read_text(errors="ignore") for p in dest.rglob("*") if p.is_file() and not p.is_symlink())
+    assert not any(
+        "TOPSECRET" in p.read_text(errors="ignore")
+        for p in dest.rglob("*")
+        if p.is_file() and not p.is_symlink()
+    )
+
+
+def test_interrupted_overwrite_is_recoverable_in_another_process(source, dest, capsys, monkeypatch):
+    assert run(dest, source, capsys)[0] == 0
+    notes = sorted([*(source / "knowledge").rglob("*.md"), *(source / "literature").rglob("*.md")])
+    paths = [p for p in notes if p.name != "README.md"][:2]
+    assert len(paths) == EXPECTED_FILES
+    originals = {dest / p.relative_to(source): p.read_bytes() for p in paths}
+    for p in paths:
+        p.write_bytes(p.read_bytes() + b"\nReplacement.\n")
+    replace = sources.safe_io.replace_file
+    targets = set(originals)
+    attempted = []
+
+    def interrupt(path, data, *args, **kwargs):
+        if path in targets:
+            attempted.append(path)
+            if len(attempted) == EXPECTED_FILES:
+                raise OSError("synthetic interruption")
+        return replace(path, data, *args, **kwargs)
+
+    monkeypatch.setattr(sources.safe_io, "replace_file", interrupt)
+    assert run(dest, source, capsys, "--overwrite")[0] == EXIT_FAILURE
+    assert attempted[0].read_bytes() != originals[attempted[0]]
+    done = subprocess.run(
+        [sys.executable, mem.__file__, "--root", str(dest), "import-recover"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == 0, done.stderr
+    assert all(p.read_bytes() == original for p, original in originals.items())
+    assert not (dest / ".curation-log").exists()
+    monkeypatch.undo()
+    assert run(dest, source, capsys, "--overwrite")[0] == 0
+
+
+def test_import_recovery_after_process_exits_before_index(source, dest, capsys):
+    assert run(dest, source, capsys)[0] == 0
+    path = Path("knowledge/computing/attention-replaces-recurrence.md")
+    original = (dest / path).read_bytes()
+    (source / path).write_bytes(original + b"\nChanged by the interrupted import.\n")
+    index = dest / "knowledge/computing/README.md"
+    before_index = index.read_bytes()
+    script = """
+import os
+import sys
+import mem
+from commands import sources
+
+def stop(_root):
+    os._exit(37)
+
+sources.index_files.apply_index = stop
+raise SystemExit(mem.main(sys.argv[1:]))
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", script, "--root", str(dest), "import", str(source), "--overwrite"],
+        cwd=Path(mem.__file__).parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert done.returncode == INTERRUPTED_EXIT, done.stderr
+    assert (dest / path).read_bytes() != original
+    assert (dest / ".curation-log").is_file()
+    index.write_text("<!-- a partial index update -->\n", encoding="utf-8")
+    assert mem.main(["--root", str(dest), "import-recover"]) == 0
+    assert (dest / path).read_bytes() == original
+    assert not (dest / ".curation-log").exists()
+    assert b"attention-replaces-recurrence" in index.read_bytes()
+    assert b"attention-replaces-recurrence" in before_index
+    assert mem.main(["--root", str(dest), "import-recover"]) == 0

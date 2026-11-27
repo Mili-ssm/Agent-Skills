@@ -42,7 +42,7 @@ def over_cap(tokens: int) -> bool:
 
 
 def reason(done: dict) -> str:
-    """`: <why>` for a failed Codex session (exit code, timeout, stderr tail), else ''; a Claude dict has no `failure`."""
+    """`: <why>` for a failed Codex session (exit code, timeout, stderr presence), else ''; a Claude dict has no `failure`."""
     return f": {done['failure']}" if done.get("failure") else ""
 
 

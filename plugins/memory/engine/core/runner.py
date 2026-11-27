@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import tempfile
 from dataclasses import dataclass, field
@@ -261,22 +262,26 @@ def run_codex(
 ) -> CodexRaw:
     """Run a Codex session with the prompt on stdin (closed after it); output decoded as UTF-8 with replacement. A
     timeout returns the partial output with `timed_out=True` and no return code, an `OSError` propagates."""
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        env=env,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
     try:
-        done = subprocess.run(
-            cmd,
-            check=False,
-            cwd=cwd,
-            env=env,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
+        stdout, stderr = process.communicate(prompt.encode("utf-8"), timeout=timeout)
     except subprocess.TimeoutExpired as exc:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        for pipe in (process.stdin, process.stdout, process.stderr):
+            if pipe is not None:
+                pipe.close()
+        process.wait()
         return CodexRaw(_text(exc.stdout), True, None, _text(exc.stderr))
-    return CodexRaw(done.stdout, False, done.returncode, done.stderr)
+    return CodexRaw(_text(stdout), False, process.returncode, _text(stderr))
 
 
 @dataclass(frozen=True)
@@ -335,12 +340,6 @@ def claude_outcome(stdout: str) -> Outcome:
     )
 
 
-def _error_message(event: dict[str, Any]) -> str:
-    err = event.get("error")
-    message = err.get("message") if isinstance(err, dict) else err
-    return str(message or event.get("message") or event.get("type"))
-
-
 def _item(event: dict[str, Any]) -> dict[str, Any]:
     item = event.get("item")
     return item if isinstance(item, dict) else {}
@@ -363,17 +362,13 @@ class _Tally:
             self.completed = True
             self.tokens += _count(event.get("usage"), "input_tokens", "output_tokens")
         elif kind in {"turn.failed", "error"}:
-            self.errors.append(_error_message(event))
+            self.errors.append(str(kind))
 
     def _item(self, item: dict[str, Any]) -> None:
         if item.get("type") == "agent_message":
             self.text = item.get("text") or ""
         elif item.get("type") == "command_execution":
             self.commands.append((item.get("command") or "", item.get("exit_code")))
-
-
-def _tail(stderr: str, lines: int = 5) -> str:
-    return " | ".join(line.strip() for line in stderr.strip().splitlines()[-lines:] if line.strip())
 
 
 def _failure(tally: _Tally, returncode: int | None, stderr: str, timed_out: bool) -> str:
@@ -384,8 +379,8 @@ def _failure(tally: _Tally, returncode: int | None, stderr: str, timed_out: bool
         reasons.append("no final message" if tally.completed else "the session did not complete")
     if returncode not in {0, None}:
         reasons.append(f"exit {returncode}")
-    if tail := _tail(stderr):
-        reasons.append(f"stderr: {tail}")
+    if stderr:
+        reasons.append("stderr present")
     return "; ".join(reasons)
 
 
@@ -393,7 +388,7 @@ def parse_codex(
     stdout: str, returncode: int | None, stderr: str = "", timed_out: bool = False
 ) -> Outcome:
     """Normalize `codex exec --json` events. `has_result` needs a `turn.completed`, an agent message and exit 0;
-    `error` is empty then, else the event errors, a timeout, the exit code and the last lines of `stderr`.
+    `error` is empty then, else event types, a timeout, exit code and whether stderr was present.
     `tokens` sums `input_tokens` and `output_tokens` (cached and reasoning tokens are parts of those)."""
     tally = _Tally()
     for event in _events(stdout):

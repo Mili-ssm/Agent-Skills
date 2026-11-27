@@ -146,7 +146,7 @@ def codex_session(claude: str, work: Path, brief: str, settings: Path, log: Path
         writes=True,
         timeout=SESSION_TIMEOUT,
     )
-    log.write_text(done["raw"], encoding="utf-8")
+    log.write_text(done["raw"] if done["has_result"] else "", encoding="utf-8")
     done["wall"] = time.monotonic() - start
     return done
 
@@ -236,8 +236,13 @@ def _ask_model(job: Job, claude: str, budget: float, pairs: list) -> Path | None
     spent = f"tokens={done['tokens']}" if job.runner == "codex" else f"cost={done['cost']:.3f}"
     job.log(
         f"session: has_result={done['has_result']} error={done['error']} {spent} "
-        f"answer={' '.join(done['answer'].split())[:200]}"
+        f"answer={'' if job.runner == 'codex' else ' '.join(done['answer'].split())[:200]}"
     )
+    if job.runner == "codex" and job.out.tokens > codex_pass.token_cap():
+        job.out.failures.append(
+            f"{job.out.tokens} tokens exceeded the cap {codex_pass.token_cap()}"
+        )
+        return None
     if not done["has_result"]:
         job.out.failures.append(
             "the session ended without a result" + codex_pass.reason(done)
