@@ -27,6 +27,7 @@ FOUR_SESSIONS = 4
 UNIT_TWO = 2
 FAKE_COST = 0.02
 SMALL_BUDGET = "0.0001"
+USAGE_ERROR = 2
 
 
 def test_run_integrates_one_note_end_to_end(world):
@@ -185,6 +186,16 @@ def test_busy_lock_starts_nothing(world):
     finally:
         os.close(fd)
     assert code == 0 and "holds the lock" in out
+    assert world.sessions == [] and world.commits() == []
+
+
+@pytest.mark.parametrize("bad", ["abc", "0", "-1", "nan", "inf", ""])
+def test_budget_that_is_not_a_positive_number_is_a_usage_error(world, bad, capsys):
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as stop:
+        world.run("--budget", bad)
+    assert stop.value.code == USAGE_ERROR
+    assert f"--budget: {bad!r}" in capsys.readouterr().err
     assert world.sessions == [] and world.commits() == []
 
 

@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import shutil
@@ -74,6 +75,17 @@ def budget_of(value: str | float | None) -> float:
     except ValueError:
         return DEFAULT_BUDGET
     return number if number > 0 else DEFAULT_BUDGET
+
+
+def _budget_arg(text: str) -> str:
+    """The `--budget` text when it is a finite number above 0; a usage error naming it otherwise."""
+    try:
+        ok = 0 < float(text) < math.inf
+    except ValueError:
+        ok = False
+    if not ok:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a finite number above 0")
+    return text
 
 
 def state_folder(store: Path) -> Path:
@@ -471,7 +483,9 @@ def _parser() -> argparse.ArgumentParser:
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
     parser.add_argument("--undo", metavar="RUN", help="undo the groups of run RUN, newest first")
-    parser.add_argument("--budget", help=f"USD per run (default {DEFAULT_BUDGET})")
+    parser.add_argument(
+        "--budget", type=_budget_arg, help=f"USD per run (default {DEFAULT_BUDGET})"
+    )
     parser.add_argument(
         "--dry-run", action="store_true", help="list what would run; start and change nothing"
     )
