@@ -63,7 +63,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 
 ## Plugin `memory`
 
-Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 → kill read → Codex port (core built 2026-11-27 on `feat/memory-codex-port`, ADR 0036; owner trial in the VS Code extension and release left, [plan](superpowers/plans/2026-11-27-memory-codex-port.md)), stage 7 remote, stage 9, stage 8.
+Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 → kill read → Codex port (core merged into `dev` 2026-11-27, ADR 0036, release 0.17.0 pending; next: background passes choose a runner, ADR 0037 proposed, [plan](superpowers/plans/2026-11-27-memory-runner.md)), stage 7 remote, stage 9, stage 8.
 
 | Pri | ID | Task | State |
 |---|---|---|---|
