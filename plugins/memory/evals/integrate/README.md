@@ -22,7 +22,8 @@ outside `target/` is read or written.
 1. Seed size: at least 30 seeded notes and at least 15 labelled `append`.
 2. Wrong attachment: any note attached where its label says it must not be (`on-topic-no-fit`, `superseded`,
    `disputed`), attached to a part other than the one its label names, or joined as `append` where the label names a
-   sentence (and the reverse). Joined to another sentence of the right part: counted and reported apart, not a kill.
+   sentence (and the reverse). Joined to another sentence of the right part (a `belongs-existing-sentence` or `duplicate-of-existing` note whose
+   reference lands on a sentence that does not state the claim): a kill too, and also reported apart.
 3. Unbacked sentences: more than 1 appended sentence its note does not back. The harness writes the appended
    sentences with their notes to `audit-prompt-*.md`; a Sonnet session answers `N | backed | reason` lines. That
    session belongs to the paid run and is never started by this script; until it ran the criterion is `pending`.

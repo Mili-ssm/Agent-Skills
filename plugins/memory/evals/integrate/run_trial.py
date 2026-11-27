@@ -310,14 +310,15 @@ def totals_verdict(graded: dict, unbacked: int | None = None) -> dict:
     appended sentences the Sonnet audit found not backed by their notes (None before the audit)."""
     cost, estimate = graded["cost"], graded.get("estimate")
     undo = graded.get("undo_identical")
+    # a note joined to another sentence of the right part is a wrong attachment too (its reference lands on a
+    # sentence that does not state the claim); `wrong_sentences` keeps its own list for the report
+    wrong = [*graded["wrong_attachments"], *graded.get("wrong_sentences", [])]
     criteria = [
         _criterion("seed size", graded["seeded"], graded["seeded"] >= MIN_SEEDED),
         _criterion(
             "append share", graded["append_labelled"], graded["append_labelled"] >= MIN_APPEND
         ),
-        _criterion(
-            "wrong attachment", len(graded["wrong_attachments"]), not graded["wrong_attachments"]
-        ),
+        _criterion("wrong attachment", len(wrong), not wrong),
         _criterion(
             "unbacked sentences", unbacked, None if unbacked is None else unbacked <= MAX_UNBACKED
         ),
@@ -608,7 +609,7 @@ def table(result: Trial) -> str:
             f"integrated {graded['integrated']} notes, appended {len(graded['appended'])} sentences, "
             f"cost {graded['cost']:.3f} USD (estimate {graded['estimate']:.3f}), run {result.run['run_id']}"
         ),
-        f"joined to another sentence of the right part: {len(graded['wrong_sentences'])}",
+        f"of the wrong attachments, joined to another sentence of the right part: {len(graded['wrong_sentences'])}",
         f"verdict: {result.verdict['verdict']}",
     ]
     return "\n".join(lines)

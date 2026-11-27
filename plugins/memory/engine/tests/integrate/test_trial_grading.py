@@ -136,6 +136,10 @@ def test_grade_reports_a_wrong_sentence_apart_from_wrong_attachments():
     graded = _grade(trial, before, after, _label("n-dup", "duplicate-of-existing", PART, 1))
     assert graded["wrong_attachments"] == []
     assert [w["note"] for w in graded["wrong_sentences"]] == ["n-dup"]
+    verdict = trial.totals_verdict(graded)
+    assert verdict["verdict"].startswith("kill") and "wrong attachment" in verdict["verdict"]
+    (wrong,) = (c for c in verdict["criteria"] if c["name"] == "wrong attachment")
+    assert wrong["count"] == 1 and wrong["ok"] is False
 
 
 def test_grade_lists_appended_sentences_with_their_notes():

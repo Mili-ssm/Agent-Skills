@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -35,29 +36,51 @@ class UndoResult:
     refusal: str | None = None
 
 
-def _log_entries(store: Path) -> list[dict[str, Any]]:
+def _log_objects(store: Path) -> list[tuple[int, dict[str, Any]]]:
+    """(line number, entry) of every log line that is a JSON object with a handle; lines are split on a line feed
+    only and numbered from 0, the way `mem restore` numbers them."""
     try:
-        lines = (store / CURATION_LOG).read_text(encoding="utf-8").splitlines()
+        lines = (store / CURATION_LOG).read_text(encoding="utf-8").split("\n")
     except OSError:
         return []
     found = []
-    for line in lines:
+    for number, line in enumerate(lines):
         try:
             entry = json.loads(line)
         except ValueError:
             continue
         if isinstance(entry, dict) and isinstance(entry.get("handle"), str):
-            found.append(entry)
+            found.append((number, entry))
     return found
 
 
+def _live_entries(store: Path) -> list[dict[str, Any]]:
+    """The log as a stack: the entries that hold a text (`before`) and that no restore marker has cancelled, oldest
+    first. A marker `{"action": "restore", "handle": H, "undone": N}` cancels the entry on line N."""
+    objects = _log_objects(store)
+    cancelled = {
+        e["undone"]
+        for _, e in objects
+        if e.get("action") == "restore" and isinstance(e.get("undone"), int)
+    }
+    return [
+        {**e, "line": n}
+        for n, e in objects
+        if isinstance(e.get("before"), str) and n not in cancelled
+    ]
+
+
+def _written(store: Path, group: GroupRecord) -> list[dict[str, Any]]:
+    """The group's live log entries, one per file change."""
+    return [e for e in _live_entries(store) if e.get("group") == group.group_id]
+
+
 def newest_is_group(store: Path, group: GroupRecord) -> str | None:
-    """None when every file the group wrote (found in the log by its id) has that group's entry as its newest log
-    entry and is still the text that entry left; otherwise the refusal, naming the file."""
-    entries = _log_entries(store)
-    newest = {
-        e["handle"]: e for e in entries
-    }  # the log is append-only: the last entry of a file wins
+    """None when every file the group wrote (found in the log by its id) has that group's entry as its newest live
+    log entry (restore markers cancel the entry they undid) and is still the text that entry left; otherwise the
+    refusal, naming the file."""
+    entries = _live_entries(store)
+    newest = {e["handle"]: e for e in entries}  # the last live entry of a file wins
     written = [e for e in entries if e.get("group") == group.group_id]
     if not written:
         return f"the curation log has no entry of group {group.group_id}"
@@ -74,12 +97,27 @@ def newest_is_group(store: Path, group: GroupRecord) -> str | None:
     return None
 
 
-def _restore(group: GroupRecord, mem: Mem) -> str | None:
-    """One `mem restore` per handle of the group; the refusal text when one fails."""
-    for handle in group.handles:
-        done = mem("restore", handle)
-        if done.returncode:
-            return f"mem restore {handle} failed: {(done.stderr or done.stdout).strip()}"
+RESTORED = re.compile(r"restored to before (\S+) of \S+ \((\d+) files\)")
+
+
+def _restore(store: Path, group: GroupRecord, mem: Mem) -> str | None:
+    """`mem restore` of the group's synthesis (it undoes the whole group); the refusal text when it fails or when its
+    output shows it undid something other than this group (a `mem` command run in between), with nothing marked."""
+    handle = group.handles[0]
+    expected = len(_written(store, group))
+    done = mem("restore", handle)
+    if done.returncode:
+        return (
+            f"mem restore {handle} failed, so group {group.group_id} may be partly restored: "
+            f"{(done.stderr or done.stdout).strip()}"
+        )
+    found = RESTORED.search(done.stdout)
+    if found is None or found[1] != group.kind or int(found[2]) != expected:
+        return (
+            f"mem restore {handle} undid another change instead of group {group.group_id} "
+            f"(a mem command changed it in between; it printed: {done.stdout.strip()!r}): "
+            "check the log and restore by hand"
+        )
     return None
 
 
@@ -91,7 +129,7 @@ def undo(store: Path, folder: Path, run_id: str, mem: Mem) -> UndoResult:
     todo = [g for g in reversed(record.groups) if not g.undone]
     result = UndoResult(remaining=len(todo))
     for group in todo:
-        refusal = newest_is_group(store, group) or _restore(group, mem)
+        refusal = newest_is_group(store, group) or _restore(store, group, mem)
         if refusal:
             result.refusal = refusal
             return result

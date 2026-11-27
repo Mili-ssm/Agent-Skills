@@ -4,8 +4,11 @@ change of every file it wrote."""
 from __future__ import annotations
 
 import json
+from subprocess import CompletedProcess
 
+from entry import integrate as entry
 from integrate import state as run_state
+from integrate import undo as run_undo
 from integrate.undo import newest_is_group
 from integrate_world import (  # ruff: ignore[unused-import]  (a fixture)
     LOGS,
@@ -149,3 +152,125 @@ def test_record_file_stays_readable_after_undo(world):
     data = json.loads((world.folder / world.record().run_id / "record.json").read_text("utf-8"))
     assert data["groups"][0]["undone"] is True
     assert run_state.read_record(world.folder, data["run_id"]) is not None
+
+
+def _second_run(world, monkeypatch):
+    """A second run that integrates one more note into the same synthesis; returns both run ids."""
+    first = world.record().run_id
+    monkeypatch.setattr(
+        entry.os, "getpid", lambda: 99999999
+    )  # run id = time + pid: keep two runs apart, the newer sorting last
+    run_state.write_done(
+        world.folder, {}
+    )  # the first run offered n-two and marked it done; offer it again
+    row = world.row("n-two")
+    world.answers(
+        "spent", "spent", row, row
+    )  # the fake claude's counter went past the first run's two answers
+    _, text = world.run()
+    second = world.record().run_id
+    assert second != first and len(world.record().groups) == 1, (text, world.mem_log)
+    return first, second
+
+
+def test_undo_two_runs_into_one_synthesis_newest_first(world, monkeypatch):
+    world.store.new_note("n-two", "Alpha takes a second claim.")
+    before = snapshot(world.store.root, ignore=LOGS)
+    _applied(world)
+    first, second = _second_run(world, monkeypatch)
+    assert world.undo(second).rc == 0
+    out = world.undo(first)  # the restore markers of the newer undo must not block the older group
+    assert out.rc == 0, out.err
+    assert snapshot(world.store.root, ignore=LOGS) == before
+
+
+class FakeMem:
+    """A `mem` callable that changes nothing, answers with the given exit code and text, and records its calls."""
+
+    def __init__(self, code=0, out="", err=""):
+        self.reply = (code, out, err)
+        self.calls: list[tuple[str, ...]] = []
+
+    def __call__(self, *argv):
+        self.calls.append(argv)
+        code, out, err = self.reply
+        return CompletedProcess(argv, code, out, err)
+
+
+def test_undo_stops_when_restore_undid_another_change(world):
+    group = _applied(world)
+    mem = FakeMem(out="s:alpha\trestored to before append of 2026-11-27\n")
+    result = run_undo.undo(world.store.root, world.folder, world.record().run_id, mem)
+    assert result.undone == 0 and result.remaining == 1
+    assert result.refusal and "another change" in result.refusal and "s:alpha" in result.refusal
+    assert not world.record().groups[0].undone
+    assert group.group_id in result.refusal
+
+
+def test_undo_stops_when_restore_counts_other_files(world):
+    _applied(world)
+    mem = FakeMem(out="s:alpha\trestored to before integrate of 2026-11-27 (99 files)\n")
+    result = run_undo.undo(world.store.root, world.folder, world.record().run_id, mem)
+    assert result.refusal and "another change" in result.refusal
+    assert not world.record().groups[0].undone
+
+
+def test_undo_reports_a_partial_restore(world):
+    _applied(world)
+    mem = FakeMem(code=2, err="mem: disk full")
+    result = run_undo.undo(world.store.root, world.folder, world.record().run_id, mem)
+    assert result.undone == 0 and result.remaining == 1
+    assert result.refusal and "partly restored" in result.refusal
+    assert "s:alpha" in result.refusal and "disk full" in result.refusal
+    assert not world.record().groups[0].undone
+
+
+def test_cli_partial_restore_exits_2(world, monkeypatch):
+    _applied(world)
+    monkeypatch.setattr(
+        entry.sp, "mem", lambda _store, _env, *a: CompletedProcess(a, 2, "", "mem: disk full")
+    )
+    out = world.undo()
+    assert out.rc == REFUSED and "partly restored" in out.err and "remaining: 1" in out.out
+
+
+def test_undo_refuses_a_group_id_the_log_does_not_know(world, monkeypatch):
+    _applied(world)
+    record = world.record()
+    record.groups[0].group_id = "f" * 32
+    run_state.write_record(world.folder, record)
+    mem = FakeMem()
+    monkeypatch.setattr(entry.sp, "mem", lambda _store, _env, *argv: mem(*argv))
+    out = world.undo()
+    assert out.rc == REFUSED and "f" * 32 in out.err
+    assert not mem.calls
+    assert not world.record().groups[0].undone
+
+
+def test_undo_never_restores_when_the_check_refuses(world, monkeypatch):
+    _applied(world)
+    world.edit_note("n-new")
+    calls = []
+    monkeypatch.setattr(entry.sp, "mem", lambda _store, _env, *a: calls.append(a))
+    assert world.undo().rc == REFUSED
+    assert not calls
+
+
+def test_undo_of_two_groups_refused_then_both_undone(world):
+    world.store.add_beta()
+    world.store.new_note("n-beta", "Beta takes another claim.")
+    world.store.set_line("n-beta", "topics", ["algorithms"])
+    before = snapshot(world.store.root, ignore=LOGS)
+    alpha, beta = world.row("n-new"), world.row("n-beta", handle="beta")
+    world.answers(alpha, alpha, beta, beta)
+    world.run()
+    path = world.store.note_path("n-beta")
+    applied = path.read_bytes()
+    world.edit_note("n-beta")
+    out = world.undo()
+    assert out.rc == REFUSED and "remaining: 2" in out.out and "undone: 0" in out.out
+    path.write_bytes(applied)
+    out = world.undo()
+    assert out.rc == 0 and "undone: 2" in out.out and "remaining: 0" in out.out
+    assert world.store.meta("n-new").get("part_of") != "alpha#basics"
+    assert before != {}
