@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven; tasks 1-7 and 6b done 2026-11-27 (task headers give commits; step boxes were not ticked); open: release 0.19.0, then the owner's VS Code and next-day checks (Task 4 live check), which gate the kill criterion on capture · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
+Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven; tasks 1-7 and 6b done 2026-11-27 (task headers give commits; step boxes were not ticked); released in 0.19.0 (2026-11-27); open: the owner's VS Code and next-day checks (Task 4 live check), which gate the kill criterion on capture · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
 
 **Goal:** Codex sessions get what Claude sessions get from the memory plugin, except what Codex cannot carry: automatic capture and history commit, plugin options, and the memory agents.
 
