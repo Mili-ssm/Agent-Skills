@@ -57,6 +57,9 @@ else
   if [ -n "$named" ]; then export_var MEM_STORE "$named"; else default_store; fi
 fi
 handle "${CLAUDE_PLUGIN_OPTION_MEMORIES:-}" memories MEM_MEMORIES
+# The runner option for shell commands (the write path starts settle from them). It is MEM_RUNNER_OPTION, never
+# MEM_RUNNER: the `runner` config file and `--runner` must outrank it. Hooks pass it to the passes they start.
+[ -n "${CLAUDE_PLUGIN_OPTION_RUNNER:-}" ] && export_var MEM_RUNNER_OPTION "$CLAUDE_PLUGIN_OPTION_RUNNER"
 # mem-research, run from a shell command of this session, needs the claude binary and the owner's default depth; the
 # hook's CLAUDE_PLUGIN_OPTION_* variables do not reach shell commands.
 [ -n "$here" ] && . "$here/find-claude.sh" 2>/dev/null

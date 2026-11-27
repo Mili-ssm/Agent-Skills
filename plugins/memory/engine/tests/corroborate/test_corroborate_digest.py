@@ -5,9 +5,10 @@ import os
 from pathlib import Path
 from typing import TypedDict, Unpack
 
-import mem
+from commands.common import data_dir
 from core import jobs
 from corroborate import digest as corroborate_digest
+from corroborate import run as corroborate_run
 from corroborate_world import TODAY, calls, globals_, run, snapshot, w
 from digest import lessons as digest_module
 from memories import records
@@ -128,7 +129,7 @@ def do_digest(w, **kw):
 
 
 def engine_digest():
-    return digest_module.read(mem.data_dir(os.environ))  # the folder the session start resolves
+    return digest_module.read(data_dir(os.environ))  # the folder the session start resolves
 
 
 def digest_state(w):
@@ -391,7 +392,7 @@ def test_a_run_with_nothing_to_write_still_prunes_and_starts_no_session(w, monke
     digest_world(w)
     digest_answers(w, monkeypatch)
     assert do_digest(w)["lines_written"] == LESSON_COUNT
-    data = mem.data_dir(os.environ)
+    data = data_dir(os.environ)
     assert data is not None
     stored = engine_digest()
     stored["topics"]["vanished"] = {
@@ -416,7 +417,7 @@ def test_a_run_with_nothing_to_write_still_prunes_and_starts_no_session(w, monke
 
 def test_a_run_that_writes_also_prunes(w, monkeypatch):
     digest_world(w)
-    data = mem.data_dir(os.environ)
+    data = data_dir(os.environ)
     assert data is not None
     digest_module.write(
         data, {"topics": {"vanished": {"heading": "when gone", "of": "x", "lines": {}}}}
@@ -453,3 +454,19 @@ def test_a_state_that_cannot_be_written_still_gives_a_result(w, monkeypatch):
     (w.cdir / "digest-attempts.json").mkdir()
     result = do_digest(w)
     assert result["stopped"] and result["stopped"] != "the step failed"
+
+
+def test_the_two_sessions_of_a_digest_share_one_spend(w, monkeypatch):
+    digest_world(w)
+    digest_answers(w, monkeypatch)
+    spends = []
+    real = corroborate_run._ask
+
+    def watch(*args, **kw):
+        spends.append(args[4].spend)
+        return real(*args, **kw)
+
+    monkeypatch.setattr(corroborate_run, "_ask", watch)
+    do_digest(w)
+    assert len(spends) == CALLS_OF_A_FULL_RUN
+    assert isinstance(spends[0], corroborate_run.Spend) and spends[0] is spends[1]

@@ -10,6 +10,9 @@ import sys
 import tempfile
 from pathlib import Path
 
+from core import codex_pass
+from core import runner as runners
+
 from synthesize import backfill, run, topics
 from synthesize import pipeline as sp
 
@@ -269,6 +272,7 @@ def _parser(description: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
+    runners.add_flag(parser)
     parser.add_argument(
         "--self-check",
         action="store_true",
@@ -292,6 +296,8 @@ def main(description: str) -> int:
     _check_args(parser, args)
     if args.self_check:
         return self_check()
+    if (refused := codex_pass.refuse_codex("mem-synthesize", args.runner)) is not None:
+        return refused
     store = args.store.expanduser().resolve() if args.store else run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-synthesize: no writable store at {store}", file=sys.stderr)

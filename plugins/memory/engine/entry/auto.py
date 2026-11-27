@@ -32,7 +32,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from core import auto_state as au
-from core import jobs
+from core import codex_pass, jobs
+from core import runner as runners
 from synthesize import pipeline as sp
 from synthesize import run as synth_run
 from synthesize import topics as synth_topics
@@ -446,6 +447,7 @@ def main() -> int:
     parser.add_argument(
         "--claude", default=os.environ.get("CLAUDE_CODE_EXECPATH") or shutil.which("claude")
     )
+    runners.add_flag(parser)
     parser.add_argument(
         "--budget",
         help=f"USD per run (default: the option auto_curation_budget, else {DEFAULT_BUDGET})",
@@ -464,6 +466,10 @@ def main() -> int:
         return self_check()
     if not args.command:
         parser.error("a command is required")
+    if args.command == "run" and (
+        refused := codex_pass.refuse_codex("mem-auto (the curator)", args.runner)
+    ):
+        return refused  # before the store check: a run that starts from a hook is silent otherwise
     store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         return _missing_store(store, args.command)

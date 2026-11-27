@@ -24,7 +24,7 @@ Grading (fixed on 2026-11-18, before any run; a change needs a new date in the p
 - Verdict: "retrieval finding" when fewer than 60% of the should-act rows were shown (12 of 20); else "adopt" when
   wrong actions <= 1 AND acted >= 60% of the should-act rows shown; else "keep the safe subset".
 
-Usage: run_trial.py --base DIR --derived FILE --claude PATH [--budget USD (1.0)] [--runs N (2)] [--out DIR] | --self-check
+Usage: run_trial.py --base DIR --derived FILE --claude PATH [--runner claude|codex] [--budget USD (1.0)] [--runs N (2)] [--out DIR] | --self-check
 `--base` must lie under the repository's `target/`. The results file holds text derived from private memories: its
 folder is git-ignored, never commit it."""
 
@@ -156,9 +156,10 @@ def due(store: Path, env: dict) -> bool:
     return sp.mem(store, env, "settle", "due", "--minutes", "0").returncode == 0
 
 
-def run_once(store: Path, env: dict, claude: str, budget: float) -> dict:
+def run_once(store: Path, env: dict, claude: str, budget: float, runner: str = "claude") -> dict:
     sd = settle_state.settle_dir(Path(env["MEM_DATA"]), store)
     before = json.loads((sd / "status.json").read_text()) if (sd / "status.json").is_file() else {}
+    began = time.monotonic()
     done = subprocess.run(
         [
             str(MEM_SETTLE),
@@ -167,6 +168,8 @@ def run_once(store: Path, env: dict, claude: str, budget: float) -> dict:
             str(store),
             "--claude",
             claude,
+            "--runner",
+            runner,
             "--budget",
             f"{budget:.4f}",
             "--minutes",
@@ -184,13 +187,16 @@ def run_once(store: Path, env: dict, claude: str, budget: float) -> dict:
         "started": started,
         "state": status.get("state") if started else "not started",
         "cost": float(status.get("cost") or 0.0) if started else 0.0,
+        "tokens": int(status.get("tokens") or 0) if started else 0,
+        "seconds": round(time.monotonic() - began, 1),
         "pairs": status.get("pairs", 0) if started else 0,
         "reason": status.get("reason", "") if started else (done.stderr or "").strip()[:150],
         "summary": status.get("summary", "") if started else "",
     }
 
 
-def run_loop(store: Path, env: dict, claude: str, budget: float, runs: int) -> list[dict]:
+def run_loop(store: Path, env: dict, call: tuple[str, float, str], runs: int) -> list[dict]:
+    claude, budget, runner = call
     out: list[dict] = []
     spent = 0.0
     for n in range(1, runs + 1):
@@ -199,7 +205,7 @@ def run_loop(store: Path, env: dict, claude: str, budget: float, runs: int) -> l
         if spent >= budget:
             out.append({"run": n, "started": False, "state": "budget reached", "cost": 0.0})
             break
-        result = {"run": n, **run_once(store, env, claude, budget - spent)}
+        result = {"run": n, **run_once(store, env, claude, budget - spent, runner)}
         out.append(result)
         spent += result["cost"]
         if not result["started"] or result["state"] != "ok":
@@ -365,7 +371,8 @@ def table(graded: dict, totals: dict, runs: list[dict]) -> str:
         "",
         f"runs: {len(runs)}; cost {sum(r['cost'] for r in runs):.3f} USD ("
         + ", ".join(f"run {r['run']}: {r['state']} {r['cost']:.3f}" for r in runs)
-        + ")",
+        + f"); tokens {sum(r.get('tokens', 0) for r in runs)}; "
+        + f"wall {sum(r.get('seconds', 0) for r in runs):.0f}s",
         (
             f"should-act rows shown {totals['should_act_shown']}/{totals['should_act']}, acted {totals['acted']}, "
             f"retrieval misses {totals['retrieval_misses']}, wrong actions {totals['wrong_actions']} of {totals['rows']}"
@@ -385,17 +392,19 @@ class TrialSpec(NamedTuple):
     budget: float
     runs: int
     out: Path
+    runner: str = "claude"
 
 
 def trial(spec: TrialSpec, work: Path) -> tuple[dict, str]:
     base, budget = spec.base, spec.budget
     env = trial_env.make_env(work)
+    trial_env.apply_runner(env, spec.runner)
     base_handles = {p.stem for p in base.glob("*.md")}
     rows = load_derived(spec.derived_file, base_handles)
     store, folder = build_store(work, env, base)
     write_derived(store, env, rows)
     shown = listing(store, env, folder)
-    run_list = run_loop(store, env, spec.claude, budget, spec.runs)
+    run_list = run_loop(store, env, (spec.claude, budget, spec.runner), spec.runs)
     today = datetime.date.today()
     live = {m.handle: records.is_live(m, today) for m in records.load_memories(folder, "global")}
     graded = grade(rows, shown, settle_log(folder), verdict_rows(store, env), live)
@@ -403,7 +412,9 @@ def trial(spec: TrialSpec, work: Path) -> tuple[dict, str]:
     result = {
         "time": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "budget": budget,
+        "runner": spec.runner,
         "runs": run_list,
+        "tokens": sum(r.get("tokens", 0) for r in run_list),
         "cost": sum(r["cost"] for r in run_list),
         "totals": totals,
         **graded,
@@ -605,6 +616,9 @@ def main() -> int:
     parser.add_argument("--derived", type=Path, help="JSON list of {base, type, claim, kind}")
     parser.add_argument("--claude", help="the claude binary the settling sessions run")
     parser.add_argument(
+        "--runner", choices=("claude", "codex"), default="claude", help="the runner under test"
+    )
+    parser.add_argument(
         "--budget", type=float, default=1.0, help="USD for the whole trial (default 1.0)"
     )
     parser.add_argument(
@@ -625,12 +639,20 @@ def main() -> int:
     args = parser.parse_args()
     if args.self_check:
         return self_check()
-    if not (args.base and args.derived and args.claude):
-        parser.error("--base, --derived and --claude are required")
+    if not (args.base and args.derived and (args.claude or args.runner == "codex")):
+        parser.error("--base, --derived and --claude (not needed with --runner codex) are required")
     check_args(args)
     work = trial_env.work_dir("settle-trial-")
     _, text = trial(
-        TrialSpec(args.base.resolve(), args.derived, args.claude, args.budget, args.runs, args.out),
+        TrialSpec(
+            args.base.resolve(),
+            args.derived,
+            args.claude or "",
+            args.budget,
+            args.runs,
+            args.out,
+            args.runner,
+        ),
         work,
     )
     print(text)

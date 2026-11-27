@@ -179,6 +179,93 @@ CATALOG_DESCRIPTION = (
 )
 
 
+# Codex has no background dispatch flag, no `Monitor` and no per-call shell timeout parameter, and reads AGENTS.md.
+# Claude source text -> Codex text, keyed by the source file (`:description` for a frontmatter description).
+# Every old text must occur in its file, or the port fails: a source edit must not leave a false claim behind.
+CODEX_REWRITES: dict[str, tuple[tuple[str, str], ...]] = {
+    "user-config/offload-policy.md": (
+        (
+            "(in the background while you keep working)",
+            "(spawn it, keep working, and collect its result before your final answer)",
+        ),
+        (
+            "Run it in the background with the checks,",
+            "Spawn it together with the checks and collect its result before your final answer,",
+        ),
+    ),
+    "user-config/routing.md": (
+        (
+            "The owner's manual entries to the same skills and agents (slash commands in Claude Code) never auto-trigger",
+            "The owner's manual skill mentions (`$name`) never auto-trigger",
+        ),
+        ("agent definition or CLAUDE.md", "agent definition or AGENTS.md"),
+        (
+            "dispatched with no model parameter: the agent file fixes its model,",
+            "dispatched without overriding its model or effort: the agent's TOML fixes both,",
+        ),
+        (
+            "also with no model parameter, which replaces",
+            "also without overriding its model or effort (its TOML fixes both), which replaces",
+        ),
+    ),
+    "agents/check-runner.md:description": (
+        (
+            "in the background when the main conversation can keep working meanwhile",
+            "so the main conversation can keep working meanwhile",
+        ),
+    ),
+    "agents/skeptical-reviewer.md:description": (
+        (
+            "run in the background with check-runner,",
+            "run with check-runner while the main conversation keeps working,",
+        ),
+    ),
+    "agents/check-runner.md": (
+        (
+            (
+                "Set the Bash `timeout` parameter (milliseconds) to the same limit, because its default is 2 minutes and its maximum 10; "
+                "a command that cannot finish within that maximum goes under `Not run:`. "
+                "When the harness moves a command to the background, wait for it with `Monitor` (a condition on its output file), never `sleep`."
+            ),
+            (
+                "Put the limit in the command itself (`timeout 300 <cmd>`), because the shell tool's own limit may be shorter; "
+                "a command that cannot finish within 10 minutes goes under `Not run:`. "
+                "To wait for a slow command, poll by rerunning a short check on its output instead of one long `sleep`."
+            ),
+        ),
+    ),
+    "agents/ui-verifier.md": (
+        (
+            "in one Bash call with the `timeout` parameter set to 5\u20139 minutes (300000\u2013540000 ms), because the 2-minute default would kill it, and because",
+            "in one shell call wrapped in `timeout 540`, because a browser run can take minutes, and because",
+        ),
+        (
+            "Use `Monitor` only to wait for a command the harness moved to the background, never `sleep`.",
+            "To wait for a slow command, poll by rerunning a short check instead of one long `sleep`.",
+        ),
+    ),
+    "agents/implementer.md": (
+        (
+            "with the shell tool's timeout set to its expected duration (in Claude Code the Bash `timeout` parameter, at most 10 minutes)",
+            "with a time limit in the command itself (`timeout 600 <cmd>`, at most 10 minutes)",
+        ),
+        (
+            (
+                "When the harness moves a command to the background, wait for it with the waiting tool the harness names "
+                "(in Claude Code, `Monitor` with a condition on its output file), never with `sleep`, which Claude Code blocks."
+            ),
+            "To wait for a slow command, poll by rerunning a short check on its output instead of one long `sleep`.",
+        ),
+    ),
+    "commands/offload.md": (
+        (
+            "Long runs go in the background, so this conversation keeps working",
+            "Long runs are spawned as subagents, so this conversation keeps working",
+        ),
+    ),
+}
+
+
 @dataclass(frozen=True)
 class Target:
     """One tool the plugin is ported to."""
@@ -437,6 +524,16 @@ class FileKind(TypedDict, total=False):
     skill: str | None  # the skill folder name, for ${CLAUDE_SKILL_DIR}
     command: bool
     agent: bool
+    rewrites: str  # key into CODEX_REWRITES: the source file the text comes from
+
+
+def codex_rewrite(text: str, key: str | None) -> str:
+    """Swap the Claude-only wording of one source file for Codex's; a missing source text is an error."""
+    for old, new in CODEX_REWRITES.get(key or "", ()):
+        if old not in text:
+            raise PortError(f"Codex rewrite source text not found: {old[:70]!r}")
+        text = text.replace(old, new)
+    return text
 
 
 def _resolve_paths(text: str, target: Target, skill: str | None) -> str:
@@ -459,7 +556,10 @@ def _apply_kind(text: str, target: Target, kind: FileKind) -> str:
 
 def transform(text: str, target: Target, agents: set[str], **kind: Unpack[FileKind]) -> str:
     """All text transforms for one tool; `command` and `agent` add the ones only those files need."""
-    text = _resolve_paths(strip_markers(text), target, kind.get("skill"))
+    text = strip_markers(text)
+    if target is CODEX:
+        text = codex_rewrite(text, kind.get("rewrites"))
+    text = _resolve_paths(text, target, kind.get("skill"))
     if target is COPILOT:  # Copilot invokes plugin skills by their bare name
         text = text.replace("/agent-skills:", "/")
     text = _apply_kind(rename_agents(text, agents), target, kind)
@@ -542,6 +642,7 @@ class Generator:
         **kind: Unpack[FileKind],
     ) -> str:
         """`transform` that records a failure against `where` instead of raising."""
+        kind["rewrites"] = where
         try:
             return transform(text, target, self.agents, **kind)
         except (PortError, FragmentError) as exc:
@@ -602,7 +703,7 @@ class Generator:
         for name, doc in self.src.commands.items():
             where = f"commands/{name}.md"
             body = self.t(doc.body, target, where, command=True)
-            description = q(self.t(doc.fm["description"], target, where))
+            description = q(self.t(doc.fm["description"], target, f"{where}:description"))
             dest = f"{target.dir}/skills/{name}"
             if target is COPILOT:
                 pairs = [
@@ -654,7 +755,7 @@ class Generator:
         """One agent file per Claude agent: a Copilot .agent.md or a Codex role .toml."""
         for name, doc in self.src.agents.items():
             fm = doc.fm
-            description = self.t(fm["description"], target, f"agents/{name}.md")
+            description = self.t(fm["description"], target, f"agents/{name}.md:description")
             instructions = self.instructions(doc, target)
             if target is COPILOT:
                 model = q(COPILOT_MODELS[fm["model"]])
@@ -895,7 +996,10 @@ def expected_text(text: str, target: Target, agents: set[str], **kind: Unpack[Fi
     ]
     if target is COPILOT:
         swaps.append(("/agent-skills:", "/"))
-    text = _swap_all(strip_markers(text), swaps)
+    text = strip_markers(text)
+    if target is CODEX:
+        text = _swap_all(text, list(CODEX_REWRITES.get(kind.get("rewrites", ""), ())))
+    text = _swap_all(text, swaps)
     text = _expected_agent_names(text, agents)
     if kind.get("command"):
         text = CLAUDE_ONLY_LINE.sub("", text)
@@ -1007,7 +1111,9 @@ class Verifier:
         """Body first, every preloaded skill in order, the turn-limit rule iff `maxTurns` is set."""
         fm = doc.fm
         check.ok(
-            instructions.startswith(self.want(doc.body, target, agent=True)),
+            instructions.startswith(
+                self.want(doc.body, target, agent=True, rewrites=f"agents/{doc.name}.md")
+            ),
             "instructions do not start with the transformed Claude body",
         )
         pos = 0
@@ -1084,7 +1190,11 @@ class Verifier:
         check.ok(stale is None, f"still contains the Claude-only token '{stale}'")
         check.eq("keys outside the allowed set", sorted(set(got) - CODEX_ROLE_KEYS), [])
         check.eq("name", got.get("name"), doc.name)
-        check.eq("description", got.get("description"), self.want(fm["description"], CODEX))
+        check.eq(
+            "description",
+            got.get("description"),
+            self.want(fm["description"], CODEX, rewrites=f"agents/{doc.name}.md:description"),
+        )
         want_model, want_effort = CODEX_PAIRS[fm["model"], fm["effort"]]
         check.eq("model", got.get("model"), want_model)
         check.eq("model_reasoning_effort", got.get("model_reasoning_effort"), want_effort)
@@ -1140,10 +1250,14 @@ class Verifier:
             return
         check, got, body, text = loaded
         check.eq("name", got.get("name"), name)
-        check.eq("description", got.get("description"), self.want(fm["description"], target))
+        check.eq(
+            "description",
+            got.get("description"),
+            self.want(fm["description"], target, rewrites=f"commands/{name}.md:description"),
+        )
         check.ok("$ARGUMENTS" not in text, "still contains $ARGUMENTS")
         check.ok(
-            self.want(doc.body, target, command=True) in body,
+            self.want(doc.body, target, command=True, rewrites=f"commands/{doc.name}.md") in body,
             "does not contain the transformed command body",
         )
         if target is COPILOT:

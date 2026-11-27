@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-27
+
+### Fixed
+
+- The Codex port no longer tells Codex to use Claude Code features it lacks (background dispatch, `Monitor`, the Bash `timeout` parameter, slash commands, `CLAUDE.md`, "no model parameter"); the wording now matches what Codex offers. The Copilot port is unchanged. Re-copy `user-config/offload-policy.codex.md` and `routing.codex.md` into your Codex instructions.
+
 ## [1.4.0] - 2026-11-27
 
 ### Added

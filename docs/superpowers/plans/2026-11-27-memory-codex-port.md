@@ -1,6 +1,6 @@
 # Memory plugin: Codex port, core scope
 
-Status: ADR 0036 accepted 2026-11-27; task 1 done; code started 2026-11-27 before the stage 4 kill read (owner, the same day, after being told a failed read would waste it) · Decision: [ADR 0036](../../adr/0036-memory-codex-port-core.md)
+Status: released in memory 0.17.0 on 2026-11-27 (ADR 0036 `## Review 2026-11-27`), before the stage 4 kill read at the owner's request; left: task 5's check in an extension session after trusting the hooks · Decision: [ADR 0036](../../adr/0036-memory-codex-port-core.md)
 
 Owner, 2026-11-27: design and ADR now, code after the kill read (a failed read would waste the port); first version is the **core**: `mem`, the `memory` skill, the session and subagent index hooks, configuration by file. No background passes, no agents, no compaction handoff.
 
@@ -45,7 +45,7 @@ Amended after the pre-mortem of 2026-11-27 (each claim checked in the code): `po
 - [x] 3. Host-aware texts: `mem session-index --host codex` covers `_INDEX_RULES`, the status-checker line, the curation-due line and the exception fallback; the shell fallback in `session-index.sh` and the subagent JSON say `mem` when the user command is installed, else the absolute path (escaped); "auto memory" maps to Codex's memories or is dropped; `_log_hook` entries gain `host`, so kill reads can filter. Skills: `skills` points at a Codex-safe set, or each skill gets host-neutral wording; a test greps the shipped Codex text for `memory-researcher|memory-recorder|memory-curator|claude -p|auto memory`. Check: engine tests (`uv run --with pytest --with pyyaml --with pytest-xdist pytest plugins/memory/engine/tests -q -n auto`) with a case per host.
 - [x] 4. Marketplace entry: generalize `catalogs()` and the catalog check in `scripts/port.py` to one folder per entry; `validate.py` checks `plugins/memory/.codex-plugin/plugin.json` (keys, `hooks` path exists, description equal to Claude's). Check: `python3 scripts/validate.py`, `uv run --with pytest pytest scripts/tests -q` with a test for the memory entry.
 - [ ] 5. (Automated part passed 2026-11-27: `codex exec` from a local marketplace on `git archive HEAD`, minimal environment, `writable_roots` set: index with the hint reached the model, which ran `mem search` by full path and found the project memory; launcher install, fallback and refusal checked by hand.) (Set up on the owner's machine 2026-11-27: Codex marketplace `mili-ssm` re-added with `--ref feat/memory-codex-port` and `memory@mili-ssm` installed; `writable_roots` added to `~/.codex/config.toml` (backup `config.toml.bak-2026-11-27`); `~/.local/bin/mem` installed. After the trial: re-add the marketplace without `--ref` once the release reaches `main`.) Owner trial in the VS Code extension **from a local marketplace on the dev tree** (or a pushed branch, if `codex plugin marketplace add --ref` serves it), before any merge to `main`: trust the hooks, open a session in a project with `.memory/`, ask a question the memory answers. Check: the owner sees the index and `mem search` runs without per-call approval; the hook log has `host=codex` entries.
-- [ ] 6. Docs and release, after the trial (README § Codex, CHANGELOG and platform-parity done 2026-11-27; release and ADR review left): plugin README § Codex (install, trust, re-trust after each update, limits), CHANGELOG `[Unreleased]` (flag changes to shared hook scripts), `docs/platform-parity.md` verdict, backlog row; add a `## Review` to ADR 0036 with the trial result.
+- [x] 6. Docs and release, after the trial (README § Codex, CHANGELOG and platform-parity done 2026-11-27; release and ADR review left): plugin README § Codex (install, trust, re-trust after each update, limits), CHANGELOG `[Unreleased]` (flag changes to shared hook scripts), `docs/platform-parity.md` verdict, backlog row; add a `## Review` to ADR 0036 with the trial result.
 
 ## Task 1 results (2026-11-27)
 
@@ -61,12 +61,6 @@ Same method as § Evidence, with a `git archive` copy of the tracked `plugins/me
 | Model shell `PATH` with a minimal environment (`env -i PATH=/usr/bin:/bin`) | a login shell: `~/.local/bin` is on it, so `mem install-command` reaches Codex |
 | Host detection | decided without a probe: `hooks/codex.json` sets `MEM_HOST=codex` on its commands, so nothing rests on `PLUGIN_ROOT` being absent in Claude |
 | Trust revoked by a changed script | not testable in `exec` (only the bypass flag); moves to task 5 |
-
-## Deferred findings (review of `mem install-command`, 2026-11-27, all low)
-
-- `subagent-start.sh` keeps two copies of the message (one heredoc per host); one unquoted heredoc would hold one copy.
-- Launcher record parsing is untested for CRLF and roots with spaces (both behaved when run by hand).
-- `launcher_missing()` checks only `~/.local/bin/mem` while `subagent-start.sh` uses `command -v mem`; a custom `--bin-dir` off `PATH` makes the Codex hint suggest the default folder.
 
 ## Outside the core (later, each its own decision)
 

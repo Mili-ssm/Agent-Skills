@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 from core import jobs
+from core import runner as runners
 from digest import lessons as dg
 from memories import records
 
@@ -204,6 +205,7 @@ class _DigestPass:
         self.data, self.stored, self.state, self.topics, self.works = inputs
         self.failures = self.state["failures"]
         self.fingerprint = ""
+        self.spend = corroborate_run.Spend(runners.resolve_runner(None))  # one cap for all sessions
 
     def run(self) -> dict:
         if not self.works:
@@ -295,7 +297,11 @@ class _DigestPass:
     def _ask_writer(self, claude: str, scratch: Path) -> dict | None:
         limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, self.params.budget)
         job = corroborate_run.AskJob(
-            corroborate_run.DIGEST_BRIEF, dg.blocks(self.works), "topics", DIGEST_WRITER_OUT
+            corroborate_run.DIGEST_BRIEF,
+            dg.blocks(self.works),
+            "topics",
+            DIGEST_WRITER_OUT,
+            self.spend,
         )
         payload, cost, ok = corroborate_run._ask(claude, scratch, "write", limits, job)
         self.result["cost"] += cost
@@ -307,7 +313,11 @@ class _DigestPass:
     def _ask_checker(self, claude: str, scratch: Path, proposed: dict, pairs: list) -> _Sessions:
         limits = corroborate_run.SessionLimits(corroborate_run.CHECK_MODEL, self.params.budget)
         job = corroborate_run.AskJob(
-            corroborate_run.DIGEST_CHECK_BRIEF, _digest_pair_text(pairs), "pairs", DIGEST_CHECK_OUT
+            corroborate_run.DIGEST_CHECK_BRIEF,
+            _digest_pair_text(pairs),
+            "pairs",
+            DIGEST_CHECK_OUT,
+            self.spend,
         )
         payload, cost, ok = corroborate_run._ask(claude, scratch, "check", limits, job)
         self.result["cost"] += cost
