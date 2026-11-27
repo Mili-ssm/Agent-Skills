@@ -7,10 +7,14 @@ bookkeeping with the Claude decoder through `event_lines`.
 """
 
 import json
+import re
 
 from capture import event_lines as ev
 
-_INJECTED = ("<environment_context>", "# AGENTS.md instructions")
+# Codex wraps its own injected context in snake_case tags (`<environment_context>`,
+# `<codex_internal_context>`, ...); an owner pasting HTML (`<div>`) has no underscore in the tag name.
+_INJECTED = re.compile(r"# AGENTS\.md instructions|<[a-z][a-z0-9]*_[a-z0-9_]*[\s>]")
+_SUBAGENT_ARGS = ("message", "cmd", "target")  # JSON keys of the Codex subagent tools
 _SUBAGENT = "\0subagent"  # state key: this rollout is a Codex subagent thread, which yields nothing
 _FAILED_PREFIX = "Script failed"
 _OUTPUT_MARK = "Output:\n"
@@ -23,6 +27,7 @@ _KNOWN_OUTER = (
     "compacted",
     "token_usage_record",
     "world_state",
+    "inter_agent_communication_metadata",
 )
 _CALLS = ("custom_tool_call", "function_call")
 _OUTPUTS = ("custom_tool_call_output", "function_call_output")
@@ -37,6 +42,7 @@ def is_rollout(first_line: str) -> bool:
     return isinstance(entry, dict) and entry.get("type") == "session_meta"
 
 
+# not `event_lines.text_of`: Codex parts are typed `input_text`/`output_text`, which it skips
 def _texts(content: object) -> list[str]:
     if not isinstance(content, list):
         return []
@@ -46,7 +52,7 @@ def _texts(content: object) -> list[str]:
 def _message_events(payload: dict) -> list[str]:
     role = payload.get("role")
     if role == "user":
-        texts = [t for t in _texts(payload.get("content")) if not t.lstrip().startswith(_INJECTED)]
+        texts = [t for t in _texts(payload.get("content")) if not _INJECTED.match(t.lstrip())]
         body = ev.flat(" ".join(texts), ev.HUMAN_LIMIT)
         return [f"OWNER: {body}"] if body else []
     if role == "assistant":
@@ -63,7 +69,14 @@ def _argument(payload: dict) -> str:
         args = json.loads(payload.get("arguments") or "")
     except (TypeError, ValueError):
         return ""
-    return ev.tool_arg(args)
+    return ev.tool_arg(args) or _subagent_arg(args)
+
+
+def _subagent_arg(args: object) -> str:
+    if not isinstance(args, dict):
+        return ""
+    values = (args.get(key) for key in _SUBAGENT_ARGS)
+    return next((v for v in values if isinstance(v, str) and v), "")
 
 
 def _call_events(payload: dict, names: dict) -> list[str]:

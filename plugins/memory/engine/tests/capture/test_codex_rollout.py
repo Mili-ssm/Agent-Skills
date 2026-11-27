@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from capture import event_lines
 from capture import extract as capture_extract
 from entry import capture as capture_entry
 
@@ -172,3 +173,59 @@ def test_first_cwd_falls_back_to_turn_context(tmp_path):
     project.mkdir()
     entries = [meta(cwd="/no/such/dir"), item("turn_context", {"cwd": str(project)})]
     assert capture_entry.first_cwd(write(tmp_path, entries)) == project
+
+
+def test_every_observed_injected_wrapper_is_dropped(tmp_path):
+    wrappers = [
+        "# AGENTS.md instructions for /x",
+        "<environment_context>\n</environment_context>",
+        "<external_codex_apps_open_page>x</external_codex_apps_open_page>",
+        "<send_user_message_question_reply>x</send_user_message_question_reply>",
+        '  <codex_internal_context kind="a">x</codex_internal_context>',
+    ]
+    entries = [meta(), *[message("user", w) for w in wrappers]]
+    assert lines(tmp_path, entries) == []
+
+
+def test_owner_html_and_angle_text_are_kept(tmp_path):
+    entries = [meta(), message("user", "<div>hello</div>"), message("user", "<3 you, a_b <c>")]
+    assert lines(tmp_path, entries) == ["[2] OWNER: <div>hello</div>", "[3] OWNER: <3 you, a_b <c>"]
+
+
+def test_injected_first_part_keeps_only_the_prompt(tmp_path):
+    entries = [
+        meta(),
+        message("user", "<codex_internal_context>x</codex_internal_context>", "do it"),
+    ]
+    assert lines(tmp_path, entries) == ["[2] OWNER: do it"]
+
+
+def test_image_only_user_message_gives_no_event(tmp_path):
+    image = item(
+        "response_item",
+        {"type": "message", "role": "user", "content": [{"type": "input_image", "image_url": "x"}]},
+    )
+    assert lines(tmp_path, [meta(), image]) == []
+
+
+def test_inter_agent_metadata_not_counted_as_skipped(tmp_path):
+    entries = [meta(), item("inter_agent_communication_metadata", {"a": 1})]
+    assert lines(tmp_path, entries) == [] and capture_extract.last_skipped == 0
+
+
+def test_subagent_tool_call_prints_its_message(tmp_path):
+    call = item(
+        "response_item",
+        {
+            "type": "function_call",
+            "name": "spawn_agent",
+            "call_id": "c1",
+            "arguments": json.dumps({
+                "message": "review\n  the   diff " + "x" * 300,
+                "target": "t",
+            }),
+        },
+    )
+    [line] = lines(tmp_path, [meta(), call])
+    assert line.startswith("[2] TOOL spawn_agent: review the diff xxx")
+    assert len(line.split(": ", 1)[1]) == event_lines.ARG_LIMIT
