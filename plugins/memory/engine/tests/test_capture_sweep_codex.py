@@ -172,3 +172,13 @@ def test_rollout_without_thread_source_is_an_owner_session(world, mod, here, mon
     os.utime(path, (stat.st_atime, stat.st_mtime))
     start(mod, world, monkeypatch, transcript=here)
     assert swept(world) == ["rollout-older-codex"]
+
+
+def test_a_codex_start_with_an_unwritten_first_line_is_still_codex(world, mod, here):
+    here.write_text("")  # the starting rollout exists but has no first line yet
+    assert mod._is_codex_rollout(here)
+    assert len(mod._sweep_folders(here, time.time())) > 1  # the day folders, not its own folder
+
+
+def test_a_claude_path_with_no_readable_first_line_is_not_codex(world, mod):
+    assert not mod._is_codex_rollout(world.transcript)

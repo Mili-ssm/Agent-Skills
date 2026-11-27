@@ -1118,7 +1118,7 @@ def _ask(
     template, text, text_key, out_name, spend = job
     spend = spend or Spend(runners.resolve_runner(None))
     if spend.spent_up:
-        return None, 0.0, False, ""
+        return None, 0.0, False, f": {spend.tokens} tokens reached the token cap"
     work = scratch / name
     work.mkdir(mode=0o700)
     corroborate_state.write_private(work / "input.txt", text)
@@ -1131,8 +1131,8 @@ def _ask(
             session_spec(claude, work, brief, scratch / "settings.json", limits),
             out,
         )
-    except OSError:  # a binary that is missing or cannot run is a failed session
-        return None, 0.0, False, ""
+    except OSError as exc:  # a binary that is missing or cannot run is a failed session
+        return None, 0.0, False, f": {codex_pass.NO_CODEX if spend.runner == 'codex' else exc}"
     cost = done["cost"] if done["has_result"] else 0.0
     ok = done["has_result"] and not done["error"]
     return (read_object(out) if ok else None), cost, ok, because(done)

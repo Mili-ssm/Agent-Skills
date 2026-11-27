@@ -614,7 +614,7 @@ def _read_window(trial: Trial) -> int:
         out["reason"] = "too short"
         return 0
     if not opts.claude:
-        out["reason"] = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
+        out["reason"] = NO_CLAUDE
         return 1
     return _with_work_root(trial, opts.claude, text)
 
@@ -711,6 +711,9 @@ def hook_input() -> tuple[Path, Path] | None:
 def without_paths(reason: str) -> str:
     """`reason` with every token that holds a `/` replaced, so a log line carries no path."""
     return " ".join("(path)" if "/" in token else token for token in reason.split())
+
+
+NO_CLAUDE = "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
 
 
 def has_memory_folder(cwd: Path) -> bool:
@@ -879,6 +882,13 @@ class AutoRun:
         res, code = run_window_of(opts)
         self.tally(res)
         more = bool(res["extract"]["more"])
+        if res["reason"] == NO_CLAUDE:  # nothing can run: a skip, not a failure, and no retry
+            self.line["skipped"], self.line["more"] = (
+                NO_CLAUDE,
+                True,
+            )  # `more`: a sweep keeps the file open
+            append_run_log(run, f"window {number}: skipped: {NO_CLAUDE}")
+            return False
         reason = window_failure(res, code)
         append_run_log(
             run,
@@ -1037,7 +1047,12 @@ def _first_line(path: Path) -> str:
 
 def _is_codex_rollout(path: Path) -> bool:
     """A Codex rollout sits in a day folder and starts with `session_meta`; a Claude path is decided with no read."""
-    return _codex_root(path) is not None and codex_rollout.is_rollout(_first_line(path))
+    root = _codex_root(path)
+    if root is None:
+        return False
+    line = _first_line(path)
+    # a start rollout whose first line is not written yet is still Codex's
+    return codex_rollout.is_rollout(line) or not line.strip()
 
 
 def _codex_root(transcript: Path) -> Path | None:

@@ -142,6 +142,20 @@ def test_fill_auto_token_cap_fails_the_second_session(w, codex, monkeypatch):
     codex.plan(STEP, STEP)
     result = corroborate_fill.fill_auto(str(w.fake), 0.25)
     assert len(codex.calls) == 1 and "checker" in result["stopped"] and result["written"] == 0
+    assert "token cap" in result["stopped"]
+
+
+def test_fill_auto_on_codex_with_a_binary_that_cannot_run_names_the_cause(w, codex, monkeypatch):
+    one_lesson(w)
+    answers(w, monkeypatch)
+
+    def cannot_run(*_args, **_kwargs):
+        raise FileNotFoundError("codex vanished")
+
+    monkeypatch.setattr(corroborate_run, "run_on", cannot_run)
+    result = corroborate_fill.fill_auto(str(w.fake), 0.25)
+    assert "writer session gave no usable answer" in result["stopped"]
+    assert "no codex binary" in result["stopped"] and result["written"] == 0
 
 
 def _staged_run(w, codex, *args, **env):
