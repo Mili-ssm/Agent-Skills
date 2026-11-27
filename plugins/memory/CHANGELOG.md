@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- `mem-integrate run`: a check answer with a stray line (a label before a row, a cut line) no longer discards the whole synthesis for that run; only rows the place session proposed can be kept, and ignored lines are logged.
+
 ## [0.16.0] - 2026-11-27
 
 ### Added

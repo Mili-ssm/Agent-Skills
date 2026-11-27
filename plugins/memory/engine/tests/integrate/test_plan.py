@@ -1,5 +1,5 @@
 from integrate.answers import answer_lines
-from integrate.plan import Offered, PartInfo, placement_rows
+from integrate.plan import Offered, PartInfo, agreed, ignored_lines, placement_rows
 from integrate.rows import Row
 
 FP = "ab12cd34ef"
@@ -131,3 +131,45 @@ def test_comment_only_answer_decides_nothing():
     assert answer_lines("# nothing fits\n# really") is None
     assert answer_lines(f"# note\nn1 | {TARGET} | append | {FP}") is not None
     assert answer_lines("# note\nnone") == ["# note", "none"]
+
+
+def _proposed() -> list[Row]:
+    return [Row("n1", TARGET, "append", None, FP), Row("n2", TARGET, "unit", 1, FP)]
+
+
+R1 = f"n1 | {TARGET} | append | {FP}"
+R2 = f"n2 | {TARGET} | unit 1 | {FP}"
+
+
+def test_agreed_accepts_a_row_label():
+    assert agreed(_proposed(), f"row: {R1}\n  ROW:  {R2}") == _proposed()
+
+
+def test_agreed_ignores_a_cut_line_and_keeps_the_rest():
+    cut = f"{TARGET} | append | {FP}"
+    answer = f"{cut}\n{R2}"
+    assert agreed(_proposed(), answer) == [_proposed()[1]]
+    assert ignored_lines(_proposed(), answer) == [cut]
+
+
+def test_agreed_never_accepts_a_row_not_proposed():
+    other = f"n3 | {TARGET} | append | {FP}"
+    assert agreed(_proposed(), f"{other}\n{R1}") == [_proposed()[0]]
+    assert agreed(_proposed(), other) is None
+
+
+def test_agreed_none_is_empty_and_none_with_a_row_is_void():
+    assert agreed(_proposed(), "none") == []
+    assert agreed(_proposed(), "# why\nnone") == []
+    assert agreed(_proposed(), f"none\n{R1}") is None
+
+
+def test_agreed_garbage_or_empty_decides_nothing():
+    assert agreed(_proposed(), "I think n1 fits.\nand more") is None
+    assert agreed(_proposed(), "") is None
+    assert agreed(_proposed(), "# only a comment") is None
+
+
+def test_agreed_handles_fences():
+    assert agreed(_proposed(), f"```text\n{R1}\n```") == [_proposed()[0]]
+    assert agreed(_proposed(), "```\nnone\n```") == []

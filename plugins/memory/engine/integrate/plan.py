@@ -5,9 +5,9 @@ The answer is data: a row is kept only when every field matches an offered note,
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, NamedTuple
 
-from integrate import answers
 from integrate.rows import row_of
 
 if TYPE_CHECKING:
@@ -76,10 +76,39 @@ def offered_of(cand: dict) -> Offered:
     )
 
 
+_LABEL = re.compile(r"\s*row:\s*", re.IGNORECASE)
+
+
+def _scan(rows: list[Row], check_answer: str) -> tuple[list[Row], bool, list[str]]:
+    """(accepted rows, whether a `none` line came, ignored lines): a stray line is ignored, never a reason to refuse."""
+    accepted: list[Row] = []
+    none = False
+    ignored: list[str] = []
+    for raw in check_answer.splitlines():
+        text = raw.strip()
+        if not text or text.startswith(("```", "#")):
+            continue
+        if text == "none":
+            none = True
+            continue
+        row = row_of(_LABEL.sub("", text, count=1) if _LABEL.match(text) else text)
+        if row is not None and row in rows:
+            accepted.append(row)
+        else:
+            ignored.append(text)
+    return accepted, none, ignored
+
+
 def agreed(rows: list[Row], check_answer: str) -> list[Row] | None:
-    """The rows the check answer lists too; None when that answer is malformed (it keeps none)."""
-    lines = answers.answer_lines(check_answer)
-    if lines is None:
+    """The rows the check answer lists too; stray lines (a `row:` label is stripped first) are ignored, so only a
+    row that was proposed can be kept. None when the answer decided nothing (no row and no `none`) or `none` comes
+    with a row."""
+    accepted, none, _ = _scan(rows, check_answer)
+    if (none and accepted) or not (none or accepted):
         return None
-    accepted = {row_of(x) for x in lines if x != "none" and not x.startswith("#")}
     return [row for row in rows if row in accepted]
+
+
+def ignored_lines(rows: list[Row], check_answer: str) -> list[str]:
+    """The lines of the check answer `agreed` ignored, for the log."""
+    return _scan(rows, check_answer)[2]
