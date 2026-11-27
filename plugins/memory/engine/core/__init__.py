@@ -3,6 +3,7 @@
 `auto_state`: `mem-auto` state, run lock, failure line
 `config`: store resolution for every entry point
 `headless`: spec and runner of `claude -p` sessions
+`runner`: the `claude` or `codex` runner of a pass: resolution, Codex argv and environment, one `Outcome`
 `jobs`: generic job pieces: status and lock files, run lock, private JSON
 `safe_io`: writes into memory folders that never follow a symlink
 `store_git`: a store that is a git repository: commits at curation points
