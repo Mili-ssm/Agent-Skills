@@ -138,3 +138,12 @@ def test_the_write_path_trigger_hands_the_plugin_option_to_the_run(world, on, mo
     assert remember(world) == 0
     (env,) = started
     assert env["MEM_RUNNER_OPTION"] == "codex" and "MEM_RUNNER" not in env
+
+
+def test_the_codex_brief_carries_the_merge_addendum_and_the_claude_one_does_not(world, codex):
+    seed(world)
+    codex.plan({"py": WRITE_VERDICTS, "answer": "1"})
+    settle_run(world)
+    (call,) = codex.calls
+    assert settle.CODEX_ADDENDUM in call["prompt"]
+    assert settle.CODEX_ADDENDUM not in settle.sp.brief("settle", PAIRS_FILE="p", VERDICTS_FILE="v")

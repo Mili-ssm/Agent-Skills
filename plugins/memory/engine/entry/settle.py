@@ -38,6 +38,10 @@ from synthesize import run as synth_run
 DEFAULT_BUDGET = 0.25  # USD per run
 KEEP_SECONDS = 30 * 86400
 SESSION_TIMEOUT = 600
+CODEX_ADDENDUM = (
+    "Codex rule for the `merge` decision: if one claim states anything the other lacks (a detail, a condition, "
+    "a workaround), the pair is not a merge: choose `nothing`, plus any qualifier it added."
+)
 PRIVATE_MODE = 0o700
 FAILURE_WAIT = (
     30  # minutes a failed run waits at least, also at session end (which asks with 0 minutes)
@@ -132,10 +136,12 @@ def session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
 
 
 def codex_session(claude: str, work: Path, brief: str, settings: Path, log: Path) -> dict:
-    """The same session on Codex: it writes `verdicts.json` in `work`, which is its whole sandbox."""
+    """The same session on Codex: it writes `verdicts.json` in `work`, which is its whole sandbox. The brief gets
+    `CODEX_ADDENDUM`: Codex reads the `merge` row literally and merges pairs where one claim adds a detail, while
+    the same sentence in the shared brief lowered Claude's recall (trial 2026-11-27, ADR 0037)."""
     start = time.monotonic()
     done = codex_pass.ask(
-        session_spec(claude, work, brief, settings, DEFAULT_BUDGET),
+        session_spec(claude, work, f"{brief}\n\n{CODEX_ADDENDUM}", settings, DEFAULT_BUDGET),
         work,
         writes=True,
         timeout=SESSION_TIMEOUT,
