@@ -12,6 +12,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 - On Codex, session end and pre-compact capture and the store history commit run as on Claude; re-trust the hooks after updating (ADR 0038).
 - `mem install-command` also installs `mem-research` and `mem-synthesize` launchers, which the Codex roles call; each file is handled on its own and a file that is not ours stays untouched. Re-run it once after updating.
 
+### Fixed
+
+- Corroborate on Codex now reads and writes its files (it used to finish `ok` having done nothing), and a session that writes no result counts as failed.
+
 ## [0.18.0] - 2026-11-27
 
 ### Added

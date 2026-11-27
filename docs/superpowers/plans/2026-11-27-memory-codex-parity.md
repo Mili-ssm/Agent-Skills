@@ -138,9 +138,11 @@ Raw notes: session scratchpad `task6/RESULTS.md` (not kept). About 95k Codex tok
 
 **Files:** `plugins/memory/engine/corroborate/` (the Codex session path), its tests.
 
-- [ ] A Codex-only addendum, as settle's `CODEX_ADDENDUM` (ADR 0037), tells Codex sessions to read the input file and write the output file in the work folder with its shell and run no other command; Claude briefs byte-identical.
-- [ ] A Codex session that leaves no output file counts as a failed session (status `failed` with its reason), never `ok` with 0 of 0.
-- [ ] Check: unit tests (Codex prompt carries the addendum, Claude prompt does not; a missing output file fails the run); one live rerun on the same isolated 4-lesson copy groups the 2 paraphrases.
+- [x] A Codex-only addendum, as settle's `CODEX_ADDENDUM` (ADR 0037), tells Codex sessions to read the input file and write the output file in the work folder with its shell and run no other command; Claude briefs byte-identical.
+- [x] A Codex session that leaves no output file counts as a failed session (status `failed` with its reason), never `ok` with 0 of 0.
+- [x] Check: unit tests (Codex prompt carries the addendum, Claude prompt does not; a missing output file fails the run); one live rerun on the same isolated 4-lesson copy groups the 2 paraphrases.
+
+Result (2026-11-27): addendum in `corroborate/run.py` `run_on`; a Codex session with no output file fails. Live: run 1 (without a final-message request) wrote `groups.json` but ended silent, so `failed`, 46k tokens; run 2 (addendum asks for a final `done`): `ok`, 92k tokens, the 2 paraphrases grouped by the proposer, the verifier refused the group as not faithful (model variance).
 
 ### Task 7: Docs and release prep
 

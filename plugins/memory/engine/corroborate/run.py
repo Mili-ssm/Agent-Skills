@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -249,12 +249,21 @@ def run_session(cmd: list[str], work: Path) -> dict:
     return sp.parse(raw)
 
 
-def run_on(spend: Spend, work: Path, spec: headless.Session) -> dict:
+CODEX_ADDENDUM = (
+    "Codex: read the input file and write the output file named above, in the current folder, with your shell; "
+    "run no other command. 'Use no other tool' above means no tool beyond that. Then end with a one-word final message, `done`."
+)
+
+
+def run_on(spend: Spend, work: Path, spec: headless.Session, out: Path | None = None) -> dict:
     """One session on the run's runner; the `sp.parse` dict, with `tokens` from Codex. Codex writes its output file
-    in `work`, which is its whole sandbox."""
+    `out` in `work`, which is its whole sandbox; a Codex session that leaves no `out` has failed."""
     if spend.runner == "codex":
+        spec = replace(spec, prompt=f"{spec.prompt}\n\n{CODEX_ADDENDUM}")
         done = codex_pass.ask(spec, work, writes=True, timeout=SESSION_TIMEOUT)
         spend.tokens += done["tokens"]
+        if out is not None and done["has_result"] and not out.is_file():
+            done |= {"has_result": False, "error": True, "failure": f"it wrote no {out.name}"}
         return done
     return run_session(headless.command(spec), work)
 
@@ -685,7 +694,10 @@ def _start_run(ctx: _Run) -> Path:
 
 def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> None:
     """One session of a stage ("propose" or "verify"): its cost goes to the line, a failed one stops the run."""
-    doing = {"propose": "proposing", "verify": "verifying"}[stage]
+    doing, out_name = {
+        "propose": ("proposing", "groups.json"),
+        "verify": ("verifying", "verdicts.json"),
+    }[stage]
     if ctx.spend.spent_up:
         raise StopError(
             "token cap",
@@ -696,6 +708,7 @@ def _run_checked(ctx: _Run, work: Path, brief: str, model: str, stage: str) -> N
         ctx.spend,
         work,
         session_spec(ctx.claude, work, brief, work.parent / "settings.json", limits),
+        work / out_name,
     )
     ctx.line["cost"] += done["cost"] if done["has_result"] else 0.0
     ctx.line["tokens"] = ctx.spend.tokens
@@ -1107,7 +1120,10 @@ def _ask(
     brief = template.format(**{text_key: work / "input.txt"}, out=out)
     try:
         done = run_on(
-            spend, work, session_spec(claude, work, brief, scratch / "settings.json", limits)
+            spend,
+            work,
+            session_spec(claude, work, brief, scratch / "settings.json", limits),
+            out,
         )
     except OSError:  # a binary that is missing or cannot run is a failed session
         return None, 0.0, False

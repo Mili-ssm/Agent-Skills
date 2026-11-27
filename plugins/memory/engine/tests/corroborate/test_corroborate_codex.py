@@ -6,6 +6,7 @@ from pathlib import Path
 import codex_fake
 import pytest
 from corroborate import fill as corroborate_fill
+from corroborate import run as corroborate_run
 from corroborate_world import (
     globals_,
     group,
@@ -156,3 +157,35 @@ def test_the_plugin_option_alone_picks_codex(w, codex, monkeypatch):
     done = _staged_run(w, codex, MEM_RUNNER_OPTION="codex")
     assert done.returncode == 0, done.stderr
     assert status(w)["runner"] == "codex"
+
+
+def test_every_codex_prompt_ends_with_the_addendum_and_starts_with_the_brief(w, codex):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan(STEP, STEP)
+    run(w)
+    assert len(codex.calls) == TWO_SESSIONS
+    for call, brief in zip(codex.calls, ("groups.json", "verdicts.json"), strict=True):
+        assert call["prompt"].endswith(corroborate_run.CODEX_ADDENDUM)
+        assert f"{brief} as JSON" in call["prompt"]
+
+
+def test_the_claude_prompt_is_the_brief_alone(tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(corroborate_run, "run_session", lambda cmd, _work: seen.append(cmd) or {})
+    spec = corroborate_run.session_spec(
+        "claude", tmp_path, "BRIEF", tmp_path / "s.json", corroborate_run.SessionLimits("m", 1.0)
+    )
+    corroborate_run.run_on(corroborate_run.Spend("claude"), tmp_path, spec, tmp_path / "out.json")
+    assert "BRIEF" in seen[0] and not any("Codex:" in part for part in seen[0])
+
+
+def test_a_codex_session_that_writes_no_output_file_fails_the_run(w, codex):
+    a, b = two_projects(w)
+    model(w, [group(a, b)])
+    codex.plan({"answer": "done", "tokens": TOKENS})
+    run(w)
+    assert status(w)["failure"]["reason"] == "session error" and len(codex.calls) == 1
+    logged = (next((w.cdir / "runs").iterdir()) / "log.txt").read_text()
+    assert "ended without a result: it wrote no groups.json" in logged
+    assert not globals_(w)

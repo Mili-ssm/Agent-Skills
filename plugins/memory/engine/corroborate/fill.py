@@ -79,7 +79,10 @@ def _propose_in(
     brief = corroborate_run.FILL_BRIEF.format(lessons=work / "lessons.txt", out=out)
     limits = corroborate_run.SessionLimits(corroborate_run.PROPOSE_MODEL, args.budget)
     done = corroborate_run.run_on(
-        spend, work, corroborate_run.session_spec(args.claude or "", work, brief, settings, limits)
+        spend,
+        work,
+        corroborate_run.session_spec(args.claude or "", work, brief, settings, limits),
+        out,
     )
     if not done["has_result"] or done["error"]:
         print("mem-corroborate: the session failed; nothing was written", file=sys.stderr)
