@@ -84,7 +84,21 @@ def leftover_folders(work: Path) -> list[Path]:
     return [p for p in root.iterdir() if p.name == encoded or p.name.startswith(encoded + "-")]
 
 
+def keep_diag(work: Path) -> None:
+    """`MEM_DIAG_DIR` set: copy the work folder (session inputs, raw event streams, run logs; not the stores' git
+    objects or Codex homes) to `$MEM_DIAG_DIR/<work name>` before it is removed, so a trial's raw output can be read."""
+    target = os.environ.get("MEM_DIAG_DIR")
+    if target and work.is_dir():
+        shutil.copytree(
+            work,
+            Path(target) / work.name,
+            ignore=shutil.ignore_patterns(".git", "home", "xdg"),
+            dirs_exist_ok=True,
+        )
+
+
 def clean(work: Path) -> None:
+    keep_diag(work)
     for leftover in leftover_folders(work):
         shutil.rmtree(leftover, ignore_errors=True)
     shutil.rmtree(work, ignore_errors=True)

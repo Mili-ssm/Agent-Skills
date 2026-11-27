@@ -52,3 +52,23 @@ def test_reference_backfill_passes_the_options_by_keyword(tmp_path):
     seen["options"]["log"]("a line")
     assert (tmp_path / "references-log.txt").read_text(encoding="utf-8") == "a line\n"
     assert (row["status"], row["proposed"], row["applied"], row["ran"]) == ("ok", 3, 2, True)
+
+
+def test_clean_keeps_the_work_folder_when_diag_dir_is_set(tmp_path, monkeypatch):
+    spec = importlib.util.spec_from_file_location(
+        "trial_env_under_test", Path(__file__).resolve().parents[2] / "evals" / "trial_env.py"
+    )
+    assert spec is not None and spec.loader is not None
+    trial_env = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(trial_env)
+
+    work = tmp_path / "w"
+    (work / "job").mkdir(parents=True)
+    (work / "job" / "place.jsonl").write_text("raw")
+    (work / "home").mkdir()
+    (work / "home" / "auth.json").write_text("secret")
+    monkeypatch.setenv("MEM_DIAG_DIR", str(tmp_path / "diag"))
+    trial_env.clean(work)
+    assert not work.exists()
+    assert (tmp_path / "diag" / "w" / "job" / "place.jsonl").read_text() == "raw"
+    assert not (tmp_path / "diag" / "w" / "home").exists()
