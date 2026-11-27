@@ -5,6 +5,7 @@ import os
 import select
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -136,3 +137,20 @@ def test_session_env_without_the_option_exports_no_runner(plugin, tmp_path):
         timeout=20,
     )
     assert "RUNNER" not in env_file.read_text()
+
+
+def test_a_trial_environment_drops_the_owners_runner_settings(tmp_path, monkeypatch):
+    import importlib.util  # ruff: ignore[import-outside-top-level]
+
+    spec = importlib.util.spec_from_file_location(
+        "trial_env", Path(__file__).resolve().parents[2] / "evals" / "trial_env.py"
+    )
+    assert spec is not None and spec.loader is not None
+    trial_env = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "trial_env", trial_env)  # registered before it runs
+    spec.loader.exec_module(trial_env)
+    names = ("MEM_RUNNER", "MEM_RUNNER_OPTION", "MEM_CODEX", "MEM_CODEX_TOKENS")
+    for name in names:
+        monkeypatch.setenv(name, "codex")
+    env = trial_env.make_env(tmp_path)
+    assert not any(name in env for name in names)
