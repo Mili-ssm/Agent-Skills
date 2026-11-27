@@ -1,6 +1,6 @@
 # 0036 The memory plugin reaches Codex from its own folder, core features only
 
-Status: proposed · Date: 2026-11-27 · Amends 0023
+Status: accepted · Date: 2026-11-27 · Amends 0023
 
 ## Context
 
@@ -11,7 +11,8 @@ Probes the same day with the extension's `codex-cli 0.171.0-alpha.13.2` settled 
 ## Decision
 
 - The Codex plugin is `plugins/memory/` itself, with a `.codex-plugin/plugin.json` whose `hooks` field names `hooks/codex.json`; `scripts/port.py` adds its marketplace entry. No generated copy, unlike `agent-skills` (ADR 0015), because the engine is tool-neutral and the manifest keeps Claude's hooks out.
-- The core runs two hooks, `SessionStart` (the index) and `SubagentStart` (the three lines), and their texts give `mem` by absolute path and leave out Claude-only names.
+- The core runs two hooks, `SessionStart` (the index) and `SubagentStart` (the three lines), whose texts leave out Claude-only names.
+- `mem` becomes a user command (owner, 2026-11-27: models call `mem`, not `uv` or a full path): `mem install-command`, run once, puts a launcher in `~/.local/bin` that runs `bin/mem` of the plugin copy the last session used; every `SessionStart` hook (Claude or Codex) records its plugin root in the plugin's state folder, so the command follows the copy the last session ran rather than a version fixed at install. Until it is installed, the session text gives the absolute path.
 - Codex has no plugin options: the store comes from `mem`'s config file or the default store, so both tools on one machine share one memory.
 - Background passes, agents, the compaction handoff and session-end capture stay out until each is decided on its own.
 
@@ -21,7 +22,9 @@ Probes the same day with the extension's `codex-cli 0.171.0-alpha.13.2` settled 
 |---|---|
 | A generated copy under `ports/codex/memory` (as `agent-skills`) | duplicates the engine on every change for no gain: the probe showed the manifest can select its own hooks file |
 | One `hooks/hooks.json` shared by both tools | Codex would run the Claude-only hooks (`PreCompact`, `PostCompact`, `SessionEnd` with `claude -p`) |
-| A hook that writes a `mem` shim into `~/.local/bin` | writes outside the plugin on every session start; a path in the session text has no side effect. Revisit if the model fails to use the path |
+| A hook that writes a `mem` shim into `~/.local/bin` on every start | writes outside the plugin each session; the one-time launcher reads a recorded plugin root instead |
+| The absolute path in the session text as the only route | works only where the session text reached the model; the owner wants one command for every tool and the terminal |
+| A packaged engine (`uv tool install`), no `uv` at run time | a second environment that drifts from the plugin version, against ADR 0035's single environment; it is one of the fixes plan task 1 weighs if the Codex sandbox blocks `uv` |
 | Full parity in the first version (`codex exec` passes, TOML agents) | the owner chose the core: smaller cost and risk, and the kill read may still end the plugin |
 | Wait for the kill read before designing | the design is cheap and reversible; only code waits |
 
@@ -29,11 +32,13 @@ Probes the same day with the extension's `codex-cli 0.171.0-alpha.13.2` settled 
 
 - One folder serves two tools: a Claude-only change to a shared hook script can break Codex; the plan's checks run both.
 - The owner trusts the hooks once per plugin version in Codex.
+- `mem` works the same in Claude sessions, subagents, Codex and the owner's terminal once installed; the launcher is one more file outside the plugin, removed by `mem install-command --remove`.
 - `validate.py` and `port.py` gain a memory marketplace entry; ADR 0023's "no port" consequence no longer holds for Codex.
 - Ships unmeasured; kill criteria are in the plan.
 
 ## Revisit if
 
 - The kill read ends the plugin (this record is then withdrawn).
+- The Codex sandbox blocks `uv` when the model runs `mem` and plan task 1 picks the packaged engine.
 - Codex documents plugin options, plugin-shipped agents or `bin/` on `PATH`.
 - A Codex release stops running trusted plugin hooks in the CLI or the extension.
