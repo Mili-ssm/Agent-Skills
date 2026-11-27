@@ -40,11 +40,16 @@ CHECK = re.compile(
 MEM = re.compile(r"(^|[;&|]\s*)mem\b")
 # A command that changes state is not a lookup, even when its class is git/gh, mem or read-file.
 MUTATING = re.compile(
-    r"\bgit\s+(-\S+\s+)*(commit|push|merge|rebase|reset|checkout|switch|add|stash|tag|cherry-pick"
-    r"|restore|rm|mv)\b"
+    r"\bgit\s+(-[Cc]\s+(\"[^\"]*\"|'[^']*'|\S+)\s+|-\S+\s+)*"
+    r"(commit|push|merge|rebase|reset|checkout|switch|add|stash|tag|cherry-pick|restore|rm|mv)\b"
     r"|\bgh\s+(pr\s+(create|merge|close|comment|edit)|issue\s+(create|close|comment)|release)\b"
-    r"|(^|[;&|]\s*)mem\s+(remember|forget|settle|synthesis|curate\s+apply)\b"
+    r"|(^|[;&|]\s*)mem\s+(remember|forget|settle|synthesis|curate\s+apply|confirm|observe|refute"
+    r"|supersede|merge|distinct|restore|promote|triage|note|new|rename|import|import-recover|unify"
+    r"|init|index|install-command|fetch-sources)\b"
     r"|\bsed\b[^;&|\n]*\s(-[A-Za-z]*i\b|--in-place)"
+    r"|\btee\s+(-\S+\s+)*[^-\s]"
+    # a redirect to a file; not `2>&1`, `>&2`, `> /dev/null`, `->`, `=>`
+    r"|(?<![-=>&|])>>?(?![>&=])\s*(?!/dev/null\b)[^\s&|;)]"
 )
 TASK_ID = re.compile(r"<task-id>([^<]+)</task-id>")
 GIT = re.compile(r"(git|gh)\b")
@@ -147,15 +152,23 @@ class Pending:
     notifs: int = 0
     results: bool = False
     ids: set[str] = field(default_factory=lambda: cast("set[str]", set()))
+    carried: set[str] = field(
+        default_factory=lambda: cast("set[str]", set())
+    )  # ids of the previous call
 
     def notify(self, text: str) -> None:
-        """Count a notification once: it can arrive as a user record and as a queued command."""
+        """Count a notification once: it can arrive as a user record and as a queued command.
+
+        An id already seen in this call or in the previous one is a repeat and counts nothing.
+        """
         found = TASK_ID.search(text)
         if found is None:
             self.notifs += 1
-        elif found.group(1) not in self.ids:
-            self.ids.add(found.group(1))
+            return
+        ident = found.group(1)
+        if ident not in self.ids and ident not in self.carried:
             self.notifs += 1
+        self.ids.add(ident)
 
     def trigger(self) -> str:
         """Return the trigger class of the next call.
@@ -245,7 +258,7 @@ def new_call(state: Transcript, usage: dict[str, object], fam: str) -> Call:
         state.pending.notifs,
         both=state.pending.results and state.pending.notifs > 0,
     )
-    state.pending = Pending()
+    state.pending = Pending(carried=state.pending.ids)
     state.calls.append(call)
     return call
 
@@ -567,18 +580,44 @@ def section_e(sessions: list[list[Call]]) -> None:
     )
 
 
-def bash_runs(session: list[Call]) -> list[int]:
-    """Return the lengths of runs of 3+ consecutive calls that are each exactly one Bash call."""
-    runs: list[int] = []
-    length = 0
+def bash_runs(session: list[Call], minimum: int = THRESHOLDS[0]) -> list[list[Call]]:
+    """Return the runs of at least `minimum` consecutive calls that are each exactly one Bash call."""
+    runs: list[list[Call]] = []
+    run: list[Call] = []
     for call in [*session, Call(0, (0, 0, 0), 0, 0, OTHER, 0)]:
         if call.single("Bash"):
-            length += 1
+            run.append(call)
             continue
-        if length >= THRESHOLDS[0]:
-            runs.append(length)
-        length = 0
+        if len(run) >= minimum:
+            runs.append(run)
+        run = []
     return runs
+
+
+def percentile(ordered: list[int], fraction: float) -> int:
+    """Return the nearest-rank percentile of an ascending list, or 0 for none."""
+    return ordered[min(len(ordered) - 1, int(len(ordered) * fraction))] if ordered else 0
+
+
+def shell_run_figures(sessions: list[list[Call]]) -> None:
+    """Print the length percentiles of the single-shell runs and the command classes inside runs of 3+."""
+    for minimum in (1, THRESHOLDS[0]):
+        lengths = sorted(len(r) for s in sessions for r in bash_runs(s, minimum))
+        print(
+            f"  single-Bash runs of {minimum}+: {len(lengths)}, length p50 {percentile(lengths, 0.5)}, "
+            f"p90 {percentile(lengths, 0.9)}, p99 {percentile(lengths, 0.99)}, max {max(lengths, default=0)}"
+        )
+    classes = Counter(
+        bash_class(str(c.tools[0].args.get("command", "")))
+        for s in sessions
+        for r in bash_runs(s)
+        for c in r
+    )
+    total = sum(classes.values())
+    print(
+        "  calls inside runs of 3+ by command class: "
+        + ", ".join(f"{name} {n} ({share(n, total)})" for name, n in classes.most_common())
+    )
 
 
 def section_f(sessions: list[list[Call]]) -> None:
@@ -587,7 +626,7 @@ def section_f(sessions: list[list[Call]]) -> None:
     calls = [c for s in sessions for c in s]
     tool_calls = [c for c in calls if c.tools]
     one_bash = sum(1 for c in calls if c.single("Bash"))
-    runs = [n for s in sessions for n in bash_runs(s)]
+    runs = [len(r) for s in sessions for r in bash_runs(s)]
     print(
         f"  tool-using calls with 2+ tool calls: {sum(1 for c in tool_calls if len(c.tools) > 1)} of {len(tool_calls)} ({share(sum(1 for c in tool_calls if len(c.tools) > 1), len(tool_calls))})"
     )
@@ -597,6 +636,7 @@ def section_f(sessions: list[list[Call]]) -> None:
     print(
         f"  runs of 3+ consecutive single-Bash calls: {len(runs)}, calls inside them: {sum(runs)}"
     )
+    shell_run_figures(sessions)
 
 
 def main() -> None:

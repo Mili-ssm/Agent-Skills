@@ -130,8 +130,19 @@ def severity_cell(report: str) -> int:
     return SEVERITY_CELL
 
 
+# A section label such as `Low:` or `Not checked:`: no `.` or digit before the colon (a count in
+# parentheses is allowed) and whitespace or the line end after it, so a finding line like
+# `Makefile:3 — …` or `a.py:12 — …` is not a label.
+LABEL = re.compile(r"[A-Z][A-Za-z ]*(?:\(\d+\))?:(?!\S)")
+LEFT_OUT = re.compile(r"Left out:\s*(\d+)\s+low\b", re.IGNORECASE)
+
+
 def severities(report: str) -> Counter[str]:
-    """Count the findings of a report by severity: table rows, plus lines after a `Low:` label."""
+    """Count the findings of a report by severity.
+
+    Table rows count by their Severity cell; lines after a `Low:` label count as low until the next
+    label or a blank line; K of a `Left out: K low findings` line is added to the low count.
+    """
     count: Counter[str] = Counter()
     cell = severity_cell(report)
     in_low = False
@@ -140,11 +151,10 @@ def severities(report: str) -> Counter[str]:
             cells = [text.strip().lower() for text in row.split("|")]
             if len(cells) > cell and cells[cell] in SEVERITIES:
                 count[cells[cell]] += 1
-        in_low = (
-            row.startswith("Low")
-            if re.match(r"[A-Z][\w ()]*:", row)
-            else in_low and bool(row.strip())
-        )
+        left_out = LEFT_OUT.match(row)
+        if left_out:
+            count["low"] += int(left_out.group(1))
+        in_low = row.startswith("Low") if LABEL.match(row) else in_low and bool(row.strip())
         count["low"] += in_low and not row.startswith("Low")
     return count
 

@@ -27,6 +27,11 @@ Every token figure is an estimate (est.): characters / CHARS_PER_TOKEN, the cons
              brief sharing at least half of the first brief's paths (at least two).
   E          SendMessage calls; the target type is resolved from the agent id of an earlier launch.
   F          wall-clock seconds from the dispatch to the first report, from record timestamps.
+  G          the report of each run: characters and words of its text without the hand-back frame
+             (median per agent), the share of `implementer` reports that open with BLOCKED or stop for
+             missing input, the share of runs that end within TURN_MARGIN turns of the agent's
+             `maxTurns` (frontmatter in plugins/*/agents/; a turn is one deduplicated API call of the
+             run), and reviewer dispatches per 100 main calls.
 """
 
 import json
@@ -51,6 +56,9 @@ MIN_SHARED = 2
 RATIO_HIGH = 3  # section A shares: ratio below 1 and below this
 FEW_TOOLS, SOME_TOOLS = 2, 5  # section A shares: runs with at most this many tool calls
 DEFAULT_DAYS = 7
+TURN_MARGIN = 2  # a run ending this close to its agent's maxTurns counts as cap-limited
+REPO = Path(__file__).resolve().parents[3]
+REVIEWER = "skeptical-reviewer"
 # USD per MTok: input, output, cache read (same table as usage_main_context.py).
 PRICE = {
     "fable": (8, 40, 0.20),
@@ -68,6 +76,16 @@ DIRECTORIES = {"docs", "scripts", "plugins", "src", "tests", "shared", "ports", 
 AGENT_MESSAGE = re.compile(r'agent-message from="([0-9a-f]+)"')
 NOTIFICATION_ID = re.compile(r"<task-id>([0-9a-f]+)</task-id>")
 AGENT_ID = re.compile(r"agentId: ([0-9a-f]+)")
+FRAME_END = "The report follows:\n"
+HANDBACK_END = "\n</agent-message>"
+RESULT = re.compile(r"<result>(.*?)</result>", re.DOTALL)
+BLOCKED = re.compile(r"^[#*\s]*(?:result:?\s*)?\**blocked\b", re.IGNORECASE)
+MISSING_INPUT = re.compile(
+    r"missing (?:input|acceptance|scope|brief)|needs? (?:more )?context|cannot proceed",
+    re.IGNORECASE,
+)
+OPENING_LINES = 3
+MAX_TURNS = re.compile(r"^maxTurns:\s*(\d+)\s*$", re.MULTILINE)
 DELIVERED = "was delivered to you as a message"
 LAUNCHED = "Async agent launched"
 
@@ -170,6 +188,8 @@ class Dispatch:
     report_call: int | None = None
     report_ts: str = ""
     report_text: str = ""
+    from_handback: bool = False  # report_text is the hand-back body, not a notification's text
+    texts: set[str] = field(default_factory=set)  # kinds of harness text counted in side_chars
 
 
 @dataclass
@@ -191,7 +211,7 @@ class Main:
     result_chars: dict[str, int] = field(default_factory=dict)
     opens: list[tuple[int, str, str]] = field(default_factory=list)  # call, tool id, haystack
     messages: list[str] = field(default_factory=list)  # SendMessage targets
-    seen_notice: set[tuple[str, str]] = field(default_factory=set)  # dispatch, notice id
+    seen_notice: set[tuple[str, str, str]] = field(default_factory=set)  # dispatch, notice id, kind
 
 
 def add_call(main: Main, record: Rec) -> int | None:
@@ -238,12 +258,29 @@ def on_assistant(main: Main, record: Rec, claimed: set[str]) -> None:
             add_tool_use(main, block, index, record.get("timestamp") or "", claimed)
 
 
-def mark_report(main: Main, dispatch: Dispatch, ts: str, text: str) -> None:
-    """Note the first report of a dispatch: when it arrived and its text."""
+def report_body(text: str) -> str:
+    """Return the report of a harness text without its frame: a hand-back body or a notification result."""
+    if FRAME_END in text:
+        body = text.split(FRAME_END, 1)[1].split(HANDBACK_END, 1)[0]
+        return "\n".join(line.removeprefix("  ") for line in body.splitlines())
+    found = RESULT.search(text)
+    return found.group(1).strip() if found else text
+
+
+def mark_report(main: Main, dispatch: Dispatch, ts: str, text: str, handback: bool = False) -> None:
+    """Note the first report of a dispatch (when it arrived) and its text.
+
+    The text comes from the first report; the hand-back body replaces a notification's text when it
+    arrives later, because it is the report itself.
+    """
     if dispatch.report_call is None:
         dispatch.report_call = len(main.calls)
         dispatch.report_ts = ts
-        dispatch.report_text = text
+        dispatch.report_text = report_body(text)
+        dispatch.from_handback = handback
+    elif handback and not dispatch.from_handback:
+        dispatch.report_text = report_body(text)
+        dispatch.from_handback = True
 
 
 def on_tool_result(main: Main, block: Rec, ts: str) -> None:
@@ -271,13 +308,17 @@ def on_notice(main: Main, text: str, ts: str) -> None:
     dispatch = main.by_agent.get(found.group(1)) if found else None
     if found is None or dispatch is None:
         return
-    key = (dispatch.tool_id, found.group(1))
+    # The hand-back message and the completion notification are two texts of one dispatch that both
+    # enter the main context: each counts once.
+    kind = "handback" if handback else "notification"
+    key = (dispatch.tool_id, found.group(1), kind)
     if key in main.seen_notice:
         return
     main.seen_notice.add(key)
+    dispatch.texts.add(kind)
     dispatch.side_chars += len(text)
     if handback or DELIVERED not in text:
-        mark_report(main, dispatch, ts, text)
+        mark_report(main, dispatch, ts, text, handback=bool(handback))
 
 
 def on_user(main: Main, record: Rec) -> None:
@@ -323,6 +364,7 @@ class Run:
     tool_id: str
     agent_id: str
     tool_uses: int = 0
+    turns: int = 0
     kept_chars: int = 0
     cost: float = 0.0
 
@@ -349,6 +391,7 @@ def parse_run(path: Path, since_iso: str) -> Run | None:
                 for b in blocks(record)
                 if b.get("type") == "tool_result"
             )
+    run.turns = len(seen_mid)
     return run if seen_mid else None
 
 
@@ -375,14 +418,20 @@ def duration(dispatch: Dispatch) -> float | None:
 
 
 def waiting_calls(main: Main, dispatch: Dispatch) -> list[int]:
-    """Return the indexes of the main calls without a tool call between the dispatch and its report."""
-    if dispatch.report_call is None:
-        return []
-    return [
-        index
-        for index in range(dispatch.call + 1, dispatch.report_call)
-        if not main.calls[index].has_tool
-    ]
+    """Return the indexes of the main calls without a tool call between the dispatch and its report.
+
+    A dispatch that never reported counts the text-only calls that follow it until the main's next
+    tool call: after that the main is no longer waiting for it.
+    """
+    if dispatch.report_call is not None:
+        end = dispatch.report_call
+        return [i for i in range(dispatch.call + 1, end) if not main.calls[i].has_tool]
+    waiting: list[int] = []
+    for index in range(dispatch.call + 1, len(main.calls)):
+        if main.calls[index].has_tool:
+            break
+        waiting.append(index)
+    return waiting
 
 
 def reopened(main: Main, dispatch: Dispatch) -> tuple[int, float, int]:
@@ -395,7 +444,8 @@ def reopened(main: Main, dispatch: Dispatch) -> tuple[int, float, int]:
     chars: dict[str, int] = {}
     calls: set[int] = set()
     for path in (t for t in path_tokens(dispatch.report_text) if Path(t).suffix):
-        at_boundary = re.compile(rf"(?:^|[\s'\"/]){re.escape(path)}")
+        # boundary on both sides: `foo.md` matches `foo.md:3` and `foo.md.`, not `foo.mdx` or `foo.md-old`
+        at_boundary = re.compile(rf"(?:^|[\s'\"/]){re.escape(path)}(?![\w@+-]|\.\w)")
         for index, tool_id, haystack in window:
             if at_boundary.search(haystack):
                 hit.add(path)
@@ -482,17 +532,19 @@ def section_b(items: list[Item], order: list[str]) -> None:
     """Print section B: main calls spent waiting per dispatch, then the distinct calls overall."""
     rows: list[list[str]] = []
     for name, group in by_kind(items, lambda i: i[1].kind, order):
-        waits = [(m, waiting_calls(m, d)) for m, d in group if d.report_call is not None]
+        waits = [(m, waiting_calls(m, d)) for m, d in group]
         counts = [float(len(w)) for _, w in waits]
+        unreported = sum(1 for _, d in group if d.report_call is None)
         rows.append([
-            name, str(len(waits)), f"{median(counts):.0f}",
+            name, str(len(waits)), str(unreported), f"{median(counts):.0f}",
             f"{statistics.fmean(counts) if counts else 0:.2f}", f"{sum(counts):.0f}",
             f"{sum(m.calls[i].cache_read_usd for m, w in waits for i in w):.2f}",
         ])  # fmt: skip
     table(
-        "B. Main calls without a tool call before the report, per dispatch "
+        "B. Main calls without a tool call before the report, per dispatch; a dispatch that never "
+        "reported counts the text-only calls right after it "
         "(parallel dispatches share calls: a row counts a shared call once per dispatch)",
-        ["agent", "reports", "median", "mean", "calls", "cache_read_usd"],
+        ["agent", "dispatches", "unreported", "median", "mean", "calls", "cache_read_usd"],
         rows,
     )
     distinct = {(id(m), i): m.calls[i] for m, d in items for i in waiting_calls(m, d)}
@@ -567,6 +619,57 @@ def section_f(items: list[Item], order: list[str]) -> None:
     table("F. Seconds from dispatch to report", ["agent", "measured", "median", "max"], rows)
 
 
+def max_turns() -> dict[str, int]:
+    """Return the `maxTurns` of each agent type, read from the agent frontmatter of the plugins."""
+    caps: dict[str, int] = {}
+    for path in sorted(REPO.glob("plugins/*/agents/*.md")):
+        found = MAX_TURNS.search(path.read_text(encoding="utf-8").split("\n---", 2)[0])
+        if found:
+            caps[path.stem] = int(found.group(1))
+    return caps
+
+
+def opens_blocked(text: str) -> bool:
+    """Tell whether a report opens with BLOCKED or stops for missing input (its first lines say so)."""
+    head = [line for line in text.splitlines() if line.strip()][:OPENING_LINES]
+    return bool(head) and (
+        bool(BLOCKED.match(head[0])) or any(MISSING_INPUT.search(line) for line in head)
+    )
+
+
+def near_cap(run: Run, caps: dict[str, int]) -> bool | None:
+    """Tell whether a run ended within TURN_MARGIN turns of its agent's cap; None when it has none."""
+    cap = caps.get(run.kind)
+    return None if cap is None else run.turns >= cap - TURN_MARGIN
+
+
+def section_g(items: list[Item], runs: list[Run], order: list[str], total_calls: int) -> None:
+    """Print section G: report size, blocked share, turn cap and reviewer dispatches per 100 main calls."""
+    caps = max_turns()
+    rows: list[list[str]] = []
+    for name, group in by_kind(items, lambda i: i[1].kind, order):
+        texts = [d.report_text for _, d in group if d.report_call is not None]
+        kind_runs = [r for r in runs if name in {r.kind, "TOTAL"}]
+        capped = [x for r in kind_runs if (x := near_cap(r, caps)) is not None]
+        rows.append([
+            name, str(len(texts)),
+            f"{median([len(t) for t in texts]):.0f}", f"{median([len(t.split()) for t in texts]):.0f}",
+            f"{share([opens_blocked(t) for t in texts]):.1f}",
+            str(caps.get(name, "-")), str(len(capped)), f"{share(capped):.1f}",
+        ])  # fmt: skip
+    table(
+        "G. Report text without its frame, blocked share, and runs within "
+        f"{TURN_MARGIN} turns of maxTurns (TOTAL covers agents with a cap)",
+        ["agent", "reports", "chars_med", "words_med", "blocked%", "maxTurns", "runs", "near_cap%"],
+        rows,
+    )
+    reviewer = sum(1 for _, d in items if d.kind == REVIEWER)
+    per_100 = 100 * reviewer / total_calls if total_calls else 0.0
+    print(f"  reviewer dispatches {reviewer} per 100 main calls ({total_calls}): {per_100:.2f}")
+    both = sum(1 for _, d in items if len(d.texts) == 2)  # ruff: ignore[magic-value-comparison]
+    print(f"  dispatches whose hand-back and notification both entered the main: {both}")
+
+
 def main() -> None:
     """Print the six sections for the last DAYS days."""
     args = sys.argv[1:]
@@ -594,6 +697,7 @@ def main() -> None:
     section_d(items, order)
     section_e(mains)
     section_f(items, order)
+    section_g(items, runs, order, sum(len(m.calls) for m in mains))
 
 
 if __name__ == "__main__":
