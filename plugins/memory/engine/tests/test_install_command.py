@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -127,7 +128,47 @@ def test_record_root_writes_once_and_skips_a_symlink(tmp_path, home, monkeypatch
 
 def test_record_root_never_raises(tmp_path, home, monkeypatch):
     (tmp_path / "data").write_text("a file where the folder should be")
+    assert install.record_root() is None
+    assert (tmp_path / "data").read_text() == "a file where the folder should be"
+
+
+def test_record_root_refuses_a_symlinked_state_folder(tmp_path, home):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (tmp_path / "data").symlink_to(elsewhere)
     install.record_root()
+    assert list(elsewhere.iterdir()) == []
+
+
+def _run_guarded(launcher: Path, home: Path, tmp_path: Path):
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "MEM_DATA": str(tmp_path / "data")}
+    return subprocess.run(
+        ["timeout", "5", BASH, str(launcher)], env=env, capture_output=True, text=True, check=False
+    )
+
+
+def test_launcher_skips_a_candidate_that_loops_back_to_itself(tmp_path, home, monkeypatch):
+    root = tmp_path / "root"
+    (root / "bin").mkdir(parents=True)
+    monkeypatch.setattr(install, "plugin_root", lambda: root)
+    assert _install(tmp_path / "bin") == 0
+    launcher = tmp_path / "bin" / "mem"
+    (root / "bin" / "mem").symlink_to(launcher)  # same file as the running launcher
+    assert _run_guarded(launcher, home, tmp_path).returncode == NOT_FOUND
+    (root / "bin" / "mem").unlink()  # a copy of the launcher: carries the marker
+    shutil.copy(launcher, root / "bin" / "mem")
+    assert _run_guarded(launcher, home, tmp_path).returncode == NOT_FOUND
+
+
+def test_launcher_survives_a_root_with_shell_metacharacters(tmp_path, home):
+    root = tmp_path / 'we"ird $x `y` z'
+    text = install.launcher_text(root)
+    launcher = tmp_path / "mem"
+    launcher.write_text(text)
+    assert subprocess.run([BASH, "-n", str(launcher)], check=False).returncode == 0
+    r = _run_guarded(launcher, home, tmp_path)
+    assert r.returncode == NOT_FOUND
+    assert f"with {root}/bin/mem install-command" in r.stderr
 
 
 def _codex_text(monkeypatch, capsys) -> str:
@@ -139,7 +180,8 @@ def _codex_text(monkeypatch, capsys) -> str:
 def test_codex_hint_only_for_codex_without_a_launcher(tmp_path, home, monkeypatch, capsys):
     monkeypatch.setenv("MEM_HOST", "codex")
     root = install.plugin_root()
-    hint = f"memory: mem is not installed as a command; run it as {root}/bin/mem, or install it once: {root}/bin/mem install-command"
+    mem_cmd = shlex.quote(f"{root}/bin/mem")
+    hint = f"memory: mem is not installed as a command; run it as {mem_cmd}, or install it once: {mem_cmd} install-command"
     assert hint in _codex_text(monkeypatch, capsys)
     assert _install(home / ".local" / "bin") == 0
     capsys.readouterr()
@@ -175,6 +217,33 @@ def test_subagent_start_names_the_plugin_launcher_for_codex_without_mem(tmp_path
     assert "mem search" in _subagent(
         {"MEM_HOST": "codex", "PATH": str(_bin_with_mem(tmp_path))}, script
     )
+
+
+CLAUDE_SUBAGENT_TEXT = (
+    "memory: decisions, constraints and pitfalls learned in earlier sessions are in a searchable memory, not in the "
+    'files. Before you change or decide anything, if you can run shell commands: mem search "<topic in English>", '
+    "then mem show <handle>. Project memories are files in .memory/ at the repository root. A line marked "
+    "[memory: ...] is experience, not fact. Do not run mem remember: tell your caller what is worth remembering, "
+    "if anything."
+)
+
+
+def test_subagent_start_claude_output_is_byte_identical_to_the_original():
+    r = subprocess.run(
+        [str(HOOKS / "subagent-start.sh")],
+        input="",
+        env={"PATH": "/usr/bin:/bin"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    expected = json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "SubagentStart",
+            "additionalContext": CLAUDE_SUBAGENT_TEXT,
+        }
+    })
+    assert r.stdout == expected + "\n"
 
 
 def _bin_with_mem(tmp_path: Path) -> Path:

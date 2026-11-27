@@ -27,11 +27,19 @@ _EXEC_MODE = 0o755
 _LAUNCHER = """#!/usr/bin/env bash
 {marker}
 if [ -n "${{MEM_DATA:-}}" ]; then d="$MEM_DATA"; else d="${{XDG_STATE_HOME:-$HOME/.local/state}}/agent-memory"; fi
-root=""
-[ -r "$d/{record}" ] && IFS= read -r root < "$d/{record}"
-if [ -z "$root" ] || [ ! -x "$root/bin/mem" ]; then root={embedded}; fi
-if [ -x "$root/bin/mem" ]; then exec "$root/bin/mem" "$@"; fi
-echo "mem: no plugin copy found; start a Claude Code or Codex session once, or reinstall with {mem} install-command" >&2
+rec=""
+[ -r "$d/{record}" ] && IFS= read -r rec < "$d/{record}"
+emb={embedded}
+marker={marker_q}
+for cand in "$rec" "$emb"; do
+  [ -n "$cand" ] && [ -x "$cand/bin/mem" ] || continue
+  [ "$cand/bin/mem" -ef "$0" ] && continue
+  line=""
+  {{ IFS= read -r line; IFS= read -r line; }} < "$cand/bin/mem" 2>/dev/null
+  [ "$line" = "$marker" ] && continue
+  exec "$cand/bin/mem" "$@"
+done
+printf 'mem: no plugin copy found; start a Claude Code or Codex session once, or reinstall with %s/bin/mem install-command\n' "$emb" >&2
 exit 127
 """
 
@@ -51,10 +59,10 @@ def launcher_missing() -> bool:
 
 
 def _write_record() -> None:
-    target = jobs.state_dir() / RECORD_NAME
+    state = jobs.state_dir()
+    target = state / RECORD_NAME
     data = str(plugin_root()).encode()
-    if target.is_symlink():
-        return
+    safe_io.refuse_symlink_chain(state, target)  # raises UnsafePathError: record_root suppresses it
     with contextlib.suppress(OSError):
         if target.read_bytes() == data:
             return
@@ -69,9 +77,11 @@ def record_root() -> None:
 
 
 def launcher_text(root: Path) -> str:
-    mem = shlex.quote(str(root / "bin" / "mem"))
     return _LAUNCHER.format(
-        marker=MARKER, record=RECORD_NAME, embedded=shlex.quote(str(root)), mem=mem
+        marker=MARKER,
+        marker_q=shlex.quote(MARKER),
+        record=RECORD_NAME,
+        embedded=shlex.quote(str(root)),
     )
 
 

@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -535,10 +536,10 @@ def cmd_session_index(args: argparse.Namespace) -> int:
     if args.hook:
         install.record_root()
     if _host() == "codex" and install.launcher_missing():
-        root = install.plugin_root()
+        mem = shlex.quote(str(install.plugin_root() / "bin" / "mem"))
         text += (
-            f"\nmemory: mem is not installed as a command; run it as {root}/bin/mem, "
-            f"or install it once: {root}/bin/mem install-command"
+            f"\nmemory: mem is not installed as a command; run it as {mem}, "
+            f"or install it once: {mem} install-command"
         )
     print(text)
     if args.hook:
