@@ -46,20 +46,26 @@ def reason(done: dict) -> str:
     return f": {done['failure']}" if done.get("failure") else ""
 
 
-def refusal(pass_name: str) -> str:
+WHY_SHELL = "Codex cannot remove the shell from this step"
+WHY_INTEGRATE = "Codex placed 0 of 17 appends in 4 runs, trial 2026-11-27"
+
+
+def refusal(pass_name: str, why: str = WHY_SHELL) -> str:
     return (
-        f"{pass_name}: runs on Claude only (ADR 0037: Codex cannot remove the shell from this step); "
+        f"{pass_name}: runs on Claude only (ADR 0037: {why}); "
         "set runner=claude or pass --runner claude"
     )
 
 
-def refuse_codex(pass_name: str, explicit: str | None = None) -> int | None:
+def refuse_codex(
+    pass_name: str, explicit: str | None = None, *, why: str = WHY_SHELL
+) -> int | None:
     """For a pass that stays on Claude. An `explicit` request for `codex` (the pass's own `--runner`) prints
     `refusal` to stderr and returns the exit code to end with; an explicit `claude` ends the question. A `codex` that only comes from a default
     (`MEM_RUNNER`, the config file, `MEM_RUNNER_OPTION`) never disables the pass: one line on stderr says the
     default is ignored, the pass runs on Claude, and None is returned. A malformed setting is ignored silently."""
     if explicit == "codex":
-        print(refusal(pass_name), file=sys.stderr)
+        print(refusal(pass_name, why), file=sys.stderr)
         return REFUSED_EXIT
     if explicit == "claude":
         return None

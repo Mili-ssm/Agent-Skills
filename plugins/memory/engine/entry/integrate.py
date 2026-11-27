@@ -1,5 +1,6 @@
 """mem-integrate: joins loose knowledge notes to the parts of syntheses with two cheap read-only sessions each
-(plan 2026-11-26-memory-seamless-stage-3-integration). Not measured: opt-in by running it.
+(plan 2026-11-26-memory-seamless-stage-3-integration). Not measured: opt-in by running it. Claude only: a Codex
+default is ignored, `--runner codex` exits 2 (Codex placed 0 of 17 appends in 4 runs, ADR 0037 trial 2026-11-27).
 
 `run`: takes the `mem-auto` run lock (busy: nothing starts), commits the store, asks `mem synthesis integrate
 --candidates`, drops the notes the done list already holds, and per synthesis runs (1) a place session that answers
@@ -31,8 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core import auto_state, codex_pass, headless, jobs
-from core import runner as runners
+from core import auto_state, codex_pass, headless, jobs, runner
 from integrate import answers, plan
 from integrate import state as run_state
 from integrate import undo as run_undo
@@ -166,7 +166,6 @@ class Job:
     current: Tally | None = (
         None  # the synthesis being worked on: every session's cost lands in its row
     )
-    runner: str = "claude"
 
     @property
     def root(self) -> Path:
@@ -196,41 +195,22 @@ class Job:
         start = time.monotonic()
         done = self.run_session(work, brief, settings, work / f"{name}.jsonl")
         self.record.cost += done["cost"]
-        self.record.tokens += done.get("tokens", 0)
         if self.current is not None:
             self.current.cost += done["cost"]
-        spent = f"tokens={done['tokens']}" if self.runner == "codex" else f"cost={done['cost']:.3f}"
         self.log(
-            f"{name}: has_result={done['has_result']} error={done['error']} {spent} "
+            f"{name}: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
             f"wall={time.monotonic() - start:.1f}s answer={' '.join(done['answer'].split())[:200]}"
         )
         if not done["has_result"] or done["error"]:
-            why = "failed" if done["has_result"] else self.no_result
-            self.fail(f"{name} session {why}{codex_pass.reason(done)}")
+            self.fail(f"{name} session {'failed' if done['has_result'] else sp.NO_COST}")
             return None
         return done["answer"], done["cost"]
 
     def spent_up(self) -> bool:
-        """Claude: no USD left of the budget. Codex: the run's tokens reached the cap."""
-        if self.runner == "codex":
-            return codex_pass.over_cap(self.record.tokens)
         return self.budget - self.record.cost <= EPSILON
 
-    @property
-    def no_result(self) -> str:
-        return "ended without a result" if self.runner == "codex" else sp.NO_COST
-
     def run_session(self, work: Path, brief: str, settings: Path, log: Path) -> dict:
-        """One session on the run's runner, its stream written to `log`; the `sp.parse` dict (Codex adds `tokens`)."""
-        if self.runner == "codex":
-            done = codex_pass.ask(
-                session_spec(self.claude, work, brief, settings, self.budget),
-                work,
-                writes=False,
-                timeout=SESSION_TIMEOUT,
-            )
-            log.write_text(done["raw"], encoding="utf-8")
-            return done
+        """One session, its stream written to `log`; the `sp.parse` dict."""
         cmd = session_cmd(self.claude, work, brief, settings, self.budget - self.record.cost)
         raw = headless.run_raw(cmd, cwd=work, env=self.env, timeout=SESSION_TIMEOUT).stdout
         log.write_text(raw, encoding="utf-8")
@@ -390,12 +370,7 @@ def report(job: Job) -> None:
         print(table(job.tallies))
     for text in job.record.failures:
         print(f"failed: {text}")
-    if job.runner == "codex":
-        print(
-            f"tokens: {job.record.tokens} of {codex_pass.token_cap()} (codex); run {job.record.run_id}"
-        )
-    else:
-        print(f"cost: {job.record.cost:.3f} USD of {job.budget:.2f}; run {job.record.run_id}")
+    print(f"cost: {job.record.cost:.3f} USD of {job.budget:.2f}; run {job.record.run_id}")
 
 
 def work_steps(job: Job) -> None:
@@ -406,21 +381,7 @@ def work_steps(job: Job) -> None:
             return
 
 
-def _no_binary(job: Job) -> str | None:
-    """Why the run cannot start a session, or None."""
-    if job.runner == "codex":
-        return codex_pass.NO_CODEX if runners.find_codex() is None else None
-    return None if job.claude else "no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)"
-
-
-def cmd_run(
-    store: Path, claude: str | None, budget_arg: str | None, runner: str | None = None
-) -> int:
-    try:
-        chosen = runner or runners.resolve_runner(None)  # once per run
-    except ValueError as exc:
-        print(f"mem-integrate: {exc}", file=sys.stderr)
-        return 2
+def cmd_run(store: Path, claude: str | None, budget_arg: str | None) -> int:
     folder = state_folder(store)
     fd = jobs.take_run_lock(auto_state.auto_dir(synth_run.state_dir(), store))
     if fd is None:
@@ -436,14 +397,11 @@ def cmd_run(
             budget_of(budget_arg),
             folder,
             record,
-            runner=chosen,
         )
-        record.runner = chosen
         jobs.private_dir(job.root)
         run_state.write_record(folder, record)
-        missing = _no_binary(job)
-        if missing:
-            job.fail(missing)
+        if not job.claude:
+            job.fail("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
         else:
             _guarded(job)
         report(job)
@@ -537,11 +495,7 @@ def cmd_status(store: Path) -> int:
     )
     print(f"run: {record.run_id} (started {record.started})")
     print(f"state: {state}")
-    print(
-        f"tokens: {record.tokens} (codex)"
-        if record.runner == "codex"
-        else f"cost: {record.cost:.3f} USD"
-    )
+    print(f"cost: {record.cost:.3f} USD")
     print(f"groups: {len(record.groups)}")
     print(f"undone: {undone}")
     for text in record.failures:
@@ -560,7 +514,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--budget", type=_budget_arg, help=f"USD per run (default {DEFAULT_BUDGET})"
     )
-    runners.add_flag(parser)
+    runner.add_flag(parser)
     parser.add_argument(
         "--dry-run", action="store_true", help="list what would run; start and change nothing"
     )
@@ -589,7 +543,12 @@ def main(argv: list[str] | None = None) -> int:
         return integrate_self_check.self_check(sys.modules[__name__])
     if not args.command and not args.undo:
         parser.error("a command or --undo RUN is required")
-    runners.pin_flag(args.runner)
+    if (
+        refused := codex_pass.refuse_codex(
+            "mem-integrate", args.runner, why=codex_pass.WHY_INTEGRATE
+        )
+    ) is not None:
+        return refused
     store = args.store.expanduser().resolve() if args.store else synth_run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-integrate: no store at {store}", file=sys.stderr)

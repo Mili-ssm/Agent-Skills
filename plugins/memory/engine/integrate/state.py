@@ -38,8 +38,6 @@ class RunRecord:
     started: str
     groups: list[GroupRecord] = field(default_factory=list)
     cost: float = 0.0
-    tokens: int = 0  # Codex only: it reports tokens, not money
-    runner: str = "claude"
     failures: list[str] = field(default_factory=list)
 
 

@@ -8,7 +8,7 @@
     "runner": {
       "type": "string",
       "title": "Runner",
-      "description": "Runner for background passes that support it (settle, integrate, corroborate): claude or codex. Empty: claude. Passes that need the shell always run on Claude (ADR 0037)."
+      "description": "Runner for background passes that support it (settle, corroborate; experimental): claude or codex. Empty: claude. Integrate and the passes that need the shell always run on Claude (ADR 0037)."
     },
     "store": {
       "type": "directory",
