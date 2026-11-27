@@ -14,7 +14,7 @@ Optional, once per machine: `mem install-command` writes a launcher to `~/.local
 Codex loads this same folder through `.codex-plugin/plugin.json`: the session index and the subagent line, with no Claude-only names. Not in Codex: the `memory-*` subagents, background passes, compaction and session-end hooks, plugin options (the store comes from `~/.config/agent-memory/store` or the default store, shared with Claude Code on the same machine).
 
 1. `codex plugin marketplace add Mili-ssm/Agent-Skills`, then `codex plugin add memory@mili-ssm`.
-2. Trust the plugin's hooks when Codex asks (again after each update that changes a hook script); untrusted hooks are skipped without a warning, so no index means untrusted.
+2. Trust the plugin's two hooks once per version that changes them: the VS Code extension never asks and skips untrusted hooks without a warning, so run the CLI in a terminal (`codex`, or without a standalone install the extension's binary: `~/.vscode/extensions/openai.chatgpt-<version>-linux-x64/bin/linux-x86_64/codex --no-daemon`), type `/hooks`, open `SessionStart` and `SubagentStart` from `memory@mili-ssm`, press `t` on each; Codex records `trusted_hash` under `[hooks.state]` in `~/.codex/config.toml`, the config file the extension also reads. Check: the hook log (`~/.local/state/agent-memory/hooks/log.jsonl`) gains a `"host": "codex"` entry per session.
 3. Codex's `workspace-write` sandbox blocks `mem` (`uv` cannot take its lock in `~/.cache/uv`) and writes to the global store. Add to `~/.codex/config.toml`, with absolute paths (plus your `store` folder if you set one):
 
    ```toml

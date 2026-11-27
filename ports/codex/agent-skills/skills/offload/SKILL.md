@@ -22,7 +22,7 @@ Pick the worker by the task and send it a self-contained brief with the row's fi
 | Verify a changed web UI in a browser | `ui-verifier` | URL or start command, flows with acceptance criteria, viewports |
 | Review what changed in the project since its last review (code, docs, files, a deletion, an image description) | `skeptical-reviewer` | paths or diff, intent, owner rules that apply, what is already verified, round (1 or 2), findings already rejected |
 
-- Long runs go in the background, so this conversation keeps working until the result arrives.
+- Long runs are spawned as subagents, so this conversation keeps working until the result arrives.
 - Independent tasks (for example one researcher per question) run in parallel in one message; dependent steps run in order, for example implementer, then check-runner, then fixer.
 - No row fits: do the task inline and say why.
 - The design is still open (two valid approaches, an unsettled contract): settle it with the owner first; a worker would pick one silently.

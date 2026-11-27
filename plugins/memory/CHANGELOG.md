@@ -4,6 +4,12 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Changed
+
+- Codex setup in the README: the VS Code extension never asks to trust hooks, so trust them once from the CLI's `/hooks` screen. Note for 0.17.0: Claude Code sessions also record the plugin root at session start (`~/.local/state/agent-memory/plugin-root`), which the `mem` launcher reads.
+
+## [0.17.0] - 2026-11-27
+
 ### Added
 
 - Codex can load the plugin from the same folder (`.codex-plugin/`): it opens sessions with the memory index and gives subagents the memory line, without the Claude-only parts (auto memory, `memory:*` subagents). Setup (marketplace, hook trust, the sandbox's `writable_roots`): README § Codex. The shared hook scripts `session-index.sh` and `subagent-start.sh` gain Codex branches (selected by `MEM_HOST=codex`); Claude Code output is unchanged, and the `session-index` hook log gains a `host` field.
