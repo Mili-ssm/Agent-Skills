@@ -29,7 +29,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
-from core import headless, jobs
+from core import codex_pass, headless, jobs
+from core import runner as runners
 from settle import state as ss
 from synthesize import pipeline as sp
 from synthesize import run as synth_run
@@ -96,24 +97,28 @@ def prune(state: State, now: float) -> None:
     jobs.prune_runs_older(state.dir / "runs", now, KEEP_SECONDS)
 
 
+def session_spec(
+    claude: str, work: Path, brief: str, settings: Path, max_budget: float
+) -> headless.Session:
+    return headless.Session(
+        claude=claude,
+        prompt=brief,
+        model="haiku",
+        settings=settings,
+        effort="medium",
+        # `//` is an absolute path
+        allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
+        disallowed=("Bash", "WebSearch", "WebFetch"),
+        max_budget=max_budget,
+    )
+
+
 def session_cmd(
     claude: str, work: Path, brief: str, settings: Path, max_budget: float
 ) -> list[str]:
     """One Haiku session. Tools: Read and Write/Edit inside `work` only; no Bash (a session with `Bash(mem *)` could
     run any `mem` command and bypass the limits `mem settle apply` enforces), no web, hooks disabled by `settings`."""
-    return headless.command(
-        headless.Session(
-            claude=claude,
-            prompt=brief,
-            model="haiku",
-            settings=settings,
-            effort="medium",
-            # `//` is an absolute path
-            allowed=(f"Read(/{work}/**)", f"Write(/{work}/**)", f"Edit(/{work}/**)"),
-            disallowed=("Bash", "WebSearch", "WebFetch"),
-            max_budget=max_budget,
-        )
-    )
+    return headless.command(session_spec(claude, work, brief, settings, max_budget))
 
 
 def session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
@@ -124,6 +129,20 @@ def session(cmd: list[str], work: Path, env: dict, log: Path) -> dict:
     result = sp.parse(raw)
     result["wall"] = time.monotonic() - start
     return result
+
+
+def codex_session(claude: str, work: Path, brief: str, settings: Path, log: Path) -> dict:
+    """The same session on Codex: it writes `verdicts.json` in `work`, which is its whole sandbox."""
+    start = time.monotonic()
+    done = codex_pass.ask(
+        session_spec(claude, work, brief, settings, DEFAULT_BUDGET),
+        work,
+        writes=True,
+        timeout=SESSION_TIMEOUT,
+    )
+    log.write_text(done["raw"], encoding="utf-8")
+    done["wall"] = time.monotonic() - start
+    return done
 
 
 def read_verdicts(path: Path) -> str | None:
@@ -142,6 +161,8 @@ class Outcome:
     """What a run spent and found, filled as it goes, so an exception later still leaves what was spent."""
 
     cost: float = 0.0
+    tokens: int = 0  # Codex only: it reports tokens, not money
+    runner: str = ""  # "": not resolved yet
     failures: list[str] = field(default_factory=list)
     pairs: int = 0
     summary: str = ""
@@ -156,6 +177,7 @@ class Job:
     root: Path
     out: Outcome
     env: dict
+    runner: str = "claude"
 
     @property
     def work(self) -> Path:
@@ -196,15 +218,24 @@ def _ask_model(job: Job, claude: str, budget: float, pairs: list) -> Path | None
         json.dumps({"disableAllHooks": True}), encoding="utf-8"
     )  # no hook of the session may commit or start a run
     brief = sp.brief("settle", PAIRS_FILE=str(pairs_file), VERDICTS_FILE=str(verdicts_file))
-    cmd = session_cmd(claude, job.work, brief, settings, budget)
-    done = session(cmd, job.work, job.env, job.root / "session.jsonl")
+    log = job.root / "session.jsonl"
+    if job.runner == "codex":
+        done = codex_session(claude or "", job.work, brief, settings, log)
+        job.out.tokens += done["tokens"]
+    else:
+        done = session(
+            session_cmd(claude, job.work, brief, settings, budget), job.work, job.env, log
+        )
     job.out.cost += done["cost"]
+    spent = f"tokens={done['tokens']}" if job.runner == "codex" else f"cost={done['cost']:.3f}"
     job.log(
-        f"session: has_result={done['has_result']} error={done['error']} cost={done['cost']:.3f} "
+        f"session: has_result={done['has_result']} error={done['error']} {spent} "
         f"answer={' '.join(done['answer'].split())[:200]}"
     )
     if not done["has_result"]:
-        job.out.failures.append(sp.NO_COST)
+        job.out.failures.append(
+            "the session ended without a result" if job.runner == "codex" else sp.NO_COST
+        )
         return None
     if done["error"]:
         job.out.failures.append("settling session failed")
@@ -246,10 +277,13 @@ def work_steps(job: Job, claude: str | None, budget: float) -> None:
     job.out.pairs = len(pairs)
     if not pairs:  # `pending` already judged the handles it looked at: nothing to ask a model
         return
-    if not claude:
+    if job.runner == "codex" and runners.find_codex() is None:
+        job.out.failures.append(codex_pass.NO_CODEX)
+        return
+    if job.runner == "claude" and not claude:
         job.out.failures.append("no claude binary (--claude, CLAUDE_CODE_EXECPATH or PATH)")
         return
-    verdicts_file = _ask_model(job, claude, budget, pairs)
+    verdicts_file = _ask_model(job, claude or "", budget, pairs)
     if verdicts_file is not None:
         _apply(job, verdicts_file)
 
@@ -281,6 +315,8 @@ def _finish(state: State, out: Outcome) -> None:
         state="failed" if out.failures else "ok",
         finished=finished,
         cost=out.cost,
+        tokens=out.tokens,
+        runner=out.runner,
         reason=reason,
         pairs=out.pairs,
         summary=out.summary,
@@ -308,15 +344,21 @@ def _open_job(state: State, out: Outcome, previous: dict, now: float) -> Job:
         started=now,
         finished=None,
         cost=0.0,
+        tokens=0,
+        runner=out.runner,
         reason="",
         log=str(out.log_file),
         **extra,
     )
-    return Job(state, root, out, run_env(state.store))
+    return Job(state, root, out, run_env(state.store), out.runner)
 
 
 def _attempt(
-    state: State, claude: str | None, budget_arg: str | float | None, minutes: float, out: Outcome
+    state: State,
+    claude: str | None,
+    budget_arg: str | float | None,
+    minutes: float,
+    out: Outcome,
 ) -> None:
     now = time.time()
     previous = state.status()
@@ -327,6 +369,9 @@ def _attempt(
     ):
         return
     budget = budget_of(budget_arg)
+    out.runner = out.runner or runners.resolve_runner(
+        None
+    )  # once per run; a malformed setting fails the run
     due, why = due_check(state.store, minutes)
     if not due:
         if why.startswith("mem settle due failed"):
@@ -336,20 +381,26 @@ def _attempt(
     job = _open_job(state, out, previous, now)
     job.log(f"start: budget {budget:.2f}")
     work_steps(job, claude, budget)
+    if out.runner == "codex" and out.tokens > codex_pass.token_cap():
+        out.failures.append(f"{out.tokens} tokens are over the cap {codex_pass.token_cap()}")
     if out.cost > budget + 1e-9:
         out.failures.append(f"cost {out.cost:.2f} USD is over the budget {budget:.2f}")
     _finish(state, out)
 
 
 def cmd_run(
-    store: Path, claude: str | None, budget_arg: str | float | None, minutes_arg: str | float | None
+    store: Path,
+    claude: str | None,
+    budget_arg: str | float | None,
+    minutes_arg: str | float | None,
+    runner: str | None = None,
 ) -> int:
     state = State(store)
     fd = jobs.take_run_lock(state.dir)  # the first action: a busy lock means a run is going
     if fd is None:
         return 0
     minutes = ss.minutes_of(minutes_arg)
-    out = Outcome()
+    out = Outcome(runner=runner or "")
     try:
         _attempt(state, claude, budget_arg, minutes, out)
     except (

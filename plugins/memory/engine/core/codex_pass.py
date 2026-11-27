@@ -1,0 +1,80 @@
+"""One Codex session of a background pass, in the shape the builders already read (ADR 0037).
+
+`ask` runs a `headless.Session` through `codex exec` and returns a dict with the keys of `synthesize.pipeline.parse`
+that the builders use (`has_result`, `error`, `answer`, `cost`), plus `tokens` and `raw`. The token cap is the budget
+of a Codex pass (Codex reports tokens, not money); `refusal` is the message of a pass that stays on Claude.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import TYPE_CHECKING
+
+from core import runner
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from pathlib import Path
+
+    from core import headless
+
+DEFAULT_TOKEN_CAP = (
+    500_000  # about 44k input tokens of Codex's own prompt per call, observed 2026-11-27
+)
+NO_CODEX = "no codex binary (MEM_CODEX, PATH or the VS Code extension)"
+PRIVATE_MODE = 0o700
+
+
+def token_cap(env: Mapping[str, str] | None = None) -> int:
+    """`MEM_CODEX_TOKENS` when it is a positive integer, else `DEFAULT_TOKEN_CAP`."""
+    env = os.environ if env is None else env
+    try:
+        value = int(env.get("MEM_CODEX_TOKENS", ""))
+    except ValueError:
+        return DEFAULT_TOKEN_CAP
+    return value if value > 0 else DEFAULT_TOKEN_CAP
+
+
+def over_cap(tokens: int) -> bool:
+    return tokens >= token_cap()
+
+
+def refusal(pass_name: str) -> str:
+    return (
+        f"{pass_name}: runs on Claude only (ADR 0037: Codex cannot remove the shell from this step); "
+        "set runner=claude or pass --runner claude"
+    )
+
+
+def refuse_codex(pass_name: str, chosen: str | None = None) -> str | None:
+    """The refusal message when the resolved runner is `codex`, else None. A malformed setting does not refuse:
+    these passes run on Claude whatever it says."""
+    try:
+        chosen = chosen or runner.resolve_runner(None)
+    except ValueError:
+        return None
+    return refusal(pass_name) if chosen == "codex" else None
+
+
+def ask(session: headless.Session, work: Path, *, writes: bool, timeout: float) -> dict:
+    """Runs `session` with Codex in `work`, which is also its sandbox root and holds its HOME. `writes`: the step
+    writes a file there (`workspace-write`), else the sandbox is read-only. `FileNotFoundError` when no binary."""
+    codex = runner.find_codex()
+    if codex is None:
+        raise FileNotFoundError(NO_CODEX)
+    for sub in ("home", "xdg"):
+        (work / sub).mkdir(mode=PRIVATE_MODE, exist_ok=True)
+    cmd = runner.codex_command(session, codex, work, writes=writes)
+    raw = runner.run_codex(
+        cmd, session.prompt, cwd=work, env=runner.codex_env(work), timeout=timeout
+    )
+    out = runner.parse_codex(raw.stdout, raw.returncode)
+    return {
+        "has_result": out.has_result,
+        "error": not out.has_result,
+        "answer": out.text,
+        "cost": 0.0,
+        "tokens": out.tokens,
+        "raw": raw.stdout,
+        "failure": out.error,
+    }
