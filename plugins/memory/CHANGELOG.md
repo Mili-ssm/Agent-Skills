@@ -4,6 +4,10 @@ All notable changes to this plugin. Format: [Keep a Changelog](https://keepachan
 
 ## [Unreleased]
 
+### Fixed
+
+- `mem install-command`: the launcher reads a plugin-root record with Windows line endings, and Codex now suggests `<plugin root>/bin/mem install-command` whenever no `mem` resolves on `PATH` (also when the launcher sits in a folder off `PATH`).
+
 ### Changed
 
 - Codex setup in the README: the VS Code extension never asks to trust hooks, so trust them once from the CLI's `/hooks` screen. Note for 0.17.0: Claude Code sessions also record the plugin root at session start (`~/.local/state/agent-memory/plugin-root`), which the `mem` launcher reads.
