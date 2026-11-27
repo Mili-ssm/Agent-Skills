@@ -90,6 +90,7 @@ def ask(session: headless.Session, work: Path, *, writes: bool, timeout: float) 
         )
     finally:
         runner.sync_auth(work)  # a refreshed token must not be lost, success or not
+        runner.drop_codex_home(work)  # no credential copy outlives the run
     out = runner.parse_codex(raw.stdout, raw.returncode, raw.stderr, raw.timed_out)
     return {
         "has_result": out.has_result,

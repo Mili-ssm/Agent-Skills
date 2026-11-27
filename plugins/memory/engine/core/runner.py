@@ -7,6 +7,7 @@ both runners. Standard library plus `core`; builders do not use it yet (plan tas
 from __future__ import annotations
 
 import codecs
+import contextlib
 import json
 import os
 import re
@@ -178,6 +179,19 @@ def sync_auth(run_dir: Path) -> bool:
         Path(tmp).unlink(missing_ok=True)
         return False
     return True
+
+
+def drop_codex_home(run_dir: Path) -> None:
+    """After `sync_auth`: remove the run's `codex-home`, so no copy of a credential outlives the run (run folders
+    are kept until pruned). Kept only when it holds a refreshed token that could not be synced because the real
+    `auth.json` is a symlink: deleting it would lose that token."""
+    home = run_dir / "codex-home"
+    fresh = home / "auth.json"
+    real = _real_codex_home() / "auth.json"
+    with contextlib.suppress(OSError):
+        if fresh.is_file() and not fresh.is_symlink() and real.is_symlink():
+            return
+        shutil.rmtree(home)
 
 
 def codex_env(run_dir: Path) -> dict[str, str]:

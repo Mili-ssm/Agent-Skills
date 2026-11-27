@@ -398,3 +398,27 @@ def test_sync_auth_refuses_a_symlinked_real_file(
     _replace_auth(fresh, '{"token": "new"}')
     assert runner.sync_auth(run_dir) is False
     assert json.loads(target.read_text(encoding="utf-8")) == {"token": "old"}
+
+
+def test_drop_codex_home_leaves_no_credential_copy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    _replace_auth(fresh, '{"token": "new"}')
+    runner.sync_auth(run_dir)
+    runner.drop_codex_home(run_dir)
+    assert not (run_dir / "codex-home").exists()
+    assert json.loads(real.read_text(encoding="utf-8")) == {"token": "new"}
+
+
+def test_drop_codex_home_keeps_a_token_it_could_not_sync(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run_dir, real, fresh = _auth_world(tmp_path, monkeypatch)
+    target = real.with_name("auth-target.json")
+    real.rename(target)
+    real.symlink_to(target)  # a symlinked real auth.json: sync_auth refuses it
+    _replace_auth(fresh, '{"token": "new"}')
+    assert runner.sync_auth(run_dir) is False
+    runner.drop_codex_home(run_dir)
+    assert json.loads(fresh.read_text(encoding="utf-8")) == {"token": "new"}
