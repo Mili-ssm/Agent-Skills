@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven; tasks 1-7 done 2026-11-27, release 0.19.0 pending the owner · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
+Status: accepted by the owner 2026-11-27 (after a pre-mortem the same day); execution: subagent-driven; tasks 1-7 and 6b done 2026-11-27 (task headers give commits; step boxes were not ticked); open: release 0.19.0, then the owner's VS Code and next-day checks (Task 4 live check), which gate the kill criterion on capture · Decision: [ADR 0038](../../adr/0038-memory-codex-parity-capture-and-agents.md) 
 
 **Goal:** Codex sessions get what Claude sessions get from the memory plugin, except what Codex cannot carry: automatic capture and history commit, plugin options, and the memory agents.
 
@@ -106,7 +106,7 @@ Consequences for later tasks: Task 3 takes owner text only from `response_item` 
 
 - [ ] Tests: `test_codex_json_declares_session_end_and_pre_compact` (timeouts 3 and 5, `MEM_HOST=codex`); `test_pre_compact_prints_nothing_on_codex`; `test_sweep_on_codex_day_folder_picks_codex_sessions_only`; `test_sweep_reads_previous_day_folders`; `test_other_project_rollouts_do_not_consume_examined`; `test_subagent_rollouts_not_swept`; `test_sweep_skips_folder_without_memory_dir` (Review Focus 3); `validate.py` checks the Codex manifest still.
 - [ ] Implement; run engine suite, `python3 scripts/validate.py`, `claude plugin validate plugins/memory`: PASS. Commit.
-- [ ] Live check in the throwaway `CODEX_HOME`: one `codex exec` session in a folder with a memory folder and `auto_capture` file = `true` leaves a capture status line (`mem-capture` log) and a history commit; the owner closes a thread and then the window in the VS Code extension and the hook log shows (or not) a `session-end` record with `host=codex`; a session killed at its end (no `SessionEnd`) is captured by a session start the next day; nothing written to the real store or the owner's `~/.codex` (before/after snapshot).
+- [ ] Live check (done 2026-11-27 for `codex exec` in a throwaway home: hook log `session-index` and `session-end` with `host=codex`, history commit `committed: true`, capture status `ok` with no model run on a short session, the owner's files unchanged; open: VS Code and next-day sweep, after the release) in the throwaway `CODEX_HOME`: one `codex exec` session in a folder with a memory folder and `auto_capture` file = `true` leaves a capture status line (`mem-capture` log) and a history commit; the owner closes a thread and then the window in the VS Code extension and the hook log shows (or not) a `session-end` record with `host=codex`; a session killed at its end (no `SessionEnd`) is captured by a session start the next day; nothing written to the real store or the owner's `~/.codex` (before/after snapshot).
 
 ### Task 5: Memory agents as Codex roles (done: fae669f, 3d6beec; deferred low: install-command aborts on an OSError mid-loop; the launcher-coverage test ignores commands with no bin file)
 
