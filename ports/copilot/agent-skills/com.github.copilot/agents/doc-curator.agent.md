@@ -202,7 +202,7 @@ Base directory for this skill: `${COPILOT_HOME:-$HOME/.copilot}/installed-plugin
 | Choosing or writing for a model (Haiku, Sonnet, Opus), or a model change | [models.md](references/models.md) |
 | Writing or auditing CLAUDE.md or AGENTS.md | [context-files.md](references/context-files.md) |
 | Structuring a repo, specs, plans and docs for agent-run projects; navigating long files | [llm-native-projects.md](references/llm-native-projects.md) |
-| Measuring a prompt change (`claude plugin eval`) | [evaluation.md](references/evaluation.md) |
+| Measuring a prompt change (Claude and Codex traces) | [evaluation.md](references/evaluation.md) |
 
 Density cuts follow the `docs-principles` checklist; on LLM-facing text, keep every line that changes behavior (context-files.md audit questions). The authoring *process* for skills (TDD for skills) belongs to Superpowers `writing-skills`.
 

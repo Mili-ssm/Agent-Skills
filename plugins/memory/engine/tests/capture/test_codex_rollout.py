@@ -44,7 +44,7 @@ def test_owner_prompt_becomes_a_user_event(tmp_path):
 def test_injected_user_items_are_dropped(tmp_path):
     entries = [
         meta(),
-        message("user", "# AGENTS.md instructions for /x\n<INSTRUCTIONS>"),
+        message("user", "# AGENTS.md instructions for /x\n<INSTRUCTIONS>fixture</INSTRUCTIONS>"),
         message("user", "<environment_context>\n<cwd>/x</cwd>\n</environment_context>"),
         message("developer", "skill body"),
         message("user", "<environment_context>\n</environment_context>", "real words"),
@@ -177,7 +177,7 @@ def test_first_cwd_falls_back_to_turn_context(tmp_path):
 
 def test_every_observed_injected_wrapper_is_dropped(tmp_path):
     wrappers = [
-        "# AGENTS.md instructions for /x",
+        "# AGENTS.md instructions for /x\n<INSTRUCTIONS>fixture</INSTRUCTIONS>",
         "<environment_context>\n</environment_context>",
         "<external_codex_apps_open_page>x</external_codex_apps_open_page>",
         "<send_user_message_question_reply>x</send_user_message_question_reply>",
@@ -240,3 +240,147 @@ def test_subagent_tool_call_prints_its_message(tmp_path):
     [line] = lines(tmp_path, [meta(), call])
     assert line.startswith("[2] TOOL spawn_agent: review the diff xxx")
     assert len(line.split(": ", 1)[1]) == event_lines.ARG_LIMIT
+
+
+def test_owner_xml_and_agents_header_are_not_injected(tmp_path):
+    entries = [
+        meta(),
+        message("user", "<order_id>42</order_id>"),
+        message("user", "# AGENTS.md instructions are unclear. Please explain."),
+        message("user", "# AGENTS.md instructions for /x\n<INSTRUCTIONS>fixture</INSTRUCTIONS>"),
+        message("user", "<environment_context>fixture</environment_context>"),
+        message("user", "# AGENTS.md instructions\n\n<INSTRUCTIONS>fixture</INSTRUCTIONS>"),
+        message("user", "# AGENTS.md instructions for the bug I need fixed"),
+        message("user", "# AGENTS.md instructions for /x\nPlease explain these."),
+    ]
+    assert lines(tmp_path, entries) == [
+        "[2] OWNER: <order_id>42</order_id>",
+        "[3] OWNER: # AGENTS.md instructions are unclear. Please explain.",
+        "[7] OWNER: # AGENTS.md instructions for the bug I need fixed",
+        "[8] OWNER: # AGENTS.md instructions for /x Please explain these.",
+    ]
+
+
+def test_shell_wrapper_exit_code_and_recovery(tmp_path):
+    entries = [
+        meta(),
+        item(
+            "response_item",
+            {"type": "function_call", "name": "shell", "call_id": "1", "arguments": "{}"},
+        ),
+        item(
+            "response_item",
+            {
+                "type": "function_call_output",
+                "call_id": "1",
+                "output": "Process exited with code 1\nOutput:\nfailed",
+            },
+        ),
+        item(
+            "response_item",
+            {"type": "function_call", "name": "shell", "call_id": "2", "arguments": "{}"},
+        ),
+        item(
+            "response_item",
+            {
+                "type": "function_call_output",
+                "call_id": "2",
+                "output": "Process exited with code 0\nOutput:\nok",
+            },
+        ),
+        item(
+            "response_item",
+            {
+                "type": "function_call_output",
+                "call_id": "3",
+                "output": "The process exited with code 1 in the example",
+            },
+        ),
+    ]
+    assert lines(tmp_path, entries) == [
+        "[2] TOOL shell: ",
+        "[3] TOOL ERROR shell: failed",
+        "[4] TOOL shell: ",
+        "[5] TOOL OK shell",
+    ]
+
+
+def test_structured_tool_exit_status_and_recovery(tmp_path):
+    entries = [
+        meta(),
+        item(
+            "response_item",
+            {"type": "function_call", "name": "shell", "call_id": "1", "arguments": "{}"},
+        ),
+        item(
+            "response_item",
+            {
+                "type": "function_call_output",
+                "call_id": "1",
+                "output": {"exit_code": 2, "output": "bad"},
+            },
+        ),
+        item(
+            "response_item",
+            {"type": "function_call", "name": "shell", "call_id": "2", "arguments": "{}"},
+        ),
+        item(
+            "response_item",
+            {
+                "type": "function_call_output",
+                "call_id": "2",
+                "output": {"exit_code": 0, "output": "ok"},
+            },
+        ),
+    ]
+    assert lines(tmp_path, entries) == [
+        "[2] TOOL shell: ",
+        "[3] TOOL ERROR shell: bad",
+        "[4] TOOL shell: ",
+        "[5] TOOL OK shell",
+    ]
+
+
+def test_observed_exec_envelope_records_failure_and_recovery(tmp_path):
+    entries = [meta()]
+    for code in (1, 0):
+        entries.extend([
+            item(
+                "response_item",
+                {
+                    "type": "custom_tool_call",
+                    "name": "exec",
+                    "call_id": str(code),
+                    "input": "{}",
+                },
+            ),
+            item(
+                "response_item",
+                {
+                    "type": "custom_tool_call_output",
+                    "call_id": str(code),
+                    "output": [
+                        {
+                            "type": "input_text",
+                            "text": "Script completed\nWall time 0.1 seconds\nOutput:\n",
+                        },
+                        {
+                            "type": "input_text",
+                            "text": json.dumps({
+                                "chunk_id": "fixture",
+                                "wall_time_seconds": 0.001,
+                                "exit_code": code,
+                                "original_token_count": 1,
+                                "output": "fixture output",
+                            }),
+                        },
+                    ],
+                },
+            ),
+        ])
+    assert lines(tmp_path, entries) == [
+        "[2] TOOL exec: {}",
+        "[3] TOOL ERROR exec: fixture output",
+        "[4] TOOL exec: {}",
+        "[5] TOOL OK exec",
+    ]

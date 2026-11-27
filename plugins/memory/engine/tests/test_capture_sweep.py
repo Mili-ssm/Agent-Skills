@@ -398,9 +398,7 @@ def test_r5_a_held_lock_ends_the_sweep_soon_and_settles_nothing(world, mod, monk
     finally:
         os.close(fd)
     assert time.time() - began < LOCK_BOUND_SECONDS
-    assert [x["skipped"] for x in log_lines(world)] == [
-        "another capture is running"
-    ] * 3  # no slot was used
+    assert log_lines(world) == []  # the sweep cannot examine transcripts while the lock is held
     assert capture_state.sweeps_today(world.data, time.time()) == 0
     assert all(capture_state.swept_size(world.data, f"s{n}") is None for n in range(3))
 

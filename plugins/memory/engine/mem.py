@@ -13,6 +13,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from commands import admin, common, curate, edit, hooks, integrate, memory, read, sources, synthesis
+from commands.diagnostics import add_parser as _parser_add_diagnostics
 from commands.install import add_parser as _parser_add_install
 from core import config, safe_io
 from memories import matching, records, rules
@@ -593,6 +594,8 @@ def _parser_add_import(sub: Any) -> None:
         help="also copy the data and code under research/ (by default only its Markdown files)",
     )
     import_parser.set_defaults(func=sources.cmd_import)
+    recover = sub.add_parser("import-recover", help="roll back an interrupted import")
+    recover.set_defaults(func=sources.cmd_import_recover)
     unify_parser = sub.add_parser(
         "unify",
         help="replace several notes of one type with one, keeping the others as "
@@ -1295,6 +1298,7 @@ def build_parser() -> argparse.ArgumentParser:
         _parser_add_history,
         _parser_add_memory_edit,
         _parser_add_install,
+        _parser_add_diagnostics,
     ):
         add(sub)
     return parser
@@ -1344,11 +1348,7 @@ def _store_refusal(args: argparse.Namespace, root: Path | None) -> str | None:
 
 def _dispatch_store(args: argparse.Namespace) -> int | None:
     """Resolve the store into `args.root`; the exit code of a refusal, or None to run the command."""
-    if args.command in {
-        "init",
-        "terms",
-        "history",
-    }:  # history finds its own store: `history init` may name one
+    if args.command in {"init", "diagnostics", "terms", "history"}:
         return None
     if (
         args.command in _NO_STORE_NEEDED

@@ -20,6 +20,7 @@ from core import runner as runners
 from memories import model, records, rules
 
 from corroborate import decide as corroborate_decide
+from corroborate import job as corroborate_job
 from corroborate import run as corroborate_run
 from corroborate import state as corroborate_state
 
@@ -467,10 +468,9 @@ class _Verdicts(NamedTuple):
 
 
 def _finish(cdir: Path, result: dict, **changes) -> dict:
-    result.update(changes)
-    result["cost"] = round(result["cost"], 6)
-    corroborate_state.save_status(cdir, fill=dict(result))
-    return result
+    finished = corroborate_job.finish(result, **changes)
+    corroborate_state.save_status(cdir, fill=dict(finished))
+    return finished
 
 
 def _lessons(projects: list, gfolder: Path | None, state: dict) -> dict[str, _Lesson]:

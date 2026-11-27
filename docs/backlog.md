@@ -9,6 +9,7 @@ This file is an index, not a home: the detail, evidence and checks of each item 
 | Source | Holds |
 |---|---|
 | [Project review 2026-11-24](studies/2026-11-24-project-review.md) | IDs A, Q, D, P, B, S; recommended sequence; owner decisions |
+| [Project review follow-up 2026-11-27](superpowers/plans/2026-11-27-project-review-followup.md) | Import recovery and concurrency, search measurements, plan progress, B2, Q6/A8, documentation checks, Codex parity and capture follow-ups |
 | [Memory plugin plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state | Memory stages, owner order, small items, ideas to investigate |
 | [Memory refactor plan](superpowers/plans/2026-11-23-memory-refactor.md) | Refactor tasks |
 | [Memory seamless plan](superpowers/plans/2026-11-17-memory-seamless.md) | Seamless stages 3–5 |
@@ -20,7 +21,7 @@ Item 4d is closed: the offload tables load from session start hooks (ADR 0032). 
 ## Next, in order
 
 1. Set aside (owner, 2026-11-26): the `ui-verifier` eval case (3g) ran 0/2 because no browser launches in the eval sandbox (ADR 0017 Measurement 2026-11-26).
-2. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's shared corroborate job runner, A8 (split `agents.tsx` in the `tool-fold` mod, after Q6), the low items below.
+2. Memory refactor: merged to dev through #217 on 2026-11-26 (A1–A3, A5–A7, A14, `bin/` through `uv` in #216, ADR 0035); left: A4's remaining session orchestration and sheet duplication, A8 (split `agents.tsx` in the `tool-fold` mod, after Q6), the low items below.
 3. Memory effect measurement ([plan](superpowers/plans/2026-11-26-memory-effect-measurement.md)): the pilot showed no headroom; the owner asked on 2026-11-27 for a scenario the model fails without the lesson (its task 8). First replay run 2026-11-27: failures repeat in 3 of 3 points, the lesson ahead in 2 of 3; no verdict below six points. Memory seamless stage 3: reduced scope built on 2026-11-27 (`mem synthesis integrate`, `mem-integrate run`, `--undo`, the trial harness); its paid trial passed on 2026-11-27 with no append placed ([seamless plan](superpowers/plans/2026-11-17-memory-seamless.md), [task plan](superpowers/plans/2026-11-26-memory-seamless-stage-3-integration.md)).
 4. Memory kill read: formal record on 2026-12-01; a provisional read on 2026-11-26 gives a day ratio of 10/10, its denominator all session days because session starts carry no outside flag; details in the [memory plan](superpowers/plans/2026-11-17-memory-plugin.md) § Current state.
 
@@ -36,7 +37,7 @@ Done 2026-11-25 (branch `feat/repo-tooling`, ADR 0029): Q1, Q2, Q3, A9, A10, B9�
 | low | — | Tooling follow-ups from the `feat/repo-tooling` reviews: marker splice and catalog tables from `port.py` into `promptkit`; `AGENT_EFFORTS` vs the catalog's efforts; one derivation in `port.py`; the hook runs on branch deletes; parked edge cases (two stray quotes hide 'we'; a multi-line fragment split by a block counts as unmarked; the Claude-only Explore line kept outside commands); PR #186 pre-merge review: the pre-push hook checks the working tree, not the pushed refs; a catalog override may target `xhigh` on a non-top model; `check-runner` keeps an unmarked near-copy of `bash-leaves-files-unchanged`; no negative test for `check_memory_offload`; no check keeps the memory `-with-policy` eval's embedded table equal to `plugins/memory/user-config/offload-policy.md` | M | Deferred (ADR 0029) |
 | low | — | pre-commit follow-ups (ADR 0031): the basedpyright hook lacks `playwright`, so touching `ux_audit.py` fails on its import; nothing runs `pre-commit validate-config` before a commit | S | Deferred |
 | low | S7 | `scripts/cloud-setup.sh` may pick another marketplace's `Explore.md` | S | Done 2026-11-27: the fallback takes only a clone whose `marketplace.json` names `mili-ssm` |
-| medium | — | Codex port text from `port.py`: the offload table and agent TOMLs say "in the background" and name `Monitor` and the Bash `timeout` parameter (Claude-only); routing says "slash commands in Claude Code" and "CLAUDE.md"; the plan loop's "no model parameter" lines may not apply to Codex. Found by `prompt-engineer` on the owner's adapted `~/.codex/AGENTS.md`, 2026-11-27 | M | Open |
+| medium | — | Remove Claude-only wording in generated Codex policy, routing and agent TOMLs | M | Done by `CODEX_REWRITES`; generated files and 114 port tests rechecked on 2026-11-27 |
 
 ### Usage and cost (local study)
 
@@ -67,11 +68,15 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 
 | Pri | ID | Task | State |
 |---|---|---|---|
+| high | — | Codex capture exclusion, role discovery and decoder contract | [Next-session work and acceptance cases](superpowers/plans/2026-11-27-project-review-followup.md#codex-parity-and-next-session-work), with implementation and trial results recorded there. VS Code lifecycle validation moved to the log check below |
+| medium | — | Check Codex logs for VS Code `SessionEnd` and the next-start sweep | Backlog by owner decision, 2026-11-27. Release assumes normal delivery. Confirm on the extension and record the observed host and trigger. |
+| high | — | Recover interrupted text overwrites during import | Implemented and verified locally in the [review follow-up](superpowers/plans/2026-11-27-project-review-followup.md#import-recovery-before-further-import-changes), including a low-priority concurrency question |
+| low | — | Measure cost of the deep-search hint on sparse queries | Baseline pending in the [review follow-up](superpowers/plans/2026-11-27-project-review-followup.md#performance-measurements-and-module-boundaries) |
 | low | — | Refactor A1 deferred findings (split reviews of `mem-synthesize` (with A4) and `run_trials.py`; low notes; [plan](superpowers/plans/2026-11-26-memory-config.md) § Deferred findings) | Open |
 | high | A2 | Refactor: `headless.py`; `--strict-mcp-config` missing in three launchers; `session_env` out of `research_pipeline` (from A7) | Done, PR #201 ([plan](superpowers/plans/2026-11-26-memory-headless.md)); deferred lows in its ledger |
 | medium | A3 | Refactor: `jobs.py` for the background-job lifecycle, with the data and state folder resolution left out of A1 | Done, PR #202 ([plan](superpowers/plans/2026-11-26-memory-jobs.md)): identical copies only (owner); differing copies stay |
 | medium | A7 | Refactor: import direction | Done: tokenize and both cycles (PR #198); `session_env` in `headless.py` (PR #201) |
-| high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean (PR #200) ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` into `engine/synthesize/` done on its branch ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)); `bin/` through `uv` done (#216, ADR 0035); the shared corroborate job runner pending |
+| high | A4 | Refactor: `mem-corroborate` logic into the engine | In progress: `mem-corroborate` split and clean (PR #200) ([plan](superpowers/plans/2026-11-26-memory-corroborate-split.md)); `mem-synthesize` into `engine/synthesize/` done on its branch ([plan](superpowers/plans/2026-11-26-memory-synthesize-split.md)); `bin/` through `uv` done (#216, ADR 0035); result finalization and sheet cell formatting shared locally; shell/session orchestration and the remaining sheet duplication are open |
 | high | A14 | Refactor: `engine/` (35 flat modules) into feature packages (`corroborate/`, `research/`, `capture/`, `settle/`, `store/`, `core/`…), one package per pull request, each with an import-boundary test; owner ruling 2026-11-26, after the `synthesize/` pilot | Done: PRs #206–#214 ([plans](superpowers/plans/2026-11-26-memory-engine-packages.md), [store](superpowers/plans/2026-11-26-memory-store-records-split.md)); ADR 0034 § Review 2026-11-26 |
 | medium | A6 | Refactor: split `records.py` | Done: PR #214, nine modules behind a facade in `memories/` ([plan](superpowers/plans/2026-11-26-memory-store-records-split.md)); deferred findings in its table |
 | high | A5 | Refactor: split `mem.py` per feature; ADR 0028 | Done, PR #217: `mem.py` 10,502 → 1,403 lines, nine modules in `engine/commands/` and `notes/search.py` ([plan](superpowers/plans/2026-11-26-memory-mem-split.md)) |
@@ -102,7 +107,7 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 
 | Pri | ID | Task |
 |---|---|---|
-| medium | Q6 | Tests for `agents.tsx` before A8 |
+| medium | Q6 | Tests for `agents.tsx` before A8, including concurrent descriptions of the same command |
 | medium | A8 | Split `agents.tsx` at the next tool-fold change |
 | low | Q8, D9 | Split large test files; shorten README lines |
 
@@ -110,4 +115,5 @@ Owner order: refactor → effect measurement (2026-11-26) → seamless stage 3 �
 
 | Pri | ID | Task |
 |---|---|---|
-| low | Q9 | Shared fixture for the two `parsePlan` implementations |
+| medium | — | Correct fenced example counts and stale remaining-work summaries ([acceptance cases](superpowers/plans/2026-11-27-project-review-followup.md#plan-progress-and-audit-mode)) |
+| low | Q9 | Separate fixtures per input format; see the 2026-11-27 follow-up for Markdown coverage |

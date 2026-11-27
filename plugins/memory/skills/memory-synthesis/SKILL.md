@@ -5,7 +5,7 @@ description: Writes and maintains a synthesis with the `mem` command - one long,
 
 # Synthesis
 
-> In Codex the `memory-*` subagents and Claude Code's auto memory named below do not exist: do that work yourself with `mem` (personal matters are not stored in `mem`).
+> In Codex, use the `memory-*` role when available; if it is absent, do that work inline with `mem`. Claude Code's auto memory is unavailable in Codex. Personal matters are not stored in `mem`.
 
 **Core rule:** a synthesis is the long-term version, a note is the quick recall of one of its parts. The synthesis holds origins, reasons, and when a thing applies and when it does not; the note holds the one sentence someone needs while working. Notes are written freely as they come; building a synthesis, and joining a note to one, is curation work done afterwards.
 

@@ -18,6 +18,7 @@ from digest import lessons as dg
 from memories import records
 
 from corroborate import decide as corroborate_decide
+from corroborate import job as corroborate_job
 from corroborate import run as corroborate_run
 from corroborate import state as corroborate_state
 
@@ -91,7 +92,7 @@ def _digest_sheet(path: Path, rows: list[tuple]) -> None:
         "| topic | heading | id | claim | short form | line | outcome | checker's reason |",
         "|---|---|---|---|---|---|---|---|",
     ]
-    lines += ["| " + " | ".join(corroborate_run._cell(x) for x in row) + " |" for row in rows]
+    lines += ["| " + " | ".join(corroborate_job.cell(x) for x in row) + " |" for row in rows]
     corroborate_state.write_private(path, "\n".join(lines) + "\n")
 
 
@@ -139,10 +140,7 @@ class _TopicView(NamedTuple):
     head_text: str | None
 
 
-def _finish(result: dict, **changes) -> dict:
-    result.update(changes)
-    result["cost"] = round(result["cost"], 6)
-    return result
+_finish = corroborate_job.finish
 
 
 def digest_auto(
