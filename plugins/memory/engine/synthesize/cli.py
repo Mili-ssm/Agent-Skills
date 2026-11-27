@@ -10,6 +10,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from core import codex_pass
+
 from synthesize import backfill, run, topics
 from synthesize import pipeline as sp
 
@@ -292,6 +294,8 @@ def main(description: str) -> int:
     _check_args(parser, args)
     if args.self_check:
         return self_check()
+    if (refused := codex_pass.refuse_codex("mem-synthesize")) is not None:
+        return refused
     store = args.store.expanduser().resolve() if args.store else run.default_store()
     if store is None or not (store / "mem-store.yaml").is_file():
         print(f"mem-synthesize: no writable store at {store}", file=sys.stderr)

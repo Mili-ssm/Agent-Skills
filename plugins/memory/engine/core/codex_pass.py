@@ -8,6 +8,7 @@ of a Codex pass (Codex reports tokens, not money); `refusal` is the message of a
 from __future__ import annotations
 
 import os
+import sys
 from typing import TYPE_CHECKING
 
 from core import runner
@@ -23,6 +24,7 @@ DEFAULT_TOKEN_CAP = (
 )
 NO_CODEX = "no codex binary (MEM_CODEX, PATH or the VS Code extension)"
 PRIVATE_MODE = 0o700
+REFUSED_EXIT = 2
 
 
 def token_cap(env: Mapping[str, str] | None = None) -> int:
@@ -46,14 +48,18 @@ def refusal(pass_name: str) -> str:
     )
 
 
-def refuse_codex(pass_name: str, chosen: str | None = None) -> str | None:
-    """The refusal message when the resolved runner is `codex`, else None. A malformed setting does not refuse:
-    these passes run on Claude whatever it says."""
+def refuse_codex(pass_name: str) -> int | None:
+    """For a pass that stays on Claude: when the resolved runner is `codex`, prints `refusal` to stderr and returns
+    the exit code to end with; else None. A malformed setting does not refuse: these passes run on Claude whatever
+    it says."""
     try:
-        chosen = chosen or runner.resolve_runner(None)
+        chosen = runner.resolve_runner(None)
     except ValueError:
         return None
-    return refusal(pass_name) if chosen == "codex" else None
+    if chosen != "codex":
+        return None
+    print(refusal(pass_name), file=sys.stderr)
+    return REFUSED_EXIT
 
 
 def ask(session: headless.Session, work: Path, *, writes: bool, timeout: float) -> dict:

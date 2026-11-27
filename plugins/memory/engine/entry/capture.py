@@ -38,7 +38,7 @@ from typing import Any
 
 from capture import extract as capture
 from capture import state as cs
-from core import headless, jobs
+from core import codex_pass, headless, jobs
 from memories import records
 from synthesize import pipeline as sp
 
@@ -1198,4 +1198,6 @@ def main() -> int:
     )
     ack.set_defaults(func=lambda _args: cmd_ack())
     args = parser.parse_args()
+    if args.command != "ack" and (refused := codex_pass.refuse_codex("mem-capture")) is not None:
+        return refused
     return args.func(args)

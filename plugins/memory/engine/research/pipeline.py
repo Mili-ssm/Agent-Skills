@@ -27,7 +27,7 @@ import time
 from pathlib import Path
 from typing import Any, Required, TypedDict, Unpack
 
-from core import config, headless, jobs
+from core import codex_pass, config, headless, jobs
 from memories.records import tokenize
 from notes.note import FrontmatterError, split_frontmatter
 from synthesize import pipeline as sp
@@ -842,18 +842,55 @@ def self_check() -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="mem-research", description=(__doc__ or "").splitlines()[0]
+DESCRIPTION = (__doc__ or "").splitlines()[0]
+
+
+def _need_question(parser: argparse.ArgumentParser, question: str | None) -> None:
+    if not (question or "").strip():
+        parser.error("a question is required")
+
+
+def _requested_store(requested: Path | None) -> Path | None:
+    """The store to use; None (and a message) when there is none."""
+    store = requested.expanduser().resolve() if requested else default_store()
+    if store is None or not (store / "mem-store.yaml").is_file():
+        print(f"mem-research: no store at {store}", file=sys.stderr)
+        return None
+    return store
+
+
+def _default_claude() -> str | None:
+    return (
+        os.environ.get("MEM_CLAUDE")
+        or os.environ.get("CLAUDE_CODE_EXECPATH")
+        or shutil.which("claude")
     )
-    parser.add_argument("question", nargs="?")
+
+
+def _default_depth() -> str:
     option = os.environ.get("MEM_RESEARCH_DEPTH") or os.environ.get(
         "CLAUDE_PLUGIN_OPTION_RESEARCH_DEPTH"
     )
+    return option if option in DEPTHS else DEFAULT_DEPTH
+
+
+def _dry_run(args: argparse.Namespace, store: Path, budget: float, seconds: int) -> int:
+    problem = rc.question_problem(args.question) if args.depth != "memory" else None
+    print(
+        f"depth: {args.depth}; budget: {budget:.2f} USD; time limit: {seconds / 60:.0f} min; "
+        f"pages: {PAGES.get(args.depth, 0)}; claude: {args.claude or '(none)'}; store: {store}; "
+        + (f"would stop: {problem}" if problem else "would start")
+    )
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="mem-research", description=DESCRIPTION)
+    parser.add_argument("question", nargs="?")
     parser.add_argument(
         "--depth",
         choices=DEPTHS,
-        default=option if option in DEPTHS else DEFAULT_DEPTH,
+        default=_default_depth(),
         help="memory: only the memory; contrast: also 5 web pages; deep: 15 pages, papers asked for "
         "(default: the plugin option research_depth, else contrast)",
     )
@@ -867,9 +904,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--store", type=Path, help="default: MEM_STORE, else the default store")
     parser.add_argument(
         "--claude",
-        default=os.environ.get("MEM_CLAUDE")
-        or os.environ.get("CLAUDE_CODE_EXECPATH")
-        or shutil.which("claude"),
+        default=_default_claude(),
     )
     parser.add_argument(
         "--budget", help="USD for the whole run (default: contrast 0.50, deep 2, memory 0.25)"
@@ -892,22 +927,16 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.self_check:
         return self_check()
-    if not args.question or not args.question.strip():
-        parser.error("a question is required")
-    store = args.store.expanduser().resolve() if args.store else default_store()
-    if store is None or not (store / "mem-store.yaml").is_file():
-        print(f"mem-research: no store at {store}", file=sys.stderr)
+    if (refused := codex_pass.refuse_codex("mem-research")) is not None:
+        return refused
+    _need_question(parser, args.question)
+    store = _requested_store(args.store)
+    if store is None:
         return 2
     budget = budget_of(args.budget, args.depth)
     seconds = LIMITS[args.depth][1]
     if args.dry_run:
-        problem = rc.question_problem(args.question) if args.depth != "memory" else None
-        print(
-            f"depth: {args.depth}; budget: {budget:.2f} USD; time limit: {seconds / 60:.0f} min; "
-            f"pages: {PAGES.get(args.depth, 0)}; claude: {args.claude or '(none)'}; store: {store}; "
-            + (f"would stop: {problem}" if problem else "would start")
-        )
-        return 0
+        return _dry_run(args, store, budget, seconds)
     for name in headless.SESSION_VARS:
         os.environ.pop(name, None)
     return research(
