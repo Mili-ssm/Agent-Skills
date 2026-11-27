@@ -1,0 +1,143 @@
+"""Undoing a `mem-integrate` run: a group is undone only while it is still the newest change of every file it wrote.
+
+`mem restore <handle>` undoes the newest logged change of a file, not a named group, so `undo` first proves from the
+curation log that the group is that newest change everywhere (`newest_is_group`) and only then calls it; with a later
+change anywhere, nothing is restored. Groups go newest first; the first refusal stops the undo.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any
+
+from integrate import state as run_state
+from integrate.log import log_entries
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from pathlib import Path
+    from subprocess import CompletedProcess
+
+    from integrate.state import GroupRecord
+
+type Mem = Callable[..., CompletedProcess[str]]
+
+
+@dataclass
+class UndoResult:
+    """What an undo did: groups undone now, groups still to undo, and why it stopped (None when it did not)."""
+
+    undone: int = 0
+    remaining: int = 0
+    refusal: str | None = None
+    already_restored: list[str] = field(
+        default_factory=list
+    )  # group ids a hand `mem restore` had undone
+
+
+def _entries(store: Path) -> list[tuple[bool, dict[str, Any]]]:
+    """The log entries that hold a text (`before`), oldest first, with whether a restore marker has cancelled them."""
+    return [(gone, e) for gone, e in log_entries(store) if isinstance(e.get("before"), str)]
+
+
+def _live_entries(store: Path) -> list[dict[str, Any]]:
+    """The log as a stack: the entries no restore marker has cancelled, oldest first."""
+    return [e for gone, e in _entries(store) if not gone]
+
+
+def _written(store: Path, group: GroupRecord) -> list[dict[str, Any]]:
+    """The group's live log entries, one per file change."""
+    return [e for e in _live_entries(store) if e.get("group") == group.group_id]
+
+
+def newest_is_group(store: Path, group: GroupRecord) -> str | None:
+    """None when every file the group wrote (found in the log by its id) has that group's entry as its newest live
+    log entry (restore markers cancel the entry they undid) and is still the text that entry left; otherwise the
+    refusal, naming the file."""
+    entries = _live_entries(store)
+    newest = {e["handle"]: e for e in entries}  # the last live entry of a file wins
+    written = [e for e in entries if e.get("group") == group.group_id]
+    if not written:
+        return f"the curation log has no entry of group {group.group_id}"
+    for entry in written:
+        handle = entry["handle"]
+        if newest[handle].get("group") != group.group_id:
+            return f"{handle} has a newer logged change than group {group.group_id}"
+        try:
+            current = hashlib.sha256((store / handle).read_bytes()).hexdigest()
+        except OSError:
+            return f"{handle} is missing, so group {group.group_id} cannot be undone"
+        if current != entry.get("after"):
+            return f"{handle} changed since group {group.group_id}"
+    return None
+
+
+RESTORED = re.compile(r"restored to before (\S+) of \S+ \((\d+) files\)")
+
+
+def _restore(store: Path, group: GroupRecord, mem: Mem) -> str | None:
+    """`mem restore` of the group's synthesis (it undoes the whole group); the refusal text when it fails or when its
+    output shows it undid something other than this group (a `mem` command run in between), with nothing marked."""
+    handle = group.handles[0]
+    expected = len(_written(store, group))
+    done = mem("restore", handle)
+    if done.returncode:
+        return (
+            f"mem restore {handle} failed, so group {group.group_id} may be partly restored: "
+            f"{(done.stderr or done.stdout).strip()}"
+        )
+    found = RESTORED.search(done.stdout)
+    if found is None or found[1] != group.kind or int(found[2]) != expected:
+        return (
+            f"mem restore {handle} undid another change instead of group {group.group_id} "
+            f"(a mem command changed it in between; it printed: {done.stdout.strip()!r}): "
+            "check the log and restore by hand"
+        )
+    return None
+
+
+def _already_or_partial(store: Path, group: GroupRecord) -> tuple[bool, str | None]:
+    """(True, None) when every log entry of the group is cancelled by a restore marker (it is restored already);
+    (False, refusal) when only some are (restoring now would undo an older change of the synthesis); (False, None)
+    when none is, or the log has no entry of the group (`newest_is_group` then decides)."""
+    mine = [(gone, e) for gone, e in _entries(store) if e.get("group") == group.group_id]
+    live = [e["handle"] for gone, e in mine if not gone]
+    if not mine or len(live) == len(mine):
+        return False, None
+    if not live:
+        return True, None
+    return False, (
+        f"group {group.group_id} is partly restored (a restore stopped half way); "
+        f"still live: {', '.join(live)}; finish by hand with mem restore <handle> for each, "
+        "then run --undo again"
+    )
+
+
+def _undo_group(store: Path, group: GroupRecord, mem: Mem, result: UndoResult) -> str | None:
+    """Undoes or recognizes as restored one group and marks nothing; the refusal text or None."""
+    restored, refusal = _already_or_partial(store, group)
+    if restored:
+        result.already_restored.append(group.group_id)
+        return None
+    return refusal or newest_is_group(store, group) or _restore(store, group, mem)
+
+
+def undo(store: Path, folder: Path, run_id: str, mem: Mem) -> UndoResult:
+    """Undoes the run's groups newest first, marking each in the record; a second call continues with the rest."""
+    record = run_state.read_record(folder, run_id)
+    if record is None:
+        return UndoResult(refusal=f"no record of run {run_id}")
+    todo = [g for g in reversed(record.groups) if not g.undone]
+    result = UndoResult(remaining=len(todo))
+    for group in todo:
+        refusal = _undo_group(store, group, mem, result)
+        if refusal:
+            result.refusal = refusal
+            return result
+        group.undone = True
+        run_state.write_record(folder, record)
+        result.undone += 1
+        result.remaining -= 1
+    return result

@@ -7,6 +7,7 @@ import collections
 import contextlib
 import dataclasses
 import datetime
+import hashlib
 import io
 import json
 import os
@@ -17,6 +18,7 @@ from typing import TYPE_CHECKING, TypedDict, Unpack
 
 from core import auto_state, safe_io, store_git
 from corroborate import decide as corroborate_decide
+from integrate.log import log_entries
 from memories import records, rules
 from notes import fields as note_fields
 from notes import note as note_files
@@ -755,10 +757,47 @@ def _curate_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def _integrate_stamps(store: Path) -> dict[str, str]:
+    """`{hub-relative path: digest}` of the text of each file that `mem synthesis integrate` left, or an undo of it
+    put back, per the curation log read as a stack: the digest is the `after` of the file's newest live entry when
+    that is an `integrate` entry, or that of the `before` text when the file's newest entry is a restore marker
+    cancelling an `integrate` entry."""
+    entries = log_entries(store)
+    by_line = {e["line"]: e for _, e in entries}
+    newest_live: dict[str, dict] = {}
+    newest_any: dict[str, dict] = {}
+    for gone, entry in entries:
+        newest_any[entry["handle"]] = entry
+        if entry.get("action") != "restore" and not gone:
+            newest_live[entry["handle"]] = entry
+    stamps = {
+        handle: str(entry.get("after"))
+        for handle, entry in newest_live.items()
+        if entry.get("action") == "integrate"
+    }
+    for handle, marker in newest_any.items():
+        undone = by_line.get(marker.get("undone")) if marker.get("action") == "restore" else None
+        if (
+            undone is not None
+            and undone.get("action") == "integrate"
+            and isinstance(undone.get("before"), str)
+        ):
+            stamps[handle] = hashlib.sha256(undone["before"].encode("utf-8")).hexdigest()
+    return stamps
+
+
+def _written_by_integrate(path: Path, store: Path, stamps: dict[str, str]) -> bool:
+    """True when `mem synthesis integrate` wrote the file's current text: its mtime says nothing new."""
+    if not path.is_relative_to(store):
+        return False
+    after = stamps.get(path.relative_to(store).as_posix())
+    return after is not None and hashlib.sha256(path.read_bytes()).hexdigest() == after
+
+
 def _curate_new_since(args: argparse.Namespace) -> int:
     """Print how many global memories and notes of the store were written after `--new-since` (epoch seconds) and
-    after the last curation pass of the global memories (its day counts as passed). File times: an edit counts as new.
-    The trigger of `mem-auto`."""
+    after the last curation pass of the global memories (its day counts as passed). File times: an edit counts as new,
+    except a note whose current text is what `mem synthesis integrate` last wrote. The trigger of `mem-auto`."""
     store = args.root
     cutoff = float(args.new_since)
     memories = records.memories_root(
@@ -780,12 +819,17 @@ def _curate_new_since(args: argparse.Namespace) -> int:
             for m in records.load_memories(memories, "global")
             if m.error is None and records.is_live(m, today) and m.origin is None
         ]  # a pipeline's own writes must not start the next run
+    stamps: dict[str, str] = {}
     if store is not None and store.is_dir():
         paths += [store / n.rel for n in note_files.discover_notes(store) if n.error is None]
+        stamps = _integrate_stamps(store)
     count = 0
     for path in paths:
         try:
-            count += path.stat().st_mtime > cutoff
+            newer = path.stat().st_mtime > cutoff
+            count += newer and not (
+                store is not None and _written_by_integrate(path, store, stamps)
+            )
         except OSError:
             continue
     print(count)

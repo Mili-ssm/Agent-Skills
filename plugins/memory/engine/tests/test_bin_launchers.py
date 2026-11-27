@@ -17,6 +17,7 @@ LAUNCHERS = [
     "mem-auto",
     "mem-capture",
     "mem-corroborate",
+    "mem-integrate",
     "mem-research",
     "mem-settle",
     "mem-synthesize",

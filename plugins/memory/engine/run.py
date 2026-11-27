@@ -25,6 +25,10 @@ if __name__ == "__main__":
         from entry import corroborate
 
         main = corroborate.main
+    elif name == "mem-integrate":
+        from entry import integrate
+
+        main = integrate.main
     elif name == "mem-research":
         from entry import research
 

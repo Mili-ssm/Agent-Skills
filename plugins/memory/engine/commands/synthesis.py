@@ -11,7 +11,7 @@ import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import yaml
 from core import safe_io
@@ -150,8 +150,9 @@ def _part_of_notes(root: Path, ref: str) -> list[tuple[Path, str]]:
     return sorted(found)
 
 
-def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], action: str) -> None:
-    """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes."""
+def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], action: str) -> str:
+    """The group entries `_log_group` writes, but before the files change: each holds the digest of the new bytes.
+    Returns the group id."""
     group = uuid.uuid4().hex
     stamp = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     safe_io.append_text(
@@ -172,6 +173,7 @@ def _log_group_ahead(root: Path, changes: Mapping[Path, tuple[bytes, bytes]], ac
             for path, (old, new) in changes.items()
         ),
     )
+    return group
 
 
 def _logged_changes_unchanged(changes: Mapping[Path, tuple[bytes, bytes]]) -> None:
@@ -184,7 +186,7 @@ def _logged_changes_unchanged(changes: Mapping[Path, tuple[bytes, bytes]]) -> No
 
 
 def _write_logged_changes(
-    changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], None]
+    changes: Mapping[Path, tuple[bytes, bytes]], log: Path, write_log: Callable[[], object]
 ) -> None:
     """Log the undo with `write_log`, then swap each file from its old bytes to its new ones; a file that is not as
     it was read, or any failure, puts every file and `log` back as they were."""
@@ -223,7 +225,7 @@ class _StructurePlan:
     changes: dict[Path, tuple[bytes, bytes]]
     lines: list[str]
     log: Path
-    write_log: Callable[[], None]
+    write_log: Callable[[], object]
 
 
 @dataclass(frozen=True)
@@ -1048,6 +1050,25 @@ def _synthesis_part(args: argparse.Namespace, one_call: bool) -> int:
     shown = writers.get(args.synthesis_command, _synthesis_edit)(args, write)
     _long_note(handle, path, shown)
     return 0
+
+
+def parser_links(synthesis_sub: Any) -> None:
+    """The `refs`, `topics` and `list` subcommands of `mem synthesis`."""
+    syn_refs = synthesis_sub.add_parser(
+        "refs", help="add or remove inline note references from a file of proposals"
+    )
+    syn_refs.add_argument("target", metavar="s:HANDLE")
+    syn_refs.add_argument(
+        "--file",
+        required=True,
+        metavar="PATH",
+        help="one proposal per line: SECTION | UNIT | add TARGET  or  SECTION | UNIT | remove TARGET",
+    )
+    syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
+    syn_topics.add_argument("target", metavar="s:HANDLE")
+    syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")
+    syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
+    syn_list.add_argument("--topic")
 
 
 def cmd_synthesis(args: argparse.Namespace) -> int:

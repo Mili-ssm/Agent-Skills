@@ -362,7 +362,7 @@
  "help synthesis": {
   "code": 0,
   "stderr": "",
-  "stdout": "usage: mem synthesis [-h]\n                     {new,add,edit,append,attach,rename,remove,detach,refs,topics,list} ...\n\npositional arguments:\n  {new,add,edit,append,attach,rename,remove,detach,refs,topics,list}\n    new                 create syntheses/<slug>.md with its summary\n    add                 append one section; its text must end with a\n                        `Sources:` line\n    edit                replace the text of one section; the rest of the file\n                        stays\n    append              add text at the end of a section, before its Sources\n                        line\n    attach              make a knowledge note the short recall of a section\n    rename              rename a section's heading; its notes follow\n    remove              take a section out; its notes lose part_of\n    detach              remove a note's part_of\n    refs                add or remove inline note references from a file of\n                        proposals\n    topics              replace a synthesis's topics\n    list                one line per synthesis\n\noptions:\n  -h, --help            show this help message and exit\n"
+  "stdout": "usage: mem synthesis [-h]\n                     {new,add,edit,append,attach,rename,remove,detach,refs,topics,list,integrate} ...\n\npositional arguments:\n  {new,add,edit,append,attach,rename,remove,detach,refs,topics,list,integrate}\n    new                 create syntheses/<slug>.md with its summary\n    add                 append one section; its text must end with a\n                        `Sources:` line\n    edit                replace the text of one section; the rest of the file\n                        stays\n    append              add text at the end of a section, before its Sources\n                        line\n    attach              make a knowledge note the short recall of a section\n    rename              rename a section's heading; its notes follow\n    remove              take a section out; its notes lose part_of\n    detach              remove a note's part_of\n    refs                add or remove inline note references from a file of\n                        proposals\n    topics              replace a synthesis's topics\n    list                one line per synthesis\n    integrate           join knowledge notes to parts of a synthesis from a\n                        file of rows\n\noptions:\n  -h, --help            show this help message and exit\n"
  },
  "help synthesis add": {
   "code": 0,
@@ -388,6 +388,11 @@
   "code": 0,
   "stderr": "",
   "stdout": "usage: mem synthesis edit [-h] --body-file PATH [--shrink] [--drop-references]\n                          [--owner-approved]\n                          s:HANDLE#SECTION\n\npositional arguments:\n  s:HANDLE#SECTION\n\noptions:\n  -h, --help         show this help message and exit\n  --body-file PATH   the text (or - for standard input)\n  --shrink           allow a text with fewer words or links than before\n  --drop-references  allow a sentence kept unchanged to lose a reference (a\n                     note link in its body)\n  --owner-approved   the owner agreed to a write that mentions a soft term:\n                     never add it on your own\n"
+ },
+ "help synthesis integrate": {
+  "code": 0,
+  "stderr": "",
+  "stdout": "usage: mem synthesis integrate [-h] [--candidates] [FILE]\n\npositional arguments:\n  FILE          one row per line: NOTE | s:HANDLE#SECTION | append |\n                FINGERPRINT or NOTE | s:HANDLE#SECTION | unit N | FINGERPRINT\n\noptions:\n  -h, --help    show this help message and exit\n  --candidates  print as JSON the notes each synthesis could take and its\n                parts, instead of reading rows\n"
  },
  "help synthesis list": {
   "code": 0,

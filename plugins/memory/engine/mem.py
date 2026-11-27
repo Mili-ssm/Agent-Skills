@@ -12,7 +12,7 @@ import os
 import sys
 from typing import TYPE_CHECKING, Any
 
-from commands import admin, common, curate, edit, hooks, memory, read, sources, synthesis
+from commands import admin, common, curate, edit, hooks, integrate, memory, read, sources, synthesis
 from core import config, safe_io
 from memories import matching, records, rules
 from notes import check as check_rules
@@ -1125,24 +1125,6 @@ def _parser_synthesis_sections(synthesis_sub: Any) -> None:
     syn_rename.add_argument("--owner-approved", action="store_true", help=_OWNER_APPROVED)
 
 
-def _parser_synthesis_links(synthesis_sub: Any) -> None:
-    syn_refs = synthesis_sub.add_parser(
-        "refs", help="add or remove inline note references from a file of proposals"
-    )
-    syn_refs.add_argument("target", metavar="s:HANDLE")
-    syn_refs.add_argument(
-        "--file",
-        required=True,
-        metavar="PATH",
-        help="one proposal per line: SECTION | UNIT | add TARGET  or  SECTION | UNIT | remove TARGET",
-    )
-    syn_topics = synthesis_sub.add_parser("topics", help="replace a synthesis's topics")
-    syn_topics.add_argument("target", metavar="s:HANDLE")
-    syn_topics.add_argument("topic_ids", metavar="TOPICS", help="comma-separated topic ids")
-    syn_list = synthesis_sub.add_parser("list", help="one line per synthesis")
-    syn_list.add_argument("--topic")
-
-
 def _parser_add_synthesis(sub: Any) -> None:
     synthesis_parser = sub.add_parser(
         "synthesis", help="create and extend syntheses, the long documents behind notes"
@@ -1150,7 +1132,8 @@ def _parser_add_synthesis(sub: Any) -> None:
     synthesis_sub = synthesis_parser.add_subparsers(dest="synthesis_command", required=True)
     _parser_synthesis_write(synthesis_sub)
     _parser_synthesis_sections(synthesis_sub)
-    _parser_synthesis_links(synthesis_sub)
+    synthesis.parser_links(synthesis_sub)
+    integrate.register(synthesis_sub)
     synthesis_parser.set_defaults(func=synthesis.cmd_synthesis)
 
 
