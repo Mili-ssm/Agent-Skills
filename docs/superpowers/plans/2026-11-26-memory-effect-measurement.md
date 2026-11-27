@@ -1,12 +1,14 @@
 # Memory: measure the effect of loaded lessons before adding mechanisms
 
-Status: in progress (task 8, the scenario with headroom) · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout for tasks 1–7; task 8 on a branch of its own, created when it starts
+Status: waiting for the owner's cap for the paid replay (task 8 built and checked without a model) · Date: 2026-11-26, last worked 2026-11-27 · Branch: feat/memory-lesson-holdout for tasks 1–7 (merged, PR #219); feat/memory-lessons-replay for task 8
 
 Owner rulings (2026-11-26): proceed with the order the review of that day proposed; the paired trial starts as a pilot capped at 3 USD; matching by meaning is built after it, its trial capped at 2 USD. Why: the review found no measure that the plugin improves a task, three mechanisms that hardly act in real use, and 2026 studies in which memory did not beat a memory-off baseline. Figures and sources: project memories (`mem search "after 5 days of automatic capture"`, `mem search "VibeMemBench"`).
 
 ## Where to resume
 
-Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan before task 8: 1.53 USD (pilot 1.46, settle trial 0.065) of the 5 USD the owner allowed (3 for the pilot, 2 for the settle trial).
+Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the reduced scope of seamless stage 3 ([its task plan](2026-11-26-memory-seamless-stage-3-integration.md#reduced-scope-proposed-2026-11-26-accepted-by-the-owner-2026-11-27)); merge the pending pull requests (PR #218 merged that day); build a more serious scenario for the trial of the loaded lessons (task 8). Model usage spent on this plan: 1.92 USD (pilot 1.46, settle trial 0.065, two replay probes 0.39) of the 5 USD the owner allowed (3 for the lessons trial, 2 for the settle trial).
+
+Next, in order: 1. the owner sets a cap for the replay (three points are ready, estimate 4 to 6 USD; see Results); 2. `replay_run.py run target/lessons-replay/points.json --max-cost <cap>`; 3. locate the failing message of the eight remaining cases and add their points, each through `replay.py check` and `replay_run.py capture` first.
 
 ## Tasks
 
@@ -16,7 +18,7 @@ Owner rulings of 2026-11-27: adopt the `mem-settle` change (task 6); build the r
 - [x] 5. Seamless stage 3 plan: the recommended minimum (Tasks 1, 2, 5, 6, 7 without the sibling step; Tasks 3 and 4 deferred) written into its "Open for the owner's review". Not executed at that review; accepted by the owner on 2026-11-27. Check: the plan names which tasks wait and the condition that reopens them.
 - [x] 6. Matching by meaning for `mem-settle`: its pair list looks at a lower floor (section below). Built and measured on 2026-11-27: by the trial's rule not adopted, on one count that rests on a reading of two records; **adopted by the owner on 2026-11-27** on that reading (Results). Check: the trial rule of that section, results under `## Results`.
 - [x] 7. Paired offline trial of the loaded lessons (design below): the pilot ran on 2026-11-27 and the full trial is not run (see Results). Check: its `## Results` holds the table and the action its rule gives.
-- [ ] 8. A scenario with headroom for the loaded lessons (owner, 2026-11-27: "a more serious scenario"): tasks the model fails without the lesson, found before any arm is compared. Check: its design section names how headroom is shown first, and a run's table is under `## Results`.
+- [ ] 8. A scenario with headroom for the loaded lessons (owner, 2026-11-27: "a more serious scenario"): tasks the model fails without the lesson, found before any arm is compared. Designed, pre-mortem applied, harness built and checked without a model, three points ready (Results); the paid run waits for the owner's cap. Check: its design section names how headroom is shown first, and a run's table is under `## Results`.
 
 ## Why the hold-out was dropped (pre-mortem, 2026-11-26)
 
@@ -175,3 +177,19 @@ The wrong actions are two records labelled `version`, joined to their base (one 
 Limits: one set of records, used for the runs before and after the revision; the writer and the judge are models of one family; 11 of the 18 paraphrases already passed the old floor, so the trial says more about the brief's revision than about the floor (on the 14 paraphrases written in both rounds, 12 shown each time: 6 joined before the revision, 12 after; recounted from the kept result files under `target/`); the trial holds no pair of opposite claims in which the newer one is the wrong one, a case the brief's `supersede` cannot tell from a correction and that stage W did not test either; with the lower floor more runs find a pair and start a session (about 0.015 USD each, at most one per `auto_settle_minutes`), which the weekly kill criterion bounds; no run on the real store (records that exist there are already counted as judged).
 
 State: the owner adopted the floor (`PAIR_FLOOR`) and the brief's revision on 2026-11-27, on the reading above of the two `version` records; the trial's rule on its own did not pass, and the limits above stand. Unreleased; it acts only where `auto_settle` is on. Kill criteria: those of the section "Matching by meaning".
+
+### Replay of real failures, built and checked without a model, 2026-11-27 (no paid run)
+
+Harness: `plugins/memory/evals/lessons_effect/replay.py`, `replay_run.py`, `replay_selfcheck.py` (its README section has the commands, exit codes and the points file). Two probes on real transcripts cost 0.39 USD; everything after them ran at no model cost.
+
+| Check | Result |
+|---|---|
+| Self-checks (fake `claude`, local server, temp folders) | pass |
+| Points located by hand, private file under `target/` | 3 of the 11 cases, in 3 sessions; contexts 119,200, 142,077 and 189,827 tokens |
+| Per-point checks (`replay.py check`) | 3 of 3: no marker in the session's blocks, no compaction before the cut, the code rule fails the original failing message and passes the compliant one |
+| Wire capture (`replay_run.py capture`) | 3 of 3: tools and system equal, the same number of messages, the block printed again in both arms, the lesson's line the only difference |
+| Owner's folders | `~/.claude/projects` holds the same number of folders before and after |
+
+All three points are scored by code (a command pattern in the next message), so no judge call is needed for them. Estimated cost from the measured 4.1 USD per million tokens of a first cache write: about 1.2, 1.4 and 1.6 USD a point with gate and comparison, 4 to 6 USD in all; three points are below the six the reading rule needs, so this run can only fill the table and show whether failures repeat (the gate), not give a verdict.
+
+Not done: the failing message of the other eight cases is not located; no judge rule has been tried on a real message; arm S (the lesson at the session start) is not built.
